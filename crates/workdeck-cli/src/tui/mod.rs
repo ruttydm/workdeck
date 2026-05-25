@@ -15,7 +15,7 @@ use std::io::{self, Stdout};
 use std::panic;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub fn run(mut app: App) -> Result<()> {
     let _panic_hook = TerminalPanicHook::install();
@@ -101,9 +101,11 @@ fn run_loop(
     let (refresh_tx, refresh_rx) = mpsc::channel();
     let (preview_tx, preview_rx) = mpsc::channel();
     spawn_refresh(app, refresh_tx.clone());
+    let mut next_auto_refresh = next_auto_refresh_deadline(app);
 
     loop {
-        drain_refresh_results(app, &refresh_rx);
+        drain_refresh_results(app, &refresh_rx, &refresh_tx);
+        maybe_spawn_auto_refresh(app, &refresh_tx, &mut next_auto_refresh);
         drain_preview_results(app, &preview_rx);
         spawn_preview_if_needed(app, preview_tx.clone());
         terminal.draw(|frame| views::render(app, highlighter, frame))?;
@@ -119,8 +121,10 @@ fn run_loop(
     }
 }
 
-fn spawn_refresh(app: &mut App, sender: Sender<Result<RefreshData, RefreshError>>) {
-    let generation = app.begin_refresh();
+fn spawn_refresh(app: &mut App, sender: Sender<Result<RefreshData, RefreshError>>) -> bool {
+    let Some(generation) = app.request_refresh() else {
+        return false;
+    };
     let repo_root = app.repo_root.clone();
     let store = app.store.clone();
     let base_branch = app.config.git.base_branch.clone();
@@ -152,6 +156,23 @@ fn spawn_refresh(app: &mut App, sender: Sender<Result<RefreshData, RefreshError>
         });
         let _ = sender.send(result);
     });
+    true
+}
+
+fn maybe_spawn_auto_refresh(
+    app: &mut App,
+    sender: &Sender<Result<RefreshData, RefreshError>>,
+    next_auto_refresh: &mut Instant,
+) {
+    if !app.config.refresh.auto || Instant::now() < *next_auto_refresh {
+        return;
+    }
+    spawn_refresh(app, sender.clone());
+    *next_auto_refresh = next_auto_refresh_deadline(app);
+}
+
+fn next_auto_refresh_deadline(app: &App) -> Instant {
+    Instant::now() + Duration::from_millis(app.config.refresh.interval_ms.max(1))
 }
 
 #[derive(Debug)]
@@ -160,16 +181,25 @@ struct RefreshError {
     message: String,
 }
 
-fn drain_refresh_results(app: &mut App, receiver: &Receiver<Result<RefreshData, RefreshError>>) {
+fn drain_refresh_results(
+    app: &mut App,
+    receiver: &Receiver<Result<RefreshData, RefreshError>>,
+    sender: &Sender<Result<RefreshData, RefreshError>>,
+) {
+    let mut completed_current_refresh = false;
     while let Ok(result) = receiver.try_recv() {
         match result {
             Ok(data) => {
-                app.apply_refresh_data(data);
+                completed_current_refresh |= app.apply_refresh_data(data);
             }
             Err(error) => {
-                app.apply_refresh_error(error.generation, error.message);
+                completed_current_refresh |=
+                    app.apply_refresh_error(error.generation, error.message);
             }
         }
+    }
+    if completed_current_refresh && app.refresh_pending && !app.loading {
+        spawn_refresh(app, sender.clone());
     }
 }
 
@@ -400,6 +430,7 @@ fn handle_key(
             }
             KeyCode::Char('g') if narrow_files => app.file_browser_top(),
             KeyCode::Char('G') if narrow_files => app.file_browser_bottom(),
+            KeyCode::Char('.') if narrow_files => app.file_browser_root(),
             KeyCode::Esc | KeyCode::Backspace if narrow_files => {
                 app.move_file_browser_parent();
             }

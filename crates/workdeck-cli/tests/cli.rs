@@ -65,8 +65,10 @@ fn init_creates_agents_workdeck_store() {
     assert!(config.contains("group_changes = \"g\""));
     assert!(config.contains("toggle_dirstat = \"w\""));
     assert!(config.contains("[git]"));
+    assert!(config.contains("[refresh]"));
     assert!(config.contains("git = \"G\""));
     assert!(config.contains("recent_commits = 30"));
+    assert!(config.contains("interval_ms = 1500"));
 }
 
 #[test]

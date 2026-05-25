@@ -9,6 +9,11 @@ data_dir = ".agents/workdeck"
 base_branch = ""
 recent_commits = 30
 
+[refresh]
+auto = true
+interval_ms = 1500
+debounce_ms = 250
+
 [keys]
 quit = "q"
 refresh = "r"

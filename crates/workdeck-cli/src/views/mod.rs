@@ -105,8 +105,13 @@ fn render_body(app: &App, highlighter: &SyntaxHighlighter, area: Rect, frame: &m
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
                     .split(area);
-                render_primary(app, chunks[0], frame);
-                render_preview(app, highlighter, chunks[1], frame);
+                if app.active_tab == Tab::Changes {
+                    render_preview(app, highlighter, chunks[0], frame);
+                    render_primary(app, chunks[1], frame);
+                } else {
+                    render_primary(app, chunks[0], frame);
+                    render_preview(app, highlighter, chunks[1], frame);
+                }
             } else {
                 render_primary(app, area, frame);
             }
@@ -862,7 +867,7 @@ fn key_hint(app: &App) -> &'static str {
     match app.active_tab {
         Tab::Changes => "h collapse  l/Enter preview/expand  g group  / search",
         Tab::Git => "Enter preview  b base  p PRs  / search",
-        Tab::Files => "h collapse  l/Enter preview/expand  n issue  / search",
+        Tab::Files => "h parent/collapse  l/Enter open/preview  . root  / search",
         Tab::Issues => "Enter edit  s status  p priority  Space jump",
         Tab::Agents => "Enter preview  Space file  / search",
         Tab::Search => "type filter  Enter jump  Esc close",
@@ -880,6 +885,7 @@ fn render_help(area: Rect, frame: &mut Frame) {
         Line::from("Tab / Shift-Tab  switch tabs"),
         Line::from("Enter            focus preview or open issue"),
         Line::from("g/G              preview top/bottom"),
+        Line::from(".                repo root in narrow Files"),
         Line::from("Esc              close help or search input"),
         Line::from("/                search"),
         Line::from("g                group changes by directory/status"),
@@ -1691,6 +1697,7 @@ mod tests {
             search_query: String::new(),
             status_message: String::new(),
             loading: false,
+            refresh_pending: false,
             refresh_generation: 0,
             changes: changes.clone(),
             snapshot: Some(RepoSnapshot {
@@ -1721,6 +1728,7 @@ mod tests {
             files_cwd: PathBuf::new(),
             selected_file_entry: 0,
             file_browser_scroll: 0,
+            last_selected_by_dir: std::collections::BTreeMap::new(),
             selected_issue: 0,
             selected_session: 0,
             selected_search: 0,

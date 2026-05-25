@@ -3,7 +3,7 @@ use crate::git::{self, ChangeEntry, FilePreview, GitOverview, RepoSnapshot};
 use crate::search::{SearchIndex, SearchResult, SearchTarget, SymbolRecord};
 use crate::store::{AgentSession, Issue, ReferenceData, WorkdeckStore};
 use anyhow::{Context, Result};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -140,6 +140,7 @@ pub struct App {
     pub search_query: String,
     pub status_message: String,
     pub loading: bool,
+    pub refresh_pending: bool,
     pub refresh_generation: u64,
     pub changes: Vec<ChangeEntry>,
     pub snapshot: Option<RepoSnapshot>,
@@ -161,6 +162,7 @@ pub struct App {
     pub files_cwd: PathBuf,
     pub selected_file_entry: usize,
     pub file_browser_scroll: usize,
+    pub last_selected_by_dir: BTreeMap<PathBuf, PathBuf>,
     pub selected_issue: usize,
     pub selected_session: usize,
     pub selected_search: usize,
@@ -211,6 +213,17 @@ pub struct RefreshData {
     pub symbols: Vec<SymbolRecord>,
 }
 
+#[derive(Debug, Clone)]
+struct RefreshSelection {
+    change_path: Option<PathBuf>,
+    file_cwd: PathBuf,
+    file_entry_path: Option<PathBuf>,
+    git_row: Option<GitRowKind>,
+    issue_key: Option<String>,
+    session_id: Option<String>,
+    search_target: Option<SearchTarget>,
+}
+
 impl App {
     pub fn new(cwd: impl AsRef<Path>) -> Result<Self> {
         let cwd = cwd.as_ref().to_path_buf();
@@ -235,6 +248,7 @@ impl App {
             search_query: String::new(),
             status_message: "loading".to_string(),
             loading: false,
+            refresh_pending: false,
             refresh_generation: 0,
             changes: Vec::new(),
             snapshot: None,
@@ -256,6 +270,7 @@ impl App {
             files_cwd: PathBuf::new(),
             selected_file_entry: 0,
             file_browser_scroll: 0,
+            last_selected_by_dir: BTreeMap::new(),
             selected_issue: 0,
             selected_session: 0,
             selected_search: 0,
@@ -275,9 +290,20 @@ impl App {
         Ok(())
     }
 
+    pub fn request_refresh(&mut self) -> Option<u64> {
+        if self.loading {
+            self.refresh_pending = true;
+            self.status_message = "refresh queued".to_string();
+            None
+        } else {
+            Some(self.begin_refresh())
+        }
+    }
+
     pub fn begin_refresh(&mut self) -> u64 {
         self.refresh_generation = self.refresh_generation.saturating_add(1);
         self.loading = true;
+        self.refresh_pending = false;
         self.status_message = "loading".to_string();
         self.refresh_generation
     }
@@ -310,6 +336,9 @@ impl App {
         if data.generation != self.refresh_generation {
             return false;
         }
+        let selection = self.capture_refresh_selection();
+        let cached_preview = self.preview_cache.clone();
+        let cached_target = cached_preview.as_ref().map(|cache| cache.target.clone());
         self.changes = data.snapshot.changes.clone();
         self.snapshot = Some(data.snapshot);
         self.git_overview = Some(data.git_overview);
@@ -320,10 +349,14 @@ impl App {
         self.symbols = data.symbols;
         self.rebuild_search();
         self.clamp_selections();
-        self.sync_rows_from_selected_files();
-        self.preview_cache = None;
+        self.restore_refresh_selection(selection);
+        if cached_target.as_ref() == self.preview_target().as_ref() {
+            self.preview_cache = cached_preview;
+        } else {
+            self.preview_cache = None;
+            self.preview_scroll = 0;
+        }
         self.preview_loading = None;
-        self.preview_scroll = 0;
         self.status_message = "refreshed".to_string();
         self.loading = false;
         true
@@ -336,6 +369,62 @@ impl App {
         self.loading = false;
         self.status_message = error;
         true
+    }
+
+    fn capture_refresh_selection(&self) -> RefreshSelection {
+        RefreshSelection {
+            change_path: self
+                .changes
+                .get(self.selected_change)
+                .map(|change| change.path.clone()),
+            file_cwd: self.files_cwd.clone(),
+            file_entry_path: self.selected_file_browser_entry().map(|entry| entry.path),
+            git_row: self.selected_git_row_data().map(|row| row.kind),
+            issue_key: self
+                .issues
+                .get(self.selected_issue)
+                .map(|issue| issue.key.clone()),
+            session_id: self
+                .sessions
+                .get(self.selected_session)
+                .map(|session| session.id.clone()),
+            search_target: self
+                .search_results
+                .get(self.selected_search)
+                .map(|result| result.record.target.clone()),
+        }
+    }
+
+    fn restore_refresh_selection(&mut self, selection: RefreshSelection) {
+        if let Some(path) = selection.change_path {
+            self.select_change_path(&path);
+        }
+        self.restore_file_browser_selection(
+            &selection.file_cwd,
+            selection.file_entry_path.as_deref(),
+        );
+        if let Some(kind) = selection.git_row {
+            self.select_git_row(|row| row.kind == kind);
+        }
+        if let Some(key) = selection.issue_key
+            && let Some(index) = self.issues.iter().position(|issue| issue.key == key)
+        {
+            self.selected_issue = index;
+        }
+        if let Some(id) = selection.session_id
+            && let Some(index) = self.sessions.iter().position(|session| session.id == id)
+        {
+            self.selected_session = index;
+        }
+        if let Some(target) = selection.search_target
+            && let Some(index) = self
+                .search_results
+                .iter()
+                .position(|result| result.record.target == target)
+        {
+            self.selected_search = index;
+        }
+        self.clamp_selections();
     }
 
     pub fn rebuild_search(&mut self) {
@@ -661,6 +750,7 @@ impl App {
         }
         let len = self.file_browser_entries().len();
         increment(&mut self.selected_file_entry, len);
+        self.remember_file_browser_selection();
         self.sync_file_row_from_browser();
     }
 
@@ -670,17 +760,29 @@ impl App {
             return;
         }
         decrement(&mut self.selected_file_entry);
+        self.remember_file_browser_selection();
         self.sync_file_row_from_browser();
     }
 
     pub fn file_browser_top(&mut self) {
         self.selected_file_entry = 0;
+        self.remember_file_browser_selection();
         self.sync_file_row_from_browser();
     }
 
     pub fn file_browser_bottom(&mut self) {
         let len = self.file_browser_entries().len();
         self.selected_file_entry = len.saturating_sub(1);
+        self.remember_file_browser_selection();
+        self.sync_file_row_from_browser();
+    }
+
+    pub fn file_browser_root(&mut self) {
+        self.remember_file_browser_selection();
+        self.files_cwd = PathBuf::new();
+        self.restore_remembered_file_browser_selection();
+        self.file_browser_scroll = 0;
+        self.status_message = "folder /".to_string();
         self.sync_file_row_from_browser();
     }
 
@@ -694,8 +796,9 @@ impl App {
                 self.move_file_browser_parent();
             }
             FileBrowserEntryKind::Directory => {
+                self.remember_file_browser_selection();
                 self.files_cwd = entry.path.clone();
-                self.selected_file_entry = 0;
+                self.restore_remembered_file_browser_selection();
                 self.file_browser_scroll = 0;
                 self.status_message = format!("folder {}", self.files_cwd.display());
                 self.sync_file_row_from_browser();
@@ -712,14 +815,16 @@ impl App {
         if self.files_cwd.as_os_str().is_empty() {
             return false;
         }
+        self.remember_file_browser_selection();
         let exited = self.files_cwd.clone();
         let parent = exited.parent().unwrap_or(Path::new("")).to_path_buf();
         self.files_cwd = parent;
-        self.selected_file_entry = self
-            .file_browser_entries()
-            .iter()
-            .position(|entry| entry.path == exited)
-            .unwrap_or(0);
+        self.selected_file_entry = self.remembered_file_browser_index().unwrap_or_else(|| {
+            self.file_browser_entries()
+                .iter()
+                .position(|entry| entry.path == exited)
+                .unwrap_or(0)
+        });
         self.file_browser_scroll = 0;
         self.status_message = if self.files_cwd.as_os_str().is_empty() {
             "folder /".to_string()
@@ -1440,6 +1545,19 @@ impl App {
         })
     }
 
+    fn select_change_path(&mut self, path: &Path) {
+        if let Some(index) = self.changes.iter().position(|change| change.path == path) {
+            self.selected_change = index;
+        }
+        if let Some(index) = self.change_tree_rows().iter().position(|row| {
+            row.file_index
+                .and_then(|file_index| self.changes.get(file_index))
+                .is_some_and(|change| change.path == path)
+        }) {
+            self.selected_change_row = index;
+        }
+    }
+
     fn selected_file_browser_file_path(&self) -> Option<PathBuf> {
         self.selected_file_browser_entry()
             .filter(|entry| entry.kind == FileBrowserEntryKind::File)
@@ -1502,6 +1620,7 @@ impl App {
             .position(|entry| entry.path == path)
             .unwrap_or(0);
         self.clamp_file_browser_selection();
+        self.remember_file_browser_selection();
     }
 
     fn sync_file_row_from_browser(&mut self) {
@@ -1518,6 +1637,56 @@ impl App {
         {
             self.selected_file_row = index;
         }
+    }
+
+    fn remember_file_browser_selection(&mut self) {
+        let Some(entry) = self.selected_file_browser_entry() else {
+            return;
+        };
+        if entry.kind != FileBrowserEntryKind::Parent {
+            self.last_selected_by_dir
+                .insert(self.files_cwd.clone(), entry.path);
+        }
+    }
+
+    fn restore_remembered_file_browser_selection(&mut self) {
+        self.selected_file_entry = self
+            .remembered_file_browser_index()
+            .unwrap_or_else(|| self.first_selectable_file_browser_index());
+        self.clamp_file_browser_selection();
+    }
+
+    fn remembered_file_browser_index(&self) -> Option<usize> {
+        let remembered = self.last_selected_by_dir.get(&self.files_cwd)?;
+        self.file_browser_entries()
+            .iter()
+            .position(|entry| &entry.path == remembered)
+    }
+
+    fn restore_file_browser_selection(&mut self, cwd: &Path, selected_path: Option<&Path>) {
+        self.files_cwd = cwd.to_path_buf();
+        self.clamp_file_browser_selection();
+        if self.files_cwd != cwd {
+            self.restore_remembered_file_browser_selection();
+            return;
+        }
+        self.selected_file_entry = selected_path
+            .and_then(|path| {
+                self.file_browser_entries()
+                    .iter()
+                    .position(|entry| entry.path == path)
+            })
+            .or_else(|| self.remembered_file_browser_index())
+            .unwrap_or_else(|| self.first_selectable_file_browser_index());
+        self.clamp_file_browser_selection();
+        self.sync_file_row_from_browser();
+    }
+
+    fn first_selectable_file_browser_index(&self) -> usize {
+        self.file_browser_entries()
+            .iter()
+            .position(|entry| entry.kind != FileBrowserEntryKind::Parent)
+            .unwrap_or(0)
     }
 
     fn clamp_file_browser_selection(&mut self) {
@@ -2107,6 +2276,40 @@ mod tests {
     }
 
     #[test]
+    fn file_browser_remembers_selection_per_folder() {
+        let mut app = new_with_parts_for_test(Vec::new());
+        app.active_tab = Tab::Files;
+        app.files = vec![
+            PathBuf::from("src/a.rs"),
+            PathBuf::from("src/b.rs"),
+            PathBuf::from("tests/app.rs"),
+        ];
+
+        app.activate_selected_file_browser_entry();
+        assert_eq!(app.files_cwd, PathBuf::from("src"));
+        app.move_file_browser_down();
+        assert_eq!(
+            app.selected_file_browser_entry().unwrap().path,
+            PathBuf::from("src/b.rs")
+        );
+
+        assert!(app.move_file_browser_parent());
+        assert_eq!(
+            app.selected_file_browser_entry().unwrap().path,
+            PathBuf::from("src")
+        );
+
+        app.activate_selected_file_browser_entry();
+        assert_eq!(
+            app.selected_file_browser_entry().unwrap().path,
+            PathBuf::from("src/b.rs")
+        );
+
+        app.file_browser_root();
+        assert_eq!(app.files_cwd, PathBuf::new());
+    }
+
+    #[test]
     fn file_browser_enter_on_file_focuses_preview() {
         let mut app = new_with_parts_for_test(Vec::new());
         app.active_tab = Tab::Files;
@@ -2442,6 +2645,60 @@ mod tests {
         assert_eq!(app.status_message, "refreshed");
     }
 
+    #[test]
+    fn refresh_requests_coalesce_while_loading() {
+        let mut app = new_with_parts_for_test(Vec::new());
+        let generation = app.request_refresh().unwrap();
+
+        assert!(app.request_refresh().is_none());
+        assert!(app.refresh_pending);
+        assert_eq!(app.status_message, "refresh queued");
+
+        let data = refresh_data_for_test(generation, "src/fresh.rs");
+        assert!(app.apply_refresh_data(data));
+        assert!(!app.loading);
+        assert!(app.refresh_pending);
+
+        let next = app.request_refresh().unwrap();
+        assert_eq!(next, generation + 1);
+        assert!(!app.refresh_pending);
+    }
+
+    #[test]
+    fn refresh_preserves_file_browser_selection_and_matching_preview_cache() {
+        let mut app = new_with_parts_for_test(Vec::new());
+        app.active_tab = Tab::Files;
+        app.files = vec![PathBuf::from("src/main.rs"), PathBuf::from("src/lib.rs")];
+        app.reveal_file_in_browser(Path::new("src/main.rs"));
+        app.preview_cache = Some(PreviewCache {
+            target: app.preview_target().unwrap(),
+            preview: FilePreview {
+                title: "src/main.rs".to_string(),
+                content: "cached".to_string(),
+                truncated: false,
+                binary: false,
+            },
+        });
+        app.preview_scroll = 3;
+        let generation = app.begin_refresh();
+        let mut data = refresh_data_for_test(generation, "src/main.rs");
+        data.files = vec![
+            PathBuf::from("README.md"),
+            PathBuf::from("src/main.rs"),
+            PathBuf::from("src/lib.rs"),
+        ];
+
+        assert!(app.apply_refresh_data(data));
+
+        assert_eq!(app.files_cwd, PathBuf::from("src"));
+        assert_eq!(
+            app.selected_file_browser_entry().unwrap().path,
+            PathBuf::from("src/main.rs")
+        );
+        assert_eq!(app.selected_preview().unwrap().content, "cached");
+        assert_eq!(app.preview_scroll, 3);
+    }
+
     fn new_with_parts_for_test(issues: Vec<Issue>) -> App {
         App {
             cwd: PathBuf::from("/tmp/workdeck"),
@@ -2460,6 +2717,7 @@ mod tests {
             search_query: String::new(),
             status_message: String::new(),
             loading: false,
+            refresh_pending: false,
             refresh_generation: 0,
             changes: Vec::new(),
             snapshot: None,
@@ -2481,6 +2739,7 @@ mod tests {
             files_cwd: PathBuf::new(),
             selected_file_entry: 0,
             file_browser_scroll: 0,
+            last_selected_by_dir: BTreeMap::new(),
             selected_issue: 0,
             selected_session: 0,
             selected_search: 0,

@@ -14,6 +14,8 @@ pub struct Config {
     #[serde(default)]
     pub git: GitConfig,
     #[serde(default)]
+    pub refresh: RefreshConfig,
+    #[serde(default)]
     pub keys: KeyConfig,
 }
 
@@ -61,6 +63,26 @@ impl Default for GitConfig {
         Self {
             base_branch: String::new(),
             recent_commits: default_recent_commits(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RefreshConfig {
+    #[serde(default = "default_true")]
+    pub auto: bool,
+    #[serde(default = "default_refresh_interval_ms")]
+    pub interval_ms: u64,
+    #[serde(default = "default_refresh_debounce_ms")]
+    pub debounce_ms: u64,
+}
+
+impl Default for RefreshConfig {
+    fn default() -> Self {
+        Self {
+            auto: true,
+            interval_ms: default_refresh_interval_ms(),
+            debounce_ms: default_refresh_debounce_ms(),
         }
     }
 }
@@ -193,6 +215,9 @@ impl Config {
         if self.paths.data_dir.as_os_str().is_empty() {
             bail!("paths.data_dir cannot be empty");
         }
+        if self.refresh.interval_ms == 0 {
+            bail!("refresh.interval_ms must be greater than 0");
+        }
         self.keys.validate()
     }
 }
@@ -309,6 +334,14 @@ fn default_data_dir() -> PathBuf {
 
 fn default_recent_commits() -> usize {
     30
+}
+
+fn default_refresh_interval_ms() -> u64 {
+    1500
+}
+
+fn default_refresh_debounce_ms() -> u64 {
+    250
 }
 
 fn key_quit() -> String {
@@ -435,6 +468,9 @@ mod tests {
         assert_eq!(config.keys.quit, "q");
         assert_eq!(config.keys.git, "G");
         assert_eq!(config.git.recent_commits, 30);
+        assert!(config.refresh.auto);
+        assert_eq!(config.refresh.interval_ms, 1500);
+        assert_eq!(config.refresh.debounce_ms, 250);
         assert_eq!(config.paths.data_dir, PathBuf::from(".agents/workdeck"));
     }
 
@@ -538,6 +574,16 @@ mod tests {
         let error = config.validate().unwrap_err().to_string();
 
         assert!(error.contains("invalid key binding"));
+    }
+
+    #[test]
+    fn rejects_zero_refresh_interval() {
+        let mut config = Config::default();
+        config.refresh.interval_ms = 0;
+
+        let error = config.validate().unwrap_err().to_string();
+
+        assert!(error.contains("refresh.interval_ms"));
     }
 
     #[test]

@@ -23,6 +23,7 @@ Workdeck is a terminal-native sidecar for agentic coding. It runs as a narrow pa
 - Git search covers current branch, branches, recent commits, stashes, and tags
 - Typed Search previews: change results show diffs, file and symbol results show file previews
 - Superseding async refreshes so stale scans do not overwrite newer repo snapshots
+- Coalesced auto-refresh with selection and preview context preservation
 - JSON status export for automation
 
 ## Install
@@ -267,6 +268,11 @@ data_dir = ".agents/workdeck"
 base_branch = ""
 recent_commits = 30
 
+[refresh]
+auto = true
+interval_ms = 1500
+debounce_ms = 250
+
 [keys]
 quit = "q"
 refresh = "r"
@@ -305,6 +311,8 @@ l                  expand tree directory, enter folder in narrow Files, or focus
 Tab / Shift-Tab    switch tabs
 Enter              enter narrow Files folder, focus preview, or open selected issue
 g/G                jump preview top/bottom when preview is focused
+g/G                top/bottom in narrow Files
+.                  repo root in narrow Files
 c                  changes
 G                  git overview
 f                  files
