@@ -28,7 +28,7 @@ Workdeck is a terminal-native sidecar for agentic coding. It runs as a narrow pa
 ### Recommended: Cargo
 
 ```sh
-cargo install --git https://github.com/workdeck/workdeck --package workdeck-cli --locked
+cargo install --git https://github.com/ruttydm/workdeck --package workdeck-cli --locked
 workdeck --version
 ```
 
@@ -52,33 +52,33 @@ workdeck
 The repo includes a HEAD-only formula in `Formula/workdeck.rb`. Homebrew 5 requires formulae to be installed through a tap, so tap this repo first:
 
 ```sh
-brew tap workdeck/tap https://github.com/workdeck/workdeck
-brew install --HEAD workdeck/tap/workdeck
+brew tap ruttydm/workdeck https://github.com/ruttydm/workdeck
+brew install --HEAD ruttydm/workdeck/workdeck
 workdeck --version
 ```
 
 From a local checkout, you can tap the checkout path:
 
 ```sh
-brew tap workdeck/tap "$(pwd)"
-brew install --HEAD workdeck/tap/workdeck
+brew tap ruttydm/workdeck "$(pwd)"
+brew install --HEAD ruttydm/workdeck/workdeck
 ```
 
 Once the public tap is published as its own repository, the intended stable install command is:
 
 ```sh
-brew install workdeck/tap/workdeck
+brew install ruttydm/workdeck/workdeck
 ```
 
-That stable tap command is reserved for the future `workdeck/tap` repository; use Cargo or the HEAD formula until the tap exists.
+That stable tap command is reserved for a future formula with release URLs; use Cargo or the HEAD formula until a tagged release formula exists.
 
 ### Release Tarballs
 
 Tagged releases build Linux and macOS tarballs named `workdeck-<target>.tar.gz`. Replace `vX.Y.Z` with the release tag you want to install.
 
 ```sh
-curl -LO https://github.com/workdeck/workdeck/releases/download/vX.Y.Z/workdeck-aarch64-apple-darwin.tar.gz
-curl -LO https://github.com/workdeck/workdeck/releases/download/vX.Y.Z/workdeck-aarch64-apple-darwin.tar.gz.sha256
+curl -LO https://github.com/ruttydm/workdeck/releases/download/vX.Y.Z/workdeck-aarch64-apple-darwin.tar.gz
+curl -LO https://github.com/ruttydm/workdeck/releases/download/vX.Y.Z/workdeck-aarch64-apple-darwin.tar.gz.sha256
 shasum -a 256 -c workdeck-aarch64-apple-darwin.tar.gz.sha256
 tar -xzf workdeck-aarch64-apple-darwin.tar.gz
 sudo install -m 0755 workdeck-aarch64-apple-darwin/workdeck /usr/local/bin/workdeck

@@ -1,8 +1,8 @@
 class Workdeck < Formula
   desc "Terminal-native sidecar for agentic coding"
-  homepage "https://github.com/workdeck/workdeck"
+  homepage "https://github.com/ruttydm/workdeck"
   license "MIT"
-  head "https://github.com/workdeck/workdeck.git", branch: "main"
+  head "https://github.com/ruttydm/workdeck.git", branch: "main"
 
   depends_on "rust" => :build
 
