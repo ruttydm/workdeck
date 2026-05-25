@@ -1,12 +1,13 @@
 # Workdeck
 
-Workdeck is a terminal-native sidecar for agentic coding. It runs as a narrow pane beside Codex, an editor, lazygit, or another terminal workflow and keeps a structured mental map of repo changes, files, local tasks, and agent sessions.
+Workdeck is a terminal-native sidecar for agentic coding. It runs as a narrow pane beside Codex, an editor, lazygit, or another terminal workflow and keeps a structured mental map of repo changes, files, local issues, and agent sessions.
 
 ## Current Features
 
 - Rust single-binary CLI
 - Ratatui + crossterm terminal UI
 - Default `Changes` tab with dirty Git files grouped by directory
+- Local-only `Git` tab for branch, upstream, base, commits, stashes, tags, and remotes
 - Changes grouping toggle for directory view or status/intent view
 - Compact change glyphs: `+` untracked, `M` modified, `A` added, `D` deleted, `R` renamed, `S` staged, `S+` staged plus unstaged
 - Dirstat weight toggle for file counts and compact churn like `+12`, `-4`, or `+12/-4`
@@ -15,10 +16,11 @@ Workdeck is a terminal-native sidecar for agentic coding. It runs as a narrow pa
 - File-backed local issue store under `.agents/workdeck/`
 - TOML issues with stable keys like `WD-1`
 - Unknown top-level issue and agent-session TOML fields are preserved on save
-- Local task status, priority, label, and assignee keyboard actions
+- Local issue status, priority, label, and assignee keyboard actions
 - Issue-to-file linking
 - Agent session TOML loading
 - Fuzzy search across files, changes, issues, projects, cycles, labels, symbols, and agent sessions
+- Git search covers current branch, branches, recent commits, stashes, and tags
 - Typed Search previews: change results show diffs, file and symbol results show file previews
 - Superseding async refreshes so stale scans do not overwrite newer repo snapshots
 - JSON status export for automation
@@ -261,14 +263,19 @@ preview = true
 [paths]
 data_dir = ".agents/workdeck"
 
+[git]
+base_branch = ""
+recent_commits = 30
+
 [keys]
 quit = "q"
 refresh = "r"
 search = "/"
 help = "?"
 changes = "c"
+git = "G"
 files = "f"
-tasks = "i"
+issues = "i"
 agents = "a"
 toggle_preview = "t"
 group_changes = "g"
@@ -283,9 +290,11 @@ labels = "l"
 assign = "A"
 jump = "space"
 link_file = "L"
+base = "b"
+pull_requests = "p"
 ```
 
-Workdeck validates configured keybindings at startup. Empty bindings, unsupported multi-character bindings, and duplicate action bindings fail before the TUI enters raw mode.
+Workdeck validates configured keybindings at startup. Empty bindings, unsupported multi-character bindings, and duplicate global action bindings fail before the TUI enters raw mode. The Git overview is local-only in this MVP; PR enrichment is planned for a later `gh`-backed async refresh.
 
 ## Keys
 
@@ -297,8 +306,9 @@ Tab / Shift-Tab    switch tabs
 Enter              enter narrow Files folder, focus preview, or open selected issue
 g/G                jump preview top/bottom when preview is focused
 c                  changes
+G                  git overview
 f                  files
-i                  tasks
+i                  issues
 a                  agents
 /                  search
 ?                  help
@@ -309,6 +319,8 @@ n                  create issue from selection
 e                  edit selected issue in $EDITOR
 s                  cycle issue status
 p                  cycle issue priority
+b                  choose Git base branch (placeholder)
+p                  refresh PRs from Git tab (placeholder)
 l                  toggle next configured label on selected issue
 A                  assign/unassign selected issue to $WORKDECK_ASSIGNEE or $USER
 Space              jump issue <-> linked file

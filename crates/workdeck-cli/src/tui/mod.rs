@@ -123,9 +123,13 @@ fn spawn_refresh(app: &mut App, sender: Sender<Result<RefreshData, RefreshError>
     let generation = app.begin_refresh();
     let repo_root = app.repo_root.clone();
     let store = app.store.clone();
+    let base_branch = app.config.git.base_branch.clone();
+    let recent_commits = app.config.git.recent_commits;
     thread::spawn(move || {
         let result = (|| {
             let snapshot = git::scan_repo(&repo_root)?;
+            let git_overview =
+                git::scan_git_overview(&repo_root, Some(&base_branch), recent_commits)?;
             let files = git::list_repo_files(&repo_root, 20_000)?;
             let issues = store.load_issues()?;
             let sessions = store.load_agent_sessions()?;
@@ -134,6 +138,7 @@ fn spawn_refresh(app: &mut App, sender: Sender<Result<RefreshData, RefreshError>
             Ok(RefreshData {
                 generation,
                 snapshot,
+                git_overview,
                 files,
                 issues,
                 sessions,
@@ -190,7 +195,21 @@ fn load_preview(
     let preview = match target.kind {
         PreviewKind::Diff => git::diff_for_path(repo_root, &target.path),
         PreviewKind::File => git::read_file_preview(repo_root, &target.path, 80_000),
-        PreviewKind::Issue | PreviewKind::Agent => {
+        PreviewKind::GitCommit => {
+            git::git_commit_preview(repo_root, &target.path.to_string_lossy())
+        }
+        PreviewKind::GitStash => git::git_stash_preview(repo_root, &target.path.to_string_lossy()),
+        PreviewKind::GitBranch => {
+            git::git_branch_preview(repo_root, &target.path.to_string_lossy(), 30)
+        }
+        PreviewKind::GitSummary => {
+            let base = target
+                .path
+                .to_str()
+                .filter(|value| !value.trim().is_empty());
+            git::git_summary_preview(repo_root, base)
+        }
+        PreviewKind::Issue | PreviewKind::Agent | PreviewKind::GitTag | PreviewKind::GitRemote => {
             unreachable!("work-state previews are generated from app state")
         }
     }
@@ -278,10 +297,12 @@ fn handle_key(
         }
     } else if configured_key(key, &app.config.keys.changes) {
         app.active_tab = Tab::Changes;
+    } else if configured_key(key, &app.config.keys.git) {
+        app.active_tab = Tab::Git;
     } else if configured_key(key, &app.config.keys.files) {
         app.active_tab = Tab::Files;
-    } else if configured_key(key, &app.config.keys.tasks) {
-        app.active_tab = Tab::Tasks;
+    } else if configured_key(key, &app.config.keys.issues) {
+        app.active_tab = Tab::Issues;
     } else if configured_key(key, &app.config.keys.agents) {
         app.active_tab = Tab::Agents;
     } else if configured_key(key, &app.config.keys.search) {
@@ -298,6 +319,10 @@ fn handle_key(
     } else if app.active_tab == Tab::Changes && configured_key(key, &app.config.keys.toggle_dirstat)
     {
         app.toggle_dirstat();
+    } else if app.active_tab == Tab::Git && configured_key(key, &app.config.keys.base) {
+        app.status_message = "base branch selection not implemented yet".to_string();
+    } else if app.active_tab == Tab::Git && configured_key(key, &app.config.keys.pull_requests) {
+        app.status_message = "PR refresh not implemented yet".to_string();
     } else if configured_key(key, &app.config.keys.refresh) {
         spawn_refresh(app, refresh_tx.clone());
     } else if configured_key(key, &app.config.keys.new_issue) {
@@ -305,7 +330,7 @@ fn handle_key(
             app.status_message = error.to_string();
         }
     } else if key.code == KeyCode::Enter {
-        if app.active_tab == Tab::Tasks {
+        if app.active_tab == Tab::Issues {
             restore_terminal(terminal)?;
             let result = app.open_selected_issue_in_editor();
             *terminal = setup_terminal()?;
@@ -317,19 +342,19 @@ fn handle_key(
         } else {
             app.reveal_selected_context();
         }
-    } else if app.active_tab == Tab::Tasks && configured_key(key, &app.config.keys.status) {
+    } else if app.active_tab == Tab::Issues && configured_key(key, &app.config.keys.status) {
         if let Err(error) = app.cycle_selected_issue_status() {
             app.status_message = error.to_string();
         }
-    } else if app.active_tab == Tab::Tasks && configured_key(key, &app.config.keys.priority) {
+    } else if app.active_tab == Tab::Issues && configured_key(key, &app.config.keys.priority) {
         if let Err(error) = app.cycle_selected_issue_priority() {
             app.status_message = error.to_string();
         }
-    } else if app.active_tab == Tab::Tasks && configured_key(key, &app.config.keys.labels) {
+    } else if app.active_tab == Tab::Issues && configured_key(key, &app.config.keys.labels) {
         if let Err(error) = app.toggle_selected_issue_label() {
             app.status_message = error.to_string();
         }
-    } else if app.active_tab == Tab::Tasks && configured_key(key, &app.config.keys.assign) {
+    } else if app.active_tab == Tab::Issues && configured_key(key, &app.config.keys.assign) {
         if let Err(error) = app.toggle_selected_issue_assignee() {
             app.status_message = error.to_string();
         }
@@ -339,7 +364,7 @@ fn handle_key(
         if let Err(error) = app.link_selected_file_to_issue() {
             app.status_message = error.to_string();
         }
-    } else if app.active_tab == Tab::Tasks && configured_key(key, &app.config.keys.edit_issue) {
+    } else if app.active_tab == Tab::Issues && configured_key(key, &app.config.keys.edit_issue) {
         restore_terminal(terminal)?;
         let result = app.open_selected_issue_in_editor();
         *terminal = setup_terminal()?;

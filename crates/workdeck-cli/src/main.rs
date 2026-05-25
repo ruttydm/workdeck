@@ -1209,6 +1209,7 @@ fn handle_search_command(
         &sessions,
         &references,
         &symbols,
+        None,
     );
     let target_filter = targets
         .into_iter()
@@ -1254,6 +1255,10 @@ fn search_target_group(target: &workdeck_cli::search::SearchTarget) -> &'static 
         workdeck_cli::search::SearchTarget::Change(_) => "changes",
         workdeck_cli::search::SearchTarget::Issue(_) => "issues",
         workdeck_cli::search::SearchTarget::AgentSession(_) => "agents",
+        workdeck_cli::search::SearchTarget::GitCommit(_)
+        | workdeck_cli::search::SearchTarget::GitBranch(_)
+        | workdeck_cli::search::SearchTarget::GitStash(_)
+        | workdeck_cli::search::SearchTarget::GitTag(_) => "git",
         workdeck_cli::search::SearchTarget::Project(_)
         | workdeck_cli::search::SearchTarget::Cycle(_)
         | workdeck_cli::search::SearchTarget::Label(_) => "issues",
@@ -1272,6 +1277,18 @@ fn search_target_payload(target: &workdeck_cli::search::SearchTarget) -> Value {
         workdeck_cli::search::SearchTarget::Issue(key) => json!({ "kind": "issue", "key": key }),
         workdeck_cli::search::SearchTarget::AgentSession(id) => {
             json!({ "kind": "agent", "id": id })
+        }
+        workdeck_cli::search::SearchTarget::GitCommit(sha) => {
+            json!({ "kind": "git_commit", "sha": sha })
+        }
+        workdeck_cli::search::SearchTarget::GitBranch(name) => {
+            json!({ "kind": "git_branch", "name": name })
+        }
+        workdeck_cli::search::SearchTarget::GitStash(name) => {
+            json!({ "kind": "git_stash", "name": name })
+        }
+        workdeck_cli::search::SearchTarget::GitTag(name) => {
+            json!({ "kind": "git_tag", "name": name })
         }
         workdeck_cli::search::SearchTarget::Project(id) => {
             json!({ "kind": "project", "id": id })
@@ -1354,7 +1371,7 @@ fn handle_config_command(
         }
         ConfigCommand::Get { key, json } => {
             let value = load_repo_config_value(&path)?;
-            let Some(value) = get_toml_path(&value, &key) else {
+            let Some(value) = get_config_value(&value, &key) else {
                 bail!("config key {key} does not exist");
             };
             if json {
@@ -1365,7 +1382,8 @@ fn handle_config_command(
         }
         ConfigCommand::Set { key, value, json } => {
             let mut root = load_repo_config_value(&path)?;
-            set_toml_path(&mut root, &key, parse_config_value(&value))?;
+            let storage_key = config_storage_key(&key);
+            set_toml_path(&mut root, &storage_key, parse_config_value(&value))?;
             let raw = toml::to_string_pretty(&root)?;
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
@@ -1373,9 +1391,13 @@ fn handle_config_command(
             std::fs::write(&path, raw)?;
             Config::load(repo_root)?;
             if json {
-                json_success("config", Some("set"), json!({ "key": key, "set": true }))?;
+                json_success(
+                    "config",
+                    Some("set"),
+                    json!({ "key": storage_key, "set": true }),
+                )?;
             } else {
-                println!("set {key}");
+                println!("set {storage_key}");
             }
         }
     }
@@ -1397,6 +1419,24 @@ fn get_toml_path<'a>(value: &'a toml::Value, key: &str) -> Option<&'a toml::Valu
         current = current.as_table()?.get(part)?;
     }
     Some(current)
+}
+
+fn get_config_value<'a>(value: &'a toml::Value, key: &str) -> Option<&'a toml::Value> {
+    get_toml_path(value, key).or_else(|| {
+        if key == "keys.issues" {
+            get_toml_path(value, "keys.tasks")
+        } else {
+            None
+        }
+    })
+}
+
+fn config_storage_key(key: &str) -> String {
+    if key == "keys.tasks" {
+        "keys.issues".to_string()
+    } else {
+        key.to_string()
+    }
 }
 
 fn set_toml_path(root: &mut toml::Value, key: &str, value: toml::Value) -> Result<()> {

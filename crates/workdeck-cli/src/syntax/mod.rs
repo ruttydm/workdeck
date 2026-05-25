@@ -6,12 +6,14 @@ use syntect::highlighting::{Style as SynStyle, ThemeSet};
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 
-const LIGHT_DIFF_ADD_COLOR: Color = Color::Rgb(0, 128, 0);
-const LIGHT_DIFF_REMOVE_COLOR: Color = Color::Rgb(176, 0, 0);
+const LIGHT_DIFF_TEXT_COLOR: Color = Color::Rgb(32, 38, 35);
+const LIGHT_DIFF_ADD_BACKGROUND: Color = Color::Rgb(220, 246, 226);
+const LIGHT_DIFF_REMOVE_BACKGROUND: Color = Color::Rgb(255, 224, 224);
 const LIGHT_DIFF_HUNK_COLOR: Color = Color::Rgb(0, 95, 135);
 const LIGHT_DIFF_SECTION_COLOR: Color = Color::Rgb(128, 96, 0);
-const DARK_DIFF_ADD_COLOR: Color = Color::Rgb(88, 207, 135);
-const DARK_DIFF_REMOVE_COLOR: Color = Color::Rgb(255, 107, 107);
+const DARK_DIFF_TEXT_COLOR: Color = Color::Rgb(232, 238, 234);
+const DARK_DIFF_ADD_BACKGROUND: Color = Color::Rgb(18, 76, 43);
+const DARK_DIFF_REMOVE_BACKGROUND: Color = Color::Rgb(92, 28, 35);
 const DARK_DIFF_HUNK_COLOR: Color = Color::Rgb(107, 190, 255);
 const DARK_DIFF_SECTION_COLOR: Color = Color::Rgb(221, 188, 105);
 
@@ -135,21 +137,17 @@ fn highlight_diff(content: &str, max_lines: usize, theme_mode: ThemeMode) -> Tex
             .take(max_lines)
             .map(|line| {
                 let style = if line.starts_with('+') && !line.starts_with("+++") {
-                    Style::default().fg(palette.add)
+                    palette.add.style()
                 } else if line.starts_with('-') && !line.starts_with("---") {
-                    Style::default().fg(palette.remove)
+                    palette.remove.style()
                 } else if line.starts_with("@@") {
-                    Style::default()
-                        .fg(palette.hunk)
-                        .add_modifier(Modifier::BOLD)
+                    palette.hunk.style()
                 } else if line.starts_with('#') {
-                    Style::default()
-                        .fg(palette.section)
-                        .add_modifier(Modifier::BOLD)
+                    palette.section.style()
                 } else {
                     Style::default()
                 };
-                Line::from(Span::styled(line.to_string(), style))
+                Line::from(Span::styled(line.to_string(), style)).style(style)
             })
             .collect::<Vec<_>>(),
     )
@@ -157,26 +155,67 @@ fn highlight_diff(content: &str, max_lines: usize, theme_mode: ThemeMode) -> Tex
 
 #[derive(Debug, Clone, Copy)]
 struct DiffPalette {
-    add: Color,
-    remove: Color,
-    hunk: Color,
-    section: Color,
+    add: DiffLineStyle,
+    remove: DiffLineStyle,
+    hunk: DiffLineStyle,
+    section: DiffLineStyle,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DiffLineStyle {
+    fg: Color,
+    bg: Option<Color>,
+    modifier: Modifier,
+}
+
+impl DiffLineStyle {
+    fn background(fg: Color, bg: Color) -> Self {
+        Self {
+            fg,
+            bg: Some(bg),
+            modifier: Modifier::empty(),
+        }
+    }
+
+    fn bold(fg: Color) -> Self {
+        Self {
+            fg,
+            bg: None,
+            modifier: Modifier::BOLD,
+        }
+    }
+
+    fn style(self) -> Style {
+        let style = Style::default().fg(self.fg);
+        let style = if let Some(bg) = self.bg {
+            style.bg(bg)
+        } else {
+            style
+        };
+        style.add_modifier(self.modifier)
+    }
 }
 
 impl DiffPalette {
     fn for_theme(theme_mode: ThemeMode) -> Self {
         match theme_mode {
             ThemeMode::Light => Self {
-                add: LIGHT_DIFF_ADD_COLOR,
-                remove: LIGHT_DIFF_REMOVE_COLOR,
-                hunk: LIGHT_DIFF_HUNK_COLOR,
-                section: LIGHT_DIFF_SECTION_COLOR,
+                add: DiffLineStyle::background(LIGHT_DIFF_TEXT_COLOR, LIGHT_DIFF_ADD_BACKGROUND),
+                remove: DiffLineStyle::background(
+                    LIGHT_DIFF_TEXT_COLOR,
+                    LIGHT_DIFF_REMOVE_BACKGROUND,
+                ),
+                hunk: DiffLineStyle::bold(LIGHT_DIFF_HUNK_COLOR),
+                section: DiffLineStyle::bold(LIGHT_DIFF_SECTION_COLOR),
             },
             ThemeMode::Dark => Self {
-                add: DARK_DIFF_ADD_COLOR,
-                remove: DARK_DIFF_REMOVE_COLOR,
-                hunk: DARK_DIFF_HUNK_COLOR,
-                section: DARK_DIFF_SECTION_COLOR,
+                add: DiffLineStyle::background(DARK_DIFF_TEXT_COLOR, DARK_DIFF_ADD_BACKGROUND),
+                remove: DiffLineStyle::background(
+                    DARK_DIFF_TEXT_COLOR,
+                    DARK_DIFF_REMOVE_BACKGROUND,
+                ),
+                hunk: DiffLineStyle::bold(DARK_DIFF_HUNK_COLOR),
+                section: DiffLineStyle::bold(DARK_DIFF_SECTION_COLOR),
             },
         }
     }
@@ -230,12 +269,14 @@ mod tests {
         let section_style = text.lines[3].spans[0].style;
 
         assert_eq!(text.lines.len(), 4);
-        assert_eq!(add_style.fg, Some(LIGHT_DIFF_ADD_COLOR));
-        assert_eq!(remove_style.fg, Some(LIGHT_DIFF_REMOVE_COLOR));
+        assert_eq!(add_style.fg, Some(LIGHT_DIFF_TEXT_COLOR));
+        assert_eq!(add_style.bg, Some(LIGHT_DIFF_ADD_BACKGROUND));
+        assert_eq!(remove_style.fg, Some(LIGHT_DIFF_TEXT_COLOR));
+        assert_eq!(remove_style.bg, Some(LIGHT_DIFF_REMOVE_BACKGROUND));
         assert_eq!(hunk_style.fg, Some(LIGHT_DIFF_HUNK_COLOR));
         assert_eq!(section_style.fg, Some(LIGHT_DIFF_SECTION_COLOR));
-        assert_eq!(add_style.bg, None);
-        assert_eq!(remove_style.bg, None);
+        assert_eq!(hunk_style.bg, None);
+        assert_eq!(section_style.bg, None);
     }
 
     #[test]
@@ -245,23 +286,30 @@ mod tests {
         let dark =
             SyntaxHighlighter::new("dark").highlight(Path::new("change.diff"), "+a\n-b\n", 10);
 
-        assert_eq!(light.lines[0].spans[0].style.fg, Some(LIGHT_DIFF_ADD_COLOR));
         assert_eq!(
-            light.lines[1].spans[0].style.fg,
-            Some(LIGHT_DIFF_REMOVE_COLOR)
-        );
-        assert_eq!(dark.lines[0].spans[0].style.fg, Some(DARK_DIFF_ADD_COLOR));
-        assert_eq!(
-            dark.lines[1].spans[0].style.fg,
-            Some(DARK_DIFF_REMOVE_COLOR)
-        );
-        assert_ne!(
             light.lines[0].spans[0].style.fg,
-            dark.lines[0].spans[0].style.fg
+            Some(LIGHT_DIFF_TEXT_COLOR)
+        );
+        assert_eq!(
+            light.lines[0].spans[0].style.bg,
+            Some(LIGHT_DIFF_ADD_BACKGROUND)
+        );
+        assert_eq!(
+            light.lines[1].spans[0].style.bg,
+            Some(LIGHT_DIFF_REMOVE_BACKGROUND)
+        );
+        assert_eq!(dark.lines[0].spans[0].style.fg, Some(DARK_DIFF_TEXT_COLOR));
+        assert_eq!(
+            dark.lines[0].spans[0].style.bg,
+            Some(DARK_DIFF_ADD_BACKGROUND)
         );
         assert_ne!(
-            light.lines[1].spans[0].style.fg,
-            dark.lines[1].spans[0].style.fg
+            light.lines[0].spans[0].style.bg,
+            dark.lines[0].spans[0].style.bg
+        );
+        assert_ne!(
+            light.lines[1].spans[0].style.bg,
+            dark.lines[1].spans[0].style.bg
         );
     }
 
@@ -270,11 +318,13 @@ mod tests {
         let light = DiffPalette::for_theme(ThemeMode::Light);
         let dark = DiffPalette::for_theme(ThemeMode::Dark);
 
-        for color in [light.add, light.remove, light.hunk, light.section] {
-            assert!(color_luma(color) < 180);
+        for line_style in [light.add, light.remove] {
+            assert!(color_luma(line_style.fg) < 90);
+            assert!(color_luma(line_style.bg.unwrap()) > 210);
         }
-        for color in [dark.add, dark.remove, dark.hunk, dark.section] {
-            assert!(color_luma(color) > 110);
+        for line_style in [dark.add, dark.remove] {
+            assert!(color_luma(line_style.fg) > 210);
+            assert!(color_luma(line_style.bg.unwrap()) < 90);
         }
     }
 

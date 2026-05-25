@@ -48,6 +48,9 @@ fn init_creates_agents_workdeck_store() {
     let config = fs::read_to_string(dir.path().join(".agents/workdeck/config.toml")).unwrap();
     assert!(config.contains("group_changes = \"g\""));
     assert!(config.contains("toggle_dirstat = \"w\""));
+    assert!(config.contains("[git]"));
+    assert!(config.contains("git = \"G\""));
+    assert!(config.contains("recent_commits = 30"));
 }
 
 #[test]
@@ -173,7 +176,7 @@ fn doctor_reports_corrupt_store_data_as_failed_checks() {
 }
 
 #[test]
-fn issue_commands_manage_file_backed_tasks() {
+fn issue_commands_manage_file_backed_issues() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init"]);
 
@@ -802,6 +805,20 @@ fn reference_agent_config_events_and_import_commands_are_headless() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"value\": false"));
+    workdeck()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args(["config", "set", "keys.tasks", "I", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"key\": \"keys.issues\""));
+    workdeck()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args(["config", "get", "keys.issues", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"value\": \"I\""));
     workdeck()
         .arg("--cwd")
         .arg(dir.path())

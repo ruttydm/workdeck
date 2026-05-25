@@ -104,6 +104,55 @@ pub struct FilePreview {
     pub binary: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitOverview {
+    pub current_branch: String,
+    pub upstream: Option<String>,
+    pub ahead: usize,
+    pub behind: usize,
+    pub base_branch: Option<String>,
+    pub remotes: Vec<GitRemote>,
+    pub branches: Vec<GitBranch>,
+    pub recent_commits: Vec<GitCommit>,
+    pub stashes: Vec<GitStash>,
+    pub tags: Vec<GitTag>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitRemote {
+    pub name: String,
+    pub fetch_url: String,
+    pub push_url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitBranch {
+    pub name: String,
+    pub is_current: bool,
+    pub is_remote: bool,
+    pub upstream: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitCommit {
+    pub sha: String,
+    pub short_sha: String,
+    pub summary: String,
+    pub author: String,
+    pub date: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitStash {
+    pub name: String,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitTag {
+    pub name: String,
+}
+
 pub fn discover_repo_root(cwd: &Path) -> Result<PathBuf> {
     let repo = Repository::discover(cwd)
         .with_context(|| format!("failed to discover git repo from {}", cwd.display()))?;
@@ -177,6 +226,134 @@ pub fn group_by_directory(changes: &[ChangeEntry]) -> Vec<DirectoryGroup> {
             files,
         })
         .collect()
+}
+
+pub fn scan_git_overview(
+    repo_root: &Path,
+    base_config: Option<&str>,
+    recent_limit: usize,
+) -> Result<GitOverview> {
+    let current_branch = current_branch(repo_root)?;
+    let upstream = optional_git_output(
+        repo_root,
+        &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+    )?
+    .map(|value| value.trim().to_string())
+    .filter(|value| !value.is_empty());
+    let (ahead, behind) = if upstream.is_some() {
+        parse_ahead_behind(&git_output(
+            repo_root,
+            &["rev-list", "--left-right", "--count", "HEAD...@{u}"],
+        )?)
+    } else {
+        (0, 0)
+    };
+    let remotes = parse_remote_output(&git_output(repo_root, &["remote", "-v"])?);
+    let branches = parse_branch_output(
+        &git_output(
+            repo_root,
+            &[
+                "branch",
+                "--all",
+                "--format=%(refname:short)%09%(HEAD)%09%(upstream:short)",
+            ],
+        )?,
+        &remotes,
+    );
+    let recent_commits = parse_commit_output(
+        &optional_git_output(
+            repo_root,
+            &[
+                "log",
+                "--date=short",
+                "--pretty=format:%H%x09%h%x09%ad%x09%an%x09%s",
+                "-n",
+                &recent_limit.max(1).to_string(),
+            ],
+        )?
+        .unwrap_or_default(),
+    );
+    let stashes = parse_stash_output(&git_output(
+        repo_root,
+        &["stash", "list", "--format=%gd%x09%s"],
+    )?);
+    let tags = parse_tag_output(&git_output(
+        repo_root,
+        &["tag", "--sort=-creatordate", "--list"],
+    )?);
+    let base_branch = infer_base_branch(base_config, upstream.as_deref(), &branches);
+
+    Ok(GitOverview {
+        current_branch,
+        upstream,
+        ahead,
+        behind,
+        base_branch,
+        remotes,
+        branches,
+        recent_commits,
+        stashes,
+        tags,
+    })
+}
+
+pub fn git_commit_preview(repo_root: &Path, sha: &str) -> Result<FilePreview> {
+    let content = git_output(
+        repo_root,
+        &["show", "--stat", "--patch", "--color=never", sha],
+    )?;
+    Ok(text_preview(format!("commit {sha}"), content))
+}
+
+pub fn git_stash_preview(repo_root: &Path, stash: &str) -> Result<FilePreview> {
+    let content = git_output(
+        repo_root,
+        &["stash", "show", "--stat", "--patch", "--color=never", stash],
+    )?;
+    Ok(text_preview(format!("stash {stash}"), content))
+}
+
+pub fn git_branch_preview(repo_root: &Path, branch: &str, limit: usize) -> Result<FilePreview> {
+    let content = git_output(
+        repo_root,
+        &[
+            "log",
+            "--date=short",
+            "--pretty=format:%h %ad %an %s",
+            "-n",
+            &limit.max(1).to_string(),
+            branch,
+        ],
+    )?;
+    Ok(text_preview(format!("branch {branch}"), content))
+}
+
+pub fn git_summary_preview(repo_root: &Path, base: Option<&str>) -> Result<FilePreview> {
+    let Some(base) = base.filter(|base| !base.trim().is_empty()) else {
+        return Ok(text_preview(
+            "git summary".to_string(),
+            "No base branch configured or detected.\n\nSet [git].base_branch in Workdeck config to enable ahead summary previews.".to_string(),
+        ));
+    };
+
+    let commits = git_output(repo_root, &["log", "--oneline", &format!("{base}..HEAD")])?;
+    let stat = git_output(repo_root, &["diff", "--stat", &format!("{base}..HEAD")])?;
+    let mut content = format!("# Commits since {base}\n");
+    if commits.trim().is_empty() {
+        content.push_str("No commits ahead of base.\n");
+    } else {
+        content.push_str(&commits);
+        if !content.ends_with('\n') {
+            content.push('\n');
+        }
+    }
+    content.push_str("\n# Diff stat\n");
+    if stat.trim().is_empty() {
+        content.push_str("No diff against base.\n");
+    } else {
+        content.push_str(&stat);
+    }
+    Ok(text_preview(format!("summary {base}..HEAD"), content))
 }
 
 pub fn diff_for_path(repo_root: &Path, path: &Path) -> Result<FilePreview> {
@@ -496,6 +673,191 @@ fn untracked_line_count(repo_root: &Path, path: &Path) -> (usize, usize) {
     (content.lines().count(), 0)
 }
 
+fn current_branch(repo_root: &Path) -> Result<String> {
+    let branch = git_output(repo_root, &["branch", "--show-current"])?;
+    let branch = branch.trim();
+    if !branch.is_empty() {
+        return Ok(branch.to_string());
+    }
+
+    let short_sha = optional_git_output(repo_root, &["rev-parse", "--short", "HEAD"])?
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if short_sha.is_empty() {
+        Ok("HEAD".to_string())
+    } else {
+        Ok(format!("HEAD {short_sha}"))
+    }
+}
+
+fn git_output(repo_root: &Path, args: &[&str]) -> Result<String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .arg("-c")
+        .arg("color.ui=never")
+        .args(args)
+        .output()
+        .with_context(|| format!("failed to run git {}", args.join(" ")))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("git {} failed: {}", args.join(" "), stderr.trim());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+fn optional_git_output(repo_root: &Path, args: &[&str]) -> Result<Option<String>> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .arg("-c")
+        .arg("color.ui=never")
+        .args(args)
+        .output()
+        .with_context(|| format!("failed to run git {}", args.join(" ")))?;
+    if output.status.success() {
+        Ok(Some(String::from_utf8_lossy(&output.stdout).to_string()))
+    } else {
+        Ok(None)
+    }
+}
+
+fn parse_ahead_behind(output: &str) -> (usize, usize) {
+    let mut parts = output.split_whitespace();
+    let ahead = parts
+        .next()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(0);
+    let behind = parts
+        .next()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(0);
+    (ahead, behind)
+}
+
+pub fn parse_branch_output(output: &str, remotes: &[GitRemote]) -> Vec<GitBranch> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split('\t');
+            let name = parts.next()?.trim();
+            if name.is_empty() {
+                return None;
+            }
+            let head = parts.next().unwrap_or_default().trim();
+            let upstream = parts
+                .next()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+            let is_remote = remotes.iter().any(|remote| {
+                name == format!("{}/HEAD", remote.name)
+                    || name.starts_with(&format!("{}/", remote.name))
+            });
+            Some(GitBranch {
+                name: name.to_string(),
+                is_current: head == "*",
+                is_remote,
+                upstream,
+            })
+        })
+        .collect()
+}
+
+pub fn parse_remote_output(output: &str) -> Vec<GitRemote> {
+    let mut remotes = BTreeMap::<String, GitRemote>::new();
+    for line in output.lines() {
+        let Some((name, rest)) = line.split_once(char::is_whitespace) else {
+            continue;
+        };
+        let rest = rest.trim();
+        let Some((url, kind)) = rest.rsplit_once(' ') else {
+            continue;
+        };
+        let remote = remotes
+            .entry(name.to_string())
+            .or_insert_with(|| GitRemote {
+                name: name.to_string(),
+                fetch_url: String::new(),
+                push_url: String::new(),
+            });
+        match kind {
+            "(fetch)" => remote.fetch_url = url.to_string(),
+            "(push)" => remote.push_url = url.to_string(),
+            _ => {}
+        }
+    }
+    remotes.into_values().collect()
+}
+
+pub fn parse_commit_output(output: &str) -> Vec<GitCommit> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.splitn(5, '\t');
+            Some(GitCommit {
+                sha: parts.next()?.to_string(),
+                short_sha: parts.next()?.to_string(),
+                date: parts.next()?.to_string(),
+                author: parts.next()?.to_string(),
+                summary: parts.next().unwrap_or_default().to_string(),
+            })
+        })
+        .collect()
+}
+
+pub fn parse_stash_output(output: &str) -> Vec<GitStash> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let (name, summary) = line.split_once('\t')?;
+            Some(GitStash {
+                name: name.to_string(),
+                summary: summary.to_string(),
+            })
+        })
+        .collect()
+}
+
+pub fn parse_tag_output(output: &str) -> Vec<GitTag> {
+    output
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .take(20)
+        .map(|line| GitTag {
+            name: line.trim().to_string(),
+        })
+        .collect()
+}
+
+pub fn infer_base_branch(
+    base_config: Option<&str>,
+    upstream: Option<&str>,
+    branches: &[GitBranch],
+) -> Option<String> {
+    base_config
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| upstream.map(str::to_string))
+        .or_else(|| branch_exists(branches, "origin/main").then(|| "origin/main".to_string()))
+        .or_else(|| branch_exists(branches, "origin/master").then(|| "origin/master".to_string()))
+}
+
+fn branch_exists(branches: &[GitBranch], name: &str) -> bool {
+    branches.iter().any(|branch| branch.name == name)
+}
+
+fn text_preview(title: String, content: String) -> FilePreview {
+    FilePreview {
+        title,
+        content,
+        truncated: false,
+        binary: false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -557,5 +919,86 @@ mod tests {
         let bytes = [1, 2, 3, 4, 5, 6, b'a', b'b'];
         assert!(looks_binary(&bytes));
         assert!(!looks_binary(b"hello\nworld\n"));
+    }
+
+    #[test]
+    fn parses_git_branch_output() {
+        let remotes = vec![GitRemote {
+            name: "origin".to_string(),
+            fetch_url: "https://example.test/repo.git".to_string(),
+            push_url: "https://example.test/repo.git".to_string(),
+        }];
+        let branches = parse_branch_output(
+            "main\t*\torigin/main\nfeature/foo\t\t\norigin/main\t\t\n",
+            &remotes,
+        );
+
+        assert_eq!(branches.len(), 3);
+        assert!(branches[0].is_current);
+        assert_eq!(branches[0].upstream.as_deref(), Some("origin/main"));
+        assert!(!branches[1].is_remote);
+        assert!(branches[2].is_remote);
+    }
+
+    #[test]
+    fn parses_git_remote_output() {
+        let remotes = parse_remote_output(
+            "origin\thttps://example.test/fetch.git (fetch)\norigin\tssh://example.test/push.git (push)\nupstream\thttps://example.test/up.git (fetch)\n",
+        );
+
+        assert_eq!(remotes.len(), 2);
+        assert_eq!(remotes[0].name, "origin");
+        assert_eq!(remotes[0].fetch_url, "https://example.test/fetch.git");
+        assert_eq!(remotes[0].push_url, "ssh://example.test/push.git");
+    }
+
+    #[test]
+    fn parses_git_stash_output() {
+        let stashes = parse_stash_output("stash@{0}\tWIP on main: abc123 work\n");
+
+        assert_eq!(stashes[0].name, "stash@{0}");
+        assert_eq!(stashes[0].summary, "WIP on main: abc123 work");
+    }
+
+    #[test]
+    fn parses_git_commit_output() {
+        let commits = parse_commit_output("abc123456\tabc1234\t2026-05-25\tRutger\tAdd Git tab\n");
+
+        assert_eq!(commits[0].sha, "abc123456");
+        assert_eq!(commits[0].short_sha, "abc1234");
+        assert_eq!(commits[0].date, "2026-05-25");
+        assert_eq!(commits[0].author, "Rutger");
+        assert_eq!(commits[0].summary, "Add Git tab");
+    }
+
+    #[test]
+    fn infers_base_branch_order() {
+        let branches = vec![
+            GitBranch {
+                name: "origin/main".to_string(),
+                is_current: false,
+                is_remote: true,
+                upstream: None,
+            },
+            GitBranch {
+                name: "origin/master".to_string(),
+                is_current: false,
+                is_remote: true,
+                upstream: None,
+            },
+        ];
+
+        assert_eq!(
+            infer_base_branch(Some("develop"), Some("origin/main"), &branches).as_deref(),
+            Some("develop")
+        );
+        assert_eq!(
+            infer_base_branch(Some(""), Some("origin/main"), &branches).as_deref(),
+            Some("origin/main")
+        );
+        assert_eq!(
+            infer_base_branch(None, None, &branches).as_deref(),
+            Some("origin/main")
+        );
     }
 }

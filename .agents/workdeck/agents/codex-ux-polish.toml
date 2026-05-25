@@ -5,12 +5,12 @@ cwd = "/Users/rutger/Projects/workdeck"
 status = "active"
 started_at = "2026-05-24T20:43:29.269145+00:00"
 ended_at = ""
-goal = "Polish narrow-pane changes, task previews, and light/dark readability"
-summary = "Current session focused on mental-model UX, task preview content, and preview highlighting."
+goal = "Polish narrow-pane changes, issue previews, and light/dark readability"
+summary = "Current session focused on mental-model UX, issue preview content, and preview highlighting."
 plan = [
     "Simplify changed-file tree markers",
     "Keep tree as narrow default",
-    "Add Markdown-highlighted task previews",
+    "Add Markdown-highlighted issue previews",
 ]
 commands_run = [
     "cargo test",

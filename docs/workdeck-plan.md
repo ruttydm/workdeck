@@ -2,7 +2,7 @@
 
 Workdeck is a terminal-native sidecar for agentic coding. It is not an editor replacement. It is the persistent mental map pane beside Codex, an editor, lazygit, or a terminal multiplexer layout.
 
-The product should run well in a narrow cmux pane while still scaling up to wider terminal layouts. It gives a structured overview of repo changes, file trees, previews, diffs, local tasks, issues, and agent work state.
+The product should run well in a narrow cmux pane while still scaling up to wider terminal layouts. It gives a structured overview of repo changes, file trees, previews, diffs, local issues, and agent work state.
 
 ## Product Positioning
 
@@ -20,9 +20,9 @@ The MVP should stay local-first, fast, and predictable. It must never mutate Git
 
 1. Show what changed, grouped by directory and intent.
 2. Preview files and diffs quickly with strong syntax highlighting.
-3. Track local issues, tasks, projects, and cycles in a Linear-like CLI UI.
+3. Track local issues, projects, and cycles in a Linear-like CLI UI.
 4. Help humans supervise agentic coding sessions.
-5. Make it easy to jump from overview to file, diff, task, or agent session.
+5. Make it easy to jump from overview to file, diff, issue, or agent session.
 
 ## Target UX
 
@@ -32,9 +32,9 @@ Main layout modes:
 
 - `Changes`: grouped dirty tree plus preview or diff
 - `Files`: repo tree plus syntax preview
-- `Tasks`: Linear-like issues, projects, and cycles
+- `Issues`: Linear-like issues, projects, and cycles
 - `Agents`: active and past agent sessions, plans, changed files, commands, tests, and handoff notes
-- `Search`: fuzzy file, task, symbol, and change search
+- `Search`: fuzzy file, issue, symbol, and change search
 
 Pane behavior:
 
@@ -73,7 +73,7 @@ crates/
       views/
         changes.rs
         files.rs
-        tasks.rs
+        issues.rs
         agents.rs
       store/
       search/
@@ -95,7 +95,7 @@ Default data directory resolution:
 1. If `.agents/` exists in the repo root, use `.agents/workdeck/`.
 2. If `.agents/` does not exist, create `.agents/workdeck/` when the user initializes Workdeck.
 3. Use `.workdeck/` only as an explicit compatibility fallback if configured.
-4. Use `~/.config/workdeck/config.toml` only for user-level defaults, never as the primary repo task store.
+4. Use `~/.config/workdeck/config.toml` only for user-level defaults, never as the primary repo issue store.
 
 Proposed data layout:
 
@@ -268,9 +268,9 @@ Features:
 - Open in `$EDITOR`
 - Optional hidden file toggle
 
-### Tasks
+### Issues
 
-The Tasks screen is a Linear-like local issue system.
+The Issues screen is a Linear-like local issue system.
 
 Statuses:
 
@@ -337,7 +337,7 @@ Useful views:
 - Active sessions
 - Past sessions
 - Files touched by agent
-- Tasks linked to session
+- Issues linked to session
 - Latest test results
 - Handoff notes
 
@@ -376,10 +376,13 @@ Use Vim-like defaults:
 | `w` | Toggle dirstat weight |
 | `f` | Files |
 | `c` | Changes |
-| `i` | Issues or tasks |
+| `G` | Git overview |
+| `i` | Issues |
 | `a` | Agents |
-| `l` | Toggle issue label in Tasks |
-| `A` | Assign or unassign issue in Tasks |
+| `b` | Base branch selection placeholder in Git |
+| `p` | PR refresh placeholder in Git, priority cycle in Issues |
+| `l` | Toggle issue label in Issues |
+| `A` | Assign or unassign issue in Issues |
 | `Space` | Jump between issue and linked file |
 | `o` | Open in editor |
 | `y` | Copy path or id |
@@ -398,14 +401,19 @@ preview = true
 [paths]
 data_dir = ".agents/workdeck"
 
+[git]
+base_branch = ""
+recent_commits = 30
+
 [keys]
 quit = "q"
 refresh = "r"
 search = "/"
 help = "?"
 changes = "c"
+git = "G"
 files = "f"
-tasks = "i"
+issues = "i"
 agents = "a"
 toggle_preview = "t"
 group_changes = "g"
@@ -420,6 +428,8 @@ labels = "l"
 assign = "A"
 jump = "space"
 link_file = "L"
+base = "b"
+pull_requests = "p"
 ```
 
 ## MVP Scope
@@ -433,6 +443,7 @@ Build this first:
 5. Link issues to files.
 6. Fuzzy search across files, changes, and issues.
 7. TOML config and keybindings.
+8. Local-only Git overview tab for branch/upstream/base, recent commits, stashes, tags, and remotes.
 
 Do not build these in the MVP:
 
@@ -441,6 +452,7 @@ Do not build these in the MVP:
 - Hunk staging
 - Linear sync
 - GitHub issue sync
+- PR enrichment in Git tab, except planned placeholders
 - Complex symbol indexing
 - Multi-user collaboration
 
@@ -461,7 +473,7 @@ Responsiveness:
 Safety:
 
 - Never mutate Git state unless the user explicitly invokes an action.
-- File-backed task edits should use atomic writes.
+- File-backed issue edits should use atomic writes.
 - Preserve unknown top-level fields in issue and agent-session TOML so agents and future versions can add metadata safely.
 - Avoid noisy rewrites of issue files.
 
@@ -584,7 +596,7 @@ Acceptance:
 - Toggling preview works in narrow panes.
 - Large files do not freeze navigation.
 
-### 4. File Store and Tasks View
+### 4. File Store and Issues View
 
 Deliver:
 
@@ -594,7 +606,7 @@ Deliver:
 - Edit title and description
 - Change status
 - Change priority
-- Tasks list grouped by status
+- Issues list grouped by status
 
 Acceptance:
 
@@ -703,7 +715,7 @@ The app opens quickly, displays tabs, switches layouts, and handles keybindings.
 
 The app shows dirty repo state grouped by directory with previewable diffs.
 
-### Milestone 3: Local Tasks
+### Milestone 3: Local Issues
 
 The app can create, edit, and organize local TOML-backed issues.
 

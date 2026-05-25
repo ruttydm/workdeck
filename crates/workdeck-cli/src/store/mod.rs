@@ -359,14 +359,19 @@ preview = true
 [paths]
 data_dir = ".agents/workdeck"
 
+[git]
+base_branch = ""
+recent_commits = 30
+
 [keys]
 quit = "q"
 refresh = "r"
 search = "/"
 help = "?"
 changes = "c"
+git = "G"
 files = "f"
-tasks = "i"
+issues = "i"
 agents = "a"
 toggle_preview = "t"
 group_changes = "g"
@@ -381,6 +386,8 @@ labels = "l"
 assign = "A"
 jump = "space"
 link_file = "L"
+base = "b"
+pull_requests = "p"
 "#,
             )?;
         }

@@ -1,5 +1,6 @@
 use crate::app::{
-    App, ChangeGrouping, FileBrowserEntryKind, FocusPane, LayoutMode, PreviewKind, Tab, TreeRowKind,
+    App, ChangeGrouping, FileBrowserEntryKind, FocusPane, GitRowKind, LayoutMode, PreviewKind, Tab,
+    TreeRowKind,
 };
 use crate::store::IssueStatus;
 use crate::syntax::SyntaxHighlighter;
@@ -35,10 +36,7 @@ pub fn render(app: &App, highlighter: &SyntaxHighlighter, frame: &mut Frame) {
 }
 
 fn render_header(app: &App, area: Rect, frame: &mut Frame) {
-    let mut spans = vec![
-        Span::styled(" workdeck ", Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw(" "),
-    ];
+    let mut spans = Vec::new();
     for tab in Tab::ALL {
         if tab == app.active_tab {
             spans.push(Span::styled(
@@ -60,9 +58,9 @@ fn render_header(app: &App, area: Rect, frame: &mut Frame) {
         .iter()
         .map(|span| span.content.chars().count())
         .sum::<usize>();
-    let available_path = (area.width as usize).saturating_sub(used + 2);
+    let available_path = (area.width as usize).saturating_sub(used + 1);
     if available_path >= 8 {
-        spans.push(Span::styled("  ", Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(" ", Style::default().fg(Color::DarkGray)));
         spans.push(Span::styled(
             trim_middle(&app.repo_root.to_string_lossy(), available_path),
             Style::default().fg(Color::DarkGray),
@@ -80,7 +78,7 @@ fn render_body(app: &App, highlighter: &SyntaxHighlighter, area: Rect, frame: &m
                 && app.focus == FocusPane::Preview
                 && matches!(
                     app.active_tab,
-                    Tab::Changes | Tab::Files | Tab::Tasks | Tab::Agents
+                    Tab::Changes | Tab::Git | Tab::Files | Tab::Issues | Tab::Agents
                 )
                 && app.preview_target().is_some()
             {
@@ -119,8 +117,9 @@ fn render_body(app: &App, highlighter: &SyntaxHighlighter, area: Rect, frame: &m
 fn render_primary(app: &App, area: Rect, frame: &mut Frame) {
     match app.active_tab {
         Tab::Changes => render_changes(app, area, frame),
+        Tab::Git => render_git(app, area, frame),
         Tab::Files => render_files(app, area, frame),
-        Tab::Tasks => render_tasks(app, area, frame),
+        Tab::Issues => render_issues(app, area, frame),
         Tab::Agents => render_agents(app, area, frame),
         Tab::Search => render_search(app, area, frame),
     }
@@ -388,6 +387,76 @@ fn path_dirs(path: &Path) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn render_git(app: &App, area: Rect, frame: &mut Frame) {
+    let Some(overview) = &app.git_overview else {
+        let message = if app.loading {
+            "loading git..."
+        } else {
+            "no git overview"
+        };
+        frame.render_widget(
+            List::new(vec![ListItem::new(message)]).block(block("Git")),
+            area,
+        );
+        return;
+    };
+
+    let rows = app.git_rows();
+    let mut items = Vec::new();
+    let mut selected_row = None;
+    let mut current_section = "";
+    for (row_index, row) in rows.iter().enumerate() {
+        if row.section != current_section {
+            current_section = row.section;
+            items.push(ListItem::new(Line::from(Span::styled(
+                row.section,
+                Style::default()
+                    .fg(Color::Blue)
+                    .add_modifier(Modifier::BOLD),
+            ))));
+            if row.section == "Git" {
+                items.push(ListItem::new(Line::from(Span::styled(
+                    format!(
+                        "  base: {}",
+                        overview.base_branch.as_deref().unwrap_or("none")
+                    ),
+                    Style::default().fg(Color::Gray),
+                ))));
+                if let Some(remote) = overview.remotes.first() {
+                    items.push(ListItem::new(Line::from(Span::styled(
+                        format!("  remote: {}", remote.name),
+                        Style::default().fg(Color::Gray),
+                    ))));
+                }
+            }
+        }
+
+        let selected = row_index == app.selected_git_row;
+        if selected {
+            selected_row = Some(items.len());
+        }
+        let label_width = area.width.saturating_sub(26) as usize;
+        let prefix = if selected { "> " } else { "  " };
+        items.push(ListItem::new(Line::from(Span::styled(
+            format!(
+                "{prefix}{:<width$} {}",
+                trim_middle(&row.label, label_width.max(8)),
+                trim_middle(&row.detail, 22),
+                width = label_width.max(8)
+            ),
+            selected_style(selected, ""),
+        ))));
+    }
+
+    let items = if items.is_empty() {
+        vec![ListItem::new("no git data")]
+    } else {
+        items
+    };
+    let items = visible_items(items, selected_row, area);
+    frame.render_widget(List::new(items).block(block("Git")), area);
+}
+
 fn render_files(app: &App, area: Rect, frame: &mut Frame) {
     if LayoutMode::for_width(area.width) == LayoutMode::Narrow {
         render_file_browser(app, area, frame);
@@ -495,7 +564,7 @@ fn file_browser_title(app: &App, width: u16) -> String {
     trim_middle(&title, width.saturating_sub(2) as usize)
 }
 
-fn render_tasks(app: &App, area: Rect, frame: &mut Frame) {
+fn render_issues(app: &App, area: Rect, frame: &mut Frame) {
     let mut items = Vec::new();
     let mut selected_row = None;
     let selected_key = app
@@ -530,7 +599,7 @@ fn render_tasks(app: &App, area: Rect, frame: &mut Frame) {
         }
     }
     let items = visible_items(items, selected_row, area);
-    frame.render_widget(List::new(items).block(block("Tasks")), area);
+    frame.render_widget(List::new(items).block(block("Issues")), area);
 }
 
 fn render_agents(app: &App, area: Rect, frame: &mut Frame) {
@@ -648,6 +717,9 @@ fn preview_syntax_path(app: &App, title: &str) -> std::path::PathBuf {
     match app.preview_target().map(|target| target.kind) {
         Some(PreviewKind::Issue) => std::path::PathBuf::from("issue.md"),
         Some(PreviewKind::Agent) => std::path::PathBuf::from("agent.md"),
+        Some(PreviewKind::GitSummary | PreviewKind::GitTag | PreviewKind::GitRemote) => {
+            std::path::PathBuf::from("git.md")
+        }
         _ => Path::new(title).to_path_buf(),
     }
 }
@@ -698,6 +770,37 @@ fn context_summary(app: &App) -> String {
                 )
             })
             .unwrap_or_else(|| format!("{focus} Changes clean")),
+        Tab::Git => app
+            .selected_git_row_data()
+            .map(|row| match row.kind {
+                GitRowKind::Summary => app
+                    .git_overview
+                    .as_ref()
+                    .map(|overview| {
+                        format!(
+                            "{focus} Git {} ↑{} ↓{} base {}",
+                            overview.current_branch,
+                            overview.ahead,
+                            overview.behind,
+                            overview.base_branch.as_deref().unwrap_or("none")
+                        )
+                    })
+                    .unwrap_or_else(|| format!("{focus} Git empty")),
+                GitRowKind::Commit(_) => {
+                    format!("{focus} Git commit {}", trim_middle(&row.label, 36))
+                }
+                GitRowKind::Branch(_) => {
+                    format!("{focus} Git branch {}", trim_middle(&row.label, 36))
+                }
+                GitRowKind::Stash(_) => {
+                    format!("{focus} Git stash {}", trim_middle(&row.label, 36))
+                }
+                GitRowKind::Tag(_) => format!("{focus} Git tag {}", trim_middle(&row.label, 36)),
+                GitRowKind::Remote(_) => {
+                    format!("{focus} Git remote {}", trim_middle(&row.label, 36))
+                }
+            })
+            .unwrap_or_else(|| format!("{focus} Git empty")),
         Tab::Files => app
             .selected_path()
             .map(|path| {
@@ -709,12 +812,12 @@ fn context_summary(app: &App) -> String {
                 )
             })
             .unwrap_or_else(|| format!("{focus} Files empty")),
-        Tab::Tasks => app
+        Tab::Issues => app
             .issues
             .get(app.selected_issue)
             .map(|issue| {
                 format!(
-                    "{focus} Tasks {}/{} {} {} {}",
+                    "{focus} Issues {}/{} {} {} {}",
                     app.selected_issue.saturating_add(1),
                     app.issues.len(),
                     issue.key,
@@ -722,7 +825,7 @@ fn context_summary(app: &App) -> String {
                     trim_middle(&issue.title, 32)
                 )
             })
-            .unwrap_or_else(|| format!("{focus} Tasks empty")),
+            .unwrap_or_else(|| format!("{focus} Issues empty")),
         Tab::Agents => app
             .sessions
             .get(app.selected_session)
@@ -758,8 +861,9 @@ fn key_hint(app: &App) -> &'static str {
     }
     match app.active_tab {
         Tab::Changes => "h collapse  l/Enter preview/expand  g group  / search",
+        Tab::Git => "Enter preview  b base  p PRs  / search",
         Tab::Files => "h collapse  l/Enter preview/expand  n issue  / search",
-        Tab::Tasks => "Enter edit  s status  p priority  Space jump",
+        Tab::Issues => "Enter edit  s status  p priority  Space jump",
         Tab::Agents => "Enter preview  Space file  / search",
         Tab::Search => "type filter  Enter jump  Esc close",
     }
@@ -1260,22 +1364,75 @@ mod tests {
             .unwrap();
 
         let rendered = format!("{:?}", terminal.backend().buffer());
-        assert!(rendered.contains("workdeck"));
+        assert!(!rendered.contains(" workdeck "));
         assert!(rendered.contains("Changes"));
+        assert!(rendered.contains("Git"));
         assert!(rendered.contains("Files"));
-        assert!(rendered.contains("Tasks"));
+        assert!(rendered.contains("Issues"));
         assert!(!rendered.contains("Details"));
     }
 
     #[test]
-    fn narrow_task_preview_uses_issue_contents_when_visible() {
+    fn renders_narrow_git_tab_summary_and_sections() {
+        let mut terminal = Terminal::new(TestBackend::new(60, 18)).unwrap();
+        let mut app = test_app();
+        app.active_tab = Tab::Git;
+        app.git_overview = Some(test_git_overview());
+        let highlighter = SyntaxHighlighter::default();
+
+        terminal
+            .draw(|frame| render(&app, &highlighter, frame))
+            .unwrap();
+
+        let rendered = format!("{:?}", terminal.backend().buffer());
+        assert!(rendered.contains("Git"));
+        assert!(rendered.contains("feature/git"));
+        assert!(rendered.contains("base: origin/main"));
+        assert!(rendered.contains("Branches"));
+        assert!(rendered.contains("Recent commits"));
+        assert!(rendered.contains("Stashes"));
+        assert!(rendered.contains("Tags"));
+        assert!(rendered.contains("Remotes"));
+    }
+
+    #[test]
+    fn renders_git_commit_preview_when_cached() {
+        let mut terminal = Terminal::new(TestBackend::new(120, 22)).unwrap();
+        let mut app = test_app();
+        app.active_tab = Tab::Git;
+        app.preview_visible = true;
+        app.git_overview = Some(test_git_overview());
+        app.selected_git_row = 2;
+        let target = app.preview_target().unwrap();
+        app.preview_cache = Some(crate::app::PreviewCache {
+            target,
+            preview: crate::git::FilePreview {
+                title: "commit abc123456".to_string(),
+                content: "diff --git a/README.md b/README.md\n+hello\n".to_string(),
+                truncated: false,
+                binary: false,
+            },
+        });
+        let highlighter = SyntaxHighlighter::default();
+
+        terminal
+            .draw(|frame| render(&app, &highlighter, frame))
+            .unwrap();
+
+        let rendered = format!("{:?}", terminal.backend().buffer());
+        assert!(rendered.contains("diff --git"));
+        assert!(rendered.contains("+hello"));
+    }
+
+    #[test]
+    fn narrow_issue_preview_uses_issue_contents_when_visible() {
         let mut terminal = Terminal::new(TestBackend::new(44, 14)).unwrap();
         let mut app = test_app();
         let mut issue = crate::store::Issue::new("WD-1".to_string(), "Follow up".to_string());
-        issue.description = "Task body, not linked file body.".to_string();
-        issue.linked_files = vec!["src/task_link.rs".to_string()];
+        issue.description = "Issue body, not linked file body.".to_string();
+        issue.linked_files = vec!["src/issue_link.rs".to_string()];
         app.issues = vec![issue];
-        app.active_tab = Tab::Tasks;
+        app.active_tab = Tab::Issues;
         app.preview_visible = true;
         app.focus = FocusPane::Preview;
         let highlighter = SyntaxHighlighter::default();
@@ -1286,15 +1443,15 @@ mod tests {
 
         let rendered = format!("{:?}", terminal.backend().buffer());
         assert!(rendered.contains("WD-1 Follow up"));
-        assert!(rendered.contains("Task body"));
-        assert!(rendered.contains("src/task_link.rs"));
-        assert!(!rendered.contains("task linked preview"));
+        assert!(rendered.contains("Issue body"));
+        assert!(rendered.contains("src/issue_link.rs"));
+        assert!(!rendered.contains("issue linked preview"));
     }
 
     #[test]
-    fn task_preview_uses_markdown_syntax_path() {
+    fn issue_preview_uses_markdown_syntax_path() {
         let mut app = test_app();
-        app.active_tab = Tab::Tasks;
+        app.active_tab = Tab::Issues;
         app.issues = vec![crate::store::Issue::new(
             "WD-1".to_string(),
             "Highlight me".to_string(),
@@ -1541,6 +1698,7 @@ mod tests {
                 changes: changes.clone(),
                 groups: crate::git::group_by_directory(&changes),
             }),
+            git_overview: None,
             files: vec![PathBuf::from("src/main.rs")],
             issues: Vec::new(),
             sessions: Vec::new(),
@@ -1557,6 +1715,7 @@ mod tests {
                     .and_then(|change| change.path.parent())
                     .is_some_and(|parent| !parent.as_os_str().is_empty()),
             ),
+            selected_git_row: 0,
             selected_file: 0,
             selected_file_row: 1,
             files_cwd: PathBuf::new(),
@@ -1565,6 +1724,49 @@ mod tests {
             selected_issue: 0,
             selected_session: 0,
             selected_search: 0,
+        }
+    }
+
+    fn test_git_overview() -> crate::git::GitOverview {
+        crate::git::GitOverview {
+            current_branch: "feature/git".to_string(),
+            upstream: Some("origin/feature/git".to_string()),
+            ahead: 2,
+            behind: 0,
+            base_branch: Some("origin/main".to_string()),
+            remotes: vec![crate::git::GitRemote {
+                name: "origin".to_string(),
+                fetch_url: "https://example.test/repo.git".to_string(),
+                push_url: "https://example.test/repo.git".to_string(),
+            }],
+            branches: vec![
+                crate::git::GitBranch {
+                    name: "feature/git".to_string(),
+                    is_current: true,
+                    is_remote: false,
+                    upstream: Some("origin/feature/git".to_string()),
+                },
+                crate::git::GitBranch {
+                    name: "origin/main".to_string(),
+                    is_current: false,
+                    is_remote: true,
+                    upstream: None,
+                },
+            ],
+            recent_commits: vec![crate::git::GitCommit {
+                sha: "abc123456".to_string(),
+                short_sha: "abc1234".to_string(),
+                summary: "Add Git tab".to_string(),
+                author: "Rutger".to_string(),
+                date: "2026-05-25".to_string(),
+            }],
+            stashes: vec![crate::git::GitStash {
+                name: "stash@{0}".to_string(),
+                summary: "WIP on feature/git".to_string(),
+            }],
+            tags: vec![crate::git::GitTag {
+                name: "v0.1.0".to_string(),
+            }],
         }
     }
 }

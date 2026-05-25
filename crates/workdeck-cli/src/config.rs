@@ -12,6 +12,8 @@ pub struct Config {
     #[serde(default)]
     pub paths: PathConfig,
     #[serde(default)]
+    pub git: GitConfig,
+    #[serde(default)]
     pub keys: KeyConfig,
 }
 
@@ -47,6 +49,23 @@ impl Default for PathConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitConfig {
+    #[serde(default)]
+    pub base_branch: String,
+    #[serde(default = "default_recent_commits")]
+    pub recent_commits: usize,
+}
+
+impl Default for GitConfig {
+    fn default() -> Self {
+        Self {
+            base_branch: String::new(),
+            recent_commits: default_recent_commits(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyConfig {
     #[serde(default = "key_quit")]
     pub quit: String,
@@ -58,10 +77,12 @@ pub struct KeyConfig {
     pub help: String,
     #[serde(default = "key_changes")]
     pub changes: String,
+    #[serde(default = "key_git")]
+    pub git: String,
     #[serde(default = "key_files")]
     pub files: String,
-    #[serde(default = "key_tasks")]
-    pub tasks: String,
+    #[serde(default = "key_issues", alias = "tasks")]
+    pub issues: String,
     #[serde(default = "key_agents")]
     pub agents: String,
     #[serde(default = "key_toggle_preview")]
@@ -90,6 +111,10 @@ pub struct KeyConfig {
     pub jump: String,
     #[serde(default = "key_link_file")]
     pub link_file: String,
+    #[serde(default = "key_base")]
+    pub base: String,
+    #[serde(default = "key_pull_requests")]
+    pub pull_requests: String,
 }
 
 impl Default for KeyConfig {
@@ -100,8 +125,9 @@ impl Default for KeyConfig {
             search: key_search(),
             help: key_help(),
             changes: key_changes(),
+            git: key_git(),
             files: key_files(),
-            tasks: key_tasks(),
+            issues: key_issues(),
             agents: key_agents(),
             toggle_preview: key_toggle_preview(),
             group_changes: key_group_changes(),
@@ -116,6 +142,8 @@ impl Default for KeyConfig {
             assign: key_assign(),
             jump: key_jump(),
             link_file: key_link_file(),
+            base: key_base(),
+            pull_requests: key_pull_requests(),
         }
     }
 }
@@ -206,8 +234,9 @@ impl KeyConfig {
             ("search", &self.search),
             ("help", &self.help),
             ("changes", &self.changes),
+            ("git", &self.git),
             ("files", &self.files),
-            ("tasks", &self.tasks),
+            ("issues", &self.issues),
             ("agents", &self.agents),
             ("toggle_preview", &self.toggle_preview),
             ("group_changes", &self.group_changes),
@@ -222,6 +251,7 @@ impl KeyConfig {
             ("assign", &self.assign),
             ("jump", &self.jump),
             ("link_file", &self.link_file),
+            ("base", &self.base),
         ];
 
         let mut seen = BTreeMap::<String, &str>::new();
@@ -232,6 +262,8 @@ impl KeyConfig {
                 bail!("duplicate key binding {normalized:?} for keys.{existing} and keys.{name}");
             }
         }
+        normalize_key(&self.pull_requests)
+            .with_context(|| "invalid key binding keys.pull_requests".to_string())?;
         Ok(())
     }
 }
@@ -275,6 +307,10 @@ fn default_data_dir() -> PathBuf {
     PathBuf::from(".agents/workdeck")
 }
 
+fn default_recent_commits() -> usize {
+    30
+}
+
 fn key_quit() -> String {
     "q".to_string()
 }
@@ -295,11 +331,15 @@ fn key_changes() -> String {
     "c".to_string()
 }
 
+fn key_git() -> String {
+    "G".to_string()
+}
+
 fn key_files() -> String {
     "f".to_string()
 }
 
-fn key_tasks() -> String {
+fn key_issues() -> String {
     "i".to_string()
 }
 
@@ -359,6 +399,14 @@ fn key_link_file() -> String {
     "L".to_string()
 }
 
+fn key_base() -> String {
+    "b".to_string()
+}
+
+fn key_pull_requests() -> String {
+    "p".to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -385,7 +433,22 @@ mod tests {
         assert!(!config.ui.preview);
         assert_eq!(config.ui.theme, "auto");
         assert_eq!(config.keys.quit, "q");
+        assert_eq!(config.keys.git, "G");
+        assert_eq!(config.git.recent_commits, 30);
         assert_eq!(config.paths.data_dir, PathBuf::from(".agents/workdeck"));
+    }
+
+    #[test]
+    fn legacy_tasks_keybinding_alias_still_loads_as_issues() {
+        let config: Config = toml::from_str(
+            r#"
+            [keys]
+            tasks = "I"
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(config.keys.issues, "I");
     }
 
     #[test]
@@ -454,6 +517,17 @@ mod tests {
         let error = config.validate().unwrap_err().to_string();
 
         assert!(error.contains("duplicate key binding"));
+    }
+
+    #[test]
+    fn rejects_duplicate_git_keybinding() {
+        let mut config = Config::default();
+        config.keys.git = config.keys.files.clone();
+
+        let error = config.validate().unwrap_err().to_string();
+
+        assert!(error.contains("duplicate key binding"));
+        assert!(error.contains("keys.git"));
     }
 
     #[test]

@@ -187,6 +187,82 @@ fn file_preview_detects_binary_from_bounded_sniff_window() {
     assert!(preview.content.contains("binary file"));
 }
 
+#[test]
+fn git_overview_reports_repo_without_upstream() {
+    let dir = tempdir().unwrap();
+    init_repo(dir.path());
+    fs::write(dir.path().join("README.md"), "hello\n").unwrap();
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-m", "initial"]);
+
+    let overview = git::scan_git_overview(dir.path(), None, 30).unwrap();
+
+    assert!(!overview.current_branch.is_empty());
+    assert_eq!(overview.upstream, None);
+    assert_eq!(overview.ahead, 0);
+    assert_eq!(overview.behind, 0);
+}
+
+#[test]
+fn git_overview_discovers_branch_tag_and_stash() {
+    let dir = tempdir().unwrap();
+    init_repo(dir.path());
+    fs::write(dir.path().join("README.md"), "hello\n").unwrap();
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-m", "initial"]);
+    git(dir.path(), &["checkout", "-b", "feature/git-tab"]);
+    git(dir.path(), &["tag", "v0.1.0"]);
+    fs::write(dir.path().join("README.md"), "hello\nstash\n").unwrap();
+    git(dir.path(), &["stash", "push", "-m", "save work"]);
+
+    let overview = git::scan_git_overview(dir.path(), None, 30).unwrap();
+
+    assert_eq!(overview.current_branch, "feature/git-tab");
+    assert!(
+        overview
+            .branches
+            .iter()
+            .any(|branch| branch.name == "feature/git-tab" && branch.is_current)
+    );
+    assert!(overview.tags.iter().any(|tag| tag.name == "v0.1.0"));
+    assert!(
+        overview
+            .stashes
+            .iter()
+            .any(|stash| stash.name == "stash@{0}")
+    );
+}
+
+#[test]
+fn git_commit_preview_contains_stat_and_patch() {
+    let dir = tempdir().unwrap();
+    init_repo(dir.path());
+    fs::write(dir.path().join("README.md"), "hello\n").unwrap();
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-m", "initial"]);
+    let sha = git_stdout(dir.path(), &["rev-parse", "HEAD"]);
+
+    let preview = git::git_commit_preview(dir.path(), sha.trim()).unwrap();
+
+    assert!(preview.content.contains("README.md"));
+    assert!(preview.content.contains("diff --git"));
+    assert!(preview.content.contains("+hello"));
+}
+
+#[test]
+fn git_summary_preview_handles_missing_base() {
+    let dir = tempdir().unwrap();
+    init_repo(dir.path());
+
+    let preview = git::git_summary_preview(dir.path(), None).unwrap();
+
+    assert!(
+        preview
+            .content
+            .contains("No base branch configured or detected")
+    );
+}
+
 fn init_repo(path: &Path) {
     git(path, &["init"]);
     git(path, &["config", "user.email", "workdeck@example.test"]);
@@ -207,4 +283,21 @@ fn git(cwd: &Path, args: &[&str]) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+fn git_stdout(cwd: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git {:?} failed\nstdout:\n{}\nstderr:\n{}",
+        args,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).to_string()
 }

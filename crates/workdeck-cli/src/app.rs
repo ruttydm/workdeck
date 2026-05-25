@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::git::{self, ChangeEntry, FilePreview, RepoSnapshot};
+use crate::git::{self, ChangeEntry, FilePreview, GitOverview, RepoSnapshot};
 use crate::search::{SearchIndex, SearchResult, SearchTarget, SymbolRecord};
 use crate::store::{AgentSession, Issue, ReferenceData, WorkdeckStore};
 use anyhow::{Context, Result};
@@ -10,17 +10,19 @@ use std::process::Command;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     Changes,
+    Git,
     Files,
-    Tasks,
+    Issues,
     Agents,
     Search,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 5] = [
+    pub const ALL: [Tab; 6] = [
         Tab::Changes,
+        Tab::Git,
         Tab::Files,
-        Tab::Tasks,
+        Tab::Issues,
         Tab::Agents,
         Tab::Search,
     ];
@@ -28,8 +30,9 @@ impl Tab {
     pub fn title(self) -> &'static str {
         match self {
             Tab::Changes => "Changes",
+            Tab::Git => "Git",
             Tab::Files => "Files",
-            Tab::Tasks => "Tasks",
+            Tab::Issues => "Issues",
             Tab::Agents => "Agents",
             Tab::Search => "Search",
         }
@@ -101,6 +104,24 @@ pub enum FileBrowserEntryKind {
     File,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GitRowKind {
+    Summary,
+    Branch(String),
+    Commit(String),
+    Stash(String),
+    Tag(String),
+    Remote(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitRow {
+    pub section: &'static str,
+    pub label: String,
+    pub detail: String,
+    pub kind: GitRowKind,
+}
+
 #[derive(Debug)]
 pub struct App {
     pub cwd: PathBuf,
@@ -122,6 +143,7 @@ pub struct App {
     pub refresh_generation: u64,
     pub changes: Vec<ChangeEntry>,
     pub snapshot: Option<RepoSnapshot>,
+    pub git_overview: Option<GitOverview>,
     pub files: Vec<PathBuf>,
     pub issues: Vec<Issue>,
     pub sessions: Vec<AgentSession>,
@@ -133,6 +155,7 @@ pub struct App {
     pub preview_loading: Option<PreviewTarget>,
     pub selected_change: usize,
     pub selected_change_row: usize,
+    pub selected_git_row: usize,
     pub selected_file: usize,
     pub selected_file_row: usize,
     pub files_cwd: PathBuf,
@@ -162,6 +185,12 @@ pub enum PreviewKind {
     Diff,
     Issue,
     Agent,
+    GitSummary,
+    GitCommit,
+    GitBranch,
+    GitStash,
+    GitTag,
+    GitRemote,
 }
 
 #[derive(Debug, Clone)]
@@ -174,6 +203,7 @@ pub struct PreviewData {
 pub struct RefreshData {
     pub generation: u64,
     pub snapshot: RepoSnapshot,
+    pub git_overview: GitOverview,
     pub files: Vec<PathBuf>,
     pub issues: Vec<Issue>,
     pub sessions: Vec<AgentSession>,
@@ -208,6 +238,7 @@ impl App {
             refresh_generation: 0,
             changes: Vec::new(),
             snapshot: None,
+            git_overview: None,
             files: Vec::new(),
             issues: Vec::new(),
             sessions: Vec::new(),
@@ -219,6 +250,7 @@ impl App {
             preview_loading: None,
             selected_change: 0,
             selected_change_row: 0,
+            selected_git_row: 0,
             selected_file: 0,
             selected_file_row: 0,
             files_cwd: PathBuf::new(),
@@ -252,6 +284,11 @@ impl App {
 
     pub fn load_refresh_data(&self, generation: u64) -> Result<RefreshData> {
         let snapshot = git::scan_repo(&self.repo_root)?;
+        let git_overview = git::scan_git_overview(
+            &self.repo_root,
+            Some(&self.config.git.base_branch),
+            self.config.git.recent_commits,
+        )?;
         let files = git::list_repo_files(&self.repo_root, 20_000)?;
         let issues = self.store.load_issues()?;
         let sessions = self.store.load_agent_sessions()?;
@@ -260,6 +297,7 @@ impl App {
         Ok(RefreshData {
             generation,
             snapshot,
+            git_overview,
             files,
             issues,
             sessions,
@@ -274,6 +312,7 @@ impl App {
         }
         self.changes = data.snapshot.changes.clone();
         self.snapshot = Some(data.snapshot);
+        self.git_overview = Some(data.git_overview);
         self.files = data.files;
         self.issues = data.issues;
         self.sessions = data.sessions;
@@ -307,6 +346,7 @@ impl App {
             &self.sessions,
             &self.reference_data,
             &self.symbols,
+            self.git_overview.as_ref(),
         );
         self.search_results = self.search_index.query(&self.search_query, 100);
         if self.selected_search >= self.search_results.len() {
@@ -317,8 +357,9 @@ impl App {
     pub fn selected_path(&self) -> Option<PathBuf> {
         match self.active_tab {
             Tab::Changes => self.selected_change_row_data().map(|row| row.path),
+            Tab::Git => None,
             Tab::Files => self.selected_file_browser_entry().map(|entry| entry.path),
-            Tab::Tasks => self
+            Tab::Issues => self
                 .issues
                 .get(self.selected_issue)
                 .and_then(|issue| issue.linked_files.first())
@@ -364,6 +405,10 @@ impl App {
                         .find(|issue| issue.labels.iter().any(|label| label == id))
                         .and_then(|issue| issue.linked_files.first())
                         .map(PathBuf::from),
+                    SearchTarget::GitCommit(_)
+                    | SearchTarget::GitBranch(_)
+                    | SearchTarget::GitStash(_)
+                    | SearchTarget::GitTag(_) => None,
                 }),
         }
     }
@@ -387,7 +432,34 @@ impl App {
                     .find(|session| session.id == id)
                     .map(agent_preview);
             }
-            PreviewKind::File | PreviewKind::Diff => {}
+            PreviewKind::GitTag => {
+                return Some(git_text_preview(
+                    format!("tag {}", target.path.display()),
+                    format!("# Tag\n\n`{}`", target.path.display()),
+                ));
+            }
+            PreviewKind::GitRemote => {
+                let name = target.path.to_string_lossy();
+                return self
+                    .git_overview
+                    .as_ref()
+                    .and_then(|overview| overview.remotes.iter().find(|remote| remote.name == name))
+                    .map(|remote| {
+                        git_text_preview(
+                            format!("remote {}", remote.name),
+                            format!(
+                                "# Remote `{}`\n\nFetch: `{}`\nPush: `{}`",
+                                remote.name, remote.fetch_url, remote.push_url
+                            ),
+                        )
+                    });
+            }
+            PreviewKind::File
+            | PreviewKind::Diff
+            | PreviewKind::GitSummary
+            | PreviewKind::GitCommit
+            | PreviewKind::GitBranch
+            | PreviewKind::GitStash => {}
         }
         self.preview_cache.as_ref().and_then(|cache| {
             if cache.target == target {
@@ -405,12 +477,13 @@ impl App {
                 path: self.selected_change_file_path()?,
                 kind: PreviewKind::Diff,
             }),
+            Tab::Git => self.git_preview_target(),
             Tab::Files => Some(PreviewTarget {
                 tab: self.active_tab,
                 path: self.selected_file_browser_file_path()?,
                 kind: PreviewKind::File,
             }),
-            Tab::Tasks => {
+            Tab::Issues => {
                 let issue = self.issues.get(self.selected_issue)?;
                 Some(PreviewTarget {
                     tab: self.active_tab,
@@ -451,6 +524,26 @@ impl App {
                         path: PathBuf::from(id),
                         kind: PreviewKind::Agent,
                     }),
+                    SearchTarget::GitCommit(sha) => Some(PreviewTarget {
+                        tab: self.active_tab,
+                        path: PathBuf::from(sha),
+                        kind: PreviewKind::GitCommit,
+                    }),
+                    SearchTarget::GitBranch(branch) => Some(PreviewTarget {
+                        tab: self.active_tab,
+                        path: PathBuf::from(branch),
+                        kind: PreviewKind::GitBranch,
+                    }),
+                    SearchTarget::GitStash(stash) => Some(PreviewTarget {
+                        tab: self.active_tab,
+                        path: PathBuf::from(stash),
+                        kind: PreviewKind::GitStash,
+                    }),
+                    SearchTarget::GitTag(tag) => Some(PreviewTarget {
+                        tab: self.active_tab,
+                        path: PathBuf::from(tag),
+                        kind: PreviewKind::GitTag,
+                    }),
                     SearchTarget::Project(_) | SearchTarget::Cycle(_) | SearchTarget::Label(_) => {
                         self.selected_path().map(|path| PreviewTarget {
                             tab: self.active_tab,
@@ -469,7 +562,10 @@ impl App {
         }
 
         let target = self.preview_target()?;
-        if matches!(target.kind, PreviewKind::Issue | PreviewKind::Agent) {
+        if matches!(
+            target.kind,
+            PreviewKind::Issue | PreviewKind::Agent | PreviewKind::GitTag | PreviewKind::GitRemote
+        ) {
             return None;
         }
         if self
@@ -522,12 +618,16 @@ impl App {
                 increment(&mut self.selected_change_row, rows.len());
                 self.sync_selected_change_from_row();
             }
+            Tab::Git => {
+                let rows = self.git_rows();
+                increment(&mut self.selected_git_row, rows.len());
+            }
             Tab::Files => {
                 let rows = self.file_tree_rows();
                 increment(&mut self.selected_file_row, rows.len());
                 self.sync_selected_file_from_row();
             }
-            Tab::Tasks => self.move_issue_selection(1),
+            Tab::Issues => self.move_issue_selection(1),
             Tab::Agents => increment(&mut self.selected_session, self.sessions.len()),
             Tab::Search => increment(&mut self.selected_search, self.search_results.len()),
         }
@@ -543,11 +643,12 @@ impl App {
                 decrement(&mut self.selected_change_row);
                 self.sync_selected_change_from_row();
             }
+            Tab::Git => decrement(&mut self.selected_git_row),
             Tab::Files => {
                 decrement(&mut self.selected_file_row);
                 self.sync_selected_file_from_row();
             }
-            Tab::Tasks => self.move_issue_selection(-1),
+            Tab::Issues => self.move_issue_selection(-1),
             Tab::Agents => decrement(&mut self.selected_session),
             Tab::Search => decrement(&mut self.selected_search),
         }
@@ -649,7 +750,7 @@ impl App {
             .iter()
             .position(|candidate| candidate.key == issue.key)
             .unwrap_or(0);
-        self.active_tab = Tab::Tasks;
+        self.active_tab = Tab::Issues;
         Ok(())
     }
 
@@ -781,8 +882,10 @@ impl App {
 
     pub fn jump_between_issue_and_file(&mut self) {
         match self.active_tab {
-            Tab::Tasks => self.jump_from_issue_to_file(),
-            Tab::Changes | Tab::Files | Tab::Agents => self.jump_from_file_to_issue_or_file(),
+            Tab::Issues => self.jump_from_issue_to_file(),
+            Tab::Changes | Tab::Git | Tab::Files | Tab::Agents => {
+                self.jump_from_file_to_issue_or_file()
+            }
             Tab::Search => {}
         }
     }
@@ -828,7 +931,7 @@ impl App {
             return;
         };
         self.selected_issue = index;
-        self.active_tab = Tab::Tasks;
+        self.active_tab = Tab::Issues;
         self.status_message = format!("issue {}", self.issues[index].key);
     }
 
@@ -879,7 +982,7 @@ impl App {
 
     pub fn copy_selected_reference(&mut self) {
         let text = match self.active_tab {
-            Tab::Tasks => self
+            Tab::Issues => self
                 .issues
                 .get(self.selected_issue)
                 .map(|issue| issue.key.clone()),
@@ -919,7 +1022,7 @@ impl App {
                 }
             }
             SearchTarget::Issue(key) => {
-                self.active_tab = Tab::Tasks;
+                self.active_tab = Tab::Issues;
                 if let Some(index) = self.issues.iter().position(|issue| issue.key == key) {
                     self.selected_issue = index;
                 }
@@ -930,18 +1033,46 @@ impl App {
                     self.selected_session = index;
                 }
             }
+            SearchTarget::GitCommit(sha) => {
+                self.active_tab = Tab::Git;
+                self.select_git_row(
+                    |row| matches!(&row.kind, GitRowKind::Commit(value) if value == &sha),
+                );
+                self.status_message = format!("commit {sha}");
+            }
+            SearchTarget::GitBranch(branch) => {
+                self.active_tab = Tab::Git;
+                self.select_git_row(
+                    |row| matches!(&row.kind, GitRowKind::Branch(value) if value == &branch),
+                );
+                self.status_message = format!("branch {branch}");
+            }
+            SearchTarget::GitStash(stash) => {
+                self.active_tab = Tab::Git;
+                self.select_git_row(
+                    |row| matches!(&row.kind, GitRowKind::Stash(value) if value == &stash),
+                );
+                self.status_message = format!("stash {stash}");
+            }
+            SearchTarget::GitTag(tag) => {
+                self.active_tab = Tab::Git;
+                self.select_git_row(
+                    |row| matches!(&row.kind, GitRowKind::Tag(value) if value == &tag),
+                );
+                self.status_message = format!("tag {tag}");
+            }
             SearchTarget::Project(id) => {
-                self.active_tab = Tab::Tasks;
+                self.active_tab = Tab::Issues;
                 self.select_first_matching_issue(|issue| issue.project == id.as_str());
                 self.status_message = format!("project {id}");
             }
             SearchTarget::Cycle(id) => {
-                self.active_tab = Tab::Tasks;
+                self.active_tab = Tab::Issues;
                 self.select_first_matching_issue(|issue| issue.cycle == id.as_str());
                 self.status_message = format!("cycle {id}");
             }
             SearchTarget::Label(id) => {
-                self.active_tab = Tab::Tasks;
+                self.active_tab = Tab::Issues;
                 self.select_first_matching_issue(|issue| {
                     issue.labels.iter().any(|label| label == id.as_str())
                 });
@@ -1097,8 +1228,10 @@ impl App {
         clamp(&mut self.selected_change, self.changes.len());
         clamp(&mut self.selected_file, self.files.len());
         let change_rows_len = self.change_tree_rows().len();
+        let git_rows_len = self.git_rows().len();
         let file_rows_len = self.file_tree_rows().len();
         clamp(&mut self.selected_change_row, change_rows_len);
+        clamp(&mut self.selected_git_row, git_rows_len);
         clamp(&mut self.selected_file_row, file_rows_len);
         self.clamp_file_browser_selection();
         clamp(&mut self.selected_issue, self.issues.len());
@@ -1135,6 +1268,60 @@ impl App {
             self.files.iter().map(|path| path.as_path()),
             &self.collapsed_file_dirs,
         )
+    }
+
+    pub fn git_rows(&self) -> Vec<GitRow> {
+        let Some(overview) = &self.git_overview else {
+            return Vec::new();
+        };
+        let mut rows = vec![GitRow {
+            section: "Git",
+            label: overview.current_branch.clone(),
+            detail: git_summary_detail(overview),
+            kind: GitRowKind::Summary,
+        }];
+
+        rows.extend(overview.branches.iter().map(|branch| GitRow {
+            section: "Branches",
+            label: branch.name.clone(),
+            detail: if branch.is_current {
+                "current".to_string()
+            } else if branch.is_remote {
+                "remote".to_string()
+            } else {
+                branch
+                    .upstream
+                    .clone()
+                    .unwrap_or_else(|| "local".to_string())
+            },
+            kind: GitRowKind::Branch(branch.name.clone()),
+        }));
+        rows.extend(overview.recent_commits.iter().map(|commit| GitRow {
+            section: "Recent commits",
+            label: format!("{} {}", commit.short_sha, commit.summary),
+            detail: format!("{} {}", commit.date, commit.author),
+            kind: GitRowKind::Commit(commit.sha.clone()),
+        }));
+        rows.extend(overview.stashes.iter().map(|stash| GitRow {
+            section: "Stashes",
+            label: stash.name.clone(),
+            detail: stash.summary.clone(),
+            kind: GitRowKind::Stash(stash.name.clone()),
+        }));
+        rows.extend(overview.tags.iter().map(|tag| GitRow {
+            section: "Tags",
+            label: tag.name.clone(),
+            detail: String::new(),
+            kind: GitRowKind::Tag(tag.name.clone()),
+        }));
+        rows.extend(overview.remotes.iter().map(|remote| GitRow {
+            section: "Remotes",
+            label: remote.name.clone(),
+            detail: format!("fetch {}", remote.fetch_url),
+            kind: GitRowKind::Remote(remote.name.clone()),
+        }));
+
+        rows
     }
 
     pub fn file_browser_entries(&self) -> Vec<FileBrowserEntry> {
@@ -1209,6 +1396,41 @@ impl App {
         self.file_browser_entries()
             .get(self.selected_file_entry)
             .cloned()
+    }
+
+    pub fn selected_git_row_data(&self) -> Option<GitRow> {
+        self.git_rows().get(self.selected_git_row).cloned()
+    }
+
+    fn git_preview_target(&self) -> Option<PreviewTarget> {
+        let row = self.selected_git_row_data()?;
+        let (path, kind) = match row.kind {
+            GitRowKind::Summary => (
+                PathBuf::from(
+                    self.git_overview
+                        .as_ref()
+                        .and_then(|overview| overview.base_branch.clone())
+                        .unwrap_or_default(),
+                ),
+                PreviewKind::GitSummary,
+            ),
+            GitRowKind::Branch(branch) => (PathBuf::from(branch), PreviewKind::GitBranch),
+            GitRowKind::Commit(sha) => (PathBuf::from(sha), PreviewKind::GitCommit),
+            GitRowKind::Stash(stash) => (PathBuf::from(stash), PreviewKind::GitStash),
+            GitRowKind::Tag(tag) => (PathBuf::from(tag), PreviewKind::GitTag),
+            GitRowKind::Remote(remote) => (PathBuf::from(remote), PreviewKind::GitRemote),
+        };
+        Some(PreviewTarget {
+            tab: self.active_tab,
+            path,
+            kind,
+        })
+    }
+
+    fn select_git_row(&mut self, predicate: impl Fn(&GitRow) -> bool) {
+        if let Some(index) = self.git_rows().iter().position(predicate) {
+            self.selected_git_row = index;
+        }
     }
 
     fn selected_change_file_path(&self) -> Option<PathBuf> {
@@ -1383,6 +1605,26 @@ fn clamp(index: &mut usize, len: usize) {
         *index = 0;
     } else if *index >= len {
         *index = len - 1;
+    }
+}
+
+fn git_summary_detail(overview: &GitOverview) -> String {
+    let mut parts = vec![format!("↑{} ↓{}", overview.ahead, overview.behind)];
+    if let Some(base) = &overview.base_branch {
+        parts.push(format!("base {base}"));
+    }
+    if let Some(remote) = overview.remotes.first() {
+        parts.push(format!("remote {}", remote.name));
+    }
+    parts.join(" ")
+}
+
+fn git_text_preview(title: String, content: String) -> FilePreview {
+    FilePreview {
+        title,
+        content,
+        truncated: false,
+        binary: false,
     }
 }
 
@@ -1639,8 +1881,20 @@ mod tests {
 
     #[test]
     fn tabs_wrap() {
+        assert_eq!(
+            Tab::ALL,
+            [
+                Tab::Changes,
+                Tab::Git,
+                Tab::Files,
+                Tab::Issues,
+                Tab::Agents,
+                Tab::Search
+            ]
+        );
         assert_eq!(Tab::Changes.previous(), Tab::Search);
         assert_eq!(Tab::Search.next(), Tab::Changes);
+        assert_eq!(Tab::Changes.next(), Tab::Git);
     }
 
     #[test]
@@ -1713,14 +1967,14 @@ mod tests {
     }
 
     #[test]
-    fn task_movement_follows_visual_status_order() {
+    fn issues_movement_follows_visual_status_order() {
         let mut app = new_with_parts_for_test(vec![
             Issue::new("WD-1".to_string(), "Done issue".to_string()),
             Issue::new("WD-2".to_string(), "Inbox issue".to_string()),
         ]);
         app.issues[0].status = crate::store::IssueStatus::Done;
         app.issues[1].status = crate::store::IssueStatus::Inbox;
-        app.active_tab = Tab::Tasks;
+        app.active_tab = Tab::Issues;
         app.selected_issue = 1;
 
         app.move_down();
@@ -1925,6 +2179,53 @@ mod tests {
     }
 
     #[test]
+    fn git_rows_drive_selection_and_preview_targets() {
+        let mut app = new_with_parts_for_test(Vec::new());
+        app.active_tab = Tab::Git;
+        app.git_overview = Some(GitOverview {
+            current_branch: "feature/git".to_string(),
+            upstream: Some("origin/feature/git".to_string()),
+            ahead: 2,
+            behind: 0,
+            base_branch: Some("origin/main".to_string()),
+            remotes: vec![crate::git::GitRemote {
+                name: "origin".to_string(),
+                fetch_url: "https://example.test/repo.git".to_string(),
+                push_url: "https://example.test/repo.git".to_string(),
+            }],
+            branches: vec![crate::git::GitBranch {
+                name: "feature/git".to_string(),
+                is_current: true,
+                is_remote: false,
+                upstream: Some("origin/feature/git".to_string()),
+            }],
+            recent_commits: vec![crate::git::GitCommit {
+                sha: "abc123456".to_string(),
+                short_sha: "abc1234".to_string(),
+                summary: "Add Git tab".to_string(),
+                author: "Rutger".to_string(),
+                date: "2026-05-25".to_string(),
+            }],
+            stashes: Vec::new(),
+            tags: Vec::new(),
+        });
+
+        let summary = app.preview_target().unwrap();
+        assert_eq!(summary.kind, PreviewKind::GitSummary);
+        assert_eq!(summary.path, PathBuf::from("origin/main"));
+
+        app.move_down();
+        let branch = app.preview_target().unwrap();
+        assert_eq!(branch.kind, PreviewKind::GitBranch);
+        assert_eq!(branch.path, PathBuf::from("feature/git"));
+
+        app.move_down();
+        let commit = app.preview_target().unwrap();
+        assert_eq!(commit.kind, PreviewKind::GitCommit);
+        assert_eq!(commit.path, PathBuf::from("abc123456"));
+    }
+
+    #[test]
     fn reveal_selected_context_enables_preview() {
         let mut app = new_with_parts_for_test(Vec::new());
         app.active_tab = Tab::Files;
@@ -1974,7 +2275,7 @@ mod tests {
         app.active_tab = Tab::Search;
         app.selected_search = 1;
         app.accept_search_result();
-        assert_eq!(app.active_tab, Tab::Tasks);
+        assert_eq!(app.active_tab, Tab::Issues);
         assert_eq!(app.selected_issue, 0);
         assert_eq!(app.status_message, "project workdeck-mvp");
     }
@@ -1990,7 +2291,7 @@ mod tests {
             crate::store::Label::new("git".to_string(), "Git".to_string()),
             crate::store::Label::new("preview".to_string(), "Preview".to_string()),
         ];
-        app.active_tab = Tab::Tasks;
+        app.active_tab = Tab::Issues;
 
         app.toggle_selected_issue_label().unwrap();
         assert_eq!(app.issues[0].labels, vec!["git"]);
@@ -2012,7 +2313,7 @@ mod tests {
         let issue = store.create_issue("Assign me".to_string()).unwrap();
         let mut app = new_with_parts_for_test(vec![issue]);
         app.store = store;
-        app.active_tab = Tab::Tasks;
+        app.active_tab = Tab::Issues;
 
         app.toggle_selected_issue_assignee_to("rutger".to_string())
             .unwrap();
@@ -2031,7 +2332,7 @@ mod tests {
         issue.linked_files = vec!["src/main.rs".to_string()];
         let mut app = new_with_parts_for_test(vec![issue]);
         app.files = vec![PathBuf::from("src/main.rs")];
-        app.active_tab = Tab::Tasks;
+        app.active_tab = Tab::Issues;
 
         app.jump_between_issue_and_file();
         assert_eq!(app.active_tab, Tab::Files);
@@ -2040,27 +2341,27 @@ mod tests {
         assert_eq!(app.status_message, "file src/main.rs");
 
         app.jump_between_issue_and_file();
-        assert_eq!(app.active_tab, Tab::Tasks);
+        assert_eq!(app.active_tab, Tab::Issues);
         assert_eq!(app.selected_issue, 0);
         assert_eq!(app.status_message, "issue WD-1");
     }
 
     #[test]
     fn issue_preview_is_markdown_shaped_for_syntax_highlighting() {
-        let mut issue = Issue::new("WD-1".to_string(), "Highlight task".to_string());
+        let mut issue = Issue::new("WD-1".to_string(), "Highlight issue".to_string());
         issue.status = crate::store::IssueStatus::InProgress;
         issue.priority = crate::store::Priority::High;
         issue.labels = vec!["ux".to_string(), "preview".to_string()];
         issue.linked_files = vec!["src/app.rs".to_string()];
         issue.linked_commits = vec!["abc123".to_string()];
-        issue.description = "Review task preview colors.".to_string();
+        issue.description = "Review issue preview colors.".to_string();
         let mut app = new_with_parts_for_test(vec![issue]);
-        app.active_tab = Tab::Tasks;
+        app.active_tab = Tab::Issues;
 
         let preview = app.selected_preview().unwrap();
 
-        assert_eq!(preview.title, "WD-1 Highlight task");
-        assert!(preview.content.contains("# WD-1 Highlight task"));
+        assert_eq!(preview.title, "WD-1 Highlight issue");
+        assert!(preview.content.contains("# WD-1 Highlight issue"));
         assert!(preview.content.contains("Status: `In Progress`"));
         assert!(preview.content.contains("Labels: `ux`, `preview`"));
         assert!(preview.content.contains("## Linked files"));
@@ -2162,6 +2463,7 @@ mod tests {
             refresh_generation: 0,
             changes: Vec::new(),
             snapshot: None,
+            git_overview: None,
             files: Vec::new(),
             issues,
             sessions: Vec::new(),
@@ -2173,6 +2475,7 @@ mod tests {
             preview_loading: None,
             selected_change: 0,
             selected_change_row: 0,
+            selected_git_row: 0,
             selected_file: 0,
             selected_file_row: 0,
             files_cwd: PathBuf::new(),
@@ -2212,11 +2515,27 @@ mod tests {
                 changes: changes.clone(),
                 groups: crate::git::group_by_directory(&changes),
             },
+            git_overview: empty_git_overview_for_test(),
             files: vec![PathBuf::from(path)],
             issues: Vec::new(),
             sessions: Vec::new(),
             reference_data: ReferenceData::default(),
             symbols: Vec::new(),
+        }
+    }
+
+    fn empty_git_overview_for_test() -> GitOverview {
+        GitOverview {
+            current_branch: "main".to_string(),
+            upstream: None,
+            ahead: 0,
+            behind: 0,
+            base_branch: None,
+            remotes: Vec::new(),
+            branches: Vec::new(),
+            recent_commits: Vec::new(),
+            stashes: Vec::new(),
+            tags: Vec::new(),
         }
     }
 }

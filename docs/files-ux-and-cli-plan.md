@@ -54,7 +54,7 @@ l / Enter     enter folder, or preview file
 h / Esc       parent folder, or return from preview to browser
 Backspace     parent folder
 g/G           top/bottom
-/             search files/tasks/changes
+/             search files/issues/changes
 t             toggle preview availability
 o             open selected file in $EDITOR
 y             copy selected path
@@ -104,7 +104,7 @@ Medium/wide Files:
 
 - Keep the current tree plus preview layout.
 - Reuse the same selection target as narrow mode where practical.
-- If the selected file came from search or task jump, reveal its parent path.
+- If the selected file came from search or issue jump, reveal its parent path.
 
 ### Preview Behavior
 

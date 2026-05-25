@@ -1,4 +1,4 @@
-use crate::git::ChangeEntry;
+use crate::git::{ChangeEntry, GitOverview};
 use crate::store::{AgentSession, Issue, ReferenceData};
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
@@ -12,6 +12,10 @@ pub enum SearchTarget {
     Change(PathBuf),
     Issue(String),
     AgentSession(String),
+    GitCommit(String),
+    GitBranch(String),
+    GitStash(String),
+    GitTag(String),
     Project(String),
     Cycle(String),
     Label(String),
@@ -57,6 +61,7 @@ impl SearchIndex {
         sessions: &[AgentSession],
         references: &ReferenceData,
         symbols: &[SymbolRecord],
+        git_overview: Option<&GitOverview>,
     ) -> Self {
         let mut records = Vec::new();
         for file in files {
@@ -133,6 +138,62 @@ impl SearchIndex {
                 detail,
                 target: SearchTarget::AgentSession(session.id.clone()),
             });
+        }
+
+        if let Some(overview) = git_overview {
+            records.push(SearchRecord {
+                label: overview.current_branch.clone(),
+                detail: "git current branch".to_string(),
+                haystack: format!(
+                    "{} {}",
+                    overview.current_branch,
+                    overview.upstream.as_deref().unwrap_or_default()
+                ),
+                target: SearchTarget::GitBranch(overview.current_branch.clone()),
+            });
+            for branch in &overview.branches {
+                records.push(SearchRecord {
+                    label: branch.name.clone(),
+                    detail: if branch.is_remote {
+                        "git remote branch".to_string()
+                    } else {
+                        "git branch".to_string()
+                    },
+                    haystack: format!(
+                        "{} {}",
+                        branch.name,
+                        branch.upstream.as_deref().unwrap_or_default()
+                    ),
+                    target: SearchTarget::GitBranch(branch.name.clone()),
+                });
+            }
+            for commit in &overview.recent_commits {
+                let label = format!("{} {}", commit.short_sha, commit.summary);
+                let detail = format!("git commit {} {}", commit.date, commit.author);
+                records.push(SearchRecord {
+                    haystack: format!("{label} {detail} {}", commit.sha),
+                    label,
+                    detail,
+                    target: SearchTarget::GitCommit(commit.sha.clone()),
+                });
+            }
+            for stash in &overview.stashes {
+                let label = format!("{} {}", stash.name, stash.summary);
+                records.push(SearchRecord {
+                    haystack: label.clone(),
+                    label,
+                    detail: "git stash".to_string(),
+                    target: SearchTarget::GitStash(stash.name.clone()),
+                });
+            }
+            for tag in &overview.tags {
+                records.push(SearchRecord {
+                    haystack: tag.name.clone(),
+                    label: tag.name.clone(),
+                    detail: "git tag".to_string(),
+                    target: SearchTarget::GitTag(tag.name.clone()),
+                });
+            }
         }
 
         for project in &references.projects {
@@ -419,7 +480,15 @@ mod tests {
     #[test]
     fn finds_issue_by_key() {
         let issue = Issue::new("WD-42".to_string(), "Render changes".to_string());
-        let index = SearchIndex::rebuild(&[], &[], &[issue], &[], &ReferenceData::default(), &[]);
+        let index = SearchIndex::rebuild(
+            &[],
+            &[],
+            &[issue],
+            &[],
+            &ReferenceData::default(),
+            &[],
+            None,
+        );
 
         let results = index.query("42", 5);
 
@@ -434,7 +503,15 @@ mod tests {
         issue.project = "workdeck-mvp".to_string();
         issue.labels = vec!["preview".to_string(), "binary".to_string()];
         issue.linked_files = vec!["crates/workdeck-cli/src/git/mod.rs".to_string()];
-        let index = SearchIndex::rebuild(&[], &[], &[issue], &[], &ReferenceData::default(), &[]);
+        let index = SearchIndex::rebuild(
+            &[],
+            &[],
+            &[issue],
+            &[],
+            &ReferenceData::default(),
+            &[],
+            None,
+        );
 
         let results = index.query("binary", 5);
 
@@ -453,7 +530,15 @@ mod tests {
             path: "crates/workdeck-cli/src/app.rs".to_string(),
             change_type: "modified".to_string(),
         }];
-        let index = SearchIndex::rebuild(&[], &[], &[], &[session], &ReferenceData::default(), &[]);
+        let index = SearchIndex::rebuild(
+            &[],
+            &[],
+            &[],
+            &[session],
+            &ReferenceData::default(),
+            &[],
+            None,
+        );
 
         let results = index.query("render path", 5);
 
@@ -481,7 +566,7 @@ mod tests {
             name: "refresh_workspace".to_string(),
             kind: "fn".to_string(),
         }];
-        let index = SearchIndex::rebuild(&[], &[], &[], &[], &references, &symbols);
+        let index = SearchIndex::rebuild(&[], &[], &[], &[], &references, &symbols, None);
 
         assert!(matches!(
             index.query("mvp", 5)[0].record.target,
@@ -490,6 +575,56 @@ mod tests {
         assert!(matches!(
             index.query("refresh workspace", 5)[0].record.target,
             SearchTarget::Symbol { .. }
+        ));
+    }
+
+    #[test]
+    fn finds_git_overview_records() {
+        let overview = GitOverview {
+            current_branch: "feature/git".to_string(),
+            upstream: None,
+            ahead: 0,
+            behind: 0,
+            base_branch: None,
+            remotes: Vec::new(),
+            branches: vec![crate::git::GitBranch {
+                name: "feature/git".to_string(),
+                is_current: true,
+                is_remote: false,
+                upstream: None,
+            }],
+            recent_commits: vec![crate::git::GitCommit {
+                sha: "abc123456".to_string(),
+                short_sha: "abc1234".to_string(),
+                summary: "Add Git tab".to_string(),
+                author: "Rutger".to_string(),
+                date: "2026-05-25".to_string(),
+            }],
+            stashes: vec![crate::git::GitStash {
+                name: "stash@{0}".to_string(),
+                summary: "WIP on feature/git".to_string(),
+            }],
+            tags: vec![crate::git::GitTag {
+                name: "v0.1.0".to_string(),
+            }],
+        };
+        let index = SearchIndex::rebuild(
+            &[],
+            &[],
+            &[],
+            &[],
+            &ReferenceData::default(),
+            &[],
+            Some(&overview),
+        );
+
+        assert!(matches!(
+            index.query("git tab", 5)[0].record.target,
+            SearchTarget::GitCommit(_)
+        ));
+        assert!(matches!(
+            index.query("v0.1.0", 5)[0].record.target,
+            SearchTarget::GitTag(_)
         ));
     }
 
