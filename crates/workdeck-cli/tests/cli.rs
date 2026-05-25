@@ -30,6 +30,22 @@ fn version_renders() {
 }
 
 #[test]
+fn outside_git_repo_prints_actionable_error() {
+    let dir = tempdir().unwrap();
+
+    workdeck()
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Workdeck must be run inside a Git repository",
+        ))
+        .stderr(predicate::str::contains("workdeck --cwd <repo-path>"))
+        .stderr(predicate::str::contains("git init"));
+}
+
+#[test]
 fn init_creates_agents_workdeck_store() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init"]);

@@ -154,8 +154,12 @@ pub struct GitTag {
 }
 
 pub fn discover_repo_root(cwd: &Path) -> Result<PathBuf> {
-    let repo = Repository::discover(cwd)
-        .with_context(|| format!("failed to discover git repo from {}", cwd.display()))?;
+    let repo = Repository::discover(cwd).with_context(|| {
+        format!(
+            "Workdeck must be run inside a Git repository; {} is not in one. Run `workdeck --cwd <repo-path>` or initialize this directory with `git init`.",
+            cwd.display()
+        )
+    })?;
     Ok(repo
         .workdir()
         .context("bare repositories are not supported")?
