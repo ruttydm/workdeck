@@ -1,0 +1,35 @@
+[package]
+name = "workdeck-cli"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Terminal-native sidecar for agentic coding"
+readme = "README.md"
+keywords = ["tui", "git", "terminal", "tasks", "agents"]
+categories = ["command-line-utilities", "development-tools"]
+
+[[bin]]
+name = "workdeck"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+arboard = "3.6"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.5", features = ["derive"] }
+crossterm = "0.28"
+fuzzy-matcher = "0.3"
+git2 = "0.20"
+ignore = "0.4"
+ratatui = "0.29"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+syntect = "5.2"
+thiserror = "2.0"
+toml = "0.8"
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.1"
+tempfile = "3.13"

@@ -1,0 +1,17 @@
+key = "WD-1"
+title = "Polish narrow Files browser"
+description = ""
+status = "in-progress"
+priority = "high"
+project = "workdeck-mvp"
+cycle = "polish-sprint"
+assignee = ""
+created_at = "2026-05-24T19:11:20.113834+00:00"
+updated_at = "2026-05-24T19:11:20.117040+00:00"
+due_at = ""
+labels = ["ux"]
+linked_files = [
+    "crates/workdeck-cli/src/app.rs",
+    "crates/workdeck-cli/src/views/mod.rs",
+]
+linked_commits = []

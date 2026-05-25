@@ -1,0 +1,14 @@
+key = "WD-5"
+title = "Add import merge conflict tests"
+description = ""
+status = "inbox"
+priority = "low"
+project = "workdeck-mvp"
+cycle = ""
+assignee = ""
+created_at = "2026-05-24T19:11:20.162713+00:00"
+updated_at = "2026-05-24T19:11:20.164413+00:00"
+due_at = ""
+labels = ["cli"]
+linked_files = ["crates/workdeck-cli/tests/cli.rs"]
+linked_commits = []

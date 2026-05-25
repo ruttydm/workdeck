@@ -1,0 +1,14 @@
+[[labels]]
+id = "cli"
+name = "CLI"
+color = "green"
+
+[[labels]]
+id = "git"
+name = "Git"
+color = "yellow"
+
+[[labels]]
+id = "ux"
+name = "UX"
+color = "cyan"

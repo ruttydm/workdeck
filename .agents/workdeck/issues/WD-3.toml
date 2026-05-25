@@ -1,0 +1,14 @@
+key = "WD-3"
+title = "Add change intent grouping"
+description = ""
+status = "backlog"
+priority = "medium"
+project = "workdeck-mvp"
+cycle = ""
+assignee = ""
+created_at = "2026-05-24T19:11:20.137361+00:00"
+updated_at = "2026-05-24T19:11:20.138488+00:00"
+due_at = ""
+labels = ["git"]
+linked_files = ["crates/workdeck-cli/src/git/mod.rs"]
+linked_commits = []

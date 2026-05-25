@@ -1,0 +1,29 @@
+id = "codex-cli-buildout"
+title = "Headless CLI buildout"
+agent = "codex"
+cwd = "/Users/rutger/Projects/workdeck"
+status = "done"
+started_at = "2026-05-24T20:43:35.866129+00:00"
+ended_at = "2026-05-24T20:43:47.806449+00:00"
+goal = "Implement file-backed issues, agents, search, and JSON output"
+summary = "Built the headless CLI and file-backed store paths for local Workdeck state."
+plan = [
+    "Implement CLI issue lifecycle",
+    "Add agent session commands",
+    "Add JSON envelopes",
+]
+commands_run = ["cargo test"]
+tests_run = ["cargo test"]
+handoff_notes = ["Use this as sample data for the Agents tab."]
+
+[[touched_files]]
+path = "crates/workdeck-cli/src/main.rs"
+change_type = ""
+
+[[touched_files]]
+path = "crates/workdeck-cli/src/store/mod.rs"
+change_type = ""
+
+[[touched_files]]
+path = "crates/workdeck-cli/tests/cli.rs"
+change_type = ""

@@ -1,0 +1,29 @@
+[ui]
+theme = "auto"
+preview = true
+
+[paths]
+data_dir = ".agents/workdeck"
+
+[keys]
+quit = "q"
+refresh = "r"
+search = "/"
+help = "?"
+changes = "c"
+files = "f"
+tasks = "i"
+agents = "a"
+toggle_preview = "t"
+group_changes = "g"
+toggle_dirstat = "w"
+open_editor = "o"
+copy = "y"
+new_issue = "n"
+edit_issue = "e"
+status = "s"
+priority = "p"
+labels = "l"
+assign = "A"
+jump = "space"
+link_file = "L"

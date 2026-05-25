@@ -1,0 +1,7 @@
+[[projects]]
+id = "workdeck-mvp"
+name = "Workdeck MVP"
+description = "Local TUI and headless CLI milestone"
+status = "active"
+created_at = "2026-05-24T19:11:20.058037+00:00"
+updated_at = "2026-05-24T19:11:20.058037+00:00"

@@ -1,0 +1,17 @@
+key = "WD-2"
+title = "Document JSON envelope contract"
+description = ""
+status = "todo"
+priority = "medium"
+project = "workdeck-mvp"
+cycle = "polish-sprint"
+assignee = ""
+created_at = "2026-05-24T19:11:20.126293+00:00"
+updated_at = "2026-05-24T19:11:20.127893+00:00"
+due_at = ""
+labels = ["cli"]
+linked_files = [
+    "README.md",
+    "docs/files-ux-and-cli-plan.md",
+]
+linked_commits = []
