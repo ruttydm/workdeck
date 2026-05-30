@@ -6,10 +6,11 @@ Workdeck is a terminal-native sidecar for agentic coding. It runs as a narrow pa
 
 - Rust single-binary CLI
 - Ratatui + crossterm terminal UI
+- Local read-only web UI with embedded assets and live refresh events
 - Default `Changes` tab with dirty Git files grouped by directory
 - Local-only `Git` tab for branch, upstream, base, commits, stashes, tags, and remotes
 - Changes grouping toggle for directory view or status/intent view
-- Compact change glyphs: `+` untracked, `M` modified, `A` added, `D` deleted, `R` renamed, `S` staged, `S+` staged plus unstaged
+- Compact change glyphs: `.` modified, `+` added/untracked, `-` deleted, `S` staged, `S+` staged plus unstaged, `!` conflict
 - Dirstat weight toggle for file counts and compact churn like `+12`, `-4`, or `+12/-4`
 - Folder-shaped `Files` tab with `.gitignore` support
 - File and diff preview with syntax highlighting
@@ -110,6 +111,13 @@ Run the TUI in a Git repo:
 
 ```sh
 workdeck
+```
+
+Run the local read-only web UI:
+
+```sh
+workdeck web
+workdeck --web --host 127.0.0.1 --port 4766 --no-live
 ```
 
 Initialize the repo-local Workdeck store:

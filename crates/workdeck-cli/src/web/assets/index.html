@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Workdeck</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <nav id="tabs" class="tabs" aria-label="Workdeck tabs"></nav>
+      <div id="status" class="status">Loading</div>
+    </header>
+    <main class="shell">
+      <section class="list-pane" id="listPane"></section>
+      <section class="preview-pane" id="previewPane">
+        <div class="empty">Select an item</div>
+      </section>
+    </main>
+  </div>
+  <script src="/vendor/highlight.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

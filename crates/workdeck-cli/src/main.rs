@@ -5,11 +5,16 @@ use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use workdeck_cli::app::App;
 use workdeck_cli::config::Config;
 use workdeck_cli::git;
+use workdeck_cli::payload::{
+    changes_grouped_by_status, file_preview_payload, search_target_group, search_target_payload,
+    status_payload,
+};
 use workdeck_cli::store::{
     AgentSession, AgentTouchedFile, Cycle, Issue, IssueStatus, IssueUpdate, Label, Priority,
     Project, ReferenceData, StoreEvent, WorkdeckStore,
@@ -29,12 +34,33 @@ struct Args {
     #[arg(long, help = "Print a JSON status snapshot without opening the TUI")]
     status_json: bool,
 
+    #[arg(long, help = "Run the local read-only web UI instead of the TUI")]
+    web: bool,
+
+    #[arg(long, value_name = "HOST", default_value = "127.0.0.1")]
+    host: IpAddr,
+
+    #[arg(long, value_name = "PORT", default_value_t = 4766)]
+    port: u16,
+
+    #[arg(long, help = "Disable live web refresh events")]
+    no_live: bool,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    #[command(about = "Run the local read-only web UI")]
+    Web {
+        #[arg(long, value_name = "HOST", default_value = "127.0.0.1")]
+        host: IpAddr,
+        #[arg(long, value_name = "PORT", default_value_t = 4766)]
+        port: u16,
+        #[arg(long, help = "Disable live refresh events")]
+        no_live: bool,
+    },
     #[command(about = "Print a Git status snapshot")]
     Status {
         #[arg(long, help = "Print status as JSON")]
@@ -687,8 +713,37 @@ fn run(args: Args) -> Result<()> {
         return Ok(());
     }
 
+    if args.web {
+        if args.command.is_some() {
+            bail!("--web cannot be combined with a subcommand; use `workdeck web` instead");
+        }
+        workdeck_cli::web::run(
+            repo_root,
+            config,
+            workdeck_cli::web::WebOptions {
+                host: args.host,
+                port: args.port,
+                live: !args.no_live,
+            },
+        )?;
+        return Ok(());
+    }
+
     if let Some(command) = args.command {
         match command {
+            Command::Web {
+                host,
+                port,
+                no_live,
+            } => workdeck_cli::web::run(
+                repo_root,
+                config,
+                workdeck_cli::web::WebOptions {
+                    host,
+                    port,
+                    live: !no_live,
+                },
+            )?,
             Command::Status { json } => print_status(&repo_root, json)?,
             Command::Files { command } => handle_files_command(&repo_root, command)?,
             Command::Changes { command } => handle_changes_command(&repo_root, command)?,
@@ -696,7 +751,7 @@ fn run(args: Args) -> Result<()> {
                 query,
                 target,
                 json,
-            } => handle_search_command(&repo_root, &store, query, target, json)?,
+            } => handle_search_command(&repo_root, &config, &store, query, target, json)?,
             Command::Config { command } => handle_config_command(&repo_root, &store, command)?,
             Command::Events { command } => handle_events_command(&store, command)?,
             Command::Import {
@@ -730,6 +785,7 @@ impl Args {
 impl Command {
     fn wants_json(&self) -> bool {
         match self {
+            Command::Web { .. } => false,
             Command::Status { json } => *json,
             Command::Files { command } => command.wants_json(),
             Command::Changes { command } => command.wants_json(),
@@ -1005,39 +1061,6 @@ fn print_status(repo_root: &Path, json_output: bool) -> Result<()> {
     Ok(())
 }
 
-fn status_payload(snapshot: &git::RepoSnapshot) -> Value {
-    let mut counts = std::collections::BTreeMap::<&str, usize>::new();
-    for change in &snapshot.changes {
-        *counts.entry(change.kind.label()).or_default() += 1;
-    }
-    json!({
-        "repo_root": snapshot.root,
-        "counts": counts,
-        "groups": snapshot.groups.iter().map(|group| {
-            json!({
-                "path": group.path,
-                "files": group.files.len(),
-                "additions": group.total_additions,
-                "deletions": group.total_deletions,
-                "changes": group.files.iter().map(change_payload).collect::<Vec<_>>(),
-            })
-        }).collect::<Vec<_>>(),
-        "changes": snapshot.changes.iter().map(change_payload).collect::<Vec<_>>(),
-    })
-}
-
-fn change_payload(change: &git::ChangeEntry) -> Value {
-    json!({
-        "path": change.path,
-        "kind": change.kind.label(),
-        "stage": change.stage_label(),
-        "staged": change.staged,
-        "unstaged": change.unstaged,
-        "additions": change.additions,
-        "deletions": change.deletions,
-    })
-}
-
 fn handle_files_command(repo_root: &Path, command: FilesCommand) -> Result<()> {
     match command {
         FilesCommand::List { path, json } => {
@@ -1166,37 +1189,20 @@ fn handle_changes_command(repo_root: &Path, command: ChangesCommand) -> Result<(
     Ok(())
 }
 
-fn file_preview_payload(preview: &git::FilePreview) -> Value {
-    json!({
-        "title": preview.title,
-        "content": preview.content,
-        "truncated": preview.truncated,
-        "binary": preview.binary,
-    })
-}
-
-fn changes_grouped_by_status(changes: &[git::ChangeEntry]) -> Vec<Value> {
-    let mut grouped = std::collections::BTreeMap::<&str, Vec<Value>>::new();
-    for change in changes {
-        grouped
-            .entry(change.kind.label())
-            .or_default()
-            .push(change_payload(change));
-    }
-    grouped
-        .into_iter()
-        .map(|(status, changes)| json!({ "status": status, "changes": changes }))
-        .collect()
-}
-
 fn handle_search_command(
     repo_root: &Path,
+    config: &Config,
     store: &WorkdeckStore,
     query: String,
     targets: Vec<String>,
     json_output: bool,
 ) -> Result<()> {
     let snapshot = git::scan_repo(repo_root)?;
+    let git_overview = git::scan_git_overview(
+        repo_root,
+        Some(&config.git.base_branch),
+        config.git.recent_commits,
+    )?;
     let files = git::list_repo_files(repo_root, 20_000)?;
     let issues = store.load_issues()?;
     let sessions = store.load_agent_sessions()?;
@@ -1209,7 +1215,7 @@ fn handle_search_command(
         &sessions,
         &references,
         &symbols,
-        None,
+        Some(&git_overview),
     );
     let target_filter = targets
         .into_iter()
@@ -1247,58 +1253,6 @@ fn handle_search_command(
         }
     }
     Ok(())
-}
-
-fn search_target_group(target: &workdeck_cli::search::SearchTarget) -> &'static str {
-    match target {
-        workdeck_cli::search::SearchTarget::File(_) => "files",
-        workdeck_cli::search::SearchTarget::Change(_) => "changes",
-        workdeck_cli::search::SearchTarget::Issue(_) => "issues",
-        workdeck_cli::search::SearchTarget::AgentSession(_) => "agents",
-        workdeck_cli::search::SearchTarget::GitCommit(_)
-        | workdeck_cli::search::SearchTarget::GitBranch(_)
-        | workdeck_cli::search::SearchTarget::GitStash(_)
-        | workdeck_cli::search::SearchTarget::GitTag(_) => "git",
-        workdeck_cli::search::SearchTarget::Project(_)
-        | workdeck_cli::search::SearchTarget::Cycle(_)
-        | workdeck_cli::search::SearchTarget::Label(_) => "issues",
-        workdeck_cli::search::SearchTarget::Symbol { .. } => "files",
-    }
-}
-
-fn search_target_payload(target: &workdeck_cli::search::SearchTarget) -> Value {
-    match target {
-        workdeck_cli::search::SearchTarget::File(path) => {
-            json!({ "kind": "file", "path": path })
-        }
-        workdeck_cli::search::SearchTarget::Change(path) => {
-            json!({ "kind": "change", "path": path })
-        }
-        workdeck_cli::search::SearchTarget::Issue(key) => json!({ "kind": "issue", "key": key }),
-        workdeck_cli::search::SearchTarget::AgentSession(id) => {
-            json!({ "kind": "agent", "id": id })
-        }
-        workdeck_cli::search::SearchTarget::GitCommit(sha) => {
-            json!({ "kind": "git_commit", "sha": sha })
-        }
-        workdeck_cli::search::SearchTarget::GitBranch(name) => {
-            json!({ "kind": "git_branch", "name": name })
-        }
-        workdeck_cli::search::SearchTarget::GitStash(name) => {
-            json!({ "kind": "git_stash", "name": name })
-        }
-        workdeck_cli::search::SearchTarget::GitTag(name) => {
-            json!({ "kind": "git_tag", "name": name })
-        }
-        workdeck_cli::search::SearchTarget::Project(id) => {
-            json!({ "kind": "project", "id": id })
-        }
-        workdeck_cli::search::SearchTarget::Cycle(id) => json!({ "kind": "cycle", "id": id }),
-        workdeck_cli::search::SearchTarget::Label(id) => json!({ "kind": "label", "id": id }),
-        workdeck_cli::search::SearchTarget::Symbol { path, line, name } => {
-            json!({ "kind": "symbol", "path": path, "line": line, "name": name })
-        }
-    }
 }
 
 fn print_jsonl_record(kind: &str, payload: Value) -> Result<()> {

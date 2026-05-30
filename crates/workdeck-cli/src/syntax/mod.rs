@@ -48,11 +48,7 @@ impl SyntaxHighlighter {
             return highlight_diff(content, max_lines, self.theme_mode);
         }
 
-        let syntax = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .and_then(|ext| self.syntaxes.find_syntax_by_extension(ext))
-            .unwrap_or_else(|| self.syntaxes.find_syntax_plain_text());
+        let syntax = syntax_for_path(&self.syntaxes, path);
 
         let theme = self.theme_mode.theme_names().iter().find_map(|name| {
             self.themes
@@ -84,6 +80,24 @@ impl SyntaxHighlighter {
         }
         Text::from(lines)
     }
+}
+
+fn syntax_for_path<'a>(
+    syntaxes: &'a SyntaxSet,
+    path: &Path,
+) -> &'a syntect::parsing::SyntaxReference {
+    let extension = path.extension().and_then(|ext| ext.to_str());
+    if extension == Some("vue") {
+        return syntaxes
+            .find_syntax_by_extension("vue")
+            .or_else(|| syntaxes.find_syntax_by_extension("html"))
+            .or_else(|| syntaxes.find_syntax_by_name("HTML"))
+            .unwrap_or_else(|| syntaxes.find_syntax_plain_text());
+    }
+
+    extension
+        .and_then(|ext| syntaxes.find_syntax_by_extension(ext))
+        .unwrap_or_else(|| syntaxes.find_syntax_plain_text())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -364,6 +378,14 @@ mod tests {
                 .flat_map(|line| &line.spans)
                 .all(|span| span.style.bg.is_none())
         );
+    }
+
+    #[test]
+    fn vue_files_fall_back_to_html_syntax() {
+        let syntaxes = SyntaxSet::load_defaults_newlines();
+        let syntax = syntax_for_path(&syntaxes, Path::new("Component.vue"));
+
+        assert_ne!(syntax.name, syntaxes.find_syntax_plain_text().name);
     }
 
     #[test]

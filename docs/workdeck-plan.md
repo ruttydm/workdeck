@@ -31,6 +31,7 @@ Workdeck is optimized for 40-80 column terminal panes.
 Main layout modes:
 
 - `Changes`: grouped dirty tree plus preview or diff
+- `Git`: local branch, upstream, base, commits, stashes, tags, and remotes
 - `Files`: repo tree plus syntax preview
 - `Issues`: Linear-like issues, projects, and cycles
 - `Agents`: active and past agent sessions, plans, changed files, commands, tests, and handoff notes
@@ -449,11 +450,13 @@ Build this first:
 6. Fuzzy search across files, changes, and issues.
 7. TOML config and keybindings.
 8. Local-only Git overview tab for branch/upstream/base, recent commits, stashes, tags, and remotes.
+9. Local read-only web UI through `workdeck web` or `workdeck --web`, backed by the same scanners and embedded assets.
 
 Do not build these in the MVP:
 
 - Cloud sync
 - AI summaries
+- Remote PR enrichment beyond a future async `gh` integration
 - Hunk staging
 - Linear sync
 - GitHub issue sync

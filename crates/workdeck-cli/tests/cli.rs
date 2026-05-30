@@ -21,6 +21,43 @@ fn help_renders() {
 }
 
 #[test]
+fn web_help_renders() {
+    workdeck()
+        .args(["web", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Run the local read-only web UI"))
+        .stdout(predicate::str::contains("--host"))
+        .stdout(predicate::str::contains("--port"))
+        .stdout(predicate::str::contains("--no-live"));
+}
+
+#[test]
+fn web_flag_is_accepted_by_parser() {
+    workdeck()
+        .args(["--web", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--host"))
+        .stdout(predicate::str::contains("--port"));
+}
+
+#[test]
+fn web_outside_git_repo_prints_actionable_error() {
+    let dir = tempdir().unwrap();
+
+    workdeck()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--web")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Workdeck must be run inside a Git repository",
+        ));
+}
+
+#[test]
 fn version_renders() {
     workdeck()
         .arg("--version")
