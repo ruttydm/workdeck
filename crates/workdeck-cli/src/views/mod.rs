@@ -105,13 +105,8 @@ fn render_body(app: &App, highlighter: &SyntaxHighlighter, area: Rect, frame: &m
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
                     .split(area);
-                if app.active_tab == Tab::Changes {
-                    render_preview(app, highlighter, chunks[0], frame);
-                    render_primary(app, chunks[1], frame);
-                } else {
-                    render_primary(app, chunks[0], frame);
-                    render_preview(app, highlighter, chunks[1], frame);
-                }
+                render_primary(app, chunks[0], frame);
+                render_preview(app, highlighter, chunks[1], frame);
             } else {
                 render_primary(app, area, frame);
             }
