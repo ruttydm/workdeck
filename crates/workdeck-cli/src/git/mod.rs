@@ -7,8 +7,8 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-const DIFF_SECTION_MAX_BYTES: usize = 70_000;
-const DIFF_TOTAL_MAX_BYTES: usize = 160_000;
+const DIFF_SECTION_MAX_BYTES: usize = 512 * 1024;
+const DIFF_TOTAL_MAX_BYTES: usize = 1_250_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ChangeKind {

@@ -99,13 +99,13 @@ fn diff_preview_bounds_large_staged_and_unstaged_outputs() {
     git(dir.path(), &["add", "."]);
     git(dir.path(), &["commit", "-m", "initial"]);
 
-    let staged = (0..12_000)
+    let staged = (0..50_000)
         .map(|index| format!("staged-{index}\n"))
         .collect::<String>();
     fs::write(dir.path().join("large.txt"), staged).unwrap();
     git(dir.path(), &["add", "large.txt"]);
 
-    let unstaged = (0..12_000)
+    let unstaged = (0..50_000)
         .map(|index| format!("unstaged-{index}\n"))
         .collect::<String>();
     fs::write(dir.path().join("large.txt"), unstaged).unwrap();
@@ -117,7 +117,7 @@ fn diff_preview_bounds_large_staged_and_unstaged_outputs() {
     assert!(preview.content.contains("# unstaged"));
     assert!(preview.content.contains("staged diff truncated"));
     assert!(preview.content.contains("unstaged diff truncated"));
-    assert!(preview.content.len() < 180_000);
+    assert!(preview.content.len() < 1_300_000);
 }
 
 #[test]
