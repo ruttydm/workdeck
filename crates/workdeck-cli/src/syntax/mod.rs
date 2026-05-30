@@ -11,11 +11,12 @@ const LIGHT_DIFF_ADD_BACKGROUND: Color = Color::Rgb(220, 246, 226);
 const LIGHT_DIFF_REMOVE_BACKGROUND: Color = Color::Rgb(255, 224, 224);
 const LIGHT_DIFF_HUNK_COLOR: Color = Color::Rgb(0, 95, 135);
 const LIGHT_DIFF_SECTION_COLOR: Color = Color::Rgb(128, 96, 0);
-const DARK_DIFF_TEXT_COLOR: Color = Color::Rgb(232, 238, 234);
-const DARK_DIFF_ADD_BACKGROUND: Color = Color::Rgb(18, 76, 43);
-const DARK_DIFF_REMOVE_BACKGROUND: Color = Color::Rgb(92, 28, 35);
-const DARK_DIFF_HUNK_COLOR: Color = Color::Rgb(107, 190, 255);
-const DARK_DIFF_SECTION_COLOR: Color = Color::Rgb(221, 188, 105);
+const DARK_DIFF_ADD_TEXT_COLOR: Color = Color::Rgb(176, 239, 197);
+const DARK_DIFF_REMOVE_TEXT_COLOR: Color = Color::Rgb(255, 196, 196);
+const DARK_DIFF_ADD_BACKGROUND: Color = Color::Rgb(8, 46, 28);
+const DARK_DIFF_REMOVE_BACKGROUND: Color = Color::Rgb(58, 18, 24);
+const DARK_DIFF_HUNK_COLOR: Color = Color::Rgb(132, 204, 255);
+const DARK_DIFF_SECTION_COLOR: Color = Color::Rgb(236, 201, 117);
 
 pub struct SyntaxHighlighter {
     syntaxes: SyntaxSet,
@@ -97,7 +98,7 @@ impl ThemeMode {
             "dark" | "base16-ocean.dark" | "solarized-dark" | "solarized (dark)" => Self::Dark,
             "light" | "base16-ocean.light" | "solarized-light" | "solarized (light)"
             | "inspiredgithub" => Self::Light,
-            _ => detect_terminal_theme().unwrap_or(Self::Light),
+            _ => detect_terminal_theme().unwrap_or(Self::Dark),
         }
     }
 
@@ -209,9 +210,9 @@ impl DiffPalette {
                 section: DiffLineStyle::bold(LIGHT_DIFF_SECTION_COLOR),
             },
             ThemeMode::Dark => Self {
-                add: DiffLineStyle::background(DARK_DIFF_TEXT_COLOR, DARK_DIFF_ADD_BACKGROUND),
+                add: DiffLineStyle::background(DARK_DIFF_ADD_TEXT_COLOR, DARK_DIFF_ADD_BACKGROUND),
                 remove: DiffLineStyle::background(
-                    DARK_DIFF_TEXT_COLOR,
+                    DARK_DIFF_REMOVE_TEXT_COLOR,
                     DARK_DIFF_REMOVE_BACKGROUND,
                 ),
                 hunk: DiffLineStyle::bold(DARK_DIFF_HUNK_COLOR),
@@ -298,7 +299,14 @@ mod tests {
             light.lines[1].spans[0].style.bg,
             Some(LIGHT_DIFF_REMOVE_BACKGROUND)
         );
-        assert_eq!(dark.lines[0].spans[0].style.fg, Some(DARK_DIFF_TEXT_COLOR));
+        assert_eq!(
+            dark.lines[0].spans[0].style.fg,
+            Some(DARK_DIFF_ADD_TEXT_COLOR)
+        );
+        assert_eq!(
+            dark.lines[1].spans[0].style.fg,
+            Some(DARK_DIFF_REMOVE_TEXT_COLOR)
+        );
         assert_eq!(
             dark.lines[0].spans[0].style.bg,
             Some(DARK_DIFF_ADD_BACKGROUND)
@@ -323,9 +331,25 @@ mod tests {
             assert!(color_luma(line_style.bg.unwrap()) > 210);
         }
         for line_style in [dark.add, dark.remove] {
-            assert!(color_luma(line_style.fg) > 210);
+            assert!(color_luma(line_style.fg) > 180);
             assert!(color_luma(line_style.bg.unwrap()) < 90);
+            assert!(color_luma(line_style.fg) - color_luma(line_style.bg.unwrap()) > 130);
         }
+    }
+
+    #[test]
+    fn dark_diff_palette_distinguishes_added_and_removed_lines() {
+        let dark =
+            SyntaxHighlighter::new("dark").highlight(Path::new("change.diff"), "+a\n-b\n", 10);
+
+        assert_ne!(
+            dark.lines[0].spans[0].style.fg,
+            dark.lines[1].spans[0].style.fg
+        );
+        assert_ne!(
+            dark.lines[0].spans[0].style.bg,
+            dark.lines[1].spans[0].style.bg
+        );
     }
 
     #[test]
