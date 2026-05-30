@@ -953,9 +953,9 @@ fn change_glyph(change: &crate::git::ChangeEntry) -> &'static str {
         "S "
     } else {
         match change.kind {
-            crate::git::ChangeKind::Modified => "M ",
-            crate::git::ChangeKind::Added => "A ",
-            crate::git::ChangeKind::Deleted => "D ",
+            crate::git::ChangeKind::Modified => ". ",
+            crate::git::ChangeKind::Added => "+ ",
+            crate::git::ChangeKind::Deleted => "- ",
             crate::git::ChangeKind::Renamed => "R ",
             crate::git::ChangeKind::Typechange => "T ",
             crate::git::ChangeKind::Untracked => "+ ",
@@ -1156,7 +1156,7 @@ mod tests {
         assert!(rendered.contains("src"));
         assert!(rendered.contains("modified 1"));
         assert!(rendered.contains("+3/-1"));
-        assert!(rendered.contains("M"));
+        assert!(rendered.contains(".  main.rs"));
         assert!(!rendered.contains("[ U]"));
     }
 
@@ -1261,7 +1261,7 @@ mod tests {
 
     #[test]
     fn change_rows_colorize_churn_when_unselected() {
-        let line = change_line("M  file.rs".to_string(), 4, 2, false, "M");
+        let line = change_line(".  file.rs".to_string(), 4, 2, false, "M");
 
         assert_eq!(line.spans[1].style.fg, Some(ADD_COLOR));
         assert_eq!(line.spans.len(), 2);
@@ -1280,6 +1280,10 @@ mod tests {
         };
 
         assert_eq!(change_glyph(&change), "+ ");
+        change.kind = ChangeKind::Modified;
+        assert_eq!(change_glyph(&change), ". ");
+        change.kind = ChangeKind::Deleted;
+        assert_eq!(change_glyph(&change), "- ");
         change.staged = true;
         change.unstaged = false;
         assert_eq!(change_glyph(&change), "S ");
