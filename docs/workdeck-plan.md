@@ -175,15 +175,15 @@ name = "Git"
 color = "green"
 ```
 
-### Agent Sessions
+### Imported Agent Sessions
 
-Use one TOML file per agent session.
+Use one TOML file per imported or linked session record. Herder owns live session execution; these files provide repository attribution and handoff context only.
 
 ```toml
 id = "2026-05-24-codex-workdeck-plan"
 title = "Workdeck planning"
 agent = "codex"
-cwd = "/Users/rutger/Projects/workdeck"
+cwd = "/path/to/workdeck"
 status = "done"
 started_at = "2026-05-24T12:00:00Z"
 ended_at = "2026-05-24T12:30:00Z"
@@ -380,8 +380,7 @@ Use Vim-like defaults:
 | `G` | Git overview |
 | `i` | Issues |
 | `a` | Agents |
-| `b` | Base branch selection placeholder in Git |
-| `p` | PR refresh placeholder in Git, priority cycle in Issues |
+| `p` | Cycle priority in Issues |
 | `l` | Toggle issue label in Issues |
 | `A` | Assign or unassign issue in Issues |
 | `Space` | Jump between issue and linked file |
@@ -434,8 +433,6 @@ labels = "l"
 assign = "A"
 jump = "space"
 link_file = "L"
-base = "b"
-pull_requests = "p"
 ```
 
 ## MVP Scope
@@ -460,7 +457,7 @@ Do not build these in the MVP:
 - Hunk staging
 - Linear sync
 - GitHub issue sync
-- PR enrichment in Git tab, except planned placeholders
+- Provider write actions from the local Git tab
 - Complex symbol indexing
 - Multi-user collaboration
 

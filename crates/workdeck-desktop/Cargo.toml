@@ -1,0 +1,30 @@
+[package]
+name = "workdeck-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "Workdeck desktop application"
+
+[[bin]]
+name = "workdeck-desktop"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+workdeck-api = { path = "../workdeck-api" }
+workdeck-presenter = { path = "../workdeck-presenter" }
+workdeck-ui = { path = "../workdeck-ui" }
+dioxus.workspace = true
+dioxus-desktop.workspace = true
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+objc2-app-kit.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -1,0 +1,26 @@
+[package]
+name = "workdeck-core"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Application services for Workdeck"
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+directories.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+workdeck-analysis = { path = "../workdeck-analysis" }
+workdeck-artifacts = { path = "../workdeck-artifacts" }
+workdeck-db = { path = "../workdeck-db" }
+workdeck-domain = { path = "../workdeck-domain" }
+workdeck-git = { path = "../workdeck-git" }
+workdeck-github = { path = "../workdeck-github" }
+
+[dev-dependencies]
+tempfile.workspace = true

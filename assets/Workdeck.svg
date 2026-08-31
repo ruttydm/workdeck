@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Workdeck">
+  <defs>
+    <linearGradient id="surface" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2c3530"/>
+      <stop offset="1" stop-color="#17201b"/>
+    </linearGradient>
+  </defs>
+  <rect x="44" y="44" width="936" height="936" rx="224" fill="url(#surface)"/>
+  <rect x="45" y="45" width="934" height="934" rx="223" fill="none" stroke="#526158" stroke-width="2"/>
+  <path d="M210 300h110l76 384 88-294h56l88 294 76-384h110L690 732H580l-68-231-68 231H334L210 300Z" fill="#e9f1eb"/>
+  <path d="M296 786h432M328 838h368" fill="none" stroke="#79c49c" stroke-width="22" stroke-linecap="round"/>
+  <circle cx="512" cy="512" r="402" fill="none" stroke="#79c49c" stroke-opacity=".16" stroke-width="12"/>
+</svg>

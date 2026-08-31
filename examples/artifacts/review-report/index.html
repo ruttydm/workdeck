@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Workdeck Review Report</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root { color-scheme: light dark; font: 14px -apple-system, BlinkMacSystemFont, sans-serif; --bg:#f5f6f8; --panel:#fff; --text:#20242a; --muted:#747b86; --line:#e1e4e8; --blue:#3578e5; --green:#23875b; --amber:#b56b00; }
+    @media (prefers-color-scheme: dark) { :root { --bg:#17191d; --panel:#202329; --text:#f2f4f7; --muted:#9ca3af; --line:#343942; --blue:#78a9ff; --green:#67d49b; --amber:#f4b860; } }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); }
+    header { padding:32px 36px 24px; border-bottom:1px solid var(--line); background:var(--panel); }
+    h1 { margin:0 0 7px; font-size:24px; letter-spacing:-.03em; }
+    p { margin:0; color:var(--muted); line-height:1.5; }
+    main { max-width:1060px; margin:auto; padding:28px 36px 48px; }
+    .metrics { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:24px; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; box-shadow:0 1px 2px #0000000a; }
+    .metric strong { display:block; margin-top:8px; font-size:22px; }
+    .label { color:var(--muted); font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; }
+    .grid { display:grid; grid-template-columns:1.45fr 1fr; gap:16px; }
+    h2 { margin:0 0 14px; font-size:15px; }
+    .step { display:grid; grid-template-columns:22px 1fr auto; gap:10px; align-items:center; padding:11px 0; border-top:1px solid var(--line); }
+    .step:first-of-type { border-top:0; }
+    .dot { width:9px; height:9px; border-radius:50%; background:var(--green); }
+    .step small { color:var(--muted); }
+    .badge { border-radius:999px; padding:3px 8px; color:var(--green); background:color-mix(in srgb,var(--green) 12%,transparent); font-size:12px; }
+    .burst { padding:12px; margin-top:10px; border:1px solid var(--line); border-radius:9px; cursor:pointer; }
+    .burst:hover,.burst.active { border-color:var(--blue); background:color-mix(in srgb,var(--blue) 7%,transparent); }
+    .burst b { display:block; margin-bottom:5px; }
+    .burst span { color:var(--muted); font-size:12px; }
+    footer { margin-top:22px; color:var(--muted); font-size:12px; }
+    @media (max-width:760px) { .metrics { grid-template-columns:1fr 1fr; } .grid { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Agent burst review</h1>
+    <p>A self-contained artifact used to exercise Workdeck's sandboxed HTML review surface.</p>
+  </header>
+  <main>
+    <section class="metrics">
+      <div class="card metric"><span class="label">Checkpoint</span><strong>R12</strong></div>
+      <div class="card metric"><span class="label">Reviewed</span><strong>146</strong></div>
+      <div class="card metric"><span class="label">Reopened</span><strong style="color:var(--amber)">7</strong></div>
+      <div class="card metric"><span class="label">Carried</span><strong style="color:var(--green)">139</strong></div>
+    </section>
+    <section class="grid">
+      <div class="card">
+        <h2>Quality gates</h2>
+        <div class="step"><i class="dot"></i><div><b>Rust workspace</b><br><small>all targets and features</small></div><span class="badge">Passed</span></div>
+        <div class="step"><i class="dot"></i><div><b>Semantic reconciliation</b><br><small>changed units reopened</small></div><span class="badge">Passed</span></div>
+        <div class="step"><i class="dot"></i><div><b>Artifact sandbox</b><br><small>loopback, CSP, bounded extraction</small></div><span class="badge">Passed</span></div>
+        <div class="step"><i class="dot"></i><div><b>Native interaction</b><br><small>keyboard and accessibility</small></div><span class="badge">Passed</span></div>
+      </div>
+      <div class="card">
+        <h2>Arrived while reviewing</h2>
+        <div class="burst active"><b>agent/auth-hardening</b><span>3 commits · 11 semantic units</span></div>
+        <div class="burst"><b>agent/ci-recovery</b><span>2 commits · 4 semantic units</span></div>
+        <div class="burst"><b>PR #184</b><span>checks advanced · 1 failure</span></div>
+      </div>
+    </section>
+    <footer>Click a burst to verify sandboxed inline interaction. No network access is permitted.</footer>
+  </main>
+  <script>
+    document.querySelectorAll('.burst').forEach((row) => row.addEventListener('click', () => {
+      document.querySelectorAll('.burst').forEach((item) => item.classList.remove('active'));
+      row.classList.add('active');
+    }));
+  </script>
+</body>
+</html>

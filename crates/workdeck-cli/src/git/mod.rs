@@ -181,7 +181,7 @@ pub fn scan_repo(cwd: &Path) -> Result<RepoSnapshot> {
     let churn = collect_churn(&root);
     let mut changes = Vec::new();
     for entry in statuses.iter() {
-        let Some(path) = entry.path() else {
+        let Ok(path) = entry.path() else {
             continue;
         };
         let status = entry.status();

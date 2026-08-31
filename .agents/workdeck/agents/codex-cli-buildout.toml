@@ -1,7 +1,7 @@
 id = "codex-cli-buildout"
 title = "Headless CLI buildout"
 agent = "codex"
-cwd = "/Users/rutger/Projects/workdeck"
+cwd = "."
 status = "done"
 started_at = "2026-05-24T20:43:35.866129+00:00"
 ended_at = "2026-05-24T20:43:47.806449+00:00"

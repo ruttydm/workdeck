@@ -1,0 +1,19 @@
+[package]
+name = "workdeck-git"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Read-only Git and worktree integration for Workdeck"
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+git2.workspace = true
+serde.workspace = true
+sha2.workspace = true
+workdeck-domain = { path = "../workdeck-domain" }
+
+[dev-dependencies]
+tempfile.workspace = true

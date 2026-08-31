@@ -1,60 +1,26 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ROOT"
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+repo_dir=$(CDPATH='' cd -- "$script_dir/.." && pwd)
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/workdeck-soak.XXXXXX")
+cleanup() {
+    status=$?
+    case "$scratch" in
+        "${TMPDIR:-/tmp}"/workdeck-soak.*) rm -rf -- "$scratch" ;;
+        *) echo "refusing to remove unexpected soak path: $scratch" >&2 ;;
+    esac
+    exit "$status"
+}
+trap cleanup EXIT HUP INT TERM
 
-cargo fmt --all --check
-cargo test
-cargo clippy --all-targets --all-features -- -D warnings
-cargo build --release
-cargo package --allow-dirty -p workdeck-cli
-
-tmp_install="$(mktemp -d)"
-tmp_home="$(mktemp -d)"
-tmp_repo=""
-trap 'rm -rf "$tmp_install" "$tmp_home" "$tmp_repo" /tmp/workdeck-large-status.json /tmp/workdeck-install.log' EXIT
-
-CARGO_TARGET_DIR="$tmp_install/target" \
-  cargo install --path crates/workdeck-cli --root "$tmp_install/install" --locked \
-  >/tmp/workdeck-install.log 2>&1
-HOME="$tmp_home" "$tmp_install/install/bin/workdeck" --help >/dev/null
-
-/usr/bin/time -p sh -c \
-  "printf 'q' | HOME='$tmp_home' script -q /dev/null target/release/workdeck >/dev/null"
-
-/usr/bin/time -p sh -c \
-  "{ sleep 0.2; printf '\003'; } | HOME='$tmp_home' script -q /dev/null target/release/workdeck >/dev/null"
-
-tmp_repo="$(mktemp -d)"
-git -C "$tmp_repo" init >/dev/null
-git -C "$tmp_repo" config user.email workdeck@example.test
-git -C "$tmp_repo" config user.name "Workdeck Test"
-mkdir -p "$tmp_repo/src" "$tmp_repo/resources/js/pages"
-
-for i in $(seq 1 600); do
-  printf 'line %s\n' "$i" >"$tmp_repo/src/file_$i.rs"
+cd "$repo_dir"
+cargo build --release --locked --package workdeck-app-cli --bin workdeck-app
+export WORKDECK_DATA_DIR="$scratch/catalog"
+for iteration in 1 2 3 4 5 6 7 8 9 10; do
+    target/release/workdeck-app --json fixture polished >/dev/null
+    target/release/workdeck-app --json doctor >/dev/null
+    printf '%s\n' "$iteration" >/dev/null
 done
-
-git -C "$tmp_repo" add . >/dev/null
-git -C "$tmp_repo" commit -m initial >/dev/null
-
-for i in $(seq 1 200); do
-  printf 'line %s\nchanged\n' "$i" >"$tmp_repo/src/file_$i.rs"
-done
-
-for i in $(seq 1 100); do
-  printf 'new %s\n' "$i" >"$tmp_repo/resources/js/pages/page_$i.vue"
-done
-
-/usr/bin/time -p env HOME="$tmp_home" target/release/workdeck --cwd "$tmp_repo" --status-json \
-  >/tmp/workdeck-large-status.json
-
-python3 - <<'PY'
-import json
-with open("/tmp/workdeck-large-status.json") as handle:
-    data = json.load(handle)
-assert len(data["changes"]) == 300, len(data["changes"])
-PY
-
-echo "soak ok"
+test "$(sqlite3 "$WORKDECK_DATA_DIR/workdeck.sqlite3" 'PRAGMA integrity_check;')" = ok
+echo "Workdeck CLI restart and catalog soak passed."

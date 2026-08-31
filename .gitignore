@@ -1,3 +1,10 @@
 /target/
+/dist/
+/artifacts/
+/test-results/
+**/.build/
+.swiftpm/
+/.playwright-cli/
+/inspiration/
+/web-tests/node_modules/
 .DS_Store
-
