@@ -159,8 +159,8 @@ pub fn measure_file_view_geometry<'a>(
             PlannedFileViewHunkBounds {
                 top: start.top,
                 height: end.top.saturating_add(end.height).saturating_sub(start.top),
-                start_row_id: review_row_id(&start.key),
-                end_row_id: review_row_id(&end.key),
+                start_row_id: crate::review_row_id(&start.key),
+                end_row_id: crate::review_row_id(&end.key),
             },
         );
     }
@@ -175,10 +175,6 @@ pub fn measure_file_view_geometry<'a>(
         row_bounds_by_key,
         row_bounds_by_stable_key,
     }
-}
-
-fn review_row_id(row_key: &str) -> String {
-    format!("review-row:{row_key}")
 }
 
 #[cfg(test)]
