@@ -1,6 +1,51 @@
 use serde::{Deserialize, Serialize};
 
 use crate::ViewNode;
+use workdeck_core::AgentFileContext;
+
+/// One parsed hunk summarized without exposing renderer-specific metadata.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionDiffHunk {
+    pub index: usize,
+    pub header: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub old_range: Option<[u32; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_range: Option<[u32; 2]>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionDiffStats {
+    pub additions: usize,
+    pub deletions: usize,
+}
+
+/// Provider-neutral reviewed file exposed to native extensions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionDiffFile {
+    pub id: String,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_path: Option<String>,
+    pub patch: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    pub stats: ExtensionDiffStats,
+    pub change_type: String,
+    #[serde(default)]
+    pub stats_truncated: bool,
+    pub hunks: Vec<ExtensionDiffHunk>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<AgentFileContext>,
+    #[serde(default)]
+    pub is_untracked: bool,
+    #[serde(default)]
+    pub is_binary: bool,
+    #[serde(default)]
+    pub is_too_large: bool,
+}
 
 /// A side of a reviewed source document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -19,7 +64,7 @@ pub struct ExtensionFileChangeRange {
     pub range: [usize; 2],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ExtensionFileChangeKind {
     Added,
