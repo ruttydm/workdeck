@@ -9,6 +9,7 @@ members = [
     "crates/workdeck-markup",
     "crates/workdeck-review",
     "crates/workdeck-session",
+    "crates/workdeck-store",
     "crates/workdeck-tui",
     "crates/workdeck-vcs",
     "xtask",

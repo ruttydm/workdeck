@@ -2254,6 +2254,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "workdeck-store"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "workdeck-tui"
 version = "0.1.0"
 dependencies = [
