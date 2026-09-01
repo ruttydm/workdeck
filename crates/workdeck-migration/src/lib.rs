@@ -1,12 +1,89 @@
 //! Explicit, idempotent migration of Hunk user/repository configuration into Workdeck paths.
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
+
+/// Deprecated semantic-role keys accepted during the Hunk migration window.
+pub const LEGACY_CUSTOM_SYNTAX_COLOR_KEYS: [&str; 11] = [
+    "default",
+    "keyword",
+    "string",
+    "comment",
+    "number",
+    "function",
+    "property",
+    "type",
+    "variable",
+    "operator",
+    "punctuation",
+];
+
+fn legacy_syntax_role_scopes(role: &str) -> &'static [&'static str] {
+    match role {
+        "default" => &["source"],
+        "keyword" => &["keyword"],
+        "string" => &["string"],
+        "comment" => &["comment", "punctuation.definition.comment"],
+        "number" => &["constant.numeric"],
+        "function" => &[
+            "entity.name.function",
+            "support.function",
+            "variable.function",
+        ],
+        "property" => &["variable.other.property", "support.variable.property"],
+        "type" => &[
+            "entity.name.type",
+            "entity.name.class",
+            "support.type",
+            "support.class",
+        ],
+        "variable" => &["variable"],
+        "operator" => &["keyword.operator"],
+        "punctuation" => &["punctuation"],
+        _ => &[],
+    }
+}
+
+/// Translate deprecated semantic colors into approximate TextMate selectors.
+#[must_use]
+pub fn legacy_syntax_colors_to_scopes(
+    syntax: Option<&BTreeMap<String, String>>,
+) -> Option<BTreeMap<String, String>> {
+    let syntax = syntax?;
+    let mut scopes = BTreeMap::new();
+    for role in LEGACY_CUSTOM_SYNTAX_COLOR_KEYS {
+        let Some(color) = syntax.get(role).filter(|color| !color.is_empty()) else {
+            continue;
+        };
+        for scope in legacy_syntax_role_scopes(role) {
+            scopes.insert((*scope).into(), color.clone());
+        }
+    }
+    (!scopes.is_empty()).then_some(scopes)
+}
+
+/// Apply exact TextMate scopes after translated legacy roles.
+#[must_use]
+pub fn resolve_syntax_scope_overrides(
+    syntax: Option<&BTreeMap<String, String>>,
+    syntax_scopes: Option<&BTreeMap<String, String>>,
+) -> Option<BTreeMap<String, String>> {
+    let legacy = legacy_syntax_colors_to_scopes(syntax);
+    match (legacy, syntax_scopes) {
+        (None, None) => None,
+        (None, Some(exact)) => Some(exact.clone()),
+        (Some(legacy), None) => Some(legacy),
+        (Some(mut legacy), Some(exact)) => {
+            legacy.extend(exact.clone());
+            Some(legacy)
+        }
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum MigrationError {
@@ -379,6 +456,63 @@ fn user_config_root() -> Option<PathBuf> {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn translates_every_deprecated_semantic_role_into_textmate_selectors() {
+        let syntax = BTreeMap::from([
+            ("default".into(), "#000001".into()),
+            ("keyword".into(), "#000002".into()),
+            ("string".into(), "#000003".into()),
+            ("comment".into(), "#000004".into()),
+            ("number".into(), "#000005".into()),
+            ("function".into(), "#000006".into()),
+            ("property".into(), "#000007".into()),
+            ("type".into(), "#000008".into()),
+            ("variable".into(), "#000009".into()),
+            ("operator".into(), "#00000a".into()),
+            ("punctuation".into(), "#00000b".into()),
+        ]);
+        assert_eq!(
+            legacy_syntax_colors_to_scopes(Some(&syntax)),
+            Some(BTreeMap::from([
+                ("source".into(), "#000001".into()),
+                ("keyword".into(), "#000002".into()),
+                ("string".into(), "#000003".into()),
+                ("comment".into(), "#000004".into()),
+                ("punctuation.definition.comment".into(), "#000004".into()),
+                ("constant.numeric".into(), "#000005".into()),
+                ("entity.name.function".into(), "#000006".into()),
+                ("support.function".into(), "#000006".into()),
+                ("variable.function".into(), "#000006".into()),
+                ("variable.other.property".into(), "#000007".into()),
+                ("support.variable.property".into(), "#000007".into()),
+                ("entity.name.type".into(), "#000008".into()),
+                ("entity.name.class".into(), "#000008".into()),
+                ("support.type".into(), "#000008".into()),
+                ("support.class".into(), "#000008".into()),
+                ("variable".into(), "#000009".into()),
+                ("keyword.operator".into(), "#00000a".into()),
+                ("punctuation".into(), "#00000b".into()),
+            ]))
+        );
+    }
+
+    #[test]
+    fn exact_scope_configuration_overrides_translated_compatibility_rules() {
+        let syntax = BTreeMap::from([("comment".into(), "#111111".into())]);
+        let exact = BTreeMap::from([
+            ("comment".into(), "#222222".into()),
+            ("comment.block".into(), "#333333".into()),
+        ]);
+        assert_eq!(
+            resolve_syntax_scope_overrides(Some(&syntax), Some(&exact)),
+            Some(BTreeMap::from([
+                ("comment".into(), "#222222".into()),
+                ("punctuation.definition.comment".into(), "#111111".into()),
+                ("comment.block".into(), "#333333".into()),
+            ]))
+        );
+    }
 
     #[test]
     fn plans_and_applies_idempotent_config_migration() {
