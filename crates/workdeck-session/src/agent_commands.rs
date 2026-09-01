@@ -1,13 +1,12 @@
 //! Session CLI command composition, daemon compatibility checks, and stable output routing.
 
 use std::collections::BTreeMap;
-use std::net::{TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::json;
 use thiserror::Error;
 use workdeck_core::{
     CliInput, CommonOptions, HighlightTone, InputCursorLine, InputLayoutMode, NavigationDirection,
@@ -16,10 +15,9 @@ use workdeck_core::{
 };
 
 use crate::{
-    DEFAULT_SESSION_BROKER_HEALTH_PATH, DaemonCliInput, DaemonCommentApplyItem,
-    DaemonCommentDirection, DaemonCommentListType, DaemonCommonOptions, DaemonCursorLine,
-    DaemonLayoutMode, DaemonRangeEndpoints, DaemonRevealMode, DaemonSidebarAuto,
-    DaemonSidebarVisibility, HttpWorkdeckSessionCliClient, ResolvedSessionBrokerConfig,
+    DaemonCliInput, DaemonCommentApplyItem, DaemonCommentDirection, DaemonCommentListType,
+    DaemonCommonOptions, DaemonCursorLine, DaemonLayoutMode, DaemonRangeEndpoints,
+    DaemonRevealMode, DaemonSidebarAuto, DaemonSidebarVisibility, HttpWorkdeckSessionCliClient,
     SessionCommentAddCliInput, SessionCommentApplyCliInput, SessionCommentClearCliInput,
     SessionCommentListCliInput, SessionCommentRemoveCliInput, SessionDaemonAction,
     SessionHighlightAddCliInput, SessionHighlightClearCliInput, SessionLineHighlightTone,
@@ -29,8 +27,8 @@ use crate::{
     format_comment_list_output, format_comment_output, format_context_output,
     format_highlight_output, format_list_output, format_navigation_output, format_note_list_output,
     format_reload_output, format_remove_comment_output, format_review_output,
-    format_session_output, normalize_session_selector, request_session_daemon_http,
-    resolve_session_broker_config, stringify_json,
+    format_session_output, is_loopback_port_reachable, is_session_broker_healthy,
+    normalize_session_selector, resolve_session_broker_config, stringify_json,
 };
 
 const AVAILABILITY_TIMEOUT: Duration = Duration::from_millis(500);
@@ -398,100 +396,6 @@ pub fn resolve_daemon_availability(
             crate::NO_ACTIVE_SESSIONS_MESSAGE.into(),
         ))
     }
-}
-
-#[must_use]
-pub fn is_session_broker_healthy(config: &ResolvedSessionBrokerConfig, timeout: Duration) -> bool {
-    request_session_daemon_http(
-        config,
-        DEFAULT_SESSION_BROKER_HEALTH_PATH,
-        "report health",
-        timeout,
-        |response| {
-            if !(200..300).contains(&response.status) {
-                return Ok(false);
-            }
-            let healthy = serde_json::from_slice::<Value>(&response.body)
-                .ok()
-                .is_some_and(|value| parse_health(&value));
-            Ok(healthy)
-        },
-    )
-    .unwrap_or(false)
-}
-
-#[must_use]
-pub fn is_loopback_port_reachable(config: &ResolvedSessionBrokerConfig, timeout: Duration) -> bool {
-    let Ok(port) = u16::try_from(config.port) else {
-        return false;
-    };
-    let Ok(addresses) = (config.host.as_str(), port).to_socket_addrs() else {
-        return false;
-    };
-    addresses
-        .into_iter()
-        .any(|address| TcpStream::connect_timeout(&address, timeout).is_ok())
-}
-
-fn parse_health(value: &Value) -> bool {
-    const OPTIONAL: &[&str] = &[
-        "pid",
-        "sessions",
-        "pendingCommands",
-        "startedAt",
-        "uptimeMs",
-        "sessionApi",
-        "sessionCapabilities",
-        "sessionSocket",
-        "staleSessionTtlMs",
-        "paths",
-    ];
-    let Some(object) = value.as_object() else {
-        return false;
-    };
-    if object.get("ok").and_then(Value::as_bool) != Some(true)
-        || object
-            .keys()
-            .any(|key| key != "ok" && !OPTIONAL.contains(&key.as_str()))
-    {
-        return false;
-    }
-    for key in [
-        "pid",
-        "sessions",
-        "pendingCommands",
-        "uptimeMs",
-        "staleSessionTtlMs",
-    ] {
-        if object.get(key).is_some_and(|value| {
-            value
-                .as_u64()
-                .is_none_or(|value| value > 9_007_199_254_740_991)
-        }) {
-            return false;
-        }
-    }
-    for key in [
-        "startedAt",
-        "sessionApi",
-        "sessionCapabilities",
-        "sessionSocket",
-    ] {
-        if object.get(key).is_some_and(|value| !value.is_string()) {
-            return false;
-        }
-    }
-    object.get("paths").is_none_or(|value| {
-        let Some(paths) = value.as_object() else {
-            return false;
-        };
-        paths.contains_key("health")
-            && paths.contains_key("socket")
-            && paths.len()
-                == 2 + usize::from(paths.contains_key("api"))
-                    + usize::from(paths.contains_key("capabilities"))
-            && paths.values().all(Value::is_string)
-    })
 }
 
 fn render_output<T: Serialize>(
@@ -1830,16 +1734,24 @@ mod tests {
 
     #[test]
     fn health_parser_accepts_minimal_and_bounded_rich_shapes_only() {
-        assert!(parse_health(&json!({"ok": true})));
-        assert!(parse_health(&json!({
-            "ok": true,
-            "pid": 42,
-            "paths": {"health": "/health", "socket": "/session", "api": "/session-api"}
-        })));
-        assert!(!parse_health(&json!({"ok": true, "unknown": true})));
-        assert!(!parse_health(&json!({"ok": true, "pid": -1})));
-        assert!(!parse_health(
-            &json!({"ok": true, "paths": {"health": "/health"}})
-        ));
+        assert!(crate::parse_session_broker_health(&json!({"ok": true})).is_some());
+        assert!(
+            crate::parse_session_broker_health(&json!({
+                "ok": true,
+                "pid": 42,
+                "paths": {"health": "/health", "socket": "/session", "api": "/session-api"}
+            }))
+            .is_some()
+        );
+        assert!(
+            crate::parse_session_broker_health(&json!({"ok": true, "unknown": true})).is_none()
+        );
+        assert!(crate::parse_session_broker_health(&json!({"ok": true, "pid": -1})).is_none());
+        assert!(
+            crate::parse_session_broker_health(
+                &json!({"ok": true, "paths": {"health": "/health"}})
+            )
+            .is_none()
+        );
     }
 }
