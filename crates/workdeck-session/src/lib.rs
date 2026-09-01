@@ -2,6 +2,7 @@
 
 mod agent_cli_client;
 mod agent_cli_format;
+mod agent_commands;
 mod agent_errors;
 mod agent_surface;
 mod app_protocol_parsers;
@@ -46,6 +47,7 @@ mod workdeck_wire;
 
 pub use agent_cli_client::*;
 pub use agent_cli_format::*;
+pub use agent_commands::*;
 pub use agent_errors::*;
 pub use agent_surface::*;
 pub use app_protocol_parsers::*;

@@ -37,12 +37,15 @@ pub trait WorkdeckSessionCliCallerTransport: Send + Sync + 'static {
         &self,
         path: &str,
         init: SessionBrokerSignedRequestInit,
-    ) -> Result<WorkdeckSessionCliHttpResponse, String>;
+    ) -> Result<WorkdeckSessionCliHttpResponse, WorkdeckSessionCliClientError>;
 }
 
 impl<F> WorkdeckSessionCliCallerTransport for F
 where
-    F: Fn(&str, SessionBrokerSignedRequestInit) -> Result<WorkdeckSessionCliHttpResponse, String>
+    F: Fn(
+            &str,
+            SessionBrokerSignedRequestInit,
+        ) -> Result<WorkdeckSessionCliHttpResponse, WorkdeckSessionCliClientError>
         + Send
         + Sync
         + 'static,
@@ -51,7 +54,7 @@ where
         &self,
         path: &str,
         init: SessionBrokerSignedRequestInit,
-    ) -> Result<WorkdeckSessionCliHttpResponse, String> {
+    ) -> Result<WorkdeckSessionCliHttpResponse, WorkdeckSessionCliClientError> {
         self(path, init)
     }
 }
@@ -76,6 +79,8 @@ impl WorkdeckSessionCliHttpResponse {
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum WorkdeckSessionCliClientError {
+    #[error("Session broker authentication failed or the daemon identity could not be verified.")]
+    Authentication,
     #[error("Timed out waiting for the Workdeck session daemon to {operation}.")]
     Timeout { operation: String, timeout_ms: u64 },
     #[error("Workdeck session daemon request failed: {0}")]
@@ -370,21 +375,16 @@ impl HttpWorkdeckSessionCliClient {
         self.call_with_timeout(operation, move |caller, cancellation| {
             let body = serde_json::to_string(&request)
                 .map_err(|error| WorkdeckSessionCliClientError::Request(error.to_string()))?;
-            let response = caller
-                .request(
-                    WORKDECK_SESSION_API_PATH,
-                    SessionBrokerSignedRequestInit {
-                        method: Some("POST".into()),
-                        headers: BTreeMap::from([(
-                            "content-type".into(),
-                            "application/json".into(),
-                        )]),
-                        body: Some(body),
-                        target_specific: action != SessionDaemonAction::List,
-                        cancellation: Some(cancellation),
-                    },
-                )
-                .map_err(WorkdeckSessionCliClientError::Request)?;
+            let response = caller.request(
+                WORKDECK_SESSION_API_PATH,
+                SessionBrokerSignedRequestInit {
+                    method: Some("POST".into()),
+                    headers: BTreeMap::from([("content-type".into(), "application/json".into())]),
+                    body: Some(body),
+                    target_specific: action != SessionDaemonAction::List,
+                    cancellation: Some(cancellation),
+                },
+            )?;
             ensure_success(&response)?;
             let value = serde_json::from_slice::<Value>(&response.body).map_err(|_| {
                 WorkdeckSessionCliClientError::InvalidResponse {
@@ -405,16 +405,14 @@ impl WorkdeckSessionCliClient for HttpWorkdeckSessionCliClient {
         &self,
     ) -> Result<Option<SessionDaemonCapabilities>, WorkdeckSessionCliClientError> {
         self.call_with_timeout("report capabilities".into(), |caller, cancellation| {
-            let response = caller
-                .request(
-                    WORKDECK_SESSION_CAPABILITIES_PATH,
-                    SessionBrokerSignedRequestInit {
-                        method: Some("GET".into()),
-                        cancellation: Some(cancellation),
-                        ..SessionBrokerSignedRequestInit::default()
-                    },
-                )
-                .map_err(WorkdeckSessionCliClientError::Request)?;
+            let response = caller.request(
+                WORKDECK_SESSION_CAPABILITIES_PATH,
+                SessionBrokerSignedRequestInit {
+                    method: Some("GET".into()),
+                    cancellation: Some(cancellation),
+                    ..SessionBrokerSignedRequestInit::default()
+                },
+            )?;
             if !(200..300).contains(&response.status) {
                 return Ok(None);
             }
@@ -612,15 +610,21 @@ impl WorkdeckSessionCliCallerTransport for AuthenticatedCallerTransport {
         &self,
         path: &str,
         init: SessionBrokerSignedRequestInit,
-    ) -> Result<WorkdeckSessionCliHttpResponse, String> {
-        let SessionBrokerCallerResponse { status, body, .. } = self
-            .0
-            .request(path, init)
-            .map_err(|error| error.to_string())?;
+    ) -> Result<WorkdeckSessionCliHttpResponse, WorkdeckSessionCliClientError> {
+        let SessionBrokerCallerResponse { status, body, .. } =
+            self.0.request(path, init).map_err(|error| match error {
+                crate::SessionBrokerCallerClientError::Authentication(_) => {
+                    WorkdeckSessionCliClientError::Authentication
+                }
+                crate::SessionBrokerCallerClientError::Cancelled(reason) => {
+                    WorkdeckSessionCliClientError::Request(reason)
+                }
+            })?;
         Ok(WorkdeckSessionCliHttpResponse {
             status,
             status_text: canonical_status_text(status).into(),
-            body: serde_json::to_vec(&body).map_err(|error| error.to_string())?,
+            body: serde_json::to_vec(&body)
+                .map_err(|error| WorkdeckSessionCliClientError::Request(error.to_string()))?,
         })
     }
 }
@@ -1302,7 +1306,7 @@ mod tests {
                 .is_some()
             {
                 observed.store(true, Ordering::Release);
-                return Err("cancelled".into());
+                return Err(WorkdeckSessionCliClientError::Request("cancelled".into()));
             }
             std::thread::yield_now();
         };
