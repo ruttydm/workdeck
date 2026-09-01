@@ -34,6 +34,29 @@ pub enum VcsReviewInput {
     StashShow(VcsStashShowCommandInput),
 }
 
+/// Compact comparison spelling used by titles and Git arguments.
+#[must_use]
+pub fn describe_diff_range(input: &VcsDiffCommandInput) -> Option<String> {
+    input.range_endpoints.as_ref().map_or_else(
+        || input.range.clone(),
+        |endpoints| Some(format!("{}..{}", endpoints.from, endpoints.to)),
+    )
+}
+
+/// Positional spelling required by Jujutsu and Sapling process arguments.
+#[must_use]
+pub fn describe_diff_targets(input: &VcsDiffCommandInput) -> Option<String> {
+    input.range_endpoints.as_ref().map_or_else(
+        || input.range.clone(),
+        |endpoints| Some(format!("{} {}", endpoints.from, endpoints.to)),
+    )
+}
+
+#[must_use]
+pub fn has_explicit_diff_target(input: &VcsDiffCommandInput) -> bool {
+    describe_diff_range(input).is_some()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum VcsReviewOperationKind {
     WorkingTreeDiff,
@@ -444,7 +467,7 @@ mod tests {
     use std::fs;
 
     use tempfile::tempdir;
-    use workdeck_core::{CommonOptions, PatchCommandInput};
+    use workdeck_core::{CommonOptions, PatchCommandInput, VcsRangeEndpoints};
 
     use super::*;
 
@@ -504,6 +527,35 @@ mod tests {
             pathspecs: Vec::new(),
             options: CommonOptions::default(),
         }
+    }
+
+    #[test]
+    fn diff_range_descriptions_preserve_endpoint_and_backend_spellings() {
+        let mut input = diff_input();
+        assert_eq!(describe_diff_range(&input), None);
+        assert_eq!(describe_diff_targets(&input), None);
+        assert!(!has_explicit_diff_target(&input));
+
+        input.range = Some("main...topic".into());
+        assert_eq!(describe_diff_range(&input).as_deref(), Some("main...topic"));
+        assert_eq!(
+            describe_diff_targets(&input).as_deref(),
+            Some("main...topic")
+        );
+        assert!(has_explicit_diff_target(&input));
+
+        input.range_endpoints = Some(VcsRangeEndpoints {
+            from: "release".into(),
+            to: "topic".into(),
+        });
+        assert_eq!(
+            describe_diff_range(&input).as_deref(),
+            Some("release..topic")
+        );
+        assert_eq!(
+            describe_diff_targets(&input).as_deref(),
+            Some("release topic")
+        );
     }
 
     #[test]
