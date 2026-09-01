@@ -8,6 +8,12 @@ mod expansion;
 mod generation_order;
 mod geometry;
 mod live_comments;
+mod semantic_actions;
+mod semantic_reducer;
+mod semantic_state;
+mod semantic_store;
+#[cfg(test)]
+mod semantic_test_support;
 
 pub use anchors::*;
 pub use annotations::*;
@@ -17,6 +23,10 @@ pub use expansion::*;
 pub use generation_order::*;
 pub use geometry::*;
 pub use live_comments::*;
+pub use semantic_actions::*;
+pub use semantic_reducer::*;
+pub use semantic_state::*;
+pub use semantic_store::*;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
