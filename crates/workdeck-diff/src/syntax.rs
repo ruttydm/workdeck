@@ -1,6 +1,7 @@
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::mem::size_of;
 use std::path::Path;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{FontStyle, ThemeSet};
@@ -30,6 +31,119 @@ pub struct SyntaxToken {
 pub type HighlightedLine = Vec<SyntaxToken>;
 pub type HighlightedHunk = Vec<HighlightedLine>;
 pub type HighlightedFile = Vec<HighlightedHunk>;
+
+/// Bounds highlighter payload bytes retained between renderer frames.
+pub const MAX_WORKER_HIGHLIGHT_CACHE_BYTES: usize = 8 * 1024 * 1024;
+
+#[derive(Debug, Clone)]
+struct HighlightWorkerCacheEntry {
+    bytes: usize,
+    payload: HighlightedFile,
+}
+
+/// Byte-bounded LRU that returns deep clones and retains its own payloads.
+#[derive(Debug)]
+struct HighlightWorkerCache {
+    entries: HashMap<String, HighlightWorkerCacheEntry>,
+    lru: VecDeque<String>,
+    max_bytes: usize,
+    cached_bytes: usize,
+}
+
+impl HighlightWorkerCache {
+    fn new(max_bytes: usize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            lru: VecDeque::new(),
+            max_bytes: max_bytes.max(1),
+            cached_bytes: 0,
+        }
+    }
+
+    fn get(&mut self, cache_key: &str) -> Option<HighlightedFile> {
+        let payload = self.entries.get(cache_key)?.payload.clone();
+        self.promote(cache_key);
+        Some(payload)
+    }
+
+    /// Retain a worker-owned clone and evict least-recently-used entries over budget.
+    fn set(&mut self, cache_key: String, payload: &HighlightedFile) -> bool {
+        let bytes = highlighted_file_byte_length(payload);
+        if bytes > self.max_bytes {
+            return false;
+        }
+
+        if let Some(previous) = self.entries.remove(&cache_key) {
+            self.cached_bytes = self.cached_bytes.saturating_sub(previous.bytes);
+            self.remove_from_lru(&cache_key);
+        }
+        self.entries.insert(
+            cache_key.clone(),
+            HighlightWorkerCacheEntry {
+                bytes,
+                payload: payload.clone(),
+            },
+        );
+        self.lru.push_back(cache_key);
+        self.cached_bytes = self.cached_bytes.saturating_add(bytes);
+
+        while self.cached_bytes > self.max_bytes {
+            let Some(least_recently_used) = self.lru.pop_front() else {
+                return false;
+            };
+            if let Some(evicted) = self.entries.remove(&least_recently_used) {
+                self.cached_bytes = self.cached_bytes.saturating_sub(evicted.bytes);
+            }
+        }
+        true
+    }
+
+    fn promote(&mut self, cache_key: &str) {
+        self.remove_from_lru(cache_key);
+        self.lru.push_back(cache_key.to_owned());
+    }
+
+    fn remove_from_lru(&mut self, cache_key: &str) {
+        if let Some(index) = self.lru.iter().position(|key| key == cache_key) {
+            self.lru.remove(index);
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.lru.clear();
+        self.cached_bytes = 0;
+    }
+
+    #[cfg(test)]
+    fn cached_bytes(&self) -> usize {
+        self.cached_bytes
+    }
+}
+
+fn highlighted_file_byte_length(payload: &HighlightedFile) -> usize {
+    let container_bytes = size_of::<HighlightedFile>()
+        .saturating_add(payload.len().saturating_mul(size_of::<HighlightedHunk>()));
+    payload.iter().fold(container_bytes, |file_bytes, hunk| {
+        let hunk_bytes = size_of::<HighlightedHunk>()
+            .saturating_add(hunk.len().saturating_mul(size_of::<HighlightedLine>()));
+        file_bytes.saturating_add(hunk.iter().fold(hunk_bytes, |line_bytes, line| {
+            line_bytes.saturating_add(line.iter().fold(0, |token_bytes, token| {
+                token_bytes
+                    .saturating_add(size_of::<SyntaxToken>())
+                    .saturating_add(token.text.len())
+            }))
+        }))
+    })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -110,7 +224,7 @@ pub fn highlight_worker_cache_key(
 pub struct HighlightCache {
     syntaxes: SyntaxSet,
     themes: ThemeSet,
-    entries: HashMap<String, HighlightedFile>,
+    entries: HighlightWorkerCache,
 }
 
 impl Default for HighlightCache {
@@ -118,7 +232,7 @@ impl Default for HighlightCache {
         Self {
             syntaxes: SyntaxSet::load_defaults_newlines(),
             themes: ThemeSet::load_defaults(),
-            entries: HashMap::new(),
+            entries: HighlightWorkerCache::new(MAX_WORKER_HIGHLIGHT_CACHE_BYTES),
         }
     }
 }
@@ -133,7 +247,7 @@ impl HighlightCache {
         };
         let key = highlight_worker_cache_key(file, false, appearance, &language, theme);
         if let Some(cached) = self.entries.get(&key) {
-            return cached.clone();
+            return cached;
         }
         let syntax = self
             .syntaxes
@@ -187,7 +301,7 @@ impl HighlightCache {
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
-        self.entries.insert(key, highlighted.clone());
+        self.entries.set(key, &highlighted);
         highlighted
     }
 
@@ -250,6 +364,82 @@ mod tests {
         .unwrap()
         .files
         .remove(0)
+    }
+
+    fn test_highlight_payload(line_count: usize) -> HighlightedFile {
+        vec![
+            (0..line_count)
+                .map(|index| {
+                    vec![SyntaxToken {
+                        text: format!("line-{index}"),
+                        foreground: SyntaxColor {
+                            red: 1,
+                            green: 2,
+                            blue: 3,
+                        },
+                        bold: false,
+                        italic: false,
+                        underline: false,
+                    }]
+                })
+                .collect(),
+        ]
+    }
+
+    #[test]
+    fn worker_cache_returns_an_isolated_clone_without_losing_its_retained_payload() {
+        let mut cache = HighlightWorkerCache::new(MAX_WORKER_HIGHLIGHT_CACHE_BYTES);
+        let payload = test_highlight_payload(1);
+        assert!(cache.set("first".into(), &payload));
+
+        let mut first_response = cache.get("first").unwrap();
+        assert!(!std::ptr::eq(
+            first_response[0][0].as_ptr(),
+            payload[0][0].as_ptr()
+        ));
+        first_response[0][0][0].text = "transferred-away".into();
+        assert_eq!(cache.get("first").unwrap()[0][0][0].text, "line-0");
+    }
+
+    #[test]
+    fn worker_cache_evicts_the_least_recently_used_payload_under_budget() {
+        let payload = test_highlight_payload(1);
+        let payload_bytes = highlighted_file_byte_length(&payload);
+        let mut cache = HighlightWorkerCache::new(payload_bytes * 2);
+
+        assert!(cache.set("first".into(), &test_highlight_payload(1)));
+        assert!(cache.set("second".into(), &test_highlight_payload(1)));
+        assert!(cache.get("first").is_some());
+        assert!(cache.set("third".into(), &test_highlight_payload(1)));
+
+        assert!(cache.get("first").is_some());
+        assert!(cache.get("second").is_none());
+        assert!(cache.get("third").is_some());
+    }
+
+    #[test]
+    fn worker_cache_skips_oversized_payloads_without_evicting_a_resident() {
+        let payload = test_highlight_payload(1);
+        let mut cache = HighlightWorkerCache::new(highlighted_file_byte_length(&payload));
+        assert!(cache.set("fitting".into(), &payload));
+        assert!(!cache.set("oversized".into(), &test_highlight_payload(2)));
+
+        assert!(cache.get("fitting").is_some());
+        assert!(cache.get("oversized").is_none());
+    }
+
+    #[test]
+    fn worker_cache_releases_a_replaced_payloads_previous_byte_charge() {
+        let payload = test_highlight_payload(1);
+        let mut cache = HighlightWorkerCache::new(highlighted_file_byte_length(&payload) * 2);
+
+        assert!(cache.set("reloaded".into(), &test_highlight_payload(1)));
+        assert!(cache.set("reloaded".into(), &test_highlight_payload(2)));
+        assert!(cache.set("kept".into(), &test_highlight_payload(1)));
+
+        assert!(cache.get("reloaded").is_none());
+        assert!(cache.get("kept").is_some());
+        assert_eq!(cache.cached_bytes(), highlighted_file_byte_length(&payload));
     }
 
     #[test]
