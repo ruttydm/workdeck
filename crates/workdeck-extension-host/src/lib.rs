@@ -14,10 +14,10 @@ use std::time::Duration;
 use thiserror::Error;
 use workdeck_core::{Changeset, ReviewSnapshot};
 use workdeck_extension_api::{
-    API_VERSION, DEFAULT_REQUEST_TIMEOUT_MS, ExtensionManifest, ExtensionPaneView,
-    HandshakeRequest, HandshakeResponse, JsonRpcRequest, JsonRpcResponse, MAX_MESSAGE_BYTES,
-    ManifestError, PaneRenderRequest, PaneRenderResponse, Registration, TransformRequest,
-    TransformResponse, validate_view,
+    API_VERSION, DEFAULT_REQUEST_TIMEOUT_MS, ExtensionManifest, ExtensionNotificationHub,
+    ExtensionNotifyType, ExtensionPaneView, HandshakeRequest, HandshakeResponse, JsonRpcRequest,
+    JsonRpcResponse, MAX_MESSAGE_BYTES, ManifestError, PaneRenderRequest, PaneRenderResponse,
+    Registration, TransformRequest, TransformResponse, validate_view,
 };
 
 #[derive(Debug, Error)]
@@ -280,10 +280,19 @@ pub struct LoadedExtension {
     responses: mpsc::Receiver<Result<String, std::io::Error>>,
     next_id: u64,
     registry: Arc<ExtensionRuntimeRegistry>,
+    notifications: ExtensionNotificationHub,
 }
 
 impl LoadedExtension {
     pub fn spawn(manifest_path: &Path, host_version: &str) -> Result<Self, HostError> {
+        Self::spawn_with_notifications(manifest_path, host_version, ExtensionNotificationHub::new())
+    }
+
+    pub fn spawn_with_notifications(
+        manifest_path: &Path,
+        host_version: &str,
+        notifications: ExtensionNotificationHub,
+    ) -> Result<Self, HostError> {
         let manifest = ExtensionManifest::load(manifest_path)?;
         let directory = manifest_path.parent().unwrap_or_else(|| Path::new("."));
         let executable = directory.join(&manifest.executable);
@@ -310,6 +319,7 @@ impl LoadedExtension {
             .take()
             .ok_or_else(|| HostError::MissingPipe(manifest.id.clone()))?;
         let (sender, responses) = mpsc::channel();
+        let output_notifications = notifications.clone();
         thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
             loop {
@@ -317,6 +327,11 @@ impl LoadedExtension {
                 match reader.read_line(&mut line) {
                     Ok(0) => break,
                     Ok(_) => {
+                        if let Some(notification) = parse_extension_notification(&line) {
+                            output_notifications
+                                .notify(notification.message, notification.notification_type);
+                            continue;
+                        }
                         if sender.send(Ok(line)).is_err() {
                             break;
                         }
@@ -340,6 +355,7 @@ impl LoadedExtension {
             responses,
             next_id: 1,
             registry: Arc::new(ExtensionRuntimeRegistry::new()),
+            notifications,
         };
         let result = loaded.request(
             "workdeck/handshake",
@@ -374,6 +390,11 @@ impl LoadedExtension {
     #[must_use]
     pub fn registry(&self) -> Arc<ExtensionRuntimeRegistry> {
         Arc::clone(&self.registry)
+    }
+
+    #[must_use]
+    pub fn notifications(&self) -> ExtensionNotificationHub {
+        self.notifications.clone()
     }
 
     pub fn request(
@@ -526,6 +547,38 @@ impl LoadedExtension {
             })
             .collect()
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct ExtensionNotifyParams {
+    message: String,
+    #[serde(default, rename = "type")]
+    notification_type: Option<ExtensionNotifyType>,
+}
+
+#[derive(Debug)]
+struct ParsedExtensionNotification {
+    message: String,
+    notification_type: ExtensionNotifyType,
+}
+
+fn parse_extension_notification(line: &str) -> Option<ParsedExtensionNotification> {
+    let value = serde_json::from_str::<Value>(line).ok()?;
+    let object = value.as_object()?;
+    if object.get("jsonrpc")?.as_str()? != "2.0"
+        || object.get("method")?.as_str()? != "workdeck/notify"
+        || object.contains_key("id")
+    {
+        return None;
+    }
+    let params =
+        serde_json::from_value::<ExtensionNotifyParams>(object.get("params")?.clone()).ok()?;
+    Some(ParsedExtensionNotification {
+        message: params.message,
+        notification_type: params
+            .notification_type
+            .unwrap_or(ExtensionNotifyType::Info),
+    })
 }
 
 fn validate_registrations(
@@ -841,5 +894,33 @@ mod tests {
         let polluted = ScopedEpochState::from_encoded_entries([("not-json".into(), 7)]);
         let reconciled = reconcile_scoped_epochs(&polluted, &[], &BTreeSet::new());
         assert_eq!(reconciled.len(), 0);
+    }
+
+    #[test]
+    fn parses_native_notification_messages_and_defaults_to_info() {
+        let parsed = parse_extension_notification(
+            r#"{"jsonrpc":"2.0","method":"workdeck/notify","params":{"message":"ready"}}"#,
+        )
+        .unwrap();
+        assert_eq!(parsed.message, "ready");
+        assert_eq!(parsed.notification_type, ExtensionNotifyType::Info);
+
+        let warning = parse_extension_notification(
+            r#"{"jsonrpc":"2.0","method":"workdeck/notify","params":{"message":"careful","type":"warning"}}"#,
+        )
+        .unwrap();
+        assert_eq!(warning.notification_type, ExtensionNotifyType::Warning);
+    }
+
+    #[test]
+    fn rejects_responses_unknown_methods_and_invalid_notification_payloads() {
+        for line in [
+            r#"{"jsonrpc":"2.0","id":1,"method":"workdeck/notify","params":{"message":"response"}}"#,
+            r#"{"jsonrpc":"2.0","method":"workdeck/other","params":{"message":"other"}}"#,
+            r#"{"jsonrpc":"2.0","method":"workdeck/notify","params":{"message":3}}"#,
+            "not-json",
+        ] {
+            assert!(parse_extension_notification(line).is_none(), "{line}");
+        }
     }
 }

@@ -153,6 +153,9 @@ fn run_loop(
             reload_review(app);
             next_review_reload = Instant::now() + Duration::from_millis(250);
         }
+        if let Some(review) = &mut app.review {
+            review.tick_extension_notifications(Instant::now());
+        }
         terminal.draw(|frame| views::render(app, highlighter, frame))?;
         if !event::poll(Duration::from_millis(50))? {
             continue;

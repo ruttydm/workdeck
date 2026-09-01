@@ -1,6 +1,7 @@
 //! Terminal-safe, bounded presentation of native extension notifications.
 
 use ratatui::style::Color;
+use std::time::{Duration, Instant};
 use workdeck_diff::{SanitizeOptions, sanitize_terminal_text};
 use workdeck_extension_api::{ExtensionNotification, ExtensionNotifyType};
 
@@ -85,6 +86,59 @@ pub fn enqueue_extension_notification(
     next.extend(queue.iter().skip(retained).cloned());
     next.push(notification);
     next
+}
+
+/// Timer-driven state behind the Ratatui notification surface.
+#[derive(Debug)]
+pub struct ExtensionNotificationSurface {
+    queue: Vec<ExtensionNotification>,
+    active_since: Option<Instant>,
+    duration: Duration,
+}
+
+impl Default for ExtensionNotificationSurface {
+    fn default() -> Self {
+        Self::new(Duration::from_millis(EXTENSION_TOAST_DURATION_MS))
+    }
+}
+
+impl ExtensionNotificationSurface {
+    #[must_use]
+    pub const fn new(duration: Duration) -> Self {
+        Self {
+            queue: Vec::new(),
+            active_since: None,
+            duration,
+        }
+    }
+
+    pub fn enqueue(&mut self, notification: ExtensionNotification) {
+        self.queue = enqueue_extension_notification(&self.queue, notification);
+    }
+
+    /// Advance at most one toast. A notification that becomes active receives
+    /// its own complete display window even after a long event-loop pause.
+    pub fn tick(&mut self, now: Instant) {
+        let Some(active) = self.queue.first() else {
+            self.active_since = None;
+            return;
+        };
+        let Some(active_since) = self.active_since else {
+            self.active_since = Some(now);
+            return;
+        };
+        if now.saturating_duration_since(active_since) < self.duration {
+            return;
+        }
+        let active_id = active.id;
+        self.queue.retain(|entry| entry.id != active_id);
+        self.active_since = self.queue.first().map(|_| now);
+    }
+
+    #[must_use]
+    pub fn active(&self) -> Option<&ExtensionNotification> {
+        self.queue.first()
+    }
 }
 
 #[cfg(test)]
@@ -178,5 +232,36 @@ mod tests {
         let next = enqueue_extension_notification(&current, notification(2));
         assert_eq!(current.len(), 1);
         assert_ne!(next.as_ptr(), current_ptr);
+    }
+
+    #[test]
+    fn notification_surface_shows_buffered_entries_one_at_a_time_by_id() {
+        let start = Instant::now();
+        let mut surface = ExtensionNotificationSurface::new(Duration::from_millis(40));
+        surface.enqueue(notification(1));
+        surface.enqueue(notification(2));
+
+        surface.tick(start);
+        assert_eq!(surface.active().map(|entry| entry.id), Some(1));
+        surface.tick(start + Duration::from_millis(60));
+        assert_eq!(surface.active().map(|entry| entry.id), Some(2));
+        surface.tick(start + Duration::from_millis(120));
+        assert!(surface.active().is_none());
+    }
+
+    #[test]
+    fn notification_arriving_mid_window_receives_its_own_full_window() {
+        let start = Instant::now();
+        let mut surface = ExtensionNotificationSurface::new(Duration::from_millis(40));
+        surface.enqueue(notification(1));
+        surface.tick(start);
+        surface.enqueue(notification(2));
+
+        surface.tick(start + Duration::from_millis(60));
+        assert_eq!(surface.active().map(|entry| entry.id), Some(2));
+        surface.tick(start + Duration::from_millis(80));
+        assert_eq!(surface.active().map(|entry| entry.id), Some(2));
+        surface.tick(start + Duration::from_millis(101));
+        assert!(surface.active().is_none());
     }
 }

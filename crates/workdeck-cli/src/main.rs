@@ -22,7 +22,8 @@ use workdeck_cli::store::{
 use workdeck_core::{AgentContext, Changeset, ReviewSide};
 use workdeck_diff::{LanguageMatcher, LanguageRegistration, LanguageRegistry};
 use workdeck_extension_api::{
-    ExtensionManifest, ExtensionPaneView, FileLanguageGlobTarget, FileLanguageMatcher, Registration,
+    ExtensionManifest, ExtensionNotificationHub, ExtensionPaneView, FileLanguageGlobTarget,
+    FileLanguageMatcher, Registration,
 };
 use workdeck_extension_host::{LoadedExtension, TrustDecision, TrustStore, discover_manifests};
 use workdeck_review::{
@@ -655,6 +656,7 @@ impl ReviewCliOptions {
                 .unwrap_or_else(|| "base16-ocean.dark".into()),
             repo: None,
             extension_panes: Vec::new(),
+            extension_notifications: None,
         }
     }
 }
@@ -1325,10 +1327,11 @@ fn run(mut args: Args) -> Result<()> {
         .map_err(anyhow::Error::from)?;
     if !changeset.is_empty() {
         let review = ReviewCliOptions::from_config(&config);
-        let mut extensions = load_review_extensions(&repo_root, &review)?;
+        let (mut extensions, notifications) = load_review_extensions(&repo_root, &review)?;
         let (changeset, panes) = apply_review_extensions(changeset, &mut extensions)?;
         let mut options = review.tui_options();
         options.extension_panes = panes;
+        options.extension_notifications = Some(notifications);
         let app = App::with_review(&args.cwd, changeset, options, extensions)?;
         workdeck_cli::tui::run(app)
     } else {
@@ -1619,11 +1622,12 @@ fn run_review_with_options(
         bail!("--watch requires a file- or VCS-backed review input");
     }
     apply_agent_context(cwd, review.agent_context.as_deref(), &mut changeset)?;
-    let mut extensions = load_review_extensions(cwd, &review)?;
+    let (mut extensions, notifications) = load_review_extensions(cwd, &review)?;
     let prepared = apply_review_extensions(changeset, &mut extensions)?;
     changeset = prepared.0;
     let mut options = review.tui_options();
     options.extension_panes = prepared.1;
+    options.extension_notifications = Some(notifications);
     options.repo = AnyProvider::discover(cwd, review.preference())
         .ok()
         .map(|provider| provider.root().to_owned())
@@ -1726,9 +1730,13 @@ fn apply_agent_context(cwd: &Path, path: Option<&Path>, changeset: &mut Changese
     Ok(())
 }
 
-fn load_review_extensions(cwd: &Path, review: &ReviewCliOptions) -> Result<Vec<LoadedExtension>> {
+fn load_review_extensions(
+    cwd: &Path,
+    review: &ReviewCliOptions,
+) -> Result<(Vec<LoadedExtension>, ExtensionNotificationHub)> {
+    let notifications = ExtensionNotificationHub::new();
     if review.no_extensions {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), notifications));
     }
     let config = user_config_root().map(|root| root.join("workdeck"));
     let trust = config
@@ -1745,13 +1753,18 @@ fn load_review_extensions(cwd: &Path, review: &ReviewCliOptions) -> Result<Vec<L
         &trust,
         &review.extension,
     )?;
-    manifests
+    let extensions = manifests
         .iter()
         .map(|path| {
-            LoadedExtension::spawn(path, env!("CARGO_PKG_VERSION"))
-                .with_context(|| format!("failed to load native extension {}", path.display()))
+            LoadedExtension::spawn_with_notifications(
+                path,
+                env!("CARGO_PKG_VERSION"),
+                notifications.clone(),
+            )
+            .with_context(|| format!("failed to load native extension {}", path.display()))
         })
-        .collect()
+        .collect::<Result<Vec<_>>>()?;
+    Ok((extensions, notifications))
 }
 
 fn handle_global_command(cwd: &Path, command: Command) -> Result<()> {

@@ -42,7 +42,10 @@ use workdeck_diff::{
     HighlightCache, SyntaxToken, TextSegment, clip_segments, plan_split_line_pairs,
     word_diff_ranges, wrap_segments,
 };
-use workdeck_extension_api::{ExtensionPaneView, PanePlacement, ViewNode, ViewStyle};
+use workdeck_extension_api::{
+    ExtensionNotification, ExtensionNotificationHub, ExtensionNotificationSubscription,
+    ExtensionPaneView, PanePlacement, ViewNode, ViewStyle,
+};
 use workdeck_review::{LayoutMode, ReviewComment, ReviewState, normalized_review_source_lines};
 use workdeck_session::{ReviewSessionServer, default_discovery_directory};
 
@@ -64,6 +67,7 @@ pub struct ReviewOptions {
     pub syntax_theme: String,
     pub repo: Option<PathBuf>,
     pub extension_panes: Vec<ExtensionPaneView>,
+    pub extension_notifications: Option<ExtensionNotificationHub>,
 }
 
 impl Default for ReviewOptions {
@@ -85,6 +89,7 @@ impl Default for ReviewOptions {
             syntax_theme: "base16-ocean.dark".into(),
             repo: None,
             extension_panes: Vec::new(),
+            extension_notifications: None,
         }
     }
 }
@@ -117,6 +122,8 @@ pub struct ReviewApp {
     expanded_gaps: BTreeSet<(String, usize)>,
     highlights: Mutex<HighlightCache>,
     themes: ThemeController,
+    extension_toasts: Arc<Mutex<ExtensionNotificationSurface>>,
+    extension_notification_subscription: Option<ExtensionNotificationSubscription>,
 }
 
 impl ReviewApp {
@@ -124,6 +131,20 @@ impl ReviewApp {
         let mut state = ReviewState::new(changeset);
         state.set_layout(options.layout);
         let themes = ThemeController::new(options.syntax_theme.clone());
+        let extension_toasts = Arc::new(Mutex::new(ExtensionNotificationSurface::default()));
+        let extension_notification_subscription =
+            options
+                .extension_notifications
+                .as_ref()
+                .map(|notifications| {
+                    let extension_toasts = Arc::clone(&extension_toasts);
+                    notifications.subscribe(move |notification| {
+                        extension_toasts
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
+                            .enqueue(notification);
+                    })
+                });
         Self {
             state: Arc::new(Mutex::new(state)),
             options,
@@ -137,6 +158,8 @@ impl ReviewApp {
             expanded_gaps: BTreeSet::new(),
             highlights: Mutex::new(HighlightCache::default()),
             themes,
+            extension_toasts,
+            extension_notification_subscription,
         }
     }
 
@@ -168,6 +191,27 @@ impl ReviewApp {
 
     pub fn set_status(&mut self, status: impl Into<String>) {
         self.status = Some(status.into());
+    }
+
+    pub fn tick_extension_notifications(&mut self, now: Instant) {
+        self.extension_toasts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .tick(now);
+    }
+
+    #[must_use]
+    pub fn active_extension_notification(&self) -> Option<ExtensionNotification> {
+        self.extension_toasts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .active()
+            .cloned()
+    }
+
+    #[must_use]
+    pub fn has_extension_notification_subscription(&self) -> bool {
+        self.extension_notification_subscription.is_some()
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
@@ -446,6 +490,7 @@ fn run_loop<B: Backend>(
 ) -> Result<()> {
     let mut next_reload = Instant::now() + Duration::from_millis(250);
     while !app.should_quit && !session_stop.is_some_and(|stop| stop.load(Ordering::Relaxed)) {
+        app.tick_extension_notifications(Instant::now());
         terminal.draw(|frame| render(frame.area(), frame.buffer_mut(), app))?;
         if event::poll(Duration::from_millis(100))? {
             match event::read()? {
@@ -514,6 +559,16 @@ pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
 /// Render the review surface inside Workdeck's unified tab shell.
 pub fn render_embedded(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     render_body(area, buffer, app);
+    if app.active_extension_notification().is_some() {
+        let toast_area = Rect {
+            x: area.x,
+            y: area.bottom().saturating_sub(1),
+            width: area.width,
+            height: area.height.min(1),
+        };
+        Clear.render(toast_area, buffer);
+        render_extension_toast(toast_area, buffer, app);
+    }
 }
 
 fn render_header(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
@@ -1733,6 +1788,10 @@ fn truncate_start(value: &str, width: usize) -> String {
 }
 
 fn render_footer(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+    if app.active_extension_notification().is_some() {
+        render_extension_toast(area, buffer, app);
+        return;
+    }
     let focus = match app.focus {
         Focus::Review => "review",
         Focus::Sidebar => "files",
@@ -1751,6 +1810,35 @@ fn render_footer(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         ));
     }
     Paragraph::new(Line::from(spans)).render(area, buffer);
+}
+
+fn render_extension_toast(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+    let Some(notification) = app.active_extension_notification() else {
+        return;
+    };
+    let theme = ExtensionToastTheme {
+        badge_removed: Color::Red,
+        file_modified: Color::Yellow,
+        badge_neutral: Color::Cyan,
+    };
+    let color = extension_toast_color(notification.notification_type, theme);
+    Paragraph::new(Line::from(vec![
+        Span::styled(
+            format!(" {} ", extension_toast_prefix()),
+            Style::default()
+                .fg(Color::Black)
+                .bg(color)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!(
+                " {}",
+                extension_toast_message(&notification.message, area.width)
+            ),
+            Style::default().fg(color),
+        ),
+    ]))
+    .render(area, buffer);
 }
 
 fn render_help(area: Rect, buffer: &mut Buffer) {
@@ -2182,5 +2270,64 @@ mod tests {
         assert!(!themes.commit_preview(first));
         assert!(themes.commit_preview(latest));
         assert_eq!(themes.active, "solarized");
+    }
+
+    #[test]
+    fn review_notification_surface_flushes_buffered_toasts_one_at_a_time() {
+        let hub = ExtensionNotificationHub::new();
+        hub.notify_info("first");
+        hub.notify_info("second");
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                extension_notifications: Some(hub),
+                ..ReviewOptions::default()
+            },
+        );
+        assert!(app.has_extension_notification_subscription());
+
+        let start = Instant::now();
+        app.tick_extension_notifications(start);
+        assert_eq!(
+            app.active_extension_notification()
+                .map(|notification| notification.message),
+            Some("first".into())
+        );
+        app.tick_extension_notifications(start + Duration::from_millis(4_001));
+        assert_eq!(
+            app.active_extension_notification()
+                .map(|notification| notification.message),
+            Some("second".into())
+        );
+        app.tick_extension_notifications(start + Duration::from_millis(8_002));
+        assert!(app.active_extension_notification().is_none());
+    }
+
+    #[test]
+    fn live_notification_does_not_lose_its_window_to_the_active_toast_timer() {
+        let hub = ExtensionNotificationHub::new();
+        hub.notify_info("first");
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                extension_notifications: Some(hub.clone()),
+                ..ReviewOptions::default()
+            },
+        );
+        let start = Instant::now();
+        app.tick_extension_notifications(start);
+        hub.notify_info("second");
+        app.tick_extension_notifications(start + Duration::from_millis(4_001));
+        assert_eq!(
+            app.active_extension_notification()
+                .map(|notification| notification.message),
+            Some("second".into())
+        );
+        app.tick_extension_notifications(start + Duration::from_millis(6_000));
+        assert_eq!(
+            app.active_extension_notification()
+                .map(|notification| notification.message),
+            Some("second".into())
+        );
     }
 }

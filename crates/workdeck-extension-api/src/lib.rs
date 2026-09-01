@@ -6,7 +6,9 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use workdeck_core::{Changeset, ReviewSide, ReviewSnapshot};
 
@@ -47,6 +49,179 @@ pub struct ExtensionNotification {
     pub message: String,
     #[serde(rename = "type")]
     pub notification_type: ExtensionNotifyType,
+}
+
+const MAX_BUFFERED_NOTIFICATIONS: usize = 32;
+type ExtensionNotificationListener = Arc<dyn Fn(ExtensionNotification) + Send + Sync>;
+
+#[derive(Default)]
+struct ExtensionNotificationHubState {
+    next_id: u64,
+    next_listener_id: u64,
+    listener: Option<(u64, ExtensionNotificationListener)>,
+    buffered: VecDeque<ExtensionNotification>,
+}
+
+/// Process-wide sink behind native extension `notify` calls.
+///
+/// Notifications sent before the Ratatui surface attaches are buffered in
+/// arrival order. Only the latest 32 remain, and a detached surface re-arms
+/// buffering so startup/reload messages cannot disappear between mounts.
+#[derive(Clone)]
+pub struct ExtensionNotificationHub {
+    state: Arc<Mutex<ExtensionNotificationHubState>>,
+}
+
+impl Default for ExtensionNotificationHub {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Debug for ExtensionNotificationHub {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        formatter
+            .debug_struct("ExtensionNotificationHub")
+            .field("next_id", &state.next_id)
+            .field("listening", &state.listener.is_some())
+            .field("buffered", &state.buffered.len())
+            .finish()
+    }
+}
+
+impl ExtensionNotificationHub {
+    #[must_use]
+    pub fn new() -> Self {
+        let state = ExtensionNotificationHubState {
+            next_id: 1,
+            next_listener_id: 1,
+            ..ExtensionNotificationHubState::default()
+        };
+        Self {
+            state: Arc::new(Mutex::new(state)),
+        }
+    }
+
+    pub fn notify(&self, message: impl Into<String>, notification_type: ExtensionNotifyType) {
+        let notification;
+        let listener;
+        {
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            notification = ExtensionNotification {
+                id: state.next_id,
+                message: message.into(),
+                notification_type,
+            };
+            state.next_id = state.next_id.saturating_add(1);
+            listener = state
+                .listener
+                .as_ref()
+                .map(|(_, listener)| Arc::clone(listener));
+            if listener.is_none() {
+                state.buffered.push_back(notification);
+                while state.buffered.len() > MAX_BUFFERED_NOTIFICATIONS {
+                    state.buffered.pop_front();
+                }
+                return;
+            }
+        }
+        if let Some(listener) = listener {
+            deliver_extension_notification(&listener, notification);
+        }
+    }
+
+    pub fn notify_info(&self, message: impl Into<String>) {
+        self.notify(message, ExtensionNotifyType::Info);
+    }
+
+    /// Attach the TUI and flush anything buffered before it mounted.
+    #[must_use]
+    pub fn subscribe(
+        &self,
+        listener: impl Fn(ExtensionNotification) + Send + Sync + 'static,
+    ) -> ExtensionNotificationSubscription {
+        let listener: ExtensionNotificationListener = Arc::new(listener);
+        let (listener_id, pending) = {
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let listener_id = state.next_listener_id;
+            state.next_listener_id = state.next_listener_id.saturating_add(1);
+            state.listener = Some((listener_id, Arc::clone(&listener)));
+            (listener_id, state.buffered.drain(..).collect::<Vec<_>>())
+        };
+        for notification in pending {
+            deliver_extension_notification(&listener, notification);
+        }
+        ExtensionNotificationSubscription {
+            hub: self.clone(),
+            listener_id,
+            active: true,
+        }
+    }
+}
+
+fn deliver_extension_notification(
+    listener: &ExtensionNotificationListener,
+    notification: ExtensionNotification,
+) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener(notification)));
+}
+
+/// Once-only subscription guard; dropping it restores hub buffering.
+pub struct ExtensionNotificationSubscription {
+    hub: ExtensionNotificationHub,
+    listener_id: u64,
+    active: bool,
+}
+
+impl std::fmt::Debug for ExtensionNotificationSubscription {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ExtensionNotificationSubscription")
+            .field("listener_id", &self.listener_id)
+            .field("active", &self.active)
+            .finish()
+    }
+}
+
+impl ExtensionNotificationSubscription {
+    pub fn unsubscribe(mut self) {
+        self.detach();
+    }
+
+    fn detach(&mut self) {
+        if !self.active {
+            return;
+        }
+        self.active = false;
+        let mut state = self
+            .hub
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if state
+            .listener
+            .as_ref()
+            .is_some_and(|(listener_id, _)| *listener_id == self.listener_id)
+        {
+            state.listener = None;
+        }
+    }
+}
+
+impl Drop for ExtensionNotificationSubscription {
+    fn drop(&mut self) {
+        self.detach();
+    }
 }
 
 #[derive(Debug, Error)]
@@ -479,6 +654,7 @@ pub fn validate_view(root: &ViewNode) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
     fn manifest_rejects_parent_directory_executables() {
@@ -528,5 +704,110 @@ mod tests {
             };
         }
         assert!(validate_view(&view).unwrap_err().contains("depth"));
+    }
+
+    #[test]
+    fn notification_hub_buffers_until_a_listener_and_flushes_in_order() {
+        let hub = ExtensionNotificationHub::new();
+        hub.notify_info("first");
+        hub.notify("second", ExtensionNotifyType::Warning);
+
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let _subscription = hub.subscribe({
+            let seen = Arc::clone(&seen);
+            move |notification| {
+                seen.lock()
+                    .unwrap()
+                    .push((notification.message, notification.notification_type));
+            }
+        });
+
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [
+                ("first".into(), ExtensionNotifyType::Info),
+                ("second".into(), ExtensionNotifyType::Warning),
+            ]
+        );
+    }
+
+    #[test]
+    fn notification_hub_delivers_directly_without_buffering() {
+        let hub = ExtensionNotificationHub::new();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let _subscription = hub.subscribe({
+            let seen = Arc::clone(&seen);
+            move |notification| seen.lock().unwrap().push(notification.message)
+        });
+        hub.notify_info("live");
+        assert_eq!(*seen.lock().unwrap(), ["live"]);
+    }
+
+    #[test]
+    fn notification_hub_rearms_buffering_after_unsubscribe() {
+        let hub = ExtensionNotificationHub::new();
+        let first = Arc::new(Mutex::new(Vec::new()));
+        let subscription = hub.subscribe({
+            let first = Arc::clone(&first);
+            move |notification| first.lock().unwrap().push(notification.message)
+        });
+        hub.notify_info("before");
+        subscription.unsubscribe();
+        hub.notify_info("while detached");
+
+        let second = Arc::new(Mutex::new(Vec::new()));
+        let _subscription = hub.subscribe({
+            let second = Arc::clone(&second);
+            move |notification| second.lock().unwrap().push(notification.message)
+        });
+        assert_eq!(*first.lock().unwrap(), ["before"]);
+        assert_eq!(*second.lock().unwrap(), ["while detached"]);
+    }
+
+    #[test]
+    fn notification_hub_assigns_strictly_increasing_ids() {
+        let hub = ExtensionNotificationHub::new();
+        let ids = Arc::new(Mutex::new(Vec::new()));
+        let _subscription = hub.subscribe({
+            let ids = Arc::clone(&ids);
+            move |notification| ids.lock().unwrap().push(notification.id)
+        });
+        hub.notify_info("a");
+        hub.notify_info("b");
+        let ids = ids.lock().unwrap();
+        assert!(ids[1] > ids[0]);
+    }
+
+    #[test]
+    fn notification_hub_drops_the_oldest_buffered_entries_at_its_cap() {
+        let hub = ExtensionNotificationHub::new();
+        for index in 0..40 {
+            hub.notify_info(format!("message {index}"));
+        }
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let _subscription = hub.subscribe({
+            let seen = Arc::clone(&seen);
+            move |notification| seen.lock().unwrap().push(notification.message)
+        });
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 32);
+        assert_eq!(seen.first().map(String::as_str), Some("message 8"));
+        assert_eq!(seen.last().map(String::as_str), Some("message 39"));
+    }
+
+    #[test]
+    fn notification_hub_contains_listener_panics() {
+        let hub = ExtensionNotificationHub::new();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let _subscription = hub.subscribe({
+            let attempts = Arc::clone(&attempts);
+            move |_| {
+                attempts.fetch_add(1, Ordering::Relaxed);
+                panic!("ui exploded");
+            }
+        });
+        hub.notify_info("still fine");
+        hub.notify_info("also fine");
+        assert_eq!(attempts.load(Ordering::Relaxed), 2);
     }
 }
