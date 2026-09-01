@@ -3,10 +3,12 @@
 mod list_geometry;
 mod shutdown;
 mod terminal_runtime;
+mod ui_geometry;
 
 pub use list_geometry::*;
 pub use shutdown::*;
 pub use terminal_runtime::*;
+pub use ui_geometry::*;
 
 use anyhow::Result;
 use crossterm::event::{
@@ -607,20 +609,20 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
 }
 
 fn render_builtin_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
-    if app
+    let state = app
         .state
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .changeset()
-        .is_empty()
-    {
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if state.changeset().is_empty() {
         Paragraph::new("No changes to review")
             .style(Style::default().fg(Color::DarkGray))
             .block(Block::default().borders(Borders::TOP))
             .render(area, buffer);
         return;
     }
-    let chunks = if app.options.sidebar && area.width >= 60 {
+    let responsive = state.responsive_layout(area.width);
+    drop(state);
+    let chunks = if app.options.sidebar && responsive.show_sidebar {
         Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Length(30), Constraint::Min(30)])
@@ -1750,13 +1752,12 @@ fn render_footer(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
 }
 
 fn render_help(area: Rect, buffer: &mut Buffer) {
-    let width = area.width.min(72);
-    let height = area.height.min(20);
+    let geometry = resolve_modal_geometry(72, 20, area.width, area.height);
     let popup = Rect {
-        x: area.x + area.width.saturating_sub(width) / 2,
-        y: area.y + area.height.saturating_sub(height) / 2,
-        width,
-        height,
+        x: area.x.saturating_add(geometry.left),
+        y: area.y.saturating_add(geometry.top),
+        width: geometry.width,
+        height: geometry.height,
     };
     Clear.render(popup, buffer);
     Paragraph::new(vec![

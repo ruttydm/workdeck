@@ -10,6 +10,7 @@ mod geometry;
 mod live_comments;
 mod resource_assembly;
 mod resources;
+mod responsive;
 mod semantic_actions;
 mod semantic_intents;
 mod semantic_navigation;
@@ -30,6 +31,7 @@ pub use geometry::*;
 pub use live_comments::*;
 pub use resource_assembly::*;
 pub use resources::*;
+pub use responsive::*;
 pub use semantic_actions::*;
 pub use semantic_intents::*;
 pub use semantic_navigation::*;
@@ -163,11 +165,11 @@ impl ReviewState {
     }
 
     pub fn resolved_layout(&self, terminal_width: u16) -> LayoutMode {
-        match self.layout {
-            LayoutMode::Auto if terminal_width >= 120 => LayoutMode::Split,
-            LayoutMode::Auto => LayoutMode::Stack,
-            explicit => explicit,
-        }
+        resolve_responsive_layout(self.layout, terminal_width).layout
+    }
+
+    pub fn responsive_layout(&self, terminal_width: u16) -> ResponsiveLayout {
+        resolve_responsive_layout(self.layout, terminal_width)
     }
 
     pub fn select_file(&mut self, file_index: usize) -> Result<(), ReviewError> {
