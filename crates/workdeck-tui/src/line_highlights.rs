@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use workdeck_core::Changeset;
 use workdeck_extension_api::ValidatedLineHighlight;
 
 #[derive(Debug, Clone, Default)]
@@ -72,10 +73,50 @@ pub fn merge_line_highlight_maps(
     LineHighlightMap(Arc::new(merged))
 }
 
+/// Carry agent attention marks across one immutable review reload.
+///
+/// Stable file keys locate replacements. Exact content identity is required
+/// before the existing mark allocation is re-keyed to the new runtime ID.
+/// Removed or changed files lose their marks instead of painting stale text.
+#[must_use]
+pub fn carry_over_line_highlights(
+    marks_by_file_id: &LineHighlightMap,
+    previous: &Changeset,
+    next: &Changeset,
+) -> LineHighlightMap {
+    let mut carried = BTreeMap::new();
+    if marks_by_file_id.is_empty() {
+        return LineHighlightMap(Arc::new(carried));
+    }
+
+    let next_by_key = next
+        .files
+        .iter()
+        .map(|file| (file.key.as_str(), file))
+        .collect::<BTreeMap<_, _>>();
+    for file in &previous.files {
+        let Some(marks) = marks_by_file_id.0.get(&file.runtime_id) else {
+            continue;
+        };
+        if marks.is_empty() {
+            continue;
+        }
+        let Some(replacement) = next_by_key.get(file.key.as_str()) else {
+            continue;
+        };
+        if replacement.content_identity != file.content_identity {
+            continue;
+        }
+        carried.insert(replacement.runtime_id.clone(), Arc::clone(marks));
+    }
+    LineHighlightMap(Arc::new(carried))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use workdeck_core::ReviewSide;
+    use workdeck_core::{ChangesetSource, ReviewSide};
+    use workdeck_diff::parse_patch;
     use workdeck_extension_api::HighlightTone;
 
     fn mark(line: u64, start: u64, end: u64) -> ValidatedLineHighlight {
@@ -86,6 +127,32 @@ mod tests {
             end,
             tone: HighlightTone::Match,
         }
+    }
+
+    fn reloaded_document(files: &[(&str, Option<&str>)], generation: &str) -> Changeset {
+        let mut parsed = parse_patch(
+            "diff --git a/sample.rs b/sample.rs\n--- a/sample.rs\n+++ b/sample.rs\n@@ -1 +1 @@\n-old\n+new\n",
+            format!("reload-{generation}"),
+            "reload",
+            ChangesetSource::Patch {
+                label: "reload".into(),
+            },
+        )
+        .unwrap();
+        let template = parsed.files.remove(0);
+        parsed.files = files
+            .iter()
+            .map(|(key, content_identity)| {
+                let mut file = template.clone();
+                file.key = (*key).into();
+                file.runtime_id = format!("{key}:{generation}");
+                file.content_identity = content_identity
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| format!("content:{key}"));
+                file
+            })
+            .collect();
+        parsed
     }
 
     #[test]
@@ -113,5 +180,51 @@ mod tests {
         assert_eq!(merged.get("file-2"), Some([mark(3, 0, 2)].as_slice()));
         assert_eq!(base.get("file-1").map(<[_]>::len), Some(1));
         assert_eq!(overlay.get("file-1").map(<[_]>::len), Some(1));
+    }
+
+    #[test]
+    fn reload_rekeys_marks_when_content_is_unchanged_and_preserves_mark_identity() {
+        let previous = reloaded_document(&[("alpha", None), ("beta", None)], "1");
+        let next = reloaded_document(&[("alpha", None), ("beta", None)], "2");
+        let marks = LineHighlightMap::from_entries([("alpha:1".into(), vec![mark(1, 0, 4)])]);
+
+        let carried = carry_over_line_highlights(&marks, &previous, &next);
+        assert_eq!(carried.get("alpha:2"), marks.get("alpha:1"));
+        assert!(Arc::ptr_eq(
+            carried.0.get("alpha:2").unwrap(),
+            marks.0.get("alpha:1").unwrap(),
+        ));
+    }
+
+    #[test]
+    fn reload_drops_marks_when_content_changes() {
+        let previous = reloaded_document(&[("alpha", None)], "1");
+        let next = reloaded_document(&[("alpha", Some("content:changed"))], "2");
+        let marks = LineHighlightMap::from_entries([("alpha:1".into(), vec![mark(1, 0, 4)])]);
+
+        assert!(carry_over_line_highlights(&marks, &previous, &next).is_empty());
+    }
+
+    #[test]
+    fn reload_drops_removed_files_and_keeps_surviving_files() {
+        let previous = reloaded_document(&[("alpha", None), ("beta", None)], "1");
+        let next = reloaded_document(&[("beta", None)], "2");
+        let marks = LineHighlightMap::from_entries([
+            ("alpha:1".into(), vec![mark(1, 0, 4)]),
+            ("beta:1".into(), vec![mark(1, 0, 4)]),
+        ]);
+
+        let carried = carry_over_line_highlights(&marks, &previous, &next);
+        assert_eq!(carried.len(), 1);
+        assert_eq!(carried.get("beta:2"), Some([mark(1, 0, 4)].as_slice()));
+    }
+
+    #[test]
+    fn reload_returns_an_empty_map_when_there_is_nothing_to_carry() {
+        let previous = reloaded_document(&[("alpha", None)], "1");
+        let next = reloaded_document(&[("alpha", None)], "2");
+        assert!(
+            carry_over_line_highlights(&LineHighlightMap::default(), &previous, &next).is_empty()
+        );
     }
 }

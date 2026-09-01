@@ -5,6 +5,38 @@ use std::collections::HashMap;
 use workdeck_core::ReviewSide;
 use workdeck_extension_api::{HighlightTone, ValidatedLineHighlight};
 
+/// Invalidation counters for prepared line highlights, optionally narrowed to one file.
+pub type LineHighlightEpochState = crate::ScopedEpochState;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegisteredLineHighlighter {
+    pub extension_id: String,
+    pub highlighter_id: String,
+}
+
+/// Resolve one registration as `<extensionId>:<highlighterId>`.
+#[must_use]
+pub fn registered_line_highlighter_key(registered: &RegisteredLineHighlighter) -> String {
+    format!("{}:{}", registered.extension_id, registered.highlighter_id)
+}
+
+/// Resolve a bare local or already-qualified highlighter ID without reserving extension IDs.
+#[must_use]
+pub fn resolve_registered_line_highlighter<'a>(
+    highlighters: &'a [RegisteredLineHighlighter],
+    extension_id: &str,
+    highlighter_id: &str,
+) -> Option<&'a RegisteredLineHighlighter> {
+    let key = if highlighter_id.contains(':') {
+        highlighter_id.to_owned()
+    } else {
+        format!("{extension_id}:{highlighter_id}")
+    };
+    highlighters
+        .iter()
+        .find(|registered| registered_line_highlighter_key(registered) == key)
+}
+
 /// Per-highlighter mark cap for one file.
 pub const MAX_LINE_HIGHLIGHTS_PER_FILE: usize = 2_000;
 /// Per-highlighter mark cap for one source line.
@@ -162,6 +194,48 @@ mod tests {
             marks,
             dropped_invalid,
         }
+    }
+
+    #[test]
+    fn registered_highlighter_keys_share_the_extension_qualification_policy() {
+        let registered = RegisteredLineHighlighter {
+            extension_id: "acme.review".into(),
+            highlighter_id: "attention".into(),
+        };
+        assert_eq!(
+            registered_line_highlighter_key(&registered),
+            "acme.review:attention"
+        );
+    }
+
+    #[test]
+    fn resolves_bare_and_qualified_highlighter_ids_to_the_first_registration() {
+        let highlighters = vec![
+            RegisteredLineHighlighter {
+                extension_id: "acme.review".into(),
+                highlighter_id: "attention".into(),
+            },
+            RegisteredLineHighlighter {
+                extension_id: "other.review".into(),
+                highlighter_id: "attention".into(),
+            },
+        ];
+        assert_eq!(
+            resolve_registered_line_highlighter(&highlighters, "acme.review", "attention"),
+            Some(&highlighters[0])
+        );
+        assert_eq!(
+            resolve_registered_line_highlighter(
+                &highlighters,
+                "acme.review",
+                "other.review:attention",
+            ),
+            Some(&highlighters[1])
+        );
+        assert_eq!(
+            resolve_registered_line_highlighter(&highlighters, "acme.review", "missing"),
+            None
+        );
     }
 
     #[test]
