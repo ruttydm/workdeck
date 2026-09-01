@@ -17,7 +17,9 @@ pub use geometry::{TextSegment, clip_segments, segments_width, wrap_segments};
 pub use git_format::{SanitizedGitPatch, SanitizedGitPatchFilePaths, sanitize_git_patch};
 pub use git_log::strip_git_log_metadata;
 pub use language::{LanguageMatcher, LanguageRegistration, LanguageRegistry};
-pub use syntax::{HighlightCache, SyntaxColor, SyntaxToken};
+pub use syntax::{
+    HighlightAppearance, HighlightCache, SyntaxColor, SyntaxToken, highlight_worker_cache_key,
+};
 pub use terminal::{
     SanitizeOptions, TerminalSpan, format_terminal_path, sanitize_terminal_line,
     sanitize_terminal_spans, sanitize_terminal_text,
