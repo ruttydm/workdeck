@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -28,6 +28,26 @@ jobs:
       - name: Format
         if: matrix.os == 'ubuntu-latest'
         run: cargo fmt --all --check
+
+      - name: Validate Hunk ledger structure
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          cargo xtask port fetch
+          cargo xtask port audit --allow-incomplete
+
+      - name: Install Zola
+        if: matrix.os == 'ubuntu-latest'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: zola
+
+      - name: Check Rust-driven static site
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo xtask site check
+
+      - name: Generate dependency license inventory
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo xtask licenses
 
       - name: Test terminal workspace
         run: cargo test --locked --workspace --all-targets

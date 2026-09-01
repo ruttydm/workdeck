@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="{{ config.description }}">
+    <title>{% block title %}{{ config.title }}{% endblock title %}</title>
+    <link rel="stylesheet" href="/main.css">
+  </head>
+  <body>
+    <header><a href="/" aria-label="Workdeck home">workdeck</a></header>
+    <main>{% block content %}{% endblock content %}</main>
+    <footer>MIT licensed. Hunk-derived portions retain their notices.</footer>
+  </body>
+</html>

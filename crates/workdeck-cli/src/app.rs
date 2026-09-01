@@ -6,9 +6,13 @@ use anyhow::{Context, Result};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use workdeck_core::Changeset;
+use workdeck_extension_host::LoadedExtension;
+use workdeck_tui::{ReviewApp, ReviewOptions};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
+    Review,
     Changes,
     Git,
     Files,
@@ -18,7 +22,8 @@ pub enum Tab {
 }
 
 impl Tab {
-    pub const ALL: [Tab; 6] = [
+    pub const ALL: [Tab; 7] = [
+        Tab::Review,
         Tab::Changes,
         Tab::Git,
         Tab::Files,
@@ -29,6 +34,7 @@ impl Tab {
 
     pub fn title(self) -> &'static str {
         match self {
+            Tab::Review => "Review",
             Tab::Changes => "Changes",
             Tab::Git => "Git",
             Tab::Files => "Files",
@@ -129,6 +135,8 @@ pub struct App {
     pub config: Config,
     pub store: WorkdeckStore,
     pub active_tab: Tab,
+    pub review: Option<ReviewApp>,
+    pub extensions: Vec<LoadedExtension>,
     pub preview_visible: bool,
     pub focus: FocusPane,
     pub preview_scroll: usize,
@@ -237,6 +245,8 @@ impl App {
             config,
             store,
             active_tab: Tab::Changes,
+            review: None,
+            extensions: Vec::new(),
             preview_visible,
             focus: FocusPane::Tree,
             preview_scroll: 0,
@@ -275,6 +285,20 @@ impl App {
             selected_session: 0,
             selected_search: 0,
         })
+    }
+
+    pub fn with_review(
+        cwd: impl AsRef<Path>,
+        changeset: Changeset,
+        mut options: ReviewOptions,
+        extensions: Vec<LoadedExtension>,
+    ) -> Result<Self> {
+        let mut app = Self::new(cwd)?;
+        options.repo = Some(app.repo_root.clone());
+        app.review = Some(ReviewApp::new(changeset, options));
+        app.extensions = extensions;
+        app.active_tab = Tab::Review;
+        Ok(app)
     }
 
     pub fn load(cwd: impl AsRef<Path>) -> Result<Self> {
@@ -445,6 +469,13 @@ impl App {
 
     pub fn selected_path(&self) -> Option<PathBuf> {
         match self.active_tab {
+            Tab::Review => {
+                self.review.as_ref().and_then(|review| {
+                    review.shared_state().lock().ok().and_then(|state| {
+                        state.selected_file().map(|file| PathBuf::from(&file.path))
+                    })
+                })
+            }
             Tab::Changes => self.selected_change_row_data().map(|row| row.path),
             Tab::Git => None,
             Tab::Files => self.selected_file_browser_entry().map(|entry| entry.path),
@@ -561,6 +592,7 @@ impl App {
 
     pub fn preview_target(&self) -> Option<PreviewTarget> {
         match self.active_tab {
+            Tab::Review => None,
             Tab::Changes => Some(PreviewTarget {
                 tab: self.active_tab,
                 path: self.selected_change_file_path()?,
@@ -702,6 +734,7 @@ impl App {
             return;
         }
         match self.active_tab {
+            Tab::Review => {}
             Tab::Changes => {
                 let rows = self.change_tree_rows();
                 increment(&mut self.selected_change_row, rows.len());
@@ -728,6 +761,7 @@ impl App {
             return;
         }
         match self.active_tab {
+            Tab::Review => {}
             Tab::Changes => {
                 decrement(&mut self.selected_change_row);
                 self.sync_selected_change_from_row();
@@ -988,7 +1022,7 @@ impl App {
     pub fn jump_between_issue_and_file(&mut self) {
         match self.active_tab {
             Tab::Issues => self.jump_from_issue_to_file(),
-            Tab::Changes | Tab::Git | Tab::Files | Tab::Agents => {
+            Tab::Review | Tab::Changes | Tab::Git | Tab::Files | Tab::Agents => {
                 self.jump_from_file_to_issue_or_file()
             }
             Tab::Search => {}
@@ -1212,6 +1246,7 @@ impl App {
             return false;
         };
         let collapse_path = match self.active_tab {
+            Tab::Review => return false,
             Tab::Changes => {
                 let Some(row) = self.selected_change_row_data() else {
                     return false;
@@ -1239,6 +1274,7 @@ impl App {
         }
 
         match self.active_tab {
+            Tab::Review => {}
             Tab::Changes => {
                 self.collapsed_change_dirs.insert(collapse_path.clone());
                 self.selected_change_row = self
@@ -1266,6 +1302,7 @@ impl App {
 
     pub fn expand_selected_tree_row(&mut self) -> bool {
         let expanded = match self.active_tab {
+            Tab::Review => false,
             Tab::Changes => {
                 let Some(row) = self.selected_change_row_data() else {
                     return false;
@@ -2053,6 +2090,7 @@ mod tests {
         assert_eq!(
             Tab::ALL,
             [
+                Tab::Review,
                 Tab::Changes,
                 Tab::Git,
                 Tab::Files,
@@ -2061,8 +2099,9 @@ mod tests {
                 Tab::Search
             ]
         );
-        assert_eq!(Tab::Changes.previous(), Tab::Search);
-        assert_eq!(Tab::Search.next(), Tab::Changes);
+        assert_eq!(Tab::Review.previous(), Tab::Search);
+        assert_eq!(Tab::Search.next(), Tab::Review);
+        assert_eq!(Tab::Review.next(), Tab::Changes);
         assert_eq!(Tab::Changes.next(), Tab::Git);
     }
 
@@ -2706,6 +2745,8 @@ mod tests {
             config: Config::default(),
             store: WorkdeckStore::new("/tmp/workdeck/.agents/workdeck"),
             active_tab: Tab::Changes,
+            review: None,
+            extensions: Vec::new(),
             preview_visible: true,
             focus: FocusPane::Tree,
             preview_scroll: 0,

@@ -4,7 +4,9 @@ use crate::git;
 use crate::syntax::SyntaxHighlighter;
 use crate::views;
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -16,12 +18,28 @@ use std::panic;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
+use workdeck_session::{ReviewSessionServer, default_discovery_directory};
+use workdeck_vcs::{AnyProvider, DiffRequest, ProviderPreference, VcsProvider};
 
 pub fn run(mut app: App) -> Result<()> {
     let _panic_hook = TerminalPanicHook::install();
     let mut terminal = TerminalSession::enter()?;
     let highlighter = SyntaxHighlighter::new(&app.config.ui.theme);
-    run_loop(terminal.terminal_mut(), &mut app, &highlighter)
+    let review_session = app
+        .review
+        .as_ref()
+        .and_then(|review| {
+            default_discovery_directory().map(|directory| {
+                ReviewSessionServer::spawn(review.shared_state(), app.repo_root.clone(), directory)
+            })
+        })
+        .transpose()?;
+    run_loop(
+        terminal.terminal_mut(),
+        &mut app,
+        &highlighter,
+        review_session.as_ref(),
+    )
 }
 
 struct TerminalSession {
@@ -76,47 +94,107 @@ impl Drop for TerminalPanicHook {
 fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     Ok(Terminal::new(backend)?)
 }
 
 fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
     let _ = disable_raw_mode();
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(
+        terminal.backend_mut(),
+        DisableMouseCapture,
+        LeaveAlternateScreen
+    )?;
     terminal.show_cursor()?;
     Ok(())
 }
 
 fn force_restore_terminal() {
     let _ = disable_raw_mode();
-    let _ = execute!(io::stdout(), LeaveAlternateScreen);
+    let _ = execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen);
 }
 
 fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut App,
     highlighter: &SyntaxHighlighter,
+    review_session: Option<&ReviewSessionServer>,
 ) -> Result<()> {
     let (refresh_tx, refresh_rx) = mpsc::channel();
     let (preview_tx, preview_rx) = mpsc::channel();
     spawn_refresh(app, refresh_tx.clone());
     let mut next_auto_refresh = next_auto_refresh_deadline(app);
+    let mut next_review_reload = Instant::now() + Duration::from_millis(250);
 
     loop {
+        if review_session.is_some_and(|session| {
+            session
+                .stop_signal()
+                .load(std::sync::atomic::Ordering::Relaxed)
+        }) {
+            return Ok(());
+        }
         drain_refresh_results(app, &refresh_rx, &refresh_tx);
         maybe_spawn_auto_refresh(app, &refresh_tx, &mut next_auto_refresh);
         drain_preview_results(app, &preview_rx);
         spawn_preview_if_needed(app, preview_tx.clone());
+        let session_reload = review_session.is_some_and(|session| {
+            session
+                .reload_signal()
+                .swap(false, std::sync::atomic::Ordering::Relaxed)
+        });
+        let watched_reload = app
+            .review
+            .as_ref()
+            .is_some_and(|review| review.options().watch)
+            && Instant::now() >= next_review_reload;
+        if session_reload || watched_reload {
+            reload_review(app);
+            next_review_reload = Instant::now() + Duration::from_millis(250);
+        }
         terminal.draw(|frame| views::render(app, highlighter, frame))?;
         if !event::poll(Duration::from_millis(50))? {
             continue;
         }
-        let Event::Key(key) = event::read()? else {
-            continue;
-        };
-        if handle_key(terminal, app, key, &refresh_tx)? {
-            return Ok(());
+        match event::read()? {
+            Event::Key(key) => {
+                if handle_key(terminal, app, key, &refresh_tx)? {
+                    return Ok(());
+                }
+            }
+            Event::Mouse(mouse) if app.active_tab == Tab::Review => {
+                if let Some(review) = &mut app.review {
+                    review.handle_mouse(mouse.kind);
+                }
+            }
+            Event::Mouse(_)
+            | Event::Resize(_, _)
+            | Event::FocusGained
+            | Event::FocusLost
+            | Event::Paste(_) => {}
+        }
+    }
+}
+
+fn reload_review(app: &mut App) {
+    let result = (|| {
+        let preference =
+            ProviderPreference::parse(&app.config.review.vcs).map_err(anyhow::Error::from)?;
+        let provider =
+            AnyProvider::discover(&app.repo_root, preference).map_err(anyhow::Error::from)?;
+        provider
+            .working_tree(&DiffRequest {
+                exclude_untracked: app.config.review.exclude_untracked,
+                color_moved: app.config.review.color_moved,
+                ..DiffRequest::default()
+            })
+            .map_err(anyhow::Error::from)
+    })();
+    if let Some(review) = &mut app.review {
+        match result {
+            Ok(changeset) => review.reload(changeset),
+            Err(error) => review.set_status(format!("reload failed: {error:#}")),
         }
     }
 }
@@ -339,6 +417,17 @@ fn handle_key(
         app.active_tab = Tab::Search;
         app.search_query.clear();
         app.rebuild_search();
+    } else if app.active_tab == Tab::Review {
+        match key.code {
+            KeyCode::Tab => app.active_tab = app.active_tab.next(),
+            KeyCode::BackTab => app.active_tab = app.active_tab.previous(),
+            _ if configured_key(key, &app.config.keys.refresh) => reload_review(app),
+            _ => {
+                if let Some(review) = &mut app.review {
+                    review.handle_key(key);
+                }
+            }
+        }
     } else if configured_key(key, &app.config.keys.help) {
         app.help_visible = true;
     } else if configured_key(key, &app.config.keys.toggle_preview) {

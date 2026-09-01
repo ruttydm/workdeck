@@ -1,0 +1,18 @@
+[package]
+name = "workdeck-extension-host"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Crash-isolated native extension host for Workdeck"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+toml = "0.8"
+workdeck-core = { path = "../workdeck-core" }
+workdeck-extension-api = { path = "../workdeck-extension-api" }
+
+[dev-dependencies]
+tempfile = "3.13"

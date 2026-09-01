@@ -1,0 +1,12 @@
+:root { color-scheme: dark; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #0d1117; color: #c9d1d9; }
+body { max-width: 72rem; margin: 0 auto; padding: 1.5rem; line-height: 1.55; }
+header, footer { padding: 1rem 0; color: #8b949e; }
+a { color: #79c0ff; }
+main { display: grid; gap: 3rem; padding: 5rem 0; }
+.hero { max-width: 58rem; }
+.eyebrow { color: #d2a8ff; text-transform: uppercase; letter-spacing: .08em; }
+h1 { color: #f0f6fc; font-size: clamp(2.4rem, 7vw, 5.5rem); line-height: .98; margin: 1rem 0; }
+h2 { color: #f0f6fc; }
+pre { overflow-x: auto; padding: 1.25rem; border: 1px solid #30363d; background: #161b22; }
+section:not(.hero) { max-width: 48rem; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } }

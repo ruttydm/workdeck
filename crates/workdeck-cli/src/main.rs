@@ -1,12 +1,13 @@
 use anyhow::{Context, Result, bail};
 use chrono::Utc;
-use clap::{Parser, Subcommand};
+use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader, IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::{SystemTime, UNIX_EPOCH};
 use workdeck_cli::app::App;
 use workdeck_cli::config::Config;
 use workdeck_cli::git;
@@ -17,6 +18,25 @@ use workdeck_cli::payload::{
 use workdeck_cli::store::{
     AgentSession, AgentTouchedFile, Cycle, Issue, IssueStatus, IssueUpdate, Label, Priority,
     Project, ReferenceData, StoreEvent, WorkdeckStore,
+};
+use workdeck_core::{AgentContext, Changeset, ReviewSide};
+use workdeck_diff::{LanguageMatcher, LanguageRegistration, LanguageRegistry};
+use workdeck_extension_api::{
+    ExtensionManifest, ExtensionPaneView, FileLanguageGlobTarget, FileLanguageMatcher, Registration,
+};
+use workdeck_extension_host::{LoadedExtension, TrustDecision, TrustStore, discover_manifests};
+use workdeck_review::{
+    CommentTargetInput, LayoutMode, ReviewComment, ReviewState, build_live_comment,
+    find_diff_file_by_path, resolve_comment_target,
+};
+use workdeck_session::{
+    SelectableSession, SessionAction, SessionClient, SessionDescriptor, SessionSelector,
+    decode_snapshot, default_discovery_directory, normalize_session_selector,
+    repo_selector_distance,
+};
+use workdeck_tui::{CursorLineMode, ReviewOptions};
+use workdeck_vcs::{
+    AnyProvider, DiffRequest, GitProvider, ProviderPreference, VcsProvider, parse_patch_input,
 };
 
 #[derive(Debug, Parser)]
@@ -39,6 +59,82 @@ struct Args {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    #[command(about = "Review working tree changes or compare revisions")]
+    Diff {
+        #[arg(value_name = "REVISION", num_args = 0..=2)]
+        revisions: Vec<String>,
+        #[arg(long, alias = "cached", help = "Review staged changes")]
+        staged: bool,
+        #[arg(long, help = "Hide untracked files")]
+        exclude_untracked: bool,
+        #[arg(
+            long,
+            conflicts_with = "exclude_untracked",
+            help = "Include untracked files"
+        )]
+        include_untracked: bool,
+        #[arg(last = true, value_name = "PATHSPEC")]
+        pathspec: Vec<String>,
+        #[command(flatten)]
+        review: ReviewCliOptions,
+    },
+    #[command(about = "Review the last commit or a given revision")]
+    Show {
+        target: Option<String>,
+        #[arg(last = true, value_name = "PATHSPEC")]
+        pathspec: Vec<String>,
+        #[command(flatten)]
+        review: ReviewCliOptions,
+    },
+    #[command(about = "Review Git stash entries")]
+    Stash {
+        #[command(subcommand)]
+        command: StashCommand,
+    },
+    #[command(about = "Review a patch file or standard input")]
+    Patch {
+        file: Option<PathBuf>,
+        #[command(flatten)]
+        review: ReviewCliOptions,
+    },
+    #[command(about = "Review a concrete pair of files")]
+    Difftool {
+        left: PathBuf,
+        right: PathBuf,
+        path: Option<PathBuf>,
+        #[command(flatten)]
+        review: ReviewCliOptions,
+    },
+    #[command(about = "Read Git pager input and open review mode when it contains a patch")]
+    Pager {
+        #[command(flatten)]
+        review: ReviewCliOptions,
+    },
+    #[command(about = "Inspect and control live Workdeck review sessions")]
+    Session {
+        #[command(subcommand)]
+        command: LiveSessionCommand,
+    },
+    #[command(about = "Manage native Workdeck extensions")]
+    Extension {
+        #[command(subcommand)]
+        command: ExtensionCommand,
+    },
+    #[command(about = "Migrate data from another review tool")]
+    Migrate {
+        #[command(subcommand)]
+        command: MigrateCommand,
+    },
+    #[command(about = "Render or inspect terminal-safe Workdeck markup")]
+    Markup {
+        #[command(subcommand)]
+        command: MarkupCommand,
+    },
+    #[command(about = "Materialize bundled Workdeck agent skills")]
+    Skill {
+        #[command(subcommand)]
+        command: SkillCommand,
+    },
     #[command(about = "Print a Git status snapshot")]
     Status {
         #[arg(long, help = "Print status as JSON")]
@@ -129,6 +225,438 @@ enum Command {
         #[command(subcommand)]
         command: LabelCommand,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum LiveSessionCommand {
+    #[command(about = "List live Workdeck review sessions")]
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Show one live Workdeck review session")]
+    Get {
+        id: Option<String>,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Show the active review selection")]
+    Context {
+        id: Option<String>,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Export the live provider-neutral review model")]
+    Review {
+        id: Option<String>,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(long)]
+        include_patch: bool,
+        #[arg(long)]
+        include_source: bool,
+        #[arg(long)]
+        include_notes: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Reload one live review from its original bounded input")]
+    Reload {
+        id: Option<String>,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Move a live review to one file, hunk, or line")]
+    Navigate {
+        id: Option<String>,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(long)]
+        file: PathBuf,
+        #[arg(long, conflicts_with_all = ["old_line", "new_line"])]
+        hunk: Option<usize>,
+        #[arg(long, conflicts_with_all = ["hunk", "new_line"])]
+        old_line: Option<u32>,
+        #[arg(long, conflicts_with_all = ["hunk", "old_line"])]
+        new_line: Option<u32>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Manage live inline review comments")]
+    Comment {
+        #[command(subcommand)]
+        command: LiveCommentCommand,
+    },
+    #[command(about = "Ask a live review to quit")]
+    Quit {
+        id: Option<String>,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum LiveCommentCommand {
+    #[command(about = "Attach one live inline review note")]
+    Add {
+        id: Option<String>,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(long)]
+        file: PathBuf,
+        #[arg(long, conflicts_with_all = ["new_line", "hunk_index"])]
+        old_line: Option<u32>,
+        #[arg(long, conflicts_with_all = ["old_line", "hunk_index"])]
+        new_line: Option<u32>,
+        #[arg(long, conflicts_with_all = ["old_line", "new_line"])]
+        hunk_index: Option<usize>,
+        #[arg(long)]
+        summary: String,
+        #[arg(long)]
+        rationale: Option<String>,
+        #[arg(long, value_name = "STML")]
+        markup: Option<String>,
+        #[arg(long)]
+        author: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "List live inline review notes")]
+    List {
+        id: Option<String>,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(long)]
+        file: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Remove one live inline review note")]
+    Remove {
+        id: Option<String>,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(value_name = "COMMENT_ID")]
+        comment_id: String,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ExtensionCommand {
+    #[command(about = "List discovered native extension manifests")]
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Validate one native extension manifest")]
+    Validate {
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Grant or deny repository-native extension trust")]
+    Trust {
+        #[arg(long, default_value = ".")]
+        repo: PathBuf,
+        #[arg(long, conflicts_with = "deny")]
+        allow: bool,
+        #[arg(long, conflicts_with = "allow")]
+        deny: bool,
+        #[arg(long, help = "Confirm the trust decision")]
+        yes: bool,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum MigrateCommand {
+    #[command(about = "Plan or apply one-time Hunk configuration migration")]
+    Hunk {
+        #[arg(long, conflicts_with = "apply")]
+        dry_run: bool,
+        #[arg(long, conflicts_with = "dry_run")]
+        apply: bool,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+enum MarkupColor {
+    #[default]
+    Auto,
+    Always,
+    Never,
+}
+
+#[derive(Debug, Subcommand)]
+enum MarkupCommand {
+    #[command(about = "Render STML from a file or standard input")]
+    Render {
+        file: PathBuf,
+        #[arg(long, default_value_t = workdeck_markup::DEFAULT_WIDTH)]
+        width: usize,
+        #[arg(long, value_enum, default_value = "auto")]
+        color: MarkupColor,
+        #[arg(long)]
+        theme: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Print the STML authoring guide")]
+    Guide,
+}
+
+#[derive(Debug, Subcommand)]
+enum SkillCommand {
+    #[command(about = "Install a bundled skill locally and print its path")]
+    Path {
+        #[arg(default_value = "workdeck-review")]
+        name: String,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum StashCommand {
+    #[command(about = "Review a stash entry")]
+    Show {
+        reference: Option<String>,
+        #[command(flatten)]
+        review: ReviewCliOptions,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+enum ReviewLayoutArg {
+    #[default]
+    Auto,
+    Split,
+    Stack,
+}
+
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+enum CursorLineArg {
+    #[default]
+    Row,
+    Number,
+    Off,
+}
+
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+enum VcsArg {
+    #[default]
+    Auto,
+    Git,
+    Jj,
+    Sl,
+}
+
+impl VcsArg {
+    fn preference(self) -> ProviderPreference {
+        match self {
+            Self::Auto => ProviderPreference::Auto,
+            Self::Git => ProviderPreference::Git,
+            Self::Jj => ProviderPreference::Jujutsu,
+            Self::Sl => ProviderPreference::Sapling,
+        }
+    }
+}
+
+#[derive(Debug, Clone, ClapArgs)]
+struct ReviewCliOptions {
+    #[arg(long, value_enum)]
+    vcs: Option<VcsArg>,
+    #[arg(long, value_enum)]
+    mode: Option<ReviewLayoutArg>,
+    #[arg(
+        long,
+        conflicts_with = "no_watch",
+        help = "Reload when the review input changes"
+    )]
+    watch: bool,
+    #[arg(long = "no-watch", conflicts_with = "watch")]
+    no_watch: bool,
+    #[arg(long, help = "Use pager-style chrome")]
+    pager: bool,
+    #[arg(long, conflicts_with = "no_line_numbers")]
+    line_numbers: bool,
+    #[arg(long = "no-line-numbers")]
+    no_line_numbers: bool,
+    #[arg(long, value_parser = clap::value_parser!(u16).range(1..=16))]
+    tab_width: Option<u16>,
+    #[arg(long, value_enum)]
+    cursor_line: Option<CursorLineArg>,
+    #[arg(long, conflicts_with = "no_wrap")]
+    wrap: bool,
+    #[arg(long = "no-wrap")]
+    no_wrap: bool,
+    #[arg(long, conflicts_with = "no_hunk_headers")]
+    hunk_headers: bool,
+    #[arg(long = "no-hunk-headers")]
+    no_hunk_headers: bool,
+    #[arg(long, conflicts_with = "no_sidebar")]
+    sidebar: bool,
+    #[arg(long = "no-sidebar")]
+    no_sidebar: bool,
+    #[arg(long, conflicts_with = "no_agent_notes")]
+    agent_notes: bool,
+    #[arg(long = "no-agent-notes")]
+    no_agent_notes: bool,
+    #[arg(long, value_parser = clap::value_parser!(u16).range(0..=8))]
+    file_gap: Option<u16>,
+    #[arg(long, value_parser = clap::value_parser!(u16).range(0..=8))]
+    hunk_gap: Option<u16>,
+    #[arg(long = "transparent-bg", conflicts_with = "opaque_background")]
+    transparent_background: bool,
+    #[arg(long = "opaque-bg", conflicts_with = "transparent_background")]
+    opaque_background: bool,
+    #[arg(long, value_name = "PATH")]
+    agent_context: Option<PathBuf>,
+    #[arg(long, value_name = "THEME")]
+    theme: Option<String>,
+    #[arg(long, value_name = "PATH")]
+    extension: Vec<PathBuf>,
+    #[arg(long)]
+    no_extensions: bool,
+    #[arg(skip)]
+    color_moved: Option<bool>,
+}
+
+impl ReviewCliOptions {
+    fn from_config(config: &Config) -> Self {
+        Self {
+            vcs: Some(match config.review.vcs.as_str() {
+                "git" => VcsArg::Git,
+                "jj" => VcsArg::Jj,
+                "sl" => VcsArg::Sl,
+                _ => VcsArg::Auto,
+            }),
+            mode: Some(match config.review.mode.as_str() {
+                "split" => ReviewLayoutArg::Split,
+                "stack" => ReviewLayoutArg::Stack,
+                _ => ReviewLayoutArg::Auto,
+            }),
+            watch: config.review.watch,
+            no_watch: !config.review.watch,
+            pager: false,
+            line_numbers: config.review.line_numbers,
+            no_line_numbers: !config.review.line_numbers,
+            tab_width: Some(config.review.tab_width),
+            cursor_line: Some(match config.review.cursor_line.as_str() {
+                "number" => CursorLineArg::Number,
+                "off" => CursorLineArg::Off,
+                _ => CursorLineArg::Row,
+            }),
+            wrap: config.review.wrap_lines,
+            no_wrap: !config.review.wrap_lines,
+            hunk_headers: config.review.hunk_headers,
+            no_hunk_headers: !config.review.hunk_headers,
+            sidebar: config.review.sidebar.is_visible(),
+            no_sidebar: !config.review.sidebar.is_visible(),
+            agent_notes: config.review.agent_notes,
+            no_agent_notes: !config.review.agent_notes,
+            file_gap: Some(config.review.file_gap),
+            hunk_gap: Some(config.review.hunk_gap),
+            transparent_background: config.review.transparent_background,
+            opaque_background: !config.review.transparent_background,
+            agent_context: None,
+            theme: (config.ui.theme != "auto").then(|| config.ui.theme.clone()),
+            extension: Vec::new(),
+            no_extensions: false,
+            color_moved: config.review.color_moved,
+        }
+    }
+
+    fn apply_config_defaults(&mut self, config: &Config) {
+        let configured = Self::from_config(config);
+        self.vcs = self.vcs.or(configured.vcs);
+        self.mode = self.mode.or(configured.mode);
+        self.tab_width = self.tab_width.or(configured.tab_width);
+        self.cursor_line = self.cursor_line.or(configured.cursor_line);
+        self.file_gap = self.file_gap.or(configured.file_gap);
+        self.hunk_gap = self.hunk_gap.or(configured.hunk_gap);
+        if !self.watch && !self.no_watch {
+            self.watch = configured.watch;
+            self.no_watch = configured.no_watch;
+        }
+        if !self.line_numbers && !self.no_line_numbers {
+            self.line_numbers = configured.line_numbers;
+            self.no_line_numbers = configured.no_line_numbers;
+        }
+        if !self.wrap && !self.no_wrap {
+            self.wrap = configured.wrap;
+            self.no_wrap = configured.no_wrap;
+        }
+        if !self.hunk_headers && !self.no_hunk_headers {
+            self.hunk_headers = configured.hunk_headers;
+            self.no_hunk_headers = configured.no_hunk_headers;
+        }
+        if !self.sidebar && !self.no_sidebar {
+            self.sidebar = configured.sidebar;
+            self.no_sidebar = configured.no_sidebar;
+        }
+        if !self.agent_notes && !self.no_agent_notes {
+            self.agent_notes = configured.agent_notes;
+            self.no_agent_notes = configured.no_agent_notes;
+        }
+        if !self.transparent_background && !self.opaque_background {
+            self.transparent_background = configured.transparent_background;
+            self.opaque_background = configured.opaque_background;
+        }
+        if self.theme.is_none() {
+            self.theme = configured.theme;
+        }
+        self.color_moved = self.color_moved.or(configured.color_moved);
+    }
+
+    fn preference(&self) -> ProviderPreference {
+        self.vcs.unwrap_or(VcsArg::Auto).preference()
+    }
+
+    fn tui_options(&self) -> ReviewOptions {
+        ReviewOptions {
+            layout: match self.mode.unwrap_or(ReviewLayoutArg::Auto) {
+                ReviewLayoutArg::Auto => LayoutMode::Auto,
+                ReviewLayoutArg::Split => LayoutMode::Split,
+                ReviewLayoutArg::Stack => LayoutMode::Stack,
+            },
+            sidebar: self.sidebar || !self.no_sidebar,
+            line_numbers: self.line_numbers || !self.no_line_numbers,
+            tab_width: self.tab_width.unwrap_or(4),
+            cursor_line: match self.cursor_line.unwrap_or(CursorLineArg::Row) {
+                CursorLineArg::Row => CursorLineMode::Row,
+                CursorLineArg::Number => CursorLineMode::Number,
+                CursorLineArg::Off => CursorLineMode::Off,
+            },
+            hunk_headers: self.hunk_headers || !self.no_hunk_headers,
+            wrap_lines: if self.no_wrap { false } else { self.wrap },
+            file_gap: self.file_gap.unwrap_or(1),
+            hunk_gap: self.hunk_gap.unwrap_or(0),
+            transparent_background: self.transparent_background && !self.opaque_background,
+            pager: self.pager,
+            watch: self.watch && !self.no_watch,
+            agent_notes: self.agent_notes && !self.no_agent_notes,
+            syntax_theme: self
+                .theme
+                .clone()
+                .unwrap_or_else(|| "base16-ocean.dark".into()),
+            repo: None,
+            extension_panes: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -669,7 +1197,54 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(args: Args) -> Result<()> {
+fn run(mut args: Args) -> Result<()> {
+    if !args.init
+        && !args.status_json
+        && args
+            .command
+            .as_ref()
+            .is_some_and(Command::is_review_command)
+    {
+        let mut command = args.command.take().expect("review command was present");
+        let preference = command
+            .review_options()
+            .expect("review command has review options")
+            .preference();
+        let config_root = AnyProvider::discover(&args.cwd, preference)
+            .ok()
+            .map(|provider| provider.root().to_owned())
+            .unwrap_or_else(|| args.cwd.clone());
+        let config = Config::load(&config_root)?;
+        command
+            .review_options_mut()
+            .expect("review command has review options")
+            .apply_config_defaults(&config);
+        if let Command::Diff {
+            exclude_untracked,
+            include_untracked,
+            ..
+        } = &mut command
+            && !*exclude_untracked
+            && !*include_untracked
+        {
+            *exclude_untracked = config.review.exclude_untracked;
+        }
+        return handle_review_command(&args.cwd, command);
+    }
+
+    if !args.init
+        && !args.status_json
+        && args
+            .command
+            .as_ref()
+            .is_some_and(Command::is_global_command)
+    {
+        return handle_global_command(
+            &args.cwd,
+            args.command.take().expect("global command was present"),
+        );
+    }
+
     let repo_root = git::discover_repo_root(&args.cwd)?;
 
     if let Some(Command::Doctor { json }) = &args.command {
@@ -694,6 +1269,21 @@ fn run(args: Args) -> Result<()> {
     if let Some(command) = args.command {
         match command {
             Command::Status { json } => print_status(&repo_root, json)?,
+            Command::Diff { .. }
+            | Command::Show { .. }
+            | Command::Stash { .. }
+            | Command::Patch { .. }
+            | Command::Difftool { .. }
+            | Command::Pager { .. } => {
+                unreachable!("review commands are handled before config load")
+            }
+            Command::Session { .. }
+            | Command::Extension { .. }
+            | Command::Migrate { .. }
+            | Command::Markup { .. }
+            | Command::Skill { .. } => {
+                unreachable!("global commands are handled before repository config load")
+            }
             Command::Files { command } => handle_files_command(&repo_root, command)?,
             Command::Changes { command } => handle_changes_command(&repo_root, command)?,
             Command::Search {
@@ -720,9 +1310,31 @@ fn run(args: Args) -> Result<()> {
         }
         return Ok(());
     }
-
-    let app = App::new(&args.cwd)?;
-    workdeck_cli::tui::run(app)
+    let provider = AnyProvider::discover(
+        &args.cwd,
+        ProviderPreference::parse(&config.review.vcs).map_err(anyhow::Error::from)?,
+    )
+    .map_err(anyhow::Error::from)?;
+    let request = DiffRequest {
+        exclude_untracked: config.review.exclude_untracked,
+        color_moved: config.review.color_moved,
+        ..DiffRequest::default()
+    };
+    let changeset = provider
+        .working_tree(&request)
+        .map_err(anyhow::Error::from)?;
+    if !changeset.is_empty() {
+        let review = ReviewCliOptions::from_config(&config);
+        let mut extensions = load_review_extensions(&repo_root, &review)?;
+        let (changeset, panes) = apply_review_extensions(changeset, &mut extensions)?;
+        let mut options = review.tui_options();
+        options.extension_panes = panes;
+        let app = App::with_review(&args.cwd, changeset, options, extensions)?;
+        workdeck_cli::tui::run(app)
+    } else {
+        let app = App::new(&args.cwd)?;
+        workdeck_cli::tui::run(app)
+    }
 }
 
 impl Args {
@@ -732,8 +1344,70 @@ impl Args {
 }
 
 impl Command {
+    fn is_review_command(&self) -> bool {
+        matches!(
+            self,
+            Command::Diff { .. }
+                | Command::Show { .. }
+                | Command::Stash { .. }
+                | Command::Patch { .. }
+                | Command::Difftool { .. }
+                | Command::Pager { .. }
+        )
+    }
+
+    fn review_options(&self) -> Option<&ReviewCliOptions> {
+        match self {
+            Self::Diff { review, .. }
+            | Self::Show { review, .. }
+            | Self::Patch { review, .. }
+            | Self::Difftool { review, .. }
+            | Self::Pager { review } => Some(review),
+            Self::Stash {
+                command: StashCommand::Show { review, .. },
+            } => Some(review),
+            _ => None,
+        }
+    }
+
+    fn review_options_mut(&mut self) -> Option<&mut ReviewCliOptions> {
+        match self {
+            Self::Diff { review, .. }
+            | Self::Show { review, .. }
+            | Self::Patch { review, .. }
+            | Self::Difftool { review, .. }
+            | Self::Pager { review } => Some(review),
+            Self::Stash {
+                command: StashCommand::Show { review, .. },
+            } => Some(review),
+            _ => None,
+        }
+    }
+
+    fn is_global_command(&self) -> bool {
+        matches!(
+            self,
+            Command::Session { .. }
+                | Command::Extension { .. }
+                | Command::Migrate { .. }
+                | Command::Markup { .. }
+                | Command::Skill { .. }
+        )
+    }
+
     fn wants_json(&self) -> bool {
         match self {
+            Command::Diff { .. }
+            | Command::Show { .. }
+            | Command::Stash { .. }
+            | Command::Patch { .. }
+            | Command::Difftool { .. }
+            | Command::Pager { .. } => false,
+            Command::Session { command } => command.wants_json(),
+            Command::Extension { command } => command.wants_json(),
+            Command::Migrate { command } => command.wants_json(),
+            Command::Markup { command } => command.wants_json(),
+            Command::Skill { command } => command.wants_json(),
             Command::Status { json } => *json,
             Command::Files { command } => command.wants_json(),
             Command::Changes { command } => command.wants_json(),
@@ -750,6 +1424,938 @@ impl Command {
             Command::Label { command } => command.wants_json(),
         }
     }
+}
+
+impl LiveSessionCommand {
+    fn wants_json(&self) -> bool {
+        match self {
+            Self::List { json }
+            | Self::Get { json, .. }
+            | Self::Context { json, .. }
+            | Self::Review { json, .. }
+            | Self::Reload { json, .. }
+            | Self::Navigate { json, .. }
+            | Self::Quit { json, .. } => *json,
+            Self::Comment { command } => command.wants_json(),
+        }
+    }
+}
+
+impl LiveCommentCommand {
+    fn wants_json(&self) -> bool {
+        match self {
+            Self::Add { json, .. } | Self::List { json, .. } | Self::Remove { json, .. } => *json,
+        }
+    }
+}
+
+impl ExtensionCommand {
+    fn wants_json(&self) -> bool {
+        match self {
+            Self::List { json } | Self::Validate { json, .. } | Self::Trust { json, .. } => *json,
+        }
+    }
+}
+
+impl MigrateCommand {
+    fn wants_json(&self) -> bool {
+        match self {
+            Self::Hunk { json, .. } => *json,
+        }
+    }
+}
+
+impl MarkupCommand {
+    fn wants_json(&self) -> bool {
+        matches!(self, Self::Render { json: true, .. })
+    }
+}
+
+impl SkillCommand {
+    fn wants_json(&self) -> bool {
+        matches!(self, Self::Path { json: true, .. })
+    }
+}
+
+fn handle_review_command(cwd: &Path, command: Command) -> Result<()> {
+    match command {
+        Command::Diff {
+            revisions,
+            staged,
+            exclude_untracked,
+            include_untracked: _,
+            pathspec,
+            review,
+        } => {
+            let (from, target) = match revisions.as_slice() {
+                [] => (None, None),
+                [target] => (None, Some(target.clone())),
+                [from, to] => (Some(from.clone()), Some(to.clone())),
+                _ => unreachable!("clap limits revisions to two"),
+            };
+            let provider =
+                AnyProvider::discover(cwd, review.preference()).map_err(anyhow::Error::from)?;
+            let request = DiffRequest {
+                target,
+                from,
+                staged,
+                exclude_untracked,
+                pathspec,
+                color_moved: review.color_moved,
+            };
+            let changeset = provider
+                .working_tree(&request)
+                .map_err(anyhow::Error::from)?;
+            let mut reload = || provider.working_tree(&request).map_err(anyhow::Error::from);
+            run_review_with_options(cwd, changeset, review, Some(&mut reload))
+        }
+        Command::Show {
+            target,
+            pathspec,
+            review,
+        } => {
+            let provider =
+                AnyProvider::discover(cwd, review.preference()).map_err(anyhow::Error::from)?;
+            let changeset = provider
+                .show(target.as_deref(), &pathspec)
+                .map_err(anyhow::Error::from)?;
+            let mut reload = || {
+                provider
+                    .show(target.as_deref(), &pathspec)
+                    .map_err(anyhow::Error::from)
+            };
+            run_review_with_options(cwd, changeset, review, Some(&mut reload))
+        }
+        Command::Stash {
+            command: StashCommand::Show { reference, review },
+        } => {
+            let provider = GitProvider::discover(cwd).map_err(anyhow::Error::from)?;
+            let changeset = provider
+                .stash(reference.as_deref())
+                .map_err(anyhow::Error::from)?;
+            let mut reload = || {
+                provider
+                    .stash(reference.as_deref())
+                    .map_err(anyhow::Error::from)
+            };
+            run_review_with_options(cwd, changeset, review, Some(&mut reload))
+        }
+        Command::Patch { file, review } => {
+            let reload_path = file.clone().filter(|path| path != Path::new("-"));
+            let (patch, label) = match file {
+                Some(path) if path != Path::new("-") => {
+                    let patch = std::fs::read_to_string(&path)
+                        .with_context(|| format!("failed to read patch {}", path.display()))?;
+                    (patch, path.display().to_string())
+                }
+                _ => {
+                    let mut patch = String::new();
+                    std::io::stdin()
+                        .read_to_string(&mut patch)
+                        .context("failed to read patch from stdin")?;
+                    (patch, "stdin patch".to_owned())
+                }
+            };
+            let changeset = parse_patch_input(&patch, label).map_err(anyhow::Error::from)?;
+            if let Some(path) = reload_path {
+                let mut reload = || {
+                    let patch = std::fs::read_to_string(&path)
+                        .with_context(|| format!("failed to read patch {}", path.display()))?;
+                    parse_patch_input(&patch, path.display().to_string())
+                        .map_err(anyhow::Error::from)
+                };
+                run_review_with_options(cwd, changeset, review, Some(&mut reload))
+            } else {
+                run_review_with_options(cwd, changeset, review, None)
+            }
+        }
+        Command::Difftool {
+            left,
+            right,
+            path,
+            review,
+        } => {
+            let provider = GitProvider::discover(cwd).map_err(anyhow::Error::from)?;
+            let mut changeset = provider.files(&left, &right).map_err(anyhow::Error::from)?;
+            if let (Some(path), Some(file)) = (path.as_ref(), changeset.files.first_mut()) {
+                file.path = path.to_string_lossy().into_owned();
+                changeset.refresh_review_identities();
+            }
+            let display_path = path.map(|path| path.to_string_lossy().into_owned());
+            let mut reload = || {
+                let mut changeset = provider.files(&left, &right).map_err(anyhow::Error::from)?;
+                if let (Some(path), Some(file)) = (&display_path, changeset.files.first_mut()) {
+                    file.path.clone_from(path);
+                    changeset.refresh_review_identities();
+                }
+                Ok(changeset)
+            };
+            run_review_with_options(cwd, changeset, review, Some(&mut reload))
+        }
+        Command::Pager { review } => {
+            let mut input = String::new();
+            std::io::stdin()
+                .read_to_string(&mut input)
+                .context("failed to read pager input")?;
+            match parse_patch_input(&input, "pager") {
+                Ok(changeset) => run_review_with_options(cwd, changeset, review, None),
+                Err(_) => {
+                    print!("{input}");
+                    Ok(())
+                }
+            }
+        }
+        _ => unreachable!("non-review command passed to review handler"),
+    }
+}
+
+fn run_review_with_options(
+    cwd: &Path,
+    mut changeset: Changeset,
+    review: ReviewCliOptions,
+    reloader: Option<&mut dyn FnMut() -> Result<Changeset>>,
+) -> Result<()> {
+    if review.watch && !review.no_watch && reloader.is_none() {
+        bail!("--watch requires a file- or VCS-backed review input");
+    }
+    apply_agent_context(cwd, review.agent_context.as_deref(), &mut changeset)?;
+    let mut extensions = load_review_extensions(cwd, &review)?;
+    let prepared = apply_review_extensions(changeset, &mut extensions)?;
+    changeset = prepared.0;
+    let mut options = review.tui_options();
+    options.extension_panes = prepared.1;
+    options.repo = AnyProvider::discover(cwd, review.preference())
+        .ok()
+        .map(|provider| provider.root().to_owned())
+        .or_else(|| Some(cwd.to_owned()));
+    if let Some(reloader) = reloader {
+        let agent_context = review.agent_context.clone();
+        let mut decorated_reload = || {
+            let mut changeset = reloader()?;
+            apply_agent_context(cwd, agent_context.as_deref(), &mut changeset)?;
+            for extension in &mut extensions {
+                changeset = extension
+                    .apply_changeset_transforms(changeset)
+                    .map_err(anyhow::Error::from)?;
+            }
+            Ok(changeset)
+        };
+        workdeck_tui::run_review_with_reload(changeset, options, &mut decorated_reload)
+    } else {
+        workdeck_tui::run_review(changeset, options)
+    }
+}
+
+fn apply_review_extensions(
+    mut changeset: Changeset,
+    extensions: &mut [LoadedExtension],
+) -> Result<(Changeset, Vec<ExtensionPaneView>)> {
+    let file_languages = extensions
+        .iter()
+        .flat_map(|extension| &extension.handshake.registrations)
+        .filter_map(|registration| match registration {
+            Registration::FileLanguage(registration) => Some(LanguageRegistration {
+                matcher: match &registration.matcher {
+                    FileLanguageMatcher::Extension { value } => {
+                        LanguageMatcher::Extension(value.clone())
+                    }
+                    FileLanguageMatcher::Filename { value } => {
+                        LanguageMatcher::Filename(value.clone())
+                    }
+                    FileLanguageMatcher::Glob { value, target } => LanguageMatcher::Glob {
+                        value: value.clone(),
+                        target_path: *target == FileLanguageGlobTarget::Path,
+                    },
+                },
+                language: registration.language.clone(),
+                reserved: false,
+            }),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let mut language_registry = LanguageRegistry::default();
+    language_registry.replace_extensions(file_languages);
+    for file in &mut changeset.files {
+        let language = language_registry.language_for_path(&file.path);
+        file.language = (language != "text").then_some(language);
+    }
+    for extension in extensions.iter_mut() {
+        changeset = extension
+            .apply_changeset_transforms(changeset)
+            .with_context(|| {
+                format!(
+                    "native extension {} failed to transform the review",
+                    extension.manifest.id
+                )
+            })?;
+    }
+    changeset.refresh_review_identities();
+    let snapshot = ReviewState::new(changeset.clone()).snapshot();
+    let mut panes = Vec::new();
+    for extension in extensions.iter_mut() {
+        panes.extend(extension.render_panes(&snapshot).with_context(|| {
+            format!(
+                "native extension {} failed to render a pane",
+                extension.manifest.id
+            )
+        })?);
+    }
+    Ok((changeset, panes))
+}
+
+fn apply_agent_context(cwd: &Path, path: Option<&Path>, changeset: &mut Changeset) -> Result<()> {
+    let Some(path) = path else {
+        return Ok(());
+    };
+    let source = if path == Path::new("-") {
+        let mut source = String::new();
+        std::io::stdin()
+            .read_to_string(&mut source)
+            .context("failed to read agent context from stdin")?;
+        source
+    } else {
+        let path = if path.is_absolute() {
+            path.to_owned()
+        } else {
+            cwd.join(path)
+        };
+        std::fs::read_to_string(&path)
+            .with_context(|| format!("failed to read agent context {}", path.display()))?
+    };
+    AgentContext::from_json(&source)?.apply_to(changeset);
+    Ok(())
+}
+
+fn load_review_extensions(cwd: &Path, review: &ReviewCliOptions) -> Result<Vec<LoadedExtension>> {
+    if review.no_extensions {
+        return Ok(Vec::new());
+    }
+    let config = user_config_root().map(|root| root.join("workdeck"));
+    let trust = config
+        .as_ref()
+        .map(|config| TrustStore::load(&config.join("extension-trust.toml")))
+        .unwrap_or_default();
+    let global_extensions = config.as_ref().map(|config| config.join("extensions"));
+    let repo = AnyProvider::discover(cwd, review.preference())
+        .ok()
+        .map(|provider| provider.root().to_owned());
+    let manifests = discover_manifests(
+        global_extensions.as_deref(),
+        repo.as_deref(),
+        &trust,
+        &review.extension,
+    )?;
+    manifests
+        .iter()
+        .map(|path| {
+            LoadedExtension::spawn(path, env!("CARGO_PKG_VERSION"))
+                .with_context(|| format!("failed to load native extension {}", path.display()))
+        })
+        .collect()
+}
+
+fn handle_global_command(cwd: &Path, command: Command) -> Result<()> {
+    match command {
+        Command::Session { command } => handle_live_session_command(command),
+        Command::Extension { command } => handle_extension_command(cwd, command),
+        Command::Migrate { command } => handle_migrate_command(cwd, command),
+        Command::Markup { command } => handle_markup_command(command),
+        Command::Skill { command } => handle_skill_command(command),
+        _ => unreachable!("non-global command passed to global handler"),
+    }
+}
+
+fn handle_markup_command(command: MarkupCommand) -> Result<()> {
+    match command {
+        MarkupCommand::Guide => {
+            print!("{}", workdeck_markup::GUIDE);
+            Ok(())
+        }
+        MarkupCommand::Render {
+            file,
+            width,
+            color,
+            theme,
+            json,
+        } => {
+            if width == 0 || width > 4096 {
+                bail!("--width must be between 1 and 4096");
+            }
+            let mut source = String::new();
+            if file == Path::new("-") {
+                std::io::stdin()
+                    .read_to_string(&mut source)
+                    .context("failed to read STML from stdin")?;
+            } else {
+                source = std::fs::read_to_string(&file)
+                    .with_context(|| format!("failed to read STML {}", file.display()))?;
+            }
+            let rendered = workdeck_markup::render(&source, width);
+            if json {
+                json_success("markup_render", Some("render"), &rendered)?;
+                return Ok(());
+            }
+            let use_color = matches!(color, MarkupColor::Always)
+                || matches!(color, MarkupColor::Auto) && std::io::stdout().is_terminal();
+            let ansi = match theme.as_deref() {
+                Some("light" | "github-light-default" | "InspiredGitHub") => "\x1b[38;2;36;41;46m",
+                _ => "\x1b[38;2;201;209;217m",
+            };
+            for line in &rendered.lines {
+                if use_color && !line.is_empty() {
+                    println!("{ansi}{line}\x1b[0m");
+                } else {
+                    println!("{line}");
+                }
+            }
+            for note in &rendered.notes {
+                eprintln!("note: {note}");
+            }
+            Ok(())
+        }
+    }
+}
+
+fn handle_skill_command(command: SkillCommand) -> Result<()> {
+    let SkillCommand::Path { name, json } = command;
+    let source = match name.as_str() {
+        "workdeck-review" | "review" => include_str!("../../../skills/workdeck-review/SKILL.md"),
+        "workdeck-extensions" | "extensions" => {
+            include_str!("../../../skills/workdeck-extensions/SKILL.md")
+        }
+        "workdeck-release" | "release" => {
+            include_str!("../../../skills/workdeck-release/SKILL.md")
+        }
+        "workdeck-launch-video" | "launch-video" => {
+            include_str!("../../../skills/workdeck-launch-video/SKILL.md")
+        }
+        _ => bail!(
+            "unknown bundled skill {name:?}; expected workdeck-review, workdeck-extensions, workdeck-release, or workdeck-launch-video"
+        ),
+    };
+    let canonical_name = source
+        .lines()
+        .find_map(|line| line.strip_prefix("name: "))
+        .context("bundled skill is missing its name")?;
+    let root = user_config_root()
+        .context("could not resolve the Workdeck user config directory")?
+        .join("workdeck")
+        .join("skills")
+        .join(canonical_name);
+    std::fs::create_dir_all(&root)
+        .with_context(|| format!("failed to create {}", root.display()))?;
+    let destination = root.join("SKILL.md");
+    if std::fs::read_to_string(&destination).ok().as_deref() != Some(source) {
+        let temporary = root.join("SKILL.md.tmp");
+        std::fs::write(&temporary, source)
+            .with_context(|| format!("failed to write {}", temporary.display()))?;
+        std::fs::rename(&temporary, &destination)
+            .with_context(|| format!("failed to install {}", destination.display()))?;
+    }
+    if json {
+        json_success(
+            "skill_path",
+            Some("path"),
+            json!({ "name": canonical_name, "path": destination }),
+        )?;
+    } else {
+        println!("{}", destination.display());
+    }
+    Ok(())
+}
+
+fn handle_live_session_command(command: LiveSessionCommand) -> Result<()> {
+    let directory = default_discovery_directory()
+        .context("could not resolve the Workdeck live-session directory")?;
+    match command {
+        LiveSessionCommand::List { json } => {
+            let sessions = SessionClient::discover(&directory);
+            let payload = sessions
+                .iter()
+                .map(safe_session_payload)
+                .collect::<Vec<_>>();
+            if json {
+                json_success("live_session_list", Some("list"), payload)?;
+            } else if sessions.is_empty() {
+                println!("no live Workdeck review sessions");
+            } else {
+                for session in sessions {
+                    println!(
+                        "{}  {}  {}",
+                        session.id,
+                        session.repo.display(),
+                        session.title
+                    );
+                }
+            }
+            Ok(())
+        }
+        LiveSessionCommand::Get { id, repo, json } => {
+            let session = resolve_live_session(&directory, id.as_deref(), repo.as_deref())?;
+            emit_live_value("live_session", "get", safe_session_payload(&session), json)
+        }
+        LiveSessionCommand::Context { id, repo, json } => {
+            let session = resolve_live_session(&directory, id.as_deref(), repo.as_deref())?;
+            let snapshot =
+                decode_snapshot(SessionClient::request(&session, SessionAction::Snapshot)?)?;
+            let selection = snapshot.selection;
+            let file = snapshot.changeset.files.get(selection.file_index);
+            let payload = json!({
+                "session": safe_session_payload(&session),
+                "selection": selection,
+                "file": file.map(|file| &file.path),
+                "hunk": selection.hunk_index.map(|index| index + 1),
+            });
+            emit_live_value("live_session_context", "context", payload, json)
+        }
+        LiveSessionCommand::Review {
+            id,
+            repo,
+            include_patch,
+            include_source,
+            include_notes,
+            json,
+        } => {
+            let session = resolve_live_session(&directory, id.as_deref(), repo.as_deref())?;
+            let snapshot = decode_snapshot(SessionClient::request(
+                &session,
+                SessionAction::Review {
+                    include_patch,
+                    include_source,
+                    include_agent_context: include_notes,
+                },
+            )?)?;
+            let notes = if include_notes {
+                SessionClient::request(&session, SessionAction::CommentList)?
+            } else {
+                Value::Null
+            };
+            let payload = json!({
+                "session": safe_session_payload(&session),
+                "review": snapshot,
+                "notes": notes,
+            });
+            emit_live_value("live_session_review", "review", payload, json)
+        }
+        LiveSessionCommand::Reload { id, repo, json } => {
+            let session = resolve_live_session(&directory, id.as_deref(), repo.as_deref())?;
+            let payload = SessionClient::request(&session, SessionAction::Reload)?;
+            emit_live_value("live_session_reload", "reload", payload, json)
+        }
+        LiveSessionCommand::Navigate {
+            id,
+            repo,
+            file,
+            hunk,
+            old_line,
+            new_line,
+            json,
+        } => {
+            let target_count = usize::from(hunk.is_some())
+                + usize::from(old_line.is_some())
+                + usize::from(new_line.is_some());
+            if target_count != 1 {
+                bail!("session navigate requires exactly one of --hunk, --old-line, or --new-line");
+            }
+            let session = resolve_live_session(&directory, id.as_deref(), repo.as_deref())?;
+            let snapshot =
+                decode_snapshot(SessionClient::request(&session, SessionAction::Snapshot)?)?;
+            let file_path = file.to_string_lossy();
+            let file_index = snapshot
+                .changeset
+                .files
+                .iter()
+                .position(|candidate| {
+                    candidate.path == file_path
+                        || candidate.previous_path.as_deref() == Some(file_path.as_ref())
+                })
+                .with_context(|| format!("diff file {file_path:?} is not in the live review"))?;
+            let action = if let Some(hunk) = hunk {
+                let hunk_index = hunk
+                    .checked_sub(1)
+                    .context("--hunk is 1-based and must be greater than zero")?;
+                SessionAction::NavigateHunk {
+                    file_index,
+                    hunk_index,
+                }
+            } else if let Some(line) = old_line {
+                SessionAction::RevealLine {
+                    file_index,
+                    side: ReviewSide::Old,
+                    line,
+                }
+            } else {
+                SessionAction::RevealLine {
+                    file_index,
+                    side: ReviewSide::New,
+                    line: new_line.expect("validated one target"),
+                }
+            };
+            let result = SessionClient::request(&session, action)?;
+            emit_live_value("live_session_navigation", "navigate", result, json)
+        }
+        LiveSessionCommand::Comment { command } => handle_live_comment_command(&directory, command),
+        LiveSessionCommand::Quit { id, repo, json } => {
+            let session = resolve_live_session(&directory, id.as_deref(), repo.as_deref())?;
+            let result = SessionClient::request(&session, SessionAction::Quit)?;
+            emit_live_value("live_session", "quit", result, json)
+        }
+    }
+}
+
+fn handle_live_comment_command(directory: &Path, command: LiveCommentCommand) -> Result<()> {
+    match command {
+        LiveCommentCommand::Add {
+            id,
+            repo,
+            file,
+            old_line,
+            new_line,
+            hunk_index,
+            summary,
+            rationale,
+            markup,
+            author,
+            json,
+        } => {
+            let has_line_target = old_line.is_some() ^ new_line.is_some();
+            if hunk_index.is_some() == has_line_target {
+                bail!("comment add requires --hunk-index or exactly one of --old-line/--new-line");
+            }
+            let session = resolve_live_session(directory, id.as_deref(), repo.as_deref())?;
+            let snapshot =
+                decode_snapshot(SessionClient::request(&session, SessionAction::Snapshot)?)?;
+            let file_path = file.to_string_lossy();
+            let target_file = find_diff_file_by_path(&snapshot.changeset.files, &file_path)
+                .with_context(|| format!("diff file {file_path:?} is not in the live review"))?;
+            let (side, line) = match (old_line, new_line) {
+                (Some(line), None) => (Some(ReviewSide::Old), Some(line)),
+                (None, Some(line)) => (Some(ReviewSide::New), Some(line)),
+                _ => (None, None),
+            };
+            let input = CommentTargetInput {
+                file_path: file_path.into_owned(),
+                hunk_index,
+                side,
+                line,
+                summary,
+                rationale,
+                markup,
+                author,
+            };
+            let target = resolve_comment_target(target_file, &input)?;
+            let comment = build_live_comment(
+                target_file,
+                input,
+                live_comment_id(),
+                Utc::now().to_rfc3339(),
+                target,
+            );
+            let result = SessionClient::request(
+                &session,
+                SessionAction::CommentAdd {
+                    comment: Box::new(comment.clone()),
+                },
+            )?;
+            emit_live_value(
+                "live_comment",
+                "add",
+                json!({ "comment": comment, "result": result }),
+                json,
+            )
+        }
+        LiveCommentCommand::List {
+            id,
+            repo,
+            file,
+            json,
+        } => {
+            let session = resolve_live_session(directory, id.as_deref(), repo.as_deref())?;
+            let mut comments: Vec<ReviewComment> = serde_json::from_value(SessionClient::request(
+                &session,
+                SessionAction::CommentList,
+            )?)?;
+            if let Some(file) = file {
+                let snapshot =
+                    decode_snapshot(SessionClient::request(&session, SessionAction::Snapshot)?)?;
+                let file_path = file.to_string_lossy();
+                let key = snapshot
+                    .changeset
+                    .files
+                    .iter()
+                    .find(|candidate| candidate.path == file_path)
+                    .map(|file| file.key.as_str())
+                    .with_context(|| {
+                        format!("diff file {file_path:?} is not in the live review")
+                    })?;
+                comments.retain(|comment| comment.anchor.file_key == key);
+            }
+            if json {
+                json_success("live_comment_list", Some("list"), comments)?;
+            } else if comments.is_empty() {
+                println!("no live comments");
+            } else {
+                for comment in comments {
+                    println!("{}  {}", comment.id, comment.summary);
+                }
+            }
+            Ok(())
+        }
+        LiveCommentCommand::Remove {
+            id,
+            repo,
+            comment_id,
+            json,
+        } => {
+            let session = resolve_live_session(directory, id.as_deref(), repo.as_deref())?;
+            let result =
+                SessionClient::request(&session, SessionAction::CommentRemove { id: comment_id })?;
+            emit_live_value("live_comment", "remove", result, json)
+        }
+    }
+}
+
+fn resolve_live_session(
+    directory: &Path,
+    id: Option<&str>,
+    repo: Option<&Path>,
+) -> Result<SessionDescriptor> {
+    if id.is_some() && repo.is_some() {
+        bail!("choose a session id or --repo, not both");
+    }
+    let sessions = SessionClient::discover(directory);
+    let matches = if let Some(id) = id {
+        sessions
+            .into_iter()
+            .filter(|session| session.id == id)
+            .collect::<Vec<_>>()
+    } else if let Some(repo) = repo {
+        let selector = normalize_session_selector(&SessionSelector {
+            repo_root: Some(repo.to_owned()),
+            ..SessionSelector::default()
+        })?;
+        let requested = selector
+            .repo_root
+            .as_deref()
+            .expect("repo selector retains its path");
+        let requested = std::fs::canonicalize(requested).unwrap_or_else(|_| requested.to_owned());
+        let mut matches = sessions
+            .into_iter()
+            .filter_map(|session| {
+                let root =
+                    std::fs::canonicalize(&session.repo).unwrap_or_else(|_| session.repo.clone());
+                let selectable = SelectableSession {
+                    session_id: session.id.clone(),
+                    cwd: root.clone(),
+                    repo_root: Some(root),
+                };
+                repo_selector_distance(&selectable, &requested, None)
+                    .map(|distance| (distance, session))
+            })
+            .collect::<Vec<_>>();
+        let closest = matches.iter().map(|(distance, _)| *distance).min();
+        matches
+            .drain(..)
+            .filter(|(distance, _)| Some(*distance) == closest)
+            .map(|(_, session)| session)
+            .collect::<Vec<_>>()
+    } else {
+        sessions
+    };
+    match matches.as_slice() {
+        [session] => Ok(session.clone()),
+        [] => bail!("no matching live Workdeck review session"),
+        _ => bail!("multiple live sessions match; pass a session id or --repo"),
+    }
+}
+
+fn safe_session_payload(session: &SessionDescriptor) -> Value {
+    json!({
+        "protocol_version": session.protocol_version,
+        "id": session.id,
+        "repo": session.repo,
+        "title": session.title,
+        "process_id": session.process_id,
+        "started_at_unix_ms": session.started_at_unix_ms,
+    })
+}
+
+fn emit_live_value(kind: &str, action: &str, value: Value, json: bool) -> Result<()> {
+    if json {
+        json_success(kind, Some(action), value)
+    } else {
+        println!("{}", serde_json::to_string_pretty(&value)?);
+        Ok(())
+    }
+}
+
+fn live_comment_id() -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!("comment-{}-{nanos}", std::process::id())
+}
+
+fn handle_extension_command(cwd: &Path, command: ExtensionCommand) -> Result<()> {
+    let config_root = user_config_root().context("could not resolve the user config directory")?;
+    let extensions_root = config_root.join("workdeck/extensions");
+    let trust_path = config_root.join("workdeck/extension-trust.toml");
+    match command {
+        ExtensionCommand::List { json } => {
+            let trust = TrustStore::load(&trust_path);
+            let manifests = discover_manifests(Some(&extensions_root), Some(cwd), &trust, &[])?;
+            let payload = manifests
+                .iter()
+                .map(|path| {
+                    let manifest = ExtensionManifest::load(path);
+                    json!({
+                        "path": path,
+                        "valid": manifest.is_ok(),
+                        "id": manifest.as_ref().ok().map(|manifest| &manifest.id),
+                        "version": manifest.as_ref().ok().map(|manifest| &manifest.version),
+                        "error": manifest.err().map(|error| error.to_string()),
+                    })
+                })
+                .collect::<Vec<_>>();
+            if json {
+                json_success("extension_list", Some("list"), payload)?;
+            } else if payload.is_empty() {
+                println!("no native Workdeck extensions discovered");
+            } else {
+                for extension in payload {
+                    println!(
+                        "{:<24} {}",
+                        extension["id"].as_str().unwrap_or("invalid"),
+                        extension["path"].as_str().unwrap_or_default()
+                    );
+                }
+            }
+            Ok(())
+        }
+        ExtensionCommand::Validate { path, json } => {
+            let path = if path.is_dir() {
+                path.join("workdeck-extension.toml")
+            } else {
+                path
+            };
+            let manifest = ExtensionManifest::load(&path)?;
+            if json {
+                json_success(
+                    "extension_manifest",
+                    Some("validate"),
+                    json!({ "path": path, "manifest": manifest }),
+                )?;
+            } else {
+                println!(
+                    "valid native extension {} {} (API {})",
+                    manifest.id, manifest.version, manifest.api_version
+                );
+            }
+            Ok(())
+        }
+        ExtensionCommand::Trust {
+            repo,
+            allow,
+            deny,
+            yes,
+            json,
+        } => {
+            if allow == deny {
+                bail!("extension trust requires exactly one of --allow or --deny");
+            }
+            if !yes {
+                bail!("native extensions run with your user permissions; pass --yes to confirm");
+            }
+            let mut trust = TrustStore::load(&trust_path);
+            let decision = if allow {
+                TrustDecision::Trusted
+            } else {
+                TrustDecision::Denied
+            };
+            trust.grant(&repo, decision);
+            trust.save(&trust_path)?;
+            if json {
+                json_success(
+                    "extension_trust",
+                    Some("set"),
+                    json!({ "repo": repo, "decision": decision }),
+                )?;
+            } else {
+                println!(
+                    "recorded {decision:?} extension trust for {}",
+                    repo.display()
+                );
+            }
+            Ok(())
+        }
+    }
+}
+
+fn handle_migrate_command(cwd: &Path, command: MigrateCommand) -> Result<()> {
+    match command {
+        MigrateCommand::Hunk {
+            dry_run: _,
+            apply,
+            json,
+        } => {
+            let plan = workdeck_migration::plan(cwd)?;
+            if !apply {
+                if json {
+                    json_success("hunk_migration", Some("dry_run"), &plan)?;
+                } else {
+                    println!("Hunk migration dry run");
+                    if let Some(global) = &plan.global {
+                        println!(
+                            "  global: {} -> {}",
+                            global.source.display(),
+                            global.destination.display()
+                        );
+                    }
+                    if let Some(repository) = &plan.repository {
+                        println!(
+                            "  repository: {} -> {}",
+                            repository.source.display(),
+                            repository.destination.display()
+                        );
+                    }
+                    println!("  legacy extensions: {}", plan.legacy_extensions.len());
+                    for warning in &plan.warnings {
+                        println!("  warning: {warning}");
+                    }
+                    println!("Run `workdeck migrate hunk --apply` to write the migration.");
+                }
+                return Ok(());
+            }
+            let result = workdeck_migration::apply(&plan)?;
+            if json {
+                json_success("hunk_migration", Some("apply"), result)?;
+            } else if result.changed.is_empty() {
+                println!("Hunk migration already applied; no files changed");
+            } else {
+                for path in result.changed {
+                    println!("migrated {}", path.display());
+                }
+                for backup in result.backups {
+                    println!("backup {}", backup.display());
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
+fn user_config_root() -> Option<PathBuf> {
+    std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .or_else(|| std::env::var_os("USERPROFILE"))
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+                .map(|home| home.join(".config"))
+        })
 }
 
 impl FilesCommand {

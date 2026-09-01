@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, bail};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
@@ -16,7 +16,114 @@ pub struct Config {
     #[serde(default)]
     pub refresh: RefreshConfig,
     #[serde(default)]
+    pub review: ReviewConfig,
+    #[serde(default)]
     pub keys: KeyConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewConfig {
+    #[serde(default = "default_vcs")]
+    pub vcs: String,
+    #[serde(default = "default_review_mode")]
+    pub mode: String,
+    #[serde(default)]
+    pub watch: bool,
+    #[serde(default)]
+    pub exclude_untracked: bool,
+    #[serde(default = "default_true")]
+    pub line_numbers: bool,
+    #[serde(default = "default_tab_width")]
+    pub tab_width: u16,
+    #[serde(default = "default_file_gap")]
+    pub file_gap: u16,
+    #[serde(default)]
+    pub hunk_gap: u16,
+    #[serde(default)]
+    pub wrap_lines: bool,
+    #[serde(default = "default_true")]
+    pub hunk_headers: bool,
+    #[serde(default)]
+    pub sidebar: ReviewSidebar,
+    #[serde(default)]
+    pub agent_notes: bool,
+    #[serde(default)]
+    pub transparent_background: bool,
+    #[serde(default)]
+    pub color_moved: Option<bool>,
+    #[serde(default = "default_cursor_line")]
+    pub cursor_line: String,
+}
+
+impl Default for ReviewConfig {
+    fn default() -> Self {
+        Self {
+            vcs: default_vcs(),
+            mode: default_review_mode(),
+            watch: false,
+            exclude_untracked: false,
+            line_numbers: true,
+            tab_width: default_tab_width(),
+            file_gap: default_file_gap(),
+            hunk_gap: 0,
+            wrap_lines: false,
+            hunk_headers: true,
+            sidebar: ReviewSidebar::Auto,
+            agent_notes: false,
+            transparent_background: false,
+            color_moved: None,
+            cursor_line: default_cursor_line(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ReviewSidebar {
+    #[default]
+    Auto,
+    Show,
+    Hide,
+}
+
+impl Serialize for ReviewSidebar {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::Auto => serializer.serialize_str("auto"),
+            Self::Show => serializer.serialize_bool(true),
+            Self::Hide => serializer.serialize_bool(false),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ReviewSidebar {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Value {
+            Boolean(bool),
+            Text(String),
+        }
+        match Value::deserialize(deserializer)? {
+            Value::Boolean(true) => Ok(Self::Show),
+            Value::Boolean(false) => Ok(Self::Hide),
+            Value::Text(value) if value == "auto" => Ok(Self::Auto),
+            Value::Text(value) => Err(serde::de::Error::custom(format!(
+                "review.sidebar must be auto, true, or false; got {value:?}"
+            ))),
+        }
+    }
+}
+
+impl ReviewSidebar {
+    pub fn is_visible(self) -> bool {
+        self != Self::Hide
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -218,6 +325,24 @@ impl Config {
         if self.refresh.interval_ms == 0 {
             bail!("refresh.interval_ms must be greater than 0");
         }
+        if !matches!(self.review.mode.as_str(), "auto" | "split" | "stack") {
+            bail!("review.mode must be auto, split, or stack");
+        }
+        if !matches!(self.review.vcs.as_str(), "auto" | "git" | "jj" | "sl") {
+            bail!("review.vcs must be auto, git, jj, or sl");
+        }
+        if !matches!(self.review.cursor_line.as_str(), "row" | "number" | "off") {
+            bail!("review.cursor_line must be row, number, or off");
+        }
+        if !(1..=16).contains(&self.review.tab_width) {
+            bail!("review.tab_width must be between 1 and 16");
+        }
+        if self.review.file_gap > 8 {
+            bail!("review.file_gap must be between 0 and 8");
+        }
+        if self.review.hunk_gap > 8 {
+            bail!("review.hunk_gap must be between 0 and 8");
+        }
         self.keys.validate()
     }
 }
@@ -326,6 +451,26 @@ fn default_true() -> bool {
 
 fn default_theme() -> String {
     "auto".to_string()
+}
+
+fn default_review_mode() -> String {
+    "auto".to_string()
+}
+
+fn default_vcs() -> String {
+    "auto".to_string()
+}
+
+fn default_cursor_line() -> String {
+    "row".to_string()
+}
+
+fn default_tab_width() -> u16 {
+    4
+}
+
+fn default_file_gap() -> u16 {
+    1
 }
 
 fn default_data_dir() -> PathBuf {
@@ -472,6 +617,9 @@ mod tests {
         assert_eq!(config.refresh.interval_ms, 1500);
         assert_eq!(config.refresh.debounce_ms, 250);
         assert_eq!(config.paths.data_dir, PathBuf::from(".agents/workdeck"));
+        assert_eq!(config.review.mode, "auto");
+        assert_eq!(config.review.tab_width, 4);
+        assert!(config.review.line_numbers);
     }
 
     #[test]

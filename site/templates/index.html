@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <p class="eyebrow">Rust · Ratatui · one executable</p>
+  <h1>Review first. Keep the whole workbench.</h1>
+  <p>Workdeck combines a continuous Hunk-style review canvas with files, Git, issues, agents, projects, cycles, labels, events, search, and structured automation.</p>
+  <pre><code>cargo install --git https://github.com/ruttydm/workdeck --package workdeck-cli --locked
+workdeck</code></pre>
+</section>
+<section>
+  <h2>No JavaScript runtime</h2>
+  <p>The application, review model, syntax pipeline, sessions, extension host, packaging tools, and site pipeline are Rust-native. User extensions are explicit native subprocesses speaking bounded JSON-RPC over stdio.</p>
+</section>
+<section>
+  <h2>Auditable semantic port</h2>
+  <p>Every pinned Hunk blob is tracked in a byte-exact ledger until its Rust implementation, translated tests, content, asset, or generated replacement is verified.</p>
+</section>
+{% endblock content %}

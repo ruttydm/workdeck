@@ -1,0 +1,1276 @@
+use anyhow::{Context, Result, bail};
+use cargo_metadata::MetadataCommand;
+use flate2::Compression;
+use flate2::write::GzEncoder;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, HashMap};
+use std::env;
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
+
+const DEFAULT_BASELINE: &str = "hunk-port/main-2c00f435^{}";
+const DEFAULT_STABLE: &str = "hunk-port/stable-v0.20.1^{}";
+const DEFAULT_LEDGER: &str = "port/hunk/ledger.jsonl";
+const DEFAULT_METADATA: &str = "port/hunk/baseline.json";
+const DEFAULT_STABLE_FIXES: &str = "port/hunk/stable-fixes.jsonl";
+
+#[derive(Debug, Clone)]
+struct TreeEntry {
+    path: String,
+    blob: String,
+    bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct LedgerRecord {
+    id: String,
+    baseline: String,
+    path: String,
+    blob: String,
+    byte_start: u64,
+    byte_end: u64,
+    line_start: u64,
+    line_end: u64,
+    classification: String,
+    disposition: String,
+    destinations: Vec<String>,
+    evidence: Vec<String>,
+    provenance: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct BaselineMetadata {
+    schema_version: u32,
+    baseline: String,
+    stable: String,
+    tree: String,
+    file_count: usize,
+    byte_count: u64,
+    ledger: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct StableFixRecord {
+    commit: String,
+    disposition: String,
+    destinations: Vec<String>,
+    evidence: Vec<String>,
+}
+
+#[derive(Debug, Default)]
+struct Options {
+    baseline: Option<String>,
+    ledger: Option<PathBuf>,
+    metadata: Option<PathBuf>,
+    allow_incomplete: bool,
+}
+
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("xtask: {error:#}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<()> {
+    let mut args = env::args().skip(1);
+    match args.next().as_deref() {
+        Some("port") => {
+            let command = args
+                .next()
+                .context("port requires fetch, inventory, map, audit, or status")?;
+            if !matches!(
+                command.as_str(),
+                "fetch" | "inventory" | "map" | "materialize-assets" | "audit" | "status"
+            ) {
+                bail!("unknown port command {command:?}");
+            }
+            if command == "fetch" {
+                return fetch_hunk();
+            }
+            if command == "map" {
+                return map_records(parse_map_options(args)?);
+            }
+            if command == "materialize-assets" {
+                if args.next().is_some() {
+                    bail!("port materialize-assets accepts no options");
+                }
+                return materialize_assets();
+            }
+            let options = parse_options(args)?;
+            match command.as_str() {
+                "inventory" => inventory(options),
+                "audit" => audit(options, true),
+                "status" => audit(options, false),
+                _ => unreachable!(),
+            }
+        }
+        Some("licenses") => licenses(parse_output_option(args)?),
+        Some("verify") => verify(),
+        Some("site") => site(args.next().as_deref()),
+        Some("release") => match args.next().as_deref() {
+            Some("package") => package_release(parse_package_options(args)?),
+            _ => bail!("release requires the package command"),
+        },
+        _ => {
+            print_help();
+            Ok(())
+        }
+    }
+}
+
+fn site(command: Option<&str>) -> Result<()> {
+    let repo = repo_root()?;
+    let site = repo.join("site");
+    match command {
+        Some("build") => run_checked(&site, "zola", &["build"]),
+        Some("check") => run_checked(&site, "zola", &["check"]),
+        Some("serve") => run_checked(&site, "zola", &["serve"]),
+        _ => bail!("site requires build, check, or serve"),
+    }
+}
+
+fn fetch_hunk() -> Result<()> {
+    const URL: &str = "https://github.com/modem-dev/hunk.git";
+    const MAIN: &str = "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2";
+    const STABLE: &str = "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd";
+    let repo = repo_root()?;
+    let remotes = git_stdout(&repo, ["remote"])?;
+    if !remotes.lines().any(|remote| remote == "hunk-upstream") {
+        run_checked(&repo, "git", &["remote", "add", "hunk-upstream", URL])?;
+    } else {
+        let actual = git_stdout(&repo, ["remote", "get-url", "hunk-upstream"])?;
+        if actual != URL {
+            bail!("hunk-upstream points to {actual:?}, expected {URL:?}");
+        }
+    }
+    run_checked(
+        &repo,
+        "git",
+        &[
+            "config",
+            "remote.hunk-upstream.fetch",
+            "+refs/heads/*:refs/remotes/hunk-upstream/*",
+        ],
+    )?;
+    run_checked(
+        &repo,
+        "git",
+        &[
+            "fetch",
+            "--prune",
+            "hunk-upstream",
+            "+refs/heads/*:refs/remotes/hunk-upstream/*",
+            "+refs/tags/*:refs/tags/hunk-upstream/*",
+        ],
+    )?;
+    ensure_anchor_tag(&repo, "hunk-port/main-2c00f435", MAIN)?;
+    ensure_anchor_tag(&repo, "hunk-port/stable-v0.20.1", STABLE)?;
+    println!("updated namespaced Hunk refs and verified both port anchors");
+    Ok(())
+}
+
+fn ensure_anchor_tag(repo: &Path, name: &str, commit: &str) -> Result<()> {
+    let reference = format!("refs/tags/{name}^{{}}");
+    let existing = git_output(repo, ["rev-parse", "--verify", &reference])?;
+    if existing.status.success() {
+        let actual = String::from_utf8(existing.stdout)?.trim().to_owned();
+        if actual != commit {
+            bail!("anchor tag {name} resolves to {actual}, expected {commit}");
+        }
+        return Ok(());
+    }
+    let message = format!("Hunk semantic port anchor {commit}");
+    run_checked(repo, "git", &["tag", "-a", name, commit, "-m", &message])
+}
+
+#[derive(Debug, Default)]
+struct MapOptions {
+    ledger: Option<PathBuf>,
+    paths: Vec<String>,
+    prefixes: Vec<String>,
+    disposition: Option<String>,
+    destinations: Vec<String>,
+    evidence: Vec<String>,
+    provenance: Vec<String>,
+    replace: bool,
+}
+
+fn parse_map_options(mut args: impl Iterator<Item = String>) -> Result<MapOptions> {
+    let mut options = MapOptions::default();
+    while let Some(argument) = args.next() {
+        match argument.as_str() {
+            "--ledger" => {
+                options.ledger = Some(PathBuf::from(required_value(&mut args, "--ledger")?))
+            }
+            "--path" => options.paths.push(required_value(&mut args, "--path")?),
+            "--prefix" => options
+                .prefixes
+                .push(required_value(&mut args, "--prefix")?),
+            "--disposition" => {
+                options.disposition = Some(required_value(&mut args, "--disposition")?)
+            }
+            "--destination" => options
+                .destinations
+                .push(required_value(&mut args, "--destination")?),
+            "--evidence" => options
+                .evidence
+                .push(required_value(&mut args, "--evidence")?),
+            "--provenance" => options
+                .provenance
+                .push(required_value(&mut args, "--provenance")?),
+            "--replace" => options.replace = true,
+            _ => bail!("unknown port map option {argument:?}"),
+        }
+    }
+    if options.paths.is_empty() && options.prefixes.is_empty() {
+        bail!("port map requires at least one --path or --prefix");
+    }
+    if options.destinations.is_empty() || options.evidence.is_empty() {
+        bail!("port map requires --destination and --evidence");
+    }
+    if options.disposition.as_deref() == Some("unmapped") {
+        bail!("port map cannot map records back to unmapped");
+    }
+    Ok(options)
+}
+
+fn map_records(options: MapOptions) -> Result<()> {
+    let repo = repo_root()?;
+    let ledger_path = repo.join(options.ledger.unwrap_or_else(|| DEFAULT_LEDGER.into()));
+    let mut records = read_ledger(&ledger_path)?;
+    let disposition = options
+        .disposition
+        .context("port map requires --disposition")?;
+    let mut changed = 0;
+    for record in &mut records {
+        let selected = options.paths.iter().any(|path| path == &record.path)
+            || options
+                .prefixes
+                .iter()
+                .any(|prefix| record.path.starts_with(prefix));
+        if !selected {
+            continue;
+        }
+        if record.disposition != "unmapped" && !options.replace {
+            bail!(
+                "{} is already mapped as {}; pass --replace to update it",
+                record.path,
+                record.disposition
+            );
+        }
+        record.disposition.clone_from(&disposition);
+        record.destinations.clone_from(&options.destinations);
+        record.evidence.clone_from(&options.evidence);
+        for provenance in &options.provenance {
+            if !record.provenance.contains(provenance) {
+                record.provenance.push(provenance.clone());
+            }
+        }
+        validate_disposition(&repo, record)?;
+        changed += 1;
+    }
+    if changed == 0 {
+        bail!("port map selectors matched no ledger records");
+    }
+    let temporary = ledger_path.with_extension("jsonl.tmp");
+    let mut writer = BufWriter::new(File::create(&temporary)?);
+    for record in &records {
+        serde_json::to_writer(&mut writer, record)?;
+        writer.write_all(b"\n")?;
+    }
+    writer.flush()?;
+    fs::rename(&temporary, &ledger_path)?;
+    println!("mapped {changed} ledger records as {disposition}");
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+struct RetainedAssetRecord {
+    source_path: String,
+    source_blob: String,
+    destination: String,
+    bytes: usize,
+    sha256: String,
+}
+
+/// Materialize byte-exact, non-executable media from the pinned Hunk tree.
+///
+/// Retained media lives under a third-party namespace and is never loaded by the Workdeck
+/// executable or website. Keeping it in the checkout makes its ledger disposition independently
+/// inspectable without introducing a source mirror or retaining the upstream application runtime.
+fn materialize_assets() -> Result<()> {
+    const MEDIA_EXTENSIONS: &[&str] = &[
+        "gif", "ico", "jpeg", "jpg", "mp4", "png", "webm", "webp", "woff", "woff2",
+    ];
+
+    let repo = repo_root()?;
+    let ledger_path = repo.join(DEFAULT_LEDGER);
+    let mut records = read_ledger(&ledger_path)?;
+    let retained_root = repo.join("third_party/hunk/assets");
+    fs::create_dir_all(&retained_root).context("create retained Hunk asset directory")?;
+
+    let mut manifest = Vec::new();
+    let mut changed = 0;
+    for record in &mut records {
+        let extension = Path::new(&record.path)
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(str::to_ascii_lowercase);
+        if !matches!(record.disposition.as_str(), "unmapped" | "retained-asset")
+            || !extension
+                .as_deref()
+                .is_some_and(|value| MEDIA_EXTENSIONS.contains(&value))
+        {
+            continue;
+        }
+
+        let relative = Path::new(&record.path);
+        if relative.components().any(|component| {
+            !matches!(
+                component,
+                std::path::Component::Normal(_) | std::path::Component::CurDir
+            )
+        }) {
+            bail!("refusing unsafe retained asset path {}", record.path);
+        }
+        let bytes = git_stdout_bytes(&repo, ["cat-file", "blob", record.blob.as_str()])?;
+        if bytes.len() as u64 != record.byte_end - record.byte_start {
+            bail!(
+                "retained asset {} has {} bytes, expected {}",
+                record.path,
+                bytes.len(),
+                record.byte_end - record.byte_start
+            );
+        }
+
+        let destination_path = retained_root.join(relative);
+        if let Some(parent) = destination_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&destination_path, &bytes)
+            .with_context(|| format!("write {}", destination_path.display()))?;
+
+        let destination = relative_to(&repo, &destination_path);
+        manifest.push(RetainedAssetRecord {
+            source_path: record.path.clone(),
+            source_blob: record.blob.clone(),
+            destination: destination.clone(),
+            bytes: bytes.len(),
+            sha256: format!("{:x}", Sha256::digest(&bytes)),
+        });
+        record.disposition = "retained-asset".to_owned();
+        record.destinations = vec![destination];
+        record.evidence = vec![
+            "xtask/src/main.rs#materialize_assets".to_owned(),
+            "third_party/hunk/README.md".to_owned(),
+        ];
+        changed += 1;
+    }
+
+    let manifest_path = repo.join("third_party/hunk/assets.jsonl");
+    let mut manifest_writer = BufWriter::new(File::create(&manifest_path)?);
+    for record in &manifest {
+        serde_json::to_writer(&mut manifest_writer, record)?;
+        manifest_writer.write_all(b"\n")?;
+    }
+    manifest_writer.flush()?;
+
+    let temporary = ledger_path.with_extension("jsonl.tmp");
+    let mut ledger_writer = BufWriter::new(File::create(&temporary)?);
+    for record in &records {
+        serde_json::to_writer(&mut ledger_writer, record)?;
+        ledger_writer.write_all(b"\n")?;
+    }
+    ledger_writer.flush()?;
+    fs::rename(&temporary, &ledger_path)?;
+
+    println!("materialized {changed} byte-exact Hunk media assets");
+    println!("manifest: {}", relative_to(&repo, &manifest_path));
+    Ok(())
+}
+
+#[derive(Debug)]
+struct PackageOptions {
+    target: String,
+    binary: Option<PathBuf>,
+    output: PathBuf,
+}
+
+fn parse_output_option(mut args: impl Iterator<Item = String>) -> Result<PathBuf> {
+    let mut output = PathBuf::from("dist/licenses.json");
+    while let Some(argument) = args.next() {
+        match argument.as_str() {
+            "--output" => output = PathBuf::from(required_value(&mut args, "--output")?),
+            _ => bail!("unknown licenses option {argument:?}"),
+        }
+    }
+    Ok(output)
+}
+
+fn parse_package_options(mut args: impl Iterator<Item = String>) -> Result<PackageOptions> {
+    let mut target = None;
+    let mut binary = None;
+    let mut output = PathBuf::from("dist");
+    while let Some(argument) = args.next() {
+        match argument.as_str() {
+            "--target" => target = Some(required_value(&mut args, "--target")?),
+            "--binary" => binary = Some(PathBuf::from(required_value(&mut args, "--binary")?)),
+            "--output" => output = PathBuf::from(required_value(&mut args, "--output")?),
+            _ => bail!("unknown release package option {argument:?}"),
+        }
+    }
+    Ok(PackageOptions {
+        target: target.context("release package requires --target")?,
+        binary,
+        output,
+    })
+}
+
+#[derive(Debug, Serialize)]
+struct LicenseInventory {
+    schema_version: u32,
+    generated_by: &'static str,
+    packages: Vec<LicensePackage>,
+}
+
+#[derive(Debug, Serialize)]
+struct LicensePackage {
+    name: String,
+    version: String,
+    license: Option<String>,
+    repository: Option<String>,
+    source: Option<String>,
+}
+
+fn dependency_inventory() -> Result<LicenseInventory> {
+    let metadata = MetadataCommand::new()
+        .other_options(vec!["--locked".into(), "--offline".into()])
+        .exec()
+        .context("read Cargo dependency metadata")?;
+    let mut packages = metadata
+        .packages
+        .into_iter()
+        .map(|package| LicensePackage {
+            name: package.name.to_string(),
+            version: package.version.to_string(),
+            license: package.license.map(|license| license.to_string()),
+            repository: package.repository.map(|repository| repository.to_string()),
+            source: package.source.map(|source| source.to_string()),
+        })
+        .collect::<Vec<_>>();
+    packages.sort_by(|left, right| {
+        (&left.name, &left.version, &left.source).cmp(&(&right.name, &right.version, &right.source))
+    });
+    Ok(LicenseInventory {
+        schema_version: 1,
+        generated_by: "cargo xtask licenses",
+        packages,
+    })
+}
+
+fn licenses(output: PathBuf) -> Result<()> {
+    let repo = repo_root()?;
+    let output = repo.join(output);
+    if let Some(parent) = output.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let inventory = dependency_inventory()?;
+    let mut encoded = serde_json::to_string_pretty(&inventory)?;
+    encoded.push('\n');
+    fs::write(&output, encoded).with_context(|| format!("write {}", output.display()))?;
+    println!(
+        "wrote {} dependency license records to {}",
+        inventory.packages.len(),
+        relative_to(&repo, &output)
+    );
+    Ok(())
+}
+
+fn package_release(options: PackageOptions) -> Result<()> {
+    let repo = repo_root()?;
+    let executable_name = if options.target.contains("windows") {
+        "workdeck.exe"
+    } else {
+        "workdeck"
+    };
+    let binary = options.binary.unwrap_or_else(|| {
+        repo.join("target")
+            .join(&options.target)
+            .join("release")
+            .join(executable_name)
+    });
+    if !binary.is_file() {
+        bail!("release binary does not exist: {}", binary.display());
+    }
+    let output = repo.join(options.output);
+    fs::create_dir_all(&output).with_context(|| format!("create {}", output.display()))?;
+    let inventory = dependency_inventory()?;
+    let inventory_bytes = serde_json::to_vec_pretty(&inventory)?;
+    let sbom = cyclonedx_sbom(&inventory);
+    let root = format!("workdeck-{}", options.target);
+    let archive = if options.target.contains("windows") {
+        let path = output.join(format!("{root}.zip"));
+        write_zip_archive(
+            &path,
+            &root,
+            &binary,
+            executable_name,
+            &repo,
+            &inventory_bytes,
+            &sbom,
+        )?;
+        path
+    } else {
+        let path = output.join(format!("{root}.tar.gz"));
+        write_tar_archive(
+            &path,
+            &root,
+            &binary,
+            executable_name,
+            &repo,
+            &inventory_bytes,
+            &sbom,
+        )?;
+        path
+    };
+    let digest = sha256_file(&archive)?;
+    let checksum = archive.with_extension(format!(
+        "{}sha256",
+        archive
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .map_or(String::new(), |extension| format!("{extension}."))
+    ));
+    fs::write(
+        &checksum,
+        format!(
+            "{digest}  {}\n",
+            archive.file_name().unwrap_or_default().to_string_lossy()
+        ),
+    )?;
+    println!("packaged {}", relative_to(&repo, &archive));
+    println!("checksum {}", relative_to(&repo, &checksum));
+    Ok(())
+}
+
+fn release_entries<'a>(
+    root: &'a str,
+    binary: &'a Path,
+    executable_name: &'a str,
+    repo: &'a Path,
+    inventory: &'a [u8],
+    sbom: &'a [u8],
+) -> Result<Vec<(String, Vec<u8>, u32)>> {
+    let mut entries = vec![
+        (
+            format!("{root}/{executable_name}"),
+            fs::read(binary).with_context(|| format!("read {}", binary.display()))?,
+            0o755,
+        ),
+        (
+            format!("{root}/LICENSE"),
+            fs::read(repo.join("LICENSE"))?,
+            0o644,
+        ),
+        (
+            format!("{root}/THIRD_PARTY_NOTICES"),
+            fs::read(repo.join("THIRD_PARTY_NOTICES"))?,
+            0o644,
+        ),
+        (format!("{root}/licenses.json"), inventory.to_vec(), 0o644),
+        (format!("{root}/sbom.cdx.json"), sbom.to_vec(), 0o644),
+    ];
+    entries.sort_by(|left, right| left.0.cmp(&right.0));
+    Ok(entries)
+}
+
+fn write_tar_archive(
+    path: &Path,
+    root: &str,
+    binary: &Path,
+    executable_name: &str,
+    repo: &Path,
+    inventory: &[u8],
+    sbom: &[u8],
+) -> Result<()> {
+    let writer = BufWriter::new(File::create(path)?);
+    let encoder = GzEncoder::new(writer, Compression::best());
+    let mut archive = tar::Builder::new(encoder);
+    archive.mode(tar::HeaderMode::Deterministic);
+    for (name, bytes, mode) in
+        release_entries(root, binary, executable_name, repo, inventory, sbom)?
+    {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(bytes.len() as u64);
+        header.set_mode(mode);
+        header.set_mtime(0);
+        header.set_cksum();
+        archive.append_data(&mut header, name, bytes.as_slice())?;
+    }
+    archive.into_inner()?.finish()?.flush()?;
+    Ok(())
+}
+
+fn write_zip_archive(
+    path: &Path,
+    root: &str,
+    binary: &Path,
+    executable_name: &str,
+    repo: &Path,
+    inventory: &[u8],
+    sbom: &[u8],
+) -> Result<()> {
+    let file = File::create(path)?;
+    let mut archive = zip::ZipWriter::new(file);
+    for (name, bytes, mode) in
+        release_entries(root, binary, executable_name, repo, inventory, sbom)?
+    {
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .unix_permissions(mode);
+        archive.start_file(name, options)?;
+        archive.write_all(&bytes)?;
+    }
+    archive.finish()?;
+    Ok(())
+}
+
+fn cyclonedx_sbom(inventory: &LicenseInventory) -> Vec<u8> {
+    let components = inventory
+        .packages
+        .iter()
+        .map(|package| {
+            serde_json::json!({
+                "type": "library",
+                "name": package.name,
+                "version": package.version,
+                "purl": format!("pkg:cargo/{}@{}", package.name, package.version),
+                "licenses": package.license.as_ref().map(|license| vec![serde_json::json!({ "expression": license })]).unwrap_or_default(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut encoded = serde_json::to_vec_pretty(&serde_json::json!({
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.5",
+        "version": 1,
+        "metadata": { "component": { "type": "application", "name": "workdeck" } },
+        "components": components,
+    }))
+    .expect("SBOM JSON is serializable");
+    encoded.push(b'\n');
+    encoded
+}
+
+fn sha256_file(path: &Path) -> Result<String> {
+    let mut file = File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn verify() -> Result<()> {
+    let repo = repo_root()?;
+    run_checked(&repo, "cargo", &["fmt", "--all", "--check"])?;
+    run_checked(
+        &repo,
+        "cargo",
+        &["test", "--locked", "--workspace", "--all-targets"],
+    )?;
+    run_checked(
+        &repo,
+        "cargo",
+        &[
+            "clippy",
+            "--locked",
+            "--workspace",
+            "--all-targets",
+            "--",
+            "-D",
+            "warnings",
+        ],
+    )?;
+    run_checked(
+        &repo,
+        "cargo",
+        &[
+            "build",
+            "--locked",
+            "--release",
+            "--package",
+            "workdeck-cli",
+            "--bin",
+            "workdeck",
+        ],
+    )?;
+
+    let scratch = tempfile::tempdir().context("create verification directory")?;
+    let fixture = scratch.path().join("repository");
+    fs::create_dir_all(fixture.join("src"))?;
+    fs::create_dir_all(fixture.join("resources/js/pages"))?;
+    run_checked(&fixture, "git", &["init", "-q"])?;
+    run_checked(
+        &fixture,
+        "git",
+        &["config", "user.email", "workdeck@example.test"],
+    )?;
+    run_checked(&fixture, "git", &["config", "user.name", "Workdeck Test"])?;
+    for index in 1..=600 {
+        fs::write(
+            fixture.join(format!("src/file_{index}.rs")),
+            format!("line {index}\n"),
+        )?;
+    }
+    run_checked(&fixture, "git", &["add", "."])?;
+    run_checked(&fixture, "git", &["commit", "-qm", "initial"])?;
+    for index in 1..=200 {
+        fs::write(
+            fixture.join(format!("src/file_{index}.rs")),
+            format!("line {index}\nchanged\n"),
+        )?;
+    }
+    for index in 1..=100 {
+        fs::write(
+            fixture.join(format!("resources/js/pages/page_{index}.vue")),
+            format!("new {index}\n"),
+        )?;
+    }
+    let binary = repo.join("target/release").join(if cfg!(windows) {
+        "workdeck.exe"
+    } else {
+        "workdeck"
+    });
+    let help = Command::new(&binary)
+        .arg("--help")
+        .env_remove("HOME")
+        .output()
+        .context("run installed-style help smoke")?;
+    if !help.status.success() {
+        bail!("release binary help smoke failed");
+    }
+    let status = Command::new(&binary)
+        .args(["--cwd", fixture.to_string_lossy().as_ref(), "--status-json"])
+        .env_remove("HOME")
+        .output()
+        .context("run large repository smoke")?;
+    if !status.status.success() {
+        bail!(
+            "large repository smoke failed: {}",
+            String::from_utf8_lossy(&status.stderr)
+        );
+    }
+    let payload: serde_json::Value = serde_json::from_slice(&status.stdout)?;
+    let changes = payload
+        .get("data")
+        .unwrap_or(&payload)
+        .get("changes")
+        .and_then(serde_json::Value::as_array)
+        .context("status smoke did not contain a changes array")?;
+    if changes.len() != 300 {
+        bail!(
+            "large repository smoke returned {} changes, expected 300",
+            changes.len()
+        );
+    }
+    println!("Workdeck Rust verification and large-repository smoke passed.");
+    Ok(())
+}
+
+fn run_checked(cwd: &Path, program: &str, args: &[&str]) -> Result<()> {
+    let status = Command::new(program)
+        .args(args)
+        .current_dir(cwd)
+        .status()
+        .with_context(|| format!("run {program}"))?;
+    if !status.success() {
+        bail!("{program} {} failed with {status}", args.join(" "));
+    }
+    Ok(())
+}
+
+fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options> {
+    let mut options = Options::default();
+    while let Some(argument) = args.next() {
+        match argument.as_str() {
+            "--baseline" => options.baseline = Some(required_value(&mut args, "--baseline")?),
+            "--ledger" => {
+                options.ledger = Some(PathBuf::from(required_value(&mut args, "--ledger")?));
+            }
+            "--metadata" => {
+                options.metadata = Some(PathBuf::from(required_value(&mut args, "--metadata")?));
+            }
+            "--allow-incomplete" => options.allow_incomplete = true,
+            "-h" | "--help" => {
+                print_help();
+                std::process::exit(0);
+            }
+            _ => bail!("unknown option {argument:?}"),
+        }
+    }
+    Ok(options)
+}
+
+fn required_value(args: &mut impl Iterator<Item = String>, option: &str) -> Result<String> {
+    args.next()
+        .with_context(|| format!("{option} requires a value"))
+}
+
+fn inventory(options: Options) -> Result<()> {
+    let repo = repo_root()?;
+    let baseline_ref = options.baseline.as_deref().unwrap_or(DEFAULT_BASELINE);
+    let baseline = resolve_commit(&repo, baseline_ref)?;
+    let stable = resolve_commit(&repo, DEFAULT_STABLE)?;
+    let tree = resolve_tree(&repo, &baseline)?;
+    let entries = read_tree(&repo, &baseline)?;
+    let ledger_path = repo.join(options.ledger.unwrap_or_else(|| DEFAULT_LEDGER.into()));
+    let metadata_path = repo.join(options.metadata.unwrap_or_else(|| DEFAULT_METADATA.into()));
+
+    if ledger_path.exists() {
+        bail!(
+            "{} already exists; inventory never overwrites an audited ledger",
+            ledger_path.display()
+        );
+    }
+
+    if let Some(parent) = ledger_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create inventory directory {}", parent.display()))?;
+    }
+
+    let mut blob_metadata = HashMap::<String, (u64, bool)>::new();
+    let mut writer = BufWriter::new(
+        File::create(&ledger_path).with_context(|| format!("create {}", ledger_path.display()))?,
+    );
+
+    for entry in &entries {
+        let (line_count, binary) = match blob_metadata.get(&entry.blob) {
+            Some(metadata) => *metadata,
+            None => {
+                let contents = git_stdout_bytes(&repo, ["cat-file", "blob", entry.blob.as_str()])?;
+                let metadata = (source_line_count(&contents), contents.contains(&0));
+                blob_metadata.insert(entry.blob.clone(), metadata);
+                metadata
+            }
+        };
+        let record = LedgerRecord {
+            id: format!(
+                "{}:{}:0-{}",
+                short_commit(&baseline),
+                entry.path,
+                entry.bytes
+            ),
+            baseline: baseline.clone(),
+            path: entry.path.clone(),
+            blob: entry.blob.clone(),
+            byte_start: 0,
+            byte_end: entry.bytes,
+            line_start: if entry.bytes == 0 { 0 } else { 1 },
+            line_end: line_count,
+            classification: classify(&entry.path, binary).to_owned(),
+            disposition: "unmapped".to_owned(),
+            destinations: Vec::new(),
+            evidence: Vec::new(),
+            provenance: vec![baseline.clone()],
+        };
+        serde_json::to_writer(&mut writer, &record).context("serialize ledger record")?;
+        writer.write_all(b"\n").context("write ledger record")?;
+    }
+    writer.flush().context("flush ledger")?;
+
+    let metadata = BaselineMetadata {
+        schema_version: 1,
+        baseline,
+        stable,
+        tree,
+        file_count: entries.len(),
+        byte_count: entries.iter().map(|entry| entry.bytes).sum(),
+        ledger: relative_to(&repo, &ledger_path),
+    };
+    let mut encoded = serde_json::to_string_pretty(&metadata).context("serialize metadata")?;
+    encoded.push('\n');
+    fs::write(&metadata_path, encoded)
+        .with_context(|| format!("write {}", metadata_path.display()))?;
+
+    println!(
+        "inventoried {} files ({} bytes) from {}",
+        metadata.file_count, metadata.byte_count, metadata.baseline
+    );
+    println!("ledger: {}", relative_to(&repo, &ledger_path));
+    Ok(())
+}
+
+fn audit(options: Options, strict: bool) -> Result<()> {
+    let repo = repo_root()?;
+    let ledger_path = repo.join(options.ledger.unwrap_or_else(|| DEFAULT_LEDGER.into()));
+    let records = read_ledger(&ledger_path)?;
+    if records.is_empty() {
+        bail!("ledger is empty: {}", ledger_path.display());
+    }
+
+    let requested_baseline = options
+        .baseline
+        .as_deref()
+        .map(|value| resolve_commit(&repo, value))
+        .transpose()?;
+    let baseline = requested_baseline.unwrap_or_else(|| records[0].baseline.clone());
+    let entries = read_tree(&repo, &baseline)?;
+    let expected = entries
+        .iter()
+        .map(|entry| (entry.path.as_str(), entry))
+        .collect::<BTreeMap<_, _>>();
+    let mut by_path = BTreeMap::<&str, Vec<&LedgerRecord>>::new();
+    let mut disposition_counts = BTreeMap::<&str, usize>::new();
+
+    for record in &records {
+        if record.baseline != baseline {
+            bail!(
+                "record {} uses baseline {}, expected {}",
+                record.id,
+                record.baseline,
+                baseline
+            );
+        }
+        by_path.entry(&record.path).or_default().push(record);
+        *disposition_counts.entry(&record.disposition).or_default() += 1;
+    }
+
+    for (path, entry) in &expected {
+        let mut path_records = by_path
+            .remove(path)
+            .with_context(|| format!("missing ledger coverage for {path}"))?;
+        path_records.sort_by_key(|record| record.byte_start);
+        let mut cursor = 0;
+        for record in path_records {
+            if record.blob != entry.blob {
+                bail!(
+                    "{} has blob {}, expected {}",
+                    record.id,
+                    record.blob,
+                    entry.blob
+                );
+            }
+            if record.byte_start != cursor {
+                bail!(
+                    "{} has a byte gap or overlap at {}; expected {}",
+                    record.id,
+                    record.byte_start,
+                    cursor
+                );
+            }
+            if record.byte_end < record.byte_start || record.byte_end > entry.bytes {
+                bail!("{} has invalid byte bounds", record.id);
+            }
+            validate_disposition(&repo, record)?;
+            cursor = record.byte_end;
+        }
+        if cursor != entry.bytes {
+            bail!("{path} coverage ends at {cursor}, expected {}", entry.bytes);
+        }
+    }
+
+    if let Some((path, _)) = by_path.first_key_value() {
+        bail!("ledger contains path absent from baseline: {path}");
+    }
+
+    let unmapped = disposition_counts.get("unmapped").copied().unwrap_or(0);
+    let stable_fixes = validate_stable_fixes(&repo)?;
+    let upstream_delta = upstream_delta_count(&repo, &baseline)?;
+    println!("Hunk semantic-port ledger");
+    println!("  baseline: {baseline}");
+    println!("  files: {}", entries.len());
+    println!("  records: {}", records.len());
+    for (disposition, count) in disposition_counts {
+        println!("  {disposition}: {count}");
+    }
+    println!("  stable-only commits: {stable_fixes}");
+    match upstream_delta {
+        Some(count) => println!("  upstream delta commits: {count}"),
+        None => println!("  upstream delta commits: unknown (fetch hunk-upstream)"),
+    }
+
+    if strict && unmapped > 0 && !options.allow_incomplete {
+        bail!("{unmapped} ledger records remain unmapped");
+    }
+    if strict && upstream_delta.is_some_and(|count| count > 0) {
+        bail!("the Hunk upstream-delta queue is not empty");
+    }
+    Ok(())
+}
+
+fn validate_stable_fixes(repo: &Path) -> Result<usize> {
+    let path = repo.join(DEFAULT_STABLE_FIXES);
+    let reader =
+        BufReader::new(File::open(&path).with_context(|| format!("open {}", path.display()))?);
+    let records = reader
+        .lines()
+        .enumerate()
+        .map(|(index, line)| {
+            let line = line?;
+            serde_json::from_str::<StableFixRecord>(&line)
+                .with_context(|| format!("parse {} line {}", path.display(), index + 1))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if records.len() != 5 {
+        bail!(
+            "stable-fix ledger has {} records, expected 5",
+            records.len()
+        );
+    }
+    for record in &records {
+        if !matches!(
+            record.disposition.as_str(),
+            "rust-reimplementation" | "branding-adapted"
+        ) {
+            bail!("stable fix {} has invalid disposition", record.commit);
+        }
+        let object = format!("{}^{{commit}}", record.commit);
+        resolve_commit(repo, &object)
+            .with_context(|| format!("missing stable fix commit {}", record.commit))?;
+        if record.destinations.is_empty() || record.evidence.is_empty() {
+            bail!(
+                "stable fix {} lacks destinations or evidence",
+                record.commit
+            );
+        }
+        for item in record.destinations.iter().chain(&record.evidence) {
+            let item = item.split_once('#').map_or(item.as_str(), |(path, _)| path);
+            if !repo.join(item).exists() {
+                bail!(
+                    "stable fix {} references missing path {item}",
+                    record.commit
+                );
+            }
+        }
+    }
+    Ok(records.len())
+}
+
+fn upstream_delta_count(repo: &Path, baseline: &str) -> Result<Option<usize>> {
+    let upstream = "refs/remotes/hunk-upstream/main";
+    let probe = git_output(repo, ["rev-parse", "--verify", upstream])?;
+    if !probe.status.success() {
+        return Ok(None);
+    }
+    let range = format!("{baseline}..{upstream}");
+    let output = git_stdout(repo, ["rev-list", "--count", &range])?;
+    Ok(Some(
+        output.parse().context("invalid upstream delta count")?,
+    ))
+}
+
+fn validate_disposition(repo: &Path, record: &LedgerRecord) -> Result<()> {
+    const VALID: &[&str] = &[
+        "unmapped",
+        "rust-reimplementation",
+        "translated-test",
+        "migrated-content",
+        "retained-asset",
+        "rust-generated-replacement",
+        "license-retained",
+    ];
+    if !VALID.contains(&record.disposition.as_str()) {
+        bail!(
+            "{} has unknown disposition {}",
+            record.id,
+            record.disposition
+        );
+    }
+    if record.disposition == "unmapped" {
+        if !record.destinations.is_empty() || !record.evidence.is_empty() {
+            bail!(
+                "{} is unmapped but already names destinations/evidence",
+                record.id
+            );
+        }
+        return Ok(());
+    }
+    if record.destinations.is_empty() || record.evidence.is_empty() {
+        bail!("{} is mapped without destinations and evidence", record.id);
+    }
+    for item in record.destinations.iter().chain(&record.evidence) {
+        let path = item.split_once('#').map_or(item.as_str(), |(path, _)| path);
+        if !repo.join(path).exists() {
+            bail!("{} references missing repository path {path}", record.id);
+        }
+    }
+    Ok(())
+}
+
+fn read_ledger(path: &Path) -> Result<Vec<LedgerRecord>> {
+    let reader =
+        BufReader::new(File::open(path).with_context(|| format!("open {}", path.display()))?);
+    reader
+        .lines()
+        .enumerate()
+        .map(|(index, line)| {
+            let line =
+                line.with_context(|| format!("read {} line {}", path.display(), index + 1))?;
+            serde_json::from_str(&line)
+                .with_context(|| format!("parse {} line {}", path.display(), index + 1))
+        })
+        .collect()
+}
+
+fn read_tree(repo: &Path, commit: &str) -> Result<Vec<TreeEntry>> {
+    let output = git_output(repo, ["ls-tree", "-r", "-z", "-l", commit])?;
+    if !output.status.success() {
+        bail!(
+            "git ls-tree failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let mut entries = Vec::new();
+    for raw in output
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|entry| !entry.is_empty())
+    {
+        let text = std::str::from_utf8(raw).context("Hunk tree contains a non-UTF-8 path")?;
+        let (metadata, path) = text
+            .split_once('\t')
+            .context("invalid git ls-tree record")?;
+        let mut fields = metadata.split_whitespace();
+        let _mode = fields.next().context("missing tree mode")?;
+        let kind = fields.next().context("missing tree kind")?;
+        let blob = fields.next().context("missing blob id")?;
+        let bytes = fields.next().context("missing blob size")?;
+        if kind != "blob" {
+            continue;
+        }
+        entries.push(TreeEntry {
+            path: path.to_owned(),
+            blob: blob.to_owned(),
+            bytes: bytes.parse().context("invalid blob size")?,
+        });
+    }
+    entries.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(entries)
+}
+
+fn repo_root() -> Result<PathBuf> {
+    let output = git_output(Path::new("."), ["rev-parse", "--show-toplevel"])?;
+    if !output.status.success() {
+        bail!("run xtask inside a Git worktree");
+    }
+    Ok(PathBuf::from(String::from_utf8(output.stdout)?.trim()))
+}
+
+fn resolve_commit(repo: &Path, reference: &str) -> Result<String> {
+    git_stdout(repo, ["rev-parse", "--verify", reference])
+}
+
+fn resolve_tree(repo: &Path, commit: &str) -> Result<String> {
+    git_stdout(repo, ["rev-parse", &format!("{commit}^{{tree}}")])
+}
+
+fn git_stdout<const N: usize>(repo: &Path, args: [&str; N]) -> Result<String> {
+    let output = git_output(repo, args)?;
+    if !output.status.success() {
+        bail!("git failed: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    Ok(String::from_utf8(output.stdout)?.trim().to_owned())
+}
+
+fn git_stdout_bytes<const N: usize>(repo: &Path, args: [&str; N]) -> Result<Vec<u8>> {
+    let output = git_output(repo, args)?;
+    if !output.status.success() {
+        bail!("git failed: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    Ok(output.stdout)
+}
+
+fn git_output<const N: usize>(repo: &Path, args: [&str; N]) -> Result<Output> {
+    Command::new("git")
+        .args(args)
+        .current_dir(repo)
+        .output()
+        .context("run git")
+}
+
+fn source_line_count(contents: &[u8]) -> u64 {
+    if contents.is_empty() {
+        return 0;
+    }
+    contents.iter().filter(|byte| **byte == b'\n').count() as u64
+        + u64::from(!contents.ends_with(b"\n"))
+}
+
+fn classify(path: &str, binary: bool) -> &'static str {
+    let lower = path.to_ascii_lowercase();
+    if lower == "license" || lower.contains("license") || lower.contains("notice") {
+        "license"
+    } else if binary
+        || [
+            ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".woff", ".woff2", ".mp4",
+        ]
+        .iter()
+        .any(|extension| lower.ends_with(extension))
+    {
+        "asset"
+    } else if lower.contains("test") || lower.contains("fixture") || lower.contains("snapshot") {
+        "test"
+    } else if lower.starts_with("docs/") || lower.ends_with(".md") || lower.ends_with(".mdx") {
+        "documentation"
+    } else if lower.starts_with("scripts/")
+        || lower.starts_with("benchmarks/")
+        || lower.starts_with(".github/")
+    {
+        "tooling"
+    } else if [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".astro"]
+        .iter()
+        .any(|extension| lower.ends_with(extension))
+    {
+        "source"
+    } else {
+        "configuration"
+    }
+}
+
+fn short_commit(commit: &str) -> &str {
+    commit.get(..12).unwrap_or(commit)
+}
+
+fn relative_to(repo: &Path, path: &Path) -> String {
+    path.strip_prefix(repo)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+fn print_help() {
+    println!("cargo xtask port <fetch|inventory|map|audit|status> [port options]");
+    println!("cargo xtask licenses [--output PATH]");
+    println!("cargo xtask verify");
+    println!("cargo xtask site <build|check|serve>");
+    println!("cargo xtask release package --target TRIPLE [--binary PATH] [--output DIR]");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{classify, source_line_count};
+
+    #[test]
+    fn counts_source_lines_without_inventing_an_empty_line() {
+        assert_eq!(source_line_count(b""), 0);
+        assert_eq!(source_line_count(b"one"), 1);
+        assert_eq!(source_line_count(b"one\ntwo\n"), 2);
+    }
+
+    #[test]
+    fn classifies_port_surfaces() {
+        assert_eq!(classify("src/ui/App.tsx", false), "source");
+        assert_eq!(classify("src/ui/App.test.tsx", false), "test");
+        assert_eq!(classify("docs/extensions.md", false), "documentation");
+        assert_eq!(classify("website/public/demo.webp", true), "asset");
+    }
+}

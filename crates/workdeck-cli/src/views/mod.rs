@@ -71,6 +71,17 @@ fn render_header(app: &App, area: Rect, frame: &mut Frame) {
 }
 
 fn render_body(app: &App, highlighter: &SyntaxHighlighter, area: Rect, frame: &mut Frame) {
+    if app.active_tab == Tab::Review {
+        if let Some(review) = &app.review {
+            workdeck_tui::render_embedded(area, frame.buffer_mut(), review);
+        } else {
+            frame.render_widget(
+                Paragraph::new("No review is open").style(Style::default().fg(Color::DarkGray)),
+                area,
+            );
+        }
+        return;
+    }
     let layout = LayoutMode::for_width(area.width);
     match layout {
         LayoutMode::Narrow => {
@@ -116,6 +127,7 @@ fn render_body(app: &App, highlighter: &SyntaxHighlighter, area: Rect, frame: &m
 
 fn render_primary(app: &App, area: Rect, frame: &mut Frame) {
     match app.active_tab {
+        Tab::Review => {}
         Tab::Changes => render_changes(app, area, frame),
         Tab::Git => render_git(app, area, frame),
         Tab::Files => render_files(app, area, frame),
@@ -754,6 +766,10 @@ fn context_summary(app: &App) -> String {
         FocusPane::Preview => "PREVIEW",
     };
     match app.active_tab {
+        Tab::Review => app
+            .selected_path()
+            .map(|path| format!("REVIEW {}", trim_middle(&path.to_string_lossy(), 52)))
+            .unwrap_or_else(|| "REVIEW clean".into()),
         Tab::Changes => app
             .changes
             .get(app.selected_change)
@@ -860,6 +876,7 @@ fn key_hint(app: &App) -> &'static str {
         return "j/k scroll  g/G top/bottom  h tree  q quit";
     }
     match app.active_tab {
+        Tab::Review => "j/k scroll  n/p hunk  [/ ] file  r reload  Tab panes",
         Tab::Changes => "h collapse  l/Enter preview/expand  g group  / search",
         Tab::Git => "Enter preview  b base  p PRs  / search",
         Tab::Files => "h parent/collapse  l/Enter open/preview  . root  / search",
@@ -1685,6 +1702,8 @@ mod tests {
             config: Config::default(),
             store: WorkdeckStore::new("/tmp/workdeck/.agents/workdeck"),
             active_tab: Tab::Changes,
+            review: None,
+            extensions: Vec::new(),
             preview_visible: false,
             focus: FocusPane::Tree,
             preview_scroll: 0,

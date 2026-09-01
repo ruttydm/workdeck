@@ -1,0 +1,14 @@
+[package]
+name = "workdeck-extension-api"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Versioned native extension protocol for Workdeck"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+toml = "0.8"
+workdeck-core = { path = "../workdeck-core" }

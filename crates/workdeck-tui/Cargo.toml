@@ -1,0 +1,19 @@
+[package]
+name = "workdeck-tui"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Hunk-style Ratatui review canvas for Workdeck"
+
+[dependencies]
+anyhow = "1.0"
+crossterm = "0.28"
+ratatui = "0.29"
+unicode-width = "0.2"
+workdeck-core = { path = "../workdeck-core" }
+workdeck-diff = { path = "../workdeck-diff" }
+workdeck-extension-api = { path = "../workdeck-extension-api" }
+workdeck-markup = { path = "../workdeck-markup" }
+workdeck-review = { path = "../workdeck-review" }
+workdeck-session = { path = "../workdeck-session" }

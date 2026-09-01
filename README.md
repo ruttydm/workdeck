@@ -1,6 +1,6 @@
 # Workdeck
 
-Workdeck is an advanced, keyboard-first Git workbench that runs entirely in the terminal. It keeps the repository—not the agent conversation—at the center while making large, fast-moving worktrees easier to inspect and review.
+Workdeck is an advanced, keyboard-first review workbench that runs entirely in the terminal. Its primary surface is a continuous Hunk-style diff canvas backed by Rust, Ratatui, and crossterm; Git, Jujutsu, Sapling, files, issues, agents, projects, cycles, labels, events, and search remain in the same shell.
 
 Workdeck ships one product surface: the `workdeck` TUI. Its headless subcommands expose the same repository model to scripts and integrations. It does not ship a desktop app, browser UI, or embedded web server.
 
@@ -16,11 +16,15 @@ Workdeck can show imported Herder session metadata and attribution, but it never
 
 ## Features
 
+- split, stack, and responsive continuous review layouts with syntax spans, live comments, watch mode, and agent notes;
 - Ratatui/crossterm TUI optimized for narrow terminal panes;
+- built-in Git, Jujutsu, and Sapling providers plus patch, stdin, pager, stash, show, and difftool inputs;
 - repository status, changed-file trees, diffs, files, syntax previews, and search;
 - branch, commit, stash, tag, remote, project, issue, and handoff context;
 - repo-local issue and review metadata under `.agents/workdeck/`;
-- JSON and JSONL output for scripts and integrations.
+- authenticated local review sessions and trusted native JSON-RPC extensions;
+- JSON and JSONL output for scripts and integrations;
+- no Bun, React, OpenTUI, JavaScript engine, or WASM runtime.
 
 Read-only commands do not create repository-local state. Initialization and mutations are always explicit.
 
@@ -60,6 +64,12 @@ workdeck changes list --group status --json
 workdeck files list . --json
 workdeck search authentication --target files,changes --json
 
+# Full review commands
+workdeck diff --watch
+workdeck show HEAD~1
+workdeck patch change.patch
+workdeck session list --json
+
 # Explicitly initialize repo-local Workdeck state
 workdeck --init
 workdeck doctor
@@ -72,7 +82,12 @@ cargo fmt --all --check
 cargo test --locked --workspace --all-targets
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo build --locked --release --package workdeck-cli --bin workdeck
-scripts/soak.sh
+cargo xtask verify
+cargo xtask site check
 ```
 
-Workdeck is MIT licensed.
+## Hunk semantic rebase
+
+The pinned Hunk tree is being ported through a byte-exact ledger rather than merged as unrelated Git ancestry. `cargo xtask port fetch` recreates the namespaced upstream refs and source anchors; `cargo xtask port status` reports the honest remaining queue; strict `cargo xtask port audit` is the release gate. See [the semantic-port ledger](port/hunk/README.md).
+
+Workdeck is MIT licensed. Hunk-derived and other third-party portions retain their required notices in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).
