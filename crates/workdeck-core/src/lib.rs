@@ -5,11 +5,13 @@
 //! terminal widgets, Git handles, or process objects.
 
 mod identity;
+mod paths;
 mod run;
 mod run_errors;
 mod semantic;
 
 pub use identity::{review_content_digest, review_file_key, review_source_identity};
+pub use paths::*;
 pub use run::*;
 pub use run_errors::*;
 pub use semantic::*;

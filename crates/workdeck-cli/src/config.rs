@@ -1,7 +1,6 @@
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap;
-use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -370,10 +369,7 @@ fn merge_toml_values(base: &mut toml::Value, overlay: toml::Value) {
 }
 
 fn user_config_path() -> Option<PathBuf> {
-    env::var_os("HOME")
-        .filter(|home| !home.is_empty())
-        .map(PathBuf::from)
-        .map(|home| home.join(".config/workdeck/config.toml"))
+    workdeck_core::resolve_global_config_path()
 }
 
 impl KeyConfig {

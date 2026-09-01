@@ -2346,16 +2346,7 @@ fn handle_migrate_command(cwd: &Path, command: MigrateCommand) -> Result<()> {
 }
 
 fn user_config_root() -> Option<PathBuf> {
-    std::env::var_os("XDG_CONFIG_HOME")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME")
-                .or_else(|| std::env::var_os("USERPROFILE"))
-                .filter(|value| !value.is_empty())
-                .map(PathBuf::from)
-                .map(|home| home.join(".config"))
-        })
+    workdeck_core::resolve_user_config_dir()
 }
 
 impl FilesCommand {
