@@ -3,6 +3,7 @@
 mod broker_auth;
 mod broker_budget;
 mod broker_config;
+mod broker_crypto;
 mod broker_limits;
 mod broker_validation;
 mod broker_wire;
@@ -14,6 +15,7 @@ mod terminal_metadata;
 pub use broker_auth::*;
 pub use broker_budget::*;
 pub use broker_config::*;
+pub use broker_crypto::*;
 pub use broker_limits::*;
 pub use broker_validation::*;
 pub use broker_wire::*;
