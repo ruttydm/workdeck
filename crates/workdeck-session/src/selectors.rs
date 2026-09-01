@@ -12,7 +12,7 @@ pub struct SelectableSession {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionSelector {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
