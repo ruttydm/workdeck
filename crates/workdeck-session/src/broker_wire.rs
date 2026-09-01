@@ -11,6 +11,8 @@ use serde_json::{Map, Value};
 pub const SESSION_BROKER_REGISTRATION_VERSION: u64 = 2;
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
+pub type SessionTargetInput = crate::SessionSelector;
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionTerminalLocation {
@@ -39,7 +41,7 @@ pub struct SessionTerminalMetadata {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SessionRegistration<Info> {
+pub struct SessionRegistration<Info = Value> {
     pub registration_version: u64,
     pub session_id: String,
     pub pid: u64,
@@ -54,14 +56,13 @@ pub struct SessionRegistration<Info> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SessionSnapshot<State> {
+pub struct SessionSnapshot<State = Value> {
     pub updated_at: String,
     pub state: State,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "kebab-case")]
-pub enum SessionClientMessage<Info, State, ResultValue> {
+#[derive(Debug, Clone, PartialEq)]
+pub enum SessionClientMessage<Info = Value, State = Value, ResultValue = Value> {
     Register {
         registration: SessionRegistration<Info>,
         snapshot: SessionSnapshot<State>,
@@ -75,22 +76,20 @@ pub enum SessionClientMessage<Info, State, ResultValue> {
     },
     CommandResult {
         request_id: String,
-        ok: bool,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        result: Option<ResultValue>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        error: Option<String>,
+        outcome: SessionCommandOutcome<ResultValue>,
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionServerMessage<Input> {
-    #[serde(rename = "type")]
-    pub message_type: String,
+#[derive(Debug, Clone, PartialEq)]
+pub enum SessionCommandOutcome<ResultValue> {
+    Success { result: ResultValue },
+    Failure { error: String },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionServerMessage<CommandName = String, Input = Value> {
     pub request_id: String,
-    pub command: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: CommandName,
     pub command_version: Option<u64>,
     pub input: Input,
 }
