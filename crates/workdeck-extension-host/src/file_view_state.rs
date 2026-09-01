@@ -8,6 +8,7 @@ use crate::{ScopedEpochState, bump_scoped_epoch, reconcile_scoped_epochs, scoped
 pub struct RegisteredFileView {
     pub extension_id: String,
     pub view_id: String,
+    pub interactive_mode: bool,
 }
 
 #[must_use]
@@ -240,6 +241,7 @@ mod tests {
         RegisteredFileView {
             extension_id: "preview".into(),
             view_id: "rendered".into(),
+            interactive_mode: false,
         }
     }
 
@@ -522,6 +524,7 @@ mod tests {
         let raw = RegisteredFileView {
             extension_id: "preview".into(),
             view_id: "raw".into(),
+            interactive_mode: false,
         };
         assert_eq!(registered_file_view_key(&raw), "preview:raw");
         assert_eq!(

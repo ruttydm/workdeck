@@ -2,12 +2,14 @@
 
 mod extension_document_reader;
 mod file_view_host;
+mod file_view_mode;
 mod file_view_state;
 mod file_views;
 mod line_highlights;
 
 pub use extension_document_reader::*;
 pub use file_view_host::*;
+pub use file_view_mode::*;
 pub use file_view_state::*;
 pub use file_views::*;
 pub use line_highlights::*;
