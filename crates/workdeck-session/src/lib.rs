@@ -21,6 +21,7 @@ mod review_event_protocol;
 mod review_http_protocol;
 mod review_mirror;
 mod review_protocol;
+mod review_resource_cache;
 mod selectors;
 mod session_bridge;
 mod session_models;
@@ -49,6 +50,7 @@ pub use review_event_protocol::*;
 pub use review_http_protocol::*;
 pub use review_mirror::*;
 pub use review_protocol::*;
+pub use review_resource_cache::*;
 pub use selectors::{
     SelectableSession, SessionSelector, describe_session_selector, matches_session_selector,
     normalize_session_selector, repo_selector_distance, resolve_session_selector_boundary,
