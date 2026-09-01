@@ -489,7 +489,7 @@ pub struct ReviewGapTarget {
     pub gap_id: String,
 }
 
-pub(crate) fn semantic_review_gap_source(file: &SemanticReviewFile) -> ReviewGapSource {
+pub fn semantic_review_gap_source(file: &SemanticReviewFile) -> ReviewGapSource {
     ReviewGapSource {
         hunks: file
             .hunks
