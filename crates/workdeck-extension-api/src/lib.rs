@@ -5,8 +5,10 @@
 //! than terminal escape sequences or Ratatui widgets.
 
 mod file_views;
+mod keys;
 
 pub use file_views::*;
+pub use keys::*;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -78,7 +80,8 @@ pub fn available_file_view_selections<'a>(
 }
 
 /// Frozen, method-free keyboard snapshot passed across the extension boundary.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtensionKeyEvent {
     pub name: String,
