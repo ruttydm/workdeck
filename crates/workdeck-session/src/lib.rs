@@ -29,6 +29,7 @@ mod session_bridge;
 mod session_models;
 mod session_registration;
 mod terminal_metadata;
+mod workdeck_broker_state;
 mod workdeck_wire;
 
 pub use app_protocol_parsers::*;
@@ -63,6 +64,7 @@ pub use session_bridge::*;
 pub use session_models::*;
 pub use session_registration::*;
 pub use terminal_metadata::*;
+pub use workdeck_broker_state::*;
 pub use workdeck_wire::*;
 
 use serde::{Deserialize, Serialize};
