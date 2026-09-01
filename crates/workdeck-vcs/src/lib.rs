@@ -4,6 +4,7 @@ mod catalog;
 mod large_file;
 mod platform;
 mod source_text;
+mod untracked;
 
 pub use catalog::*;
 pub use large_file::{
@@ -16,13 +17,14 @@ pub use source_text::{
     log_source_diagnostic, read_file_text_with_limit, read_stream_text_with_limit,
     terminate_source_subprocess,
 };
+pub use untracked::build_filesystem_untracked_diff_file;
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use thiserror::Error;
 use workdeck_core::{
-    Changeset, ChangesetSource, FileSourceSnapshots, FileStats, SourceOrigin, SourceSnapshot,
+    Changeset, ChangesetSource, FileSourceSnapshots, SourceOrigin, SourceSnapshot,
 };
 use workdeck_diff::{PatchError, parse_patch};
 
@@ -380,29 +382,30 @@ impl GitProvider {
                     path: absolute.clone(),
                     source,
                 })?;
-            if !metadata.file_type().is_file() {
+            if !metadata.file_type().is_file() && !metadata.file_type().is_symlink() {
                 continue;
             }
-            let check = inspect_large_untracked_file(&self.root, Path::new(path.as_ref()));
-            untracked.files.push(UntrackedFile {
-                path: path.to_string(),
-                stats: check.stats,
-            });
-            if check.should_skip {
-                append_skipped_untracked_patch(&mut untracked.patch, path.as_ref());
-                continue;
-            }
-            let contents = fs::read(&absolute).map_err(|source| VcsError::ReadFile {
-                path: absolute.clone(),
-                source,
-            })?;
-            append_untracked_patch(&mut untracked.patch, path.as_ref(), &contents);
+            let file = build_filesystem_untracked_diff_file(
+                &self.root,
+                Path::new(path.as_ref()),
+                untracked.files.len(),
+                "git:working",
+            )?;
+            append_untracked_transport_patch(&mut untracked.patch, &file);
+            untracked.files.push(file);
         }
         Ok(untracked)
     }
 
     fn hydrate_working_sources(&self, changeset: &mut Changeset, request: &DiffRequest) {
         for file in &mut changeset.files {
+            if file.flags.untracked
+                && (file.flags.binary
+                    || file.flags.too_large
+                    || file.patch.contains("new file mode 120000"))
+            {
+                continue;
+            }
             let old_path = file.previous_path.as_deref().unwrap_or(&file.path);
             let sources = match (&request.from, &request.target) {
                 (Some(from), Some(to)) => FileSourceSnapshots {
@@ -701,20 +704,14 @@ impl SaplingProvider {
             if metadata.is_dir() {
                 continue;
             }
-            let check = inspect_large_untracked_file(&self.root, Path::new(path));
-            untracked.files.push(UntrackedFile {
-                path: path.to_owned(),
-                stats: check.stats,
-            });
-            if check.should_skip {
-                append_skipped_untracked_patch(&mut untracked.patch, path);
-                continue;
-            }
-            let contents = fs::read(&absolute).map_err(|source| VcsError::ReadFile {
-                path: absolute,
-                source,
-            })?;
-            append_untracked_patch(&mut untracked.patch, path, &contents);
+            let file = build_filesystem_untracked_diff_file(
+                &self.root,
+                Path::new(path),
+                untracked.files.len(),
+                "sl:diff",
+            )?;
+            append_untracked_transport_patch(&mut untracked.patch, &file);
+            untracked.files.push(file);
         }
         Ok(untracked)
     }
@@ -933,43 +930,18 @@ fn has_head(root: &Path) -> bool {
         .is_ok_and(|output| output.status.success())
 }
 
-fn append_untracked_patch(output: &mut String, path: &str, contents: &[u8]) {
-    let old_path = quote_git_path(&format!("a/{path}"));
-    let new_path = quote_git_path(&format!("b/{path}"));
-    output.push_str(&format!("diff --git {old_path} {new_path}\n"));
-    output.push_str("new file mode 100644\n");
-    if is_probably_binary(contents) {
-        output.push_str(&format!("Binary files /dev/null and {new_path} differ\n"));
-        return;
-    }
-    let text = String::from_utf8_lossy(contents);
-    let line_count = text.lines().count();
-    output.push_str("--- /dev/null\n");
-    output.push_str(&format!("+++ {new_path}\n"));
-    output.push_str(&format!("@@ -0,0 +1,{line_count} @@\n"));
-    for line in text.lines() {
-        output.push('+');
-        output.push_str(line);
-        output.push('\n');
-    }
-    if !contents.is_empty() && !contents.ends_with(b"\n") {
-        output.push_str("\\ No newline at end of file\n");
-    }
-}
-
 #[derive(Debug, Default)]
 struct UntrackedPatch {
     patch: String,
-    files: Vec<UntrackedFile>,
+    files: Vec<workdeck_core::DiffFile>,
 }
 
-#[derive(Debug)]
-struct UntrackedFile {
-    path: String,
-    stats: Option<FileStats>,
-}
-
-fn append_skipped_untracked_patch(output: &mut String, path: &str) {
+fn append_untracked_transport_patch(output: &mut String, file: &workdeck_core::DiffFile) {
+    if file.patch.starts_with("diff --git ") {
+        output.push_str(&file.patch);
+        return;
+    }
+    let path = &file.path;
     let old_path = quote_git_path(&format!("a/{path}"));
     let new_path = quote_git_path(&format!("b/{path}"));
     output.push_str(&format!("diff --git {old_path} {new_path}\n"));
@@ -977,7 +949,7 @@ fn append_skipped_untracked_patch(output: &mut String, path: &str) {
     output.push_str(&format!("Binary files /dev/null and {new_path} differ\n"));
 }
 
-fn apply_untracked_metadata(changeset: &mut Changeset, untracked: &[UntrackedFile]) {
+fn apply_untracked_metadata(changeset: &mut Changeset, untracked: &[workdeck_core::DiffFile]) {
     for record in untracked {
         let Some(file) = changeset
             .files
@@ -986,29 +958,8 @@ fn apply_untracked_metadata(changeset: &mut Changeset, untracked: &[UntrackedFil
         else {
             continue;
         };
-        file.flags.untracked = true;
-        if let Some(stats) = &record.stats {
-            file.flags.binary = false;
-            file.flags.too_large = true;
-            file.stats = *stats;
-        }
-        file.refresh_identity();
+        *file = record.clone();
     }
-}
-
-fn is_probably_binary(contents: &[u8]) -> bool {
-    let prefix = &contents[..contents.len().min(BINARY_SNIFF_BYTES)];
-    if prefix.is_empty() {
-        return false;
-    }
-    if prefix.contains(&0) {
-        return true;
-    }
-    let signals = prefix
-        .iter()
-        .filter(|byte| **byte < 0x07 || (**byte > 0x0d && **byte < 0x20) || **byte == 0x7f)
-        .count();
-    signals * 10 >= prefix.len() * 3
 }
 
 fn quote_git_path(path: &str) -> String {
@@ -1066,6 +1017,7 @@ mod tests {
     use super::*;
     use std::process::Command;
     use tempfile::TempDir;
+    use untracked::is_probably_binary;
 
     #[test]
     fn rejects_option_like_revisions() {
@@ -1199,6 +1151,44 @@ mod tests {
         assert!(file.stats.truncated);
         assert!(file.hunks.is_empty());
         assert!(file.sources.new.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn git_provider_keeps_empty_executable_and_symlink_untracked_semantics() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+
+        let directory = TempDir::new().unwrap();
+        run_git(directory.path(), &["init", "-q"]);
+        fs::write(directory.path().join("empty.txt"), "").unwrap();
+        let executable = directory.path().join("run.sh");
+        fs::write(&executable, "#!/bin/sh\n").unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(directory.path().join("target.txt"), "target\n").unwrap();
+        symlink("target.txt", directory.path().join("link")).unwrap();
+
+        let provider = GitProvider::discover(directory.path()).unwrap();
+        let changeset = provider.working_tree(&DiffRequest::default()).unwrap();
+
+        let empty = changeset
+            .files
+            .iter()
+            .find(|file| file.path == "empty.txt")
+            .unwrap();
+        assert!(empty.hunks.is_empty());
+        let executable = changeset
+            .files
+            .iter()
+            .find(|file| file.path == "run.sh")
+            .unwrap();
+        assert!(executable.patch.contains("new file mode 100755"));
+        let link = changeset
+            .files
+            .iter()
+            .find(|file| file.path == "link")
+            .unwrap();
+        assert!(link.patch.contains("new file mode 120000"));
+        assert!(link.sources.new.is_none());
     }
 
     #[test]
