@@ -35,7 +35,7 @@ pub fn decode_base64_url(value: &str) -> Option<Vec<u8>> {
     (encode_base64_url(&bytes) == value).then_some(bytes)
 }
 
-pub trait SessionBrokerCrypto {
+pub trait SessionBrokerCrypto: Send + Sync {
     fn random_bytes(&self, length: usize) -> Result<Vec<u8>, BrokerCryptoError>;
     fn sha256(&self, value: &[u8]) -> [u8; 32];
     fn sign(&self, private_key: &SigningKey, value: &[u8]) -> Vec<u8>;

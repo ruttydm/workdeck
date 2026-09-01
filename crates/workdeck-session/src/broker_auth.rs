@@ -8,13 +8,13 @@ pub const SESSION_BROKER_AUTH_DOMAIN: &str = "dev.workdeck.session-broker.v1";
 pub const MAX_BROKER_IDENTIFIER_LENGTH: usize = 128;
 pub const MAX_BROKER_COMMAND_SCOPES: usize = 256;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ProducerOperation {
     Register,
     Reconnect,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CallerOperation {
     List,
     Get,
