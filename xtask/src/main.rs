@@ -190,6 +190,7 @@ fn ensure_anchor_tag(repo: &Path, name: &str, commit: &str) -> Result<()> {
 #[derive(Debug, Default)]
 struct MapOptions {
     ledger: Option<PathBuf>,
+    ids: Vec<String>,
     paths: Vec<String>,
     prefixes: Vec<String>,
     disposition: Option<String>,
@@ -206,6 +207,7 @@ fn parse_map_options(mut args: impl Iterator<Item = String>) -> Result<MapOption
             "--ledger" => {
                 options.ledger = Some(PathBuf::from(required_value(&mut args, "--ledger")?))
             }
+            "--id" => options.ids.push(required_value(&mut args, "--id")?),
             "--path" => options.paths.push(required_value(&mut args, "--path")?),
             "--prefix" => options
                 .prefixes
@@ -226,8 +228,8 @@ fn parse_map_options(mut args: impl Iterator<Item = String>) -> Result<MapOption
             _ => bail!("unknown port map option {argument:?}"),
         }
     }
-    if options.paths.is_empty() && options.prefixes.is_empty() {
-        bail!("port map requires at least one --path or --prefix");
+    if options.ids.is_empty() && options.paths.is_empty() && options.prefixes.is_empty() {
+        bail!("port map requires at least one --id, --path, or --prefix");
     }
     if options.destinations.is_empty() || options.evidence.is_empty() {
         bail!("port map requires --destination and --evidence");
@@ -247,7 +249,8 @@ fn map_records(options: MapOptions) -> Result<()> {
         .context("port map requires --disposition")?;
     let mut changed = 0;
     for record in &mut records {
-        let selected = options.paths.iter().any(|path| path == &record.path)
+        let selected = options.ids.iter().any(|id| id == &record.id)
+            || options.paths.iter().any(|path| path == &record.path)
             || options
                 .prefixes
                 .iter()
@@ -1257,7 +1260,7 @@ fn print_help() {
 
 #[cfg(test)]
 mod tests {
-    use super::{classify, source_line_count};
+    use super::{classify, parse_map_options, source_line_count};
 
     #[test]
     fn counts_source_lines_without_inventing_an_empty_line() {
@@ -1272,5 +1275,45 @@ mod tests {
         assert_eq!(classify("src/ui/App.test.tsx", false), "test");
         assert_eq!(classify("docs/extensions.md", false), "documentation");
         assert_eq!(classify("website/public/demo.webp", true), "asset");
+    }
+
+    #[test]
+    fn parses_exact_ledger_record_selectors_for_split_source_files() {
+        let options = parse_map_options(
+            [
+                "--id",
+                "baseline:path:0-10",
+                "--disposition",
+                "rust-reimplementation",
+                "--destination",
+                "crates/example/src/lib.rs",
+                "--evidence",
+                "crates/example/src/lib.rs",
+            ]
+            .into_iter()
+            .map(str::to_owned),
+        )
+        .unwrap();
+        assert_eq!(options.ids, ["baseline:path:0-10"]);
+        assert!(options.paths.is_empty());
+        assert!(options.prefixes.is_empty());
+    }
+
+    #[test]
+    fn mapping_still_requires_at_least_one_selector() {
+        let error = parse_map_options(
+            [
+                "--disposition",
+                "translated-test",
+                "--destination",
+                "tests/parity.rs",
+                "--evidence",
+                "tests/parity.rs",
+            ]
+            .into_iter()
+            .map(str::to_owned),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("--id, --path, or --prefix"));
     }
 }

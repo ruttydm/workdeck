@@ -48,30 +48,55 @@ pub enum DaemonSidebarAuto {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DaemonCommonOptions {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<DaemonLayoutMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor_line: Option<DaemonCursorLine>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vcs: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_context: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pager: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub watch: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub experimental: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fast: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exclude_untracked: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub line_numbers: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tab_width: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_gap: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hunk_gap: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wrap_lines: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hunk_headers: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub menu_bar: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sidebar: Option<DaemonSidebarVisibility>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_notes: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub copy_decorations: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_save_view_preferences: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transparent_background: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color_moved: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extensions: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extension_paths: Option<Vec<String>>,
 }
 
@@ -87,26 +112,26 @@ pub struct DaemonRangeEndpoints {
 pub enum DaemonCliInput {
     #[serde(rename = "vcs")]
     Vcs {
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         range: Option<String>,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         range_endpoints: Option<DaemonRangeEndpoints>,
         staged: bool,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         pathspecs: Option<Vec<String>>,
         options: DaemonCommonOptions,
     },
     #[serde(rename = "show")]
     Show {
-        #[serde(default, rename = "ref")]
+        #[serde(default, rename = "ref", skip_serializing_if = "Option::is_none")]
         reference: Option<String>,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         pathspecs: Option<Vec<String>>,
         options: DaemonCommonOptions,
     },
     #[serde(rename = "stash-show")]
     StashShow {
-        #[serde(default, rename = "ref")]
+        #[serde(default, rename = "ref", skip_serializing_if = "Option::is_none")]
         reference: Option<String>,
         options: DaemonCommonOptions,
     },
@@ -118,9 +143,9 @@ pub enum DaemonCliInput {
     },
     #[serde(rename = "patch")]
     Patch {
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         file: Option<String>,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         text: Option<String>,
         options: DaemonCommonOptions,
     },
@@ -128,7 +153,7 @@ pub enum DaemonCliInput {
     Difftool {
         left: String,
         right: String,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         path: Option<String>,
         options: DaemonCommonOptions,
     },
@@ -138,12 +163,18 @@ pub enum DaemonCliInput {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DaemonCommentApplyItem {
     pub file_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hunk_number: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub side: Option<ReviewSide>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub line: Option<u64>,
     pub summary: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rationale: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub markup: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author: Option<String>,
 }
 
@@ -183,32 +214,32 @@ pub enum SessionDaemonRequest {
     #[serde(rename = "review")]
     Review {
         selector: SessionSelector,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         include_patch: Option<bool>,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         include_notes: Option<bool>,
     },
     #[serde(rename = "navigate")]
     Navigate {
         selector: SessionSelector,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         file_path: Option<String>,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         hunk_number: Option<u64>,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         side: Option<ReviewSide>,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         line: Option<u64>,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         comment_direction: Option<DaemonCommentDirection>,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         comment_id: Option<String>,
     },
     #[serde(rename = "reload")]
     Reload {
         selector: SessionSelector,
         next_input: DaemonCliInput,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         source_path: Option<String>,
     },
     #[serde(rename = "comment-add")]
@@ -218,11 +249,11 @@ pub enum SessionDaemonRequest {
         side: ReviewSide,
         line: u64,
         summary: String,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         rationale: Option<String>,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         markup: Option<String>,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         author: Option<String>,
         reveal: bool,
     },
@@ -235,9 +266,9 @@ pub enum SessionDaemonRequest {
     #[serde(rename = "comment-list")]
     CommentList {
         selector: SessionSelector,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         file_path: Option<String>,
-        #[serde(default, rename = "type")]
+        #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
         list_type: Option<DaemonCommentListType>,
     },
     #[serde(rename = "comment-rm")]
@@ -248,9 +279,9 @@ pub enum SessionDaemonRequest {
     #[serde(rename = "comment-clear")]
     CommentClear {
         selector: SessionSelector,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         file_path: Option<String>,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         include_user: Option<bool>,
     },
     #[serde(rename = "highlight-add")]
@@ -261,14 +292,14 @@ pub enum SessionDaemonRequest {
         line: u64,
         start: u64,
         end: u64,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         tone: Option<SessionLineHighlightTone>,
         reveal: bool,
     },
     #[serde(rename = "highlight-clear")]
     HighlightClear {
         selector: SessionSelector,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         file_path: Option<String>,
     },
 }
