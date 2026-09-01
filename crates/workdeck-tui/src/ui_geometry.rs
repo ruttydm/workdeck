@@ -7,6 +7,8 @@ use workdeck_extension_api::ExtensionKeyEvent;
 pub const MODAL_FRAME_CHROME_ROWS: u16 = 5;
 pub const RAPID_SCROLL_OVERSCAN_IDLE_MS: u64 = 160;
 pub const VIEWPORT_READ_COALESCE_MS: u64 = 16;
+pub const CODE_ROW_ADD_NOTE_BADGE_TEXT: &str = "[+]";
+pub const CODE_ROW_ADD_NOTE_BADGE_WIDTH: u16 = 3;
 
 const RAPID_SCROLL_MIN_DELTA_ROWS: u64 = 4;
 const RAPID_SCROLL_MIN_VIEWPORT_MULTIPLIER: u64 = 3;
@@ -239,6 +241,12 @@ mod tests {
         assert_eq!(resize_sidebar_width(30, 40, 5, 20, 50), 20);
         assert_eq!(resize_sidebar_width(30, 40, 100, 20, 50), 50);
         assert_eq!(resize_sidebar_width(30, 40, 40, 40, 20), 20);
+    }
+
+    #[test]
+    fn add_note_badge_reserves_its_exact_terminal_columns() {
+        assert_eq!(CODE_ROW_ADD_NOTE_BADGE_TEXT.width(), 3);
+        assert_eq!(CODE_ROW_ADD_NOTE_BADGE_WIDTH, 3);
     }
 
     #[test]
