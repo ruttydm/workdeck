@@ -7,7 +7,8 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::Duration;
 use thiserror::Error;
@@ -62,6 +63,97 @@ pub enum HostError {
     Untrusted(PathBuf),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ExtensionEventBusPhase {
+    Loading = 0,
+    Ready = 1,
+    Closing = 2,
+    Closed = 3,
+}
+
+#[derive(Debug)]
+pub struct ExtensionRuntimeRegistry {
+    phase: AtomicU8,
+}
+
+impl ExtensionRuntimeRegistry {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            phase: AtomicU8::new(ExtensionEventBusPhase::Loading as u8),
+        }
+    }
+
+    #[must_use]
+    pub fn phase(&self) -> ExtensionEventBusPhase {
+        match self.phase.load(Ordering::Acquire) {
+            0 => ExtensionEventBusPhase::Loading,
+            1 => ExtensionEventBusPhase::Ready,
+            2 => ExtensionEventBusPhase::Closing,
+            _ => ExtensionEventBusPhase::Closed,
+        }
+    }
+
+    pub fn set_phase(&self, phase: ExtensionEventBusPhase) {
+        self.phase.store(phase as u8, Ordering::Release);
+    }
+}
+
+impl Default for ExtensionRuntimeRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+type RegistryProbe = Arc<dyn Fn() -> Option<Arc<ExtensionRuntimeRegistry>> + Send + Sync>;
+type LifetimeProbe = Arc<dyn Fn() -> bool + Send + Sync>;
+
+pub struct ExtensionCapabilityLeaseInputs {
+    pub owning_registry: Option<Arc<ExtensionRuntimeRegistry>>,
+    pub get_active_registry: RegistryProbe,
+    pub is_app_alive: LifetimeProbe,
+    pub is_review_current: Option<LifetimeProbe>,
+}
+
+/// Immutable host-owned lease for capabilities retained by extension callbacks.
+pub struct ExtensionCapabilityLease {
+    owning_registry: Option<Arc<ExtensionRuntimeRegistry>>,
+    get_active_registry: RegistryProbe,
+    is_app_alive: LifetimeProbe,
+    is_review_current: Option<LifetimeProbe>,
+}
+
+impl ExtensionCapabilityLease {
+    #[must_use]
+    pub fn is_live(&self) -> bool {
+        let Some(owning_registry) = self.owning_registry.as_ref() else {
+            return false;
+        };
+        (self.is_app_alive)()
+            && owning_registry.phase() != ExtensionEventBusPhase::Closed
+            && (self.get_active_registry)()
+                .as_ref()
+                .is_some_and(|active| Arc::ptr_eq(active, owning_registry))
+            && self
+                .is_review_current
+                .as_ref()
+                .is_none_or(|is_current| is_current())
+    }
+}
+
+#[must_use]
+pub fn create_extension_capability_lease(
+    inputs: ExtensionCapabilityLeaseInputs,
+) -> ExtensionCapabilityLease {
+    ExtensionCapabilityLease {
+        owning_registry: inputs.owning_registry,
+        get_active_registry: inputs.get_active_registry,
+        is_app_alive: inputs.is_app_alive,
+        is_review_current: inputs.is_review_current,
+    }
+}
+
 #[derive(Debug)]
 pub struct LoadedExtension {
     pub manifest: ExtensionManifest,
@@ -70,6 +162,7 @@ pub struct LoadedExtension {
     stdin: ChildStdin,
     responses: mpsc::Receiver<Result<String, std::io::Error>>,
     next_id: u64,
+    registry: Arc<ExtensionRuntimeRegistry>,
 }
 
 impl LoadedExtension {
@@ -129,6 +222,7 @@ impl LoadedExtension {
             stdin,
             responses,
             next_id: 1,
+            registry: Arc::new(ExtensionRuntimeRegistry::new()),
         };
         let result = loaded.request(
             "workdeck/handshake",
@@ -156,7 +250,13 @@ impl LoadedExtension {
         }
         validate_registrations(&loaded.manifest, &handshake)?;
         loaded.handshake = handshake;
+        loaded.registry.set_phase(ExtensionEventBusPhase::Ready);
         Ok(loaded)
+    }
+
+    #[must_use]
+    pub fn registry(&self) -> Arc<ExtensionRuntimeRegistry> {
+        Arc::clone(&self.registry)
     }
 
     pub fn request(
@@ -337,8 +437,10 @@ fn validate_registrations(
 
 impl Drop for LoadedExtension {
     fn drop(&mut self) {
+        self.registry.set_phase(ExtensionEventBusPhase::Closing);
         let _ = self.child.kill();
         let _ = self.child.wait();
+        self.registry.set_phase(ExtensionEventBusPhase::Closed);
     }
 }
 
@@ -442,6 +544,8 @@ fn canonical_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+    use std::sync::atomic::AtomicBool;
     use tempfile::TempDir;
 
     #[test]
@@ -519,5 +623,55 @@ mod tests {
                 .to_string()
                 .contains("undeclared capability")
         );
+    }
+
+    #[test]
+    fn capability_lease_follows_app_runtime_and_review_generation_ownership() {
+        let owning = Arc::new(ExtensionRuntimeRegistry::new());
+        owning.set_phase(ExtensionEventBusPhase::Ready);
+        let active = Arc::new(Mutex::new(Some(Arc::clone(&owning))));
+        let app_alive = Arc::new(AtomicBool::new(true));
+        let review_current = Arc::new(AtomicBool::new(true));
+        let lease = create_extension_capability_lease(ExtensionCapabilityLeaseInputs {
+            owning_registry: Some(Arc::clone(&owning)),
+            get_active_registry: {
+                let active = Arc::clone(&active);
+                Arc::new(move || active.lock().unwrap().clone())
+            },
+            is_app_alive: {
+                let app_alive = Arc::clone(&app_alive);
+                Arc::new(move || app_alive.load(Ordering::Acquire))
+            },
+            is_review_current: Some({
+                let review_current = Arc::clone(&review_current);
+                Arc::new(move || review_current.load(Ordering::Acquire))
+            }),
+        });
+
+        assert!(lease.is_live());
+        review_current.store(false, Ordering::Release);
+        assert!(!lease.is_live());
+        review_current.store(true, Ordering::Release);
+        *active.lock().unwrap() = Some(Arc::new(ExtensionRuntimeRegistry::new()));
+        assert!(!lease.is_live());
+        *active.lock().unwrap() = Some(Arc::clone(&owning));
+        owning.set_phase(ExtensionEventBusPhase::Closed);
+        assert!(!lease.is_live());
+        owning.set_phase(ExtensionEventBusPhase::Ready);
+        app_alive.store(false, Ordering::Release);
+        assert!(!lease.is_live());
+    }
+
+    #[test]
+    fn capability_lease_can_hold_runtime_authority_without_review_generation() {
+        let registry = Arc::new(ExtensionRuntimeRegistry::new());
+        registry.set_phase(ExtensionEventBusPhase::Ready);
+        let lease = create_extension_capability_lease(ExtensionCapabilityLeaseInputs {
+            owning_registry: Some(Arc::clone(&registry)),
+            get_active_registry: Arc::new(move || Some(Arc::clone(&registry))),
+            is_app_alive: Arc::new(|| true),
+            is_review_current: None,
+        });
+        assert!(lease.is_live());
     }
 }
