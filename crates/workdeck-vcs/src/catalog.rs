@@ -5,7 +5,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use thiserror::Error;
-use workdeck_core::{DiffFile, ReviewSide};
+use workdeck_core::{DiffFile, ReviewSide, WorkdeckUserError};
 
 pub const DEFAULT_VCS_PROVIDER_ID: &str = "git";
 pub const BUNDLED_VCS_PROVIDER_IDS: &[&str] = &["jj", "sl", "git"];
@@ -173,14 +173,10 @@ pub struct VcsCatalog {
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum VcsCatalogError {
-    #[error(
-        "Workdeck's default {id} backend failed to load. Reinstall Workdeck or report this upstream."
-    )]
-    MissingDefault { id: String },
+    #[error(transparent)]
+    User(#[from] WorkdeckUserError),
     #[error("Unsupported VCS: {0}")]
     UnsupportedVcs(String),
-    #[error("{message} {guidance}")]
-    UnsupportedOperation { message: String, guidance: String },
     #[error("{adapter} does not support watch signatures for {operation}.")]
     MissingWatchSignature { adapter: String, operation: String },
     #[error("VCS operation failed: {0}")]
@@ -259,8 +255,15 @@ pub fn get_default_vcs_adapter(catalog: &VcsCatalog) -> Result<&VcsAdapter, VcsC
         .adapters
         .iter()
         .find(|adapter| adapter.id == catalog.default_adapter_id)
-        .ok_or_else(|| VcsCatalogError::MissingDefault {
-            id: catalog.default_adapter_id.clone(),
+        .ok_or_else(|| {
+            WorkdeckUserError::new(
+                format!(
+                    "Workdeck's default {} backend failed to load.",
+                    catalog.default_adapter_id
+                ),
+                vec!["Reinstall Workdeck, or report this upstream.".into()],
+            )
+            .into()
         })
 }
 
@@ -394,25 +397,27 @@ pub fn create_unsupported_vcs_operation_error(
     if operation == VcsReviewOperationKind::StashShow
         && let Some(supporting) = supporting
     {
-        return VcsCatalogError::UnsupportedOperation {
-            message: format!(
+        return WorkdeckUserError::new(
+            format!(
                 "`workdeck stash show` requires {} VCS mode.",
                 supporting.name
             ),
-            guidance: format!(
+            vec![format!(
                 "Set `vcs = \"{}\"` in Workdeck config, then try again.",
                 supporting.id
-            ),
-        };
+            )],
+        )
+        .into();
     }
-    VcsCatalogError::UnsupportedOperation {
-        message: format!(
+    WorkdeckUserError::new(
+        format!(
             "{} does not support {}.",
             adapter.name,
             operation.wire_name()
         ),
-        guidance: "Use a supported VCS mode or command for this repository.".into(),
-    }
+        vec!["Use a supported VCS mode or command for this repository.".into()],
+    )
+    .into()
 }
 
 fn relative_component_distance(root: &Path, start: &Path) -> usize {
@@ -571,7 +576,7 @@ mod tests {
         let missing = create_vcs_catalog(Vec::new(), "git", Vec::new());
         assert!(matches!(
             get_default_vcs_adapter(&missing),
-            Err(VcsCatalogError::MissingDefault { .. })
+            Err(VcsCatalogError::User(_))
         ));
     }
 
@@ -665,7 +670,10 @@ mod tests {
             &catalog,
         );
         assert!(error.to_string().contains("requires GIT VCS mode"));
-        assert!(error.to_string().contains("vcs = \"git\""));
+        let VcsCatalogError::User(error) = error else {
+            panic!("unsupported operation must remain user-facing");
+        };
+        assert!(error.suggestions[0].contains("vcs = \"git\""));
     }
 
     #[test]

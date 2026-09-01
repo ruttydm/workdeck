@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 use workdeck_core::{Changeset, ReviewSide, ReviewSnapshot};
 
+pub use workdeck_core::{WORKDECK_EXTENSION_USER_ERROR_NAME, WorkdeckExtensionUserError};
+
 pub const API_VERSION: u32 = 1;
 pub const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 2_000;
