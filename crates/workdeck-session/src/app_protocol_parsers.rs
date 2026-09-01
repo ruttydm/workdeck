@@ -24,7 +24,8 @@ const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 const SELECTOR_FIELDS: [&str; 4] = ["sessionId", "sessionPath", "repoRoot", "repoBoundary"];
 
 /// Strictly parsed input for one registered Workdeck broker command.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(untagged)]
 pub enum WorkdeckSessionCommandInput {
     Comment(CommentToolInput),
     CommentBatch(CommentBatchToolInput),
@@ -462,13 +463,29 @@ mod tests {
     use serde_json::json;
 
     use crate::{
-        BrokerProtocolFailureCode, SessionLineHighlightTone, WORKDECK_REVIEW_PROTOCOL_VERSION,
+        BrokerProtocolFailureCode, SessionLineHighlightTone, SessionSelector,
+        WORKDECK_REVIEW_PROTOCOL_VERSION,
     };
 
     use super::*;
 
     fn parsers() -> WorkdeckSessionProtocolParsers {
         create_workdeck_session_protocol_parsers().unwrap()
+    }
+
+    #[test]
+    fn parsed_command_inputs_serialize_as_the_inner_wire_shape() {
+        let input = WorkdeckSessionCommandInput::ClearHighlights(ClearHighlightsToolInput {
+            target_session: SessionSelector {
+                session_id: Some("session-1".into()),
+                ..SessionSelector::default()
+            },
+            file_path: Some("src/main.rs".into()),
+        });
+        assert_eq!(
+            serde_json::to_value(input).unwrap(),
+            json!({"sessionId": "session-1", "filePath": "src/main.rs"})
+        );
     }
 
     #[test]
