@@ -7,6 +7,8 @@ use workdeck_review::{
     ReviewPublicationAddress, ReviewResourceDescriptor, parse_review_generation,
 };
 
+use crate::WorkdeckReviewClientErrorCodeV1;
+
 pub const WORKDECK_REVIEW_PROTOCOL_VERSION: u32 = 1;
 pub const WORKDECK_REVIEW_HTTP_PATH_PREFIX: &str = "/review-api";
 pub const WORKDECK_REVIEW_PAGE_PATH_PREFIX: &str = "/review";
@@ -226,7 +228,7 @@ pub enum WorkdeckReviewTransportErrorCode {
 #[serde(rename_all = "camelCase")]
 pub struct WorkdeckReviewHttpFailureV1 {
     pub ok: bool,
-    pub code: String,
+    pub code: WorkdeckReviewClientErrorCodeV1,
     pub message: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_generation: Option<String>,
