@@ -6,9 +6,11 @@
 
 mod identity;
 mod run;
+mod semantic;
 
 pub use identity::{review_content_digest, review_file_key, review_source_identity};
 pub use run::*;
+pub use semantic::*;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

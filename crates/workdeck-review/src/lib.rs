@@ -2,6 +2,8 @@
 
 mod anchors;
 mod annotations;
+mod canonical_file;
+mod content_manifest;
 mod expansion;
 mod generation_order;
 mod geometry;
@@ -9,6 +11,8 @@ mod live_comments;
 
 pub use anchors::*;
 pub use annotations::*;
+pub use canonical_file::*;
+pub use content_manifest::*;
 pub use expansion::*;
 pub use generation_order::*;
 pub use geometry::*;

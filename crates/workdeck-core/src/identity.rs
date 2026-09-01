@@ -57,18 +57,28 @@ pub(crate) fn review_file_content_identity(file: &DiffFile) -> String {
         new_end = hunk.new_start.saturating_add(hunk.new_count);
     }
 
-    let mut addition_lines = Vec::new();
-    let mut deletion_lines = Vec::new();
-    for line in file.hunks.iter().flat_map(|hunk| &hunk.lines) {
-        let mut rendered = line.content.clone();
-        if !line.no_newline_at_eof {
-            rendered.push('\n');
-        }
-        if line.new_line.is_some() {
-            addition_lines.push(rendered.clone());
-        }
-        if line.old_line.is_some() {
-            deletion_lines.push(rendered);
+    let mut addition_lines = (!file.flags.partial)
+        .then_some(file.sources.new.as_ref())
+        .flatten()
+        .map(|source| rendered_source_lines(&source.content))
+        .unwrap_or_default();
+    let mut deletion_lines = (!file.flags.partial)
+        .then_some(file.sources.old.as_ref())
+        .flatten()
+        .map(|source| rendered_source_lines(&source.content))
+        .unwrap_or_default();
+    if addition_lines.is_empty() && deletion_lines.is_empty() {
+        for line in file.hunks.iter().flat_map(|hunk| &hunk.lines) {
+            let mut rendered = line.content.clone();
+            if !line.no_newline_at_eof {
+                rendered.push('\n');
+            }
+            if line.new_line.is_some() {
+                addition_lines.push(rendered.clone());
+            }
+            if line.old_line.is_some() {
+                deletion_lines.push(rendered);
+            }
         }
     }
 
@@ -113,6 +123,14 @@ pub(crate) fn review_file_content_identity(file: &DiffFile) -> String {
     parts.extend(deletion_lines);
     let borrowed = parts.iter().map(String::as_str).collect::<Vec<_>>();
     review_content_digest(&borrowed)
+}
+
+fn rendered_source_lines(source: &str) -> Vec<String> {
+    source
+        .replace("\r\n", "\n")
+        .split_inclusive('\n')
+        .map(str::to_owned)
+        .collect()
 }
 
 pub fn review_file_key(
