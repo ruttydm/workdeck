@@ -12,6 +12,7 @@ mod daemon_http;
 mod protocol_parsers;
 mod review_capability;
 mod review_error_catalog;
+mod review_event_protocol;
 mod review_http_protocol;
 mod selectors;
 mod terminal_metadata;
@@ -28,6 +29,7 @@ pub use daemon_http::*;
 pub use protocol_parsers::*;
 pub use review_capability::*;
 pub use review_error_catalog::*;
+pub use review_event_protocol::*;
 pub use review_http_protocol::*;
 pub use selectors::{
     SelectableSession, SessionSelector, describe_session_selector, matches_session_selector,

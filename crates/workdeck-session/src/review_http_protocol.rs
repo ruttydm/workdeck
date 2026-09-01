@@ -10,6 +10,7 @@ use workdeck_review::{
 use crate::WorkdeckReviewClientErrorCodeV1;
 
 pub const WORKDECK_REVIEW_PROTOCOL_VERSION: u32 = 1;
+pub const MAX_WORKDECK_REVIEW_ENVELOPE_BYTES: u64 = 4 * 1024 * 1024;
 pub const WORKDECK_REVIEW_HTTP_PATH_PREFIX: &str = "/review-api";
 pub const WORKDECK_REVIEW_PAGE_PATH_PREFIX: &str = "/review";
 pub const WORKDECK_REVIEW_CAPABILITY_HEADER: &str = "workdeck-review-capability";
