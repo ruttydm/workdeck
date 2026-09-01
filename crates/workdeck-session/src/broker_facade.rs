@@ -21,7 +21,8 @@ use crate::{
 type SessionDescription<Info, State> =
     Arc<dyn Fn(&SessionRegistration<Info>, &SessionSnapshot<State>) -> String + Send + Sync>;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionBrokerRecord<Info, State> {
     pub session_id: String,
     pub cwd: String,

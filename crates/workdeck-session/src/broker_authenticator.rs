@@ -332,10 +332,23 @@ pub struct SessionBrokerAuthenticator {
 
 pub struct AuthenticatedProducerHello {
     pub ack: SessionBrokerProducerHelloAck,
-    shared: Arc<AuthenticatorShared>,
+    shared: Option<Arc<AuthenticatorShared>>,
     epoch: u64,
-    grant: ProducerGrant,
+    grant: Option<ProducerGrant>,
+    custom_assert_active:
+        Option<Arc<dyn Fn() -> Result<(), SessionBrokerAuthenticationError> + Send + Sync>>,
 }
+
+type CallerActiveAssertion =
+    Arc<dyn Fn() -> Result<(), SessionBrokerAuthenticationError> + Send + Sync>;
+type CallerResponseSigner = Arc<
+    dyn Fn(
+            &CallerResponseSigningInput,
+        )
+            -> Result<crate::SessionBrokerResponseAuthentication, SessionBrokerAuthenticationError>
+        + Send
+        + Sync,
+>;
 
 impl std::fmt::Debug for AuthenticatedProducerHello {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -348,21 +361,52 @@ impl std::fmt::Debug for AuthenticatedProducerHello {
 }
 
 impl AuthenticatedProducerHello {
+    /// Compose a runtime-owned producer authority around an application callback.
+    ///
+    /// Native authenticators use the generation-bound grant state below. Runtime adapters and
+    /// parity fixtures can supply the same fail-closed assertion contract without manufacturing
+    /// private authenticator state.
+    #[must_use]
+    pub fn from_assertion(
+        ack: SessionBrokerProducerHelloAck,
+        assert_active: Arc<dyn Fn() -> Result<(), SessionBrokerAuthenticationError> + Send + Sync>,
+    ) -> Self {
+        Self {
+            ack,
+            shared: None,
+            epoch: 0,
+            grant: None,
+            custom_assert_active: Some(assert_active),
+        }
+    }
+
     pub fn assert_active(&self) -> Result<(), SessionBrokerAuthenticationError> {
-        self.shared.assert_epoch(self.epoch)?;
-        self.shared
-            .require_active_grant(&BrokerGrant::Producer(self.grant.clone()))
+        if let Some(assert_active) = &self.custom_assert_active {
+            return assert_active();
+        }
+        let shared = self
+            .shared
+            .as_ref()
+            .ok_or_else(|| auth_error(SessionBrokerAuthenticationFailureCode::InvalidCredential))?;
+        let grant = self
+            .grant
+            .as_ref()
+            .ok_or_else(|| auth_error(SessionBrokerAuthenticationFailureCode::InvalidCredential))?;
+        shared.assert_epoch(self.epoch)?;
+        shared.require_active_grant(&BrokerGrant::Producer(grant.clone()))
     }
 }
 
 pub struct AuthenticatedCallerRequest {
     pub principal: CallerPrincipal,
     pub request_id: String,
-    caller_session_id: String,
-    sequence: String,
-    hello_transcript_hash: String,
-    shared: Arc<AuthenticatorShared>,
+    caller_session_id: Option<String>,
+    sequence: Option<String>,
+    hello_transcript_hash: Option<String>,
+    shared: Option<Arc<AuthenticatorShared>>,
     epoch: u64,
+    custom_assert_active: Option<CallerActiveAssertion>,
+    custom_sign_response: Option<CallerResponseSigner>,
 }
 
 pub trait CallerRequestAuthenticator: Send + Sync {
@@ -403,11 +447,43 @@ impl std::fmt::Debug for AuthenticatedCallerRequest {
 }
 
 impl AuthenticatedCallerRequest {
+    /// Compose an authenticated caller supplied by a native transport or application host.
+    #[must_use]
+    pub fn from_callbacks(
+        principal: CallerPrincipal,
+        request_id: impl Into<String>,
+        assert_active: CallerActiveAssertion,
+        sign_response: CallerResponseSigner,
+    ) -> Self {
+        Self {
+            principal,
+            request_id: request_id.into(),
+            caller_session_id: None,
+            sequence: None,
+            hello_transcript_hash: None,
+            shared: None,
+            epoch: 0,
+            custom_assert_active: Some(assert_active),
+            custom_sign_response: Some(sign_response),
+        }
+    }
+
     pub fn assert_active(&self) -> Result<(), SessionBrokerAuthenticationError> {
-        self.shared.assert_caller_active(
+        if let Some(assert_active) = &self.custom_assert_active {
+            return assert_active();
+        }
+        let shared = self
+            .shared
+            .as_ref()
+            .ok_or_else(|| auth_error(SessionBrokerAuthenticationFailureCode::InvalidCredential))?;
+        shared.assert_caller_active(
             self.epoch,
-            &self.caller_session_id,
-            &self.hello_transcript_hash,
+            self.caller_session_id.as_deref().ok_or_else(|| {
+                auth_error(SessionBrokerAuthenticationFailureCode::InvalidCredential)
+            })?,
+            self.hello_transcript_hash.as_deref().ok_or_else(|| {
+                auth_error(SessionBrokerAuthenticationFailureCode::InvalidCredential)
+            })?,
         )
     }
 
@@ -415,15 +491,22 @@ impl AuthenticatedCallerRequest {
         &self,
         input: &CallerResponseSigningInput,
     ) -> Result<crate::SessionBrokerResponseAuthentication, SessionBrokerAuthenticationError> {
+        if let Some(sign_response) = &self.custom_sign_response {
+            self.assert_active()?;
+            return sign_response(input);
+        }
         self.assert_active()?;
+        let shared = self
+            .shared
+            .as_ref()
+            .ok_or_else(|| auth_error(SessionBrokerAuthenticationFailureCode::InvalidCredential))?;
         if !(100..=599).contains(&input.http_status) {
             return Err(auth_error(
                 SessionBrokerAuthenticationFailureCode::InvalidCredential,
             ));
         }
         if input.app_contract.as_ref().is_some_and(|contract| {
-            contract.app_revision != self.shared.config.app_revision
-                || !contract.features.is_empty()
+            contract.app_revision != shared.config.app_revision || !contract.features.is_empty()
         }) {
             return Err(auth_error(
                 SessionBrokerAuthenticationFailureCode::InvalidCredential,
@@ -433,20 +516,24 @@ impl AuthenticatedCallerRequest {
             .app_contract
             .as_ref()
             .map(|_| SignedBrokerAppContract {
-                app_revision: self.shared.config.app_revision,
+                app_revision: shared.config.app_revision,
                 features: Vec::new(),
             });
         let body = canonical_json_bytes(&input.body)
             .map_err(|_| auth_error(SessionBrokerAuthenticationFailureCode::InvalidCredential))?;
-        let body_digest = encode_base64_url(&self.shared.crypto.sha256(&body));
+        let body_digest = encode_base64_url(&shared.crypto.sha256(&body));
         self.assert_active()?;
         let transcript = build_broker_response_transcript(&BrokerResponseTranscriptInput {
-            app_id: self.shared.config.app_id.clone(),
-            generation: self.shared.config.generation.clone(),
+            app_id: shared.config.app_id.clone(),
+            generation: shared.config.generation.clone(),
             broker_revision: SESSION_BROKER_PROTOCOL_REVISION,
-            caller_session_id: self.caller_session_id.clone(),
+            caller_session_id: self.caller_session_id.clone().ok_or_else(|| {
+                auth_error(SessionBrokerAuthenticationFailureCode::InvalidCredential)
+            })?,
             request_id: self.request_id.clone(),
-            sequence: self.sequence.clone(),
+            sequence: self.sequence.clone().ok_or_else(|| {
+                auth_error(SessionBrokerAuthenticationFailureCode::InvalidCredential)
+            })?,
             http_status: input.http_status,
             body_digest: body_digest.clone(),
             app_contract: app_contract.clone(),
@@ -455,20 +542,28 @@ impl AuthenticatedCallerRequest {
         let daemon_signature = encode_base64_url(
             &self
                 .shared
+                .as_ref()
+                .ok_or_else(|| {
+                    auth_error(SessionBrokerAuthenticationFailureCode::InvalidCredential)
+                })?
                 .crypto
-                .sign(&self.shared.config.daemon_identity.private_key, &transcript),
+                .sign(&shared.config.daemon_identity.private_key, &transcript),
         );
         self.assert_active()?;
         Ok(crate::SessionBrokerResponseAuthentication {
-            generation: self.shared.config.generation.clone(),
+            generation: shared.config.generation.clone(),
             broker_revision: SESSION_BROKER_PROTOCOL_REVISION,
             app_contract: app_contract.as_ref().map(Into::into),
-            caller_session_id: self.caller_session_id.clone(),
+            caller_session_id: self.caller_session_id.clone().ok_or_else(|| {
+                auth_error(SessionBrokerAuthenticationFailureCode::InvalidCredential)
+            })?,
             request_id: self.request_id.clone(),
-            sequence: self.sequence.clone(),
+            sequence: self.sequence.clone().ok_or_else(|| {
+                auth_error(SessionBrokerAuthenticationFailureCode::InvalidCredential)
+            })?,
             http_status: input.http_status,
             body_digest,
-            daemon_key_id: self.shared.config.daemon_identity.key_id.clone(),
+            daemon_key_id: shared.config.daemon_identity.key_id.clone(),
             daemon_signature,
         })
     }
@@ -1490,9 +1585,10 @@ impl SessionBrokerAuthenticator {
                 daemon_key_id: self.shared.config.daemon_identity.key_id.clone(),
                 daemon_signature,
             },
-            shared: Arc::clone(&self.shared),
+            shared: Some(Arc::clone(&self.shared)),
             epoch,
-            grant,
+            grant: Some(grant),
+            custom_assert_active: None,
         })
     }
 
@@ -1597,11 +1693,13 @@ impl SessionBrokerAuthenticator {
         Ok(AuthenticatedCallerRequest {
             principal: session.principal.clone(),
             request_id: request_id.into(),
-            caller_session_id: caller_session_id.into(),
-            sequence: sequence.into(),
-            hello_transcript_hash: session.hello_transcript_hash.clone(),
-            shared: Arc::clone(&self.shared),
+            caller_session_id: Some(caller_session_id.into()),
+            sequence: Some(sequence.into()),
+            hello_transcript_hash: Some(session.hello_transcript_hash.clone()),
+            shared: Some(Arc::clone(&self.shared)),
             epoch: state.clear_epoch,
+            custom_assert_active: None,
+            custom_sign_response: None,
         })
     }
 
