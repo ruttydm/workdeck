@@ -11,6 +11,7 @@ mod canonical_json;
 mod daemon_http;
 mod daemon_protocol;
 mod protocol_parsers;
+mod reload_bounds;
 mod review_capability;
 mod review_commands;
 mod review_error_catalog;
@@ -34,6 +35,7 @@ pub use canonical_json::{CanonicalJsonError, canonical_json_bytes, canonicalize_
 pub use daemon_http::*;
 pub use daemon_protocol::*;
 pub use protocol_parsers::*;
+pub use reload_bounds::*;
 pub use review_capability::*;
 pub use review_commands::*;
 pub use review_error_catalog::*;
