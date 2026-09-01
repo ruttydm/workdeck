@@ -9,6 +9,7 @@ mod list_geometry;
 mod mouse_scroll;
 mod shutdown;
 mod terminal_runtime;
+mod theme_detection;
 mod ui_geometry;
 
 pub use agent_note_geometry::*;
@@ -20,6 +21,7 @@ pub use list_geometry::*;
 pub use mouse_scroll::*;
 pub use shutdown::*;
 pub use terminal_runtime::*;
+pub use theme_detection::*;
 pub use ui_geometry::*;
 
 use anyhow::Result;
