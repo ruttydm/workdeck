@@ -19,6 +19,9 @@ workdeck-core = { path = "../workdeck-core" }
 workdeck-review = { path = "../workdeck-review" }
 workdeck-vcs = { path = "../workdeck-vcs" }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tempfile = "3.13"
 workdeck-diff = { path = "../workdeck-diff" }
