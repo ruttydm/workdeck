@@ -17,3 +17,6 @@ workdeck-extension-api = { path = "../workdeck-extension-api" }
 workdeck-markup = { path = "../workdeck-markup" }
 workdeck-review = { path = "../workdeck-review" }
 workdeck-session = { path = "../workdeck-session" }
+
+[dev-dependencies]
+serde_json = "1.0"

@@ -2,9 +2,11 @@
 
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use workdeck_diff::sanitize_terminal_line;
+use workdeck_extension_api::ExtensionKeyEvent;
 
 pub const MODAL_FRAME_CHROME_ROWS: u16 = 5;
 pub const RAPID_SCROLL_OVERSCAN_IDLE_MS: u64 = 160;
+pub const VIEWPORT_READ_COALESCE_MS: u64 = 16;
 
 const RAPID_SCROLL_MIN_DELTA_ROWS: u64 = 4;
 const RAPID_SCROLL_MIN_VIEWPORT_MULTIPLIER: u64 = 3;
@@ -14,6 +16,29 @@ const RAPID_SCROLL_MAX_OVERSCAN_ROWS: u64 = 240;
 pub struct WindowedDialogText {
     pub lines: Vec<String>,
     pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HostKeyEvent<'a> {
+    pub name: &'a str,
+    pub sequence: &'a str,
+    pub ctrl: bool,
+    pub meta: bool,
+    pub option: bool,
+    pub shift: bool,
+}
+
+/// Copy a host keyboard event into the owned, method-free extension API shape.
+#[must_use]
+pub fn to_extension_key_event(key: HostKeyEvent<'_>) -> ExtensionKeyEvent {
+    ExtensionKeyEvent {
+        name: key.name.into(),
+        sequence: key.sequence.into(),
+        ctrl: key.ctrl,
+        meta: key.meta,
+        option: key.option,
+        shift: key.shift,
+    }
 }
 
 /// Wrap prose to terminal cells and reserve the final allocated row for overflow.
@@ -90,6 +115,31 @@ pub fn compute_rapid_scroll_overscan_rows(delta_rows: i64, viewport_height: i64)
         .saturating_mul(2)
         .max(viewport_rows.saturating_mul(RAPID_SCROLL_MIN_VIEWPORT_MULTIPLIER))
         .min(RAPID_SCROLL_MAX_OVERSCAN_ROWS) as usize
+}
+
+/// Estimate review viewport height before a backend publishes exact pane geometry.
+#[must_use]
+pub fn estimate_initial_render_viewport_height(
+    renderer_height: i64,
+    screen_top: i64,
+    pane_height: Option<i64>,
+) -> i64 {
+    let available_renderer_height = renderer_height.saturating_sub(screen_top.max(0));
+    pane_height
+        .map_or(available_renderer_height, |height| {
+            available_renderer_height.min(height)
+        })
+        .max(1)
+}
+
+/// Prefer measured viewport geometry while retaining a non-empty first-paint estimate.
+#[must_use]
+pub fn resolve_render_viewport_height(measured_height: i64, estimated_height: i64) -> i64 {
+    if measured_height > 0 {
+        measured_height
+    } else {
+        estimated_height.max(1)
+    }
 }
 
 fn wrap_prose(text: &str, width: usize) -> Vec<String> {
@@ -169,6 +219,40 @@ mod tests {
     use super::*;
 
     #[test]
+    fn extension_key_event_is_an_owned_method_free_snapshot() {
+        let snapshot = to_extension_key_event(HostKeyEvent {
+            name: "g",
+            sequence: "G",
+            ctrl: false,
+            meta: false,
+            option: true,
+            shift: true,
+        });
+        assert_eq!(
+            snapshot,
+            ExtensionKeyEvent {
+                name: "g".into(),
+                sequence: "G".into(),
+                ctrl: false,
+                meta: false,
+                option: true,
+                shift: true,
+            }
+        );
+        assert_eq!(
+            serde_json::to_value(snapshot).unwrap(),
+            serde_json::json!({
+                "name": "g",
+                "sequence": "G",
+                "ctrl": false,
+                "meta": false,
+                "option": true,
+                "shift": true,
+            })
+        );
+    }
+
+    #[test]
     fn dialog_text_wraps_prose_within_available_terminal_rows() {
         assert_eq!(
             window_dialog_text(&["one two three"], 7, 3),
@@ -243,5 +327,30 @@ mod tests {
     fn rapid_scroll_scales_with_large_jumps_but_stays_bounded() {
         assert_eq!(compute_rapid_scroll_overscan_rows(80, 20), 160);
         assert_eq!(compute_rapid_scroll_overscan_rows(-1_000, 40), 240);
+    }
+
+    #[test]
+    fn initial_viewport_subtracts_pane_screen_top_from_renderer_height() {
+        assert_eq!(estimate_initial_render_viewport_height(80, 2, None), 78);
+    }
+
+    #[test]
+    fn initial_viewport_never_returns_empty_while_geometry_is_unknown() {
+        assert_eq!(estimate_initial_render_viewport_height(0, 0, None), 1);
+    }
+
+    #[test]
+    fn initial_viewport_excludes_a_bottom_extension_pane() {
+        assert_eq!(estimate_initial_render_viewport_height(100, 1, Some(5)), 5);
+    }
+
+    #[test]
+    fn render_viewport_falls_back_while_measured_height_is_zero() {
+        assert_eq!(resolve_render_viewport_height(0, 48), 48);
+    }
+
+    #[test]
+    fn render_viewport_keeps_measured_height_once_available() {
+        assert_eq!(resolve_render_viewport_height(36, 48), 36);
     }
 }

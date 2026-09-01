@@ -18,6 +18,18 @@ pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 2_000;
 pub const MAX_VIEW_NODES: usize = 10_000;
 pub const MAX_VIEW_DEPTH: usize = 64;
 
+/// Frozen, method-free keyboard snapshot passed across the extension boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionKeyEvent {
+    pub name: String,
+    pub sequence: String,
+    pub ctrl: bool,
+    pub meta: bool,
+    pub option: bool,
+    pub shift: bool,
+}
+
 #[derive(Debug, Error)]
 pub enum ManifestError {
     #[error("failed to read extension manifest {path}: {source}")]
