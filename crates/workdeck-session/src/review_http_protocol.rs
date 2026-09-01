@@ -1,24 +1,20 @@
 //! Authenticated loopback HTTP routes for one live review publication.
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use thiserror::Error;
-use workdeck_review::{
-    ReviewPublicationAddress, ReviewResourceDescriptor, parse_review_generation,
+use workdeck_review::{ReviewPublicationAddress, parse_review_generation};
+
+use crate::{
+    MAX_WORKDECK_REVIEW_IDENTIFIER_BYTES, WORKDECK_REVIEW_PROTOCOL_VERSION,
+    WorkdeckReviewClientErrorCodeV1, WorkdeckReviewResourceCatalogV1,
 };
 
-use crate::WorkdeckReviewClientErrorCodeV1;
-
-pub const WORKDECK_REVIEW_PROTOCOL_VERSION: u32 = 1;
-pub const MAX_WORKDECK_REVIEW_ENVELOPE_BYTES: u64 = 4 * 1024 * 1024;
 pub const WORKDECK_REVIEW_HTTP_PATH_PREFIX: &str = "/review-api";
 pub const WORKDECK_REVIEW_PAGE_PATH_PREFIX: &str = "/review";
 pub const WORKDECK_REVIEW_CAPABILITY_HEADER: &str = "workdeck-review-capability";
 pub const WORKDECK_REVIEW_CAPABILITY_FRAGMENT_KEY: &str = "capability";
 pub const REVIEW_CAPABILITY_ENTROPY_BYTES: usize = 32;
 pub const REVIEW_CAPABILITY_TOKEN_LENGTH: usize = (REVIEW_CAPABILITY_ENTROPY_BYTES * 8).div_ceil(6);
-pub const MAX_WORKDECK_REVIEW_IDENTIFIER_BYTES: usize = 1024;
-
 #[must_use]
 pub fn is_review_capability_token(value: &str) -> bool {
     value.len() == REVIEW_CAPABILITY_TOKEN_LENGTH
@@ -233,14 +229,6 @@ pub struct WorkdeckReviewHttpFailureV1 {
     pub message: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_generation: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkdeckReviewResourceCatalogV1 {
-    pub generation: String,
-    pub file_keys_by_runtime_id: BTreeMap<String, String>,
-    pub resources: Vec<ReviewResourceDescriptor>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

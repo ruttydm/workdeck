@@ -14,6 +14,7 @@ mod review_capability;
 mod review_error_catalog;
 mod review_event_protocol;
 mod review_http_protocol;
+mod review_protocol;
 mod selectors;
 mod terminal_metadata;
 
@@ -31,6 +32,7 @@ pub use review_capability::*;
 pub use review_error_catalog::*;
 pub use review_event_protocol::*;
 pub use review_http_protocol::*;
+pub use review_protocol::*;
 pub use selectors::{
     SelectableSession, SessionSelector, describe_session_selector, matches_session_selector,
     normalize_session_selector, repo_selector_distance, resolve_session_selector_boundary,
