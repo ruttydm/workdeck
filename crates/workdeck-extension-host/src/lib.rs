@@ -1,5 +1,9 @@
 //! Subprocess host for trusted native Workdeck extensions.
 
+mod line_highlights;
+
+pub use line_highlights::*;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};

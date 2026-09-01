@@ -585,6 +585,20 @@ pub enum HighlightTone {
     Dim,
 }
 
+/// One structurally validated per-line mark returned by a native extension.
+///
+/// Lines are one-based source coordinates. `start..end` is a non-empty range
+/// of UTF-16 code units, matching the extension wire protocol and editor APIs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValidatedLineHighlight {
+    pub side: ReviewSide,
+    pub line: u64,
+    pub start: u64,
+    pub end: u64,
+    pub tone: HighlightTone,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReviewEvent {
     pub name: String,
