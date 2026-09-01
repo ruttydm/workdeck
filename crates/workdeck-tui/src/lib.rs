@@ -66,7 +66,7 @@ use workdeck_diff::{
 };
 use workdeck_extension_api::{
     ExtensionNotification, ExtensionNotificationHub, ExtensionNotificationSubscription,
-    ExtensionPaneView, PanePlacement, ViewNode, ViewStyle,
+    ExtensionPaneView, PanePlacement, ViewNode, ViewStyle, extension_pane_size,
 };
 use workdeck_review::{LayoutMode, ReviewComment, ReviewState, normalized_review_source_lines};
 use workdeck_session::{ReviewSessionServer, default_discovery_directory};
@@ -673,13 +673,7 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         if review_area.width < 20 || review_area.height < 6 {
             break;
         }
-        let requested = pane
-            .pane
-            .preferred_size
-            .unwrap_or(match pane.pane.placement {
-                PanePlacement::Left | PanePlacement::Right => 28,
-                PanePlacement::Top | PanePlacement::Bottom => 8,
-            });
+        let requested = extension_pane_size(&pane.pane, None).preferred;
         let (direction, constraints, pane_index, review_index) = match pane.pane.placement {
             PanePlacement::Left => (
                 Direction::Horizontal,
@@ -2316,6 +2310,8 @@ mod tests {
                         title: "Extension summary".into(),
                         placement: PanePlacement::Right,
                         preferred_size: Some(28),
+                        width: None,
+                        height: None,
                     },
                     content: ViewNode::Column {
                         children: vec![ViewNode::Text {

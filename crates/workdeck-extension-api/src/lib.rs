@@ -4,11 +4,15 @@
 //! The host retains terminal ownership: extensions return declarative views and actions rather
 //! than terminal escape sequences or Ratatui widgets.
 
+mod extension_ids;
 mod file_views;
 mod keys;
+mod panes;
 
+pub use extension_ids::*;
 pub use file_views::*;
 pub use keys::*;
+pub use panes::*;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -433,7 +437,7 @@ pub struct HandshakeRequest {
     pub granted_capabilities: Vec<Capability>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HandshakeResponse {
     pub extension_api_version: u32,
     pub extension_version: String,
@@ -441,7 +445,7 @@ pub struct HandshakeResponse {
     pub registrations: Vec<Registration>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum Registration {
     Command(CommandRegistration),
@@ -556,12 +560,19 @@ pub enum PanePlacement {
     Bottom,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PaneRegistration {
     pub id: String,
     pub title: String,
     pub placement: PanePlacement,
+    /// Legacy Workdeck fixed-cell declaration. Native v1 extensions should use
+    /// the placement-specific `width` or `height` contract.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preferred_size: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<ExtensionPaneSize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<ExtensionPaneSize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -689,7 +700,7 @@ pub struct PaneRenderResponse {
     pub content: ViewNode,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExtensionPaneView {
     pub extension_id: String,
     pub pane: PaneRegistration,
