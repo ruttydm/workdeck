@@ -105,6 +105,14 @@ pub struct ExtensionFileViewLayout {
     pub hunk_rows: Vec<ExtensionFileViewHunkRows>,
 }
 
+/// Host-validated layout plus terminal row measurements retained for painting.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValidatedFileViewLayout {
+    pub layout: ExtensionFileViewLayout,
+    pub row_heights: Vec<usize>,
+}
+
 /// Identify one host-rendered file-presentation row failure for warning attribution.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

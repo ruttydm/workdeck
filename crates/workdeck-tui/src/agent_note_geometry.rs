@@ -1,6 +1,9 @@
 //! Placement shared by agent-note rendering and markup width reporting.
 
-use workdeck_core::ReviewSide;
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
+use workdeck_core::{AgentAnnotation, ReviewSide};
+use workdeck_diff::sanitize_terminal_line;
 use workdeck_review::LayoutMode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,6 +81,97 @@ pub fn agent_note_markup_width(
     agent_note_box_layout(anchor_side, layout, width, thread_depth).content_width
 }
 
+/// Measure one host-owned inline note against the exact content width used for painting.
+#[must_use]
+pub fn measure_agent_inline_note_height(
+    annotation: &AgentAnnotation,
+    anchor_side: Option<ReviewSide>,
+    layout: LayoutMode,
+    width: usize,
+    thread_depth: usize,
+) -> usize {
+    let content_width = agent_note_markup_width(anchor_side, layout, width, thread_depth);
+    if annotation.source.as_deref() == Some("user-draft") {
+        return draft_visual_line_count(&annotation.summary, content_width).saturating_add(3);
+    }
+
+    let markup_lines = annotation.markup.as_deref().and_then(|markup| {
+        let lines = workdeck_markup::render(markup, content_width).lines;
+        (!lines.is_empty()).then_some(lines.len())
+    });
+    let body_lines = markup_lines.unwrap_or_else(|| {
+        wrapped_note_line_count(&annotation.summary, content_width)
+            + annotation.rationale.as_deref().map_or(0, |rationale| {
+                wrapped_note_line_count(rationale, content_width)
+            })
+    });
+    body_lines.saturating_add(3)
+}
+
+fn wrapped_note_line_count(text: &str, width: usize) -> usize {
+    text.split('\n')
+        .map(|line| wrapped_prose_line_count(&sanitize_terminal_line(line), width))
+        .sum()
+}
+
+fn wrapped_prose_line_count(text: &str, width: usize) -> usize {
+    let width = width.max(1);
+    let words = text.split_whitespace().collect::<Vec<_>>();
+    if words.is_empty() {
+        return 1;
+    }
+
+    let mut rows = 0_usize;
+    let mut used = 0_usize;
+    for word in words {
+        let word_width = UnicodeWidthStr::width(word);
+        if word_width > width {
+            rows = rows.saturating_add(usize::from(used > 0));
+            used = 0;
+            let chunks = grapheme_wrapped_line_count(word, width);
+            rows = rows.saturating_add(chunks);
+            continue;
+        }
+        let next_width = if used == 0 {
+            word_width
+        } else {
+            used.saturating_add(1).saturating_add(word_width)
+        };
+        if next_width <= width {
+            used = next_width;
+        } else {
+            rows = rows.saturating_add(1);
+            used = word_width;
+        }
+    }
+    rows.saturating_add(usize::from(used > 0)).max(1)
+}
+
+fn draft_visual_line_count(text: &str, width: usize) -> usize {
+    text.split('\n')
+        .map(|line| grapheme_wrapped_line_count(&sanitize_terminal_line(line), width.max(1)).max(1))
+        .sum::<usize>()
+        .max(1)
+}
+
+fn grapheme_wrapped_line_count(text: &str, width: usize) -> usize {
+    let mut rows = 0_usize;
+    let mut used = 0_usize;
+    for cluster in text.graphemes(true) {
+        let cluster_width = UnicodeWidthStr::width(cluster);
+        if used > 0 && used.saturating_add(cluster_width) > width {
+            rows = rows.saturating_add(1);
+            used = 0;
+        }
+        if cluster_width > width {
+            rows = rows.saturating_add(1);
+        } else {
+            used = used.saturating_add(cluster_width);
+        }
+    }
+    rows.saturating_add(usize::from(used > 0))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,5 +220,62 @@ mod tests {
             212
         );
         assert!(agent_note_markup_width(Some(ReviewSide::New), LayoutMode::Split, 220, 0) > 100);
+    }
+
+    #[test]
+    fn note_height_tracks_plain_markup_and_draft_bodies() {
+        let mut annotation = annotation("one two three");
+        assert_eq!(
+            measure_agent_inline_note_height(
+                &annotation,
+                Some(ReviewSide::New),
+                LayoutMode::Stack,
+                80,
+                0,
+            ),
+            4
+        );
+        annotation.markup = Some("<p>first</p><p>second</p>".into());
+        assert_eq!(
+            measure_agent_inline_note_height(
+                &annotation,
+                Some(ReviewSide::New),
+                LayoutMode::Stack,
+                80,
+                0,
+            ),
+            5
+        );
+        annotation.source = Some("user-draft".into());
+        annotation.summary = "first\nsecond".into();
+        assert_eq!(
+            measure_agent_inline_note_height(
+                &annotation,
+                Some(ReviewSide::New),
+                LayoutMode::Stack,
+                80,
+                0,
+            ),
+            5
+        );
+    }
+
+    fn annotation(summary: &str) -> AgentAnnotation {
+        AgentAnnotation {
+            id: Some("note".into()),
+            old_range: None,
+            new_range: None,
+            summary: summary.into(),
+            rationale: None,
+            markup: None,
+            tags: Vec::new(),
+            confidence: None,
+            source: None,
+            title: None,
+            author: None,
+            created_at: None,
+            updated_at: None,
+            editable: false,
+        }
     }
 }

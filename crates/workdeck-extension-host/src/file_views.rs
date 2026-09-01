@@ -7,7 +7,8 @@ use workdeck_diff::sanitize_terminal_line;
 use workdeck_extension_api::{
     ExtensionFileSide, ExtensionFileViewHunkRows, ExtensionFileViewLayout, ExtensionFileViewRow,
     ExtensionFileViewRowComponent, ExtensionFileViewSourceRange, ExtensionFileViewSpan,
-    ExtensionFileViewTone, ExtensionTextAttribute, ViewNode, validate_view,
+    ExtensionFileViewTone, ExtensionTextAttribute, ValidatedFileViewLayout, ViewNode,
+    validate_view,
 };
 
 pub const FILE_VIEW_MAX_ROWS: usize = 10_000;
@@ -16,13 +17,6 @@ pub const FILE_VIEW_MAX_TEXT_LENGTH: usize = 1_000_000;
 pub const FILE_VIEW_MAX_COMPONENT_ROW_HEIGHT: usize = 256;
 pub const FILE_VIEW_MAX_SOURCE_RANGES: usize = 40_000;
 pub const FILE_VIEW_MAX_LAYOUT_HEIGHT: usize = 100_000;
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ValidatedFileViewLayout {
-    pub layout: ExtensionFileViewLayout,
-    /// Number of terminal rows each symbolic row occupies at the requested width.
-    pub row_heights: Vec<usize>,
-}
 
 /// Explain why an extension result cannot safely join the host-owned review stream.
 pub fn validate_file_view_layout(

@@ -11,6 +11,7 @@ anyhow = "1.0"
 crossterm = "0.28"
 ratatui = "0.29"
 unicode-width = "0.2"
+unicode-segmentation = "1.12"
 workdeck-core = { path = "../workdeck-core" }
 workdeck-diff = { path = "../workdeck-diff" }
 workdeck-extension-api = { path = "../workdeck-extension-api" }
