@@ -6,6 +6,7 @@ license.workspace = true
 repository.workspace = true
 description = "Authenticated local review-session protocol for Workdeck"
 readme = "README.md"
+publish = false
 
 [dependencies]
 base64 = "0.22"
