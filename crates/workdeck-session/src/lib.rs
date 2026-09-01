@@ -1,10 +1,12 @@
 //! Authenticated, loopback-only control of live Workdeck review sessions.
 
+mod broker_auth;
 mod broker_config;
 mod canonical_json;
 mod daemon_http;
 mod selectors;
 
+pub use broker_auth::*;
 pub use broker_config::*;
 pub use canonical_json::{CanonicalJsonError, canonical_json_bytes, canonicalize_json};
 pub use daemon_http::*;
