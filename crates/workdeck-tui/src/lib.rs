@@ -1,5 +1,9 @@
 //! Ratatui review canvas.
 
+mod shutdown;
+
+pub use shutdown::*;
+
 use anyhow::Result;
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
