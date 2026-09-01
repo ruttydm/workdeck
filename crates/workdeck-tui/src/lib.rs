@@ -1,10 +1,12 @@
 //! Ratatui review canvas.
 
+mod extension_notifications;
 mod list_geometry;
 mod shutdown;
 mod terminal_runtime;
 mod ui_geometry;
 
+pub use extension_notifications::*;
 pub use list_geometry::*;
 pub use shutdown::*;
 pub use terminal_runtime::*;

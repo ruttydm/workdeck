@@ -30,6 +30,25 @@ pub struct ExtensionKeyEvent {
     pub shift: bool,
 }
 
+/// Severity selected by a native extension for one user-facing notification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ExtensionNotifyType {
+    Info,
+    Warning,
+    Error,
+}
+
+/// One extension notification normalized for the host-owned TUI queue.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionNotification {
+    pub id: u64,
+    pub message: String,
+    #[serde(rename = "type")]
+    pub notification_type: ExtensionNotifyType,
+}
+
 #[derive(Debug, Error)]
 pub enum ManifestError {
     #[error("failed to read extension manifest {path}: {source}")]
