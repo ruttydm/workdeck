@@ -3,7 +3,8 @@ use std::sync::Arc;
 use workdeck_extension_api::{ExtensionDiffFile, ExtensionKeyEvent};
 
 use crate::{
-    FileViewSelectionTarget, RegisteredFileView, registered_file_view_key,
+    FileViewSelectionTarget, RegisteredFileView, SynchronousCallbackValue,
+    SynchronousExtensionCallbackResult, call_extension_synchronously, registered_file_view_key,
     resolve_file_view_selection_target,
 };
 
@@ -158,15 +159,25 @@ pub fn run_file_view_mode_lifecycle(
     if !has_callback {
         return true;
     }
-    match callback(active) {
-        Ok(()) => true,
-        Err(error) => {
-            let detail = match error {
-                NativeModeCallbackError::Failed(detail) => detail,
-                NativeModeCallbackError::MustReturnSynchronously => {
-                    format!("{} must return synchronously", phase.label())
-                }
-            };
+    let result = call_extension_synchronously(|| match callback(active) {
+        Ok(()) => Ok(SynchronousCallbackValue::Returned(())),
+        Err(NativeModeCallbackError::Failed(detail)) => Err(detail),
+        Err(NativeModeCallbackError::MustReturnSynchronously) => {
+            Ok(SynchronousCallbackValue::Thenable)
+        }
+    });
+    match result {
+        SynchronousExtensionCallbackResult::Returned(()) => true,
+        SynchronousExtensionCallbackResult::Thenable => {
+            let detail = format!("{} must return synchronously", phase.label());
+            notify(format_file_view_mode_failure(
+                active,
+                phase.label(),
+                &detail,
+            ));
+            false
+        }
+        SynchronousExtensionCallbackResult::Threw(detail) => {
             notify(format_file_view_mode_failure(
                 active,
                 phase.label(),
@@ -194,16 +205,25 @@ pub fn deliver_file_view_mode_key(
     ) -> Result<Option<FileViewModeKeyResult>, NativeModeCallbackError>,
     mut notify: impl FnMut(String),
 ) -> FileViewModeKeyResult {
-    match callback(active, key) {
-        Ok(Some(result)) => result,
-        Ok(None) => FileViewModeKeyResult::Pass,
-        Err(error) => {
-            let detail = match error {
-                NativeModeCallbackError::Failed(detail) => detail,
-                NativeModeCallbackError::MustReturnSynchronously => {
-                    "onKey must return synchronously".into()
-                }
-            };
+    let result = call_extension_synchronously(|| match callback(active, key) {
+        Ok(result) => Ok(SynchronousCallbackValue::Returned(result)),
+        Err(NativeModeCallbackError::Failed(detail)) => Err(detail),
+        Err(NativeModeCallbackError::MustReturnSynchronously) => {
+            Ok(SynchronousCallbackValue::Thenable)
+        }
+    });
+    match result {
+        SynchronousExtensionCallbackResult::Returned(Some(result)) => result,
+        SynchronousExtensionCallbackResult::Returned(None) => FileViewModeKeyResult::Pass,
+        SynchronousExtensionCallbackResult::Thenable => {
+            notify(format_file_view_mode_failure(
+                active,
+                "onKey",
+                "onKey must return synchronously",
+            ));
+            FileViewModeKeyResult::Exit
+        }
+        SynchronousExtensionCallbackResult::Threw(detail) => {
             notify(format_file_view_mode_failure(active, "onKey", &detail));
             FileViewModeKeyResult::Exit
         }
