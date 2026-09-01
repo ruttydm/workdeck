@@ -1,5 +1,6 @@
 //! Ratatui review canvas.
 
+mod agent_note_geometry;
 mod extension_notifications;
 mod file_header;
 mod list_geometry;
@@ -7,6 +8,7 @@ mod shutdown;
 mod terminal_runtime;
 mod ui_geometry;
 
+pub use agent_note_geometry::*;
 pub use extension_notifications::*;
 pub use file_header::*;
 pub use list_geometry::*;
@@ -943,7 +945,7 @@ fn build_review_rows(
         };
         let highlighted = highlight_cache.highlight(file, &options.syntax_theme);
         if options.agent_notes {
-            rows.extend(agent_rows(file));
+            rows.extend(agent_rows(file, layout, usize::from(width)));
         }
         if file.flags.too_large {
             let qualifier = if file.stats.truncated {
@@ -1185,18 +1187,36 @@ fn source_gap_label(count: usize, width: u16, action: &str) -> Line<'static> {
     Line::from(spans)
 }
 
-fn agent_rows(file: &DiffFile) -> Vec<Line<'static>> {
+fn agent_rows(file: &DiffFile, layout: LayoutMode, width: usize) -> Vec<Line<'static>> {
     let Some(context) = &file.agent else {
         return Vec::new();
     };
     let mut rows = Vec::new();
     if let Some(summary) = &context.summary {
-        rows.push(Line::from(vec![
-            Span::styled("  agent  ", Style::default().fg(Color::Magenta)),
-            Span::styled(summary.clone(), Style::default().fg(Color::LightMagenta)),
-        ]));
+        let geometry = agent_note_box_layout(None, layout, width, 0);
+        let summary = clip_styled_spans(
+            vec![Span::styled(
+                summary.clone(),
+                Style::default().fg(Color::LightMagenta),
+            )],
+            geometry.content_width,
+        );
+        let mut spans = vec![Span::styled(
+            format!("{}agent  ", " ".repeat(geometry.box_left)),
+            Style::default().fg(Color::Magenta),
+        )];
+        spans.extend(summary);
+        rows.push(Line::from(spans));
     }
     for annotation in &context.annotations {
+        let anchor_side = if annotation.new_range.is_some() {
+            Some(ReviewSide::New)
+        } else if annotation.old_range.is_some() {
+            Some(ReviewSide::Old)
+        } else {
+            None
+        };
+        let geometry = agent_note_box_layout(anchor_side, layout, width, 0);
         let location = annotation
             .new_range
             .map(|range| format!("+{}..{}", range.start, range.end))
@@ -1206,21 +1226,30 @@ fn agent_rows(file: &DiffFile) -> Vec<Line<'static>> {
                     .map(|range| format!("-{}..{}", range.start, range.end))
             })
             .unwrap_or_else(|| "file".into());
-        rows.push(Line::from(vec![
-            Span::styled(
-                format!("  note {location}  "),
-                Style::default().fg(Color::Magenta),
-            ),
-            Span::styled(
+        let summary = clip_styled_spans(
+            vec![Span::styled(
                 annotation.summary.clone(),
                 Style::default().fg(Color::LightMagenta),
-            ),
-        ]));
+            )],
+            geometry.content_width,
+        );
+        let mut spans = vec![Span::styled(
+            format!("{}note {location}  ", " ".repeat(geometry.box_left)),
+            Style::default().fg(Color::Magenta),
+        )];
+        spans.extend(summary);
+        rows.push(Line::from(spans));
         if let Some(rationale) = &annotation.rationale {
-            rows.push(Line::styled(
-                format!("       {rationale}"),
-                Style::default().fg(Color::DarkGray),
-            ));
+            let rationale = clip_styled_spans(
+                vec![Span::styled(
+                    rationale.clone(),
+                    Style::default().fg(Color::DarkGray),
+                )],
+                geometry.content_width,
+            );
+            let mut spans = vec![Span::raw(" ".repeat(geometry.box_left + 2))];
+            spans.extend(rationale);
+            rows.push(Line::from(spans));
         }
     }
     rows
