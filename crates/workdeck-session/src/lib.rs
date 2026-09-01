@@ -20,6 +20,7 @@ mod review_protocol;
 mod selectors;
 mod session_bridge;
 mod session_models;
+mod session_registration;
 mod terminal_metadata;
 
 pub use broker_auth::*;
@@ -45,6 +46,7 @@ pub use selectors::{
 };
 pub use session_bridge::*;
 pub use session_models::*;
+pub use session_registration::*;
 pub use terminal_metadata::*;
 
 use serde::{Deserialize, Serialize};
