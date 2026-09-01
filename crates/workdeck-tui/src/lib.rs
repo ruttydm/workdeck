@@ -4,6 +4,7 @@ mod agent_note_geometry;
 mod extension_notifications;
 mod file_header;
 mod list_geometry;
+mod mouse_scroll;
 mod shutdown;
 mod terminal_runtime;
 mod ui_geometry;
@@ -12,6 +13,7 @@ pub use agent_note_geometry::*;
 pub use extension_notifications::*;
 pub use file_header::*;
 pub use list_geometry::*;
+pub use mouse_scroll::*;
 pub use shutdown::*;
 pub use terminal_runtime::*;
 pub use ui_geometry::*;
@@ -128,6 +130,8 @@ pub struct ReviewApp {
     themes: ThemeController,
     extension_toasts: Arc<Mutex<ExtensionNotificationSurface>>,
     extension_notification_subscription: Option<ExtensionNotificationSubscription>,
+    mouse_scroll_acceleration: ReviewMouseWheelScrollAcceleration,
+    mouse_scroll_accumulator: f64,
 }
 
 impl ReviewApp {
@@ -164,6 +168,8 @@ impl ReviewApp {
             themes,
             extension_toasts,
             extension_notification_subscription,
+            mouse_scroll_acceleration: ReviewMouseWheelScrollAcceleration::default(),
+            mouse_scroll_accumulator: 0.0,
         }
     }
 
@@ -231,6 +237,22 @@ impl ReviewApp {
                 self.show_help = false;
             }
             return;
+        }
+        if matches!(
+            key.code,
+            KeyCode::Down
+                | KeyCode::Up
+                | KeyCode::PageDown
+                | KeyCode::PageUp
+                | KeyCode::Home
+                | KeyCode::End
+                | KeyCode::Char('j')
+                | KeyCode::Char('k')
+                | KeyCode::Char('g')
+                | KeyCode::Char('G')
+        ) {
+            self.mouse_scroll_acceleration.reset();
+            self.mouse_scroll_accumulator = 0.0;
         }
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
@@ -355,11 +377,23 @@ impl ReviewApp {
     }
 
     pub fn handle_mouse(&mut self, kind: MouseEventKind) {
-        match kind {
-            MouseEventKind::ScrollDown => self.scroll = self.scroll.saturating_add(3),
-            MouseEventKind::ScrollUp => self.scroll = self.scroll.saturating_sub(3),
-            _ => {}
+        self.handle_mouse_at(kind, Instant::now());
+    }
+
+    fn handle_mouse_at(&mut self, kind: MouseEventKind, now: Instant) {
+        let direction = match kind {
+            MouseEventKind::ScrollDown => 1.0,
+            MouseEventKind::ScrollUp => -1.0,
+            _ => return,
+        };
+        self.mouse_scroll_accumulator += direction * self.mouse_scroll_acceleration.tick(now);
+        let integer_scroll = self.mouse_scroll_accumulator.trunc() as isize;
+        if integer_scroll > 0 {
+            self.scroll = self.scroll.saturating_add(integer_scroll.unsigned_abs());
+        } else if integer_scroll < 0 {
+            self.scroll = self.scroll.saturating_sub(integer_scroll.unsigned_abs());
         }
+        self.mouse_scroll_accumulator -= integer_scroll as f64;
     }
 }
 
@@ -2305,6 +2339,26 @@ mod tests {
         assert!(!app.options.sidebar);
         app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
         assert!(app.show_help);
+    }
+
+    #[test]
+    fn review_mouse_wheel_starts_precise_and_accumulates_burst_acceleration() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        let start = Instant::now();
+        app.handle_mouse_at(MouseEventKind::ScrollDown, start);
+        assert_eq!(app.scroll, 1);
+        app.handle_mouse_at(
+            MouseEventKind::ScrollDown,
+            start + Duration::from_millis(50),
+        );
+        assert_eq!(app.scroll, 2);
+        for offset in [56, 62, 68, 74] {
+            app.handle_mouse_at(
+                MouseEventKind::ScrollDown,
+                start + Duration::from_millis(offset),
+            );
+        }
+        assert!(app.scroll > 6);
     }
 
     #[test]
