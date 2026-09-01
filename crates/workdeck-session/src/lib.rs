@@ -3,6 +3,7 @@
 mod broker_auth;
 mod broker_config;
 mod broker_validation;
+mod broker_wire;
 mod canonical_json;
 mod daemon_http;
 mod selectors;
@@ -10,6 +11,7 @@ mod selectors;
 pub use broker_auth::*;
 pub use broker_config::*;
 pub use broker_validation::*;
+pub use broker_wire::*;
 pub use canonical_json::{CanonicalJsonError, canonical_json_bytes, canonicalize_json};
 pub use daemon_http::*;
 pub use selectors::{
