@@ -1,12 +1,14 @@
 //! Ratatui review canvas.
 
 mod agent_note_geometry;
+mod color;
 mod command_keys;
 mod cursor_highlight;
 mod extension_notifications;
 mod file_header;
 mod file_view_geometry;
 mod ids;
+mod keyboard;
 mod line_highlights;
 mod list_geometry;
 mod mouse_scroll;
@@ -18,12 +20,14 @@ mod theme_detection;
 mod ui_geometry;
 
 pub use agent_note_geometry::*;
+pub use color::*;
 pub use command_keys::*;
 pub use cursor_highlight::*;
 pub use extension_notifications::*;
 pub use file_header::*;
 pub use file_view_geometry::*;
 pub use ids::*;
+pub use keyboard::*;
 pub use line_highlights::*;
 pub use list_geometry::*;
 pub use mouse_scroll::*;
