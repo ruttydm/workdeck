@@ -10,6 +10,8 @@ mod broker_wire;
 mod canonical_json;
 mod daemon_http;
 mod protocol_parsers;
+mod review_capability;
+mod review_http_protocol;
 mod selectors;
 mod terminal_metadata;
 
@@ -23,6 +25,8 @@ pub use broker_wire::*;
 pub use canonical_json::{CanonicalJsonError, canonical_json_bytes, canonicalize_json};
 pub use daemon_http::*;
 pub use protocol_parsers::*;
+pub use review_capability::*;
+pub use review_http_protocol::*;
 pub use selectors::{
     SelectableSession, SessionSelector, describe_session_selector, matches_session_selector,
     normalize_session_selector, repo_selector_distance, resolve_session_selector_boundary,

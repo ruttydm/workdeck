@@ -1,5 +1,6 @@
 //! Total ordering contract for published review generations and revisions.
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 const GENERATION_PREFIX: &str = "generation";
@@ -11,7 +12,8 @@ pub struct ReviewGenerationIdentity {
     pub sequence: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReviewPublicationAddress {
     pub generation: String,
     pub state_revision: u64,
