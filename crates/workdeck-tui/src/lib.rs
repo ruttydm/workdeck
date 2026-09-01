@@ -1,12 +1,14 @@
 //! Ratatui review canvas.
 
 mod extension_notifications;
+mod file_header;
 mod list_geometry;
 mod shutdown;
 mod terminal_runtime;
 mod ui_geometry;
 
 pub use extension_notifications::*;
+pub use file_header::*;
 pub use list_geometry::*;
 pub use shutdown::*;
 pub use terminal_runtime::*;
@@ -922,12 +924,18 @@ fn build_review_rows(
     let mut rows = Vec::new();
     let mut file_tops = Vec::with_capacity(changeset.files.len());
     let mut hunk_tops = std::collections::HashMap::new();
+    let header_stats_width = max_file_header_stats_width(&changeset.files);
     for (file_index, file) in changeset.files.iter().enumerate() {
         if file_index > 0 {
             rows.extend((0..options.file_gap).map(|_| Line::default()));
         }
         file_tops.push(rows.len());
-        rows.push(file_header(file, selection.file_index == file_index));
+        rows.push(file_header(
+            file,
+            selection.file_index == file_index,
+            usize::from(width),
+            header_stats_width,
+        ));
         let file_selection = if selection.file_index == file_index {
             selection
         } else {
@@ -1218,23 +1226,39 @@ fn agent_rows(file: &DiffFile) -> Vec<Line<'static>> {
     rows
 }
 
-fn file_header(file: &DiffFile, selected: bool) -> Line<'static> {
+fn file_header(
+    file: &DiffFile,
+    selected: bool,
+    width: usize,
+    header_stats_width: usize,
+) -> Line<'static> {
+    let label_width = width.saturating_sub(2 + header_stats_width + 1);
+    let label = fit_file_header_label(file, label_width);
+    let label_cell_width = label.filename.width()
+        + label
+            .state_label
+            .map_or(0, unicode_width::UnicodeWidthStr::width);
+    let gap = width
+        .saturating_sub(1 + label_cell_width + header_stats_width + 1)
+        .max(1);
+    let stats = file_header_stats(file);
     Line::from(vec![
-        Span::styled("─ ", Style::default().fg(Color::DarkGray)),
+        Span::raw(" "),
         Span::styled(
-            file.path.clone(),
+            label.filename,
             Style::default()
                 .fg(if selected { Color::Cyan } else { Color::White })
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            format!("  +{}", file.stats.additions),
-            Style::default().fg(Color::Green),
+            label.state_label.unwrap_or_default(),
+            Style::default().fg(Color::DarkGray),
         ),
-        Span::styled(
-            format!(" -{}", file.stats.deletions),
-            Style::default().fg(Color::Red),
-        ),
+        Span::raw(" ".repeat(gap.saturating_add(header_stats_width.saturating_sub(stats.width)))),
+        Span::styled(stats.additions_text, Style::default().fg(Color::Green)),
+        Span::raw(" "),
+        Span::styled(stats.deletions_text, Style::default().fg(Color::Red)),
+        Span::raw("  "),
     ])
 }
 
