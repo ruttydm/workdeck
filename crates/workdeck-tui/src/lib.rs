@@ -1,6 +1,7 @@
 //! Ratatui review canvas.
 
 mod agent_note_geometry;
+mod agent_popover;
 mod color;
 mod command_keys;
 mod cursor_highlight;
@@ -18,10 +19,12 @@ mod shutdown;
 mod spatial;
 mod synthetic_key_event;
 mod terminal_runtime;
+mod text;
 mod theme_detection;
 mod ui_geometry;
 
 pub use agent_note_geometry::*;
+pub use agent_popover::*;
 pub use color::*;
 pub use command_keys::*;
 pub use cursor_highlight::*;
@@ -39,6 +42,7 @@ pub use shutdown::*;
 pub use spatial::*;
 pub use synthetic_key_event::*;
 pub use terminal_runtime::*;
+pub use text::*;
 pub use theme_detection::*;
 pub use ui_geometry::*;
 

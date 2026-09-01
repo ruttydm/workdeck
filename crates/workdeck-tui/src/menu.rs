@@ -1,7 +1,8 @@
 //! Deterministic top-bar and dropdown menu geometry.
 
 use std::collections::BTreeMap;
-use unicode_width::UnicodeWidthStr;
+
+use crate::measure_text_width;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MenuId {
@@ -139,7 +140,7 @@ fn menu_entry_text(entry: &MenuEntry) -> Option<String> {
 #[must_use]
 pub fn menu_width(entries: &[MenuEntry]) -> usize {
     entries.iter().fold(20, |width, entry| {
-        let entry_width = menu_entry_text(entry).map_or(6, |text| text.width() + 2);
+        let entry_width = menu_entry_text(entry).map_or(6, |text| measure_text_width(&text) + 2);
         width.max(entry_width)
     })
 }
