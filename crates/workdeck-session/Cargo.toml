@@ -17,6 +17,7 @@ serde_json = "1.0"
 sha2 = "0.10"
 thiserror = "2.0"
 workdeck-core = { path = "../workdeck-core" }
+workdeck-diff = { path = "../workdeck-diff" }
 workdeck-review = { path = "../workdeck-review" }
 workdeck-vcs = { path = "../workdeck-vcs" }
 
@@ -25,4 +26,3 @@ libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3.13"
-workdeck-diff = { path = "../workdeck-diff" }

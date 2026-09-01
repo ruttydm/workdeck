@@ -1,5 +1,6 @@
 //! Authenticated, loopback-only control of live Workdeck review sessions.
 
+mod agent_cli_format;
 mod agent_errors;
 mod agent_surface;
 mod app_protocol_parsers;
@@ -34,6 +35,7 @@ mod terminal_metadata;
 mod workdeck_broker_state;
 mod workdeck_wire;
 
+pub use agent_cli_format::*;
 pub use agent_errors::*;
 pub use agent_surface::*;
 pub use app_protocol_parsers::*;
