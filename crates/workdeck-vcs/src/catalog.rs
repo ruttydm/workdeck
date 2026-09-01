@@ -5,7 +5,10 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use thiserror::Error;
-use workdeck_core::{DiffFile, ReviewSide, WorkdeckUserError};
+use workdeck_core::{
+    CliInput, DiffFile, ReviewSide, VcsDiffCommandInput, VcsShowCommandInput,
+    VcsStashShowCommandInput, WorkdeckUserError,
+};
 
 pub const DEFAULT_VCS_PROVIDER_ID: &str = "git";
 pub const BUNDLED_VCS_PROVIDER_IDS: &[&str] = &["jj", "sl", "git"];
@@ -25,34 +28,10 @@ pub struct VcsLoadContext {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VcsDiffCommandInput {
-    pub staged: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VcsShowCommandInput {
-    pub target: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VcsStashShowCommandInput {
-    pub stash: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VcsReviewInput {
     Diff(VcsDiffCommandInput),
     Show(VcsShowCommandInput),
     StashShow(VcsStashShowCommandInput),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CatalogReviewInput {
-    Vcs(VcsDiffCommandInput),
-    Show(VcsShowCommandInput),
-    StashShow(VcsStashShowCommandInput),
-    Patch,
-    Files,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -313,10 +292,10 @@ pub fn detect_vcs(cwd: &Path, catalog: &VcsCatalog) -> Option<VcsDetection> {
 }
 
 #[must_use]
-pub const fn is_vcs_review_input(input: &CatalogReviewInput) -> bool {
+pub const fn is_vcs_review_input(input: &CliInput) -> bool {
     matches!(
         input,
-        CatalogReviewInput::Vcs(_) | CatalogReviewInput::Show(_) | CatalogReviewInput::StashShow(_)
+        CliInput::Vcs(_) | CliInput::Show(_) | CliInput::StashShow(_)
     )
 }
 
@@ -465,6 +444,7 @@ mod tests {
     use std::fs;
 
     use tempfile::tempdir;
+    use workdeck_core::{CommonOptions, PatchCommandInput};
 
     use super::*;
 
@@ -505,6 +485,24 @@ mod tests {
             }),
             watch_signature: None,
             watch_plan: None,
+        }
+    }
+
+    fn diff_input() -> VcsDiffCommandInput {
+        VcsDiffCommandInput {
+            range: None,
+            range_endpoints: None,
+            staged: false,
+            pathspecs: Vec::new(),
+            options: CommonOptions::default(),
+        }
+    }
+
+    fn show_input() -> VcsShowCommandInput {
+        VcsShowCommandInput {
+            reference: None,
+            pathspecs: Vec::new(),
+            options: CommonOptions::default(),
         }
     }
 
@@ -613,12 +611,13 @@ mod tests {
 
     #[test]
     fn classifies_inputs_maps_operations_and_loads_selected_handler() {
-        assert!(is_vcs_review_input(&CatalogReviewInput::Vcs(
-            VcsDiffCommandInput { staged: false }
-        )));
-        assert!(!is_vcs_review_input(&CatalogReviewInput::Patch));
-        let operation =
-            operation_from_input(VcsReviewInput::Diff(VcsDiffCommandInput { staged: false }));
+        assert!(is_vcs_review_input(&CliInput::Vcs(diff_input())));
+        assert!(!is_vcs_review_input(&CliInput::Patch(PatchCommandInput {
+            file: None,
+            text: None,
+            options: CommonOptions::default(),
+        })));
+        let operation = operation_from_input(VcsReviewInput::Diff(diff_input()));
         assert_eq!(operation.kind, VcsReviewOperationKind::WorkingTreeDiff);
         let mut operations = BTreeMap::new();
         operations.insert(VcsReviewOperationKind::WorkingTreeDiff, load_operation());
@@ -638,8 +637,7 @@ mod tests {
 
     #[test]
     fn watch_plan_falls_back_to_polling_and_signature_is_explicit() {
-        let operation =
-            operation_from_input(VcsReviewInput::Show(VcsShowCommandInput { target: None }));
+        let operation = operation_from_input(VcsReviewInput::Show(show_input()));
         let mut operations = BTreeMap::new();
         operations.insert(VcsReviewOperationKind::RevisionShow, load_operation());
         let git = adapter("git", None, None, operations);

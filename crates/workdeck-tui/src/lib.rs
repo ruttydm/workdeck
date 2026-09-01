@@ -1,8 +1,10 @@
 //! Ratatui review canvas.
 
 mod shutdown;
+mod terminal_runtime;
 
 pub use shutdown::*;
+pub use terminal_runtime::*;
 
 use anyhow::Result;
 use crossterm::event::{
