@@ -148,15 +148,59 @@ authorizer. `SessionBrokerAuthenticator` performs no filesystem, environment, co
 Workdeck credential discovery: the composition root injects grants, public verifiers, daemon signing
 identity, revocation policy, and its default-deny authorization callback.
 
-## Native transport adapter
+## Native HTTP and WebSocket adapter
 
-The listener converts native HTTP requests into `SessionBrokerHttpRequest` and maps
-`SessionBrokerHttpResponse` back to its platform server. Its websocket peer implements
-`SessionBrokerDaemonPeer`, forwarding text frames, close codes/reasons, and the authenticated marker.
-The daemon's cell-free protocol engine remains testable without opening a port.
+`serve_session_broker_daemon` is the consolidated Rust replacement for Hunk's
+`@hunk/session-broker-bun` and `@hunk/session-broker-node` packages. It binds only a loopback
+address, upgrades the daemon socket path with native RFC 6455 framing, and maps finite HTTP
+requests and responses without Bun, Node, `ws`, or a JavaScript engine.
 
-Workdeck's shipped listener is native and loopback-only by default. Platform transport and process
-lifecycle are composed in the CLI; they are not hidden inside this crate.
+```rust,ignore
+use std::time::Duration;
+use workdeck_session::{
+    ServeSessionBrokerDaemonOptions, serve_session_broker_daemon,
+};
+
+let server = serve_session_broker_daemon(ServeSessionBrokerDaemonOptions::new(
+    daemon,
+    "127.0.0.1",
+    47_657,
+))?;
+
+println!("session broker listening on {}", server.address());
+
+// Semantic daemon shutdown happens before transports stop accepting work.
+server.stop();
+assert!(server.wait_stopped(Duration::from_secs(5)));
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+The adapter provides the complete former package contract:
+
+- stable peer identity across open, message, send, authentication, and close callbacks;
+- text-only WebSocket messages, strict UTF-8, native fragmented-message assembly, and exact size
+  ceilings;
+- unauthenticated-socket admission plus handshake deadlines;
+- per-peer and aggregate outbound pressure, aggregate inbound processing pressure, and close codes
+  `1003`, `1007`, `1008`, `1009`, `1011`, and `1013` for their corresponding failures;
+- custom HTTP handlers before daemon routes, a custom not-found handler after them, bounded finite
+  responses, streaming event responses, HEAD suppression, and chunked request decoding;
+- synchronous bind failure reporting, idempotent manual stop, daemon-initiated idle stop, forced
+  peer retirement, and a completion barrier that waits for active HTTP handlers.
+
+`NativeSessionBrokerAdapterSemantics::Bun` is the default because Hunk's product runtime used that
+surface. `Node` retains the alternate package's wrong-path/non-upgrade routing details for parity
+tests and embedders. Both profiles use the same Rust listener and daemon engine.
+
+`handle_request` and `not_found` receive an owned `SessionBrokerHttpRequest` plus the bound native
+address and may return an asynchronous `BrokerHttpResponse`. Returning `None` falls through. The
+raw `/broker` API is still available only when the daemon was constructed with its complete,
+default-deny authenticated HTTP configuration.
+
+The listener converts native HTTP requests into `SessionBrokerHttpRequest`; its WebSocket peer
+implements `SessionBrokerDaemonPeer`, forwarding text frames, close codes/reasons, and the
+authenticated marker. The daemon protocol remains testable without opening a port, while the
+translated adapter corpus also runs through real loopback TCP and WebSocket connections.
 
 ## Session-side connection helper
 

@@ -213,7 +213,6 @@ pub struct SessionBrokerAuthenticatedControlOptions {
     pub resolve_failure_target_specific: Option<ResolveFailureTarget>,
 }
 
-#[derive(Clone)]
 pub struct SessionBrokerDaemon<Info, State, CommandInput, CommandResult>
 where
     Info: Clone + Serialize + Send + Sync + 'static,
@@ -222,6 +221,21 @@ where
     CommandResult: Clone + Serialize + Send + 'static,
 {
     inner: Arc<DaemonInner<Info, State, CommandInput, CommandResult>>,
+}
+
+impl<Info, State, CommandInput, CommandResult> Clone
+    for SessionBrokerDaemon<Info, State, CommandInput, CommandResult>
+where
+    Info: Clone + Serialize + Send + Sync + 'static,
+    State: Clone + Serialize + Send + Sync + 'static,
+    CommandInput: Serialize + Send + Sync + 'static,
+    CommandResult: Clone + Serialize + Send + 'static,
+{
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
+    }
 }
 
 struct DaemonInner<Info, State, CommandInput, CommandResult>
