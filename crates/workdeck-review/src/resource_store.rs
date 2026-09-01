@@ -47,6 +47,19 @@ pub trait ReviewSourceLoader: Send + Sync {
     ) -> Result<Option<String>, ReviewSourceLoadError>;
 }
 
+pub trait ReviewDigestProvider: Send + Sync {
+    fn digest(&self, bytes: &[u8]) -> String;
+}
+
+impl<F> ReviewDigestProvider for F
+where
+    F: Fn(&[u8]) -> String + Send + Sync,
+{
+    fn digest(&self, bytes: &[u8]) -> String {
+        self(bytes)
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct SnapshotReviewSourceLoader;
 
@@ -111,6 +124,7 @@ pub struct ReviewResourceStoreOptions {
     pub concurrency: usize,
     pub max_cache_bytes: u64,
     pub source_loader: Arc<dyn ReviewSourceLoader>,
+    pub digest: Arc<dyn ReviewDigestProvider>,
 }
 
 impl ReviewResourceStoreOptions {
@@ -121,6 +135,7 @@ impl ReviewResourceStoreOptions {
             concurrency: crate::REVIEW_RESOURCE_LOAD_CONCURRENCY,
             max_cache_bytes: MAX_REVIEW_PRODUCER_RESOURCE_BYTES,
             source_loader: Arc::new(SnapshotReviewSourceLoader),
+            digest: Arc::new(review_digest),
         }
     }
 }
@@ -130,6 +145,7 @@ pub struct ReviewResourceStore {
     concurrency: usize,
     max_cache_bytes: u64,
     source_loader: Arc<dyn ReviewSourceLoader>,
+    digest: Arc<dyn ReviewDigestProvider>,
     state: Mutex<ResourceStoreState>,
 }
 
@@ -141,6 +157,7 @@ impl ReviewResourceStore {
             concurrency: options.concurrency.max(1),
             max_cache_bytes: options.max_cache_bytes,
             source_loader: options.source_loader,
+            digest: options.digest,
             state: Mutex::new(ResourceStoreState::default()),
         }
     }
@@ -409,7 +426,7 @@ impl ReviewResourceStore {
                 ),
             ));
         }
-        let digest = review_digest(&bytes);
+        let digest = self.digest.digest(&bytes);
         if descriptor.is_materialized()
             && (descriptor.base().byte_length != Some(byte_length)
                 || !descriptor
