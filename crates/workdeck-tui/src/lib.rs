@@ -1,5 +1,6 @@
 //! Ratatui review canvas.
 
+mod agent_annotations;
 mod agent_note_geometry;
 mod agent_popover;
 mod color;
@@ -23,6 +24,7 @@ mod text;
 mod theme_detection;
 mod ui_geometry;
 
+pub use agent_annotations::*;
 pub use agent_note_geometry::*;
 pub use agent_popover::*;
 pub use color::*;
