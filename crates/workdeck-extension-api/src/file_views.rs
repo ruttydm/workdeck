@@ -1,0 +1,119 @@
+use serde::{Deserialize, Serialize};
+
+use crate::ViewNode;
+
+/// A side of a reviewed source document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ExtensionFileSide {
+    Old,
+    New,
+}
+
+/// One added or removed source-line range, inclusive on both ends.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionFileChangeRange {
+    pub hunk_index: usize,
+    pub kind: ExtensionFileChangeKind,
+    pub range: [usize; 2],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ExtensionFileChangeKind {
+    Added,
+    Removed,
+}
+
+/// One exact-source range associated with a host-owned file-view row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionFileViewSourceRange {
+    pub side: ExtensionFileSide,
+    /// Inclusive, one-based source line range.
+    pub range: [usize; 2],
+}
+
+/// A generic semantic color mapped to the active terminal theme at paint time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ExtensionFileViewTone {
+    Muted,
+    Accent,
+    AccentMuted,
+    Syntax,
+    Added,
+    Removed,
+}
+
+/// Theme-independent terminal emphasis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ExtensionTextAttribute {
+    Bold,
+    Italic,
+    Underline,
+    Strikethrough,
+}
+
+/// One symbolic run in a host-rendered file-view row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionFileViewSpan {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tone: Option<ExtensionFileViewTone>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attributes: Vec<ExtensionTextAttribute>,
+}
+
+/// A bounded custom row described without transferring renderer ownership.
+///
+/// Hunk's in-process extension API accepted a React render callback. Workdeck's
+/// native subprocess protocol carries the same fixed-height fallback contract
+/// as a declarative view tree which the host validates and paints.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExtensionFileViewRowComponent {
+    pub height: usize,
+    pub content: ViewNode,
+}
+
+/// A row in a host-owned, terminal-safe file-view layout.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionFileViewRow {
+    pub id: String,
+    pub spans: Vec<ExtensionFileViewSpan>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_ranges: Vec<ExtensionFileViewSourceRange>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub component: Option<ExtensionFileViewRowComponent>,
+}
+
+/// Inclusive row extents corresponding positionally to one source hunk.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionFileViewHunkRows {
+    pub start_row: usize,
+    pub end_row: usize,
+}
+
+/// The deterministic symbolic layout returned by a native file-view extension.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionFileViewLayout {
+    pub rows: Vec<ExtensionFileViewRow>,
+    pub hunk_rows: Vec<ExtensionFileViewHunkRows>,
+}
+
+/// Identify one host-rendered file-presentation row failure for warning attribution.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileViewRowFailure {
+    pub extension_id: String,
+    pub view_id: String,
+    pub file_id: String,
+    pub file_path: String,
+    pub row_id: String,
+    pub layout_generation: u64,
+    pub message: String,
+}

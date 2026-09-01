@@ -4,6 +4,10 @@
 //! The host retains terminal ownership: extensions return declarative views and actions rather
 //! than terminal escape sequences or Ratatui widgets.
 
+mod file_views;
+
+pub use file_views::*;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::borrow::Cow;

@@ -1,7 +1,9 @@
 //! Subprocess host for trusted native Workdeck extensions.
 
+mod file_views;
 mod line_highlights;
 
+pub use file_views::*;
 pub use line_highlights::*;
 
 use serde::{Deserialize, Serialize};
