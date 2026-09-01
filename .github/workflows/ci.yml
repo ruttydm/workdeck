@@ -29,36 +29,11 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: cargo fmt --all --check
 
-      - name: Test TUI and headless CLI
-        run: cargo test --locked --package workdeck-cli --all-targets
+      - name: Test terminal workspace
+        run: cargo test --locked --workspace --all-targets
 
       - name: Clippy
-        run: cargo clippy --locked --package workdeck-cli --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
-      - name: Release Build
+      - name: Release build
         run: cargo build --locked --release --package workdeck-cli --bin workdeck
-
-  desktop:
-    name: Desktop workspace
-    runs-on: macos-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy,rustfmt
-
-      - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Check workspace
-        env:
-          CARGO_INCREMENTAL: "0"
-        run: cargo check --locked --workspace --all-targets --all-features
-
-      - name: Test workspace
-        env:
-          CARGO_INCREMENTAL: "0"
-        run: cargo test --locked --workspace --all-targets --all-features

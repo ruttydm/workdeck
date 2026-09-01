@@ -7,4 +7,3 @@ pub mod store;
 pub mod syntax;
 pub mod tui;
 pub mod views;
-pub mod web;

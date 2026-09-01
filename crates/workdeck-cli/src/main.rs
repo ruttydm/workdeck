@@ -5,7 +5,6 @@ use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
-use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use workdeck_cli::app::App;
@@ -34,33 +33,12 @@ struct Args {
     #[arg(long, help = "Print a JSON status snapshot without opening the TUI")]
     status_json: bool,
 
-    #[arg(long, help = "Run the local read-only web UI instead of the TUI")]
-    web: bool,
-
-    #[arg(long, value_name = "HOST", default_value = "127.0.0.1")]
-    host: IpAddr,
-
-    #[arg(long, value_name = "PORT", default_value_t = 4766)]
-    port: u16,
-
-    #[arg(long, help = "Disable live web refresh events")]
-    no_live: bool,
-
     #[command(subcommand)]
     command: Option<Command>,
 }
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    #[command(about = "Run the local read-only web UI")]
-    Web {
-        #[arg(long, value_name = "HOST", default_value = "127.0.0.1")]
-        host: IpAddr,
-        #[arg(long, value_name = "PORT", default_value_t = 4766)]
-        port: u16,
-        #[arg(long, help = "Disable live refresh events")]
-        no_live: bool,
-    },
     #[command(about = "Print a Git status snapshot")]
     Status {
         #[arg(long, help = "Print status as JSON")]
@@ -713,37 +691,8 @@ fn run(args: Args) -> Result<()> {
         return Ok(());
     }
 
-    if args.web {
-        if args.command.is_some() {
-            bail!("--web cannot be combined with a subcommand; use `workdeck web` instead");
-        }
-        workdeck_cli::web::run(
-            repo_root,
-            config,
-            workdeck_cli::web::WebOptions {
-                host: args.host,
-                port: args.port,
-                live: !args.no_live,
-            },
-        )?;
-        return Ok(());
-    }
-
     if let Some(command) = args.command {
         match command {
-            Command::Web {
-                host,
-                port,
-                no_live,
-            } => workdeck_cli::web::run(
-                repo_root,
-                config,
-                workdeck_cli::web::WebOptions {
-                    host,
-                    port,
-                    live: !no_live,
-                },
-            )?,
             Command::Status { json } => print_status(&repo_root, json)?,
             Command::Files { command } => handle_files_command(&repo_root, command)?,
             Command::Changes { command } => handle_changes_command(&repo_root, command)?,
@@ -785,7 +734,6 @@ impl Args {
 impl Command {
     fn wants_json(&self) -> bool {
         match self {
-            Command::Web { .. } => false,
             Command::Status { json } => *json,
             Command::Files { command } => command.wants_json(),
             Command::Changes { command } => command.wants_json(),

@@ -1,9 +1,0 @@
-# Direct I/O is forbidden in Workdeck render modules.
-#
-# A future exception must be a grep-compatible extended regular expression
-# matching one complete `path:line:source` finding. Only pure, bounded,
-# in-memory cache reads may be reviewed here. Filesystem, database, Git,
-# provider, network, subprocess, channel receive, sleeps, and blocking-runtime
-# calls are never valid allowlist entries.
-#
-# No exceptions are currently approved.

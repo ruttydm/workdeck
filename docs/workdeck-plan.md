@@ -447,7 +447,7 @@ Build this first:
 6. Fuzzy search across files, changes, and issues.
 7. TOML config and keybindings.
 8. Local-only Git overview tab for branch/upstream/base, recent commits, stashes, tags, and remotes.
-9. Local read-only web UI through `workdeck web` or `workdeck --web`, backed by the same scanners and embedded assets.
+9. Stable JSON and JSONL output for terminal scripts and external integrations.
 
 Do not build these in the MVP:
 

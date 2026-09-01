@@ -1,20 +1,28 @@
-# Workdeck and Aya Split
+# TUI-only split
 
-The former uncommitted desktop review prototype used Aya product and crate names inside the Workdeck checkout. The split assigns that implementation to Workdeck because its responsibility is repository activity and review, while the independent Swift-native agent workspace becomes Aya.
+On 2026-09-01, Workdeck returned to a single terminal product surface and all graphical application work moved to the private Aya repository.
 
-## Workdeck result
+## Moved to Aya
 
-- The original `workdeck` TUI and headless CLI remain the primary product surface.
-- The Rust/Dioxus review application is the optional `Workdeck.app` desktop surface.
-- Former `aya-*` crates are now `workdeck-*` crates.
-- The desktop catalog helper is `workdeck-app`, avoiding a collision with the primary `workdeck` command.
-- The desktop machine-local catalog remains separate from repo-local `.agents/workdeck/` data.
-- Existing Aya-branded package evidence is not valid for the renamed Workdeck executable.
+- the Rust/Dioxus desktop and web workbench;
+- its domain, database, Git, GitHub, analysis, artifact, API, presenter, and application-service crates;
+- desktop packaging, icons, fonts, component assets, visual tests, screenshots, release metadata, and UI documentation;
+- the former embedded Workdeck web UI, retained in Aya as migration reference.
 
-## External responsibilities
+Aya keeps its Swift-native application as its primary implementation. The moved Dioxus workspace is an Aya experiment and is independently buildable there.
 
-- Herder owns live agent sessions and worktree leases.
-- Aya owns missions, experiments, policies, approvals, and adaptive agentic UI.
-- Workdeck owns Git inspection and review.
+## Removed from Workdeck
 
-No Aya source is vendored into Workdeck, and Workdeck does not depend on Aya or Herder private storage. See [Product Boundaries](PRODUCT_BOUNDARIES.md).
+- `Workdeck.app` and the `workdeck-app` helper;
+- every graphical support crate and asset;
+- `workdeck web` and `workdeck --web`;
+- desktop, browser, accessibility, visual-regression, and GUI packaging automation.
+
+## Retained in Workdeck
+
+- the `workdeck` Ratatui TUI;
+- headless JSON and JSONL commands;
+- repo-local `.agents/workdeck/` issues, handoffs, and imported session metadata;
+- Cargo and Homebrew installation, terminal release packaging, CI, and soak checks.
+
+Workdeck does not depend on Aya or Herder private storage. Git and explicit versioned contracts are the integration boundary. See [Product Boundaries](PRODUCT_BOUNDARIES.md).
