@@ -2,6 +2,8 @@
 
 use std::path::{Component, Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SelectableSession {
     pub session_id: String,
@@ -9,11 +11,16 @@ pub struct SelectableSession {
     pub repo_root: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionSelector {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_path: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo_root: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo_boundary: Option<PathBuf>,
 }
 

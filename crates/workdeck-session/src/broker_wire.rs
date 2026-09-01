@@ -86,7 +86,8 @@ pub enum SessionCommandOutcome<ResultValue> {
     Failure { error: String },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionServerMessage<CommandName = String, Input = Value> {
     pub request_id: String,
     pub command: CommandName,
