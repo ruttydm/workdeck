@@ -17,7 +17,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 use thiserror::Error;
 use tungstenite::error::Error as WebSocketError;
 use tungstenite::protocol::frame::coding::CloseCode;
@@ -25,9 +25,9 @@ use tungstenite::protocol::{CloseFrame, Message, WebSocketConfig};
 
 use crate::{
     BoundedHttpBody, BrokerBody, BrokerCapacityCode, BrokerHttpResponse, BudgetReservation,
-    ResourceBudget, SessionBrokerDaemon, SessionBrokerDaemonPeer, SessionBrokerHttpRequest,
-    SessionBrokerHttpResponse, SessionBrokerLimits, SharedSessionBrokerDaemonPeer,
-    bound_http_response,
+    ResourceBudget, SessionBroker, SessionBrokerController, SessionBrokerDaemon,
+    SessionBrokerDaemonPeer, SessionBrokerHttpRequest, SessionBrokerHttpResponse,
+    SessionBrokerLimits, SharedSessionBrokerDaemonPeer, bound_http_response,
 };
 
 const MAX_HTTP_HEAD_BYTES: usize = 64 * 1_024;
@@ -87,36 +87,44 @@ pub enum NativeSessionBrokerAdapterSemantics {
     Node,
 }
 
-pub struct ServeSessionBrokerDaemonOptions<Info, State, CommandInput, CommandResult>
-where
+pub struct ServeSessionBrokerDaemonOptions<
+    Info,
+    State,
+    CommandInput,
+    CommandResult,
+    Controller = SessionBroker<Info, State, CommandInput, CommandResult>,
+> where
     Info: Clone + Serialize + Send + Sync + 'static,
     State: Clone + Serialize + Send + Sync + 'static,
     CommandInput: Serialize + Send + Sync + 'static,
     CommandResult: Clone + Serialize + Send + 'static,
+    Controller: SessionBrokerController<Info, State, CommandInput, CommandResult> + 'static,
 {
-    pub daemon: SessionBrokerDaemon<Info, State, CommandInput, CommandResult>,
+    pub daemon: SessionBrokerDaemon<Info, State, CommandInput, CommandResult, Controller>,
     pub hostname: String,
     pub port: u16,
     pub handle_request: Option<NativeSessionBrokerHttpHandler>,
     pub not_found: Option<NativeSessionBrokerHttpHandler>,
     pub format_serve_error: Option<NativeSessionBrokerServeErrorFormatter>,
     pub adapter_semantics: NativeSessionBrokerAdapterSemantics,
+    pub allow_remote: bool,
     /// Test and embedding seam matching the runtime adapters' contained handler-failure behavior.
     /// Production callers normally leave this unset so the daemon handles every socket message.
     pub message_handler: Option<NativeSessionBrokerMessageHandler>,
 }
 
-impl<Info, State, CommandInput, CommandResult>
-    ServeSessionBrokerDaemonOptions<Info, State, CommandInput, CommandResult>
+impl<Info, State, CommandInput, CommandResult, Controller>
+    ServeSessionBrokerDaemonOptions<Info, State, CommandInput, CommandResult, Controller>
 where
     Info: Clone + Serialize + Send + Sync + 'static,
     State: Clone + Serialize + Send + Sync + 'static,
     CommandInput: Serialize + Send + Sync + 'static,
     CommandResult: Clone + Serialize + Send + 'static,
+    Controller: SessionBrokerController<Info, State, CommandInput, CommandResult> + 'static,
 {
     #[must_use]
     pub fn new(
-        daemon: SessionBrokerDaemon<Info, State, CommandInput, CommandResult>,
+        daemon: SessionBrokerDaemon<Info, State, CommandInput, CommandResult, Controller>,
         hostname: impl Into<String>,
         port: u16,
     ) -> Self {
@@ -128,6 +136,7 @@ where
             not_found: None,
             format_serve_error: None,
             adapter_semantics: NativeSessionBrokerAdapterSemantics::default(),
+            allow_remote: false,
             message_handler: None,
         }
     }
@@ -468,14 +477,15 @@ impl Drop for NativePeer {
     }
 }
 
-pub fn serve_session_broker_daemon<Info, State, CommandInput, CommandResult>(
-    options: ServeSessionBrokerDaemonOptions<Info, State, CommandInput, CommandResult>,
+pub fn serve_session_broker_daemon<Info, State, CommandInput, CommandResult, Controller>(
+    options: ServeSessionBrokerDaemonOptions<Info, State, CommandInput, CommandResult, Controller>,
 ) -> Result<RunningSessionBrokerDaemon, NativeSessionBrokerServeError>
 where
     Info: Clone + Serialize + Send + Sync + 'static,
     State: Clone + Serialize + Send + Sync + 'static,
     CommandInput: Serialize + Send + Sync + 'static,
     CommandResult: Clone + Serialize + Send + 'static,
+    Controller: SessionBrokerController<Info, State, CommandInput, CommandResult> + 'static,
 {
     let requested = NativeSessionBrokerAddress {
         hostname: options.hostname.clone(),
@@ -491,7 +501,7 @@ where
     let socket_address = listener.local_addr().map_err(|error| {
         format_serve_error(&error, &requested, options.format_serve_error.as_ref())
     })?;
-    if !socket_address.ip().is_loopback() {
+    if !options.allow_remote && !socket_address.ip().is_loopback() {
         let error = io::Error::new(
             io::ErrorKind::PermissionDenied,
             "session broker listeners must bind a loopback address",
@@ -772,6 +782,28 @@ fn run_websocket(
         let _ = write_empty_response(&mut socket, 400);
         return;
     }
+    if let Some(handler) = runtime.custom_request.as_ref() {
+        let request = SessionBrokerHttpRequest {
+            method: parsed.method.clone(),
+            url: format!(
+                "http://{}:{}{}",
+                runtime.address.hostname, runtime.address.port, parsed.target
+            ),
+            headers: parsed.headers.clone(),
+            body: Vec::new(),
+        };
+        let response = match catch_unwind(AssertUnwindSafe(|| {
+            block_on_response(handler(request.clone(), runtime.address.clone()))
+        })) {
+            Ok(response) => response,
+            Err(_) => return,
+        };
+        if let Some(response) = response {
+            let _ = consume_bytes(&mut socket, request_head_bytes);
+            let _ = write_bounded_response(&mut socket, &request.method, response, &runtime);
+            return;
+        }
+    }
     if parsed.method != "GET" || target_path(&parsed.target) != runtime.socket_path {
         if runtime.adapter_semantics == NativeSessionBrokerAdapterSemantics::Bun {
             run_http(socket, runtime);
@@ -931,8 +963,13 @@ fn run_http(mut socket: TcpStream, runtime: Arc<NativeRuntime>) {
     }
     let request = match read_http_request(&mut socket, &runtime) {
         Ok(request) => request,
-        Err(ReadHttpRequestError::PayloadTooLarge) => {
-            let _ = write_empty_response(&mut socket, 413);
+        Err(ReadHttpRequestError::PayloadTooLarge(remaining)) => {
+            let response = daemon_http_response(SessionBrokerHttpResponse::json(
+                413,
+                &json!({"error": "capacity-exceeded", "resource": "maxHttpBodyBytes"}),
+            ));
+            let _ = write_bounded_response(&mut socket, "POST", response, &runtime);
+            drain_oversized_body(&mut socket, remaining, runtime.limits.max_http_body_bytes);
             return;
         }
         Err(ReadHttpRequestError::Malformed) => {
@@ -980,7 +1017,7 @@ fn run_http(mut socket: TcpStream, runtime: Arc<NativeRuntime>) {
 
 #[derive(Debug)]
 enum ReadHttpRequestError {
-    PayloadTooLarge,
+    PayloadTooLarge(u64),
     Malformed,
     Io,
 }
@@ -1035,13 +1072,16 @@ fn read_http_request(
         {
             value
                 .parse::<u64>()
-                .map_err(|_| ReadHttpRequestError::PayloadTooLarge)?
+                .map_err(|_| ReadHttpRequestError::PayloadTooLarge(0))?
         }
         Some(_) => return Err(ReadHttpRequestError::Malformed),
         None => 0,
     };
     if content_length > runtime.limits.max_http_body_bytes {
-        return Err(ReadHttpRequestError::PayloadTooLarge);
+        let buffered = u64::try_from(bytes.len().saturating_sub(head_end)).unwrap_or(u64::MAX);
+        return Err(ReadHttpRequestError::PayloadTooLarge(
+            content_length.saturating_sub(buffered),
+        ));
     }
     let body = if chunked {
         read_chunked_body(
@@ -1050,11 +1090,11 @@ fn read_http_request(
             runtime.limits.max_http_body_bytes,
         )?
     } else {
-        let body_length =
-            usize::try_from(content_length).map_err(|_| ReadHttpRequestError::PayloadTooLarge)?;
+        let body_length = usize::try_from(content_length)
+            .map_err(|_| ReadHttpRequestError::PayloadTooLarge(0))?;
         let body_end = head_end
             .checked_add(body_length)
-            .ok_or(ReadHttpRequestError::PayloadTooLarge)?;
+            .ok_or(ReadHttpRequestError::PayloadTooLarge(0))?;
         while bytes.len() < body_end {
             let read = socket.read(&mut chunk)?;
             if read == 0 {
@@ -1102,7 +1142,7 @@ fn read_chunked_body(
             return Err(ReadHttpRequestError::Malformed);
         }
         let size = u64::from_str_radix(size_text, 16)
-            .map_err(|_| ReadHttpRequestError::PayloadTooLarge)?;
+            .map_err(|_| ReadHttpRequestError::PayloadTooLarge(0))?;
         if size == 0 {
             let mut trailer_bytes = 0_usize;
             loop {
@@ -1129,13 +1169,13 @@ fn read_chunked_body(
         }
         let current = u64::try_from(body.len()).unwrap_or(u64::MAX);
         if size > max_bytes.saturating_sub(current) {
-            return Err(ReadHttpRequestError::PayloadTooLarge);
+            return Err(ReadHttpRequestError::PayloadTooLarge(0));
         }
-        let size = usize::try_from(size).map_err(|_| ReadHttpRequestError::PayloadTooLarge)?;
+        let size = usize::try_from(size).map_err(|_| ReadHttpRequestError::PayloadTooLarge(0))?;
         let start = body.len();
         let end = start
             .checked_add(size)
-            .ok_or(ReadHttpRequestError::PayloadTooLarge)?;
+            .ok_or(ReadHttpRequestError::PayloadTooLarge(0))?;
         body.resize(end, 0);
         reader.read_exact(&mut body[start..])?;
         let mut ending = [0_u8; 2];
@@ -1281,6 +1321,39 @@ fn write_streaming_body(
         }
         socket.write_all(&buffer[..read])?;
         socket.flush()?;
+    }
+}
+
+/// Let a well-behaved client finish the bounded over-limit upload after the 413 has been sent.
+/// This avoids a TCP reset erasing the small JSON failure response while still placing a hard
+/// ceiling on bytes and time spent draining a hostile declaration.
+fn drain_oversized_body(socket: &mut TcpStream, remaining: u64, configured_limit: u64) {
+    if remaining == 0 {
+        return;
+    }
+    let cap = configured_limit
+        .saturating_add(configured_limit / 2)
+        .max(64 * 1_024);
+    let mut left = remaining.min(cap);
+    let _ = socket.set_read_timeout(Some(Duration::from_millis(50)));
+    let mut buffer = [0_u8; 16 * 1_024];
+    while left > 0 {
+        let wanted = usize::try_from(left)
+            .unwrap_or(usize::MAX)
+            .min(buffer.len());
+        match socket.read(&mut buffer[..wanted]) {
+            Ok(0) => break,
+            Ok(read) => left = left.saturating_sub(u64::try_from(read).unwrap_or(u64::MAX)),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+                ) =>
+            {
+                break;
+            }
+            Err(_) => break,
+        }
     }
 }
 

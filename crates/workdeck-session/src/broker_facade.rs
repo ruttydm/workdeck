@@ -59,6 +59,68 @@ pub struct SessionBrokerOptions<Info, State, CommandInput, CommandResult> {
     pub describe_session: Option<SessionDescription<Info, State>>,
 }
 
+/// App-neutral state boundary consumed by the authenticated daemon.
+///
+/// The raw [`SessionBroker`] implements this directly, while products with richer projections can
+/// supply their own controller without mirroring registrations into a second state machine.
+pub trait SessionBrokerController<Info, State, CommandInput, CommandResult>: Send + Sync
+where
+    Info: Clone + Serialize + Send + Sync + 'static,
+    State: Clone + Serialize + Send + Sync + 'static,
+    CommandInput: Serialize + Send + Sync + 'static,
+    CommandResult: Clone + Serialize + Send + 'static,
+{
+    type ListedSession: Clone + Serialize + Send + Sync + 'static;
+
+    fn protocol_parsers(
+        &self,
+    ) -> &SessionBrokerProtocolParsers<Info, State, CommandInput, CommandResult>;
+    fn limits(&self) -> SessionBrokerLimits;
+    fn list_sessions(&self) -> Vec<Self::ListedSession>;
+    fn get_session(
+        &self,
+        selector: &SessionSelector,
+    ) -> Result<Self::ListedSession, SessionBrokerStateError>;
+    fn resolve_session_id(
+        &self,
+        selector: &SessionSelector,
+    ) -> Result<String, SessionBrokerStateError>;
+    fn session_ids(&self) -> Vec<String>;
+    fn session_count(&self) -> usize;
+    fn pending_command_count(&self) -> usize;
+    fn register_session(
+        &self,
+        socket: SharedDaemonSessionSocket,
+        registration: &Value,
+        snapshot: &Value,
+        options: RegisterSessionOptions,
+    ) -> RegisterSessionResult;
+    fn update_snapshot(
+        &self,
+        socket: &SharedDaemonSessionSocket,
+        session_id: &str,
+        snapshot: &Value,
+    ) -> UpdateSnapshotResult;
+    fn mark_session_seen(
+        &self,
+        socket: &SharedDaemonSessionSocket,
+        session_id: &str,
+    ) -> MarkSessionSeenResult;
+    fn unregister_connection(&self, socket: &SharedDaemonSessionSocket);
+    fn prune_stale_sessions(&self, ttl_ms: u64, now_ms: Option<i64>) -> usize;
+    fn dispatch_command(
+        &self,
+        request: DispatchSessionCommand,
+    ) -> Result<PendingCommandResult<CommandResult>, SessionBrokerStateError>;
+    fn handle_command_result(
+        &self,
+        socket: &SharedDaemonSessionSocket,
+        request_id: &str,
+        outcome: BrokerCommandOutcome,
+    ) -> HandleCommandResult;
+    fn shutdown(&self, error: Option<SessionBrokerStateError>);
+}
+
 struct RawSessionAdapter<Info, State, CommandInput, CommandResult> {
     parsers: Arc<SessionBrokerProtocolParsers<Info, State, CommandInput, CommandResult>>,
     describe: SessionDescription<Info, State>,
@@ -306,6 +368,113 @@ where
 
     pub fn shutdown(&self, error: Option<SessionBrokerStateError>) {
         self.state.shutdown(error);
+    }
+}
+
+impl<Info, State, CommandInput, CommandResult>
+    SessionBrokerController<Info, State, CommandInput, CommandResult>
+    for SessionBroker<Info, State, CommandInput, CommandResult>
+where
+    Info: Clone + Serialize + Send + Sync + 'static,
+    State: Clone + Serialize + Send + Sync + 'static,
+    CommandInput: Serialize + Send + Sync + 'static,
+    CommandResult: Clone + Serialize + Send + 'static,
+{
+    type ListedSession = SessionBrokerRecord<Info, State>;
+
+    fn protocol_parsers(
+        &self,
+    ) -> &SessionBrokerProtocolParsers<Info, State, CommandInput, CommandResult> {
+        &self.protocol_parsers
+    }
+
+    fn limits(&self) -> SessionBrokerLimits {
+        self.limits()
+    }
+
+    fn list_sessions(&self) -> Vec<Self::ListedSession> {
+        self.list_sessions()
+    }
+
+    fn get_session(
+        &self,
+        selector: &SessionSelector,
+    ) -> Result<Self::ListedSession, SessionBrokerStateError> {
+        self.get_session(selector)
+    }
+
+    fn resolve_session_id(
+        &self,
+        selector: &SessionSelector,
+    ) -> Result<String, SessionBrokerStateError> {
+        self.resolve_session_id(selector)
+    }
+
+    fn session_ids(&self) -> Vec<String> {
+        self.session_ids()
+    }
+
+    fn session_count(&self) -> usize {
+        self.session_count()
+    }
+
+    fn pending_command_count(&self) -> usize {
+        self.pending_command_count()
+    }
+
+    fn register_session(
+        &self,
+        socket: SharedDaemonSessionSocket,
+        registration: &Value,
+        snapshot: &Value,
+        options: RegisterSessionOptions,
+    ) -> RegisterSessionResult {
+        self.register_session(socket, registration, snapshot, options)
+    }
+
+    fn update_snapshot(
+        &self,
+        socket: &SharedDaemonSessionSocket,
+        session_id: &str,
+        snapshot: &Value,
+    ) -> UpdateSnapshotResult {
+        self.update_snapshot(socket, session_id, snapshot)
+    }
+
+    fn mark_session_seen(
+        &self,
+        socket: &SharedDaemonSessionSocket,
+        session_id: &str,
+    ) -> MarkSessionSeenResult {
+        self.mark_session_seen(socket, session_id)
+    }
+
+    fn unregister_connection(&self, socket: &SharedDaemonSessionSocket) {
+        self.unregister_connection(socket);
+    }
+
+    fn prune_stale_sessions(&self, ttl_ms: u64, now_ms: Option<i64>) -> usize {
+        self.prune_stale_sessions(ttl_ms, now_ms)
+    }
+
+    fn dispatch_command(
+        &self,
+        request: DispatchSessionCommand,
+    ) -> Result<PendingCommandResult<CommandResult>, SessionBrokerStateError> {
+        self.dispatch_command(request)
+    }
+
+    fn handle_command_result(
+        &self,
+        socket: &SharedDaemonSessionSocket,
+        request_id: &str,
+        outcome: BrokerCommandOutcome,
+    ) -> HandleCommandResult {
+        self.handle_command_result(socket, request_id, outcome)
+    }
+
+    fn shutdown(&self, error: Option<SessionBrokerStateError>) {
+        self.shutdown(error);
     }
 }
 

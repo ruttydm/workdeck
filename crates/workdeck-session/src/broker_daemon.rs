@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::future::Future;
+use std::marker::PhantomData;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -27,11 +28,11 @@ use crate::{
     SessionBrokerAuditOutcome, SessionBrokerAuthenticatedResponse,
     SessionBrokerAuthenticationFailureCode, SessionBrokerAuthorizationContext,
     SessionBrokerAuthorizer, SessionBrokerCancellation, SessionBrokerCapabilities,
-    SessionBrokerHelloAuthenticator, SessionBrokerHttpPaths, SessionBrokerLimitOptions,
-    SessionBrokerLimits, SessionBrokerStateError, SharedDaemonSessionSocket,
-    SignedBrokerAppContract, StructuralCommandOutcome, StructuralSessionBrokerDaemonRequest,
-    StructuralSessionClientMessage, UpdateSnapshotResult, caller_principal_allows,
-    canonicalize_json, is_valid_broker_app_id, is_valid_broker_revision,
+    SessionBrokerController, SessionBrokerHelloAuthenticator, SessionBrokerHttpPaths,
+    SessionBrokerLimitOptions, SessionBrokerLimits, SessionBrokerStateError,
+    SharedDaemonSessionSocket, SignedBrokerAppContract, StructuralCommandOutcome,
+    StructuralSessionBrokerDaemonRequest, StructuralSessionClientMessage, UpdateSnapshotResult,
+    caller_principal_allows, canonicalize_json, is_valid_broker_app_id, is_valid_broker_revision,
     merge_session_broker_limits, parse_session_broker_json_bytes, producer_principal_allows,
 };
 
@@ -39,6 +40,9 @@ const DEFAULT_STALE_SESSION_TTL_MS: u64 = 45_000;
 const DEFAULT_STALE_SESSION_SWEEP_INTERVAL_MS: u64 = 15_000;
 const DEFAULT_IDLE_TIMEOUT_MS: u64 = 60_000;
 const INCOMPATIBLE_PAYLOAD_CLOSE_CODE: u16 = 1008;
+
+type BrokerDaemonContract<Info, State, CommandInput, CommandResult> =
+    fn() -> (Info, State, CommandInput, CommandResult);
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 #[error("Invalid session broker daemon configuration: {0}")]
@@ -52,14 +56,20 @@ pub struct SessionBrokerDaemonPathOptions {
     pub capabilities: Option<String>,
 }
 
-pub struct SessionBrokerDaemonOptions<Info, State, CommandInput, CommandResult>
-where
+pub struct SessionBrokerDaemonOptions<
+    Info,
+    State,
+    CommandInput,
+    CommandResult,
+    Controller = SessionBroker<Info, State, CommandInput, CommandResult>,
+> where
     Info: Clone + Serialize + Send + Sync + 'static,
     State: Clone + Serialize + Send + Sync + 'static,
     CommandInput: Serialize + Send + Sync + 'static,
     CommandResult: Clone + Serialize + Send + 'static,
+    Controller: SessionBrokerController<Info, State, CommandInput, CommandResult> + 'static,
 {
-    pub broker: Arc<SessionBroker<Info, State, CommandInput, CommandResult>>,
+    pub broker: Arc<Controller>,
     pub capabilities: Option<SessionBrokerCapabilities>,
     pub paths: SessionBrokerDaemonPathOptions,
     pub expose_http_api: bool,
@@ -74,18 +84,20 @@ where
     pub stale_session_ttl_ms: Option<u64>,
     pub stale_session_sweep_interval_ms: Option<u64>,
     pub limit_options: SessionBrokerLimitOptions,
+    contract: PhantomData<BrokerDaemonContract<Info, State, CommandInput, CommandResult>>,
 }
 
-impl<Info, State, CommandInput, CommandResult>
-    SessionBrokerDaemonOptions<Info, State, CommandInput, CommandResult>
+impl<Info, State, CommandInput, CommandResult, Controller>
+    SessionBrokerDaemonOptions<Info, State, CommandInput, CommandResult, Controller>
 where
     Info: Clone + Serialize + Send + Sync + 'static,
     State: Clone + Serialize + Send + Sync + 'static,
     CommandInput: Serialize + Send + Sync + 'static,
     CommandResult: Clone + Serialize + Send + 'static,
+    Controller: SessionBrokerController<Info, State, CommandInput, CommandResult> + 'static,
 {
     #[must_use]
-    pub fn new(broker: Arc<SessionBroker<Info, State, CommandInput, CommandResult>>) -> Self {
+    pub fn new(broker: Arc<Controller>) -> Self {
         Self {
             broker,
             capabilities: None,
@@ -102,6 +114,7 @@ where
             stale_session_ttl_ms: None,
             stale_session_sweep_interval_ms: None,
             limit_options: SessionBrokerLimitOptions::default(),
+            contract: PhantomData,
         }
     }
 }
@@ -135,7 +148,8 @@ impl SessionBrokerHttpRequest {
         }
     }
 
-    fn header(&self, name: &str) -> Option<&str> {
+    #[must_use]
+    pub fn header(&self, name: &str) -> Option<&str> {
         self.headers
             .iter()
             .find(|(key, _)| key.eq_ignore_ascii_case(name))
@@ -213,23 +227,30 @@ pub struct SessionBrokerAuthenticatedControlOptions {
     pub resolve_failure_target_specific: Option<ResolveFailureTarget>,
 }
 
-pub struct SessionBrokerDaemon<Info, State, CommandInput, CommandResult>
-where
+pub struct SessionBrokerDaemon<
+    Info,
+    State,
+    CommandInput,
+    CommandResult,
+    Controller = SessionBroker<Info, State, CommandInput, CommandResult>,
+> where
     Info: Clone + Serialize + Send + Sync + 'static,
     State: Clone + Serialize + Send + Sync + 'static,
     CommandInput: Serialize + Send + Sync + 'static,
     CommandResult: Clone + Serialize + Send + 'static,
+    Controller: SessionBrokerController<Info, State, CommandInput, CommandResult> + 'static,
 {
-    inner: Arc<DaemonInner<Info, State, CommandInput, CommandResult>>,
+    inner: Arc<DaemonInner<Info, State, CommandInput, CommandResult, Controller>>,
 }
 
-impl<Info, State, CommandInput, CommandResult> Clone
-    for SessionBrokerDaemon<Info, State, CommandInput, CommandResult>
+impl<Info, State, CommandInput, CommandResult, Controller> Clone
+    for SessionBrokerDaemon<Info, State, CommandInput, CommandResult, Controller>
 where
     Info: Clone + Serialize + Send + Sync + 'static,
     State: Clone + Serialize + Send + Sync + 'static,
     CommandInput: Serialize + Send + Sync + 'static,
     CommandResult: Clone + Serialize + Send + 'static,
+    Controller: SessionBrokerController<Info, State, CommandInput, CommandResult> + 'static,
 {
     fn clone(&self) -> Self {
         Self {
@@ -238,14 +259,15 @@ where
     }
 }
 
-struct DaemonInner<Info, State, CommandInput, CommandResult>
+struct DaemonInner<Info, State, CommandInput, CommandResult, Controller>
 where
     Info: Clone + Serialize + Send + Sync + 'static,
     State: Clone + Serialize + Send + Sync + 'static,
     CommandInput: Serialize + Send + Sync + 'static,
     CommandResult: Clone + Serialize + Send + 'static,
+    Controller: SessionBrokerController<Info, State, CommandInput, CommandResult> + 'static,
 {
-    broker: Arc<SessionBroker<Info, State, CommandInput, CommandResult>>,
+    broker: Arc<Controller>,
     paths: SessionBrokerHttpPaths,
     capabilities: SessionBrokerCapabilities,
     limits: SessionBrokerLimits,
@@ -267,6 +289,7 @@ where
     http_body_budget: ResourceBudget,
     next_connection_id: AtomicU64,
     producers: Mutex<ProducerState>,
+    contract: PhantomData<BrokerDaemonContract<Info, State, CommandInput, CommandResult>>,
 }
 
 #[derive(Default)]
@@ -324,16 +347,17 @@ impl DaemonSessionSocket for DaemonPeerSocket {
     }
 }
 
-impl<Info, State, CommandInput, CommandResult>
-    SessionBrokerDaemon<Info, State, CommandInput, CommandResult>
+impl<Info, State, CommandInput, CommandResult, Controller>
+    SessionBrokerDaemon<Info, State, CommandInput, CommandResult, Controller>
 where
     Info: Clone + Serialize + Send + Sync + 'static,
     State: Clone + Serialize + Send + Sync + 'static,
     CommandInput: Serialize + Send + Sync + 'static,
     CommandResult: Clone + Serialize + Send + 'static,
+    Controller: SessionBrokerController<Info, State, CommandInput, CommandResult> + 'static,
 {
     pub fn new(
-        options: SessionBrokerDaemonOptions<Info, State, CommandInput, CommandResult>,
+        options: SessionBrokerDaemonOptions<Info, State, CommandInput, CommandResult, Controller>,
     ) -> Result<Self, SessionBrokerDaemonConfigError> {
         let broker_limits = options.broker.limits();
         let limits = merge_session_broker_limits(broker_limits, &options.limit_options)
@@ -351,7 +375,7 @@ where
         let explicit_app_revision_is_valid =
             options.app_revision.is_some_and(is_valid_broker_revision);
         let app_id = options.app_id.unwrap_or_else(|| "session-broker".into());
-        let app_revision = options.broker.protocol_parsers.app_revision;
+        let app_revision = options.broker.protocol_parsers().app_revision;
         if options
             .app_revision
             .is_some_and(|revision| revision != app_revision)
@@ -432,6 +456,7 @@ where
             ),
             next_connection_id: AtomicU64::new(1),
             producers: Mutex::new(ProducerState::default()),
+            contract: PhantomData,
         });
         start_lifecycle(&inner);
         Ok(Self { inner })
@@ -448,14 +473,14 @@ where
     }
 
     #[must_use]
-    pub fn list_sessions(&self) -> Vec<crate::SessionBrokerRecord<Info, State>> {
+    pub fn list_sessions(&self) -> Vec<Controller::ListedSession> {
         self.inner.broker.list_sessions()
     }
 
     pub fn get_session(
         &self,
         selector: &crate::SessionSelector,
-    ) -> Result<crate::SessionBrokerRecord<Info, State>, SessionBrokerStateError> {
+    ) -> Result<Controller::ListedSession, SessionBrokerStateError> {
         self.inner.broker.get_session(selector)
     }
 
@@ -1012,7 +1037,7 @@ where
         let parsed = parse_text_json(&message).and_then(|value| {
             self.inner
                 .broker
-                .protocol_parsers
+                .protocol_parsers()
                 .parse_client_message(&value)
         });
         let Ok(parsed) = parsed else {
@@ -1380,7 +1405,7 @@ where
                 let input = match parse_session_broker_json_bytes(body).and_then(|value| {
                     self.inner
                         .broker
-                        .protocol_parsers
+                        .protocol_parsers()
                         .parse_daemon_request(&value)
                 }) {
                     Ok(input) => input,
@@ -1791,25 +1816,27 @@ where
     }
 }
 
-fn start_lifecycle<Info, State, CommandInput, CommandResult>(
-    inner: &Arc<DaemonInner<Info, State, CommandInput, CommandResult>>,
+fn start_lifecycle<Info, State, CommandInput, CommandResult, Controller>(
+    inner: &Arc<DaemonInner<Info, State, CommandInput, CommandResult, Controller>>,
 ) where
     Info: Clone + Serialize + Send + Sync + 'static,
     State: Clone + Serialize + Send + Sync + 'static,
     CommandInput: Serialize + Send + Sync + 'static,
     CommandResult: Clone + Serialize + Send + 'static,
+    Controller: SessionBrokerController<Info, State, CommandInput, CommandResult> + 'static,
 {
     let weak = Arc::downgrade(inner);
     thread::spawn(move || lifecycle_loop(weak));
 }
 
-fn lifecycle_loop<Info, State, CommandInput, CommandResult>(
-    weak: Weak<DaemonInner<Info, State, CommandInput, CommandResult>>,
+fn lifecycle_loop<Info, State, CommandInput, CommandResult, Controller>(
+    weak: Weak<DaemonInner<Info, State, CommandInput, CommandResult, Controller>>,
 ) where
     Info: Clone + Serialize + Send + Sync + 'static,
     State: Clone + Serialize + Send + Sync + 'static,
     CommandInput: Serialize + Send + Sync + 'static,
     CommandResult: Clone + Serialize + Send + 'static,
+    Controller: SessionBrokerController<Info, State, CommandInput, CommandResult> + 'static,
 {
     let mut last_sweep = now_ms();
     loop {

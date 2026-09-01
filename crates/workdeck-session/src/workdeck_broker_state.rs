@@ -6,7 +6,8 @@ use crate::{
     MarkSessionSeenResult, MirroredReviewPublication, ObserveReviewPublicationInput,
     PendingCommandResult, ReadReviewResourceToolInput, RegisterSessionOptions,
     RegisterSessionResult, ReviewMirror, ReviewMirrorUpdate, ReviewResourceCache,
-    ReviewResourceKey, SessionBrokerEntry, SessionBrokerLimitOptions, SessionBrokerListedSession,
+    ReviewResourceKey, SessionBrokerController, SessionBrokerEntry, SessionBrokerLimitOptions,
+    SessionBrokerLimits, SessionBrokerListedSession, SessionBrokerProtocolParsers,
     SessionBrokerState, SessionBrokerStateError, SessionBrokerViewAdapter, SessionCommentFilter,
     SessionLiveCommentSummary, SessionReview, SessionReviewFile, SessionReviewOptions,
     SessionSelector, SharedDaemonSessionSocket, UpdateSnapshotResult,
@@ -136,15 +137,12 @@ impl Drop for ReviewPublicationSubscription {
 }
 
 struct WorkdeckBrokerView {
-    parsers: crate::WorkdeckSessionProtocolParsers,
+    parsers: Arc<crate::WorkdeckSessionProtocolParsers>,
 }
 
 impl WorkdeckBrokerView {
-    fn new() -> Self {
-        Self {
-            parsers: create_workdeck_session_protocol_parsers()
-                .expect("the immutable Workdeck broker parser registry is valid"),
-        }
+    fn new(parsers: Arc<crate::WorkdeckSessionProtocolParsers>) -> Self {
+        Self { parsers }
     }
 }
 
@@ -287,6 +285,7 @@ impl ResourceLoad {
 
 /// Generic broker state specialized with Workdeck's review mirror and resource path.
 pub struct WorkdeckSessionBrokerState {
+    protocol_parsers: Arc<crate::WorkdeckSessionProtocolParsers>,
     core: SessionBrokerState<WorkdeckBrokerView>,
     mirror: Mutex<ReviewMirror>,
     resources: Mutex<ReviewResourceCache>,
@@ -313,8 +312,16 @@ impl WorkdeckSessionBrokerState {
         resources: ReviewResourceCache,
         limit_options: &SessionBrokerLimitOptions,
     ) -> Result<Self, crate::BrokerLimitError> {
+        let protocol_parsers = Arc::new(
+            create_workdeck_session_protocol_parsers()
+                .expect("the immutable Workdeck broker parser registry is valid"),
+        );
         Ok(Self {
-            core: SessionBrokerState::new(WorkdeckBrokerView::new(), limit_options)?,
+            core: SessionBrokerState::new(
+                WorkdeckBrokerView::new(Arc::clone(&protocol_parsers)),
+                limit_options,
+            )?,
+            protocol_parsers,
             mirror: Mutex::new(ReviewMirror::new()),
             resources: Mutex::new(resources),
             loads: Mutex::new(BTreeMap::new()),
@@ -1021,6 +1028,120 @@ pub fn create_workdeck_session_broker_state() -> WorkdeckSessionBrokerState {
     WorkdeckSessionBrokerState::default()
 }
 
+impl
+    SessionBrokerController<
+        WorkdeckSessionInfo,
+        WorkdeckSessionState,
+        crate::WorkdeckSessionCommandInput,
+        WorkdeckSessionCommandResult,
+    > for WorkdeckSessionBrokerState
+{
+    type ListedSession = ListedSession;
+
+    fn protocol_parsers(
+        &self,
+    ) -> &SessionBrokerProtocolParsers<
+        WorkdeckSessionInfo,
+        WorkdeckSessionState,
+        crate::WorkdeckSessionCommandInput,
+        WorkdeckSessionCommandResult,
+    > {
+        &self.protocol_parsers
+    }
+
+    fn limits(&self) -> SessionBrokerLimits {
+        self.core.limits()
+    }
+
+    fn list_sessions(&self) -> Vec<Self::ListedSession> {
+        self.list_sessions()
+    }
+
+    fn get_session(
+        &self,
+        selector: &SessionSelector,
+    ) -> Result<Self::ListedSession, SessionBrokerStateError> {
+        self.get_session(selector)
+    }
+
+    fn resolve_session_id(
+        &self,
+        selector: &SessionSelector,
+    ) -> Result<String, SessionBrokerStateError> {
+        Ok(self.get_session(selector)?.session_id)
+    }
+
+    fn session_ids(&self) -> Vec<String> {
+        self.list_sessions()
+            .into_iter()
+            .map(|session| session.session_id)
+            .collect()
+    }
+
+    fn session_count(&self) -> usize {
+        self.session_count()
+    }
+
+    fn pending_command_count(&self) -> usize {
+        self.pending_command_count()
+    }
+
+    fn register_session(
+        &self,
+        socket: SharedDaemonSessionSocket,
+        registration: &Value,
+        snapshot: &Value,
+        options: RegisterSessionOptions,
+    ) -> RegisterSessionResult {
+        self.register_session(socket, registration, snapshot, options)
+    }
+
+    fn update_snapshot(
+        &self,
+        socket: &SharedDaemonSessionSocket,
+        session_id: &str,
+        snapshot: &Value,
+    ) -> UpdateSnapshotResult {
+        self.update_snapshot(socket, session_id, snapshot)
+    }
+
+    fn mark_session_seen(
+        &self,
+        socket: &SharedDaemonSessionSocket,
+        session_id: &str,
+    ) -> MarkSessionSeenResult {
+        self.mark_session_seen(socket, session_id)
+    }
+
+    fn unregister_connection(&self, socket: &SharedDaemonSessionSocket) {
+        self.unregister_socket(socket);
+    }
+
+    fn prune_stale_sessions(&self, ttl_ms: u64, now_ms: Option<i64>) -> usize {
+        self.prune_stale_sessions(ttl_ms, now_ms)
+    }
+
+    fn dispatch_command(
+        &self,
+        request: DispatchSessionCommand,
+    ) -> Result<PendingCommandResult<WorkdeckSessionCommandResult>, SessionBrokerStateError> {
+        self.dispatch_command(request)
+    }
+
+    fn handle_command_result(
+        &self,
+        socket: &SharedDaemonSessionSocket,
+        request_id: &str,
+        outcome: BrokerCommandOutcome,
+    ) -> HandleCommandResult {
+        self.handle_command_result(socket, request_id, outcome)
+    }
+
+    fn shutdown(&self, error: Option<SessionBrokerStateError>) {
+        self.shutdown(error);
+    }
+}
+
 // Keep the transport trait reachable from this concrete state module's public API docs.
 const _: Option<&dyn DaemonSessionSocket> = None;
 
@@ -1429,8 +1550,15 @@ mod tests {
             .get_session_review_with_resources(&selector_for(SESSION_ID), review_options(true))
             .unwrap();
         assert_eq!(
-            review.files[0].patch.as_deref(),
-            Some(std::str::from_utf8(&files[0].patch).unwrap())
+            review
+                .files
+                .iter()
+                .map(|file| file.patch.as_deref())
+                .collect::<Vec<_>>(),
+            files
+                .iter()
+                .map(|file| Some(std::str::from_utf8(&file.patch).unwrap()))
+                .collect::<Vec<_>>()
         );
         assert_eq!(review.selected_file.unwrap().patch, review.files[0].patch);
     }
@@ -1472,8 +1600,10 @@ mod tests {
     }
 
     #[test]
-    fn collapses_concurrent_reads_and_reuses_completed_cache() {
-        let files = vec![FileFixture::new(0, 3)];
+    fn loads_many_patches_in_parallel_and_collapses_concurrent_reads_of_one_resource() {
+        let files = (0..12)
+            .map(|index| FileFixture::new(index, 3))
+            .collect::<Vec<_>>();
         let (state, socket) = connect(&files);
         socket.delay_ms.store(15, Ordering::Release);
         register(&state, &socket, Some(GENERATION_ONE), &files, false);
@@ -1482,31 +1612,48 @@ mod tests {
         for _ in 0..2 {
             let state = Arc::clone(&state);
             let barrier = Arc::clone(&barrier);
-            let resource_id = files[0].resource_id();
             threads.push(thread::spawn(move || {
                 barrier.wait();
                 state
-                    .load_review_resource(SESSION_ID, GENERATION_ONE, &resource_id)
+                    .get_session_review_with_resources(
+                        &selector_for(SESSION_ID),
+                        review_options(true),
+                    )
                     .unwrap()
             }));
         }
         barrier.wait();
         let left = threads.remove(0).join().unwrap();
         let right = threads.remove(0).join().unwrap();
-        assert_eq!(left, right);
-        assert_eq!(socket.reads_for(&files[0].resource_id()), 1);
-        state
-            .load_review_resource(SESSION_ID, GENERATION_ONE, &files[0].resource_id())
-            .unwrap();
-        assert_eq!(socket.reads_for(&files[0].resource_id()), 1);
         assert_eq!(
-            state.get_review_resource_usage(),
-            ReviewResourceUsage {
-                cached_bytes: files[0].patch.len(),
-                reserved_bytes: 0,
-                entry_count: 1,
-            }
+            left.files
+                .iter()
+                .map(|file| file.patch.as_deref())
+                .collect::<Vec<_>>(),
+            right
+                .files
+                .iter()
+                .map(|file| file.patch.as_deref())
+                .collect::<Vec<_>>()
         );
+        assert_eq!(socket.reads_for(&files[0].resource_id()), 1);
+        assert_eq!(state.get_review_resource_usage().reserved_bytes, 0);
+    }
+
+    #[test]
+    fn serves_a_second_review_request_from_cache_without_reading_again() {
+        let files = vec![FileFixture::new(0, 3)];
+        let (state, socket) = connect(&files);
+        register(&state, &socket, Some(GENERATION_ONE), &files, false);
+        state
+            .get_session_review_with_resources(&selector_for(SESSION_ID), review_options(true))
+            .unwrap();
+        let after_first = socket.messages().len();
+        state
+            .get_session_review_with_resources(&selector_for(SESSION_ID), review_options(true))
+            .unwrap();
+        assert_eq!(socket.messages().len(), after_first);
+        assert_eq!(state.get_review_resource_usage().entry_count, 1);
     }
 
     #[test]
