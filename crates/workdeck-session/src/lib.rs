@@ -24,6 +24,7 @@ mod session_bridge;
 mod session_models;
 mod session_registration;
 mod terminal_metadata;
+mod workdeck_wire;
 
 pub use broker_auth::*;
 pub use broker_budget::*;
@@ -52,6 +53,7 @@ pub use session_bridge::*;
 pub use session_models::*;
 pub use session_registration::*;
 pub use terminal_metadata::*;
+pub use workdeck_wire::*;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
