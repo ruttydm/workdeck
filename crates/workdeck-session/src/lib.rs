@@ -7,6 +7,7 @@ mod broker_wire;
 mod canonical_json;
 mod daemon_http;
 mod selectors;
+mod terminal_metadata;
 
 pub use broker_auth::*;
 pub use broker_config::*;
@@ -18,6 +19,7 @@ pub use selectors::{
     SelectableSession, SessionSelector, describe_session_selector, matches_session_selector,
     normalize_session_selector, repo_selector_distance, resolve_session_selector_boundary,
 };
+pub use terminal_metadata::*;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
