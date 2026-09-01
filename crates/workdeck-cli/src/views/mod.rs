@@ -942,9 +942,7 @@ fn visible_items<'a>(
     }
 
     let selected = selected_row.unwrap_or(0).min(items.len() - 1);
-    let start = selected
-        .saturating_sub(visible / 2)
-        .min(items.len().saturating_sub(visible));
+    let start = workdeck_tui::list_window_start(selected, items.len(), visible);
     items.into_iter().skip(start).take(visible).collect()
 }
 

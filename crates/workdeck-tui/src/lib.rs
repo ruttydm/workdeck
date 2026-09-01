@@ -1,8 +1,10 @@
 //! Ratatui review canvas.
 
+mod list_geometry;
 mod shutdown;
 mod terminal_runtime;
 
+pub use list_geometry::*;
 pub use shutdown::*;
 pub use terminal_runtime::*;
 
@@ -747,11 +749,15 @@ fn render_sidebar(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let selected = state.selection().file_index;
+    let visible_rows = usize::from(area.height.saturating_sub(1).max(1));
+    let start = list_window_start(selected, state.changeset().files.len(), visible_rows);
     let items = state
         .changeset()
         .files
         .iter()
         .enumerate()
+        .skip(start)
+        .take(visible_rows)
         .map(|(index, file)| {
             let marker = if index == selected { "›" } else { " " };
             ListItem::new(Line::from(vec![
