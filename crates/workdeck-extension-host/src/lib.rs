@@ -1,8 +1,10 @@
 //! Subprocess host for trusted native Workdeck extensions.
 
+mod file_view_state;
 mod file_views;
 mod line_highlights;
 
+pub use file_view_state::*;
 pub use file_views::*;
 pub use line_highlights::*;
 
