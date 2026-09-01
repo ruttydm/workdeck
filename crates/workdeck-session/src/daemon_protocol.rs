@@ -321,6 +321,157 @@ fn valid_cli_input(input: &DaemonCliInput) -> bool {
     valid_common_options(options)
 }
 
+fn raw_string_array(value: &Value) -> bool {
+    value
+        .as_array()
+        .is_some_and(|values| values.iter().all(Value::is_string))
+}
+
+fn valid_common_options_value(value: &Value) -> bool {
+    let Some(object) = exact_object(
+        value,
+        &[],
+        &[
+            "mode",
+            "cursorLine",
+            "vcs",
+            "theme",
+            "agentContext",
+            "pager",
+            "watch",
+            "experimental",
+            "fast",
+            "excludeUntracked",
+            "lineNumbers",
+            "tabWidth",
+            "fileGap",
+            "hunkGap",
+            "wrapLines",
+            "hunkHeaders",
+            "menuBar",
+            "sidebar",
+            "agentNotes",
+            "copyDecorations",
+            "promptSaveViewPreferences",
+            "transparentBackground",
+            "colorMoved",
+            "extensions",
+            "extensionPaths",
+        ],
+    ) else {
+        return false;
+    };
+    object
+        .get("mode")
+        .is_none_or(|value| matches!(value.as_str(), Some("auto" | "split" | "stack")))
+        && object
+            .get("cursorLine")
+            .is_none_or(|value| matches!(value.as_str(), Some("row" | "number" | "off")))
+        && ["vcs", "theme", "agentContext"]
+            .iter()
+            .all(|key| object.get(*key).is_none_or(Value::is_string))
+        && [
+            "pager",
+            "watch",
+            "experimental",
+            "fast",
+            "excludeUntracked",
+            "lineNumbers",
+            "wrapLines",
+            "hunkHeaders",
+            "menuBar",
+            "agentNotes",
+            "copyDecorations",
+            "promptSaveViewPreferences",
+            "transparentBackground",
+            "colorMoved",
+            "extensions",
+        ]
+        .iter()
+        .all(|key| object.get(*key).is_none_or(Value::is_boolean))
+        && object.get("tabWidth").is_none_or(positive)
+        && ["fileGap", "hunkGap"]
+            .iter()
+            .all(|key| object.get(*key).is_none_or(nonnegative))
+        && object.get("sidebar").is_none_or(|value| {
+            value.is_boolean() || value.as_str().is_some_and(|value| value == "auto")
+        })
+        && object.get("extensionPaths").is_none_or(raw_string_array)
+}
+
+fn valid_range_endpoints_value(value: &Value) -> bool {
+    exact_object(value, &["from", "to"], &[]).is_some_and(|object| {
+        object["from"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty())
+            && object["to"].as_str().is_some_and(|value| !value.is_empty())
+    })
+}
+
+/// Parse the exact reloadable CLI input tree carried through the session broker.
+#[must_use]
+pub fn parse_daemon_cli_input(value: &Value) -> Option<DaemonCliInput> {
+    let object = value.as_object()?;
+    let kind = object.get("kind")?.as_str()?;
+    let shape_is_valid = match kind {
+        "vcs" => exact_object(
+            value,
+            &["kind", "staged", "options"],
+            &["range", "rangeEndpoints", "pathspecs"],
+        )
+        .is_some_and(|object| {
+            object["staged"].is_boolean()
+                && valid_common_options_value(&object["options"])
+                && object.get("range").is_none_or(Value::is_string)
+                && object
+                    .get("rangeEndpoints")
+                    .is_none_or(valid_range_endpoints_value)
+                && object
+                    .get("range")
+                    .is_none_or(|_| !object.contains_key("rangeEndpoints"))
+                && object.get("pathspecs").is_none_or(raw_string_array)
+        }),
+        "show" => {
+            exact_object(value, &["kind", "options"], &["ref", "pathspecs"]).is_some_and(|object| {
+                valid_common_options_value(&object["options"])
+                    && object.get("ref").is_none_or(Value::is_string)
+                    && object.get("pathspecs").is_none_or(raw_string_array)
+            })
+        }
+        "stash-show" => exact_object(value, &["kind", "options"], &["ref"]).is_some_and(|object| {
+            valid_common_options_value(&object["options"])
+                && object.get("ref").is_none_or(Value::is_string)
+        }),
+        "diff" => {
+            exact_object(value, &["kind", "left", "right", "options"], &[]).is_some_and(|object| {
+                object["left"].is_string()
+                    && object["right"].is_string()
+                    && valid_common_options_value(&object["options"])
+            })
+        }
+        "patch" => {
+            exact_object(value, &["kind", "options"], &["file", "text"]).is_some_and(|object| {
+                valid_common_options_value(&object["options"])
+                    && object.get("file").is_none_or(Value::is_string)
+                    && object.get("text").is_none_or(Value::is_string)
+            })
+        }
+        "difftool" => exact_object(value, &["kind", "left", "right", "options"], &["path"])
+            .is_some_and(|object| {
+                object["left"].is_string()
+                    && object["right"].is_string()
+                    && object.get("path").is_none_or(Value::is_string)
+                    && valid_common_options_value(&object["options"])
+            }),
+        _ => false,
+    };
+    if !shape_is_valid {
+        return None;
+    }
+    let parsed = serde_json::from_value::<DaemonCliInput>(value.clone()).ok()?;
+    valid_cli_input(&parsed).then_some(parsed)
+}
+
 fn valid_positive(value: Option<u64>) -> bool {
     value.is_none_or(|value| value > 0 && value <= MAX_SAFE_INTEGER)
 }
