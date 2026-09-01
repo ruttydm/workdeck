@@ -1,9 +1,9 @@
 //! Pure state transitions for the semantic review model.
 
-use std::collections::{BTreeMap, BTreeSet};
-
 use crate::{
     ReviewExpandedGapState, SemanticReviewAction, SemanticReviewState, apply_review_reveal_request,
+    is_review_note_within_clear_scope, review_file_keys_with_retired_content,
+    select_semantic_review_file_by_key,
 };
 
 /// Apply one action, returning `None` when the action is a semantic no-op.
@@ -17,29 +17,16 @@ pub fn reduce_semantic_review_state(
             if std::sync::Arc::ptr_eq(&document, &state.document) {
                 return None;
             }
-            let next_by_key = document
-                .files
-                .iter()
-                .map(|file| (file.key.as_str(), file))
-                .collect::<BTreeMap<_, _>>();
-            let retired = state
-                .document
-                .files
-                .iter()
-                .filter(|file| {
-                    next_by_key
-                        .get(file.key.as_str())
-                        .is_none_or(|next| next.source_identity != file.source_identity)
-                })
-                .map(|file| file.key.as_str())
-                .collect::<BTreeSet<_>>();
+            let retired = review_file_keys_with_retired_content(&state.document, &document);
             let mut next = state.clone();
             next.expanded_gaps
-                .retain(|gap| !retired.contains(gap.file_key.as_str()));
+                .retain(|gap| !retired.contains(&gap.file_key));
             next.source_status_by_file_key.retain(|file_key, _| {
-                !retired.contains(file_key.as_str())
-                    && next_by_key
-                        .get(file_key.as_str())
+                !retired.contains(file_key)
+                    && document
+                        .files
+                        .iter()
+                        .find(|file| file.key == file_key.as_str())
                         .is_some_and(|file| file.source_attested == Some(true))
             });
             next.document = document;
@@ -50,11 +37,7 @@ pub fn reduce_semantic_review_state(
             hunk_index,
             reveal,
         } => {
-            let file = state
-                .document
-                .files
-                .iter()
-                .find(|file| file.key == file_key)?;
+            let file = select_semantic_review_file_by_key(state, Some(&file_key))?;
             let hunk_index = usize::try_from(hunk_index.max(0))
                 .unwrap_or(usize::MAX)
                 .min(file.hunks.len().saturating_sub(1));
@@ -111,9 +94,7 @@ pub fn reduce_semantic_review_state(
             include_user,
         } => {
             let in_scope = |entry: &crate::ReviewStoredNote| {
-                file_key
-                    .as_ref()
-                    .is_none_or(|key| entry.note.file_key == *key)
+                is_review_note_within_clear_scope(entry, file_key.as_deref())
             };
             let live_changed = state.live_notes.iter().any(in_scope);
             let user_changed = include_user && state.user_notes.iter().any(in_scope);

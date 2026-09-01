@@ -11,6 +11,7 @@ mod live_comments;
 mod semantic_actions;
 mod semantic_navigation;
 mod semantic_reducer;
+mod semantic_selectors;
 mod semantic_state;
 mod semantic_store;
 #[cfg(test)]
@@ -27,6 +28,7 @@ pub use live_comments::*;
 pub use semantic_actions::*;
 pub use semantic_navigation::*;
 pub use semantic_reducer::*;
+pub use semantic_selectors::*;
 pub use semantic_state::*;
 pub use semantic_store::*;
 
