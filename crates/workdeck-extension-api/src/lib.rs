@@ -6,7 +6,8 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::VecDeque;
+use std::borrow::Cow;
+use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
@@ -19,6 +20,58 @@ pub const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 2_000;
 pub const MAX_VIEW_NODES: usize = 10_000;
 pub const MAX_VIEW_DEPTH: usize = 64;
+pub const FILE_VIEW_DRAFT_UNAVAILABLE_REASON: &str =
+    "File presentations are unavailable while drafting an inline review note • using raw diff";
+
+/// Draft editing remains raw-only; committed notes are placed from validated source bindings.
+#[must_use]
+pub const fn file_view_unavailable_reason(has_draft_note: bool) -> Option<&'static str> {
+    if has_draft_note {
+        Some(FILE_VIEW_DRAFT_UNAVAILABLE_REASON)
+    } else {
+        None
+    }
+}
+
+/// Return the file-view key actually presented, accounting for host constraints.
+#[must_use]
+pub fn presented_file_view_key<'a>(
+    selections: &'a BTreeMap<String, String>,
+    unavailable_reasons: &BTreeMap<String, String>,
+    file_id: Option<&str>,
+) -> Option<&'a str> {
+    let file_id = file_id?;
+    if unavailable_reasons.contains_key(file_id) {
+        return None;
+    }
+    selections.get(file_id).map(String::as_str)
+}
+
+/// Mask stored choices only while a host constraint requires raw rendering.
+///
+/// The borrowed result preserves selection identity when no selected file is
+/// masked. An owned map is allocated only for a real presentation change.
+#[must_use]
+pub fn available_file_view_selections<'a>(
+    selections: &'a BTreeMap<String, String>,
+    unavailable_reasons: &BTreeMap<String, String>,
+) -> Cow<'a, BTreeMap<String, String>> {
+    if unavailable_reasons.is_empty()
+        || !selections
+            .keys()
+            .any(|file_id| unavailable_reasons.contains_key(file_id))
+    {
+        return Cow::Borrowed(selections);
+    }
+
+    Cow::Owned(
+        selections
+            .iter()
+            .filter(|(file_id, _)| !unavailable_reasons.contains_key(file_id.as_str()))
+            .map(|(file_id, view_key)| (file_id.clone(), view_key.clone()))
+            .collect(),
+    )
+}
 
 /// Frozen, method-free keyboard snapshot passed across the extension boundary.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -669,6 +722,81 @@ pub fn validate_view(root: &ViewNode) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn committed_notes_leave_file_view_availability_to_validated_bindings() {
+        assert_eq!(file_view_unavailable_reason(false), None);
+    }
+
+    #[test]
+    fn draft_notes_require_the_raw_diff() {
+        assert_eq!(
+            file_view_unavailable_reason(true),
+            Some(FILE_VIEW_DRAFT_UNAVAILABLE_REASON)
+        );
+    }
+
+    #[test]
+    fn file_view_mask_preserves_selection_identity_without_a_matching_constraint() {
+        let selections = BTreeMap::from([("readme".into(), "preview:rendered".into())]);
+        assert!(matches!(
+            available_file_view_selections(&selections, &BTreeMap::new()),
+            Cow::Borrowed(value) if std::ptr::eq(value, &selections)
+        ));
+
+        let unrelated =
+            BTreeMap::from([("other".into(), FILE_VIEW_DRAFT_UNAVAILABLE_REASON.into())]);
+        assert!(matches!(
+            available_file_view_selections(&selections, &unrelated),
+            Cow::Borrowed(value) if std::ptr::eq(value, &selections)
+        ));
+    }
+
+    #[test]
+    fn file_view_mask_hides_unavailable_choices_without_mutating_storage() {
+        let selections = BTreeMap::from([
+            ("other".into(), "ext:view".into()),
+            ("readme".into(), "preview:rendered".into()),
+        ]);
+        let unavailable =
+            BTreeMap::from([("readme".into(), FILE_VIEW_DRAFT_UNAVAILABLE_REASON.into())]);
+
+        assert_eq!(
+            available_file_view_selections(&selections, &unavailable).into_owned(),
+            BTreeMap::from([("other".into(), "ext:view".into())])
+        );
+        assert_eq!(
+            selections,
+            BTreeMap::from([
+                ("other".into(), "ext:view".into()),
+                ("readme".into(), "preview:rendered".into()),
+            ])
+        );
+    }
+
+    #[test]
+    fn presented_file_view_reports_rendered_state_not_only_stored_choice() {
+        let selections = BTreeMap::from([("readme".into(), "preview:rendered".into())]);
+        assert_eq!(
+            presented_file_view_key(&selections, &BTreeMap::new(), Some("readme")),
+            Some("preview:rendered")
+        );
+        assert_eq!(
+            presented_file_view_key(&selections, &BTreeMap::new(), Some("other")),
+            None
+        );
+        assert_eq!(
+            presented_file_view_key(&selections, &BTreeMap::new(), None),
+            None
+        );
+
+        let unavailable =
+            BTreeMap::from([("readme".into(), FILE_VIEW_DRAFT_UNAVAILABLE_REASON.into())]);
+        assert_eq!(
+            presented_file_view_key(&selections, &unavailable, Some("readme")),
+            None
+        );
+    }
 
     #[test]
     fn manifest_rejects_parent_directory_executables() {
