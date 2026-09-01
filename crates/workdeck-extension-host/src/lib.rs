@@ -154,6 +154,123 @@ pub fn create_extension_capability_lease(
     }
 }
 
+/// Immutable invalidation counters shared by pull-based extension surfaces.
+///
+/// Keys encode either one whole registered scope or one item inside that scope.
+/// The common case remains allocation-light: an empty state owns no entries,
+/// and reconciliation preserves the existing allocation when nothing changed.
+#[derive(Debug, Clone, Default)]
+pub struct ScopedEpochState(Arc<BTreeMap<String, u64>>);
+
+impl ScopedEpochState {
+    #[must_use]
+    pub fn from_encoded_entries(entries: impl IntoIterator<Item = (String, u64)>) -> Self {
+        Self(Arc::new(entries.into_iter().collect()))
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    #[must_use]
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+fn scoped_epoch_key(scope_key: &str, item_id: Option<&str>) -> String {
+    match item_id {
+        Some(item_id) => serde_json::to_string(&[scope_key, item_id]),
+        None => serde_json::to_string(&[scope_key]),
+    }
+    .expect("string tuples are JSON serializable")
+}
+
+fn parse_scoped_epoch_key(key: &str) -> Option<(String, Option<String>)> {
+    let parsed = serde_json::from_str::<Vec<Value>>(key).ok()?;
+    if parsed.len() != 1 && parsed.len() != 2 {
+        return None;
+    }
+    let mut parts = parsed.into_iter();
+    let scope_key = parts.next()?.as_str()?.to_owned();
+    let item_id = match parts.next() {
+        Some(part) => Some(part.as_str()?.to_owned()),
+        None => None,
+    };
+    Some((scope_key, item_id))
+}
+
+/// Return the invalidation epoch retained for one `(scope, item)` preparation.
+/// Scope-wide and item-specific counters are summed so neither can mask the
+/// other, regardless of the order in which invalidations arrive.
+#[must_use]
+pub fn scoped_epoch(epochs: &ScopedEpochState, scope_key: &str, item_id: &str) -> u64 {
+    epochs
+        .0
+        .get(&scoped_epoch_key(scope_key, None))
+        .copied()
+        .unwrap_or_default()
+        .saturating_add(
+            epochs
+                .0
+                .get(&scoped_epoch_key(scope_key, Some(item_id)))
+                .copied()
+                .unwrap_or_default(),
+        )
+}
+
+/// Invalidate every prepared artifact for a scope, or only one item in it.
+#[must_use]
+pub fn bump_scoped_epoch(
+    current: &ScopedEpochState,
+    scope_key: &str,
+    item_id: Option<&str>,
+) -> ScopedEpochState {
+    let key = scoped_epoch_key(scope_key, item_id);
+    let mut next = current.0.as_ref().clone();
+    let epoch = next.get(&key).copied().unwrap_or_default();
+    next.insert(key, epoch.saturating_add(1));
+    ScopedEpochState(Arc::new(next))
+}
+
+/// Drop epochs orphaned by a reload while retaining state identity when every
+/// encoded scope and optional item is still present.
+#[must_use]
+pub fn reconcile_scoped_epochs(
+    current: &ScopedEpochState,
+    item_ids: &[String],
+    scope_keys: &BTreeSet<String>,
+) -> ScopedEpochState {
+    if current.is_empty() {
+        return current.clone();
+    }
+    let valid_item_ids = item_ids.iter().map(String::as_str).collect::<BTreeSet<_>>();
+    let mut next = BTreeMap::new();
+    for (key, epoch) in current.0.iter() {
+        let Some((scope_key, item_id)) = parse_scoped_epoch_key(key) else {
+            continue;
+        };
+        if scope_keys.contains(&scope_key)
+            && item_id
+                .as_deref()
+                .is_none_or(|item_id| valid_item_ids.contains(item_id))
+        {
+            next.insert(key.clone(), *epoch);
+        }
+    }
+    if next.len() == current.len() {
+        current.clone()
+    } else {
+        ScopedEpochState(Arc::new(next))
+    }
+}
+
 #[derive(Debug)]
 pub struct LoadedExtension {
     pub manifest: ExtensionManifest,
@@ -673,5 +790,56 @@ mod tests {
             is_review_current: None,
         });
         assert!(lease.is_live());
+    }
+
+    #[test]
+    fn scoped_epochs_sum_scope_and_item_counters_so_neither_can_mask_the_other() {
+        let mut epochs = bump_scoped_epoch(&ScopedEpochState::default(), "ext:view", None);
+        epochs = bump_scoped_epoch(&epochs, "ext:view", Some("file-1"));
+        epochs = bump_scoped_epoch(&epochs, "ext:view", Some("file-1"));
+
+        assert_eq!(scoped_epoch(&epochs, "ext:view", "file-1"), 3);
+        assert_eq!(scoped_epoch(&epochs, "ext:view", "file-2"), 1);
+        assert_eq!(scoped_epoch(&epochs, "other", "file-1"), 0);
+    }
+
+    #[test]
+    fn bumping_scoped_epochs_returns_a_fresh_state_identity() {
+        let before = ScopedEpochState::default();
+        let after = bump_scoped_epoch(&before, "scope", None);
+
+        assert!(!after.ptr_eq(&before));
+        assert_eq!(before.len(), 0);
+    }
+
+    #[test]
+    fn scoped_epochs_reconcile_orphans_and_keep_identity_when_unchanged() {
+        let mut epochs = bump_scoped_epoch(&ScopedEpochState::default(), "kept", None);
+        epochs = bump_scoped_epoch(&epochs, "kept", Some("file-1"));
+        epochs = bump_scoped_epoch(&epochs, "dropped-scope", None);
+        epochs = bump_scoped_epoch(&epochs, "kept", Some("dropped-file"));
+
+        let reconciled = reconcile_scoped_epochs(
+            &epochs,
+            &["file-1".into()],
+            &BTreeSet::from(["kept".into()]),
+        );
+        assert_eq!(scoped_epoch(&reconciled, "kept", "file-1"), 2);
+        assert_eq!(scoped_epoch(&reconciled, "dropped-scope", "file-1"), 0);
+        assert_eq!(scoped_epoch(&reconciled, "kept", "dropped-file"), 1);
+
+        let unchanged = reconcile_scoped_epochs(
+            &reconciled,
+            &["file-1".into()],
+            &BTreeSet::from(["kept".into()]),
+        );
+        assert!(unchanged.ptr_eq(&reconciled));
+    }
+
+    #[test]
+    fn scoped_epochs_ignore_malformed_external_entries() {
+        let polluted = ScopedEpochState::from_encoded_entries([("not-json".into(), 7)]);
+        let reconciled = reconcile_scoped_epochs(&polluted, &[], &BTreeSet::new());
+        assert_eq!(reconciled.len(), 0);
     }
 }
