@@ -82,6 +82,14 @@ impl ReviewResourceDescriptor {
         }
     }
 
+    pub const fn base_mut(&mut self) -> &mut ReviewResourceDescriptorBase {
+        match self {
+            Self::CanonicalFile { descriptor, .. }
+            | Self::Patch { descriptor, .. }
+            | Self::Source { descriptor, .. } => descriptor,
+        }
+    }
+
     #[must_use]
     pub fn is_materialized(&self) -> bool {
         self.base().byte_length.is_some() && self.base().digest.is_some()
