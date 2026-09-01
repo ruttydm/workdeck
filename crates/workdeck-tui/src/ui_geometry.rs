@@ -142,6 +142,21 @@ pub fn resolve_render_viewport_height(measured_height: i64, estimated_height: i6
     }
 }
 
+/// Clamp a dragged sidebar width into the active terminal layout's allowed range.
+#[must_use]
+pub fn resize_sidebar_width(
+    start_width: i64,
+    drag_origin_x: i64,
+    current_x: i64,
+    min_width: i64,
+    max_width: i64,
+) -> i64 {
+    start_width
+        .saturating_add(current_x.saturating_sub(drag_origin_x))
+        .max(min_width)
+        .min(max_width)
+}
+
 fn wrap_prose(text: &str, width: usize) -> Vec<String> {
     if width == 0 {
         return vec![String::new()];
@@ -217,6 +232,14 @@ fn split_long_word(word: &str, width: usize, lines: &mut Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sidebar_drag_delta_clamps_at_both_layout_boundaries() {
+        assert_eq!(resize_sidebar_width(30, 40, 47, 20, 50), 37);
+        assert_eq!(resize_sidebar_width(30, 40, 5, 20, 50), 20);
+        assert_eq!(resize_sidebar_width(30, 40, 100, 20, 50), 50);
+        assert_eq!(resize_sidebar_width(30, 40, 40, 40, 20), 20);
+    }
 
     #[test]
     fn extension_key_event_is_an_owned_method_free_snapshot() {
