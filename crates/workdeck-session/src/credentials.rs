@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use ed25519_dalek::pkcs8::{EncodePrivateKey, EncodePublicKey};
@@ -24,6 +25,12 @@ const CREDENTIAL_LIFETIME_MS: u64 = 10 * 365 * 24 * 60 * 60 * 1_000;
 const MAX_CREDENTIAL_FILE_BYTES: u64 = 64 * 1_024;
 const PRIVATE_MODE: u32 = 0o600;
 const DIRECTORY_MODE: u32 = 0o700;
+
+// The hard-link adoption below keeps credential publication atomic between
+// processes. Within one process, serialize the complete three-file bootstrap so
+// concurrent callers cannot validate the directory while another caller is
+// still creating its hierarchy.
+static CREDENTIAL_BOOTSTRAP_LOCK: Mutex<()> = Mutex::new(());
 
 const COMMAND_SCOPES: [&str; 8] = [
     "navigate_to_hunk",
@@ -595,6 +602,9 @@ pub fn load_or_create_workdeck_session_broker_credentials(
     env: &BTreeMap<String, String>,
     now: Option<u64>,
 ) -> Result<WorkdeckSessionBrokerCredentials, CredentialStoreError> {
+    let _bootstrap_guard = CREDENTIAL_BOOTSTRAP_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let runtime_directory = workdeck_session_broker_runtime_directory(env);
     let security_directory = runtime_directory.join("security-v1");
     ensure_runtime_namespace(&runtime_directory)?;

@@ -1,6 +1,7 @@
 //! Authenticated, loopback-only control of live Workdeck review sessions.
 
 mod agent_errors;
+mod agent_surface;
 mod app_protocol_parsers;
 mod broker_auth;
 mod broker_budget;
@@ -34,6 +35,7 @@ mod workdeck_broker_state;
 mod workdeck_wire;
 
 pub use agent_errors::*;
+pub use agent_surface::*;
 pub use app_protocol_parsers::*;
 pub use broker_auth::*;
 pub use broker_budget::*;
@@ -349,6 +351,9 @@ fn handle_connection(
     stop: &Arc<AtomicBool>,
     reload: &Arc<AtomicBool>,
 ) -> Result<(), SessionError> {
+    // Accepted streams may inherit the listener's nonblocking mode on some
+    // platforms. The line protocol requires a complete request before reply.
+    stream.set_nonblocking(false)?;
     stream.set_read_timeout(Some(Duration::from_secs(2)))?;
     let mut line = String::new();
     BufReader::new(stream.try_clone()?).read_line(&mut line)?;
