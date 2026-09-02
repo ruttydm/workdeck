@@ -14,6 +14,7 @@ mod file_header;
 mod file_render_window;
 mod file_section_layout;
 mod file_view_geometry;
+mod help_content;
 mod hunk_scroll;
 mod ids;
 mod job_control;
@@ -55,6 +56,7 @@ pub use file_header::*;
 pub use file_render_window::*;
 pub use file_section_layout::*;
 pub use file_view_geometry::*;
+pub use help_content::*;
 pub use hunk_scroll::*;
 pub use ids::*;
 pub use job_control::*;
@@ -6126,7 +6128,31 @@ fn render_extension_toast(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
 }
 
 fn render_help(area: Rect, buffer: &mut Buffer) {
-    let geometry = resolve_modal_geometry(72, 20, area.width, area.height);
+    let sections = build_help_sections(&default_help_commands());
+    let mut lines = Vec::new();
+    for (section_index, section) in sections.into_iter().enumerate() {
+        if section_index > 0 {
+            lines.push(Line::default());
+        }
+        lines.push(Line::styled(
+            section.title,
+            Style::default().add_modifier(Modifier::BOLD),
+        ));
+        let key_width = section
+            .rows
+            .iter()
+            .map(|row| row.keys.width())
+            .max()
+            .unwrap_or_default();
+        lines.extend(
+            section
+                .rows
+                .into_iter()
+                .map(|row| Line::from(format!("  {:key_width$}  {}", row.keys, row.description))),
+        );
+    }
+    let requested_height = u16::try_from(lines.len().saturating_add(2)).unwrap_or(u16::MAX);
+    let geometry = resolve_modal_geometry(76, requested_height, area.width, area.height);
     let popup = Rect {
         x: area.x.saturating_add(geometry.left),
         y: area.y.saturating_add(geometry.top),
@@ -6134,31 +6160,13 @@ fn render_help(area: Rect, buffer: &mut Buffer) {
         height: geometry.height,
     };
     Clear.render(popup, buffer);
-    Paragraph::new(vec![
-        Line::from("Navigation"),
-        Line::from("  j/k, arrows       scroll or choose file"),
-        Line::from("  n/p               next/previous hunk"),
-        Line::from("  ]/[               next/previous file"),
-        Line::from("  PageUp/PageDown   scroll by page"),
-        Line::from(""),
-        Line::from("Appearance"),
-        Line::from("  s/u/a             split/stack/auto"),
-        Line::from("  f                 toggle files sidebar"),
-        Line::from("  l                 toggle line numbers"),
-        Line::from("  w                 toggle wrapping"),
-        Line::from("  e                 expand/collapse source gap"),
-        Line::from("  o                 toggle agent notes"),
-        Line::from("  r                 reload input"),
-        Line::from(""),
-        Line::from("  Tab               switch focus"),
-        Line::from("  q/Esc             quit"),
-    ])
-    .block(
-        Block::default()
-            .title(" Workdeck help ")
-            .borders(Borders::ALL),
-    )
-    .render(popup, buffer);
+    Paragraph::new(lines)
+        .block(
+            Block::default()
+                .title(" Workdeck help ")
+                .borders(Borders::ALL),
+        )
+        .render(popup, buffer);
 }
 
 #[cfg(test)]
@@ -6808,6 +6816,34 @@ mod tests {
         assert!(!app.options.sidebar);
         app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
         assert!(app.show_help);
+    }
+
+    #[test]
+    fn review_help_overlay_renders_the_command_derived_sections_and_rows() {
+        let backend = TestBackend::new(100, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_help(frame.area(), frame.buffer_mut()))
+            .unwrap();
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        for expected in [
+            "Navigation",
+            "PageDown / Space / f",
+            "Mouse",
+            "Shift+Wheel",
+            "View",
+            "1 / 2 / 0",
+            "Review",
+            "create review note",
+        ] {
+            assert!(rendered.contains(expected), "missing {expected:?}");
+        }
     }
 
     #[test]
