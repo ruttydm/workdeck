@@ -403,7 +403,11 @@ pub fn handle_event(event: &ReviewEvent, state: &mut ReviewTriageState) -> Comma
         }
         "review-triage:open" => {
             return CommandExecution {
-                actions: vec![ExtensionHostAction::OpenPane { id: PANE_ID.into() }],
+                actions: vec![if event.context.panes.is_open(PANE_ID) {
+                    ExtensionHostAction::ClosePane { id: PANE_ID.into() }
+                } else {
+                    ExtensionHostAction::OpenPane { id: PANE_ID.into() }
+                }],
             };
         }
         _ => false,

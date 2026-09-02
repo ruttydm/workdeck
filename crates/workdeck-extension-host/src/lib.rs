@@ -26,7 +26,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::{Arc, mpsc};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -36,16 +36,16 @@ use workdeck_extension_api::{
     API_VERSION, CliCommandExecution, CliCommandInvocation, CliCommandResult,
     CliOutputNotification, CliOutputStream, CommandExecution, CommandInvocation,
     ConfirmDialogSubmission, DEFAULT_HANDSHAKE_TIMEOUT_MS, DEFAULT_REQUEST_TIMEOUT_MS,
-    ExtensionDiffFile, ExtensionFileSide, ExtensionHostAction, ExtensionKeyEvent,
-    ExtensionManifest, ExtensionNotificationHub, ExtensionNotifyType, ExtensionPaneView,
-    ExtensionWorkspaceSnapshot, ExtensionWorkspaceWriteCompletion, FileViewLayoutRequest,
-    FileViewMatchRequest, FileViewModeKeyRequest, FileViewModeLifecycleRequest, HandshakeRequest,
-    HandshakeResponse, InputDialogSubmission, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
-    KeyboardModeExecution, KeyboardModeKeyRequest, KeyboardModeLifecycleRequest, MAX_MESSAGE_BYTES,
-    ManifestError, PaneActionInvocation, PaneRenderRequest, PaneRenderResponse, Registration,
-    ReviewEvent, SelectDialogSubmission, TransformRequest, TransformResponse,
-    ValidatedFileViewLayout, extension_pane_size, is_vertical_pane_placement, parse_key_chord,
-    validate_view,
+    ExtensionDiffFile, ExtensionEventContext, ExtensionFileSide, ExtensionHostAction,
+    ExtensionKeyEvent, ExtensionManifest, ExtensionNotificationHub, ExtensionNotifyType,
+    ExtensionPaneView, ExtensionWorkspaceSnapshot, ExtensionWorkspaceWriteCompletion,
+    FileViewLayoutRequest, FileViewMatchRequest, FileViewModeKeyRequest,
+    FileViewModeLifecycleRequest, HandshakeRequest, HandshakeResponse, InputDialogSubmission,
+    JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, KeyboardModeExecution,
+    KeyboardModeKeyRequest, KeyboardModeLifecycleRequest, MAX_MESSAGE_BYTES, ManifestError,
+    PaneActionInvocation, PaneRenderRequest, PaneRenderResponse, Registration, ReviewEvent,
+    SelectDialogSubmission, TransformRequest, TransformResponse, ValidatedFileViewLayout,
+    extension_pane_size, is_vertical_pane_placement, parse_key_chord, validate_view,
 };
 
 #[derive(Debug, Error)]
@@ -181,6 +181,75 @@ pub fn create_extension_capability_lease(
         get_active_registry: inputs.get_active_registry,
         is_app_alive: inputs.is_app_alive,
         is_review_current: inputs.is_review_current,
+    }
+}
+
+#[derive(Debug)]
+struct InstalledEventContextProvider {
+    cwd: PathBuf,
+}
+
+/// Identity-bearing slot for the event context installed by a committed review app.
+///
+/// Installation returns a guard whose cleanup only removes that exact provider.
+/// A retired app or runtime therefore cannot detach a successor installed in
+/// the same slot.
+#[derive(Debug, Clone, Default)]
+pub struct ExtensionEventContextProviderSlot {
+    active: Arc<Mutex<Option<Arc<InstalledEventContextProvider>>>>,
+}
+
+impl ExtensionEventContextProviderSlot {
+    #[must_use]
+    pub fn install(&self, cwd: PathBuf) -> ExtensionEventContextProviderInstallation {
+        let provider = Arc::new(InstalledEventContextProvider { cwd });
+        *self
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Arc::clone(&provider));
+        ExtensionEventContextProviderInstallation {
+            slot: self.clone(),
+            provider,
+        }
+    }
+
+    #[must_use]
+    pub fn context(&self, open_panes: Vec<String>) -> Option<ExtensionEventContext> {
+        self.active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+            .map(|provider| ExtensionEventContext::new(provider.cwd.clone(), open_panes))
+    }
+
+    #[must_use]
+    pub fn has_provider(&self) -> bool {
+        self.active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .is_some()
+    }
+}
+
+#[derive(Debug)]
+pub struct ExtensionEventContextProviderInstallation {
+    slot: ExtensionEventContextProviderSlot,
+    provider: Arc<InstalledEventContextProvider>,
+}
+
+impl Drop for ExtensionEventContextProviderInstallation {
+    fn drop(&mut self) {
+        let mut active = self
+            .slot
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if active
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, &self.provider))
+        {
+            *active = None;
+        }
     }
 }
 
@@ -2236,6 +2305,55 @@ mod tests {
             is_review_current: None,
         });
         assert!(lease.is_live());
+    }
+
+    #[test]
+    fn committed_event_context_provider_installs_observably_and_cleans_up() {
+        let slot = ExtensionEventContextProviderSlot::default();
+        assert!(!slot.has_provider());
+        let installation = slot.install(PathBuf::from("/repo"));
+        assert!(slot.has_provider());
+        let context = slot.context(vec!["summary".into()]).unwrap();
+        assert_eq!(context.cwd, PathBuf::from("/repo"));
+        assert_eq!(context.panes, context.sidebars);
+        assert!(context.panes.is_open("summary"));
+        drop(installation);
+        assert!(!slot.has_provider());
+    }
+
+    #[test]
+    fn event_context_registry_replacement_retires_the_predecessor() {
+        let first_slot = ExtensionEventContextProviderSlot::default();
+        let second_slot = ExtensionEventContextProviderSlot::default();
+        let first = first_slot.install(PathBuf::from("/repo/first"));
+        assert_eq!(
+            first_slot.context(Vec::new()).unwrap().cwd,
+            PathBuf::from("/repo/first")
+        );
+        drop(first);
+        assert!(!first_slot.has_provider());
+
+        let second = second_slot.install(PathBuf::from("/repo/second"));
+        assert_eq!(
+            second_slot.context(Vec::new()).unwrap().cwd,
+            PathBuf::from("/repo/second")
+        );
+        drop(second);
+        assert!(!second_slot.has_provider());
+    }
+
+    #[test]
+    fn stale_event_context_cleanup_cannot_clear_a_successor() {
+        let slot = ExtensionEventContextProviderSlot::default();
+        let predecessor = slot.install(PathBuf::from("/repo/first"));
+        let successor = slot.install(PathBuf::from("/repo/second"));
+        drop(predecessor);
+        assert_eq!(
+            slot.context(Vec::new()).unwrap().cwd,
+            PathBuf::from("/repo/second")
+        );
+        drop(successor);
+        assert!(!slot.has_provider());
     }
 
     #[test]

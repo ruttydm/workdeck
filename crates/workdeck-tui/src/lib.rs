@@ -148,6 +148,7 @@ use workdeck_extension_api::{
     ValidatedFileViewLayout, ViewNode, ViewStyle, bundled_files_pane, extension_pane_size,
 };
 use workdeck_extension_host::{
+    ExtensionEventContextProviderInstallation, ExtensionEventContextProviderSlot,
     ExtensionRequestCancellation, FileViewSelectionState, HostError, LoadedExtension,
     RegisteredFileView, create_file_view_input, create_file_view_input_snapshot,
     reconcile_file_view_selections, registered_file_view_key, select_file_view,
@@ -573,6 +574,8 @@ pub struct ReviewApp {
     mouse_scroll_acceleration: ReviewMouseWheelScrollAcceleration,
     mouse_scroll_accumulator: f64,
     extension_pane_runtime: Mutex<ExtensionPaneRuntime>,
+    extension_event_context_provider: ExtensionEventContextProviderSlot,
+    extension_event_context_installation: Option<ExtensionEventContextProviderInstallation>,
     extension_event_dispatch_depth: usize,
     extension_known_note_ids: BTreeSet<String>,
     extension_trust_controller: ExtensionTrustController,
@@ -637,6 +640,7 @@ impl ReviewApp {
             );
             (!notices.is_empty()).then(|| notices.join(" • "))
         };
+        let extension_event_context_provider = ExtensionEventContextProviderSlot::default();
         let mut app = Self {
             state: Arc::new(Mutex::new(state)),
             options,
@@ -670,12 +674,15 @@ impl ReviewApp {
             mouse_scroll_acceleration: ReviewMouseWheelScrollAcceleration::default(),
             mouse_scroll_accumulator: 0.0,
             extension_pane_runtime: Mutex::new(extension_pane_runtime),
+            extension_event_context_provider,
+            extension_event_context_installation: None,
             extension_event_dispatch_depth: 0,
             extension_known_note_ids,
             extension_trust_controller,
             extension_trust_request: None,
             extension_trust_prompt_hits: Cell::new(None),
         };
+        app.install_extension_event_context_provider();
         app.publish_extension_event("changeset_loaded", serde_json::json!({}));
         app.publish_extension_selection_events();
         app
@@ -906,6 +913,7 @@ impl ReviewApp {
             std::mem::replace(&mut *runtime, replacement)
         };
         drop(previous);
+        self.install_extension_event_context_provider();
         self.reload(changeset);
     }
 
@@ -2153,7 +2161,17 @@ impl ReviewApp {
                 .iter()
                 .enumerate()
                 .filter(|(_, extension)| extension.subscribes_to_event(name))
-                .map(|(index, extension)| (index, extension.manifest.id.clone()))
+                .filter_map(|(index, extension)| {
+                    let extension_id = extension.manifest.id.clone();
+                    let prefix = format!("{extension_id}:");
+                    let open_panes = runtime
+                        .open
+                        .iter()
+                        .filter_map(|key| key.strip_prefix(&prefix).map(str::to_owned))
+                        .collect();
+                    let context = self.extension_event_context_provider.context(open_panes)?;
+                    Some((index, extension_id, context))
+                })
                 .collect::<Vec<_>>()
         };
         if targets.is_empty() {
@@ -2162,12 +2180,13 @@ impl ReviewApp {
         let (snapshot, review) =
             self.with_state(|state| (state.snapshot(), build_extension_review_snapshot(state)));
         self.extension_event_dispatch_depth += 1;
-        for (extension_index, extension_id) in targets {
+        for (extension_index, extension_id, context) in targets {
             let event = ReviewEvent {
                 name: name.into(),
                 snapshot: snapshot.clone(),
                 payload: payload.clone(),
                 review: Some(review.clone()),
+                context,
             };
             let execution = {
                 let mut runtime = self
@@ -3570,6 +3589,17 @@ impl ReviewApp {
             .or_else(|| self.options.repo.clone())
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_default()
+    }
+
+    fn install_extension_event_context_provider(&mut self) {
+        let successor = self
+            .extension_event_context_provider
+            .install(self.extension_command_cwd());
+        let predecessor = self.extension_event_context_installation.replace(successor);
+        // The predecessor performs identity-checked cleanup. Dropping it after
+        // installing the successor exercises the same stale-cleanup boundary
+        // as a committed UI runtime replacement.
+        drop(predecessor);
     }
 
     fn handle_app_menu_key(&mut self, key: &KeyEvent) -> bool {
@@ -7722,6 +7752,43 @@ mod tests {
             )),
         });
         review
+    }
+
+    #[test]
+    fn committed_event_context_provider_is_installed_before_observation_and_cleans_up() {
+        let app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                command_cwd: Some(PathBuf::from("/repo")),
+                ..ReviewOptions::default()
+            },
+        );
+        let slot = app.extension_event_context_provider.clone();
+        assert!(slot.has_provider());
+        assert_eq!(
+            slot.context(vec!["summary".into()]).unwrap().cwd,
+            PathBuf::from("/repo")
+        );
+        drop(app);
+        assert!(!slot.has_provider());
+    }
+
+    #[test]
+    fn extension_runtime_replacement_installs_a_successor_event_context() {
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                command_cwd: Some(PathBuf::from("/repo/first")),
+                ..ReviewOptions::default()
+            },
+        );
+        let slot = app.extension_event_context_provider.clone();
+        app.options.command_cwd = Some(PathBuf::from("/repo/second"));
+        app.replace_extensions_and_reload(changeset(), Vec::new());
+        assert_eq!(
+            slot.context(Vec::new()).unwrap().cwd,
+            PathBuf::from("/repo/second")
+        );
     }
 
     #[test]

@@ -14,7 +14,11 @@ Input dialogs accept an optional initial value. Select, input, and confirmation 
 
 ## Events
 
-Extensions declare every subscribed event in one `EventSubscription` registration. The host sends `workdeck/event` in extension load order with immutable review snapshots. Lifecycle events currently include:
+Extensions declare every subscribed event in one `EventSubscription` registration. The host sends `workdeck/event` in extension load order with immutable review snapshots and a committed event-context snapshot. That context carries the review working directory and the owning extension's currently open local pane IDs; `sidebars` is the exact state alias for `panes`. Native callbacks request notifications, pane changes, navigation, dialogs, and further events by returning their corresponding declarative host actions.
+
+The provider is installed only after the review app has committed, before startup events are published. Runtime replacement installs the successor before retiring the predecessor, and cleanup is identity checked so stale teardown cannot detach the newer provider. Dropping the review app removes the active provider.
+
+Lifecycle events currently include:
 
 - `changeset_loaded`
 - `session_reload`

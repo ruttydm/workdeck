@@ -12,9 +12,9 @@ use workdeck_examples::review_triage_extension::{
     submit_input, submit_select,
 };
 use workdeck_extension_api::{
-    Capability, CommandInvocation, ConfirmDialogSubmission, ExtensionHostAction,
-    ExtensionNotifyType, InputDialogSubmission, PaneActionInvocation, PanePlacement,
-    PaneRenderRequest, Registration, ReviewEvent, SelectDialogSubmission, ViewNode,
+    Capability, CommandInvocation, ConfirmDialogSubmission, ExtensionEventContext,
+    ExtensionHostAction, ExtensionNotifyType, InputDialogSubmission, PaneActionInvocation,
+    PanePlacement, PaneRenderRequest, Registration, ReviewEvent, SelectDialogSubmission, ViewNode,
 };
 use workdeck_extension_host::LoadedExtension;
 use workdeck_review::{CommentAnchor, ReviewComment, ReviewNoteResolution, ReviewState};
@@ -100,6 +100,7 @@ fn event(name: &str, payload: serde_json::Value) -> ReviewEvent {
         snapshot: snapshot(),
         payload,
         review: None,
+        context: ExtensionEventContext::default(),
     }
 }
 
@@ -604,6 +605,13 @@ fn subprocess_protocol_preserves_state_across_every_callback_boundary() {
     assert!(matches!(
         &opened.actions[..],
         [ExtensionHostAction::OpenPane { .. }]
+    ));
+    let mut close_event = event("review-triage:open", json!({}));
+    close_event.context = ExtensionEventContext::new(PathBuf::from("/repo"), vec!["triage".into()]);
+    let closed = extension.deliver_event(close_event).unwrap();
+    assert!(matches!(
+        &closed.actions[..],
+        [ExtensionHostAction::ClosePane { .. }]
     ));
 }
 

@@ -807,6 +807,49 @@ pub struct ValidatedLineHighlight {
     pub tone: HighlightTone,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionPaneContext {
+    /// Extension-local pane ids that are open in the committed host layout.
+    #[serde(default)]
+    pub open: Vec<String>,
+}
+
+impl ExtensionPaneContext {
+    #[must_use]
+    pub fn is_open(&self, pane_id: &str) -> bool {
+        self.open.iter().any(|candidate| candidate == pane_id)
+    }
+}
+
+/// Immutable host state supplied alongside one extension event callback.
+///
+/// Native extensions return declarative host actions in place of Hunk's
+/// in-process callback methods. `sidebars` remains the deprecated alias for
+/// `panes` and is required to carry the same state.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionEventContext {
+    #[serde(default)]
+    pub cwd: PathBuf,
+    #[serde(default)]
+    pub panes: ExtensionPaneContext,
+    #[serde(default)]
+    pub sidebars: ExtensionPaneContext,
+}
+
+impl ExtensionEventContext {
+    #[must_use]
+    pub fn new(cwd: PathBuf, open_panes: Vec<String>) -> Self {
+        let panes = ExtensionPaneContext { open: open_panes };
+        Self {
+            cwd,
+            sidebars: panes.clone(),
+            panes,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReviewEvent {
     pub name: String,
@@ -815,6 +858,8 @@ pub struct ReviewEvent {
     pub payload: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub review: Option<ExtensionReviewSnapshot>,
+    #[serde(default)]
+    pub context: ExtensionEventContext,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1616,6 +1661,25 @@ mod tests {
         assert_eq!(
             serde_json::from_value::<CommandInvocation>(encoded).unwrap(),
             invocation
+        );
+    }
+
+    #[test]
+    fn event_context_keeps_sidebars_as_the_exact_pane_state_alias() {
+        let context = ExtensionEventContext::new(
+            PathBuf::from("/repo"),
+            vec!["summary".into(), "outline".into()],
+        );
+        assert_eq!(context.panes, context.sidebars);
+        assert!(context.panes.is_open("summary"));
+        assert!(!context.sidebars.is_open("missing"));
+
+        let encoded = serde_json::to_value(&context).unwrap();
+        assert_eq!(encoded["cwd"], "/repo");
+        assert_eq!(encoded["panes"], encoded["sidebars"]);
+        assert_eq!(
+            encoded["panes"]["open"],
+            serde_json::json!(["summary", "outline"])
         );
     }
 
