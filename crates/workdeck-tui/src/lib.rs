@@ -558,8 +558,10 @@ fn run_review_inner(
     let mut watched_input = watch_input
         .filter(|_| app.options.watch)
         .and_then(|(input, cwd)| {
-            let runtime: Arc<dyn WatchedInputRuntime> =
-                Arc::new(NativeWatchedInputRuntime::new(cwd, None));
+            let runtime: Arc<dyn WatchedInputRuntime> = Arc::new(NativeWatchedInputRuntime::new(
+                cwd,
+                Some(workdeck_vcs::bundled_vcs_catalog().clone()),
+            ));
             match WatchedInputDriver::start(
                 true,
                 input,

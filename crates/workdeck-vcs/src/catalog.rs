@@ -191,7 +191,7 @@ pub struct BundledVcsCatalog {
     pub provider_ids: &'static [&'static str],
 }
 
-pub const fn bundled_vcs_catalog() -> BundledVcsCatalog {
+pub const fn bundled_vcs_catalog_metadata() -> BundledVcsCatalog {
     BundledVcsCatalog {
         default_provider_id: DEFAULT_VCS_PROVIDER_ID,
         provider_ids: BUNDLED_VCS_PROVIDER_IDS,
@@ -576,7 +576,10 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["first", "second", "low"]
         );
-        assert_eq!(bundled_vcs_catalog().provider_ids, ["jj", "sl", "git"]);
+        assert_eq!(
+            bundled_vcs_catalog_metadata().provider_ids,
+            ["jj", "sl", "git"]
+        );
     }
 
     #[test]

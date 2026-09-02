@@ -1649,6 +1649,7 @@ fn handle_review_command(cwd: &Path, command: Command) -> Result<()> {
             };
             let mut input_options = review.common_options();
             input_options.exclude_untracked = Some(exclude_untracked);
+            input_options.vcs = Some(provider.name().into());
             let input = CliInput::Vcs(VcsDiffCommandInput {
                 range: from.is_none().then(|| target.clone()).flatten(),
                 range_endpoints: from
@@ -1670,13 +1671,15 @@ fn handle_review_command(cwd: &Path, command: Command) -> Result<()> {
             pathspec,
             review,
         } => {
+            let provider =
+                AnyProvider::discover(cwd, review.preference()).map_err(anyhow::Error::from)?;
+            let mut input_options = review.common_options();
+            input_options.vcs = Some(provider.name().into());
             let input = CliInput::Show(VcsShowCommandInput {
                 reference: target.clone(),
                 pathspecs: pathspec.clone(),
-                options: review.common_options(),
+                options: input_options,
             });
-            let provider =
-                AnyProvider::discover(cwd, review.preference()).map_err(anyhow::Error::from)?;
             let changeset = provider
                 .show(target.as_deref(), &pathspec)
                 .map_err(anyhow::Error::from)?;
@@ -1690,9 +1693,11 @@ fn handle_review_command(cwd: &Path, command: Command) -> Result<()> {
         Command::Stash {
             command: StashCommand::Show { reference, review },
         } => {
+            let mut input_options = review.common_options();
+            input_options.vcs = Some("git".into());
             let input = CliInput::StashShow(VcsStashShowCommandInput {
                 reference: reference.clone(),
-                options: review.common_options(),
+                options: input_options,
             });
             let provider = GitProvider::discover(cwd).map_err(anyhow::Error::from)?;
             let changeset = provider

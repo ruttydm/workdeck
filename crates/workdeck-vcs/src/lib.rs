@@ -1,5 +1,6 @@
 //! VCS adapters that normalize provider output into one Workdeck changeset model.
 
+mod bundled;
 mod catalog;
 mod large_file;
 mod platform;
@@ -11,6 +12,7 @@ mod watch_plan;
 mod watch_runtime;
 mod watch_signature;
 
+pub use bundled::*;
 pub use catalog::*;
 pub use large_file::{
     LARGE_DIFF_FILE_MAX_BYTES, LARGE_DIFF_FILE_MAX_LINES, LargeFileCheck,
