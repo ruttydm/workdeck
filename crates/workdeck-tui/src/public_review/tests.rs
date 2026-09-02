@@ -542,7 +542,7 @@ fn public_body_honors_header_number_and_selected_hunk_options() {
         .iter()
         .find(|cell| cell.symbol() == "e")
         .expect("rendered code cell");
-    assert_eq!(code_cell.bg, Color::Rgb(45, 55, 72));
+    assert_eq!(code_cell.bg, Color::Rgb(44, 37, 20));
 }
 
 #[test]
@@ -644,12 +644,34 @@ fn public_theme_option_reaches_native_header_and_code_palettes() {
         buffer
             .content()
             .iter()
-            .any(|cell| cell.bg == Color::Rgb(218, 251, 225))
+            .any(|cell| cell.bg == Color::Rgb(212, 227, 216))
     );
     assert!(
         buffer
             .content()
             .iter()
-            .any(|cell| cell.bg == Color::Rgb(255, 235, 233))
+            .any(|cell| cell.bg == Color::Rgb(246, 215, 217))
+    );
+}
+
+#[test]
+fn public_palette_uses_exact_bundled_surfaces_foregrounds_and_accents() {
+    let dracula = public_palette("dracula");
+    assert_eq!(dracula.panel, Color::Rgb(40, 42, 54));
+    assert_eq!(dracula.text, Color::Rgb(248, 248, 242));
+    assert_eq!(dracula.added, Color::Rgb(80, 250, 123));
+    assert_eq!(dracula.removed, Color::Rgb(255, 85, 85));
+    assert_eq!(dracula.accent, Color::Rgb(139, 233, 253));
+
+    let dawn = public_palette("rose-pine-dawn");
+    assert_eq!(dawn.panel, Color::Rgb(250, 244, 237));
+    assert_eq!(dawn.text, Color::Rgb(87, 82, 121));
+    assert_eq!(dawn.added, Color::Rgb(86, 148, 159));
+    assert_eq!(dawn.removed, Color::Rgb(180, 99, 122));
+    assert_eq!(dawn.accent, Color::Rgb(215, 130, 126));
+
+    assert_eq!(
+        public_palette("graphite"),
+        public_palette("github-dark-default")
     );
 }

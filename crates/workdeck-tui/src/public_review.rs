@@ -16,7 +16,10 @@ use ratatui::widgets::{Paragraph, Widget};
 use std::collections::BTreeSet;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use workdeck_core::{
-    Changeset, ChangesetSource, DiffFile, FileChangeKind, FileStats, ReviewSelection,
+    BUNDLED_SHIKI_THEME_IDS, Changeset, ChangesetSource, DiffFile, FileChangeKind, FileStats,
+    ReviewSelection, bundled_shiki_theme_is_light, get_bundled_shiki_theme_background,
+    get_bundled_shiki_theme_diff_colors, get_bundled_shiki_theme_foreground,
+    resolve_bundled_shiki_theme_id,
 };
 use workdeck_diff::{HighlightCache, PatchError, format_terminal_path, parse_patch};
 use workdeck_review::LayoutMode;
@@ -32,73 +35,7 @@ pub use workdeck_diff::{
 };
 
 /// The complete public theme-name catalog exposed by the pinned Hunk component package.
-pub const WORKDECK_DIFF_THEME_NAMES: &[WorkdeckDiffThemeName] = &[
-    "andromeeda",
-    "aurora-x",
-    "ayu-dark",
-    "ayu-light",
-    "ayu-mirage",
-    "catppuccin-frappe",
-    "catppuccin-latte",
-    "catppuccin-macchiato",
-    "catppuccin-mocha",
-    "dark-plus",
-    "dracula",
-    "dracula-soft",
-    "everforest-dark",
-    "everforest-light",
-    "github-dark",
-    "github-dark-default",
-    "github-dark-dimmed",
-    "github-dark-high-contrast",
-    "github-light",
-    "github-light-default",
-    "github-light-high-contrast",
-    "gruvbox-dark-hard",
-    "gruvbox-dark-medium",
-    "gruvbox-dark-soft",
-    "gruvbox-light-hard",
-    "gruvbox-light-medium",
-    "gruvbox-light-soft",
-    "horizon",
-    "horizon-bright",
-    "houston",
-    "kanagawa-dragon",
-    "kanagawa-lotus",
-    "kanagawa-wave",
-    "laserwave",
-    "light-plus",
-    "material-theme",
-    "material-theme-darker",
-    "material-theme-lighter",
-    "material-theme-ocean",
-    "material-theme-palenight",
-    "min-dark",
-    "min-light",
-    "monokai",
-    "night-owl",
-    "night-owl-light",
-    "nord",
-    "one-dark-pro",
-    "one-light",
-    "plastic",
-    "poimandres",
-    "red",
-    "rose-pine",
-    "rose-pine-dawn",
-    "rose-pine-moon",
-    "slack-dark",
-    "slack-ochin",
-    "snazzy-light",
-    "solarized-dark",
-    "solarized-light",
-    "synthwave-84",
-    "tokyo-night",
-    "vesper",
-    "vitesse-black",
-    "vitesse-dark",
-    "vitesse-light",
-];
+pub const WORKDECK_DIFF_THEME_NAMES: &[WorkdeckDiffThemeName] = BUNDLED_SHIKI_THEME_IDS;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkdeckDiffSelection {
@@ -910,7 +847,7 @@ fn fit_nav_text(text: &str, width: usize) -> String {
     output
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PublicPalette {
     panel: Color,
     panel_alt: Color,
@@ -925,7 +862,9 @@ struct PublicPalette {
 }
 
 fn public_palette(theme: &str) -> PublicPalette {
-    if is_light_theme(theme) {
+    let canonical = resolve_bundled_shiki_theme_id(Some(theme));
+    let is_light = bundled_shiki_theme_is_light(canonical).unwrap_or_else(|| is_light_theme(theme));
+    let mut palette = if is_light {
         PublicPalette {
             panel: Color::Rgb(255, 255, 255),
             panel_alt: Color::Rgb(246, 248, 250),
@@ -951,23 +890,49 @@ fn public_palette(theme: &str) -> PublicPalette {
             removed_bg: Color::Rgb(67, 24, 29),
             selected_bg: Color::Rgb(45, 55, 72),
         }
+    };
+    if let Some(theme_id) = canonical {
+        palette.panel = get_bundled_shiki_theme_background(Some(theme_id))
+            .and_then(color_from_hex)
+            .unwrap_or(palette.panel);
+        palette.text = get_bundled_shiki_theme_foreground(Some(theme_id))
+            .and_then(color_from_hex)
+            .unwrap_or(palette.text);
+        if let Some(diff) = get_bundled_shiki_theme_diff_colors(Some(theme_id)) {
+            palette.added = diff.added.and_then(color_from_hex).unwrap_or(palette.added);
+            palette.removed = diff
+                .removed
+                .and_then(color_from_hex)
+                .unwrap_or(palette.removed);
+            palette.accent = diff
+                .modified
+                .and_then(color_from_hex)
+                .unwrap_or(palette.accent);
+        }
+        palette.panel_alt = blend_color(palette.panel, palette.text, 10);
+        palette.added_bg = blend_color(palette.panel, palette.added, 18);
+        palette.removed_bg = blend_color(palette.panel, palette.removed, 18);
+        palette.selected_bg = blend_color(palette.panel, palette.accent, 18);
     }
+    palette
 }
 
 fn is_light_theme(theme: &str) -> bool {
-    theme.contains("light")
-        || matches!(
-            theme,
-            "catppuccin-latte"
-                | "everforest-light"
-                | "horizon-bright"
-                | "kanagawa-lotus"
-                | "material-theme-lighter"
-                | "one-light"
-                | "rose-pine-dawn"
-                | "slack-ochin"
-                | "snazzy-light"
-        )
+    bundled_shiki_theme_is_light(Some(theme)).unwrap_or_else(|| {
+        theme.contains("light")
+            || matches!(
+                theme,
+                "catppuccin-latte"
+                    | "everforest-light"
+                    | "horizon-bright"
+                    | "kanagawa-lotus"
+                    | "material-theme-lighter"
+                    | "one-light"
+                    | "rose-pine-dawn"
+                    | "slack-ochin"
+                    | "snazzy-light"
+            )
+    })
 }
 
 fn syntax_theme_name(theme: &str) -> &str {
@@ -976,6 +941,40 @@ fn syntax_theme_name(theme: &str) -> &str {
     } else {
         theme
     }
+}
+
+fn color_from_hex(value: &str) -> Option<Color> {
+    (value.len() == 7 && value.starts_with('#')).then_some(())?;
+    Some(Color::Rgb(
+        u8::from_str_radix(&value[1..3], 16).ok()?,
+        u8::from_str_radix(&value[3..5], 16).ok()?,
+        u8::from_str_radix(&value[5..7], 16).ok()?,
+    ))
+}
+
+fn blend_color(background: Color, foreground: Color, foreground_percent: u16) -> Color {
+    let (
+        Color::Rgb(background_red, background_green, background_blue),
+        Color::Rgb(foreground_red, foreground_green, foreground_blue),
+    ) = (background, foreground)
+    else {
+        return background;
+    };
+    let blend = |background: u8, foreground: u8| {
+        let background_percent = 100_u16.saturating_sub(foreground_percent);
+        u8::try_from(
+            (u16::from(background) * background_percent
+                + u16::from(foreground) * foreground_percent
+                + 50)
+                / 100,
+        )
+        .unwrap_or(background)
+    };
+    Color::Rgb(
+        blend(background_red, foreground_red),
+        blend(background_green, foreground_green),
+        blend(background_blue, foreground_blue),
+    )
 }
 
 fn apply_public_theme(lines: &mut [Line<'static>], theme: &str) {

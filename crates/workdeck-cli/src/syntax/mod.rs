@@ -5,6 +5,7 @@ use syntect::easy::HighlightLines;
 use syntect::highlighting::{Style as SynStyle, ThemeSet};
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
+use workdeck_core::bundled_shiki_theme_is_light;
 
 const LIGHT_DIFF_TEXT_COLOR: Color = Color::Rgb(32, 38, 35);
 const LIGHT_DIFF_ADD_BACKGROUND: Color = Color::Rgb(220, 246, 226);
@@ -108,6 +109,9 @@ enum ThemeMode {
 
 impl ThemeMode {
     fn from_config(theme: &str) -> Self {
+        if let Some(is_light) = bundled_shiki_theme_is_light(Some(theme)) {
+            return if is_light { Self::Light } else { Self::Dark };
+        }
         match theme.trim().to_ascii_lowercase().as_str() {
             "dark" | "base16-ocean.dark" | "solarized-dark" | "solarized (dark)" => Self::Dark,
             "light" | "base16-ocean.light" | "solarized-light" | "solarized (light)"

@@ -8,6 +8,7 @@ use syntect::highlighting::{FontStyle, ThemeSet};
 use syntect::parsing::SyntaxSet;
 use workdeck_core::{
     DiffFile, DiffHunk, FileChangeKind, FileFlags, FileSourceSnapshots, FileStats,
+    bundled_shiki_theme_is_light, resolve_legacy_theme_id,
 };
 
 const HIGHLIGHT_WORKER_CACHE_REVISION: u32 = 1;
@@ -239,8 +240,11 @@ impl Default for HighlightCache {
 
 impl HighlightCache {
     pub fn highlight(&mut self, file: &DiffFile, theme: &str) -> HighlightedFile {
+        let theme = resolve_legacy_theme_id(Some(theme)).unwrap_or(theme);
         let language = file.language.clone().unwrap_or_default();
-        let appearance = if theme.to_ascii_lowercase().contains("light") {
+        let appearance = if bundled_shiki_theme_is_light(Some(theme))
+            .unwrap_or_else(|| theme.to_ascii_lowercase().contains("light"))
+        {
             HighlightAppearance::Light
         } else {
             HighlightAppearance::Dark
@@ -263,7 +267,10 @@ impl HighlightCache {
             .themes
             .themes
             .get(theme)
-            .or_else(|| self.themes.themes.get("base16-ocean.dark"))
+            .or_else(|| match appearance {
+                HighlightAppearance::Light => self.themes.themes.get("InspiredGitHub"),
+                HighlightAppearance::Dark => self.themes.themes.get("base16-ocean.dark"),
+            })
             .or_else(|| self.themes.themes.values().next())
         else {
             return plain_file(file);

@@ -11,6 +11,7 @@ mod run;
 mod run_errors;
 mod semantic;
 mod startup_notice;
+mod theme;
 
 pub use command_inputs::*;
 pub use identity::{review_content_digest, review_file_key, review_source_identity};
@@ -19,6 +20,7 @@ pub use run::*;
 pub use run_errors::*;
 pub use semantic::*;
 pub use startup_notice::*;
+pub use theme::*;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
