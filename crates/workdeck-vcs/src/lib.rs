@@ -2,6 +2,7 @@
 
 mod bundled;
 mod catalog;
+mod git_source;
 mod large_file;
 mod platform;
 mod source_text;
@@ -14,6 +15,7 @@ mod watch_signature;
 
 pub use bundled::*;
 pub use catalog::*;
+pub use git_source::*;
 pub use large_file::{
     LARGE_DIFF_FILE_MAX_BYTES, LARGE_DIFF_FILE_MAX_LINES, LargeFileCheck,
     inspect_large_untracked_file,
@@ -41,7 +43,6 @@ use workdeck_core::{
 use workdeck_diff::{PatchError, parse_patch};
 
 const MAX_PATCH_BYTES: usize = 64 * 1024 * 1024;
-const MAX_SOURCE_BYTES: u64 = DEFAULT_SOURCE_TEXT_MAX_BYTES as u64;
 const BINARY_SNIFF_BYTES: usize = 8_000;
 
 #[derive(Debug, Error)]
@@ -462,40 +463,38 @@ impl GitProvider {
     }
 
     fn git_blob_snapshot(&self, revision: &str, path: &str) -> Option<SourceSnapshot> {
-        let spec = format!("{revision}:{path}");
-        let output = Command::new("git")
-            .args(["cat-file", "blob", &spec])
-            .current_dir(&self.root)
-            .output()
-            .ok()?;
-        if !output.status.success() || output.stdout.len() as u64 > MAX_SOURCE_BYTES {
-            return None;
-        }
-        let content = String::from_utf8(output.stdout).ok()?;
-        Some(SourceSnapshot::new(
-            content,
-            SourceOrigin::Revision {
-                revision: revision.into(),
+        match read_git_file_source(
+            &GitFileSourceSpec::GitBlob {
+                repo_root: self.root.clone(),
+                reference: revision.into(),
+                path: path.into(),
             },
-            true,
-        ))
+            &GitFileSourceOptions::default(),
+        ) {
+            LimitedSourceTextResult::Text(content) => Some(SourceSnapshot::new(
+                content,
+                SourceOrigin::Revision {
+                    revision: revision.into(),
+                },
+                true,
+            )),
+            LimitedSourceTextResult::Missing | LimitedSourceTextResult::TooLarge { .. } => None,
+        }
     }
 
     fn index_snapshot(&self, path: &str) -> Option<SourceSnapshot> {
-        let spec = format!(":{path}");
-        let output = Command::new("git")
-            .args(["cat-file", "blob", &spec])
-            .current_dir(&self.root)
-            .output()
-            .ok()?;
-        if !output.status.success() || output.stdout.len() as u64 > MAX_SOURCE_BYTES {
-            return None;
+        match read_git_file_source(
+            &GitFileSourceSpec::GitIndex {
+                repo_root: self.root.clone(),
+                path: path.into(),
+            },
+            &GitFileSourceOptions::default(),
+        ) {
+            LimitedSourceTextResult::Text(content) => {
+                Some(SourceSnapshot::new(content, SourceOrigin::Index, true))
+            }
+            LimitedSourceTextResult::Missing | LimitedSourceTextResult::TooLarge { .. } => None,
         }
-        Some(SourceSnapshot::new(
-            String::from_utf8(output.stdout).ok()?,
-            SourceOrigin::Index,
-            true,
-        ))
     }
 }
 
