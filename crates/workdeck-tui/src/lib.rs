@@ -15,6 +15,7 @@ mod extension_notifications;
 mod extension_panes;
 mod extension_trust_controller;
 mod extension_trust_prompt;
+mod extension_workspace;
 mod file_header;
 mod file_render_window;
 mod file_section_layout;
@@ -64,6 +65,7 @@ pub use extension_notifications::*;
 pub use extension_panes::*;
 pub use extension_trust_controller::*;
 pub use extension_trust_prompt::*;
+pub use extension_workspace::*;
 pub use file_header::*;
 pub use file_render_window::*;
 pub use file_section_layout::*;
@@ -118,7 +120,7 @@ use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, IsTerminal, Stdout};
 use std::ops::Range;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -183,6 +185,8 @@ pub struct ReviewOptions {
     pub theme: AppTheme,
     pub repo: Option<PathBuf>,
     pub command_cwd: Option<PathBuf>,
+    /// Provider-neutral invocation retained for workspace-write policy decisions.
+    pub review_input: Option<workdeck_core::CliInput>,
     /// Ordered user command bindings; ordering decides conflicting explicit claims.
     pub keybindings: Vec<UserKeyBindingEntry>,
     /// Non-fatal diagnostics produced while reading the user's binding table.
@@ -217,6 +221,7 @@ impl Default for ReviewOptions {
             theme: resolve_theme(Some(DEFAULT_DARK_THEME_ID), None, &[]),
             repo: None,
             command_cwd: None,
+            review_input: None,
             keybindings: Vec::new(),
             keybinding_notices: Vec::new(),
             extension_panes: Vec::new(),
@@ -334,6 +339,8 @@ struct ExtensionWorkspaceWriteDialog {
     request_id: String,
     file_id: String,
     path: String,
+    absolute_path: PathBuf,
+    root: PathBuf,
     text: String,
 }
 
@@ -2220,21 +2227,50 @@ impl ReviewApp {
         file_id: String,
         text: String,
     ) {
-        let path = self.with_state(|state| {
-            state
-                .changeset()
-                .files
-                .iter()
-                .find(|file| file.runtime_id == file_id)
-                .map(|file| file.path.clone())
-        });
-        let Some(path) = path else {
+        let Some(input) = self.options.review_input.as_ref() else {
             self.complete_extension_workspace_write(
                 extension_index,
                 extension_id,
                 request_id,
                 ExtensionWorkspaceWriteResult::Failed {
-                    detail: "Reviewed file is no longer available".into(),
+                    detail: "Workspace writes need a session that can reload; this review has no reloadable input.".into(),
+                },
+            );
+            return;
+        };
+        let Some(root) = self.options.repo.as_ref() else {
+            self.complete_extension_workspace_write(
+                extension_index,
+                extension_id,
+                request_id,
+                ExtensionWorkspaceWriteResult::Failed {
+                    detail: "Workspace writes need the reviewed repository root.".into(),
+                },
+            );
+            return;
+        };
+        let target = self.with_state(|state| {
+            resolve_extension_workspace_write_target(
+                &file_id,
+                &state.changeset().files,
+                input,
+                root,
+            )
+        });
+        let ExtensionWorkspaceWriteTarget::Writable {
+            path,
+            absolute_path,
+        } = target
+        else {
+            self.complete_extension_workspace_write(
+                extension_index,
+                extension_id,
+                request_id,
+                ExtensionWorkspaceWriteResult::Failed {
+                    detail: target
+                        .detail()
+                        .expect("unavailable workspace target has detail")
+                        .to_owned(),
                 },
             );
             return;
@@ -2259,6 +2295,15 @@ impl ReviewApp {
             );
             return;
         }
+        if let Some(detail) = verify_workspace_write_target(&absolute_path, &path, root) {
+            self.complete_extension_workspace_write(
+                extension_index,
+                extension_id,
+                request_id,
+                ExtensionWorkspaceWriteResult::Failed { detail },
+            );
+            return;
+        }
         let mut runtime = self
             .extension_pane_runtime
             .lock()
@@ -2273,6 +2318,8 @@ impl ReviewApp {
             request_id,
             file_id,
             path: path.clone(),
+            absolute_path,
+            root: root.clone(),
             text,
         });
         self.status = Some(format!(
@@ -2308,7 +2355,7 @@ impl ReviewApp {
             return true;
         };
         let result = if confirmed {
-            match self.write_extension_workspace_document(&dialog.file_id, &dialog.text) {
+            match self.write_extension_workspace_document(&dialog) {
                 Ok(()) => ExtensionWorkspaceWriteResult::Written,
                 Err(detail) => ExtensionWorkspaceWriteResult::Failed { detail },
             }
@@ -2356,9 +2403,13 @@ impl ReviewApp {
 
     fn write_extension_workspace_document(
         &self,
-        file_id: &str,
-        replacement: &str,
+        dialog: &ExtensionWorkspaceWriteDialog,
     ) -> Result<(), String> {
+        if let Some(detail) =
+            verify_workspace_write_target(&dialog.absolute_path, &dialog.path, &dialog.root)
+        {
+            return Err(detail);
+        }
         let (source, file) = self.with_state(|state| {
             (
                 state.changeset().source.clone(),
@@ -2366,7 +2417,7 @@ impl ReviewApp {
                     .changeset()
                     .files
                     .iter()
-                    .find(|file| file.runtime_id == file_id)
+                    .find(|file| file.runtime_id == dialog.file_id)
                     .cloned(),
             )
         });
@@ -2383,47 +2434,8 @@ impl ReviewApp {
                 file.path
             ));
         }
-        let relative = Path::new(&file.path);
-        if relative.is_absolute()
-            || relative
-                .components()
-                .any(|component| !matches!(component, Component::Normal(_)))
-        {
-            return Err(format!(
-                "Failed to write {} • unsafe reviewed path",
-                file.path
-            ));
-        }
-        let root = self.options.repo.as_ref().ok_or_else(|| {
-            format!(
-                "Failed to write {} • repository root is unavailable",
-                file.path
-            )
-        })?;
-        let root = std::fs::canonicalize(root)
-            .map_err(|error| format!("Failed to write {} • {error}", file.path))?;
-        let target = root.join(relative);
-        let parent = target
-            .parent()
-            .and_then(|parent| std::fs::canonicalize(parent).ok())
-            .ok_or_else(|| {
-                format!(
-                    "Failed to write {} • parent directory is unavailable",
-                    file.path
-                )
-            })?;
-        if !parent.starts_with(&root)
-            || std::fs::symlink_metadata(&target)
-                .map(|metadata| metadata.file_type().is_symlink() || !metadata.is_file())
-                .unwrap_or(true)
-        {
-            return Err(format!(
-                "Failed to write {} • path leaves the repository",
-                file.path
-            ));
-        }
         let expected = &file.sources.new.as_ref().expect("checked above").content;
-        let current = std::fs::read_to_string(&target)
+        let current = std::fs::read_to_string(&dialog.absolute_path)
             .map_err(|error| format!("Failed to write {} • {error}", file.path))?;
         if &current != expected {
             return Err(format!(
@@ -2431,7 +2443,7 @@ impl ReviewApp {
                 file.path
             ));
         }
-        std::fs::write(&target, replacement)
+        std::fs::write(&dialog.absolute_path, &dialog.text)
             .map_err(|error| format!("Failed to write {} • {error}", file.path))
     }
 
@@ -4150,7 +4162,7 @@ where
 
 fn run_review_inner(
     changeset: Changeset,
-    options: ReviewOptions,
+    mut options: ReviewOptions,
     extensions: Vec<LoadedExtension>,
     watch_input: Option<(workdeck_core::CliInput, PathBuf)>,
     mut reloader: Option<&mut dyn FnMut() -> Result<Changeset>>,
@@ -4170,6 +4182,7 @@ fn run_review_inner(
         .clone()
         .map(Ok)
         .unwrap_or_else(std::env::current_dir)?;
+    options.review_input = watch_input.as_ref().map(|(input, _)| input.clone());
     let mut app = ReviewApp::new_with_extensions(changeset, options, extensions);
     let mut watched_input = watch_input
         .filter(|_| app.options.watch)
@@ -7385,7 +7398,8 @@ mod tests {
     use super::*;
     use ratatui::backend::TestBackend;
     use workdeck_core::{
-        ChangesetSource, FileSourceSnapshots, LineRange, SourceOrigin, SourceSnapshot,
+        ChangesetSource, CliInput, CommonOptions, FileSourceSnapshots, LineRange, SourceOrigin,
+        SourceSnapshot, VcsDiffCommandInput,
     };
     use workdeck_diff::parse_patch;
     use workdeck_review::{CommentAnchor, ReviewComment};
@@ -7418,6 +7432,65 @@ mod tests {
             ChangesetSource::WorkingTree { staged: false },
         )
         .unwrap()
+    }
+
+    fn writable_input() -> CliInput {
+        CliInput::Vcs(VcsDiffCommandInput {
+            range: None,
+            range_endpoints: None,
+            staged: false,
+            pathspecs: Vec::new(),
+            options: CommonOptions::default(),
+        })
+    }
+
+    #[test]
+    fn extension_workspace_write_rechecks_the_captured_target_and_replaces_exact_source() {
+        let root = tempfile::TempDir::new().unwrap();
+        std::fs::write(root.path().join("a.rs"), "new\n").unwrap();
+        let mut review = changeset();
+        review.files[0].set_sources(FileSourceSnapshots {
+            old: Some(SourceSnapshot::new(
+                "old\n".into(),
+                SourceOrigin::Revision {
+                    revision: "HEAD".into(),
+                },
+                true,
+            )),
+            new: Some(SourceSnapshot::new(
+                "new\n".into(),
+                SourceOrigin::WorkingTree,
+                true,
+            )),
+        });
+        let file_id = review.files[0].runtime_id.clone();
+        let app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                repo: Some(root.path().to_owned()),
+                review_input: Some(writable_input()),
+                ..ReviewOptions::default()
+            },
+        );
+        let dialog = ExtensionWorkspaceWriteDialog {
+            extension_index: 0,
+            extension_id: "rewrite".into(),
+            request_id: "write-1".into(),
+            file_id,
+            path: "a.rs".into(),
+            absolute_path: root.path().join("a.rs"),
+            root: root.path().to_owned(),
+            text: "rewritten\n".into(),
+        };
+        app.write_extension_workspace_document(&dialog).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("a.rs")).unwrap(),
+            "rewritten\n"
+        );
+
+        std::fs::remove_file(root.path().join("a.rs")).unwrap();
+        let error = app.write_extension_workspace_document(&dialog).unwrap_err();
+        assert!(error.contains("no longer in the working tree"));
     }
 
     #[test]

@@ -710,6 +710,7 @@ impl ReviewCliOptions {
             theme,
             repo: None,
             command_cwd: None,
+            review_input: None,
             keybindings: self.keybindings.clone(),
             keybinding_notices: self.keybinding_notices.clone(),
             extension_panes: Vec::new(),
