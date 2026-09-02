@@ -116,4 +116,38 @@ mod tests {
         assert_eq!(compute_line_reveal_scroll_top(20, 2, 10, 10), 12);
         assert_eq!(compute_line_reveal_scroll_top(-2, 0, 5, -1), 0);
     }
+
+    #[test]
+    fn matches_every_pinned_hunk_scroll_test_vector() {
+        assert_eq!(compute_hunk_reveal_scroll_top(20, 10, 4, 12), 18);
+        assert_eq!(compute_hunk_reveal_scroll_top(20, 10, 4, 16), 16);
+        assert_eq!(compute_hunk_reveal_scroll_top(40, 18, 5, 10), 35);
+        assert_eq!(compute_hunk_reveal_scroll_top(-3, 6, 4, 12), 0);
+        assert_eq!(compute_hunk_reveal_scroll_top(25, 8, 6, 0), 19);
+
+        for (alignment, expected) in [
+            (CurrentLineAlignment::Top, 20),
+            (CurrentLineAlignment::Center, 16),
+            (CurrentLineAlignment::Bottom, 12),
+        ] {
+            assert_eq!(
+                compute_line_alignment_scroll_top(alignment, 20, 2, 10),
+                expected
+            );
+        }
+        assert_eq!(
+            compute_line_alignment_scroll_top(CurrentLineAlignment::Center, 2, 1, 20),
+            0
+        );
+        assert_eq!(
+            compute_line_alignment_scroll_top(CurrentLineAlignment::Bottom, 10, 20, 8),
+            22
+        );
+
+        assert_eq!(compute_line_reveal_scroll_top(12, 1, 10, 20), 10);
+        assert_eq!(compute_line_reveal_scroll_top(4, 1, 10, 20), 4);
+        assert_eq!(compute_line_reveal_scroll_top(40, 1, 10, 20), 21);
+        assert_eq!(compute_line_reveal_scroll_top(28, 3, 10, 20), 11);
+        assert_eq!(compute_line_reveal_scroll_top(0, 40, 5, 20), 0);
+    }
 }

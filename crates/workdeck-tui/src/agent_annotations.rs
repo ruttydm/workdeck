@@ -227,6 +227,11 @@ pub fn annotation_range_label(annotation: &AgentAnnotation, file: Option<&DiffFi
 mod tests {
     use super::*;
     use workdeck_core::{AgentFileContext, FileFlags, FileSourceSnapshots, FileStats};
+    use workdeck_diff::{FileComparisonOptions, FileSnapshot, diff_from_file_snapshots};
+    use workdeck_review::{
+        CommentTargetInput, build_live_comment, resolve_comment_target,
+        review_annotated_hunk_indices,
+    };
 
     fn annotation() -> AgentAnnotation {
         AgentAnnotation {
@@ -360,5 +365,139 @@ mod tests {
         );
         assert_eq!(targeted.anchor.owner_hunk_index, Some(0));
         assert_eq!(targeted.anchor.preferred.unwrap().side, ReviewSide::Old);
+    }
+
+    #[test]
+    fn matches_pinned_inline_title_and_github_range_vectors() {
+        let mut note = annotation();
+        note.summary = "Draft".into();
+        note.source = Some("user-draft".into());
+        note.title = None;
+        assert_eq!(inline_note_title(&note, 0, 1), "Draft note");
+        note.summary = "Mine".into();
+        note.source = Some("user".into());
+        assert_eq!(inline_note_title(&note, 0, 1), "Your note");
+        note.summary = "Agent".into();
+        note.source = Some("agent".into());
+        note.author = Some(" Pi\rspoof ".into());
+        assert_eq!(inline_note_title(&note, 1, 3), "Pispoof note 2/3");
+
+        let mut file = file(annotation());
+        file.path = "src/sparse.ts".into();
+        file.previous_path = Some("src/sparse.ts".into());
+        file.change_kind = FileChangeKind::Modified;
+        file.flags.untracked = false;
+        let mut added = annotation();
+        added.old_range = None;
+        added.new_range = Some(LineRange {
+            start: 142,
+            end: 142,
+        });
+        assert_eq!(
+            annotation_range_label(&added, Some(&file)),
+            "src/sparse.ts R142"
+        );
+        let mut removed = annotation();
+        removed.old_range = Some(LineRange { start: 88, end: 91 });
+        removed.new_range = None;
+        assert_eq!(
+            annotation_range_label(&removed, Some(&file)),
+            "src/sparse.ts L88–L91"
+        );
+        let mut changed = annotation();
+        changed.old_range = Some(LineRange { start: 10, end: 11 });
+        changed.new_range = Some(LineRange { start: 20, end: 21 });
+        assert_eq!(
+            annotation_range_label(&changed, Some(&file)),
+            "src/sparse.ts L10–L11 → R20–R21"
+        );
+    }
+
+    #[test]
+    fn hunk_number_comment_after_leading_context_targets_first_change_and_stays_visible() {
+        let before = (1..=25)
+            .map(|line| format!("line{line}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        let after = (1..=25)
+            .flat_map(|line| {
+                if line == 13 {
+                    vec!["INSERTED".into(), format!("line{line}")]
+                } else {
+                    vec![format!("line{line}")]
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        let mut file = diff_from_file_snapshots(
+            FileSnapshot {
+                cache_key: "before",
+                contents: &before,
+                name: "src/sparse.ts",
+            },
+            FileSnapshot {
+                cache_key: "after",
+                contents: &after,
+                name: "src/sparse.ts",
+            },
+            FileComparisonOptions {
+                context_radius: 100,
+            },
+        )
+        .unwrap();
+        file.runtime_id = "file:context-heavy-annotation".into();
+        let input = CommentTargetInput {
+            file_path: file.path.clone(),
+            hunk_index: Some(0),
+            side: None,
+            line: None,
+            summary: "Explain inserted line".into(),
+            rationale: Some(
+                "The daemon resolves hunk-number comments to the first change row.".into(),
+            ),
+            markup: None,
+            author: None,
+        };
+        let target = resolve_comment_target(&file, &input).unwrap();
+        assert_eq!(target.hunk_index, 0);
+        assert_eq!(target.side, ReviewSide::New);
+        assert_eq!(target.line, 13);
+        assert_eq!(file.hunks[0].new_count, 26);
+
+        let comment = build_live_comment(
+            &file,
+            input,
+            "comment-1".into(),
+            "2026-03-22T00:00:00.000Z".into(),
+            target,
+        );
+        let annotation = AgentAnnotation {
+            id: Some(comment.id),
+            old_range: comment.anchor.old_range,
+            new_range: comment.anchor.new_range,
+            summary: comment.summary,
+            rationale: comment.rationale,
+            markup: comment.markup,
+            tags: comment.tags,
+            confidence: comment.confidence,
+            source: Some(comment.source),
+            title: comment.title,
+            author: comment.author,
+            created_at: comment.created_at,
+            updated_at: comment.updated_at,
+            editable: comment.editable,
+        };
+        file.agent = Some(AgentFileContext {
+            path: file.path.clone(),
+            summary: None,
+            annotations: vec![annotation.clone()],
+        });
+        assert_eq!(review_annotated_hunk_indices(Some(&file)), [0].into());
+        assert_eq!(
+            get_selected_annotations(Some(&file), file.hunks.first()),
+            [&annotation]
+        );
     }
 }
