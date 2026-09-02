@@ -7,6 +7,8 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use workdeck_cli::app::App;
 use workdeck_cli::config::Config;
@@ -24,10 +26,13 @@ use workdeck_core::{
     InputLayoutMode, PatchCommandInput, ReviewSide, SelfUpdateCommandInput, SidebarVisibility,
     VcsDiffCommandInput, VcsRangeEndpoints, VcsShowCommandInput, VcsStashShowCommandInput,
 };
-use workdeck_diff::{LanguageMatcher, LanguageRegistration, LanguageRegistry};
+use workdeck_diff::{
+    LanguageMatcher, LanguageRegistration, LanguageRegistry, SanitizeOptions,
+    sanitize_terminal_text,
+};
 use workdeck_extension_api::{
-    ExtensionManifest, ExtensionNotificationHub, ExtensionPaneView, FileLanguageGlobTarget,
-    FileLanguageMatcher, Registration,
+    CliCommandResult, ExtensionManifest, ExtensionNotificationHub, ExtensionPaneView,
+    FileLanguageGlobTarget, FileLanguageMatcher, Registration,
 };
 use workdeck_extension_host::{LoadedExtension, TrustDecision, TrustStore, discover_manifests};
 use workdeck_review::{
@@ -57,6 +62,15 @@ struct Args {
 
     #[arg(long, help = "Print a JSON status snapshot without opening the TUI")]
     status_json: bool,
+
+    #[arg(long, global = true, value_name = "PATH")]
+    extension: Vec<PathBuf>,
+
+    #[arg(long, global = true, conflicts_with = "no_extensions")]
+    extensions: bool,
+
+    #[arg(long = "no-extensions", global = true, conflicts_with = "extensions")]
+    no_extensions: bool,
 
     #[command(subcommand)]
     command: Option<Command>,
@@ -243,6 +257,8 @@ enum Command {
         #[command(subcommand)]
         command: LabelCommand,
     },
+    #[command(external_subcommand)]
+    External(Vec<String>),
 }
 
 #[derive(Debug, Subcommand)]
@@ -545,9 +561,9 @@ struct ReviewCliOptions {
     agent_context: Option<PathBuf>,
     #[arg(long, value_name = "THEME")]
     theme: Option<String>,
-    #[arg(long, value_name = "PATH")]
+    #[arg(skip)]
     extension: Vec<PathBuf>,
-    #[arg(long)]
+    #[arg(skip)]
     no_extensions: bool,
     #[arg(skip)]
     color_moved: Option<bool>,
@@ -796,6 +812,97 @@ mod review_cli_option_tests {
         assert_eq!(common.vcs, None);
         assert_eq!(common.watch, Some(false));
         assert_eq!(common.extensions, Some(false));
+    }
+}
+
+#[cfg(test)]
+mod extension_cli_tests {
+    use super::*;
+
+    #[test]
+    fn unknown_top_level_tokens_retain_raw_args_for_native_extensions() {
+        let parsed = Args::try_parse_from([
+            "workdeck",
+            "--extension",
+            "./cli-tools",
+            "cli-tools",
+            "review",
+            "--mode",
+            "split",
+            "--",
+            "-leading",
+        ])
+        .unwrap();
+        assert_eq!(parsed.extension, [PathBuf::from("./cli-tools")]);
+        assert!(matches!(
+            parsed.command,
+            Some(Command::External(tokens))
+                if tokens == ["cli-tools", "review", "--mode", "split", "--", "-leading"]
+        ));
+    }
+
+    #[test]
+    fn global_extension_paths_apply_to_built_in_review_commands() {
+        let mut parsed = Args::try_parse_from([
+            "workdeck",
+            "diff",
+            "--extension",
+            "./one",
+            "--extension=./two",
+        ])
+        .unwrap();
+        let review = parsed
+            .command
+            .as_mut()
+            .and_then(Command::review_options_mut)
+            .unwrap();
+        review.extension.clone_from(&parsed.extension);
+        assert_eq!(
+            review.extension,
+            [PathBuf::from("./one"), PathBuf::from("./two")]
+        );
+    }
+
+    #[test]
+    fn delegated_parsing_preserves_bootstrap_flags_and_rejects_extension_targets() {
+        let parsed = parse_delegated_args(
+            Path::new("/tmp/repo"),
+            &[PathBuf::from("tool")],
+            false,
+            vec!["diff".into(), "HEAD".into()],
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(parsed.cwd, PathBuf::from("/tmp/repo"));
+        assert_eq!(parsed.extension, [PathBuf::from("tool")]);
+        assert!(
+            matches!(parsed.command, Some(Command::Diff { revisions, .. }) if revisions == ["HEAD"])
+        );
+
+        let parsed =
+            parse_delegated_args(Path::new("."), &[], false, vec!["another-extension".into()])
+                .unwrap()
+                .unwrap();
+        assert!(matches!(parsed.command, Some(Command::External(_))));
+    }
+
+    #[test]
+    fn extension_metadata_is_collapsed_to_one_terminal_safe_line() {
+        assert_eq!(
+            extension_cli_line("safe\n\x1b]52;c;AAAA\x07\ttext"),
+            "safetext"
+        );
+    }
+
+    #[test]
+    fn bootstrap_flags_are_rejected_by_non_review_built_ins() {
+        let parsed = Args::try_parse_from(["workdeck", "--extension", "tool", "status"]).unwrap();
+        assert!(
+            run(parsed)
+                .unwrap_err()
+                .to_string()
+                .contains("may be used only")
+        );
     }
 }
 
@@ -1344,6 +1451,39 @@ fn main() -> ExitCode {
 }
 
 fn run(mut args: Args) -> Result<()> {
+    let has_extension_bootstrap_flags =
+        !args.extension.is_empty() || args.extensions || args.no_extensions;
+    let accepts_extension_bootstrap = args.command.as_ref().is_none_or(|command| {
+        command.is_review_command() || matches!(command, Command::External(_))
+    });
+    if has_extension_bootstrap_flags && !accepts_extension_bootstrap {
+        bail!(
+            "`--extension`, `--extensions`, and `--no-extensions` may be used only with a Workdeck review command or an extension CLI command"
+        );
+    }
+
+    if let Some(review) = args.command.as_mut().and_then(Command::review_options_mut) {
+        review.extension.clone_from(&args.extension);
+        review.no_extensions = args.no_extensions && !args.extensions;
+    }
+
+    if matches!(args.command, Some(Command::External(_))) {
+        let Command::External(tokens) = args.command.take().expect("external command was present")
+        else {
+            unreachable!()
+        };
+        let (command_name, command_args) = tokens
+            .split_first()
+            .context("extension CLI command is missing its command name")?;
+        return handle_extension_cli_command(
+            &args.cwd,
+            &args.extension,
+            args.no_extensions && !args.extensions,
+            command_name,
+            command_args,
+        );
+    }
+
     if !args.init
         && !args.status_json
         && args
@@ -1454,6 +1594,9 @@ fn run(mut args: Args) -> Result<()> {
             Command::Project { command } => handle_project_command(&store, command)?,
             Command::Cycle { command } => handle_cycle_command(&store, command)?,
             Command::Label { command } => handle_label_command(&store, command)?,
+            Command::External(_) => {
+                unreachable!("extension CLI commands are handled before repository discovery")
+            }
         }
         return Ok(());
     }
@@ -1471,7 +1614,9 @@ fn run(mut args: Args) -> Result<()> {
         .working_tree(&request)
         .map_err(anyhow::Error::from)?;
     if !changeset.is_empty() {
-        let review = ReviewCliOptions::from_config(&config);
+        let mut review = ReviewCliOptions::from_config(&config);
+        review.extension = args.extension;
+        review.no_extensions = args.no_extensions && !args.extensions;
         let (mut extensions, notifications) = load_review_extensions(&repo_root, &review)?;
         let (changeset, panes) = apply_review_extensions(changeset, &mut extensions)?;
         let mut options = review.tui_options();
@@ -1572,6 +1717,7 @@ impl Command {
             Command::Project { command } => command.wants_json(),
             Command::Cycle { command } => command.wants_json(),
             Command::Label { command } => command.wants_json(),
+            Command::External(_) => false,
         }
     }
 }
@@ -1964,6 +2110,188 @@ fn load_review_extensions(
         })
         .collect::<Result<Vec<_>>>()?;
     Ok((extensions, notifications))
+}
+
+fn load_cli_extensions(
+    cwd: &Path,
+    explicit: &[PathBuf],
+    disabled: bool,
+) -> Result<Vec<LoadedExtension>> {
+    if disabled {
+        return Ok(Vec::new());
+    }
+    let config = user_config_root().map(|root| root.join("workdeck"));
+    let trust = config
+        .as_ref()
+        .map(|config| TrustStore::load(&config.join("extension-trust.toml")))
+        .unwrap_or_default();
+    let global_extensions = config.as_ref().map(|config| config.join("extensions"));
+    let repo = AnyProvider::discover(cwd, ProviderPreference::Auto)
+        .ok()
+        .map(|provider| provider.root().to_owned());
+    discover_manifests(
+        global_extensions.as_deref(),
+        repo.as_deref(),
+        &trust,
+        explicit,
+    )?
+    .iter()
+    .map(|path| {
+        LoadedExtension::spawn(path, env!("CARGO_PKG_VERSION"))
+            .with_context(|| format!("failed to load native extension {}", path.display()))
+    })
+    .collect()
+}
+
+fn extension_cli_line(value: &str) -> String {
+    sanitize_terminal_text(
+        value,
+        SanitizeOptions {
+            preserve_newlines: false,
+            preserve_tabs: false,
+            preserve_ansi_style: false,
+        },
+    )
+    .trim()
+    .to_owned()
+}
+
+fn parse_delegated_args(
+    cwd: &Path,
+    extension_paths: &[PathBuf],
+    extensions_disabled: bool,
+    argv: Vec<String>,
+) -> Result<Option<Args>> {
+    let mut delegated = Vec::<std::ffi::OsString>::new();
+    delegated.push("workdeck".into());
+    delegated.push("--cwd".into());
+    delegated.push(cwd.as_os_str().to_owned());
+    for path in extension_paths {
+        delegated.push("--extension".into());
+        delegated.push(path.as_os_str().to_owned());
+    }
+    if extensions_disabled {
+        delegated.push("--no-extensions".into());
+    }
+    delegated.extend(argv.into_iter().map(Into::into));
+    match Args::try_parse_from(delegated) {
+        Ok(args) => Ok(Some(args)),
+        Err(error) => {
+            let exit_code = error.exit_code();
+            let _ = error.print();
+            if exit_code == 0 {
+                Ok(None)
+            } else {
+                Err(CommandExit(exit_code).into())
+            }
+        }
+    }
+}
+
+fn handle_extension_cli_command(
+    cwd: &Path,
+    extension_paths: &[PathBuf],
+    extensions_disabled: bool,
+    command_name: &str,
+    command_args: &[String],
+) -> Result<()> {
+    let mut extensions = load_cli_extensions(cwd, extension_paths, extensions_disabled)?;
+    let mut claimed = std::collections::BTreeMap::<String, (usize, String)>::new();
+    for (index, extension) in extensions.iter().enumerate() {
+        for registration in &extension.handshake.registrations {
+            let Registration::CliCommand(command) = registration else {
+                continue;
+            };
+            if let Some((_, winner)) = claimed.get(&command.name) {
+                eprintln!(
+                    "workdeck: warning: CLI command {:?} is already registered by {}; {} cannot replace it.",
+                    extension_cli_line(&command.name),
+                    extension_cli_line(winner),
+                    extension_cli_line(&extension.manifest.id),
+                );
+            } else {
+                claimed.insert(command.name.clone(), (index, extension.manifest.id.clone()));
+            }
+        }
+    }
+
+    let Some((extension_index, _)) = claimed.get(command_name).cloned() else {
+        let mut message = format!("Unknown command: {command_name}");
+        if !claimed.is_empty() {
+            message.push_str("\nExtension commands available here:");
+            for (name, (index, _)) in &claimed {
+                let command = extensions[*index]
+                    .handshake
+                    .registrations
+                    .iter()
+                    .find_map(|registration| match registration {
+                        Registration::CliCommand(command) if &command.name == name => Some(command),
+                        _ => None,
+                    })
+                    .expect("claimed CLI registration remains present");
+                let usage = command
+                    .usage
+                    .as_deref()
+                    .map(extension_cli_line)
+                    .filter(|usage| !usage.is_empty())
+                    .map(|usage| format!(" {usage}"))
+                    .unwrap_or_default();
+                message.push_str(&format!(
+                    "\nworkdeck {}{} — {}",
+                    extension_cli_line(name),
+                    usage,
+                    extension_cli_line(&command.summary)
+                ));
+            }
+        }
+        bail!(message);
+    };
+
+    let command_cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned());
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let interrupt_count = Arc::new(AtomicU8::new(0));
+    ctrlc::set_handler({
+        let cancelled = Arc::clone(&cancelled);
+        let interrupt_count = Arc::clone(&interrupt_count);
+        move || {
+            if interrupt_count.fetch_add(1, Ordering::AcqRel) == 0 {
+                cancelled.store(true, Ordering::Release);
+            } else {
+                std::process::exit(130);
+            }
+        }
+    })
+    .context("failed to install extension CLI cancellation handler")?;
+    let execution = {
+        let mut stdout = std::io::stdout().lock();
+        let mut stderr = std::io::stderr().lock();
+        extensions[extension_index].invoke_cli_command_cancellable(
+            command_name,
+            command_args.to_vec(),
+            &command_cwd,
+            std::time::Duration::from_millis(workdeck_extension_api::DEFAULT_REQUEST_TIMEOUT_MS),
+            &cancelled,
+            &mut stdout,
+            &mut stderr,
+        )?
+    };
+
+    match execution.result {
+        CliCommandResult::Exit { code: 0 } => Ok(()),
+        CliCommandResult::Exit { code } => Err(CommandExit(i32::from(code)).into()),
+        CliCommandResult::Delegate { argv } => {
+            drop(extensions);
+            let Some(delegated) =
+                parse_delegated_args(cwd, extension_paths, extensions_disabled, argv)?
+            else {
+                return Ok(());
+            };
+            if matches!(delegated.command, Some(Command::External(_))) {
+                bail!("Extension CLI commands may delegate only to built-in Workdeck commands.");
+            }
+            run(delegated)
+        }
+    }
 }
 
 fn handle_global_command(cwd: &Path, command: Command) -> Result<()> {

@@ -23,17 +23,20 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, mpsc};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 use workdeck_core::{Changeset, ReviewSnapshot};
+use workdeck_diff::{SanitizeOptions, sanitize_terminal_text};
 use workdeck_extension_api::{
-    API_VERSION, DEFAULT_REQUEST_TIMEOUT_MS, ExtensionManifest, ExtensionNotificationHub,
-    ExtensionNotifyType, ExtensionPaneView, HandshakeRequest, HandshakeResponse, JsonRpcRequest,
-    JsonRpcResponse, MAX_MESSAGE_BYTES, ManifestError, PaneRenderRequest, PaneRenderResponse,
-    Registration, TransformRequest, TransformResponse, validate_view,
+    API_VERSION, CliCommandExecution, CliCommandInvocation, CliCommandResult,
+    CliOutputNotification, CliOutputStream, DEFAULT_REQUEST_TIMEOUT_MS, ExtensionManifest,
+    ExtensionNotificationHub, ExtensionNotifyType, ExtensionPaneView, HandshakeRequest,
+    HandshakeResponse, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, MAX_MESSAGE_BYTES,
+    ManifestError, PaneRenderRequest, PaneRenderResponse, Registration, TransformRequest,
+    TransformResponse, validate_view,
 };
 
 #[derive(Debug, Error)]
@@ -311,12 +314,18 @@ impl LoadedExtension {
     ) -> Result<Self, HostError> {
         let manifest = ExtensionManifest::load(manifest_path)?;
         let directory = manifest_path.parent().unwrap_or_else(|| Path::new("."));
-        let executable = directory.join(&manifest.executable);
+        let directory = fs::canonicalize(directory).unwrap_or_else(|_| directory.to_owned());
+        let mut executable = directory.join(&manifest.executable);
+        if !executable.is_file() && !std::env::consts::EXE_SUFFIX.is_empty() {
+            let mut name = executable.as_os_str().to_owned();
+            name.push(std::env::consts::EXE_SUFFIX);
+            executable = PathBuf::from(name);
+        }
         if !executable.is_file() {
             return Err(HostError::MissingExecutable(executable));
         }
         let mut child = Command::new(&executable)
-            .current_dir(directory)
+            .current_dir(&directory)
             .env("WORKDECK_EXTENSION_API_VERSION", API_VERSION.to_string())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -419,6 +428,12 @@ impl LoadedExtension {
         params: impl Serialize,
         timeout: Duration,
     ) -> Result<Value, HostError> {
+        let id = self.send_request(method, params)?;
+        let line = self.receive_protocol_line(Instant::now() + timeout)?;
+        self.decode_response(id, &line)
+    }
+
+    fn send_request(&mut self, method: &str, params: impl Serialize) -> Result<u64, HostError> {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1);
         let request =
@@ -448,9 +463,42 @@ impl LoadedExtension {
             id: self.manifest.id.clone(),
             source,
         })?;
+        Ok(id)
+    }
 
-        let line = self
-            .responses
+    fn send_notification(&mut self, method: &str, params: impl Serialize) -> Result<(), HostError> {
+        let notification =
+            JsonRpcNotification::new(method, params).map_err(|source| HostError::InvalidJson {
+                id: self.manifest.id.clone(),
+                source,
+            })?;
+        let mut encoded =
+            serde_json::to_vec(&notification).map_err(|source| HostError::InvalidJson {
+                id: self.manifest.id.clone(),
+                source,
+            })?;
+        if encoded.len() > MAX_MESSAGE_BYTES {
+            return Err(HostError::Oversized {
+                id: self.manifest.id.clone(),
+                bytes: encoded.len(),
+            });
+        }
+        encoded.push(b'\n');
+        self.stdin
+            .write_all(&encoded)
+            .map_err(|source| HostError::Io {
+                id: self.manifest.id.clone(),
+                source,
+            })?;
+        self.stdin.flush().map_err(|source| HostError::Io {
+            id: self.manifest.id.clone(),
+            source,
+        })
+    }
+
+    fn receive_protocol_line(&self, deadline: Instant) -> Result<String, HostError> {
+        let timeout = deadline.saturating_duration_since(Instant::now());
+        self.responses
             .recv_timeout(timeout)
             .map_err(|error| match error {
                 mpsc::RecvTimeoutError::Timeout => HostError::Timeout(self.manifest.id.clone()),
@@ -459,7 +507,10 @@ impl LoadedExtension {
             .map_err(|source| HostError::Io {
                 id: self.manifest.id.clone(),
                 source,
-            })?;
+            })
+    }
+
+    fn decode_response(&self, id: u64, line: &str) -> Result<Value, HostError> {
         if line.len() > MAX_MESSAGE_BYTES {
             return Err(HostError::Oversized {
                 id: self.manifest.id.clone(),
@@ -467,7 +518,7 @@ impl LoadedExtension {
             });
         }
         let response: JsonRpcResponse =
-            serde_json::from_str(&line).map_err(|source| HostError::InvalidJson {
+            serde_json::from_str(line).map_err(|source| HostError::InvalidJson {
                 id: self.manifest.id.clone(),
                 source,
             })?;
@@ -479,12 +530,181 @@ impl LoadedExtension {
             });
         }
         if let Some(error) = response.error {
+            let mut message = sanitize_terminal_text(
+                &error.message,
+                SanitizeOptions {
+                    preserve_newlines: false,
+                    preserve_tabs: false,
+                    preserve_ansi_style: false,
+                },
+            );
+            if let Some(suggestions) = error
+                .data
+                .as_ref()
+                .and_then(|data| data.get("suggestions"))
+                .and_then(Value::as_array)
+            {
+                for suggestion in suggestions.iter().filter_map(Value::as_str) {
+                    message.push('\n');
+                    message.push_str(&sanitize_terminal_text(
+                        suggestion,
+                        SanitizeOptions {
+                            preserve_newlines: false,
+                            preserve_tabs: false,
+                            preserve_ansi_style: false,
+                        },
+                    ));
+                }
+            }
             return Err(HostError::Remote {
                 id: self.manifest.id.clone(),
-                message: error.message,
+                message,
             });
         }
         Ok(response.result.unwrap_or(Value::Null))
+    }
+
+    /// Invoke a registered extension CLI command while retaining ownership of terminal output.
+    pub fn invoke_cli_command(
+        &mut self,
+        command_name: &str,
+        args: Vec<String>,
+        cwd: &Path,
+        timeout: Duration,
+        stdout: &mut dyn Write,
+        stderr: &mut dyn Write,
+    ) -> Result<CliCommandExecution, HostError> {
+        self.invoke_cli_command_cancellable(
+            command_name,
+            args,
+            cwd,
+            timeout,
+            &AtomicBool::new(false),
+            stdout,
+            stderr,
+        )
+    }
+
+    /// Invoke a CLI command and forward cooperative cancellation over JSON-RPC.
+    #[allow(clippy::too_many_arguments)]
+    pub fn invoke_cli_command_cancellable(
+        &mut self,
+        command_name: &str,
+        args: Vec<String>,
+        cwd: &Path,
+        timeout: Duration,
+        cancelled: &AtomicBool,
+        stdout: &mut dyn Write,
+        stderr: &mut dyn Write,
+    ) -> Result<CliCommandExecution, HostError> {
+        if !self.handshake.registrations.iter().any(|registration| {
+            matches!(registration, Registration::CliCommand(command) if command.name == command_name)
+        }) {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "CLI command",
+                message: format!("command {command_name:?} is not registered"),
+            });
+        }
+
+        let id = self.send_request(
+            "workdeck/cli/invoke",
+            CliCommandInvocation {
+                command_name: command_name.to_owned(),
+                args,
+                cwd: cwd.to_owned(),
+            },
+        )?;
+        let deadline = Instant::now() + timeout;
+        let mut stdout_bytes = 0_usize;
+        let mut cancellation_sent = false;
+
+        let value = loop {
+            if cancelled.load(Ordering::Acquire) && !cancellation_sent {
+                self.send_notification("$/cancelRequest", serde_json::json!({ "id": id }))?;
+                cancellation_sent = true;
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(HostError::Timeout(self.manifest.id.clone()));
+            }
+            let wait = remaining.min(Duration::from_millis(25));
+            let line = match self.responses.recv_timeout(wait) {
+                Ok(Ok(line)) => line,
+                Ok(Err(source)) => {
+                    return Err(HostError::Io {
+                        id: self.manifest.id.clone(),
+                        source,
+                    });
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err(HostError::Closed(self.manifest.id.clone()));
+                }
+            };
+            if line.len() > MAX_MESSAGE_BYTES {
+                return Err(HostError::Oversized {
+                    id: self.manifest.id.clone(),
+                    bytes: line.len(),
+                });
+            }
+            if let Some(output) = parse_cli_output_notification(&line) {
+                if output.request_id != id {
+                    return Err(HostError::InvalidPayload {
+                        id: self.manifest.id.clone(),
+                        kind: "CLI output",
+                        message: format!(
+                            "output request id {} did not match active request {id}",
+                            output.request_id
+                        ),
+                    });
+                }
+                match output.stream {
+                    CliOutputStream::Stdout => {
+                        stdout
+                            .write_all(&output.bytes)
+                            .map_err(|source| HostError::Io {
+                                id: self.manifest.id.clone(),
+                                source,
+                            })?;
+                        stdout.flush().map_err(|source| HostError::Io {
+                            id: self.manifest.id.clone(),
+                            source,
+                        })?;
+                        stdout_bytes = stdout_bytes.saturating_add(output.bytes.len());
+                    }
+                    CliOutputStream::Stderr => {
+                        stderr
+                            .write_all(&output.bytes)
+                            .map_err(|source| HostError::Io {
+                                id: self.manifest.id.clone(),
+                                source,
+                            })?;
+                        stderr.flush().map_err(|source| HostError::Io {
+                            id: self.manifest.id.clone(),
+                            source,
+                        })?;
+                    }
+                }
+                continue;
+            }
+            break self.decode_response(id, &line)?;
+        };
+
+        let execution: CliCommandExecution =
+            serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "CLI command",
+                message: error.to_string(),
+            })?;
+        validate_cli_execution(&execution, stdout_bytes).map_err(|message| {
+            HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "CLI command",
+                message,
+            }
+        })?;
+        Ok(execution)
     }
 
     pub fn apply_changeset_transforms(
@@ -597,6 +817,57 @@ fn parse_extension_notification(line: &str) -> Option<ParsedExtensionNotificatio
     })
 }
 
+fn parse_cli_output_notification(line: &str) -> Option<CliOutputNotification> {
+    let value = serde_json::from_str::<Value>(line).ok()?;
+    let object = value.as_object()?;
+    if object.get("jsonrpc")?.as_str()? != "2.0"
+        || object.get("method")?.as_str()? != "workdeck/cli/output"
+        || object.contains_key("id")
+    {
+        return None;
+    }
+    serde_json::from_value(object.get("params")?.clone()).ok()
+}
+
+fn validate_cli_execution(
+    execution: &CliCommandExecution,
+    stdout_bytes: usize,
+) -> Result<(), String> {
+    if execution.stdin_consumed && !execution.stdin_read_started {
+        return Err("stdin cannot be consumed before a read starts".into());
+    }
+    let CliCommandResult::Delegate { argv } = &execution.result else {
+        return Ok(());
+    };
+    if argv.is_empty() {
+        return Err("delegate argv must be a non-empty array of strings".into());
+    }
+    if argv.iter().any(|token| token.contains('\0')) {
+        return Err("delegate argv must contain only strings without NUL characters".into());
+    }
+    if argv.iter().any(|token| {
+        token == "--extension"
+            || token.starts_with("--extension=")
+            || token == "--extensions"
+            || token == "--no-extensions"
+    }) {
+        return Err("delegate argv cannot change extension bootstrap flags".into());
+    }
+    if stdout_bytes > 0 {
+        return Err("extension wrote to stdout before delegating to Workdeck".into());
+    }
+    if execution.stdin_read_started {
+        return Err("extension read stdin before delegating to a built-in Workdeck command".into());
+    }
+    Ok(())
+}
+
+fn valid_cli_command_name(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    matches!(bytes.next(), Some(first) if first.is_ascii_lowercase())
+        && bytes.all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
 fn validate_registrations(
     manifest: &ExtensionManifest,
     handshake: &HandshakeResponse,
@@ -616,6 +887,39 @@ fn validate_registrations(
                 id: manifest.id.clone(),
                 message: format!("registration {key} requires undeclared capability {required:?}"),
             });
+        }
+        if let Registration::CliCommand(command) = registration {
+            if !valid_cli_command_name(&command.name) {
+                return Err(HostError::Handshake {
+                    id: manifest.id.clone(),
+                    message: format!(
+                        "CLI command {:?} must use lowercase kebab case and start with a letter",
+                        command.name
+                    ),
+                });
+            }
+            if command.summary.trim().is_empty() {
+                return Err(HostError::Handshake {
+                    id: manifest.id.clone(),
+                    message: format!(
+                        "CLI command {:?} requires a non-empty summary",
+                        command.name
+                    ),
+                });
+            }
+            if command
+                .usage
+                .as_ref()
+                .is_some_and(|usage| usage.trim().is_empty())
+            {
+                return Err(HostError::Handshake {
+                    id: manifest.id.clone(),
+                    message: format!(
+                        "CLI command {:?} usage must be non-empty when provided",
+                        command.name
+                    ),
+                });
+            }
         }
     }
     Ok(())
@@ -678,9 +982,22 @@ pub fn discover_manifests(
     trust: &TrustStore,
     explicit: &[PathBuf],
 ) -> Result<Vec<PathBuf>, HostError> {
-    let mut manifests = BTreeSet::new();
+    let mut manifests = Vec::new();
+    let mut seen = BTreeSet::new();
+    let mut explicit = explicit
+        .iter()
+        .map(|path| {
+            if path.is_dir() {
+                path.join("workdeck-extension.toml")
+            } else {
+                path.clone()
+            }
+        })
+        .collect::<Vec<_>>();
+    explicit.sort();
+    append_manifests(explicit, &mut manifests, &mut seen);
     if let Some(global) = global_directory {
-        scan_manifests(global, &mut manifests);
+        append_manifests(scan_manifests(global), &mut manifests, &mut seen);
     }
     if let Some(repo) = repo_root {
         let directory = repo.join(".agents/workdeck/extensions");
@@ -688,29 +1005,33 @@ pub fn discover_manifests(
             if trust.decision(repo) != Some(TrustDecision::Trusted) {
                 return Err(HostError::Untrusted(directory));
             }
-            scan_manifests(&directory, &mut manifests);
+            append_manifests(scan_manifests(&directory), &mut manifests, &mut seen);
         }
     }
-    for path in explicit {
-        manifests.insert(if path.is_dir() {
-            path.join("workdeck-extension.toml")
-        } else {
-            path.clone()
-        });
-    }
-    Ok(manifests
-        .into_iter()
-        .filter(|path| path.is_file())
-        .collect())
+    Ok(manifests)
 }
 
-fn scan_manifests(directory: &Path, manifests: &mut BTreeSet<PathBuf>) {
+fn append_manifests(
+    candidates: impl IntoIterator<Item = PathBuf>,
+    manifests: &mut Vec<PathBuf>,
+    seen: &mut BTreeSet<PathBuf>,
+) {
+    for path in candidates {
+        let identity = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+        if path.is_file() && seen.insert(identity) {
+            manifests.push(path);
+        }
+    }
+}
+
+fn scan_manifests(directory: &Path) -> Vec<PathBuf> {
+    let mut manifests = BTreeSet::new();
     let direct = directory.join("workdeck-extension.toml");
     if direct.is_file() {
         manifests.insert(direct);
     }
     let Ok(entries) = fs::read_dir(directory) else {
-        return;
+        return manifests.into_iter().collect();
     };
     for entry in entries.flatten() {
         let manifest = entry.path().join("workdeck-extension.toml");
@@ -718,6 +1039,7 @@ fn scan_manifests(directory: &Path, manifests: &mut BTreeSet<PathBuf>) {
             manifests.insert(manifest);
         }
     }
+    manifests.into_iter().collect()
 }
 
 fn canonical_path(path: &Path) -> String {
@@ -752,6 +1074,34 @@ mod tests {
                 .unwrap()
                 .len(),
             1
+        );
+    }
+
+    #[test]
+    fn discovery_orders_explicit_then_global_then_repo_and_deduplicates_paths() {
+        let root = TempDir::new().unwrap();
+        let explicit_a = root.path().join("explicit-a/workdeck-extension.toml");
+        let explicit_b = root.path().join("explicit-b/workdeck-extension.toml");
+        let global = root.path().join("global");
+        let repo = root.path().join("repo");
+        let global_manifest = global.join("global/workdeck-extension.toml");
+        let repo_manifest = repo.join(".agents/workdeck/extensions/repo/workdeck-extension.toml");
+        for manifest in [&explicit_a, &explicit_b, &global_manifest, &repo_manifest] {
+            fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+            fs::write(manifest, "id = 'placeholder'").unwrap();
+        }
+        let mut trust = TrustStore::default();
+        trust.grant(&repo, TrustDecision::Trusted);
+        let manifests = discover_manifests(
+            Some(&global),
+            Some(&repo),
+            &trust,
+            &[explicit_b.clone(), explicit_a.clone(), explicit_b.clone()],
+        )
+        .unwrap();
+        assert_eq!(
+            manifests,
+            [explicit_a, explicit_b, global_manifest, repo_manifest]
         );
     }
 
@@ -938,5 +1288,94 @@ mod tests {
         ] {
             assert!(parse_extension_notification(line).is_none(), "{line}");
         }
+    }
+
+    #[test]
+    fn parses_byte_exact_cli_output_and_rejects_response_shaped_messages() {
+        let parsed = parse_cli_output_notification(
+            r#"{"jsonrpc":"2.0","method":"workdeck/cli/output","params":{"request_id":7,"stream":"stderr","bytes":[0,10,255]}}"#,
+        )
+        .unwrap();
+        assert_eq!(parsed.request_id, 7);
+        assert_eq!(parsed.stream, CliOutputStream::Stderr);
+        assert_eq!(parsed.bytes, [0, 10, 255]);
+
+        assert!(
+            parse_cli_output_notification(
+                r#"{"jsonrpc":"2.0","id":7,"method":"workdeck/cli/output","params":{"request_id":7,"stream":"stdout","bytes":[]}}"#,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn cli_delegation_retains_host_terminal_and_bootstrap_ownership() {
+        let delegate = |argv: &[&str], stdin_read_started, stdin_consumed| CliCommandExecution {
+            result: CliCommandResult::Delegate {
+                argv: argv.iter().map(ToString::to_string).collect(),
+            },
+            stdin_read_started,
+            stdin_consumed,
+        };
+
+        assert!(validate_cli_execution(&delegate(&["diff", "HEAD"], false, false), 0).is_ok());
+        assert!(validate_cli_execution(&delegate(&[], false, false), 0).is_err());
+        assert!(validate_cli_execution(&delegate(&["diff", "bad\0arg"], false, false), 0).is_err());
+        assert!(
+            validate_cli_execution(&delegate(&["diff", "--no-extensions"], false, false), 0)
+                .is_err()
+        );
+        assert!(validate_cli_execution(&delegate(&["diff"], false, false), 1).is_err());
+        assert!(validate_cli_execution(&delegate(&["diff"], true, false), 0).is_err());
+        assert!(
+            validate_cli_execution(
+                &CliCommandExecution {
+                    result: CliCommandResult::Exit { code: 2 },
+                    stdin_read_started: false,
+                    stdin_consumed: true,
+                },
+                0,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn handshake_validates_cli_command_metadata() {
+        let mut manifest = ExtensionManifest {
+            id: "demo".into(),
+            name: "Demo".into(),
+            version: "1.0.0".into(),
+            api_version: API_VERSION,
+            executable: "demo".into(),
+            capabilities: vec![workdeck_extension_api::Capability::CliCommands],
+            description: None,
+        };
+        let response = |name: &str, summary: &str, usage: Option<&str>| HandshakeResponse {
+            extension_api_version: API_VERSION,
+            extension_version: "1.0.0".into(),
+            registrations: vec![Registration::CliCommand(
+                workdeck_extension_api::CliCommandRegistration {
+                    name: name.into(),
+                    summary: summary.into(),
+                    usage: usage.map(Into::into),
+                },
+            )],
+        };
+        assert!(validate_registrations(&manifest, &response("cli-tools", "Tools", None)).is_ok());
+        for invalid in ["", "Cli-Tools", "cli_tools", "1tool", "cli--tools-"] {
+            let result = validate_registrations(&manifest, &response(invalid, "Tools", None));
+            if invalid == "cli--tools-" {
+                // Hunk's grammar permits consecutive/trailing dashes after a lowercase start.
+                assert!(result.is_ok());
+            } else {
+                assert!(result.is_err(), "{invalid:?}");
+            }
+        }
+        assert!(validate_registrations(&manifest, &response("tools", " ", None)).is_err());
+        assert!(validate_registrations(&manifest, &response("tools", "Tools", Some(" "))).is_err());
+
+        manifest.capabilities.clear();
+        assert!(validate_registrations(&manifest, &response("tools", "Tools", None)).is_err());
     }
 }

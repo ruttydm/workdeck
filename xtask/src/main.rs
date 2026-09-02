@@ -144,6 +144,18 @@ fn run() -> Result<()> {
             _ => bail!("themes requires the vendor or verify command"),
         },
         Some("verify") => verify(),
+        Some("extension") => match args.next().as_deref() {
+            Some("stage-example") => {
+                let name = args
+                    .next()
+                    .context("extension stage-example requires an example name")?;
+                if args.next().is_some() {
+                    bail!("extension stage-example accepts exactly one example name");
+                }
+                stage_extension_example(&name)
+            }
+            _ => bail!("extension requires the stage-example command"),
+        },
         Some("site") => site(args.next().as_deref()),
         Some("release") => match args.next().as_deref() {
             Some("package") => package_release(parse_package_options(args)?),
@@ -154,6 +166,51 @@ fn run() -> Result<()> {
             Ok(())
         }
     }
+}
+
+fn stage_extension_example(name: &str) -> Result<()> {
+    if name != "cli-tools" {
+        bail!("unknown native extension example {name:?}");
+    }
+    let repo = repo_root()?;
+    run_checked(
+        &repo,
+        "cargo",
+        &[
+            "build",
+            "-p",
+            "workdeck-examples",
+            "--bin",
+            "workdeck-example-cli-tools-extension",
+        ],
+    )?;
+    let metadata = MetadataCommand::new()
+        .current_dir(&repo)
+        .no_deps()
+        .exec()
+        .context("resolve Cargo target directory")?;
+    let binary_name = format!(
+        "workdeck-example-cli-tools-extension{}",
+        env::consts::EXE_SUFFIX
+    );
+    let binary = metadata.target_directory.join("debug").join(&binary_name);
+    if !binary.is_file() {
+        bail!("built extension executable is missing: {binary}");
+    }
+    let staged = metadata
+        .target_directory
+        .join("workdeck-extension-examples")
+        .join(name);
+    let staged_binary = staged.join("bin").join(&binary_name);
+    fs::create_dir_all(staged_binary.parent().expect("binary has a parent"))?;
+    fs::copy(&binary, &staged_binary)
+        .with_context(|| format!("stage extension executable {} -> {}", binary, staged_binary))?;
+    fs::copy(
+        repo.join("examples/extensions/cli-tools/workdeck-extension.toml"),
+        staged.join("workdeck-extension.toml"),
+    )?;
+    println!("staged {}", relative_to(&repo, staged.as_std_path()));
+    Ok(())
 }
 
 fn site(command: Option<&str>) -> Result<()> {
@@ -2052,6 +2109,7 @@ fn print_help() {
     );
     println!("cargo xtask licenses [--output PATH]");
     println!("cargo xtask verify");
+    println!("cargo xtask extension stage-example cli-tools");
     println!("cargo xtask site <build|check|serve>");
     println!("cargo xtask release package --target TRIPLE [--binary PATH] [--output DIR]");
 }

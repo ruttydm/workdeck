@@ -56,6 +56,9 @@ pub mod agent_markup_after;
 #[path = "../9-agent-markup-notes/before/retry.rs"]
 pub mod agent_markup_before;
 
+#[path = "../extensions/cli-tools/extension.rs"]
+pub mod cli_tools_extension;
+
 #[cfg(test)]
 #[path = "../3-agent-review-demo/after/test/search_demo.rs"]
 mod agent_review_after_demo;

@@ -396,6 +396,24 @@ pub struct JsonRpcRequest {
     pub params: Value,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JsonRpcNotification {
+    pub jsonrpc: String,
+    pub method: String,
+    #[serde(default)]
+    pub params: Value,
+}
+
+impl JsonRpcNotification {
+    pub fn new(method: impl Into<String>, params: impl Serialize) -> serde_json::Result<Self> {
+        Ok(Self {
+            jsonrpc: "2.0".into(),
+            method: method.into(),
+            params: serde_json::to_value(params)?,
+        })
+    }
+}
+
 impl JsonRpcRequest {
     pub fn new(
         id: u64,
@@ -549,6 +567,55 @@ pub struct CommandRegistration {
 pub struct CliCommandRegistration {
     pub name: String,
     pub summary: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<String>,
+}
+
+/// One invocation of a registered top-level CLI command.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CliCommandInvocation {
+    pub command_name: String,
+    pub args: Vec<String>,
+    pub cwd: PathBuf,
+}
+
+/// The terminal stream targeted by one extension-owned output chunk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CliOutputStream {
+    Stdout,
+    Stderr,
+}
+
+/// A byte-exact output chunk emitted while a CLI request is active.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CliOutputNotification {
+    pub request_id: u64,
+    pub stream: CliOutputStream,
+    pub bytes: Vec<u8>,
+}
+
+/// The validated terminal outcome returned by an extension CLI handler.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum CliCommandResult {
+    Exit {
+        #[serde(default)]
+        code: u8,
+    },
+    Delegate {
+        argv: Vec<String>,
+    },
+}
+
+/// Settlement metadata needed to retain terminal ownership across delegation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CliCommandExecution {
+    pub result: CliCommandResult,
+    #[serde(default)]
+    pub stdin_read_started: bool,
+    #[serde(default)]
+    pub stdin_consumed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -883,6 +950,44 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<JsonRpcRequest>(&encoded).unwrap(),
             request
+        );
+    }
+
+    #[test]
+    fn cli_protocol_preserves_raw_args_bytes_and_default_exit_status() {
+        let invocation = CliCommandInvocation {
+            command_name: "cli-tools".into(),
+            args: vec!["review".into(), "--".into(), "-leading".into()],
+            cwd: PathBuf::from("/tmp/review"),
+        };
+        assert_eq!(
+            serde_json::from_value::<CliCommandInvocation>(
+                serde_json::to_value(&invocation).unwrap()
+            )
+            .unwrap(),
+            invocation
+        );
+
+        let output = CliOutputNotification {
+            request_id: 9,
+            stream: CliOutputStream::Stdout,
+            bytes: vec![0, b'\n', 0xff],
+        };
+        assert_eq!(
+            serde_json::from_value::<CliOutputNotification>(serde_json::to_value(&output).unwrap())
+                .unwrap(),
+            output
+        );
+        assert_eq!(
+            serde_json::from_value::<CliCommandResult>(serde_json::json!({ "kind": "exit" }))
+                .unwrap(),
+            CliCommandResult::Exit { code: 0 }
+        );
+        assert!(
+            serde_json::from_value::<CliCommandResult>(
+                serde_json::json!({ "kind": "exit", "code": 256 })
+            )
+            .is_err()
         );
     }
 

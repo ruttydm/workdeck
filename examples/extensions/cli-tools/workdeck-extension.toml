@@ -1,0 +1,7 @@
+id = "example.cli-tools"
+name = "CLI tools example"
+version = "0.1.0"
+api_version = 1
+executable = "bin/workdeck-example-cli-tools-extension"
+capabilities = ["cli-commands"]
+description = "Generic top-level status and delegated review commands"
