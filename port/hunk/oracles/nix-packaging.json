@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "baselineBlobs": {
+    ".envrc": "3550a30f2de389e537ee40ca5e64a77dc185c79b",
+    "flake.lock": "1466ae2eaeee73547059d70d15064952304fc865",
+    "flake.nix": "effe508a54ec784fc36a8bbd96dc298e57a01c68",
+    "nix/README.md": "a7ede972d857797fa5df6ad34677233eceef3e69",
+    "nix/bun.lock.nix": "7d5849c2c0df1f42b83b6262263e8cd4e0c0ff35",
+    "nix/devShell.nix": "d51390e2f21babc2fe61e0c3213250c8ce3cb56b",
+    "nix/home-manager.nix": "99fff08e4edc09ca6aff84932f9bd7a4e4ba1091",
+    "nix/package.nix": "a9ee5818c830d2ea4fd09c6f14f367048407f6a4"
+  },
+  "stableDifference": {
+    "path": "nix/bun.lock.nix",
+    "stableBlob": "d36defbcf58135a92351a59862ecbddcd676a81d",
+    "meaning": "only the obsolete generated Bun dependency closure differs; the Rust replacement is Cargo.lock at the pinned main baseline"
+  },
+  "behaviorProjection": {
+    "systemsInput": "the same nix-systems/triplet input remains consumer-overridable",
+    "package": "rustPlatform.buildRustPackage builds only workdeck-cli's workdeck binary from Cargo.lock",
+    "application": "default and named workdeck apps execute bin/workdeck",
+    "development": "Cargo, rustc, Clippy, rustfmt, cargo-deny, Git, native TLS/build inputs, and Zola replace Bun and Node",
+    "homeManager": "programs.workdeck manages the package, authoritative config path, Git/Jujutsu pagers, and workdeck-review skill",
+    "licenses": "LICENSE and THIRD_PARTY_NOTICES are installed beside the packaged skills",
+    "dependencyClosure": "Cargo.lock reproducibly replaces nix/bun.lock.nix and no npm, Bun, OpenTUI, JavaScript, or WASM dependency is evaluated",
+    "updateOwnership": "workdeck detects /nix/store and reports Nix-owned update guidance"
+  },
+  "verification": {
+    "static": "nix::tests::pinned_nix_surface_is_cargo_only_and_complete parses every expression with rnix, rejects legacy runtime tokens, and checks the complete package/output/Home Manager/lock contract",
+    "external": "cargo xtask nix check runs nix flake check and an installed-style nix run -- --help without rewriting flake.lock",
+    "ci": ".github/workflows/ci.yml installs Nix and invokes only cargo xtask nix check",
+    "localAvailability": "Nix was not installed on the capture host; the external command remains a required CI/final release gate"
+  }
+}

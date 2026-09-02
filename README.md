@@ -45,6 +45,15 @@ brew install --HEAD ruttydm/workdeck/workdeck
 workdeck --version
 ```
 
+### Nix
+
+```sh
+nix run github:ruttydm/workdeck -- --help
+```
+
+The flake package, Home Manager module, supported systems, and source-build commands are documented
+in [nix/README.md](nix/README.md).
+
 ### Local checkout
 
 ```sh
@@ -84,6 +93,7 @@ cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo build --locked --release --package workdeck-cli --bin workdeck
 cargo xtask verify
 cargo xtask architecture check
+cargo xtask nix check
 cargo xtask site check
 ```
 

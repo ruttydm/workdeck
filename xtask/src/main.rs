@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 mod architecture;
+mod nix;
 
 const DEFAULT_BASELINE: &str = "hunk-port/main-2c00f435^{}";
 const DEFAULT_STABLE: &str = "hunk-port/stable-v0.20.1^{}";
@@ -154,6 +155,15 @@ fn run() -> Result<()> {
                 architecture::check(&repo_root()?)
             }
             _ => bail!("architecture requires the check command"),
+        },
+        Some("nix") => match args.next().as_deref() {
+            Some("check") => {
+                if args.next().is_some() {
+                    bail!("nix check accepts no options");
+                }
+                nix::check(&repo_root()?)
+            }
+            _ => bail!("nix requires the check command"),
         },
         Some("extension") => match args.next().as_deref() {
             Some("stage-example") => {
@@ -2126,6 +2136,7 @@ fn print_help() {
     println!("cargo xtask licenses [--output PATH]");
     println!("cargo xtask verify");
     println!("cargo xtask architecture check");
+    println!("cargo xtask nix check");
     println!(
         "cargo xtask extension stage-example <cli-tools|pane-layout|vim-navigation|review-snapshot-export|review-note-navigator|rendered-markdown|jsx-file-view|inline-edit|review-triage|github-pr|file-view-gallery>"
     );
