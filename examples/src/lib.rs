@@ -27,6 +27,11 @@ pub mod ui_polish_after;
 #[path = "../4-ui-polish/before.rs"]
 pub mod ui_polish_before;
 
+#[path = "../5-pager-tour/after.rs"]
+pub mod pager_tour_after;
+#[path = "../5-pager-tour/before.rs"]
+pub mod pager_tour_before;
+
 #[cfg(test)]
 #[path = "../3-agent-review-demo/after/test/search_demo.rs"]
 mod agent_review_after_demo;
