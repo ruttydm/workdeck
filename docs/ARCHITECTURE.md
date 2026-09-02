@@ -43,6 +43,10 @@ The checker also validates invariants that a crate graph alone cannot express:
   not import the CLI, session broker, or TUI renderer;
 - the semantic review reducer is crate-internal and is reached through intents and
   `SemanticReviewStore` dispatch;
+- semantic notes cross into terminal-local file ids, line coordinates, draft shapes, and thread
+  guides only through `workdeck-review::review_note_mapping`; the projection preserves every
+  annotation field and uses the shared anchor and visible-thread selectors rather than deriving
+  ownership or nesting in a renderer;
 - `workdeck-diff` implementation modules remain private; only deliberate facade items are
   re-exported.
 

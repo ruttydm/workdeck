@@ -1,0 +1,39 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/lib/reviewNoteMapping.ts",
+    "baselineBlob": "941295b7f2837640927041cc631fcc0d908e551a",
+    "stableBlob": "2f762e0bd5f7c185f7ff85b8b2bf419beb775889"
+  },
+  "test": {
+    "path": "src/ui/lib/reviewNoteMapping.test.ts",
+    "baselineBlob": "83342ecda974f1c6f64bf829d09f404f5ed8e790",
+    "stableBlob": "c1bab9de76d469fe8ece580a5fb97008e0f67a6f"
+  },
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 6,
+    "failed": 0,
+    "expectations": 9
+  },
+  "stableOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 6,
+    "failed": 0,
+    "expectations": 9
+  },
+  "invariants": [
+    "live comments are classified once as user, agent, or ai and retain their original source",
+    "the live comment round trip retains every rendered annotation field",
+    "stored reviewer notes retain edit authority and use deterministic author and timestamp defaults",
+    "draft create, edit, and reply modes retain their target identities and derive side-specific ranges",
+    "grouping preserves stored order and omits missing files and orphaned anchors",
+    "threaded grouping preserves raw reply detection plus visible depth and sibling guides"
+  ],
+  "nativeAdaptation": {
+    "renderer": "Ratatui consumes a flat TerminalReviewNote projection instead of a React annotation object.",
+    "fileIdentity": "The terminal key is DiffFile.runtime_id; semantic storage remains keyed by DiffFile.key.",
+    "coverage": "Seven Rust tests translate all six upstream tests and add the baseline threaded-helper case."
+  }
+}
