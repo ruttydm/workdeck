@@ -1,0 +1,50 @@
+diff --git a/src/review_summary.rs b/src/review_summary.rs
+index 6cd8221..98b53ba 100644
+--- a/src/review_summary.rs
++++ b/src/review_summary.rs
+@@ -2,11 +2,17 @@
+ pub struct ReviewSummary {
+     pub title: String,
+     pub confidence: f64,
++    pub tags: Vec<String>,
+ }
+
+ #[must_use]
+-pub fn summarize_review(summary: &ReviewSummary) -> String {
+-    format!("{} ({})", summary.title, summary.confidence)
++pub fn format_review_summary(summary: &ReviewSummary) -> String {
++    let tag_suffix = if summary.tags.is_empty() {
++        String::new()
++    } else {
++        format!(" [{}]", summary.tags.join(", "))
++    };
++    format!("{} ({}){tag_suffix}", summary.title, summary.confidence)
+ }
+
+ #[cfg(test)]
+@@ -14,13 +20,22 @@ mod tests {
+     use super::*;
+
+     #[test]
+-    fn summarizes_title_and_confidence() {
++    fn formats_optional_review_tags() {
+         assert_eq!(
+-            summarize_review(&ReviewSummary {
++            format_review_summary(&ReviewSummary {
+                 title: "Ready".into(),
+                 confidence: 0.9,
++                tags: vec!["safe".into(), "tested".into()],
+             }),
+-            "Ready (0.9)"
++            "Ready (0.9) [safe, tested]"
++        );
++        assert_eq!(
++            format_review_summary(&ReviewSummary {
++                title: "Pending".into(),
++                confidence: 0.5,
++                tags: Vec::new(),
++            }),
++            "Pending (0.5)"
+         );
+     }
+ }

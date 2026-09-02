@@ -2739,6 +2739,7 @@ dependencies = [
  "ratatui",
  "workdeck-core",
  "workdeck-diff",
+ "workdeck-tui",
 ]
 
 [[package]]

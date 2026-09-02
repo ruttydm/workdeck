@@ -37,6 +37,17 @@ pub mod readme_screenshot_after;
 #[path = "../6-readme-screenshot/before/src/index.rs"]
 pub mod readme_screenshot_before;
 
+#[path = "../7-ratatui-component/after.rs"]
+pub mod ratatui_component_after;
+#[path = "../7-ratatui-component/before.rs"]
+pub mod ratatui_component_before;
+#[path = "../7-ratatui-component/from_files.rs"]
+pub mod ratatui_component_from_files;
+#[path = "../7-ratatui-component/from_patch.rs"]
+pub mod ratatui_component_from_patch;
+#[path = "../7-ratatui-component/support.rs"]
+pub mod ratatui_component_support;
+
 #[cfg(test)]
 #[path = "../3-agent-review-demo/after/test/search_demo.rs"]
 mod agent_review_after_demo;
@@ -198,6 +209,26 @@ mod patch_tests {
         );
         assert!(!patch.contains("bun:test"));
         assert!(!patch.contains(".tsx"));
+        assert!(!patch.contains(".ts"));
+    }
+
+    #[test]
+    fn ratatui_component_patch_is_a_single_file_rust_review() {
+        let patch = include_str!("../7-ratatui-component/change.patch");
+        let changeset = parse_patch(
+            patch,
+            "ratatui-component",
+            "Ratatui component",
+            ChangesetSource::Patch {
+                label: "ratatui-component".into(),
+            },
+        )
+        .expect("translated component patch parses");
+
+        assert_eq!(changeset.files.len(), 1);
+        assert_eq!(changeset.files[0].path, "src/review_summary.rs");
+        assert!(patch.contains("pub tags: Vec<String>"));
+        assert!(patch.contains("format_review_summary"));
         assert!(!patch.contains(".ts"));
     }
 }

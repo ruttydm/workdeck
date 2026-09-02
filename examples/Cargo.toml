@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 ratatui = "0.29"
+workdeck-tui = { path = "../crates/workdeck-tui" }
 
 [dev-dependencies]
 workdeck-core = { path = "../crates/workdeck-core" }
