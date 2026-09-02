@@ -10,10 +10,11 @@ use workdeck_core::{
 };
 
 use crate::{
-    DiffRequest, GitProvider, GitVcsAdapterOptions, JujutsuProvider, SaplingProvider, VcsAdapter,
-    VcsCatalog, VcsCatalogError, VcsDetection, VcsLoadContext, VcsOperation, VcsPatchResult,
-    VcsProvider, VcsReviewInput, VcsReviewOperationKind, VcsSourceReader, VcsWatchPlan,
-    create_base_vcs_catalog, create_git_vcs_adapter,
+    DiffRequest, GitProvider, GitVcsAdapterOptions, JujutsuProvider, SaplingProvider,
+    SaplingVcsAdapterOptions, VcsAdapter, VcsCatalog, VcsCatalogError, VcsDetection,
+    VcsLoadContext, VcsOperation, VcsPatchResult, VcsProvider, VcsReviewInput,
+    VcsReviewOperationKind, VcsSourceReader, VcsWatchPlan, create_base_vcs_catalog,
+    create_git_vcs_adapter, create_sapling_vcs_adapter,
 };
 
 const GIT_PRIORITY: i32 = 0;
@@ -108,8 +109,12 @@ pub fn get_bundled_vcs_adapters() -> &'static [VcsAdapter] {
 }
 
 fn bundled_adapter(backend: BundledBackend) -> VcsAdapter {
-    if backend == BundledBackend::Git {
-        return create_git_vcs_adapter(GitVcsAdapterOptions::default());
+    match backend {
+        BundledBackend::Git => return create_git_vcs_adapter(GitVcsAdapterOptions::default()),
+        BundledBackend::Sapling => {
+            return create_sapling_vcs_adapter(SaplingVcsAdapterOptions::default());
+        }
+        BundledBackend::Jujutsu => {}
     }
     let (id, name, priority) = match backend {
         BundledBackend::Git => ("git", "Git", GIT_PRIORITY),

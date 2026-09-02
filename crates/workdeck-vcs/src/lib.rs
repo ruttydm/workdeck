@@ -8,6 +8,8 @@ mod git_source;
 mod large_file;
 mod materialize;
 mod platform;
+mod sapling_adapter;
+mod sapling_commands;
 mod source_text;
 mod untracked;
 mod watch_controller;
@@ -27,6 +29,8 @@ pub use large_file::{
 };
 pub use materialize::*;
 pub use platform::{normalize_path_for_os, normalize_path_for_platform};
+pub use sapling_adapter::*;
+pub use sapling_commands::*;
 pub use source_text::{
     DEFAULT_SOURCE_TEXT_MAX_BYTES, LimitedSourceTextResult, SourceSubprocess, SourceTextError,
     log_source_diagnostic, read_file_text_with_limit, read_stream_text_with_limit,
@@ -131,7 +135,7 @@ impl AnyProvider {
                 if find_marker(cwd, ".jj").is_some() {
                     return JujutsuProvider::discover(cwd).map(Self::Jujutsu);
                 }
-                if find_marker(cwd, ".sl").is_some() {
+                if detect_sapling_repo(cwd).is_some() {
                     return SaplingProvider::discover(cwd).map(Self::Sapling);
                 }
                 GitProvider::discover(cwd).map(Self::Git)
@@ -401,40 +405,6 @@ impl SaplingProvider {
     pub fn root(&self) -> &Path {
         &self.root
     }
-
-    fn untracked_patch(&self, pathspec: &[String]) -> Result<UntrackedPatch, VcsError> {
-        let mut arguments = vec!["status", "--unknown", "--print0", "--root-relative"];
-        append_paths(&mut arguments, pathspec);
-        let output = run_prefixed(
-            &self.root,
-            "sl",
-            &["--noninteractive", "--color", "never"],
-            &arguments,
-        )?;
-        let mut untracked = UntrackedPatch::default();
-        for entry in output.stdout.split(|byte| *byte == 0) {
-            let entry = String::from_utf8_lossy(entry);
-            let Some(path) = entry.strip_prefix("? ") else {
-                continue;
-            };
-            let absolute = self.root.join(path);
-            let Ok(metadata) = fs::symlink_metadata(&absolute) else {
-                continue;
-            };
-            if metadata.is_dir() {
-                continue;
-            }
-            let file = build_filesystem_untracked_diff_file(
-                &self.root,
-                Path::new(path),
-                untracked.files.len(),
-                "sl:diff",
-            )?;
-            append_untracked_transport_patch(&mut untracked.patch, &file);
-            untracked.files.push(file);
-        }
-        Ok(untracked)
-    }
 }
 
 impl VcsProvider for SaplingProvider {
@@ -443,67 +413,51 @@ impl VcsProvider for SaplingProvider {
     }
 
     fn working_tree(&self, request: &DiffRequest) -> Result<Changeset, VcsError> {
-        if request.staged {
+        if request.from.is_some() && request.target.is_none() {
             return Err(VcsError::InvalidRevision(
-                "Sapling has no staging area; remove --staged or select Git".into(),
+                "a from revision requires a to revision".into(),
             ));
         }
-        let mut arguments = vec!["diff", "--git"];
-        match (&request.from, &request.target) {
-            (Some(from), Some(to)) => {
-                validate_revision(from)?;
-                validate_revision(to)?;
-                arguments.extend(["-r", from, "-r", to]);
-            }
-            (None, Some(target)) => {
-                validate_revision(target)?;
-                arguments.extend(["-r", target]);
-            }
-            (Some(_), None) => {
-                return Err(VcsError::InvalidRevision(
-                    "a from revision requires a to revision".into(),
-                ));
-            }
-            (None, None) => {}
-        }
-        append_paths(&mut arguments, &request.pathspec);
-        let mut patch = output_text(run_prefixed(
-            &self.root,
-            "sl",
-            &["--noninteractive", "--color", "never"],
-            &arguments,
-        )?)?;
-        let mut untracked = UntrackedPatch::default();
-        if !request.exclude_untracked && request.target.is_none() && request.from.is_none() {
-            untracked = self.untracked_patch(&request.pathspec)?;
-            patch.push_str(&untracked.patch);
-        }
-        let (title, source) = review_title_and_source(request);
-        let mut changeset = parse_or_empty(&patch, "sl:diff", title, source)?;
-        apply_untracked_metadata(&mut changeset, &untracked.files);
-        Ok(changeset)
+        load_sapling_changeset(
+            &VcsReviewInput::Diff(workdeck_core::VcsDiffCommandInput {
+                range: request
+                    .from
+                    .is_none()
+                    .then(|| request.target.clone())
+                    .flatten(),
+                range_endpoints: request
+                    .from
+                    .clone()
+                    .zip(request.target.clone())
+                    .map(|(from, to)| workdeck_core::VcsRangeEndpoints { from, to }),
+                staged: request.staged,
+                pathspecs: request.pathspec.clone(),
+                options: workdeck_core::CommonOptions {
+                    exclude_untracked: Some(request.exclude_untracked),
+                    ..workdeck_core::CommonOptions::default()
+                },
+            }),
+            &VcsLoadContext {
+                cwd: self.root.clone(),
+            },
+            &SaplingVcsAdapterOptions::default(),
+        )
+        .map_err(|error| VcsError::Adapter(error.to_string()))
     }
 
     fn show(&self, target: Option<&str>, pathspec: &[String]) -> Result<Changeset, VcsError> {
-        let target = target.unwrap_or(".");
-        validate_revision(target)?;
-        let mut arguments = vec!["diff", "--git", "--change", target];
-        append_paths(&mut arguments, pathspec);
-        let patch = output_text(run_prefixed(
-            &self.root,
-            "sl",
-            &["--noninteractive", "--color", "never"],
-            &arguments,
-        )?)?;
-        parse_or_empty(
-            &patch,
-            &format!("sl:show:{target}"),
-            format!("Commit {target}"),
-            ChangesetSource::Revision {
-                from: None,
-                to: target.into(),
+        load_sapling_changeset(
+            &VcsReviewInput::Show(workdeck_core::VcsShowCommandInput {
+                reference: target.map(str::to_owned),
+                pathspecs: pathspec.to_vec(),
+                options: workdeck_core::CommonOptions::default(),
+            }),
+            &VcsLoadContext {
+                cwd: self.root.clone(),
             },
+            &SaplingVcsAdapterOptions::default(),
         )
+        .map_err(|error| VcsError::Adapter(error.to_string()))
     }
 }
 
@@ -640,60 +594,6 @@ fn output_text(output: Output) -> Result<String, VcsError> {
         return Err(VcsError::PatchTooLarge(output.stdout.len()));
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-}
-
-#[derive(Debug, Default)]
-struct UntrackedPatch {
-    patch: String,
-    files: Vec<workdeck_core::DiffFile>,
-}
-
-fn append_untracked_transport_patch(output: &mut String, file: &workdeck_core::DiffFile) {
-    if file.patch.starts_with("diff --git ") {
-        output.push_str(&file.patch);
-        return;
-    }
-    let path = &file.path;
-    let old_path = quote_git_path(&format!("a/{path}"));
-    let new_path = quote_git_path(&format!("b/{path}"));
-    output.push_str(&format!("diff --git {old_path} {new_path}\n"));
-    output.push_str("new file mode 100644\n");
-    output.push_str(&format!("Binary files /dev/null and {new_path} differ\n"));
-}
-
-fn apply_untracked_metadata(changeset: &mut Changeset, untracked: &[workdeck_core::DiffFile]) {
-    for record in untracked {
-        let Some(file) = changeset
-            .files
-            .iter_mut()
-            .find(|file| file.path == record.path)
-        else {
-            continue;
-        };
-        *file = record.clone();
-    }
-}
-
-fn quote_git_path(path: &str) -> String {
-    if path
-        .bytes()
-        .all(|byte| !byte.is_ascii_whitespace() && byte != b'"' && byte != b'\\')
-    {
-        return path.to_owned();
-    }
-    let mut quoted = String::from("\"");
-    for byte in path.as_bytes() {
-        match byte {
-            b'"' => quoted.push_str("\\\""),
-            b'\\' => quoted.push_str("\\\\"),
-            b'\t' => quoted.push_str("\\t"),
-            b'\n' => quoted.push_str("\\n"),
-            0x20..=0x7e => quoted.push(char::from(*byte)),
-            _ => quoted.push_str(&format!("\\{byte:03o}")),
-        }
-    }
-    quoted.push('"');
-    quoted
 }
 
 fn absolute_or_join(root: &Path, path: &Path) -> PathBuf {
