@@ -6127,7 +6127,7 @@ fn append_extension_file_view_rows(
                 ));
             }
             PlannedFileViewRow::InlineNote { note, .. } => {
-                rows.extend(extension_file_view_note_lines(note, width));
+                rows.extend(extension_file_view_note_lines(note, &options.theme, width));
             }
         }
     }
@@ -6261,7 +6261,90 @@ fn extension_file_view_symbolic_lines(
         .collect()
 }
 
-fn extension_file_view_note_lines(note: &VisibleFileViewNote, width: usize) -> Vec<Line<'static>> {
+fn stml_theme_colors(theme: &AppTheme) -> workdeck_markup::StmlThemeColors {
+    workdeck_markup::StmlThemeColors {
+        accent: theme.accent.clone(),
+        accent_muted: theme.accent_muted.clone(),
+        added_sign_color: theme.added_sign_color.clone(),
+        removed_sign_color: theme.removed_sign_color.clone(),
+        file_modified: theme.file_modified.clone(),
+        muted: theme.muted.clone(),
+        panel_alt: theme.panel_alt.clone(),
+        text: theme.text.clone(),
+        panel: theme.panel.clone(),
+        note_border: theme.note_border.clone(),
+        background: theme.background.clone(),
+    }
+}
+
+fn stml_ratatui_lines(body: &str, width: usize, theme: &AppTheme) -> Vec<Line<'static>> {
+    let colors = stml_theme_colors(theme);
+    workdeck_markup::layout_stml_cached(body, width)
+        .lines
+        .iter()
+        .map(|line| {
+            Line::from(
+                line.spans
+                    .iter()
+                    .map(|span| {
+                        let foreground =
+                            workdeck_markup::resolve_stml_color(span.style.fg.as_deref(), &colors)
+                                .unwrap_or_else(|| theme.text.clone());
+                        let background =
+                            workdeck_markup::resolve_stml_color(span.style.bg.as_deref(), &colors)
+                                .unwrap_or_else(|| theme.panel.clone());
+                        let mut style = Style::default()
+                            .fg(ratatui_theme_color(&foreground))
+                            .bg(ratatui_theme_color(&background));
+                        for (enabled, modifier) in [
+                            (span.style.bold, Modifier::BOLD),
+                            (span.style.dim, Modifier::DIM),
+                            (span.style.italic, Modifier::ITALIC),
+                            (span.style.underline, Modifier::UNDERLINED),
+                            (span.style.strike, Modifier::CROSSED_OUT),
+                        ] {
+                            if enabled == Some(true) {
+                                style = style.add_modifier(modifier);
+                            }
+                        }
+                        Span::styled(span.text.clone(), style)
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect()
+}
+
+fn note_body_ratatui_lines(
+    markup: Option<&str>,
+    summary: &str,
+    width: usize,
+    theme: &AppTheme,
+) -> Vec<Line<'static>> {
+    let markup_lines = markup
+        .map(|markup| stml_ratatui_lines(markup, width, theme))
+        .unwrap_or_default();
+    if !markup_lines.is_empty() {
+        return markup_lines;
+    }
+    wrap_text(summary, width)
+        .into_iter()
+        .map(|text| {
+            Line::styled(
+                text,
+                Style::default()
+                    .fg(ratatui_theme_color(&theme.text))
+                    .bg(ratatui_theme_color(&theme.panel)),
+            )
+        })
+        .collect()
+}
+
+fn extension_file_view_note_lines(
+    note: &VisibleFileViewNote,
+    theme: &AppTheme,
+    width: usize,
+) -> Vec<Line<'static>> {
     let author = note
         .annotation
         .author
@@ -6281,18 +6364,28 @@ fn extension_file_view_note_lines(note: &VisibleFileViewNote, width: usize) -> V
                 .add_modifier(Modifier::BOLD),
         ),
     ])];
-    let body = note
-        .annotation
-        .markup
-        .as_deref()
-        .unwrap_or(&note.annotation.summary);
-    let rendered = workdeck_markup::render(body, width.saturating_sub(indent.len() + 8).max(1));
-    rows.extend(rendered.lines.into_iter().map(|text| {
-        Line::styled(
-            format!("{indent}  │   {text}"),
-            Style::default().fg(Color::LightMagenta),
+    let markup_width = width.saturating_sub(indent.len() + 8).max(1);
+    rows.extend(
+        note_body_ratatui_lines(
+            (note.annotation.source.as_deref() != Some("user-draft"))
+                .then_some(note.annotation.markup.as_deref())
+                .flatten(),
+            &note.annotation.summary,
+            markup_width,
+            theme,
         )
-    }));
+        .into_iter()
+        .map(|mut line| {
+            line.spans.insert(
+                0,
+                Span::styled(
+                    format!("{indent}  │   "),
+                    Style::default().fg(ratatui_theme_color(&theme.note_border)),
+                ),
+            );
+            line
+        }),
+    );
     if let Some(rationale) = &note.annotation.rationale {
         rows.push(Line::styled(
             format!("{indent}  │   {rationale}"),
@@ -6553,7 +6646,7 @@ fn stack_hunk_rows(
             hunk_selected || line_is_selected(line, selection),
             width,
         ));
-        rows.extend(comment_rows(file, line, comments, width));
+        rows.extend(comment_rows(file, line, comments, &options.theme, width));
     }
     rows
 }
@@ -6725,12 +6818,12 @@ fn split_hunk_rows(
                 || new.is_some_and(|line| line_is_selected(line, selection)),
         ));
         if let Some(line) = old {
-            rows.extend(comment_rows(file, line, comments, width));
+            rows.extend(comment_rows(file, line, comments, &options.theme, width));
         }
         if pair.new_index != pair.old_index
             && let Some(line) = new
         {
-            rows.extend(comment_rows(file, line, comments, width));
+            rows.extend(comment_rows(file, line, comments, &options.theme, width));
         }
     }
     rows
@@ -6740,6 +6833,7 @@ fn comment_rows(
     file: &DiffFile,
     line: &DiffLine,
     comments: &[ReviewComment],
+    theme: &AppTheme,
     width: u16,
 ) -> Vec<Line<'static>> {
     let mut rows = Vec::new();
@@ -6758,13 +6852,20 @@ fn comment_rows(
                     .add_modifier(Modifier::BOLD),
             ),
         ]));
-        let body = comment.markup.as_deref().unwrap_or(&comment.summary);
-        let rendered = workdeck_markup::render(body, usize::from(width.saturating_sub(8).max(1)));
-        for text in rendered.lines {
-            rows.push(Line::styled(
-                format!("  │   {text}"),
-                Style::default().fg(Color::LightMagenta),
-            ));
+        for mut line in note_body_ratatui_lines(
+            comment.markup.as_deref(),
+            &comment.summary,
+            usize::from(width.saturating_sub(8).max(1)),
+            theme,
+        ) {
+            line.spans.insert(
+                0,
+                Span::styled(
+                    "  │   ",
+                    Style::default().fg(ratatui_theme_color(&theme.note_border)),
+                ),
+            );
+            rows.push(line);
         }
         if let Some(rationale) = &comment.rationale {
             rows.push(Line::styled(
@@ -8033,6 +8134,38 @@ mod tests {
     }
 
     #[test]
+    fn stml_note_rows_preserve_styles_and_fall_back_when_markup_is_empty() {
+        let theme = resolve_theme(Some("github-dark-default"), None, &[]);
+        let styled = note_body_ratatui_lines(
+            Some("<b><c fg=\"success\">ok</c></b>"),
+            "fallback",
+            20,
+            &theme,
+        );
+        assert_eq!(styled.len(), 1);
+        assert_eq!(styled[0].spans[0].content, "ok");
+        assert!(
+            styled[0].spans[0]
+                .style
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+        assert_eq!(
+            styled[0].spans[0].style.fg,
+            Some(ratatui_theme_color(&theme.added_sign_color))
+        );
+
+        let fallback = note_body_ratatui_lines(
+            Some("<!-- only a comment -->"),
+            "Fallback summary",
+            20,
+            &theme,
+        );
+        assert_eq!(fallback.len(), 1);
+        assert_eq!(fallback[0].spans[0].content, "Fallback summary");
+    }
+
+    #[test]
     fn renders_live_stml_comments_inline_and_expands_tabs() {
         let backend = TestBackend::new(100, 24);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -8067,7 +8200,7 @@ mod tests {
                 line: None,
                 summary: "fallback".into(),
                 rationale: Some("because it matters".into()),
-                markup: Some("<box title=\"flow\">shape</box>".into()),
+                markup: Some("<box border title=\"flow\"><b>shape</b></box>".into()),
                 title: None,
                 tags: Vec::new(),
                 confidence: None,

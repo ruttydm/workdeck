@@ -158,6 +158,144 @@ fn pager_plain_text_fallback_is_headless_sanitized_and_read_only() {
 }
 
 #[test]
+fn markup_render_defaults_to_stdin_and_emits_hunks_exact_json_shape() {
+    let mut command = assert_cmd::Command::cargo_bin("workdeck").unwrap();
+    command
+        .env("HOME", "/nonexistent/workdeck-test-home")
+        .args(["markup", "render", "--width", "12", "--json"])
+        .write_stdin("<box border>hi</box>")
+        .assert()
+        .success()
+        .stdout(concat!(
+            "{\n",
+            "  \"width\": 12,\n",
+            "  \"lines\": [\n",
+            "    \"┌──────────┐\",\n",
+            "    \"│hi        │\",\n",
+            "    \"└──────────┘\"\n",
+            "  ],\n",
+            "  \"notes\": []\n",
+            "}\n"
+        ))
+        .stderr(predicate::str::is_empty());
+}
+
+#[test]
+fn hunk_stml_cli_oracle_runs_exactly_under_workdeck_naming() {
+    let fixture: Value =
+        serde_json::from_str(include_str!("../../../port/hunk/oracles/stml-cli.json")).unwrap();
+    assert_eq!(
+        fixture["baseline"],
+        "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2"
+    );
+    for run in fixture["runs"].as_array().unwrap() {
+        let input = &run["input"];
+        let mut args = vec![
+            "markup".to_owned(),
+            "render".to_owned(),
+            input["file"].as_str().unwrap().to_owned(),
+            "--width".to_owned(),
+            input["width"].as_u64().unwrap().to_string(),
+            "--color".to_owned(),
+            input["color"].as_str().unwrap().to_owned(),
+        ];
+        if let Some(theme) = input["theme"].as_str() {
+            args.extend(["--theme".to_owned(), theme.to_owned()]);
+        }
+        if input["json"].as_bool().unwrap() {
+            args.push("--json".into());
+        }
+        let output = assert_cmd::Command::cargo_bin("workdeck")
+            .unwrap()
+            .env("HOME", "/nonexistent/workdeck-test-home")
+            .args(args)
+            .write_stdin(run["markup"].as_str().unwrap())
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            run["exit"].as_i64().map(|code| code as i32),
+            "input: {input}"
+        );
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            run["stdout"].as_str().unwrap(),
+            "input: {input}"
+        );
+        assert_eq!(
+            String::from_utf8(output.stderr).unwrap(),
+            run["stderr"].as_str().unwrap(),
+            "input: {input}"
+        );
+    }
+}
+
+#[test]
+fn markup_render_routes_degradation_notes_to_stderr_and_reads_relative_files() {
+    let directory = tempdir().unwrap();
+    fs::write(directory.path().join("note.stml"), "<wat>x</wat>").unwrap();
+    let mut command = assert_cmd::Command::cargo_bin("workdeck").unwrap();
+    command
+        .env("HOME", "/nonexistent/workdeck-test-home")
+        .current_dir(directory.path())
+        .args(["markup", "render", "note.stml", "--color", "never"])
+        .assert()
+        .success()
+        .stdout("x\n")
+        .stderr("note: unknown tag <wat>\n");
+}
+
+#[test]
+fn markup_render_always_color_uses_span_styles_even_in_json() {
+    let markup = "<b><c fg=\"success\">ok</c></b>";
+    let mut colored = assert_cmd::Command::cargo_bin("workdeck").unwrap();
+    colored
+        .env("HOME", "/nonexistent/workdeck-test-home")
+        .args([
+            "markup",
+            "render",
+            "-",
+            "--color",
+            "always",
+            "--theme",
+            "github-dark-default",
+        ])
+        .write_stdin(markup)
+        .assert()
+        .success()
+        .stdout("\x1b[1;38;2;46;160;67mok\x1b[0m\n")
+        .stderr(predicate::str::is_empty());
+
+    let mut json = assert_cmd::Command::cargo_bin("workdeck").unwrap();
+    let output = json
+        .env("HOME", "/nonexistent/workdeck-test-home")
+        .args(["markup", "render", "-", "--color", "always", "--json"])
+        .write_stdin(markup)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(!output.stdout.contains(&0x1b));
+    let payload: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        payload["lines"],
+        serde_json::json!(["\u{1b}[1;38;2;46;160;67mok\u{1b}[0m"])
+    );
+}
+
+#[test]
+fn markup_guide_is_headless_and_contains_the_reference_width_contract() {
+    workdeck()
+        .args(["markup", "guide"])
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with(
+            "# STML — terminal markup for Workdeck agent notes\n",
+        ))
+        .stdout(predicate::str::contains("Design for ~56 cols"))
+        .stderr(predicate::str::is_empty());
+}
+
+#[test]
 fn outside_git_repo_prints_actionable_error() {
     let dir = tempdir().unwrap();
 

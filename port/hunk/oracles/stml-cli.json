@@ -1,0 +1,64 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "runner": "src/ui/lib/stml/cli.ts",
+  "runs": [
+    {
+      "input": {
+        "kind": "markup-render",
+        "file": "-",
+        "width": 12,
+        "color": "never",
+        "json": true
+      },
+      "markup": "<box border>hi</box>",
+      "stdout": "{\n  \"width\": 12,\n  \"lines\": [\n    \"┌──────────┐\",\n    \"│hi        │\",\n    \"└──────────┘\"\n  ],\n  \"notes\": []\n}\n",
+      "stderr": "",
+      "exit": 0
+    },
+    {
+      "input": {
+        "kind": "markup-render",
+        "file": "-",
+        "width": 20,
+        "color": "always",
+        "theme": "github-dark-default",
+        "json": false
+      },
+      "markup": "<b><c fg=\"success\">ok</c></b>",
+      "stdout": "\u001b[1;38;2;46;160;67mok\u001b[0m\n",
+      "stderr": "",
+      "exit": 0
+    },
+    {
+      "input": {
+        "kind": "markup-render",
+        "file": "-",
+        "width": 40,
+        "color": "never",
+        "json": false
+      },
+      "markup": "<wat>x</wat>",
+      "stdout": "x\n",
+      "stderr": "note: unknown tag <wat>\n",
+      "exit": 0
+    },
+    {
+      "input": {
+        "kind": "markup-render",
+        "file": "-",
+        "width": 20,
+        "color": "always",
+        "json": true
+      },
+      "markup": "<b><c fg=\"success\">ok</c></b>",
+      "stdout": "{\n  \"width\": 20,\n  \"lines\": [\n    \"\\u001b[1;38;2;46;160;67mok\\u001b[0m\"\n  ],\n  \"notes\": []\n}\n",
+      "stderr": "",
+      "exit": 0
+    }
+  ],
+  "guide": {
+    "stdout_bytes": 3676,
+    "stdout_sha256": "cf8c93286e01d7bbb63120d09b542efc4179bc7956991d3b07dbe1b7598023f3",
+    "exit": 0
+  }
+}

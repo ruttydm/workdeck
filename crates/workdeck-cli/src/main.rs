@@ -444,6 +444,7 @@ enum MarkupColor {
 enum MarkupCommand {
     #[command(about = "Render STML from a file or standard input")]
     Render {
+        #[arg(default_value = "-")]
         file: PathBuf,
         #[arg(long, default_value_t = workdeck_markup::DEFAULT_WIDTH)]
         width: usize,
@@ -2460,25 +2461,53 @@ fn handle_markup_command(command: MarkupCommand) -> Result<()> {
                 source = std::fs::read_to_string(&file)
                     .with_context(|| format!("failed to read STML {}", file.display()))?;
             }
-            let rendered = workdeck_markup::render(&source, width);
+            let use_color = matches!(color, MarkupColor::Always)
+                || matches!(color, MarkupColor::Auto) && std::io::stdout().is_terminal() && !json;
+            let rendered = if use_color {
+                let theme = workdeck_tui::resolve_theme(
+                    Some(theme.as_deref().unwrap_or("github-dark-default")),
+                    None,
+                    &[],
+                );
+                workdeck_markup::render_stml_to_ansi(
+                    &source,
+                    width,
+                    &workdeck_markup::StmlThemeColors {
+                        accent: theme.accent,
+                        accent_muted: theme.accent_muted,
+                        added_sign_color: theme.added_sign_color,
+                        removed_sign_color: theme.removed_sign_color,
+                        file_modified: theme.file_modified,
+                        muted: theme.muted,
+                        panel_alt: theme.panel_alt,
+                        text: theme.text,
+                        panel: theme.panel,
+                        note_border: theme.note_border,
+                        background: theme.background,
+                    },
+                )
+            } else {
+                workdeck_markup::render_stml_to_text(&source, width)
+            };
             if json {
-                json_success("markup_render", Some("render"), &rendered)?;
+                #[derive(serde::Serialize)]
+                struct MarkupRenderJson<'a> {
+                    width: usize,
+                    lines: &'a [String],
+                    notes: &'a [String],
+                }
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&MarkupRenderJson {
+                        width,
+                        lines: &rendered.lines,
+                        notes: &rendered.errors,
+                    })?
+                );
                 return Ok(());
             }
-            let use_color = matches!(color, MarkupColor::Always)
-                || matches!(color, MarkupColor::Auto) && std::io::stdout().is_terminal();
-            let ansi = match theme.as_deref() {
-                Some("light" | "github-light-default" | "InspiredGitHub") => "\x1b[38;2;36;41;46m",
-                _ => "\x1b[38;2;201;209;217m",
-            };
-            for line in &rendered.lines {
-                if use_color && !line.is_empty() {
-                    println!("{ansi}{line}\x1b[0m");
-                } else {
-                    println!("{line}");
-                }
-            }
-            for note in &rendered.notes {
+            println!("{}", rendered.lines.join("\n"));
+            for note in &rendered.errors {
                 eprintln!("note: {note}");
             }
             Ok(())
