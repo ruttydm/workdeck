@@ -1,7 +1,18 @@
 # Terminal media tooling
 
-Workdeck's terminal-media pipeline is Rust-owned and deterministic. The first completed layer is
-the pure storyboard planner:
+Workdeck's terminal-media pipeline is Rust-owned and deterministic. It preserves the pinned Hunk
+`@hunk/term-video` package as private, non-published `xtask` functionality rather than as a runtime
+package. The former `capture`, `plan`, and `compose` exports are now the `cargo xtask media capture`,
+`plan`, and `compose` commands; their implementations live in `xtask/src/term_video/`. The package's
+MIT license is inherited through the workspace, and the Rust task crate remains `publish = false`.
+
+The pipeline drives a real Workdeck TUI through a PTY and records discrete styled keyframes. A
+storyboard determines holds, animations, captions, and title cards; Chromium/WebDriver composites
+the terminal frames onto a static HTML/CSS stage, and FFmpeg consumes the resulting concat list.
+This retains deterministic pacing and inspectable PNG intermediates without screen recording or an
+application JavaScript runtime.
+
+The pure storyboard planner is invoked with:
 
 ```console
 cargo xtask media plan --storyboard media/launch/storyboard.json --output target/media/plan.json
