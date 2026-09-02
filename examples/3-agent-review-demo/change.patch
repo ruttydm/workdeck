@@ -1,0 +1,134 @@
+diff --git a/src/commands.rs b/src/commands.rs
+index 4d4fd38..8aaecaf 100644
+--- a/src/commands.rs
++++ b/src/commands.rs
+@@ -19,6 +19,6 @@ pub const COMMANDS: &[Command] = &[
+     Command {
+         id: "open-help",
+         label: "Open help",
+-        keywords: &["keyboard", "shortcuts"],
++        keywords: &["keyboard", "shortcuts", "short cuts"],
+     },
+ ];
+diff --git a/src/index.rs b/src/index.rs
+index eef59be..cc1ef46 100644
+--- a/src/index.rs
++++ b/src/index.rs
+@@ -1,4 +1,5 @@
+ mod commands;
++mod normalize;
+ mod search;
+
+ use commands::COMMANDS;
+@@ -8,6 +9,7 @@ use search::search_commands;
+ pub fn render_command_preview(query: &str) -> String {
+     search_commands(query, COMMANDS)
+         .into_iter()
++        .take(3)
+         .map(|command| format!("• {}", command.label))
+         .collect::<Vec<_>>()
+         .join("\n")
+diff --git a/src/normalize.rs b/src/normalize.rs
+new file mode 100644
+index 0000000..e45a446
+--- /dev/null
++++ b/src/normalize.rs
+@@ -0,0 +1,17 @@
++#[must_use]
++pub fn normalize_query(value: &str) -> String {
++    let mut normalized = String::with_capacity(value.len());
++    let mut replacing_separator = false;
++    for character in value.trim().to_lowercase().chars() {
++        if matches!(character, '-' | '_') {
++            if !replacing_separator {
++                normalized.push(' ');
++            }
++            replacing_separator = true;
++        } else {
++            normalized.push(character);
++            replacing_separator = false;
++        }
++    }
++    normalized
++}
+diff --git a/src/search.rs b/src/search.rs
+index 3a12d24..16bb4b6 100644
+--- a/src/search.rs
++++ b/src/search.rs
+@@ -1,3 +1,5 @@
++use super::normalize::normalize_query;
++
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+ pub struct Command {
+     pub id: &'static str,
+@@ -7,21 +9,43 @@ pub struct Command {
+
+ #[must_use]
+ pub fn search_commands<'a>(query: &str, commands: &'a [Command]) -> Vec<&'a Command> {
+-    let needle = query.trim().to_lowercase();
++    let needle = normalize_query(query);
+
+     if needle.is_empty() {
+         return commands.iter().collect();
+     }
+
+-    commands
++    let mut scored = commands
+         .iter()
+-        .filter(|command| {
+-            std::iter::once(command.label)
+-                .chain(command.keywords.iter().copied())
+-                .collect::<Vec<_>>()
+-                .join(" ")
+-                .to_lowercase()
+-                .contains(&needle)
++        .filter_map(|command| {
++            let label = normalize_query(command.label);
++            let keywords = command
++                .keywords
++                .iter()
++                .map(|keyword| normalize_query(keyword))
++                .collect::<Vec<_>>();
++
++            let mut score = 0;
++            if label.starts_with(&needle) {
++                score += 4;
++            }
++            if label.contains(&needle) {
++                score += 2;
++            }
++            if keywords.iter().any(|keyword| keyword == &needle) {
++                score += 3;
++            }
++            if keywords.iter().any(|keyword| keyword.contains(&needle)) {
++                score += 1;
++            }
++
++            (score > 0).then_some((command, score))
+         })
+-        .collect()
++        .collect::<Vec<_>>();
++    scored.sort_by(|(left, left_score), (right, right_score)| {
++        right_score
++            .cmp(left_score)
++            .then_with(|| left.label.cmp(right.label))
++    });
++    scored.into_iter().map(|(command, _)| command).collect()
+ }
+diff --git a/test/search_demo.rs b/test/search_demo.rs
+index 99dcf7b..1d44981 100644
+--- a/test/search_demo.rs
++++ b/test/search_demo.rs
+@@ -1,7 +1,9 @@
+-use crate::agent_review_before::render_command_preview;
++use crate::agent_review_after::render_command_preview;
+
+ #[test]
+-fn filters_commands_by_substring() {
+-    assert!(render_command_preview("help").contains("Open help"));
++fn prefers_normalized_shortcut_matches() {
++    let output = render_command_preview("short-cuts");
++
++    assert_eq!(output.lines().next(), Some("• Open help"));
+     assert!(render_command_preview("panel").contains("Toggle sidebar"));
+ }
