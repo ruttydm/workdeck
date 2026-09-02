@@ -708,6 +708,7 @@ impl ReviewCliOptions {
             keybinding_notices: self.keybinding_notices.clone(),
             extension_panes: Vec::new(),
             extension_notifications: None,
+            pending_extension_trust_repo_root: None,
         }
     }
 

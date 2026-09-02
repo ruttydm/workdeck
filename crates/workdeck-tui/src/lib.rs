@@ -188,6 +188,8 @@ pub struct ReviewOptions {
     pub keybinding_notices: Vec<String>,
     pub extension_panes: Vec<ExtensionPaneView>,
     pub extension_notifications: Option<ExtensionNotificationHub>,
+    /// Repository whose native extensions are waiting on an explicit trust decision.
+    pub pending_extension_trust_repo_root: Option<PathBuf>,
 }
 
 impl Default for ReviewOptions {
@@ -216,8 +218,16 @@ impl Default for ReviewOptions {
             keybinding_notices: Vec::new(),
             extension_panes: Vec::new(),
             extension_notifications: None,
+            pending_extension_trust_repo_root: None,
         }
     }
+}
+
+/// Host-owned persistence request produced by the repository-extension trust modal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtensionTrustRequest {
+    pub repo_root: PathBuf,
+    pub decision: workdeck_extension_host::TrustDecision,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -532,6 +542,8 @@ pub struct ReviewApp {
     extension_pane_runtime: Mutex<ExtensionPaneRuntime>,
     extension_event_dispatch_depth: usize,
     extension_known_note_ids: BTreeSet<String>,
+    extension_trust_controller: ExtensionTrustController,
+    extension_trust_request: Option<ExtensionTrustRequest>,
 }
 
 impl ReviewApp {
@@ -567,6 +579,11 @@ impl ReviewApp {
             .map(|comment| comment.id.clone())
             .collect();
         let extension_pane_runtime = ExtensionPaneRuntime::new(extensions);
+        let mut extension_trust_controller = ExtensionTrustController::default();
+        extension_trust_controller.reconcile(
+            options.pager,
+            options.pending_extension_trust_repo_root.as_deref(),
+        );
         let mut command_defaults = builtin_command_key_defaults();
         command_defaults.extend(extension_pane_runtime.commands.iter().map(|registration| {
             CommandKeyDefaults {
@@ -620,6 +637,8 @@ impl ReviewApp {
             extension_pane_runtime: Mutex::new(extension_pane_runtime),
             extension_event_dispatch_depth: 0,
             extension_known_note_ids,
+            extension_trust_controller,
+            extension_trust_request: None,
         };
         app.publish_extension_event("changeset_loaded", serde_json::json!({}));
         app.publish_extension_selection_events();
@@ -648,6 +667,25 @@ impl ReviewApp {
 
     pub fn take_quit_requested(&mut self) -> bool {
         std::mem::take(&mut self.should_quit)
+    }
+
+    /// Replace the discovery result without remounting the review application.
+    pub fn reconcile_extension_trust_repo_root(&mut self, repo_root: Option<PathBuf>) {
+        self.options.pending_extension_trust_repo_root = repo_root;
+        self.extension_trust_controller.reconcile(
+            self.options.pager,
+            self.options.pending_extension_trust_repo_root.as_deref(),
+        );
+    }
+
+    #[must_use]
+    pub fn extension_trust_prompt_root(&self) -> Option<&Path> {
+        self.extension_trust_controller.prompt_root()
+    }
+
+    /// Consume one trust decision for persistence and extension-aware refresh by the host.
+    pub fn take_extension_trust_request(&mut self) -> Option<ExtensionTrustRequest> {
+        self.extension_trust_request.take()
     }
 
     #[must_use]
@@ -926,6 +964,9 @@ impl ReviewApp {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
+        if self.handle_extension_trust_prompt_key(&key) {
+            return;
+        }
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             self.should_quit = true;
             return;
@@ -979,6 +1020,36 @@ impl ReviewApp {
             self.focus = Focus::Review;
             self.scroll_to_selection();
         }
+    }
+
+    /// The trust prompt is a security decision and owns every key while visible.
+    fn handle_extension_trust_prompt_key(&mut self, key: &KeyEvent) -> bool {
+        let Some(repo_root) = self
+            .extension_trust_controller
+            .prompt_root()
+            .map(Path::to_owned)
+        else {
+            return false;
+        };
+        let decision = match key.code {
+            KeyCode::Enter | KeyCode::Char('t') => {
+                Some(workdeck_extension_host::TrustDecision::Trusted)
+            }
+            KeyCode::Char('n') => Some(workdeck_extension_host::TrustDecision::Denied),
+            KeyCode::Esc => {
+                self.extension_trust_controller.close();
+                None
+            }
+            _ => None,
+        };
+        if let Some(decision) = decision {
+            self.extension_trust_controller.close();
+            self.extension_trust_request = Some(ExtensionTrustRequest {
+                repo_root,
+                decision,
+            });
+        }
+        true
     }
 
     fn handle_filter_key(&mut self, key: &KeyEvent) -> bool {
@@ -4100,6 +4171,83 @@ pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     render_extension_select_dialog(area, buffer, app);
     render_extension_confirm_dialog(area, buffer, app);
     render_extension_workspace_write_dialog(area, buffer, app);
+    render_extension_trust_prompt(area, buffer, app);
+}
+
+/// Draw the host-owned repository-extension security decision above the review.
+pub fn render_extension_trust_prompt(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+    let Some(repo_root) = app.extension_trust_controller.prompt_root() else {
+        return;
+    };
+    let width = 72.min(area.width.saturating_sub(2).max(1));
+    let height = 12.min(area.height.saturating_sub(2).max(1));
+    let bounds = Rect::new(
+        area.x.saturating_add(area.width.saturating_sub(width) / 2),
+        area.y
+            .saturating_add(area.height.saturating_sub(height) / 2),
+        width,
+        height,
+    );
+    Clear.render(bounds, buffer);
+    let panel = ratatui_theme_color(&app.options.theme.panel);
+    let text = ratatui_theme_color(&app.options.theme.text);
+    let muted = ratatui_theme_color(&app.options.theme.muted);
+    let accent = ratatui_theme_color(&app.options.theme.accent);
+    let neutral = ratatui_theme_color(&app.options.theme.badge_neutral);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .style(Style::default().bg(panel))
+        .border_style(Style::default().fg(accent));
+    let inner = block.inner(bounds);
+    block.render(bounds, buffer);
+    if inner.height == 0 || inner.width == 0 {
+        return;
+    }
+
+    let rows = vec![
+        Line::raw(""),
+        Line::from(vec![
+            Span::styled(
+                "Run this repository's extensions?",
+                Style::default().fg(text),
+            ),
+            Span::raw(" "),
+            Span::styled("[Esc]", Style::default().fg(neutral)),
+        ]),
+        Line::styled(
+            "This repository contains extensions in .workdeck/extensions.",
+            Style::default().fg(muted),
+        ),
+        Line::styled(
+            "Extensions run with your user permissions.",
+            Style::default().fg(muted),
+        ),
+        Line::raw(""),
+        Line::styled(
+            repo_root.display().to_string(),
+            Style::default().fg(neutral),
+        ),
+        Line::styled(
+            "Trust runs them now and remembers this repo; never won't ask again.",
+            Style::default().fg(muted),
+        ),
+        Line::raw(""),
+        Line::from(vec![
+            Span::raw(" "),
+            Span::styled("enter/t", Style::default().fg(accent)),
+            Span::styled(" trust ", Style::default().fg(muted)),
+            Span::styled("·", Style::default().fg(neutral)),
+            Span::raw(" "),
+            Span::styled("esc", Style::default().fg(accent)),
+            Span::styled(" not now ", Style::default().fg(muted)),
+            Span::styled("·", Style::default().fg(neutral)),
+            Span::raw(" "),
+            Span::styled("n", Style::default().fg(accent)),
+            Span::styled(" never ", Style::default().fg(muted)),
+        ]),
+        Line::raw(""),
+    ];
+    Paragraph::new(rows).render(inner, buffer);
 }
 
 /// Render the review surface inside Workdeck's unified tab shell.
@@ -6965,6 +7113,98 @@ mod tests {
         assert!(rendered.contains("a.rs"));
         assert!(rendered.contains("old"));
         assert!(rendered.contains("new"));
+    }
+
+    fn rendered_review_text(terminal: &mut Terminal<TestBackend>, app: &ReviewApp) -> String {
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), app))
+            .unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect()
+    }
+
+    #[test]
+    fn repository_extension_trust_prompt_reconciles_across_in_place_reloads() {
+        let backend = TestBackend::new(140, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                pending_extension_trust_repo_root: Some(PathBuf::from("/repo/alpha")),
+                ..ReviewOptions::default()
+            },
+        );
+
+        let initial = rendered_review_text(&mut terminal, &app);
+        assert!(initial.contains("Run this repository's extensions?"));
+        assert!(initial.contains("/repo/alpha"));
+        assert!(initial.contains(".workdeck/extensions"));
+
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(
+            !rendered_review_text(&mut terminal, &app)
+                .contains("Run this repository's extensions?")
+        );
+
+        app.reconcile_extension_trust_repo_root(Some(PathBuf::from("/repo/alpha")));
+        assert!(
+            !rendered_review_text(&mut terminal, &app)
+                .contains("Run this repository's extensions?")
+        );
+
+        app.reconcile_extension_trust_repo_root(Some(PathBuf::from("/repo/beta")));
+        let reasked = rendered_review_text(&mut terminal, &app);
+        assert!(reasked.contains("Run this repository's extensions?"));
+        assert!(reasked.contains("/repo/beta"));
+
+        app.reconcile_extension_trust_repo_root(None);
+        assert!(
+            !rendered_review_text(&mut terminal, &app)
+                .contains("Run this repository's extensions?")
+        );
+    }
+
+    #[test]
+    fn repository_extension_trust_prompt_owns_keys_and_queues_typed_decisions() {
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                pending_extension_trust_repo_root: Some(PathBuf::from("/repo/alpha")),
+                ..ReviewOptions::default()
+            },
+        );
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        assert!(!app.take_quit_requested());
+        assert_eq!(
+            app.extension_trust_prompt_root(),
+            Some(Path::new("/repo/alpha"))
+        );
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+        assert_eq!(
+            app.take_extension_trust_request(),
+            Some(ExtensionTrustRequest {
+                repo_root: PathBuf::from("/repo/alpha"),
+                decision: workdeck_extension_host::TrustDecision::Trusted,
+            })
+        );
+        assert!(app.extension_trust_prompt_root().is_none());
+
+        app.reconcile_extension_trust_repo_root(Some(PathBuf::from("/repo/beta")));
+        app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+        assert_eq!(
+            app.take_extension_trust_request(),
+            Some(ExtensionTrustRequest {
+                repo_root: PathBuf::from("/repo/beta"),
+                decision: workdeck_extension_host::TrustDecision::Denied,
+            })
+        );
     }
 
     #[test]
