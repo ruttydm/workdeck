@@ -2733,6 +2733,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "workdeck-examples"
+version = "0.1.0"
+
+[[package]]
 name = "workdeck-extension-api"
 version = "0.1.0"
 dependencies = [

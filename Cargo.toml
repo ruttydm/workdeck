@@ -12,6 +12,7 @@ members = [
     "crates/workdeck-store",
     "crates/workdeck-tui",
     "crates/workdeck-vcs",
+    "examples",
     "xtask",
 ]
 resolver = "2"
