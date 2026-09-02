@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "capture": {
+    "runtime": "Bun 1.3.5",
+    "method": "executed both pinned trees from disposable git archives",
+    "paths": ["src/ui/lib/reviewState.ts", "src/ui/lib/reviewState.test.ts"],
+    "testResult": "5 pass, 0 fail, 15 expectations on each pinned tree",
+    "sourceIdentical": true
+  },
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "sharedProjection": {
+    "visible": {
+      "": ["alpha", "beta", "gamma"],
+      "ALPHA": ["alpha"],
+      "legacy-name": ["beta"],
+      "gamma.ts note": ["gamma"],
+      "nothing-matches": []
+    },
+    "stale": { "index": 99 },
+    "byHunk": { "fileId": "alpha", "hunkIndex": 0 },
+    "byLine": { "fileId": "alpha", "hunkIndex": 0 },
+    "invalid": [
+      "navigate requires --file when not using --next-comment or --prev-comment.",
+      "No diff file matches missing.ts.",
+      "navigate_to_hunk requires either hunkIndex or both side and line.",
+      "No diff hunk in src/alpha.ts matches the requested target."
+    ]
+  }
+}
