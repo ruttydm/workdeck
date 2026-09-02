@@ -19,7 +19,10 @@ use workdeck_core::{
     BUNDLED_SHIKI_THEME_IDS, Changeset, ChangesetSource, DiffFile, FileChangeKind, FileStats,
     ReviewSelection,
 };
-use workdeck_diff::{HighlightCache, PatchError, format_terminal_path, parse_patch};
+use workdeck_diff::{
+    HighlightCache, PatchError, VisibleBodyBounds, format_terminal_path, parse_patch,
+    resolve_visible_row_index_window, unit_row_bounds,
+};
 use workdeck_review::LayoutMode;
 
 pub type WorkdeckDiffFile = DiffFile;
@@ -235,18 +238,34 @@ pub fn render_workdeck_diff_view(
     } else {
         0
     };
+    let row_bounds = unit_row_bounds(lines.len());
+    let window = resolve_visible_row_index_window(
+        lines.len(),
+        &row_bounds,
+        VisibleBodyBounds {
+            top: i64::try_from(offset).unwrap_or(i64::MAX),
+            height: i64::from(area.height),
+        },
+    );
     map.hunk_rows = map
         .hunk_rows
         .into_iter()
         .filter_map(|mut hit| {
-            let row = usize::from(hit.row).checked_sub(offset)?;
+            let source_row = usize::from(hit.row);
+            if !(window.start_index..window.end_index).contains(&source_row) {
+                return None;
+            }
+            let row = source_row.checked_sub(window.start_index)?;
             hit.row = u16::try_from(row).ok()?;
             Some(hit)
         })
         .collect();
-    Paragraph::new(lines)
-        .scroll((u16::try_from(offset).unwrap_or(u16::MAX), 0))
-        .render(area, buffer);
+    Paragraph::new(
+        lines
+            .drain(window.start_index..window.end_index)
+            .collect::<Vec<_>>(),
+    )
+    .render(area, buffer);
     map
 }
 
@@ -331,23 +350,43 @@ pub fn render_workdeck_review_stream(
     }
 
     let offset = options.vertical_offset;
+    let row_bounds = unit_row_bounds(lines.len());
+    let window = resolve_visible_row_index_window(
+        lines.len(),
+        &row_bounds,
+        VisibleBodyBounds {
+            top: i64::try_from(offset).unwrap_or(i64::MAX),
+            height: i64::from(area.height),
+        },
+    );
     map.file_rows.retain_mut(|hit| {
-        let Some(row) = usize::from(hit.row).checked_sub(offset) else {
+        let source_row = usize::from(hit.row);
+        if !(window.start_index..window.end_index).contains(&source_row) {
+            return false;
+        }
+        let Some(row) = source_row.checked_sub(window.start_index) else {
             return false;
         };
         hit.row = u16::try_from(row).unwrap_or(u16::MAX);
         true
     });
     map.hunk_rows.retain_mut(|(_, hit)| {
-        let Some(row) = usize::from(hit.row).checked_sub(offset) else {
+        let source_row = usize::from(hit.row);
+        if !(window.start_index..window.end_index).contains(&source_row) {
+            return false;
+        }
+        let Some(row) = source_row.checked_sub(window.start_index) else {
             return false;
         };
         hit.row = u16::try_from(row).unwrap_or(u16::MAX);
         true
     });
-    Paragraph::new(lines)
-        .scroll((u16::try_from(offset).unwrap_or(u16::MAX), 0))
-        .render(area, buffer);
+    Paragraph::new(
+        lines
+            .drain(window.start_index..window.end_index)
+            .collect::<Vec<_>>(),
+    )
+    .render(area, buffer);
     map
 }
 
