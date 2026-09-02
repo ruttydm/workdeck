@@ -348,12 +348,13 @@ mod tests {
                     patch_text: String::new(),
                     untracked_paths: Vec::new(),
                     source_reader: None,
+                    source_cache_key: None,
                     extra_files: Vec::new(),
                 })
             }),
             watch_signature: None,
             watch_plan: plan.map(|plan| {
-                Arc::new(move |_input: &VcsReviewInput, _context: &VcsLoadContext| plan.clone())
+                Arc::new(move |_input: &VcsReviewInput, _context: &VcsLoadContext| Ok(plan.clone()))
                     as _
             }),
         }

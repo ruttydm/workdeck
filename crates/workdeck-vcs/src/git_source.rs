@@ -1,5 +1,6 @@
 //! Bounded Git source expansion for revision, index, and working-tree endpoints.
 
+use crate::git_commands::GitDiffEndpoint;
 use crate::{
     DEFAULT_SOURCE_TEXT_MAX_BYTES, LimitedSourceTextResult, SourceTextError, log_source_diagnostic,
     read_file_text_with_limit, read_stream_text_with_limit, terminate_source_subprocess,
@@ -12,14 +13,6 @@ use std::thread;
 use std::time::Duration;
 
 const GIT_SOURCE_DIAGNOSTIC_MAX_BYTES: usize = 64 * 1024;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum GitDiffEndpoint {
-    None,
-    GitRef(String),
-    Index,
-    Worktree,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GitFileSourceSpec {

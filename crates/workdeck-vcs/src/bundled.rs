@@ -10,9 +10,10 @@ use workdeck_core::{
 };
 
 use crate::{
-    DiffRequest, GitProvider, JujutsuProvider, SaplingProvider, VcsAdapter, VcsCatalog,
-    VcsCatalogError, VcsDetection, VcsLoadContext, VcsOperation, VcsPatchResult, VcsProvider,
-    VcsReviewInput, VcsReviewOperationKind, VcsSourceReader, VcsWatchPlan, create_base_vcs_catalog,
+    DiffRequest, GitProvider, GitVcsAdapterOptions, JujutsuProvider, SaplingProvider, VcsAdapter,
+    VcsCatalog, VcsCatalogError, VcsDetection, VcsLoadContext, VcsOperation, VcsPatchResult,
+    VcsProvider, VcsReviewInput, VcsReviewOperationKind, VcsSourceReader, VcsWatchPlan,
+    create_base_vcs_catalog, create_git_vcs_adapter,
 };
 
 const GIT_PRIORITY: i32 = 0;
@@ -107,6 +108,9 @@ pub fn get_bundled_vcs_adapters() -> &'static [VcsAdapter] {
 }
 
 fn bundled_adapter(backend: BundledBackend) -> VcsAdapter {
+    if backend == BundledBackend::Git {
+        return create_git_vcs_adapter(GitVcsAdapterOptions::default());
+    }
     let (id, name, priority) = match backend {
         BundledBackend::Git => ("git", "Git", GIT_PRIORITY),
         BundledBackend::Jujutsu => ("jj", "Jujutsu", JUJUTSU_PRIORITY),
@@ -150,7 +154,7 @@ fn bundled_operation(backend: BundledBackend) -> VcsOperation {
         // Provider-specific native metadata targets are ported with each
         // adapter. Until then the controller's bounded degraded interval is
         // the correct complete fallback, rather than a renderer-owned timer.
-        watch_plan: Some(Arc::new(|_input, _context| VcsWatchPlan::poll_only())),
+        watch_plan: Some(Arc::new(|_input, _context| Ok(VcsWatchPlan::poll_only()))),
     }
 }
 
@@ -269,15 +273,25 @@ fn changeset_signature(changeset: &Changeset) -> String {
 fn changeset_patch_result(repo_root: PathBuf, changeset: Changeset) -> VcsPatchResult {
     let source_label = source_label(&repo_root, &changeset.source);
     let source_files = Arc::new(changeset.files.clone());
-    let source_reader: VcsSourceReader = Arc::new(move |path, side| {
-        Ok(source_files
+    let source_reader: VcsSourceReader = Arc::new(move |request| {
+        source_files
             .iter()
-            .find(|file| file.path == path || file.previous_path.as_deref() == Some(path))
-            .and_then(|file| match side {
+            .find(|file| {
+                file.path == request.path
+                    || request
+                        .previous_path
+                        .as_deref()
+                        .is_some_and(|path| file.previous_path.as_deref() == Some(path))
+            })
+            .and_then(|file| match request.side {
                 ReviewSide::Old => file.sources.old.as_ref(),
                 ReviewSide::New => file.sources.new.as_ref(),
             })
-            .map(|source| source.content.clone()))
+            .cloned()
+            .map_or(
+                crate::VcsFileSourceResult::Missing,
+                crate::VcsFileSourceResult::Source,
+            )
     });
     let untracked_paths = changeset
         .files
@@ -305,6 +319,7 @@ fn changeset_patch_result(repo_root: PathBuf, changeset: Changeset) -> VcsPatchR
         patch_text,
         untracked_paths,
         source_reader: Some(source_reader),
+        source_cache_key: None,
         extra_files,
     }
 }

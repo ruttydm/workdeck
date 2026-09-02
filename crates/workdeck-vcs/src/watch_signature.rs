@@ -224,6 +224,7 @@ mod tests {
                     patch_text: String::new(),
                     untracked_paths: Vec::new(),
                     source_reader: None,
+                    source_cache_key: None,
                     extra_files: Vec::new(),
                 })
             }),

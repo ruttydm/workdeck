@@ -1,5 +1,7 @@
 use super::*;
-use crate::{get_vcs_adapter, load_vcs_review};
+use crate::{
+    VcsWatchCoverage, VcsWatchTarget, VcsWatchTargetSource, get_vcs_adapter, load_vcs_review,
+};
 use std::fs;
 use std::process::Command;
 use tempfile::tempdir;
@@ -136,7 +138,7 @@ fn git_operation_loads_through_the_composed_catalog() {
 }
 
 #[test]
-fn composed_git_catalog_drives_polling_watch_signatures() {
+fn composed_git_catalog_drives_native_watch_plans_and_signatures() {
     let directory = tempdir().unwrap();
     git(directory.path(), &["init"]);
     git(
@@ -166,7 +168,19 @@ fn composed_git_catalog_drives_polling_watch_signatures() {
     )
     .unwrap()
     .unwrap();
-    assert_eq!(plan, VcsWatchPlan::poll_only());
+    assert_eq!(plan.coverage, VcsWatchCoverage::Hybrid);
+    assert!(plan.targets.iter().any(|target| match target {
+        VcsWatchTarget::DirectoryTree { sources, .. }
+        | VcsWatchTarget::DirectoryEntries { sources, .. } => {
+            sources.contains(&VcsWatchTargetSource::Worktree)
+        }
+    }));
+    assert!(plan.targets.iter().any(|target| match target {
+        VcsWatchTarget::DirectoryTree { sources, .. }
+        | VcsWatchTarget::DirectoryEntries { sources, .. } => {
+            sources.contains(&VcsWatchTargetSource::VcsMetadata)
+        }
+    }));
 
     let context = crate::WatchSignatureContext {
         cwd: directory.path(),

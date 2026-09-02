@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use thiserror::Error;
 use workdeck_core::{
-    CliInput, DiffFile, ReviewSide, VcsDiffCommandInput, VcsShowCommandInput,
-    VcsStashShowCommandInput, WorkdeckUserError,
+    CliInput, DiffFile, FileChangeKind, ReviewSide, SourceSnapshot, VcsDiffCommandInput,
+    VcsShowCommandInput, VcsStashShowCommandInput, WorkdeckUserError,
 };
 
 pub const DEFAULT_VCS_PROVIDER_ID: &str = "git";
@@ -80,8 +80,22 @@ pub struct VcsReviewOperation {
     pub input: VcsReviewInput,
 }
 
-pub type VcsSourceReader =
-    Arc<dyn Fn(&str, ReviewSide) -> Result<Option<String>, String> + Send + Sync>;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VcsFileSourceRequest {
+    pub path: String,
+    pub previous_path: Option<String>,
+    pub change_kind: FileChangeKind,
+    pub side: ReviewSide,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VcsFileSourceResult {
+    Source(SourceSnapshot),
+    Missing,
+    TooLarge { max_bytes: usize },
+}
+
+pub type VcsSourceReader = Arc<dyn Fn(&VcsFileSourceRequest) -> VcsFileSourceResult + Send + Sync>;
 
 #[derive(Clone)]
 pub struct VcsPatchResult {
@@ -91,6 +105,7 @@ pub struct VcsPatchResult {
     pub patch_text: String,
     pub untracked_paths: Vec<PathBuf>,
     pub source_reader: Option<VcsSourceReader>,
+    pub source_cache_key: Option<String>,
     pub extra_files: Vec<DiffFile>,
 }
 
@@ -145,7 +160,9 @@ type LoadOperation = Arc<
 >;
 type WatchSignature =
     Arc<dyn Fn(&VcsReviewInput, &VcsLoadContext) -> Result<String, VcsCatalogError> + Send + Sync>;
-type WatchPlan = Arc<dyn Fn(&VcsReviewInput, &VcsLoadContext) -> VcsWatchPlan + Send + Sync>;
+type WatchPlan = Arc<
+    dyn Fn(&VcsReviewInput, &VcsLoadContext) -> Result<VcsWatchPlan, VcsCatalogError> + Send + Sync,
+>;
 
 #[derive(Clone)]
 pub struct VcsOperation {
@@ -359,12 +376,10 @@ pub fn create_vcs_watch_plan(
 ) -> Result<VcsWatchPlan, VcsCatalogError> {
     let handler = get_vcs_operation(adapter, operation)
         .ok_or_else(|| create_unsupported_vcs_operation_error(adapter, operation.kind, catalog))?;
-    Ok(handler
-        .watch_plan
-        .as_ref()
-        .map_or_else(VcsWatchPlan::poll_only, |plan| {
-            plan(&operation.input, context)
-        }))
+    handler.watch_plan.as_ref().map_or_else(
+        || Ok(VcsWatchPlan::poll_only()),
+        |plan| plan(&operation.input, context),
+    )
 }
 
 pub fn create_vcs_watch_signature(
@@ -503,6 +518,7 @@ mod tests {
                     patch_text: String::new(),
                     untracked_paths: Vec::new(),
                     source_reader: None,
+                    source_cache_key: None,
                     extra_files: Vec::new(),
                 })
             }),

@@ -2,8 +2,11 @@
 
 mod bundled;
 mod catalog;
+mod git_adapter;
+mod git_commands;
 mod git_source;
 mod large_file;
+mod materialize;
 mod platform;
 mod source_text;
 mod untracked;
@@ -15,11 +18,14 @@ mod watch_signature;
 
 pub use bundled::*;
 pub use catalog::*;
+pub use git_adapter::*;
+pub use git_commands::*;
 pub use git_source::*;
 pub use large_file::{
     LARGE_DIFF_FILE_MAX_BYTES, LARGE_DIFF_FILE_MAX_LINES, LargeFileCheck,
     inspect_large_untracked_file,
 };
+pub use materialize::*;
 pub use platform::{normalize_path_for_os, normalize_path_for_platform};
 pub use source_text::{
     DEFAULT_SOURCE_TEXT_MAX_BYTES, LimitedSourceTextResult, SourceSubprocess, SourceTextError,
@@ -57,6 +63,8 @@ pub enum VcsError {
     },
     #[error("patch output exceeded {0} bytes")]
     PatchTooLarge(usize),
+    #[error("{0}")]
+    Adapter(String),
     #[error("failed to read {path}: {source}")]
     ReadFile {
         path: PathBuf,
@@ -171,44 +179,6 @@ pub struct GitProvider {
     root: PathBuf,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct GitColorMovedOptions {
-    mode: String,
-    whitespace_mode: Option<String>,
-}
-
-const GIT_DIFF_PREFIX_CONFIG: &[&str] = &[
-    "-c",
-    "core.quotePath=true",
-    "-c",
-    "diff.noprefix=false",
-    "-c",
-    "diff.mnemonicPrefix=false",
-    "-c",
-    "diff.srcPrefix=a/",
-    "-c",
-    "diff.dstPrefix=b/",
-];
-
-const GIT_MOVED_COLOR_CONFIG: &[&str] = &[
-    "-c",
-    "color.diff.oldMoved=magenta bold",
-    "-c",
-    "color.diff.oldMovedAlternative=magenta bold",
-    "-c",
-    "color.diff.oldMovedDimmed=magenta dim",
-    "-c",
-    "color.diff.oldMovedAlternativeDimmed=magenta dim",
-    "-c",
-    "color.diff.newMoved=cyan bold",
-    "-c",
-    "color.diff.newMovedAlternative=cyan bold",
-    "-c",
-    "color.diff.newMovedDimmed=cyan dim",
-    "-c",
-    "color.diff.newMovedAlternativeDimmed=cyan dim",
-];
-
 impl GitProvider {
     pub fn discover(cwd: &Path) -> Result<Self, VcsError> {
         let output = run(cwd, "git", &["rev-parse", "--show-toplevel"], &[0])?;
@@ -226,88 +196,18 @@ impl GitProvider {
         &self.root
     }
 
-    fn read_optional_config(&self, key: &str) -> Option<String> {
-        let output = Command::new("git")
-            .args(["config", "--get", key])
-            .current_dir(&self.root)
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        let value = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-        (!value.is_empty()).then_some(value)
-    }
-
-    fn color_moved_options(&self, requested: Option<bool>) -> Option<GitColorMovedOptions> {
-        let configured = self.read_optional_config("diff.colorMoved");
-        let mode = match configured.as_deref().map(str::to_ascii_lowercase) {
-            Some(value) if ["false", "no", "off", "0", "none"].contains(&value.as_str()) => {
-                return None;
-            }
-            Some(value) if ["true", "yes", "on", "1"].contains(&value.as_str()) => "zebra".into(),
-            Some(_) => configured.expect("configured value was present"),
-            None if requested == Some(true) => "zebra".into(),
-            None => return None,
-        };
-        Some(GitColorMovedOptions {
-            mode,
-            whitespace_mode: self.read_optional_config("diff.colorMovedWS"),
-        })
-    }
-
-    fn patch_command_prefix(&self, moved: Option<&GitColorMovedOptions>) -> Vec<String> {
-        let mut arguments = GIT_DIFF_PREFIX_CONFIG
-            .iter()
-            .map(|value| (*value).to_owned())
-            .collect::<Vec<_>>();
-        if moved.is_some() {
-            arguments.extend(
-                GIT_MOVED_COLOR_CONFIG
-                    .iter()
-                    .map(|value| (*value).to_owned()),
-            );
-        }
-        arguments
-    }
-
-    fn append_patch_color_args(arguments: &mut Vec<String>, moved: Option<&GitColorMovedOptions>) {
-        if let Some(moved) = moved {
-            arguments.push("--color=always".into());
-            arguments.push(format!("--color-moved={}", moved.mode));
-            if let Some(whitespace) = &moved.whitespace_mode {
-                arguments.push(format!("--color-moved-ws={whitespace}"));
-            }
-        } else {
-            arguments.push("--no-color".into());
-        }
-    }
-
     pub fn stash(&self, reference: Option<&str>) -> Result<Changeset, VcsError> {
-        let reference = reference.unwrap_or("stash@{0}");
-        validate_revision(reference)?;
-        let moved = self.color_moved_options(None);
-        let mut arguments = self.patch_command_prefix(moved.as_ref());
-        arguments.extend([
-            "stash".into(),
-            "show".into(),
-            "--patch".into(),
-            "--find-renames".into(),
-        ]);
-        Self::append_patch_color_args(&mut arguments, moved.as_ref());
-        arguments.push(reference.into());
-        let borrowed = arguments.iter().map(String::as_str).collect::<Vec<_>>();
-        let patch = output_text(run(&self.root, "git", &borrowed, &[0])?)?;
-        let mut changeset = parse_patch(
-            &patch,
-            format!("git:stash:{reference}"),
-            format!("Stash {reference}"),
-            ChangesetSource::Stash {
-                reference: reference.to_owned(),
+        load_git_changeset(
+            &VcsReviewInput::StashShow(workdeck_core::VcsStashShowCommandInput {
+                reference: reference.map(str::to_owned),
+                options: workdeck_core::CommonOptions::default(),
+            }),
+            &VcsLoadContext {
+                cwd: self.root.clone(),
             },
-        )?;
-        self.hydrate_revision_sources(&mut changeset, &format!("{reference}^1"), reference);
-        Ok(changeset)
+            &GitVcsAdapterOptions::default(),
+        )
+        .map_err(|error| VcsError::Adapter(error.to_string()))
     }
 
     pub fn files(&self, left: &Path, right: &Path) -> Result<Changeset, VcsError> {
@@ -342,160 +242,6 @@ impl GitProvider {
         }
         Ok(changeset)
     }
-
-    fn tracked_diff(&self, request: &DiffRequest) -> Result<String, VcsError> {
-        if let Some(from) = request.from.as_deref() {
-            validate_revision(from)?;
-        }
-        if let Some(target) = request.target.as_deref() {
-            validate_revision(target)?;
-        }
-
-        let moved = self.color_moved_options(request.color_moved);
-        let mut arguments = self.patch_command_prefix(moved.as_ref());
-        arguments.extend([
-            "diff".to_owned(),
-            "--no-ext-diff".to_owned(),
-            "--find-renames".to_owned(),
-            "--binary".to_owned(),
-        ]);
-        Self::append_patch_color_args(&mut arguments, moved.as_ref());
-        if request.staged {
-            arguments.push("--cached".to_owned());
-        }
-        match (&request.from, &request.target) {
-            (Some(from), Some(to)) => arguments.push(format!("{from}..{to}")),
-            (None, Some(target)) => arguments.push(target.clone()),
-            (Some(_), None) => unreachable!("from requires a target at the CLI boundary"),
-            (None, None) if !request.staged && has_head(&self.root) => {
-                arguments.push("HEAD".to_owned());
-            }
-            _ => {}
-        }
-        arguments.push("--".to_owned());
-        arguments.extend(request.pathspec.iter().cloned());
-        let borrowed = arguments.iter().map(String::as_str).collect::<Vec<_>>();
-        output_text(run(&self.root, "git", &borrowed, &[0])?)
-    }
-
-    fn untracked_patch(&self, pathspec: &[String]) -> Result<UntrackedPatch, VcsError> {
-        let mut args = vec!["ls-files", "--others", "--exclude-standard", "-z", "--"];
-        args.extend(pathspec.iter().map(String::as_str));
-        let output = run(&self.root, "git", &args, &[0])?;
-        let mut untracked = UntrackedPatch::default();
-        for raw_path in output
-            .stdout
-            .split(|byte| *byte == 0)
-            .filter(|path| !path.is_empty())
-        {
-            let path = String::from_utf8_lossy(raw_path);
-            let absolute = self.root.join(path.as_ref());
-            let metadata =
-                fs::symlink_metadata(&absolute).map_err(|source| VcsError::ReadFile {
-                    path: absolute.clone(),
-                    source,
-                })?;
-            if !metadata.file_type().is_file() && !metadata.file_type().is_symlink() {
-                continue;
-            }
-            let file = build_filesystem_untracked_diff_file(
-                &self.root,
-                Path::new(path.as_ref()),
-                untracked.files.len(),
-                "git:working",
-            )?;
-            append_untracked_transport_patch(&mut untracked.patch, &file);
-            untracked.files.push(file);
-        }
-        Ok(untracked)
-    }
-
-    fn hydrate_working_sources(&self, changeset: &mut Changeset, request: &DiffRequest) {
-        for file in &mut changeset.files {
-            if file.flags.untracked
-                && (file.flags.binary
-                    || file.flags.too_large
-                    || file.patch.contains("new file mode 120000"))
-            {
-                continue;
-            }
-            let old_path = file.previous_path.as_deref().unwrap_or(&file.path);
-            let sources = match (&request.from, &request.target) {
-                (Some(from), Some(to)) => FileSourceSnapshots {
-                    old: self.git_blob_snapshot(from, old_path),
-                    new: self.git_blob_snapshot(to, &file.path),
-                },
-                (None, Some(target)) => FileSourceSnapshots {
-                    old: self.git_blob_snapshot(target, old_path),
-                    new: if request.staged {
-                        self.index_snapshot(&file.path)
-                    } else {
-                        read_working_tree_snapshot(&self.root.join(&file.path))
-                    },
-                },
-                (None, None) => FileSourceSnapshots {
-                    old: self.git_blob_snapshot("HEAD", old_path),
-                    new: if request.staged {
-                        self.index_snapshot(&file.path)
-                    } else {
-                        read_working_tree_snapshot(&self.root.join(&file.path))
-                    },
-                },
-                (Some(_), None) => continue,
-            };
-            if sources.old.is_some() || sources.new.is_some() {
-                file.set_sources(sources);
-            }
-        }
-    }
-
-    fn hydrate_revision_sources(&self, changeset: &mut Changeset, old: &str, new: &str) {
-        for file in &mut changeset.files {
-            let old_path = file.previous_path.as_deref().unwrap_or(&file.path);
-            let sources = FileSourceSnapshots {
-                old: self.git_blob_snapshot(old, old_path),
-                new: self.git_blob_snapshot(new, &file.path),
-            };
-            if sources.old.is_some() || sources.new.is_some() {
-                file.set_sources(sources);
-            }
-        }
-    }
-
-    fn git_blob_snapshot(&self, revision: &str, path: &str) -> Option<SourceSnapshot> {
-        match read_git_file_source(
-            &GitFileSourceSpec::GitBlob {
-                repo_root: self.root.clone(),
-                reference: revision.into(),
-                path: path.into(),
-            },
-            &GitFileSourceOptions::default(),
-        ) {
-            LimitedSourceTextResult::Text(content) => Some(SourceSnapshot::new(
-                content,
-                SourceOrigin::Revision {
-                    revision: revision.into(),
-                },
-                true,
-            )),
-            LimitedSourceTextResult::Missing | LimitedSourceTextResult::TooLarge { .. } => None,
-        }
-    }
-
-    fn index_snapshot(&self, path: &str) -> Option<SourceSnapshot> {
-        match read_git_file_source(
-            &GitFileSourceSpec::GitIndex {
-                repo_root: self.root.clone(),
-                path: path.into(),
-            },
-            &GitFileSourceOptions::default(),
-        ) {
-            LimitedSourceTextResult::Text(content) => {
-                Some(SourceSnapshot::new(content, SourceOrigin::Index, true))
-            }
-            LimitedSourceTextResult::Missing | LimitedSourceTextResult::TooLarge { .. } => None,
-        }
-    }
 }
 
 impl VcsProvider for GitProvider {
@@ -509,84 +255,47 @@ impl VcsProvider for GitProvider {
                 "a from revision requires a to revision".into(),
             ));
         }
-        let mut patch = self.tracked_diff(request)?;
-        let mut untracked = UntrackedPatch::default();
-        if !request.exclude_untracked
-            && !request.staged
-            && request.target.is_none()
-            && request.from.is_none()
-        {
-            untracked = self.untracked_patch(&request.pathspec)?;
-            patch.push_str(&untracked.patch);
-        }
-        let title = match (&request.from, &request.target, request.staged) {
-            (Some(from), Some(to), _) => format!("{from} → {to}"),
-            (None, Some(target), _) => format!("Changes from {target}"),
-            (_, _, true) => "Staged changes".to_owned(),
-            _ => "Working tree".to_owned(),
-        };
-        let source = match (&request.from, &request.target) {
-            (from, Some(to)) => ChangesetSource::Revision {
-                from: from.clone(),
-                to: to.clone(),
-            },
-            _ => ChangesetSource::WorkingTree {
+        load_git_changeset(
+            &VcsReviewInput::Diff(workdeck_core::VcsDiffCommandInput {
+                range: request
+                    .from
+                    .is_none()
+                    .then(|| request.target.clone())
+                    .flatten(),
+                range_endpoints: request
+                    .from
+                    .clone()
+                    .zip(request.target.clone())
+                    .map(|(from, to)| workdeck_core::VcsRangeEndpoints { from, to }),
                 staged: request.staged,
+                pathspecs: request.pathspec.clone(),
+                options: workdeck_core::CommonOptions {
+                    exclude_untracked: Some(request.exclude_untracked),
+                    color_moved: request.color_moved,
+                    ..workdeck_core::CommonOptions::default()
+                },
+            }),
+            &VcsLoadContext {
+                cwd: self.root.clone(),
             },
-        };
-        if patch.trim().is_empty() {
-            return Ok(Changeset {
-                id: "git:working".into(),
-                title,
-                source,
-                files: Vec::new(),
-            });
-        }
-        let mut changeset = parse_patch(&patch, "git:working", title, source)?;
-        apply_untracked_metadata(&mut changeset, &untracked.files);
-        self.hydrate_working_sources(&mut changeset, request);
-        Ok(changeset)
+            &GitVcsAdapterOptions::default(),
+        )
+        .map_err(|error| VcsError::Adapter(error.to_string()))
     }
 
     fn show(&self, target: Option<&str>, pathspec: &[String]) -> Result<Changeset, VcsError> {
-        let target = target.unwrap_or("HEAD");
-        validate_revision(target)?;
-        let moved = self.color_moved_options(None);
-        let mut arguments = self.patch_command_prefix(moved.as_ref());
-        arguments.extend([
-            "show".into(),
-            "--format=".into(),
-            "--no-ext-diff".into(),
-            "--find-renames".into(),
-            "--binary".into(),
-        ]);
-        Self::append_patch_color_args(&mut arguments, moved.as_ref());
-        arguments.extend([target.into(), "--".into()]);
-        arguments.extend(pathspec.iter().cloned());
-        let borrowed = arguments.iter().map(String::as_str).collect::<Vec<_>>();
-        let patch = output_text(run(&self.root, "git", &borrowed, &[0])?)?;
-        if patch.trim().is_empty() {
-            return Ok(Changeset {
-                id: format!("git:show:{target}"),
-                title: format!("Commit {target}"),
-                source: ChangesetSource::Revision {
-                    from: None,
-                    to: target.to_owned(),
-                },
-                files: Vec::new(),
-            });
-        }
-        let mut changeset = parse_patch(
-            &patch,
-            format!("git:show:{target}"),
-            format!("Commit {target}"),
-            ChangesetSource::Revision {
-                from: None,
-                to: target.to_owned(),
+        load_git_changeset(
+            &VcsReviewInput::Show(workdeck_core::VcsShowCommandInput {
+                reference: target.map(str::to_owned),
+                pathspecs: pathspec.to_vec(),
+                options: workdeck_core::CommonOptions::default(),
+            }),
+            &VcsLoadContext {
+                cwd: self.root.clone(),
             },
-        )?;
-        self.hydrate_revision_sources(&mut changeset, &format!("{target}^"), target);
-        Ok(changeset)
+            &GitVcsAdapterOptions::default(),
+        )
+        .map_err(|error| VcsError::Adapter(error.to_string()))
     }
 }
 
@@ -933,14 +642,6 @@ fn output_text(output: Output) -> Result<String, VcsError> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-fn has_head(root: &Path) -> bool {
-    Command::new("git")
-        .args(["rev-parse", "--verify", "HEAD"])
-        .current_dir(root)
-        .output()
-        .is_ok_and(|output| output.status.success())
-}
-
 #[derive(Debug, Default)]
 struct UntrackedPatch {
     patch: String,
@@ -1010,10 +711,6 @@ fn read_file_snapshot(path: &Path) -> Option<SourceSnapshot> {
             path: path.display().to_string(),
         },
     )
-}
-
-fn read_working_tree_snapshot(path: &Path) -> Option<SourceSnapshot> {
-    read_source_snapshot(path, SourceOrigin::WorkingTree)
 }
 
 fn read_source_snapshot(path: &Path, origin: SourceOrigin) -> Option<SourceSnapshot> {
@@ -1119,10 +816,10 @@ mod tests {
             .unwrap();
         assert_eq!(tracked.sources.old.as_ref().unwrap().content, "old\n");
         assert_eq!(tracked.sources.new.as_ref().unwrap().content, "new\n");
-        assert!(matches!(
+        assert_eq!(
             tracked.sources.old.as_ref().unwrap().origin,
-            SourceOrigin::Revision { .. }
-        ));
+            SourceOrigin::Index
+        );
         assert_eq!(
             tracked.sources.new.as_ref().unwrap().origin,
             SourceOrigin::WorkingTree
