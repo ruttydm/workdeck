@@ -1622,12 +1622,12 @@ fn handle_review_command(cwd: &Path, command: Command) -> Result<()> {
             std::io::stdin()
                 .read_to_string(&mut input)
                 .context("failed to read pager input")?;
-            match parse_patch_input(&input, "pager") {
-                Ok(changeset) => run_review_with_options(cwd, changeset, review, None),
-                Err(_) => {
-                    print!("{input}");
-                    Ok(())
-                }
+            if workdeck_cli::pager::looks_like_patch_input(&input) {
+                let changeset = parse_patch_input(&input, "pager").map_err(anyhow::Error::from)?;
+                run_review_with_options(cwd, changeset, review, None)
+            } else {
+                let context = workdeck_cli::pager::PlainTextPagerContext::current();
+                workdeck_cli::pager::page_plain_text(&input, &context).map_err(anyhow::Error::from)
             }
         }
         _ => unreachable!("non-review command passed to review handler"),

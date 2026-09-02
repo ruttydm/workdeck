@@ -2,6 +2,7 @@ pub mod app;
 pub mod command_names;
 pub mod config;
 pub mod git;
+pub mod pager;
 pub mod payload;
 pub mod search;
 pub mod store;

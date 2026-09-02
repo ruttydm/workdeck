@@ -22,8 +22,10 @@ use workdeck_core::StartupNotice;
 use workdeck_session::{ReviewSessionServer, default_discovery_directory};
 use workdeck_tui::{
     DEFAULT_STARTUP_NOTICE_DELAY, DEFAULT_STARTUP_NOTICE_DURATION, DEFAULT_STARTUP_NOTICE_REPEAT,
-    StartupNoticeQueue,
+    JobControlAction, JobControlPlatform, JobControlSupport, StartupNoticeQueue,
 };
+#[cfg(unix)]
+use workdeck_tui::{JobControlRuntime, suspend_foreground_process_group};
 use workdeck_vcs::{AnyProvider, DiffRequest, ProviderPreference, VcsProvider};
 
 pub fn run(mut app: App) -> Result<()> {
@@ -135,6 +137,7 @@ fn run_loop(
     let mut startup_notices = StartupNoticeQueue::new(true, DEFAULT_STARTUP_NOTICE_DURATION);
     let mut notice_lookup_in_flight = false;
     let mut next_notice_check = Instant::now() + DEFAULT_STARTUP_NOTICE_DELAY;
+    let job_control = JobControlSupport::default();
 
     loop {
         if review_session.is_some_and(|session| {
@@ -185,7 +188,7 @@ fn run_loop(
         }
         match event::read()? {
             Event::Key(key) => {
-                if handle_key(terminal, app, key, &refresh_tx)? {
+                if handle_key(terminal, app, key, &refresh_tx, &job_control)? {
                     return Ok(());
                 }
             }
@@ -414,6 +417,7 @@ fn handle_key(
     app: &mut App,
     key: KeyEvent,
     refresh_tx: &Sender<Result<RefreshData, RefreshError>>,
+    job_control: &JobControlSupport,
 ) -> Result<bool> {
     let layout = terminal
         .size()
@@ -422,6 +426,15 @@ fn handle_key(
     let narrow_files = app.active_tab == Tab::Files
         && layout == LayoutMode::Narrow
         && app.focus != crate::app::FocusPane::Preview;
+
+    match job_control.action(key, JobControlPlatform::current(), false) {
+        Some(JobControlAction::Interrupt) => return Ok(true),
+        Some(JobControlAction::Suspend) => {
+            suspend_terminal_job(terminal)?;
+            return Ok(false);
+        }
+        None => {}
+    }
 
     if app.help_visible {
         if key.code == KeyCode::Esc || configured_key(key, &app.config.keys.help) {
@@ -432,7 +445,6 @@ fn handle_key(
 
     if app.active_tab == Tab::Search {
         match key.code {
-            _ if is_ctrl_c(key) => return Ok(true),
             KeyCode::Esc => {
                 app.active_tab = Tab::Changes;
                 app.search_query.clear();
@@ -459,7 +471,7 @@ fn handle_key(
         return Ok(false);
     }
 
-    if is_ctrl_c(key) || configured_key(key, &app.config.keys.quit) {
+    if configured_key(key, &app.config.keys.quit) {
         return Ok(true);
     } else if app.focus == crate::app::FocusPane::Preview {
         match key.code {
@@ -612,8 +624,46 @@ fn handle_key(
     Ok(false)
 }
 
-fn is_ctrl_c(key: KeyEvent) -> bool {
-    key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)
+#[cfg(unix)]
+struct CrosstermJobControlRuntime<'a> {
+    terminal: &'a mut Terminal<CrosstermBackend<Stdout>>,
+}
+
+#[cfg(unix)]
+impl JobControlRuntime for CrosstermJobControlRuntime<'_> {
+    fn is_destroyed(&self) -> bool {
+        false
+    }
+
+    fn suspend_renderer(&mut self) -> Result<(), String> {
+        restore_terminal(self.terminal).map_err(|error| error.to_string())
+    }
+
+    fn signal_foreground_process_group(&mut self) -> Result<(), String> {
+        // SAFETY: group zero and SIGTSTP are fixed libc values; no pointer crosses the FFI boundary.
+        let result = unsafe { libc::kill(0, libc::SIGTSTP) };
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error().to_string())
+        }
+    }
+
+    fn resume_renderer(&mut self) -> Result<(), String> {
+        *self.terminal = setup_terminal().map_err(|error| error.to_string())?;
+        Ok(())
+    }
+}
+
+#[cfg(unix)]
+fn suspend_terminal_job(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
+    let mut runtime = CrosstermJobControlRuntime { terminal };
+    suspend_foreground_process_group(&mut runtime).map_err(anyhow::Error::msg)
+}
+
+#[cfg(not(unix))]
+fn suspend_terminal_job(_terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
+    Ok(())
 }
 
 fn configured_key(key: KeyEvent, binding: &str) -> bool {
@@ -658,17 +708,5 @@ mod tests {
             KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
             "L"
         ));
-    }
-
-    #[test]
-    fn ctrl_c_is_quit_key() {
-        assert!(is_ctrl_c(KeyEvent::new(
-            KeyCode::Char('c'),
-            KeyModifiers::CONTROL
-        )));
-        assert!(!is_ctrl_c(KeyEvent::new(
-            KeyCode::Char('c'),
-            KeyModifiers::NONE
-        )));
     }
 }

@@ -2596,6 +2596,7 @@ dependencies = [
  "fuzzy-matcher",
  "git2",
  "ignore",
+ "libc",
  "predicates",
  "ratatui",
  "semver",

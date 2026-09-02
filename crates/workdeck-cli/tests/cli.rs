@@ -75,6 +75,25 @@ fn update_preserves_managed_channel_exit_semantics() {
 }
 
 #[test]
+fn pager_plain_text_fallback_is_headless_sanitized_and_read_only() {
+    let dir = tempdir().unwrap();
+    git(dir.path(), &["init"]);
+
+    let mut command = assert_cmd::Command::cargo_bin("workdeck").unwrap();
+    command
+        .env("HOME", "/nonexistent/workdeck-test-home")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("pager")
+        .write_stdin("plain\x1b]52;c;SGVsbG8=\x07 output\x1b[2J")
+        .assert()
+        .success()
+        .stdout("plain output");
+
+    assert!(!dir.path().join(".agents/workdeck").exists());
+}
+
+#[test]
 fn outside_git_repo_prints_actionable_error() {
     let dir = tempdir().unwrap();
 
