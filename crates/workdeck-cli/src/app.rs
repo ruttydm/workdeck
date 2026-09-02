@@ -293,6 +293,7 @@ impl App {
         mut options: ReviewOptions,
         extensions: Vec<LoadedExtension>,
     ) -> Result<Self> {
+        options.command_cwd = Some(cwd.as_ref().to_path_buf());
         let mut app = Self::new(cwd)?;
         options.repo = Some(app.repo_root.clone());
         app.review = Some(ReviewApp::new_with_extensions(

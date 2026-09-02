@@ -103,8 +103,11 @@ pub fn build_live_comment(
         summary: input.summary,
         rationale: input.rationale,
         markup: input.markup,
+        title: None,
         tags: vec!["mcp".into()],
         confidence: Some(AgentAnnotationConfidence::High),
+        updated_at: None,
+        resolution: crate::ReviewNoteResolution::Active,
         anchor: CommentAnchor {
             file_key: file.key.clone(),
             old_range: anchor.old_range,

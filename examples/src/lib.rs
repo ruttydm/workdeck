@@ -65,6 +65,9 @@ pub mod pane_layout_extension;
 #[path = "../extensions/vim-navigation/extension.rs"]
 pub mod vim_navigation_extension;
 
+#[path = "../extensions/review-snapshot-export/extension.rs"]
+pub mod review_snapshot_export_extension;
+
 #[cfg(test)]
 #[path = "../3-agent-review-demo/after/test/search_demo.rs"]
 mod agent_review_after_demo;

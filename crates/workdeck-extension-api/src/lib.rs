@@ -21,7 +21,10 @@ use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
-use workdeck_core::{Changeset, ReviewSide, ReviewSnapshot};
+use workdeck_core::{
+    AgentAnnotationConfidence, Changeset, ReviewFileChangeKind, ReviewNoteSource, ReviewSide,
+    ReviewSnapshot,
+};
 
 pub use workdeck_core::{WORKDECK_EXTENSION_USER_ERROR_NAME, WorkdeckExtensionUserError};
 
@@ -818,6 +821,10 @@ pub struct PaneRenderResponse {
 pub struct CommandInvocation {
     pub command_id: String,
     pub snapshot: ReviewSnapshot,
+    #[serde(default)]
+    pub cwd: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<ExtensionReviewSnapshot>,
     /// Fully qualified `extension-id:pane-id` keys currently open in the host.
     #[serde(default)]
     pub open_panes: Vec<String>,
@@ -896,8 +903,116 @@ pub struct InputDialogSubmission {
     pub action_id: String,
     pub value: Option<String>,
     pub snapshot: ReviewSnapshot,
+    #[serde(default)]
+    pub cwd: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<ExtensionReviewSnapshot>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_keyboard_mode: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionReviewSnapshotFileStats {
+    pub additions: usize,
+    pub deletions: usize,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionReviewSnapshotFileFlags {
+    pub untracked: bool,
+    pub binary: bool,
+    pub too_large: bool,
+    pub partial: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionReviewSnapshotFile {
+    pub file_key: String,
+    pub runtime_id: String,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_path: Option<String>,
+    pub change_kind: ReviewFileChangeKind,
+    pub stats: ExtensionReviewSnapshotFileStats,
+    pub flags: ExtensionReviewSnapshotFileFlags,
+    pub content_identity: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_identity: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_attested: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionReviewSnapshotLineAddress {
+    pub side: ReviewSide,
+    pub line: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionReviewSnapshotNoteAnchor {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub old_range: Option<[u32; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_range: Option<[u32; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preferred: Option<ExtensionReviewSnapshotLineAddress>,
+    pub intersecting_hunk_indices: Vec<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_hunk_index: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ExtensionReviewNoteResolution {
+    Active,
+    Stale,
+    Orphaned,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionReviewSnapshotNote {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
+    pub source: ReviewNoteSource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_source: Option<String>,
+    pub file_key: String,
+    pub anchor: ExtensionReviewSnapshotNoteAnchor,
+    pub summary: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rationale: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub markup: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+    pub editable: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<AgentAnnotationConfidence>,
+    pub resolution: ExtensionReviewNoteResolution,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionReviewSnapshot {
+    pub generation: String,
+    pub state_revision: u64,
+    pub files: Vec<ExtensionReviewSnapshotFile>,
+    pub notes: Vec<ExtensionReviewSnapshotNote>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

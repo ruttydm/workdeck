@@ -2787,6 +2787,7 @@ dependencies = [
  "workdeck-extension-api",
  "workdeck-extension-host",
  "workdeck-markup",
+ "workdeck-review",
  "workdeck-tui",
 ]
 

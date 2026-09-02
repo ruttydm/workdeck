@@ -109,8 +109,8 @@ use workdeck_extension_api::{
 use workdeck_extension_host::LoadedExtension;
 use workdeck_review::{
     ExpandedSourceError, ExpandedSourceStatus, LayoutMode, ReviewComment, ReviewGapAddress,
-    ReviewState, plan_expanded_gap, review_expansion_side, review_gap_source_for_file,
-    review_leading_gap, review_trailing_gap,
+    ReviewState, build_extension_review_snapshot, plan_expanded_gap, review_expansion_side,
+    review_gap_source_for_file, review_leading_gap, review_trailing_gap,
 };
 use workdeck_session::{ReviewSessionServer, default_discovery_directory};
 
@@ -136,6 +136,7 @@ pub struct ReviewOptions {
     pub agent_notes: bool,
     pub theme: AppTheme,
     pub repo: Option<PathBuf>,
+    pub command_cwd: Option<PathBuf>,
     pub extension_panes: Vec<ExtensionPaneView>,
     pub extension_notifications: Option<ExtensionNotificationHub>,
 }
@@ -161,6 +162,7 @@ impl Default for ReviewOptions {
             agent_notes: false,
             theme: resolve_theme(Some(DEFAULT_DARK_THEME_ID), None, &[]),
             repo: None,
+            command_cwd: None,
             extension_panes: Vec::new(),
             extension_notifications: None,
         }
@@ -636,7 +638,9 @@ impl ReviewApp {
     }
 
     fn invoke_registered_extension_command(&mut self, command: LiveCommandRegistration) {
-        let snapshot = self.with_state(|state| state.snapshot());
+        let (snapshot, review) =
+            self.with_state(|state| (state.snapshot(), build_extension_review_snapshot(state)));
+        let cwd = self.extension_command_cwd();
         let execution = {
             let mut runtime = self
                 .extension_pane_runtime
@@ -647,11 +651,13 @@ impl ReviewApp {
                 .active_keyboard_mode
                 .as_ref()
                 .map(|active| format!("{}:{}", active.extension_id, active.mode.id));
-            runtime.extensions[command.extension_index].invoke_command_with_context(
+            runtime.extensions[command.extension_index].invoke_command_with_review_context(
                 &command.command.id,
                 snapshot,
                 open_panes,
                 active_keyboard_mode,
+                cwd,
+                Some(review),
             )
         };
         match execution {
@@ -987,7 +993,9 @@ impl ReviewApp {
     }
 
     fn submit_extension_input(&mut self, dialog: ExtensionInputDialog, value: Option<String>) {
-        let snapshot = self.with_state(|state| state.snapshot());
+        let (snapshot, review) =
+            self.with_state(|state| (state.snapshot(), build_extension_review_snapshot(state)));
+        let cwd = self.extension_command_cwd();
         let execution = {
             let mut runtime = self
                 .extension_pane_runtime
@@ -997,11 +1005,13 @@ impl ReviewApp {
                 .active_keyboard_mode
                 .as_ref()
                 .map(|active| format!("{}:{}", active.extension_id, active.mode.id));
-            runtime.extensions[dialog.extension_index].submit_input_dialog(
+            runtime.extensions[dialog.extension_index].submit_input_dialog_with_context(
                 &dialog.action_id,
                 value,
                 snapshot,
                 active_keyboard_mode,
+                cwd,
+                Some(review),
             )
         };
         match execution {
@@ -1122,6 +1132,15 @@ impl ReviewApp {
             &mut highlights,
             &self.expanded_gaps,
         )
+    }
+
+    fn extension_command_cwd(&self) -> PathBuf {
+        self.options
+            .command_cwd
+            .clone()
+            .or_else(|| self.options.repo.clone())
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_default()
     }
 
     fn handle_extension_menu_key(&mut self, key: &KeyEvent) -> bool {
@@ -4170,8 +4189,11 @@ mod tests {
                 summary: "fallback".into(),
                 rationale: Some("because it matters".into()),
                 markup: Some("<box title=\"flow\">shape</box>".into()),
+                title: None,
                 tags: Vec::new(),
                 confidence: None,
+                updated_at: None,
+                resolution: workdeck_review::ReviewNoteResolution::Active,
                 anchor: CommentAnchor {
                     file_key,
                     old_range: None,

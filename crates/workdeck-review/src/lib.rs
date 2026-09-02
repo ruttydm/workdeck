@@ -50,7 +50,16 @@ pub use semantic_store::*;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use workdeck_core::{Changeset, LineRange, ReviewSelection, ReviewSide, ReviewSnapshot};
+use workdeck_core::{
+    Changeset, LineRange, ReviewNoteSource, ReviewSelection, ReviewSide, ReviewSnapshot,
+    project_review_document,
+};
+use workdeck_extension_api::{
+    ExtensionReviewNoteResolution, ExtensionReviewSnapshot, ExtensionReviewSnapshotFile,
+    ExtensionReviewSnapshotFileFlags, ExtensionReviewSnapshotFileStats,
+    ExtensionReviewSnapshotLineAddress, ExtensionReviewSnapshotNote,
+    ExtensionReviewSnapshotNoteAnchor,
+};
 
 pub const MAX_REVIEW_NOTE_BYTES: usize = 256 * 1024;
 
@@ -63,6 +72,10 @@ pub fn review_note_byte_length(note: &impl Serialize) -> usize {
 
 pub fn review_note_within_size_limit(note: &impl Serialize) -> bool {
     review_note_byte_length(note) <= MAX_REVIEW_NOTE_BYTES
+}
+
+fn review_note_resolution_is_active(resolution: &ReviewNoteResolution) -> bool {
+    *resolution == ReviewNoteResolution::Active
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -107,10 +120,16 @@ pub struct ReviewComment {
     pub rationale: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub markup: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confidence: Option<workdeck_core::AgentAnnotationConfidence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+    #[serde(default, skip_serializing_if = "review_note_resolution_is_active")]
+    pub resolution: ReviewNoteResolution,
     pub anchor: CommentAnchor,
     pub editable: bool,
 }
@@ -137,6 +156,7 @@ pub struct ReviewState {
     selection: ReviewSelection,
     layout: LayoutMode,
     generation: u64,
+    state_revision: u64,
     comments: Vec<ReviewComment>,
 }
 
@@ -148,6 +168,7 @@ impl ReviewState {
             selection,
             layout: LayoutMode::Auto,
             generation: 1,
+            state_revision: 0,
             comments: Vec::new(),
         }
     }
@@ -164,6 +185,10 @@ impl ReviewState {
         self.generation
     }
 
+    pub fn state_revision(&self) -> u64 {
+        self.state_revision
+    }
+
     pub fn selected_file(&self) -> Option<&workdeck_core::DiffFile> {
         self.changeset.files.get(self.selection.file_index)
     }
@@ -173,7 +198,10 @@ impl ReviewState {
     }
 
     pub fn set_layout(&mut self, layout: LayoutMode) {
-        self.layout = layout;
+        if self.layout != layout {
+            self.layout = layout;
+            self.state_revision = self.state_revision.saturating_add(1);
+        }
     }
 
     pub fn resolved_layout(&self, terminal_width: u16) -> LayoutMode {
@@ -190,12 +218,16 @@ impl ReviewState {
             .files
             .get(file_index)
             .ok_or(ReviewError::FileOutOfRange(file_index))?;
-        self.selection = ReviewSelection {
+        let selection = ReviewSelection {
             file_index,
             hunk_index: (!file.hunks.is_empty()).then_some(0),
             side: None,
             line: None,
         };
+        if self.selection != selection {
+            self.selection = selection;
+            self.state_revision = self.state_revision.saturating_add(1);
+        }
         Ok(())
     }
 
@@ -211,12 +243,16 @@ impl ReviewState {
                 hunk: hunk_index,
             });
         }
-        self.selection = ReviewSelection {
+        let selection = ReviewSelection {
             file_index,
             hunk_index: Some(hunk_index),
             side: None,
             line: None,
         };
+        if self.selection != selection {
+            self.selection = selection;
+            self.state_revision = self.state_revision.saturating_add(1);
+        }
         Ok(())
     }
 
@@ -305,12 +341,16 @@ impl ReviewState {
         let hunk_index = file
             .hunk_at_line(side, line)
             .ok_or(ReviewError::LineNotInHunk { side, line })?;
-        self.selection = ReviewSelection {
+        let selection = ReviewSelection {
             file_index,
             hunk_index: Some(hunk_index),
             side: Some(side),
             line: Some(line),
         };
+        if self.selection != selection {
+            self.selection = selection;
+            self.state_revision = self.state_revision.saturating_add(1);
+        }
         Ok(())
     }
 
@@ -326,6 +366,7 @@ impl ReviewState {
         });
         self.changeset = changeset;
         self.generation = self.generation.saturating_add(1);
+        self.state_revision = 0;
         self.selection = previous_file
             .and_then(|(key, path, hunk, side, line)| {
                 let file_index = self
@@ -374,21 +415,116 @@ impl ReviewState {
         {
             return Err(ReviewError::DuplicateComment(comment.id));
         }
-        if !self
-            .changeset
-            .files
-            .iter()
-            .any(|file| file.key == comment.anchor.file_key)
+        if comment.resolution != ReviewNoteResolution::Orphaned
+            && !self
+                .changeset
+                .files
+                .iter()
+                .any(|file| file.key == comment.anchor.file_key)
         {
             return Err(ReviewError::UnknownCommentFile(comment.anchor.file_key));
         }
         self.comments.push(comment);
+        self.state_revision = self.state_revision.saturating_add(1);
         Ok(())
     }
 
     pub fn remove_comment(&mut self, id: &str) -> Option<ReviewComment> {
         let index = self.comments.iter().position(|comment| comment.id == id)?;
-        Some(self.comments.remove(index))
+        let comment = self.comments.remove(index);
+        self.state_revision = self.state_revision.saturating_add(1);
+        Some(comment)
+    }
+}
+
+/// Project the current authoritative review and saved notes into extension API v1.
+#[must_use]
+pub fn build_extension_review_snapshot(state: &ReviewState) -> ExtensionReviewSnapshot {
+    let document = project_review_document(state.changeset(), Some(&state.changeset().id));
+    let files = document
+        .files
+        .iter()
+        .map(|file| ExtensionReviewSnapshotFile {
+            file_key: file.key.clone(),
+            runtime_id: file.runtime_id.clone(),
+            path: file.path.clone(),
+            previous_path: file.previous_path.clone(),
+            change_kind: file.change_kind,
+            stats: ExtensionReviewSnapshotFileStats {
+                additions: file.stats.additions,
+                deletions: file.stats.deletions,
+                truncated: file.stats.truncated,
+            },
+            flags: ExtensionReviewSnapshotFileFlags {
+                untracked: file.flags.untracked,
+                binary: file.flags.binary,
+                too_large: file.flags.too_large,
+                partial: file.flags.partial,
+            },
+            content_identity: file.content_identity.clone(),
+            source_identity: file.source_identity.clone(),
+            source_attested: file.source_attested,
+        })
+        .collect();
+    let notes = state
+        .comments()
+        .iter()
+        .map(|comment| {
+            let resolution = match comment.resolution {
+                ReviewNoteResolution::Active => ExtensionReviewNoteResolution::Active,
+                ReviewNoteResolution::Stale => ExtensionReviewNoteResolution::Stale,
+                ReviewNoteResolution::Orphaned => ExtensionReviewNoteResolution::Orphaned,
+            };
+            let source = match comment.source.as_str() {
+                "ai" => ReviewNoteSource::Ai,
+                "user" => ReviewNoteSource::User,
+                _ if comment.editable => ReviewNoteSource::User,
+                _ => ReviewNoteSource::Agent,
+            };
+            let original_source = (!matches!(comment.source.as_str(), "ai" | "agent" | "user"))
+                .then(|| comment.source.clone());
+            ExtensionReviewSnapshotNote {
+                id: comment.id.clone(),
+                parent_id: comment.parent_id.clone(),
+                source,
+                original_source,
+                file_key: comment.anchor.file_key.clone(),
+                anchor: ExtensionReviewSnapshotNoteAnchor {
+                    old_range: comment
+                        .anchor
+                        .old_range
+                        .map(|range| [range.start, range.end]),
+                    new_range: comment
+                        .anchor
+                        .new_range
+                        .map(|range| [range.start, range.end]),
+                    preferred: comment
+                        .anchor
+                        .preferred_side
+                        .zip(comment.anchor.preferred_line)
+                        .map(|(side, line)| ExtensionReviewSnapshotLineAddress { side, line }),
+                    intersecting_hunk_indices: comment.anchor.intersecting_hunk_indices.clone(),
+                    owner_hunk_index: comment.anchor.owner_hunk_index,
+                },
+                summary: comment.summary.clone(),
+                rationale: comment.rationale.clone(),
+                markup: comment.markup.clone(),
+                title: comment.title.clone(),
+                author: comment.author.clone(),
+                created_at: comment.created_at.clone(),
+                updated_at: comment.updated_at.clone(),
+                editable: comment.editable,
+                tags: comment.tags.clone(),
+                confidence: comment.confidence,
+                resolution,
+            }
+        })
+        .collect();
+    ExtensionReviewSnapshot {
+        generation: format!("generation:workdeck-tui:{}", state.generation()),
+        state_revision: state.state_revision(),
+        files,
+        notes,
     }
 }
 
@@ -500,8 +636,11 @@ mod tests {
                 summary: "check this".into(),
                 rationale: None,
                 markup: None,
+                title: None,
                 tags: Vec::new(),
                 confidence: None,
+                updated_at: None,
+                resolution: ReviewNoteResolution::Active,
                 anchor: CommentAnchor {
                     file_key: "stable".into(),
                     old_range: None,
@@ -543,8 +682,11 @@ mod tests {
             summary: String::new(),
             rationale: None,
             markup: None,
+            title: None,
             tags: Vec::new(),
             confidence: None,
+            updated_at: None,
+            resolution: ReviewNoteResolution::Active,
             anchor: CommentAnchor {
                 file_key: "file:one".into(),
                 old_range: None,

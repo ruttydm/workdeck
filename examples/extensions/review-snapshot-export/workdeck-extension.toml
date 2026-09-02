@@ -1,0 +1,7 @@
+id = "example.review-snapshot-export"
+name = "Review snapshot export example"
+version = "0.1.0"
+api_version = 1
+executable = "bin/workdeck-example-review-snapshot-export-extension"
+capabilities = ["commands", "dialogs", "notifications"]
+description = "Exports the authoritative saved-note review snapshot as create-new JSON"

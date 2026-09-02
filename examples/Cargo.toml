@@ -20,6 +20,10 @@ path = "extensions/pane-layout/main.rs"
 name = "workdeck-example-vim-navigation-extension"
 path = "extensions/vim-navigation/main.rs"
 
+[[bin]]
+name = "workdeck-example-review-snapshot-export-extension"
+path = "extensions/review-snapshot-export/main.rs"
+
 [dependencies]
 ratatui = "0.29"
 serde = { version = "1.0", features = ["derive"] }
@@ -33,4 +37,5 @@ workdeck-core = { path = "../crates/workdeck-core" }
 workdeck-diff = { path = "../crates/workdeck-diff" }
 workdeck-markup = { path = "../crates/workdeck-markup" }
 workdeck-extension-host = { path = "../crates/workdeck-extension-host" }
+workdeck-review = { path = "../crates/workdeck-review" }
 tempfile = "3.13"

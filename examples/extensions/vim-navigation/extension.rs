@@ -213,6 +213,8 @@ mod tests {
                 },
                 selection: ReviewSelection::default(),
             },
+            cwd: std::path::PathBuf::new(),
+            review: None,
             open_panes: Vec::new(),
             active_keyboard_mode: active.then(|| QUALIFIED_MODE_ID.into()),
         }
@@ -251,6 +253,8 @@ mod tests {
             action_id: "vim-command".into(),
             value: None,
             snapshot: snapshot.clone(),
+            cwd: std::path::PathBuf::new(),
+            review: None,
             active_keyboard_mode: Some(QUALIFIED_MODE_ID.into()),
         };
         assert!(submit_input(&submission).actions.is_empty());

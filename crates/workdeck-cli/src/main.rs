@@ -694,6 +694,7 @@ impl ReviewCliOptions {
             agent_notes: self.agent_notes && !self.no_agent_notes,
             theme,
             repo: None,
+            command_cwd: None,
             extension_panes: Vec::new(),
             extension_notifications: None,
         }
@@ -1960,6 +1961,7 @@ fn run_review_with_options(
     changeset = apply_review_extensions(changeset, &mut extensions)?;
     let mut options = review.tui_options();
     options.extension_notifications = Some(notifications);
+    options.command_cwd = Some(cwd.to_owned());
     options.repo = AnyProvider::discover(cwd, review.preference())
         .ok()
         .map(|provider| provider.root().to_owned())

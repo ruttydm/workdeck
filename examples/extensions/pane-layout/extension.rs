@@ -194,6 +194,8 @@ mod tests {
         let result = invoke_toggle(&CommandInvocation {
             command_id: "toggle".into(),
             snapshot: workdeck_review_snapshot(),
+            cwd: std::path::PathBuf::new(),
+            review: None,
             open_panes: vec!["example.pane-layout:top".into()],
             active_keyboard_mode: None,
         })

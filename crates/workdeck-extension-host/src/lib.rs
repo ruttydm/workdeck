@@ -818,6 +818,25 @@ impl LoadedExtension {
         open_panes: Vec<String>,
         active_keyboard_mode: Option<String>,
     ) -> Result<CommandExecution, HostError> {
+        self.invoke_command_with_review_context(
+            command_id,
+            snapshot,
+            open_panes,
+            active_keyboard_mode,
+            std::env::current_dir().unwrap_or_default(),
+            None,
+        )
+    }
+
+    pub fn invoke_command_with_review_context(
+        &mut self,
+        command_id: &str,
+        snapshot: ReviewSnapshot,
+        open_panes: Vec<String>,
+        active_keyboard_mode: Option<String>,
+        cwd: PathBuf,
+        review: Option<workdeck_extension_api::ExtensionReviewSnapshot>,
+    ) -> Result<CommandExecution, HostError> {
         if !self.handshake.registrations.iter().any(|registration| {
             matches!(registration, Registration::Command(command) if command.id == command_id)
         }) {
@@ -832,6 +851,8 @@ impl LoadedExtension {
             CommandInvocation {
                 command_id: command_id.to_owned(),
                 snapshot,
+                cwd,
+                review,
                 open_panes,
                 active_keyboard_mode,
             },
@@ -921,12 +942,33 @@ impl LoadedExtension {
         snapshot: ReviewSnapshot,
         active_keyboard_mode: Option<String>,
     ) -> Result<CommandExecution, HostError> {
+        self.submit_input_dialog_with_context(
+            action_id,
+            value,
+            snapshot,
+            active_keyboard_mode,
+            std::env::current_dir().unwrap_or_default(),
+            None,
+        )
+    }
+
+    pub fn submit_input_dialog_with_context(
+        &mut self,
+        action_id: &str,
+        value: Option<String>,
+        snapshot: ReviewSnapshot,
+        active_keyboard_mode: Option<String>,
+        cwd: PathBuf,
+        review: Option<workdeck_extension_api::ExtensionReviewSnapshot>,
+    ) -> Result<CommandExecution, HostError> {
         let value = self.request(
             "workdeck/dialog/input",
             InputDialogSubmission {
                 action_id: action_id.to_owned(),
                 value,
                 snapshot,
+                cwd,
+                review,
                 active_keyboard_mode,
             },
             Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
