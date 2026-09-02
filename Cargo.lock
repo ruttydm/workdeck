@@ -3157,8 +3157,10 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "cargo_metadata",
  "flate2",
+ "png",
  "rnix",
  "serde",
  "serde_json",
@@ -3166,6 +3168,7 @@ dependencies = [
  "syn 2.0.119",
  "tar",
  "tempfile",
+ "url",
  "workdeck-session",
  "zip",
 ]

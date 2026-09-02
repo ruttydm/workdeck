@@ -197,7 +197,8 @@ fn run() -> Result<()> {
         Some("site") => site(args.next().as_deref()),
         Some("media") => match args.next().as_deref() {
             Some("plan") => term_video::plan_file(&repo_root()?, args),
-            _ => bail!("media requires the plan command"),
+            Some("compose") => term_video::compose_file(&repo_root()?, args),
+            _ => bail!("media requires the plan or compose command"),
         },
         Some("release") => match args.next().as_deref() {
             Some("package") => package_release(parse_package_options(args)?),
@@ -2166,6 +2167,9 @@ fn print_help() {
     println!("cargo xtask site <build|check|serve>");
     println!(
         "cargo xtask media plan --storyboard FILE --output FILE [--fps N] [--caption-animation-seconds N]"
+    );
+    println!(
+        "cargo xtask media compose --storyboard FILE --work-dir DIR --font FILE [--frames-dir DIR] [--stage FILE] [--webdriver FILE] [--chromium FILE]"
     );
     println!("cargo xtask release package --target TRIPLE [--binary PATH] [--output DIR]");
 }

@@ -7,6 +7,10 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
+mod compose;
+
+pub use compose::compose_file;
+
 const DEFAULT_FPS: f64 = 30.0;
 const DEFAULT_CAPTION_ANIMATION_SECONDS: f64 = 0.45;
 
