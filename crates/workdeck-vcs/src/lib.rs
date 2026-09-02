@@ -5,6 +5,9 @@ mod catalog;
 mod git_adapter;
 mod git_commands;
 mod git_source;
+mod jujutsu_adapter;
+mod jujutsu_commands;
+mod jujutsu_source;
 mod large_file;
 mod materialize;
 mod platform;
@@ -23,6 +26,9 @@ pub use catalog::*;
 pub use git_adapter::*;
 pub use git_commands::*;
 pub use git_source::*;
+pub use jujutsu_adapter::*;
+pub use jujutsu_commands::*;
+pub use jujutsu_source::*;
 pub use large_file::{
     LARGE_DIFF_FILE_MAX_BYTES, LARGE_DIFF_FILE_MAX_LINES, LargeFileCheck,
     inspect_large_untracked_file,
@@ -327,60 +333,48 @@ impl VcsProvider for JujutsuProvider {
     }
 
     fn working_tree(&self, request: &DiffRequest) -> Result<Changeset, VcsError> {
-        if request.staged {
+        if request.from.is_some() && request.target.is_none() {
             return Err(VcsError::InvalidRevision(
-                "Jujutsu has no staging area; remove --staged or select Git".into(),
+                "a from revision requires a to revision".into(),
             ));
         }
-        let mut arguments = vec!["diff", "--git"];
-        match (&request.from, &request.target) {
-            (Some(from), Some(to)) => {
-                validate_revision(from)?;
-                validate_revision(to)?;
-                arguments.extend(["--ignore-working-copy", "--from", from, "--to", to]);
-            }
-            (None, Some(target)) => {
-                validate_revision(target)?;
-                arguments.extend(["-r", target]);
-            }
-            (Some(_), None) => {
-                return Err(VcsError::InvalidRevision(
-                    "a from revision requires a to revision".into(),
-                ));
-            }
-            (None, None) => {}
-        }
-        append_paths(&mut arguments, &request.pathspec);
-        let patch = output_text(run_prefixed(
-            &self.root,
-            "jj",
-            &["--no-pager", "--color", "never"],
-            &arguments,
-        )?)?;
-        let (title, source) = review_title_and_source(request);
-        parse_or_empty(&patch, "jj:diff", title, source)
+        load_jujutsu_changeset(
+            &VcsReviewInput::Diff(workdeck_core::VcsDiffCommandInput {
+                range: request
+                    .from
+                    .is_none()
+                    .then(|| request.target.clone())
+                    .flatten(),
+                range_endpoints: request
+                    .from
+                    .clone()
+                    .zip(request.target.clone())
+                    .map(|(from, to)| workdeck_core::VcsRangeEndpoints { from, to }),
+                staged: request.staged,
+                pathspecs: request.pathspec.clone(),
+                options: workdeck_core::CommonOptions::default(),
+            }),
+            &VcsLoadContext {
+                cwd: self.root.clone(),
+            },
+            &JujutsuVcsAdapterOptions::default(),
+        )
+        .map_err(|error| VcsError::Adapter(error.to_string()))
     }
 
     fn show(&self, target: Option<&str>, pathspec: &[String]) -> Result<Changeset, VcsError> {
-        let target = target.unwrap_or("@");
-        validate_revision(target)?;
-        let mut arguments = vec!["diff", "--git", "-r", target];
-        append_paths(&mut arguments, pathspec);
-        let patch = output_text(run_prefixed(
-            &self.root,
-            "jj",
-            &["--no-pager", "--color", "never"],
-            &arguments,
-        )?)?;
-        parse_or_empty(
-            &patch,
-            &format!("jj:show:{target}"),
-            format!("Commit {target}"),
-            ChangesetSource::Revision {
-                from: None,
-                to: target.into(),
+        load_jujutsu_changeset(
+            &VcsReviewInput::Show(workdeck_core::VcsShowCommandInput {
+                reference: target.map(str::to_owned),
+                pathspecs: pathspec.to_vec(),
+                options: workdeck_core::CommonOptions::default(),
+            }),
+            &VcsLoadContext {
+                cwd: self.root.clone(),
             },
+            &JujutsuVcsAdapterOptions::default(),
         )
+        .map_err(|error| VcsError::Adapter(error.to_string()))
     }
 }
 
@@ -479,47 +473,6 @@ pub fn validate_revision(revision: &str) -> Result<(), VcsError> {
         )));
     }
     Ok(())
-}
-
-fn append_paths<'a>(arguments: &mut Vec<&'a str>, pathspec: &'a [String]) {
-    if !pathspec.is_empty() {
-        arguments.push("--");
-        arguments.extend(pathspec.iter().map(String::as_str));
-    }
-}
-
-fn review_title_and_source(request: &DiffRequest) -> (String, ChangesetSource) {
-    let title = match (&request.from, &request.target) {
-        (Some(from), Some(to)) => format!("{from} → {to}"),
-        (None, Some(target)) => format!("Changes from {target}"),
-        _ => "Working tree".into(),
-    };
-    let source = match (&request.from, &request.target) {
-        (from, Some(to)) => ChangesetSource::Revision {
-            from: from.clone(),
-            to: to.clone(),
-        },
-        _ => ChangesetSource::WorkingTree { staged: false },
-    };
-    (title, source)
-}
-
-fn parse_or_empty(
-    patch: &str,
-    id: &str,
-    title: String,
-    source: ChangesetSource,
-) -> Result<Changeset, VcsError> {
-    if patch.trim().is_empty() {
-        Ok(Changeset {
-            id: id.into(),
-            title,
-            source,
-            files: Vec::new(),
-        })
-    } else {
-        parse_patch(patch, id, title, source).map_err(Into::into)
-    }
 }
 
 fn run_prefixed(

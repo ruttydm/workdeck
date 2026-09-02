@@ -1,8 +1,10 @@
 use super::*;
 use crate::{
-    VcsWatchCoverage, VcsWatchTarget, VcsWatchTargetSource, get_vcs_adapter, load_vcs_review,
+    VcsLoadContext, VcsReviewInput, VcsReviewOperationKind, VcsWatchCoverage, VcsWatchTarget,
+    VcsWatchTargetSource, get_vcs_adapter, load_vcs_review,
 };
 use std::fs;
+use std::path::Path;
 use std::process::Command;
 use tempfile::tempdir;
 use workdeck_core::{CliInput, CommonOptions, VcsDiffCommandInput};
