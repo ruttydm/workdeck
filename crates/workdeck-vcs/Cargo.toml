@@ -7,6 +7,7 @@ repository.workspace = true
 description = "Version-control adapters for Workdeck reviews"
 
 [dependencies]
+notify = "8.2"
 thiserror = "2.0"
 workdeck-core = { path = "../workdeck-core" }
 workdeck-diff = { path = "../workdeck-diff" }

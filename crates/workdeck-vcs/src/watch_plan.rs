@@ -15,6 +15,7 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WatchPlatform {
     Unix,
+    MacOs,
     Windows,
 }
 
@@ -23,6 +24,8 @@ impl WatchPlatform {
     pub const fn current() -> Self {
         if cfg!(windows) {
             Self::Windows
+        } else if cfg!(target_os = "macos") {
+            Self::MacOs
         } else {
             Self::Unix
         }
@@ -225,14 +228,14 @@ fn group_file_targets(
 
 fn comparison_key(path: &str, platform: WatchPlatform) -> String {
     match platform {
-        WatchPlatform::Unix => path.to_owned(),
+        WatchPlatform::Unix | WatchPlatform::MacOs => path.to_owned(),
         WatchPlatform::Windows => path.to_ascii_lowercase(),
     }
 }
 
 fn parent_path(path: &str, platform: WatchPlatform) -> String {
     match platform {
-        WatchPlatform::Unix => Path::new(path)
+        WatchPlatform::Unix | WatchPlatform::MacOs => Path::new(path)
             .parent()
             .unwrap_or_else(|| Path::new("/"))
             .to_string_lossy()
@@ -252,7 +255,7 @@ fn parent_path(path: &str, platform: WatchPlatform) -> String {
 
 fn resolve_source_path(path: &str, cwd: &Path, platform: WatchPlatform) -> PathBuf {
     match platform {
-        WatchPlatform::Unix => normalize_unix_path(path, cwd),
+        WatchPlatform::Unix | WatchPlatform::MacOs => normalize_unix_path(path, cwd),
         WatchPlatform::Windows => PathBuf::from(normalize_windows_path(
             &normalize_path_for_platform(path, "win32"),
             &normalize_path_for_platform(&cwd.to_string_lossy(), "win32"),
