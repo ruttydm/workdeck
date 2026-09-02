@@ -13,6 +13,7 @@ mod git_log;
 mod highlight_worker;
 mod highlighted_diff_cache;
 mod language;
+mod row_model;
 mod row_windowing;
 mod source_backed_highlight;
 mod syntax;
@@ -51,6 +52,10 @@ pub use highlighted_diff_cache::{
     HighlightedDiffCache, HighlightedDiffCode, MAX_HIGHLIGHTED_DIFF_CACHE_LINES,
 };
 pub use language::{LanguageMatcher, LanguageRegistration, LanguageRegistry};
+pub use row_model::{
+    CollapsedGapPosition, DiffRow, RenderForegroundTransform, RenderSpan, SplitLineCell,
+    SplitLineKind, StackLineCell, StackLineKind,
+};
 pub use row_windowing::{
     MeasuredRowBounds, VisibleBodyBounds, VisibleRowIndexWindow, VisibleRowWindow,
     resolve_visible_row_index_window, resolve_visible_row_window, unit_row_bounds,

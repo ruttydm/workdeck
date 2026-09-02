@@ -2,15 +2,11 @@
 
 use workdeck_core::{DiffFile, FileChangeKind, LineRange, ReviewSide};
 
+pub use workdeck_core::ReviewGapPosition;
+
 use crate::normalized_review_source_lines;
 
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ReviewGapPosition {
-    Before,
-    Trailing,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExpandedSourceError {

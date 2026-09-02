@@ -41,6 +41,14 @@ pub enum ReviewSide {
     New,
 }
 
+/// Position of a collapsed unchanged-source gap relative to its owning hunk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReviewGapPosition {
+    Before,
+    Trailing,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LineRange {
     pub start: u32,
