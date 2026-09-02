@@ -48,6 +48,9 @@ pub mod ratatui_component_from_patch;
 #[path = "../7-ratatui-component/support.rs"]
 pub mod ratatui_component_support;
 
+#[path = "../8-ratatui-primitives/primitives_demo.rs"]
+pub mod ratatui_primitives_demo;
+
 #[cfg(test)]
 #[path = "../3-agent-review-demo/after/test/search_demo.rs"]
 mod agent_review_after_demo;
