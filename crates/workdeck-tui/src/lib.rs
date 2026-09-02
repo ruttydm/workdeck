@@ -223,6 +223,16 @@ struct ExtensionInputDialog {
 }
 
 #[derive(Debug, Clone)]
+struct ExtensionSelectDialog {
+    extension_index: usize,
+    extension_id: String,
+    action_id: String,
+    title: String,
+    options: Vec<String>,
+    selected: usize,
+}
+
+#[derive(Debug, Clone)]
 struct CachedPaneRender {
     signature: PaneRenderSignature,
     view: ExtensionPaneView,
@@ -255,6 +265,7 @@ struct ExtensionPaneRuntime {
     keyboard_modes: Vec<LiveKeyboardModeRegistration>,
     active_keyboard_mode: Option<ActiveKeyboardMode>,
     input_dialog: Option<ExtensionInputDialog>,
+    select_dialog: Option<ExtensionSelectDialog>,
     open: BTreeSet<String>,
     size_overrides: BTreeMap<String, u16>,
     cached_renders: BTreeMap<String, CachedPaneRender>,
@@ -410,6 +421,14 @@ impl ReviewApp {
 
     pub fn reload(&mut self, changeset: Changeset) {
         self.exit_active_keyboard_mode();
+        {
+            let mut runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            runtime.input_dialog = None;
+            runtime.select_dialog = None;
+        }
         let changeset = match self.apply_extension_transforms(changeset) {
             Ok(changeset) => changeset,
             Err(error) => {
@@ -513,12 +532,26 @@ impl ReviewApp {
             .is_some()
     }
 
+    #[must_use]
+    pub fn has_extension_select_dialog(&self) -> bool {
+        self.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .select_dialog
+            .is_some()
+    }
+
+    #[must_use]
+    pub fn has_extension_dialog(&self) -> bool {
+        self.has_extension_input_dialog() || self.has_extension_select_dialog()
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             self.should_quit = true;
             return;
         }
-        if self.handle_extension_input_key(&key) {
+        if self.handle_extension_select_key(&key) || self.handle_extension_input_key(&key) {
             return;
         }
         if self.handle_extension_menu_key(&key) {
@@ -778,6 +811,22 @@ impl ReviewApp {
                 ExtensionHostAction::ExecuteReviewCommand { id, count } => {
                     self.execute_extension_review_command(&id, count.unwrap_or(1));
                 }
+                ExtensionHostAction::SelectReviewFile { file_id } => {
+                    self.select_extension_review_file(extension_id, &file_id);
+                }
+                ExtensionHostAction::SelectReviewHunk {
+                    file_id,
+                    hunk_index,
+                } => {
+                    self.select_extension_review_hunk(extension_id, &file_id, hunk_index);
+                }
+                ExtensionHostAction::RevealReviewLine {
+                    file_id,
+                    side,
+                    line,
+                } => {
+                    self.reveal_extension_review_line(extension_id, &file_id, side, line);
+                }
                 ExtensionHostAction::OpenInputDialog {
                     id,
                     title,
@@ -788,6 +837,7 @@ impl ReviewApp {
                         .lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner());
                     runtime.menu_open = false;
+                    runtime.select_dialog = None;
                     runtime.input_dialog = Some(ExtensionInputDialog {
                         extension_index,
                         extension_id: extension_id.into(),
@@ -795,6 +845,33 @@ impl ReviewApp {
                         title: sanitize_terminal_line(&title),
                         placeholder: sanitize_terminal_line(&placeholder),
                         value: String::new(),
+                    });
+                }
+                ExtensionHostAction::OpenSelectDialog { id, title, options } => {
+                    let options = options
+                        .into_iter()
+                        .map(|option| {
+                            let option = sanitize_terminal_line(&option);
+                            if option.trim().is_empty() {
+                                "(empty option)".into()
+                            } else {
+                                option
+                            }
+                        })
+                        .collect();
+                    let mut runtime = self
+                        .extension_pane_runtime
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    runtime.menu_open = false;
+                    runtime.input_dialog = None;
+                    runtime.select_dialog = Some(ExtensionSelectDialog {
+                        extension_index,
+                        extension_id: extension_id.into(),
+                        action_id: id,
+                        title: sanitize_terminal_line(&title),
+                        options,
+                        selected: 0,
                     });
                 }
                 ExtensionHostAction::Notify {
@@ -896,6 +973,14 @@ impl ReviewApp {
             {
                 runtime.input_dialog = None;
             }
+            if let Some(active) = &active
+                && runtime
+                    .select_dialog
+                    .as_ref()
+                    .is_some_and(|dialog| dialog.extension_index == active.extension_index)
+            {
+                runtime.select_dialog = None;
+            }
             active
         };
         let Some(active) = active else {
@@ -937,6 +1022,76 @@ impl ReviewApp {
         if owns_active_mode {
             self.exit_active_keyboard_mode();
         }
+    }
+
+    fn handle_extension_select_key(&mut self, key: &KeyEvent) -> bool {
+        let has_dialog = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .select_dialog
+            .is_some();
+        if !has_dialog {
+            return false;
+        }
+        match key.code {
+            KeyCode::Enter | KeyCode::Esc => {
+                let dialog = self
+                    .extension_pane_runtime
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .select_dialog
+                    .take();
+                if let Some(dialog) = dialog {
+                    let value = (key.code == KeyCode::Enter)
+                        .then(|| dialog.options[dialog.selected].clone());
+                    self.submit_extension_select(dialog, value);
+                }
+            }
+            KeyCode::Down | KeyCode::Tab | KeyCode::Char('j') => {
+                let mut runtime = self
+                    .extension_pane_runtime
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                if let Some(dialog) = &mut runtime.select_dialog {
+                    dialog.selected = dialog
+                        .selected
+                        .saturating_add(1)
+                        .min(dialog.options.len().saturating_sub(1));
+                }
+            }
+            KeyCode::Up | KeyCode::BackTab | KeyCode::Char('k') => {
+                let mut runtime = self
+                    .extension_pane_runtime
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                if let Some(dialog) = &mut runtime.select_dialog {
+                    dialog.selected = dialog.selected.saturating_sub(1);
+                }
+            }
+            KeyCode::Home => {
+                if let Some(dialog) = &mut self
+                    .extension_pane_runtime
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .select_dialog
+                {
+                    dialog.selected = 0;
+                }
+            }
+            KeyCode::End => {
+                if let Some(dialog) = &mut self
+                    .extension_pane_runtime
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .select_dialog
+                {
+                    dialog.selected = dialog.options.len().saturating_sub(1);
+                }
+            }
+            _ => {}
+        }
+        true
     }
 
     fn handle_extension_input_key(&mut self, key: &KeyEvent) -> bool {
@@ -1029,6 +1184,43 @@ impl ReviewApp {
         }
     }
 
+    fn submit_extension_select(&mut self, dialog: ExtensionSelectDialog, value: Option<String>) {
+        let (snapshot, review) =
+            self.with_state(|state| (state.snapshot(), build_extension_review_snapshot(state)));
+        let cwd = self.extension_command_cwd();
+        let execution = {
+            let mut runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let active_keyboard_mode = runtime
+                .active_keyboard_mode
+                .as_ref()
+                .map(|active| format!("{}:{}", active.extension_id, active.mode.id));
+            runtime.extensions[dialog.extension_index].submit_select_dialog_with_context(
+                &dialog.action_id,
+                value,
+                snapshot,
+                active_keyboard_mode,
+                cwd,
+                Some(review),
+            )
+        };
+        match execution {
+            Ok(execution) => self.apply_extension_actions(
+                dialog.extension_index,
+                &dialog.extension_id,
+                execution.actions,
+            ),
+            Err(error) => {
+                self.status = Some(format!(
+                    "extension {} selection failed: {error}",
+                    dialog.extension_id
+                ));
+            }
+        }
+    }
+
     fn execute_extension_review_command(&mut self, id: &str, count: u16) {
         let rows = self.current_review_rows();
         let last = rows.lines.len().saturating_sub(1);
@@ -1092,6 +1284,74 @@ impl ReviewApp {
             }
             _ => {}
         }
+    }
+
+    fn extension_review_file_index(&self, file_id: &str) -> Option<usize> {
+        self.with_state(|state| {
+            state
+                .changeset()
+                .files
+                .iter()
+                .position(|file| file.runtime_id == file_id)
+        })
+    }
+
+    fn select_extension_review_file(&mut self, extension_id: &str, file_id: &str) {
+        let Some(file_index) = self.extension_review_file_index(file_id) else {
+            self.status = Some(format!(
+                "extension {extension_id}: warning: review file is no longer available"
+            ));
+            return;
+        };
+        if self
+            .with_state(|state| state.select_file(file_index))
+            .is_ok()
+        {
+            self.scroll_to_selection();
+        }
+    }
+
+    fn select_extension_review_hunk(
+        &mut self,
+        extension_id: &str,
+        file_id: &str,
+        hunk_index: usize,
+    ) {
+        let Some(file_index) = self.extension_review_file_index(file_id) else {
+            self.status = Some(format!(
+                "extension {extension_id}: warning: review file is no longer available"
+            ));
+            return;
+        };
+        if let Err(error) = self.with_state(|state| state.select_hunk(file_index, hunk_index)) {
+            self.status = Some(format!(
+                "extension {extension_id}: warning: review target is unavailable: {error}"
+            ));
+            return;
+        }
+        self.scroll_to_selection();
+    }
+
+    fn reveal_extension_review_line(
+        &mut self,
+        extension_id: &str,
+        file_id: &str,
+        side: ReviewSide,
+        line: u32,
+    ) {
+        let Some(file_index) = self.extension_review_file_index(file_id) else {
+            self.status = Some(format!(
+                "extension {extension_id}: warning: review file is no longer available"
+            ));
+            return;
+        };
+        if let Err(error) = self.with_state(|state| state.reveal_line(file_index, side, line)) {
+            self.status = Some(format!(
+                "extension {extension_id}: warning: review line is unavailable: {error}"
+            ));
+            return;
+        }
+        self.scroll_to_selection();
     }
 
     fn keep_current_line_visible(&mut self, viewport: usize, last: usize) {
@@ -1280,7 +1540,7 @@ impl ReviewApp {
     }
 
     pub fn handle_mouse_event(&mut self, event: MouseEvent) {
-        if self.has_extension_input_dialog() {
+        if self.has_extension_dialog() {
             return;
         }
         if self.handle_extension_mode_badge_mouse(&event)
@@ -1803,6 +2063,7 @@ pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         render_help(area, buffer);
     }
     render_extension_input_dialog(area, buffer, app);
+    render_extension_select_dialog(area, buffer, app);
 }
 
 /// Render the review surface inside Workdeck's unified tab shell.
@@ -2054,6 +2315,77 @@ pub fn render_extension_input_dialog(area: Rect, buffer: &mut Buffer, app: &Revi
         )
     };
     Paragraph::new(Line::styled(value, style)).render(inner, buffer);
+}
+
+/// Draw the host-owned selection modal requested by a native extension.
+pub fn render_extension_select_dialog(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+    let dialog = app
+        .extension_pane_runtime
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .select_dialog
+        .clone();
+    let Some(dialog) = dialog else {
+        return;
+    };
+    let desired_width = dialog
+        .options
+        .iter()
+        .map(|option| option.width().saturating_add(4))
+        .max()
+        .unwrap_or(24)
+        .max(dialog.title.width().saturating_add(4));
+    let width = u16::try_from(desired_width)
+        .unwrap_or(u16::MAX)
+        .max(24)
+        .min(area.width.max(1));
+    let desired_height = u16::try_from(dialog.options.len())
+        .unwrap_or(u16::MAX)
+        .saturating_add(2);
+    let height = desired_height.max(3).min(area.height.max(1));
+    let bounds = Rect::new(
+        area.x.saturating_add(area.width.saturating_sub(width) / 2),
+        area.y
+            .saturating_add(area.height.saturating_sub(height) / 2),
+        width,
+        height,
+    );
+    Clear.render(bounds, buffer);
+    let block = Block::default()
+        .title(format!(" {} ", dialog.title))
+        .borders(Borders::ALL)
+        .style(Style::default().bg(ratatui_theme_color(&app.options.theme.panel)))
+        .border_style(Style::default().fg(ratatui_theme_color(&app.options.theme.accent)));
+    let inner = block.inner(bounds);
+    block.render(bounds, buffer);
+    let visible = usize::from(inner.height);
+    let first = dialog
+        .selected
+        .saturating_add(1)
+        .saturating_sub(visible)
+        .min(dialog.options.len().saturating_sub(visible));
+    let lines = dialog
+        .options
+        .iter()
+        .enumerate()
+        .skip(first)
+        .take(visible)
+        .map(|(index, option)| {
+            let selected = index == dialog.selected;
+            Line::styled(
+                format!("{} {option}", if selected { "›" } else { " " }),
+                if selected {
+                    Style::default()
+                        .fg(ratatui_theme_color(&app.options.theme.background))
+                        .bg(ratatui_theme_color(&app.options.theme.accent))
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(ratatui_theme_color(&app.options.theme.text))
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    Paragraph::new(lines).render(inner, buffer);
 }
 
 fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {

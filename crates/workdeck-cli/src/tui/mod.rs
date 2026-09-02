@@ -436,6 +436,14 @@ fn handle_key(
         None => {}
     }
 
+    if app.active_tab == Tab::Review
+        && let Some(review) = &mut app.review
+        && review.has_extension_dialog()
+    {
+        review.handle_key(key);
+        return Ok(false);
+    }
+
     if app.help_visible {
         if key.code == KeyCode::Esc || configured_key(key, &app.config.keys.help) {
             app.help_visible = false;

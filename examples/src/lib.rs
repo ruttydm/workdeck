@@ -68,6 +68,9 @@ pub mod vim_navigation_extension;
 #[path = "../extensions/review-snapshot-export/extension.rs"]
 pub mod review_snapshot_export_extension;
 
+#[path = "../extensions/review-note-navigator/extension.rs"]
+pub mod review_note_navigator_extension;
+
 #[cfg(test)]
 #[path = "../3-agent-review-demo/after/test/search_demo.rs"]
 mod agent_review_after_demo;

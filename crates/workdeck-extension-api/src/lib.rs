@@ -851,10 +851,27 @@ pub enum ExtensionHostAction {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         count: Option<u16>,
     },
+    SelectReviewFile {
+        file_id: String,
+    },
+    SelectReviewHunk {
+        file_id: String,
+        hunk_index: usize,
+    },
+    RevealReviewLine {
+        file_id: String,
+        side: ReviewSide,
+        line: u32,
+    },
     OpenInputDialog {
         id: String,
         title: String,
         placeholder: String,
+    },
+    OpenSelectDialog {
+        id: String,
+        title: String,
+        options: Vec<String>,
     },
     Notify {
         message: String,
@@ -900,6 +917,19 @@ pub struct KeyboardModeExecution {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InputDialogSubmission {
+    pub action_id: String,
+    pub value: Option<String>,
+    pub snapshot: ReviewSnapshot,
+    #[serde(default)]
+    pub cwd: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<ExtensionReviewSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_keyboard_mode: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SelectDialogSubmission {
     pub action_id: String,
     pub value: Option<String>,
     pub snapshot: ReviewSnapshot,

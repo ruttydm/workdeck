@@ -37,9 +37,9 @@ use workdeck_extension_api::{
     ExtensionNotificationHub, ExtensionNotifyType, ExtensionPaneView, HandshakeRequest,
     HandshakeResponse, InputDialogSubmission, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
     KeyboardModeExecution, KeyboardModeKeyRequest, KeyboardModeLifecycleRequest, MAX_MESSAGE_BYTES,
-    ManifestError, PaneRenderRequest, PaneRenderResponse, Registration, TransformRequest,
-    TransformResponse, extension_pane_size, is_vertical_pane_placement, parse_key_chord,
-    validate_view,
+    ManifestError, PaneRenderRequest, PaneRenderResponse, Registration, SelectDialogSubmission,
+    TransformRequest, TransformResponse, extension_pane_size, is_vertical_pane_placement,
+    parse_key_chord, validate_view,
 };
 
 #[derive(Debug, Error)]
@@ -983,6 +983,37 @@ impl LoadedExtension {
         Ok(execution)
     }
 
+    pub fn submit_select_dialog_with_context(
+        &mut self,
+        action_id: &str,
+        value: Option<String>,
+        snapshot: ReviewSnapshot,
+        active_keyboard_mode: Option<String>,
+        cwd: PathBuf,
+        review: Option<workdeck_extension_api::ExtensionReviewSnapshot>,
+    ) -> Result<CommandExecution, HostError> {
+        let value = self.request(
+            "workdeck/dialog/select",
+            SelectDialogSubmission {
+                action_id: action_id.to_owned(),
+                value,
+                snapshot,
+                cwd,
+                review,
+                active_keyboard_mode,
+            },
+            Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+        )?;
+        let execution: CommandExecution =
+            serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "select dialog",
+                message: error.to_string(),
+            })?;
+        self.validate_host_actions(&execution.actions, "select dialog")?;
+        Ok(execution)
+    }
+
     fn require_keyboard_mode(&self, mode_id: &str) -> Result<(), HostError> {
         if self.handshake.registrations.iter().any(|registration| {
             matches!(registration, Registration::KeyboardMode(mode) if mode.id == mode_id)
@@ -1055,12 +1086,47 @@ impl LoadedExtension {
                         && is_public_review_command(id)
                         && count.is_none_or(|count| (1..=10_000).contains(&count))
                 }
+                ExtensionHostAction::SelectReviewFile { file_id } => {
+                    self.manifest
+                        .capabilities
+                        .contains(&workdeck_extension_api::Capability::ReviewNavigation)
+                        && !file_id.trim().is_empty()
+                }
+                ExtensionHostAction::SelectReviewHunk {
+                    file_id,
+                    hunk_index,
+                } => {
+                    self.manifest
+                        .capabilities
+                        .contains(&workdeck_extension_api::Capability::ReviewNavigation)
+                        && !file_id.trim().is_empty()
+                        && *hunk_index <= 1_000_000
+                }
+                ExtensionHostAction::RevealReviewLine { file_id, line, .. } => {
+                    self.manifest
+                        .capabilities
+                        .contains(&workdeck_extension_api::Capability::ReviewNavigation)
+                        && !file_id.trim().is_empty()
+                        && *line > 0
+                }
                 ExtensionHostAction::OpenInputDialog { id, title, .. } => {
                     self.manifest
                         .capabilities
                         .contains(&workdeck_extension_api::Capability::Dialogs)
                         && !id.trim().is_empty()
                         && !title.trim().is_empty()
+                }
+                ExtensionHostAction::OpenSelectDialog { id, title, options } => {
+                    self.manifest
+                        .capabilities
+                        .contains(&workdeck_extension_api::Capability::Dialogs)
+                        && !id.trim().is_empty()
+                        && !title.trim().is_empty()
+                        && !options.is_empty()
+                        && options.len() <= 1_000
+                        && options
+                            .iter()
+                            .all(|option| !option.trim().is_empty() && option.len() <= 4 * 1_024)
                 }
                 ExtensionHostAction::Notify { .. } => self
                     .manifest
