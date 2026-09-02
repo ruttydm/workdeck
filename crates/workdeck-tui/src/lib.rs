@@ -504,7 +504,7 @@ impl ThemeController {
 }
 
 pub fn run_review(changeset: Changeset, options: ReviewOptions) -> Result<()> {
-    run_review_inner(changeset, options, None)
+    run_review_inner(changeset, options, None, None)
 }
 
 pub fn run_review_with_reload<F>(
@@ -515,12 +515,28 @@ pub fn run_review_with_reload<F>(
 where
     F: FnMut() -> Result<Changeset>,
 {
-    run_review_inner(changeset, options, Some(reload))
+    run_review_inner(changeset, options, None, Some(reload))
+}
+
+/// Run a reloadable review while retaining the provider-neutral input needed
+/// for native watch planning and signatures.
+pub fn run_review_with_input_reload<F>(
+    changeset: Changeset,
+    options: ReviewOptions,
+    input: workdeck_core::CliInput,
+    input_cwd: PathBuf,
+    reload: &mut F,
+) -> Result<()>
+where
+    F: FnMut() -> Result<Changeset>,
+{
+    run_review_inner(changeset, options, Some((input, input_cwd)), Some(reload))
 }
 
 fn run_review_inner(
     changeset: Changeset,
     options: ReviewOptions,
+    watch_input: Option<(workdeck_core::CliInput, PathBuf)>,
     mut reloader: Option<&mut dyn FnMut() -> Result<Changeset>>,
 ) -> Result<()> {
     if !io::stdout().is_terminal() {
@@ -539,6 +555,26 @@ fn run_review_inner(
         .map(Ok)
         .unwrap_or_else(std::env::current_dir)?;
     let mut app = ReviewApp::new(changeset, options);
+    let mut watched_input = watch_input
+        .filter(|_| app.options.watch)
+        .and_then(|(input, cwd)| {
+            let runtime: Arc<dyn WatchedInputRuntime> =
+                Arc::new(NativeWatchedInputRuntime::new(cwd, None));
+            match WatchedInputDriver::start(
+                true,
+                input,
+                runtime,
+                None,
+                Instant::now(),
+                workdeck_vcs::WatchControllerConfig::default(),
+            ) {
+                Ok(driver) => driver,
+                Err(error) => {
+                    app.status = Some(format!("failed to initialize watch mode: {error}"));
+                    None
+                }
+            }
+        });
     let session = default_discovery_directory()
         .map(|directory| ReviewSessionServer::spawn(app.shared_state(), session_repo, directory))
         .transpose()?;
@@ -550,6 +586,7 @@ fn run_review_inner(
         stop.as_deref(),
         reload.as_deref(),
         &mut reloader,
+        &mut watched_input,
     );
     disable_raw_mode()?;
     execute!(
@@ -567,6 +604,7 @@ fn run_loop<B: Backend>(
     session_stop: Option<&AtomicBool>,
     session_reload: Option<&AtomicBool>,
     reloader: &mut Option<&mut dyn FnMut() -> Result<Changeset>>,
+    watched_input: &mut Option<WatchedInputDriver>,
 ) -> Result<()> {
     let mut next_reload = Instant::now() + Duration::from_millis(250);
     while !app.should_quit && !session_stop.is_some_and(|stop| stop.load(Ordering::Relaxed)) {
@@ -581,34 +619,61 @@ fn run_loop<B: Backend>(
         }
         let session_requested =
             session_reload.is_some_and(|reload| reload.swap(false, Ordering::Relaxed));
-        let timer_requested = app.options.watch && Instant::now() >= next_reload;
+        let timer_requested =
+            app.options.watch && watched_input.is_none() && Instant::now() >= next_reload;
         let manual_requested = app.reload_requested;
         let reload_requested = manual_requested || session_requested || timer_requested;
         if reload_requested {
             app.reload_requested = false;
             next_reload = Instant::now() + Duration::from_millis(250);
-            match reloader.as_deref_mut() {
-                Some(reload) => match reload() {
-                    Ok(changeset) => {
-                        let mut state = app
-                            .state
-                            .lock()
-                            .unwrap_or_else(|poisoned| poisoned.into_inner());
-                        if state.changeset() != &changeset {
-                            state.reload(changeset);
-                            app.status = Some("review reloaded".into());
-                        }
-                    }
-                    Err(error) => app.status = Some(format!("reload failed: {error:#}")),
-                },
-                None if manual_requested || session_requested => {
-                    app.status = Some("this review input cannot be reloaded".into());
-                }
-                None => {}
+            reload_current_review(app, reloader, manual_requested || session_requested);
+        }
+        if let Some(driver) = watched_input {
+            let outcome = driver.poll(Instant::now(), &mut || {
+                let Some(reload) = reloader.as_deref_mut() else {
+                    anyhow::bail!("this review input cannot be reloaded");
+                };
+                let changeset = reload()?;
+                apply_reloaded_changeset(app, changeset);
+                Ok::<(), anyhow::Error>(())
+            });
+            if outcome.reload_pending {
+                app.status = Some("review reload pending".into());
+            }
+            if let Some(error) = outcome.errors.last() {
+                app.status = Some(format!("auto-reload failed: {error}"));
             }
         }
     }
     Ok(())
+}
+
+fn reload_current_review(
+    app: &mut ReviewApp,
+    reloader: &mut Option<&mut dyn FnMut() -> Result<Changeset>>,
+    report_unavailable: bool,
+) {
+    match reloader.as_deref_mut() {
+        Some(reload) => match reload() {
+            Ok(changeset) => apply_reloaded_changeset(app, changeset),
+            Err(error) => app.status = Some(format!("reload failed: {error:#}")),
+        },
+        None if report_unavailable => {
+            app.status = Some("this review input cannot be reloaded".into());
+        }
+        None => {}
+    }
+}
+
+fn apply_reloaded_changeset(app: &mut ReviewApp, changeset: Changeset) {
+    let mut state = app
+        .state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if state.changeset() != &changeset {
+        state.reload(changeset);
+        app.status = Some("review reloaded".into());
+    }
 }
 
 pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {

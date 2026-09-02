@@ -19,7 +19,11 @@ use workdeck_cli::store::{
     AgentSession, AgentTouchedFile, Cycle, Issue, IssueStatus, IssueUpdate, Label, Priority,
     Project, ReferenceData, StoreEvent, WorkdeckStore,
 };
-use workdeck_core::{AgentContext, Changeset, ReviewSide, SelfUpdateCommandInput};
+use workdeck_core::{
+    AgentContext, Changeset, CliInput, CommonOptions, DiffToolCommandInput, InputCursorLine,
+    InputLayoutMode, PatchCommandInput, ReviewSide, SelfUpdateCommandInput, SidebarVisibility,
+    VcsDiffCommandInput, VcsRangeEndpoints, VcsShowCommandInput, VcsStashShowCommandInput,
+};
 use workdeck_diff::{LanguageMatcher, LanguageRegistration, LanguageRegistry};
 use workdeck_extension_api::{
     ExtensionManifest, ExtensionNotificationHub, ExtensionPaneView, FileLanguageGlobTarget,
@@ -489,7 +493,7 @@ impl VcsArg {
     }
 }
 
-#[derive(Debug, Clone, ClapArgs)]
+#[derive(Debug, Clone, Default, ClapArgs)]
 struct ReviewCliOptions {
     #[arg(long, value_enum)]
     vcs: Option<VcsArg>,
@@ -671,6 +675,121 @@ impl ReviewCliOptions {
             extension_panes: Vec::new(),
             extension_notifications: None,
         }
+    }
+
+    fn common_options(&self) -> CommonOptions {
+        CommonOptions {
+            mode: Some(match self.mode.unwrap_or(ReviewLayoutArg::Auto) {
+                ReviewLayoutArg::Auto => InputLayoutMode::Auto,
+                ReviewLayoutArg::Split => InputLayoutMode::Split,
+                ReviewLayoutArg::Stack => InputLayoutMode::Stack,
+            }),
+            cursor_line: Some(match self.cursor_line.unwrap_or(CursorLineArg::Row) {
+                CursorLineArg::Row => InputCursorLine::Row,
+                CursorLineArg::Number => InputCursorLine::Number,
+                CursorLineArg::Off => InputCursorLine::Off,
+            }),
+            vcs: self.vcs.and_then(|vcs| match vcs {
+                VcsArg::Auto => None,
+                VcsArg::Git => Some("git".into()),
+                VcsArg::Jj => Some("jj".into()),
+                VcsArg::Sl => Some("sl".into()),
+            }),
+            theme: self.theme.clone(),
+            agent_context: self
+                .agent_context
+                .as_ref()
+                .map(|path| path.to_string_lossy().into_owned()),
+            pager: Some(self.pager),
+            watch: Some(self.watch && !self.no_watch),
+            exclude_untracked: None,
+            line_numbers: Some(self.line_numbers || !self.no_line_numbers),
+            tab_width: Some(self.tab_width.unwrap_or(4)),
+            file_gap: Some(self.file_gap.unwrap_or(1)),
+            hunk_gap: Some(self.hunk_gap.unwrap_or(0)),
+            wrap_lines: Some(if self.no_wrap { false } else { self.wrap }),
+            hunk_headers: Some(self.hunk_headers || !self.no_hunk_headers),
+            sidebar: Some(if self.sidebar || !self.no_sidebar {
+                SidebarVisibility::Visible
+            } else {
+                SidebarVisibility::Hidden
+            }),
+            agent_notes: Some(self.agent_notes && !self.no_agent_notes),
+            transparent_background: Some(self.transparent_background && !self.opaque_background),
+            color_moved: self.color_moved,
+            extensions: Some(!self.no_extensions),
+            extension_paths: self
+                .extension
+                .iter()
+                .map(|path| path.to_string_lossy().into_owned())
+                .collect(),
+            ..CommonOptions::default()
+        }
+    }
+}
+
+#[cfg(test)]
+mod review_cli_option_tests {
+    use super::*;
+
+    #[test]
+    fn common_options_preserve_the_resolved_review_input_for_native_reload() {
+        let options = ReviewCliOptions {
+            vcs: Some(VcsArg::Jj),
+            mode: Some(ReviewLayoutArg::Split),
+            watch: true,
+            pager: true,
+            no_line_numbers: true,
+            tab_width: Some(8),
+            cursor_line: Some(CursorLineArg::Number),
+            wrap: true,
+            no_hunk_headers: true,
+            no_sidebar: true,
+            agent_notes: true,
+            file_gap: Some(3),
+            hunk_gap: Some(2),
+            transparent_background: true,
+            agent_context: Some(PathBuf::from("notes.json")),
+            theme: Some("nord".into()),
+            extension: vec![PathBuf::from("review-extension")],
+            color_moved: Some(false),
+            ..ReviewCliOptions::default()
+        };
+
+        let common = options.common_options();
+        assert_eq!(common.mode, Some(InputLayoutMode::Split));
+        assert_eq!(common.cursor_line, Some(InputCursorLine::Number));
+        assert_eq!(common.vcs.as_deref(), Some("jj"));
+        assert_eq!(common.theme.as_deref(), Some("nord"));
+        assert_eq!(common.agent_context.as_deref(), Some("notes.json"));
+        assert_eq!(common.pager, Some(true));
+        assert_eq!(common.watch, Some(true));
+        assert_eq!(common.line_numbers, Some(false));
+        assert_eq!(common.tab_width, Some(8));
+        assert_eq!(common.file_gap, Some(3));
+        assert_eq!(common.hunk_gap, Some(2));
+        assert_eq!(common.wrap_lines, Some(true));
+        assert_eq!(common.hunk_headers, Some(false));
+        assert_eq!(common.sidebar, Some(SidebarVisibility::Hidden));
+        assert_eq!(common.agent_notes, Some(true));
+        assert_eq!(common.transparent_background, Some(true));
+        assert_eq!(common.color_moved, Some(false));
+        assert_eq!(common.extensions, Some(true));
+        assert_eq!(common.extension_paths, ["review-extension"]);
+    }
+
+    #[test]
+    fn automatic_vcs_and_explicit_disable_flags_keep_provider_neutral_defaults() {
+        let options = ReviewCliOptions {
+            vcs: Some(VcsArg::Auto),
+            no_watch: true,
+            no_extensions: true,
+            ..ReviewCliOptions::default()
+        };
+        let common = options.common_options();
+        assert_eq!(common.vcs, None);
+        assert_eq!(common.watch, Some(false));
+        assert_eq!(common.extensions, Some(false));
     }
 }
 
@@ -1521,24 +1640,41 @@ fn handle_review_command(cwd: &Path, command: Command) -> Result<()> {
             let provider =
                 AnyProvider::discover(cwd, review.preference()).map_err(anyhow::Error::from)?;
             let request = DiffRequest {
-                target,
-                from,
+                target: target.clone(),
+                from: from.clone(),
                 staged,
                 exclude_untracked,
                 pathspec,
                 color_moved: review.color_moved,
             };
+            let mut input_options = review.common_options();
+            input_options.exclude_untracked = Some(exclude_untracked);
+            let input = CliInput::Vcs(VcsDiffCommandInput {
+                range: from.is_none().then(|| target.clone()).flatten(),
+                range_endpoints: from
+                    .clone()
+                    .zip(target.clone())
+                    .map(|(from, to)| VcsRangeEndpoints { from, to }),
+                staged,
+                pathspecs: request.pathspec.clone(),
+                options: input_options,
+            });
             let changeset = provider
                 .working_tree(&request)
                 .map_err(anyhow::Error::from)?;
             let mut reload = || provider.working_tree(&request).map_err(anyhow::Error::from);
-            run_review_with_options(cwd, changeset, review, Some(&mut reload))
+            run_review_with_options(cwd, changeset, review, Some(input), Some(&mut reload))
         }
         Command::Show {
             target,
             pathspec,
             review,
         } => {
+            let input = CliInput::Show(VcsShowCommandInput {
+                reference: target.clone(),
+                pathspecs: pathspec.clone(),
+                options: review.common_options(),
+            });
             let provider =
                 AnyProvider::discover(cwd, review.preference()).map_err(anyhow::Error::from)?;
             let changeset = provider
@@ -1549,11 +1685,15 @@ fn handle_review_command(cwd: &Path, command: Command) -> Result<()> {
                     .show(target.as_deref(), &pathspec)
                     .map_err(anyhow::Error::from)
             };
-            run_review_with_options(cwd, changeset, review, Some(&mut reload))
+            run_review_with_options(cwd, changeset, review, Some(input), Some(&mut reload))
         }
         Command::Stash {
             command: StashCommand::Show { reference, review },
         } => {
+            let input = CliInput::StashShow(VcsStashShowCommandInput {
+                reference: reference.clone(),
+                options: review.common_options(),
+            });
             let provider = GitProvider::discover(cwd).map_err(anyhow::Error::from)?;
             let changeset = provider
                 .stash(reference.as_deref())
@@ -1563,10 +1703,17 @@ fn handle_review_command(cwd: &Path, command: Command) -> Result<()> {
                     .stash(reference.as_deref())
                     .map_err(anyhow::Error::from)
             };
-            run_review_with_options(cwd, changeset, review, Some(&mut reload))
+            run_review_with_options(cwd, changeset, review, Some(input), Some(&mut reload))
         }
         Command::Patch { file, review } => {
             let reload_path = file.clone().filter(|path| path != Path::new("-"));
+            let reload_input = reload_path.as_ref().map(|path| {
+                CliInput::Patch(PatchCommandInput {
+                    file: Some(path.to_string_lossy().into_owned()),
+                    text: None,
+                    options: review.common_options(),
+                })
+            });
             let (patch, label) = match file {
                 Some(path) if path != Path::new("-") => {
                     let patch = std::fs::read_to_string(&path)
@@ -1589,9 +1736,9 @@ fn handle_review_command(cwd: &Path, command: Command) -> Result<()> {
                     parse_patch_input(&patch, path.display().to_string())
                         .map_err(anyhow::Error::from)
                 };
-                run_review_with_options(cwd, changeset, review, Some(&mut reload))
+                run_review_with_options(cwd, changeset, review, reload_input, Some(&mut reload))
             } else {
-                run_review_with_options(cwd, changeset, review, None)
+                run_review_with_options(cwd, changeset, review, None, None)
             }
         }
         Command::Difftool {
@@ -1600,6 +1747,14 @@ fn handle_review_command(cwd: &Path, command: Command) -> Result<()> {
             path,
             review,
         } => {
+            let input = CliInput::DiffTool(DiffToolCommandInput {
+                left: left.to_string_lossy().into_owned(),
+                right: right.to_string_lossy().into_owned(),
+                path: path
+                    .as_ref()
+                    .map(|path| path.to_string_lossy().into_owned()),
+                options: review.common_options(),
+            });
             let provider = GitProvider::discover(cwd).map_err(anyhow::Error::from)?;
             let mut changeset = provider.files(&left, &right).map_err(anyhow::Error::from)?;
             if let (Some(path), Some(file)) = (path.as_ref(), changeset.files.first_mut()) {
@@ -1615,7 +1770,7 @@ fn handle_review_command(cwd: &Path, command: Command) -> Result<()> {
                 }
                 Ok(changeset)
             };
-            run_review_with_options(cwd, changeset, review, Some(&mut reload))
+            run_review_with_options(cwd, changeset, review, Some(input), Some(&mut reload))
         }
         Command::Pager { review } => {
             let mut input = String::new();
@@ -1624,7 +1779,7 @@ fn handle_review_command(cwd: &Path, command: Command) -> Result<()> {
                 .context("failed to read pager input")?;
             if workdeck_cli::pager::looks_like_patch_input(&input) {
                 let changeset = parse_patch_input(&input, "pager").map_err(anyhow::Error::from)?;
-                run_review_with_options(cwd, changeset, review, None)
+                run_review_with_options(cwd, changeset, review, None, None)
             } else {
                 let context = workdeck_cli::pager::PlainTextPagerContext::current();
                 workdeck_cli::pager::page_plain_text(&input, &context).map_err(anyhow::Error::from)
@@ -1638,6 +1793,7 @@ fn run_review_with_options(
     cwd: &Path,
     mut changeset: Changeset,
     review: ReviewCliOptions,
+    input: Option<CliInput>,
     reloader: Option<&mut dyn FnMut() -> Result<Changeset>>,
 ) -> Result<()> {
     if review.watch && !review.no_watch && reloader.is_none() {
@@ -1666,7 +1822,17 @@ fn run_review_with_options(
             }
             Ok(changeset)
         };
-        workdeck_tui::run_review_with_reload(changeset, options, &mut decorated_reload)
+        if let Some(input) = input {
+            workdeck_tui::run_review_with_input_reload(
+                changeset,
+                options,
+                input,
+                cwd.to_owned(),
+                &mut decorated_reload,
+            )
+        } else {
+            workdeck_tui::run_review_with_reload(changeset, options, &mut decorated_reload)
+        }
     } else {
         workdeck_tui::run_review(changeset, options)
     }
