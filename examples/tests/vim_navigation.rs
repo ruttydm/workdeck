@@ -171,8 +171,8 @@ fn review_shell_routes_f6_counts_ex_dialog_escape_and_reload() {
         .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
         .unwrap();
     let active_frame = rendered_text(&terminal);
-    assert!(active_frame.contains("Vim navigation"));
-    assert!(active_frame.contains("ext example.vim-navigation"));
+    assert!(active_frame.contains(" Vim navigation — "));
+    assert!(!active_frame.contains("ext example.vim-navigation"));
 
     press(&mut app, KeyCode::Char('5'));
     press(&mut app, KeyCode::Char('j'));
@@ -221,9 +221,9 @@ fn review_shell_routes_f6_counts_ex_dialog_escape_and_reload() {
 
     press(&mut app, KeyCode::F(6));
     app.handle_mouse_event(MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: 90,
-        row: 1,
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: 31,
+        row: 0,
         modifiers: KeyModifiers::NONE,
     });
     terminal
@@ -231,9 +231,9 @@ fn review_shell_routes_f6_counts_ex_dialog_escape_and_reload() {
         .unwrap();
     assert!(rendered_text(&terminal).contains("Exit Vim navigation"));
     app.handle_mouse_event(MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: 90,
-        row: 3,
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: 31,
+        row: 2,
         modifiers: KeyModifiers::NONE,
     });
     assert!(app.active_keyboard_mode_title().is_none());
