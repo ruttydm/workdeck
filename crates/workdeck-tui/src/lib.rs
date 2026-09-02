@@ -89,20 +89,22 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
-use workdeck_core::{
-    Changeset, DiffFile, DiffLine, DiffLineKind, FileChangeKind, ReviewSelection, ReviewSide,
-};
+use workdeck_core::{Changeset, DiffFile, DiffLine, DiffLineKind, ReviewSelection, ReviewSide};
 use workdeck_diff::{
     DIFF_RAIL_PREFIX_WIDTH, HighlightCache, HighlightedDiffLine, SyntaxToken, TextSegment,
     clip_segments, expand_diff_tabs, plan_split_line_pairs, resolve_split_cell_geometry,
     resolve_split_pane_widths as resolve_diff_split_pane_widths, resolve_stack_cell_geometry,
-    slice_segments_window, word_diff_ranges, wrap_segments,
+    sanitize_terminal_line, slice_segments_window, word_diff_ranges, wrap_segments,
 };
 use workdeck_extension_api::{
     ExtensionNotification, ExtensionNotificationHub, ExtensionNotificationSubscription,
     ExtensionPaneView, PanePlacement, ViewNode, ViewStyle, extension_pane_size,
 };
-use workdeck_review::{LayoutMode, ReviewComment, ReviewState, normalized_review_source_lines};
+use workdeck_review::{
+    ExpandedSourceError, ExpandedSourceStatus, LayoutMode, ReviewComment, ReviewGapAddress,
+    ReviewState, plan_expanded_gap, review_expansion_side, review_gap_source_for_file,
+    review_leading_gap, review_trailing_gap,
+};
 use workdeck_session::{ReviewSessionServer, default_discovery_directory};
 
 #[derive(Debug, Clone)]
@@ -415,8 +417,16 @@ impl ReviewApp {
         let target = self.with_state(|state| {
             let selection = state.selection();
             let file = state.selected_file()?;
-            file.sources.new.as_ref().or(file.sources.old.as_ref())?;
-            Some((file.key.clone(), selection.hunk_index.unwrap_or(0)))
+            let source = review_gap_source_for_file(file);
+            let hunk_index = selection.hunk_index.unwrap_or(0);
+            let gap_slot = review_leading_gap(&source, hunk_index)
+                .map(|_| hunk_index)
+                .or_else(|| {
+                    review_trailing_gap(&source)
+                        .filter(|gap| gap.hunk_index == hunk_index)
+                        .map(|_| file.hunks.len())
+                })?;
+            Some((file.key.clone(), gap_slot))
         });
         let Some(key) = target else {
             self.status = Some("source expansion is unavailable for this file".into());
@@ -1194,16 +1204,16 @@ fn build_review_rows_with_chrome(
         } else {
             Vec::new()
         };
+        let gap_source = review_gap_source_for_file(file);
+        let expansion_side = review_expansion_side(file.change_kind);
+        let selected_source = match expansion_side {
+            ReviewSide::Old => file.sources.old.as_ref(),
+            ReviewSide::New => file.sources.new.as_ref(),
+        };
         let expanded_source = expanded_gaps
             .iter()
             .any(|(file_key, _)| file_key == &file.key)
-            .then(|| {
-                if file.change_kind == FileChangeKind::Deleted {
-                    file.sources.old.as_ref().or(file.sources.new.as_ref())
-                } else {
-                    file.sources.new.as_ref().or(file.sources.old.as_ref())
-                }
-            })
+            .then_some(selected_source)
             .flatten();
         let highlighted_source = expanded_source.and_then(|source| {
             if !options.highlight {
@@ -1263,22 +1273,19 @@ fn build_review_rows_with_chrome(
             ));
             continue;
         }
-        let mut previous_old_end = 1;
-        let mut previous_new_end = 1;
         for (hunk_index, hunk) in file.hunks.iter().enumerate() {
-            rows.extend(source_gap_rows(
-                file,
-                hunk_index,
-                previous_old_end,
-                previous_new_end,
-                hunk.old_start,
-                hunk.new_start,
-                layout,
-                options,
-                width,
-                expanded_gaps,
-                highlighted_source.as_ref(),
-            ));
+            if let Some(address) = review_leading_gap(&gap_source, hunk_index) {
+                rows.extend(source_gap_rows(
+                    file,
+                    address,
+                    hunk_index,
+                    layout,
+                    options,
+                    width,
+                    expanded_gaps,
+                    highlighted_source.as_ref(),
+                ));
+            }
             if hunk_index > 0 {
                 rows.extend((0..options.hunk_gap).map(|_| Line::default()));
             }
@@ -1320,35 +1327,12 @@ fn build_review_rows_with_chrome(
                     selected_hunk,
                 )),
             }
-            previous_old_end = hunk.old_start.saturating_add(hunk.old_count);
-            previous_new_end = hunk.new_start.saturating_add(hunk.new_count);
         }
-        if file.sources.old.is_some() || file.sources.new.is_some() {
-            let old_end = file
-                .sources
-                .old
-                .as_ref()
-                .map_or(previous_old_end, |source| {
-                    u32::try_from(normalized_review_source_lines(&source.content).len())
-                        .unwrap_or(u32::MAX)
-                        .saturating_add(1)
-                });
-            let new_end = file
-                .sources
-                .new
-                .as_ref()
-                .map_or(previous_new_end, |source| {
-                    u32::try_from(normalized_review_source_lines(&source.content).len())
-                        .unwrap_or(u32::MAX)
-                        .saturating_add(1)
-                });
+        if let Some(address) = review_trailing_gap(&gap_source) {
             rows.extend(source_gap_rows(
                 file,
+                address,
                 file.hunks.len(),
-                previous_old_end,
-                previous_new_end,
-                old_end,
-                new_end,
                 layout,
                 options,
                 width,
@@ -1364,86 +1348,40 @@ fn build_review_rows_with_chrome(
     }
 }
 
-const MAX_EXPANDED_GAP_LINES: usize = 200;
-
 #[allow(clippy::too_many_arguments)]
 fn source_gap_rows(
     file: &DiffFile,
-    gap_index: usize,
-    old_start: u32,
-    new_start: u32,
-    old_end: u32,
-    new_end: u32,
+    address: ReviewGapAddress,
+    gap_slot: usize,
     layout: LayoutMode,
     options: &ReviewOptions,
     width: u16,
     expanded_gaps: &BTreeSet<(String, usize)>,
     highlighted_source: Option<&workdeck_diff::HighlightedSourceCode>,
 ) -> Vec<Line<'static>> {
-    let old_source = file.sources.old.as_ref();
-    let new_source = file.sources.new.as_ref();
-    if old_source.is_none() && new_source.is_none() {
-        return Vec::new();
-    }
-
-    let old_count = usize::try_from(old_end.saturating_sub(old_start)).unwrap_or(usize::MAX);
-    let new_count = usize::try_from(new_end.saturating_sub(new_start)).unwrap_or(usize::MAX);
-    let count = match (old_source.is_some(), new_source.is_some()) {
-        (true, true) => old_count.min(new_count),
-        (true, false) => old_count,
-        (false, true) => new_count,
-        (false, false) => 0,
+    let side = review_expansion_side(file.change_kind);
+    let source = match side {
+        ReviewSide::Old => file.sources.old.as_ref(),
+        ReviewSide::New => file.sources.new.as_ref(),
     };
-    if count == 0 {
-        return Vec::new();
-    }
-
-    let key = (file.key.clone(), gap_index);
-    if !expanded_gaps.contains(&key) {
-        return vec![source_gap_label(count, width, "e to expand")];
-    }
-
-    let old_lines = old_source.map(|source| normalized_review_source_lines(&source.content));
-    let new_lines = new_source.map(|source| normalized_review_source_lines(&source.content));
-    let visible_count = count.min(MAX_EXPANDED_GAP_LINES);
-    let mut rows = Vec::with_capacity(visible_count.saturating_add(1));
-    for offset in 0..visible_count {
-        let old_number =
-            old_source.map(|_| old_start.saturating_add(u32::try_from(offset).unwrap_or(u32::MAX)));
-        let new_number =
-            new_source.map(|_| new_start.saturating_add(u32::try_from(offset).unwrap_or(u32::MAX)));
-        let old_content = old_lines.as_ref().and_then(|lines| {
-            old_number
-                .and_then(|line| usize::try_from(line.saturating_sub(1)).ok())
-                .and_then(|index| lines.get(index))
-                .map(String::as_str)
-        });
-        let new_content = new_lines.as_ref().and_then(|lines| {
-            new_number
-                .and_then(|line| usize::try_from(line.saturating_sub(1)).ok())
-                .and_then(|index| lines.get(index))
-                .map(String::as_str)
-        });
-        let content = new_content.or(old_content).unwrap_or_default().to_owned();
-        let source_number = if file.change_kind == FileChangeKind::Deleted {
-            old_number
-        } else {
-            new_number
-        };
-        let highlighted = source_number
-            .and_then(|line| usize::try_from(line.saturating_sub(1)).ok())
-            .and_then(|index| highlighted_source?.lines.get(index))
-            .and_then(Option::as_ref);
-        let kind = match (old_content.is_some(), new_content.is_some()) {
-            (true, false) => DiffLineKind::Deletion,
-            (false, true) => DiffLineKind::Addition,
-            _ => DiffLineKind::Context,
-        };
+    let expanded = expanded_gaps.contains(&(file.key.clone(), gap_slot));
+    let status = source.map_or(
+        ExpandedSourceStatus::Error(ExpandedSourceError::Unavailable),
+        |source| ExpandedSourceStatus::Loaded(&source.content),
+    );
+    let plan = plan_expanded_gap(&file.key, address, expanded, status, side);
+    let mut rows = Vec::with_capacity(plan.lines.len().saturating_add(1));
+    rows.push(source_gap_label(&plan.label, width));
+    for expanded_line in plan.lines {
+        let highlighted = highlighted_source
+            .and_then(|source| source.lines.get(expanded_line.source_line_index))
+            .and_then(Option::as_ref)
+            .map(|tokens| sanitized_syntax_tokens(tokens));
         let line = DiffLine {
-            kind,
-            content,
-            old_line: old_number.filter(|_| old_content.is_some()),
-            new_line: new_number.filter(|_| new_content.is_some()),
+            kind: DiffLineKind::Context,
+            content: sanitize_terminal_line(&expanded_line.text),
+            old_line: Some(expanded_line.old_line),
+            new_line: Some(expanded_line.new_line),
             moved: false,
             no_newline_at_eof: false,
         };
@@ -1451,7 +1389,7 @@ fn source_gap_rows(
             LayoutMode::Stack | LayoutMode::Auto => rows.extend(stack_line_rows(
                 &line,
                 options,
-                highlighted,
+                highlighted.as_ref(),
                 &[],
                 false,
                 width,
@@ -1462,13 +1400,13 @@ fn source_gap_rows(
                 let right_width = available.saturating_sub(left_width);
                 rows.extend(split_pair_rows(
                     SplitCellInput {
-                        line: old_content.map(|_| &line),
-                        highlighted,
+                        line: Some(&line),
+                        highlighted: highlighted.as_ref(),
                         emphasis: &[],
                     },
                     SplitCellInput {
-                        line: new_content.map(|_| &line),
-                        highlighted,
+                        line: Some(&line),
+                        highlighted: highlighted.as_ref(),
                         emphasis: &[],
                     },
                     options,
@@ -1479,20 +1417,29 @@ fn source_gap_rows(
             }
         }
     }
-    if count > visible_count {
-        rows.push(source_gap_label(
-            count - visible_count,
-            width,
-            "expansion limit reached",
-        ));
-    }
     rows
 }
 
-fn source_gap_label(count: usize, width: u16, action: &str) -> Line<'static> {
+fn sanitized_syntax_tokens(tokens: &[SyntaxToken]) -> Vec<SyntaxToken> {
+    tokens
+        .iter()
+        .filter_map(|token| {
+            let text = sanitize_terminal_line(&token.text);
+            (!text.is_empty()).then_some(SyntaxToken {
+                text,
+                foreground: token.foreground,
+                bold: token.bold,
+                italic: token.italic,
+                underline: token.underline,
+            })
+        })
+        .collect()
+}
+
+fn source_gap_label(label: &str, width: u16) -> Line<'static> {
     let spans = clip_styled_spans(
         vec![Span::styled(
-            format!("  … {count} unchanged lines  ({action})"),
+            format!("▾ {label}"),
             Style::default().fg(Color::DarkGray),
         )],
         usize::from(width),
@@ -2555,10 +2502,12 @@ mod tests {
                 false,
             )),
         });
+        changeset.files[0].flags.partial = false;
         let options = ReviewOptions {
             layout: LayoutMode::Stack,
             sidebar: false,
             line_numbers: false,
+            highlight: false,
             ..ReviewOptions::default()
         };
         let mut highlights = HighlightCache::default();
@@ -2579,7 +2528,7 @@ mod tests {
             .map(Line::to_string)
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(collapsed_text.contains("2 unchanged lines"));
+        assert!(collapsed_text.contains("▾ 2 unchanged lines"));
         assert!(!collapsed_text.contains("one"));
 
         let expanded = build_review_rows(
@@ -2598,9 +2547,146 @@ mod tests {
             .map(Line::to_string)
             .collect::<Vec<_>>()
             .join("\n");
+        assert!(expanded_text.contains("▾ Hide 2 unchanged lines"));
         assert!(expanded_text.contains("one"));
         assert!(expanded_text.contains("two"));
-        assert!(expanded_text.contains("1 unchanged lines"));
+        assert!(expanded_text.contains("▾ 1 unchanged line"));
+        let label_index = expanded_text.find("Hide 2 unchanged lines").unwrap();
+        assert!(label_index < expanded_text.find("one").unwrap());
+
+        let trailing = build_review_rows(
+            &changeset,
+            &[],
+            ReviewSelection::default(),
+            LayoutMode::Stack,
+            &options,
+            80,
+            &mut highlights,
+            &BTreeSet::from([(changeset.files[0].key.clone(), 1)]),
+        );
+        let trailing_text = trailing
+            .lines
+            .iter()
+            .map(Line::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(trailing_text.contains("▾ Hide 1 unchanged line"));
+        assert!(trailing_text.contains("four"));
+
+        let split = build_review_rows(
+            &changeset,
+            &[],
+            ReviewSelection::default(),
+            LayoutMode::Split,
+            &ReviewOptions {
+                layout: LayoutMode::Split,
+                line_numbers: true,
+                ..options.clone()
+            },
+            100,
+            &mut highlights,
+            &BTreeSet::from([(changeset.files[0].key.clone(), 0)]),
+        );
+        let first_context = split
+            .lines
+            .iter()
+            .find(|line| line.to_string().matches("one").count() == 2)
+            .expect("split expansion paints the source on both sides");
+        assert_eq!(
+            first_context
+                .spans
+                .iter()
+                .filter(|span| span.content.as_ref() == "▌")
+                .count(),
+            2
+        );
+        assert_eq!(
+            first_context
+                .spans
+                .iter()
+                .filter(|span| span.content.trim() == "1")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn expanded_source_rows_have_no_cap_and_sanitize_controls_and_tabs() {
+        let controls = "\x1b]52;c;SGVsbG8=\x07\x1b[2J\x1bPqpayload\x1b\\\x07\rspoof\x08hidden\x1b";
+        let mut source_lines = vec![format!("a\tb safe{controls}")];
+        source_lines.extend((2..=250).map(|line| format!("line-{line}")));
+        source_lines.push("new".into());
+        let new_source = format!("{}\n", source_lines.join("\n"));
+        source_lines[250] = "old".into();
+        let old_source = format!("{}\n", source_lines.join("\n"));
+        let mut changeset = parse_patch(
+            "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -251 +251 @@\n-old\n+new\n",
+            "source-safety",
+            "Source safety",
+            ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap();
+        let file_key = changeset.files[0].key.clone();
+        changeset.files[0].set_sources(FileSourceSnapshots {
+            old: Some(SourceSnapshot::new(
+                old_source,
+                SourceOrigin::Revision {
+                    revision: "HEAD".into(),
+                },
+                true,
+            )),
+            new: Some(SourceSnapshot::new(
+                new_source,
+                SourceOrigin::WorkingTree,
+                false,
+            )),
+        });
+        let mut highlights = HighlightCache::default();
+        let rows = build_review_rows(
+            &changeset,
+            &[],
+            ReviewSelection::default(),
+            LayoutMode::Stack,
+            &ReviewOptions {
+                layout: LayoutMode::Stack,
+                sidebar: false,
+                line_numbers: false,
+                highlight: false,
+                tab_width: 4,
+                ..ReviewOptions::default()
+            },
+            100,
+            &mut highlights,
+            &BTreeSet::from([(file_key, 0)]),
+        );
+        let rendered = rows
+            .lines
+            .iter()
+            .map(Line::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(rendered.contains("Hide 250 unchanged lines"));
+        assert!(rendered.contains("a   b safespoofhidden"));
+        assert!(rendered.contains("line-250"));
+        assert!(!rendered.contains("expansion limit"));
+        for control in ['\x1b', '\x07', '\r', '\x08'] {
+            assert!(!rendered.contains(control));
+        }
+
+        let sanitized = sanitized_syntax_tokens(&[SyntaxToken {
+            text: format!("safe{controls}visible"),
+            foreground: workdeck_diff::SyntaxColor {
+                red: 1,
+                green: 2,
+                blue: 3,
+            },
+            bold: true,
+            italic: false,
+            underline: false,
+        }]);
+        assert_eq!(sanitized.len(), 1);
+        assert_eq!(sanitized[0].text, "safespoofhiddenvisible");
+        assert!(sanitized[0].bold);
     }
 
     #[test]

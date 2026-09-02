@@ -13,6 +13,48 @@ pub enum ReviewGapPosition {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExpandedSourceError {
+    Unavailable,
+    TooLarge,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExpandedSourceStatus<'a> {
+    Pending,
+    Loading,
+    Loaded(&'a str),
+    Error(ExpandedSourceError),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExpandedGapState {
+    Collapsed,
+    Pending,
+    Loading,
+    Error(ExpandedSourceError),
+    Expanded,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpandedGapLine {
+    pub key: String,
+    pub hunk_index: usize,
+    pub expanded_gap_key: String,
+    pub old_line: u32,
+    pub new_line: u32,
+    /// Zero-based line index into the selected old/new source snapshot.
+    pub source_line_index: usize,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpandedGapPlan {
+    pub state: ExpandedGapState,
+    pub label: String,
+    pub lines: Vec<ExpandedGapLine>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReviewGapHunk {
     pub collapsed_before: usize,
     pub addition_start: u32,
@@ -230,6 +272,137 @@ pub fn review_expansion_side(change_kind: FileChangeKind) -> ReviewSide {
     }
 }
 
+fn unchanged_lines_label(prefix: Option<&str>, count: usize) -> String {
+    let noun = if count == 1 { "line" } else { "lines" };
+    prefix.map_or_else(
+        || format!("{count} unchanged {noun}"),
+        |prefix| format!("{prefix} {count} unchanged {noun}"),
+    )
+}
+
+/// Resolve the state row and synthesized context lines for one collapsed gap.
+///
+/// This is the provider-neutral form of Hunk's `expandCollapsedRows`: Ratatui chooses split or
+/// stack painting afterward, while stable keys, side selection, bounds checks, and row content are
+/// decided here exactly once for every consumer.
+#[must_use]
+pub fn plan_expanded_gap(
+    file_id: &str,
+    address: ReviewGapAddress,
+    expanded: bool,
+    status: ExpandedSourceStatus<'_>,
+    side: ReviewSide,
+) -> ExpandedGapPlan {
+    let collapsed_label = unchanged_lines_label(None, address.line_count);
+    if !expanded {
+        return ExpandedGapPlan {
+            state: ExpandedGapState::Collapsed,
+            label: collapsed_label,
+            lines: Vec::new(),
+        };
+    }
+    match status {
+        ExpandedSourceStatus::Pending => ExpandedGapPlan {
+            state: ExpandedGapState::Pending,
+            label: collapsed_label,
+            lines: Vec::new(),
+        },
+        ExpandedSourceStatus::Loading => ExpandedGapPlan {
+            state: ExpandedGapState::Loading,
+            label: format!(
+                "{}…",
+                unchanged_lines_label(Some("Loading"), address.line_count)
+            ),
+            lines: Vec::new(),
+        },
+        ExpandedSourceStatus::Error(reason) => {
+            let prefix = match reason {
+                ExpandedSourceError::Unavailable => "Could not load",
+                ExpandedSourceError::TooLarge => "Source too large to expand",
+            };
+            ExpandedGapPlan {
+                state: ExpandedGapState::Error(reason),
+                label: unchanged_lines_label(Some(prefix), address.line_count),
+                lines: Vec::new(),
+            }
+        }
+        ExpandedSourceStatus::Loaded(source) => {
+            let source_lines = normalized_review_source_lines(source);
+            let range = match side {
+                ReviewSide::Old => address.old_range,
+                ReviewSide::New => address.new_range,
+            };
+            let Some(start_index) = range
+                .start
+                .checked_sub(1)
+                .and_then(|line| usize::try_from(line).ok())
+            else {
+                return ExpandedGapPlan {
+                    state: ExpandedGapState::Error(ExpandedSourceError::Unavailable),
+                    label: unchanged_lines_label(Some("Could not load"), address.line_count),
+                    lines: Vec::new(),
+                };
+            };
+            let Some(end_index) = range
+                .end
+                .checked_sub(1)
+                .and_then(|line| usize::try_from(line).ok())
+            else {
+                return ExpandedGapPlan {
+                    state: ExpandedGapState::Error(ExpandedSourceError::Unavailable),
+                    label: unchanged_lines_label(Some("Could not load"), address.line_count),
+                    lines: Vec::new(),
+                };
+            };
+            if address.line_count > 0
+                && (end_index < start_index || end_index >= source_lines.len())
+            {
+                return ExpandedGapPlan {
+                    state: ExpandedGapState::Error(ExpandedSourceError::Unavailable),
+                    label: unchanged_lines_label(Some("Could not load"), address.line_count),
+                    lines: Vec::new(),
+                };
+            }
+
+            let gap_key = review_gap_id(address.position, address.hunk_index);
+            let position = match address.position {
+                ReviewGapPosition::Before => "before",
+                ReviewGapPosition::Trailing => "trailing",
+            };
+            let lines = (0..address.line_count)
+                .filter_map(|offset| {
+                    let offset_u32 = u32::try_from(offset).ok()?;
+                    let source_line_index = start_index.checked_add(offset)?;
+                    Some(ExpandedGapLine {
+                        key: format!(
+                            "{file_id}:expanded:{position}:{}:{offset}",
+                            address.hunk_index
+                        ),
+                        hunk_index: address.hunk_index,
+                        expanded_gap_key: gap_key.clone(),
+                        old_line: address.old_range.start.checked_add(offset_u32)?,
+                        new_line: address.new_range.start.checked_add(offset_u32)?,
+                        source_line_index,
+                        text: source_lines.get(source_line_index)?.clone(),
+                    })
+                })
+                .collect::<Vec<_>>();
+            if lines.len() != address.line_count {
+                return ExpandedGapPlan {
+                    state: ExpandedGapState::Error(ExpandedSourceError::Unavailable),
+                    label: unchanged_lines_label(Some("Could not load"), address.line_count),
+                    lines: Vec::new(),
+                };
+            }
+            ExpandedGapPlan {
+                state: ExpandedGapState::Expanded,
+                label: unchanged_lines_label(Some("Hide"), address.line_count),
+                lines,
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -337,5 +510,188 @@ mod tests {
             review_expansion_side(FileChangeKind::Modified),
             ReviewSide::New
         );
+    }
+
+    fn address(
+        position: ReviewGapPosition,
+        hunk_index: usize,
+        old_range: LineRange,
+        new_range: LineRange,
+    ) -> ReviewGapAddress {
+        let line_count = usize::try_from(old_range.end - old_range.start + 1).unwrap();
+        ReviewGapAddress {
+            position,
+            hunk_index,
+            old_range,
+            new_range,
+            line_count,
+        }
+    }
+
+    #[test]
+    fn expanded_gap_preserves_collapsed_and_pending_labels() {
+        let gap = address(
+            ReviewGapPosition::Before,
+            0,
+            LineRange { start: 1, end: 2 },
+            LineRange { start: 1, end: 2 },
+        );
+        let collapsed = plan_expanded_gap(
+            "f",
+            gap,
+            false,
+            ExpandedSourceStatus::Loaded("alpha\nbeta\n"),
+            ReviewSide::New,
+        );
+        assert_eq!(collapsed.state, ExpandedGapState::Collapsed);
+        assert_eq!(collapsed.label, "2 unchanged lines");
+        assert!(collapsed.lines.is_empty());
+
+        let pending = plan_expanded_gap(
+            "f",
+            gap,
+            true,
+            ExpandedSourceStatus::Pending,
+            ReviewSide::New,
+        );
+        assert_eq!(pending.state, ExpandedGapState::Pending);
+        assert_eq!(pending.label, "2 unchanged lines");
+        assert!(pending.lines.is_empty());
+    }
+
+    #[test]
+    fn expanded_gap_reports_loading_and_source_errors_exactly() {
+        let gap = address(
+            ReviewGapPosition::Before,
+            0,
+            LineRange { start: 1, end: 3 },
+            LineRange { start: 1, end: 3 },
+        );
+        let cases = [
+            (
+                ExpandedSourceStatus::Loading,
+                ExpandedGapState::Loading,
+                "Loading 3 unchanged lines…",
+            ),
+            (
+                ExpandedSourceStatus::Error(ExpandedSourceError::Unavailable),
+                ExpandedGapState::Error(ExpandedSourceError::Unavailable),
+                "Could not load 3 unchanged lines",
+            ),
+            (
+                ExpandedSourceStatus::Error(ExpandedSourceError::TooLarge),
+                ExpandedGapState::Error(ExpandedSourceError::TooLarge),
+                "Source too large to expand 3 unchanged lines",
+            ),
+        ];
+        for (status, state, label) in cases {
+            let plan = plan_expanded_gap("f", gap, true, status, ReviewSide::New);
+            assert_eq!(plan.state, state);
+            assert_eq!(plan.label, label);
+            assert!(plan.lines.is_empty());
+        }
+    }
+
+    #[test]
+    fn expanded_gap_builds_stable_context_rows_from_the_selected_side() {
+        let gap = address(
+            ReviewGapPosition::Before,
+            4,
+            LineRange { start: 2, end: 3 },
+            LineRange { start: 10, end: 11 },
+        );
+        let source = "alpha\nbeta\ngamma\ndelta\n";
+        let plan = plan_expanded_gap(
+            "file-id",
+            gap,
+            true,
+            ExpandedSourceStatus::Loaded(source),
+            ReviewSide::Old,
+        );
+        assert_eq!(plan.state, ExpandedGapState::Expanded);
+        assert_eq!(plan.label, "Hide 2 unchanged lines");
+        assert_eq!(plan.lines.len(), 2);
+        assert_eq!(plan.lines[0].key, "file-id:expanded:before:4:0");
+        assert_eq!(plan.lines[0].hunk_index, 4);
+        assert_eq!(plan.lines[0].expanded_gap_key, "before:4");
+        assert_eq!(plan.lines[0].old_line, 2);
+        assert_eq!(plan.lines[0].new_line, 10);
+        assert_eq!(plan.lines[0].source_line_index, 1);
+        assert_eq!(plan.lines[0].text, "beta");
+        assert_eq!(plan.lines[1].key, "file-id:expanded:before:4:1");
+        assert_eq!(plan.lines[1].old_line, 3);
+        assert_eq!(plan.lines[1].new_line, 11);
+        assert_eq!(plan.lines[1].source_line_index, 2);
+        assert_eq!(plan.lines[1].text, "gamma");
+    }
+
+    #[test]
+    fn expanded_gap_handles_trailing_ranges_crlf_and_singular_labels() {
+        let gap = address(
+            ReviewGapPosition::Trailing,
+            2,
+            LineRange { start: 4, end: 4 },
+            LineRange { start: 4, end: 4 },
+        );
+        let plan = plan_expanded_gap(
+            "f",
+            gap,
+            true,
+            ExpandedSourceStatus::Loaded("alpha\r\nbeta\r\ngamma\r\ndelta\r\n"),
+            ReviewSide::New,
+        );
+        assert_eq!(plan.label, "Hide 1 unchanged line");
+        assert_eq!(plan.lines[0].key, "f:expanded:trailing:2:0");
+        assert_eq!(plan.lines[0].expanded_gap_key, "trailing:2");
+        assert_eq!(plan.lines[0].text, "delta");
+    }
+
+    #[test]
+    fn expanded_gap_rejects_loaded_sources_shorter_than_the_selected_range() {
+        let gap = address(
+            ReviewGapPosition::Before,
+            0,
+            LineRange { start: 2, end: 3 },
+            LineRange { start: 10, end: 11 },
+        );
+        for side in [ReviewSide::Old, ReviewSide::New] {
+            let plan = plan_expanded_gap(
+                "f",
+                gap,
+                true,
+                ExpandedSourceStatus::Loaded("alpha\n"),
+                side,
+            );
+            assert_eq!(
+                plan.state,
+                ExpandedGapState::Error(ExpandedSourceError::Unavailable)
+            );
+            assert_eq!(plan.label, "Could not load 2 unchanged lines");
+            assert!(plan.lines.is_empty());
+        }
+    }
+
+    #[test]
+    fn expanded_gap_has_no_arbitrary_row_cap() {
+        let source = (1..=500)
+            .map(|line| format!("line {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let gap = address(
+            ReviewGapPosition::Before,
+            0,
+            LineRange { start: 1, end: 500 },
+            LineRange { start: 1, end: 500 },
+        );
+        let plan = plan_expanded_gap(
+            "f",
+            gap,
+            true,
+            ExpandedSourceStatus::Loaded(&source),
+            ReviewSide::New,
+        );
+        assert_eq!(plan.state, ExpandedGapState::Expanded);
+        assert_eq!(plan.lines.len(), 500);
+        assert_eq!(plan.lines[499].text, "line 500");
     }
 }
