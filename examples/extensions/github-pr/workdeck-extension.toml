@@ -1,0 +1,7 @@
+id = "example.github-pr"
+name = "GitHub pull request"
+version = "0.1.0"
+api_version = 1
+executable = "bin/workdeck-example-github-pr-extension"
+capabilities = ["cli-commands", "events"]
+description = "Review GitHub pull requests without the gh CLI"

@@ -1770,6 +1770,26 @@ fn validate_registrations(
 impl Drop for LoadedExtension {
     fn drop(&mut self) {
         self.registry.set_phase(ExtensionEventBusPhase::Closing);
+        if self.subscribes_to_event("shutdown") {
+            let notification = serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "workdeck/shutdown",
+                "params": {},
+            });
+            if serde_json::to_writer(&mut self.stdin, &notification).is_ok()
+                && self.stdin.write_all(b"\n").is_ok()
+                && self.stdin.flush().is_ok()
+            {
+                let deadline = Instant::now() + Duration::from_millis(100);
+                while Instant::now() < deadline {
+                    if self.child.try_wait().ok().flatten().is_some() {
+                        self.registry.set_phase(ExtensionEventBusPhase::Closed);
+                        return;
+                    }
+                    thread::sleep(Duration::from_millis(2));
+                }
+            }
+        }
         let _ = self.child.kill();
         let _ = self.child.wait();
         self.registry.set_phase(ExtensionEventBusPhase::Closed);

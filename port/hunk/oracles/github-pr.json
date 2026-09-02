@@ -1,0 +1,134 @@
+{
+  "capture": {
+    "method": "Executed the pinned TypeScript module through Bun 1.3.5 from a disposable git archive after a frozen, script-disabled dependency install; injected Git origin, fetch, CLI streams, temporary root, and lifecycle hooks.",
+    "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+    "stableDisposition": "The github-pr extension directory is absent from the stable tree, verified with git cat-file against each of its four paths."
+  },
+  "invocation": {
+    "number": {
+      "locator": { "number": "123" },
+      "patchArgs": [],
+      "help": false
+    },
+    "separated": {
+      "locator": { "number": "123" },
+      "explicitRepository": "modem-dev/hunk",
+      "patchArgs": ["--pager"],
+      "help": false
+    },
+    "shorthand": { "owner": "modem-dev", "repo": "hunk", "number": "123" },
+    "url": { "owner": "modem-dev", "repo": "hunk", "number": "123" },
+    "help": {
+      "locator": { "number": "1" },
+      "patchArgs": [],
+      "help": true
+    },
+    "errors": {
+      "zero": "Invalid pull-request number: 0",
+      "leadingZero": "Invalid pull-request number: 01",
+      "modifiedUrl": "Pull-request URLs must be unmodified https://github.com URLs."
+    }
+  },
+  "remotes": [
+    {
+      "value": "https://github.com/modem-dev/hunk.git",
+      "parsed": { "owner": "modem-dev", "repo": "hunk" }
+    },
+    {
+      "value": "ssh://git@github.com/modem-dev/hunk.git",
+      "parsed": { "owner": "modem-dev", "repo": "hunk" }
+    },
+    {
+      "value": "git://github.com/modem-dev/hunk.git",
+      "parsed": { "owner": "modem-dev", "repo": "hunk" }
+    },
+    {
+      "value": "git@github.com:modem-dev/hunk.git",
+      "parsed": { "owner": "modem-dev", "repo": "hunk" }
+    },
+    {
+      "value": "git@GITHUB.COM:modem-dev/hunk.GiT",
+      "parsed": { "owner": "modem-dev", "repo": "hunk" }
+    },
+    { "value": "https://gitlab.com/modem-dev/hunk.git", "parsed": null },
+    { "value": "git@github.com:modem-dev.git", "parsed": null }
+  ],
+  "resolution": {
+    "bare": { "owner": "modem-dev", "repo": "hunk", "number": "123" },
+    "explicit": { "owner": "modem-dev", "repo": "hunk", "number": "124" },
+    "originCalls": ["/repo"]
+  },
+  "request": {
+    "url": "https://api.github.com/repos/modem-dev/hunk/pulls/123",
+    "redirect": "manual",
+    "headers": {
+      "accept": "application/vnd.github.v3.diff",
+      "authorization": "Bearer preferred",
+      "user-agent": "hunk-github-pr-extension",
+      "x-github-api-version": "2022-11-28"
+    },
+    "diff": "diff --git a/a.ts b/a.ts\n"
+  },
+  "errors": {
+    "unauthorized": {
+      "message": "GitHub rejected the configured token for private/repo#7.",
+      "suggestions": ["Refresh GH_TOKEN or GITHUB_TOKEN and retry."]
+    },
+    "rateLimit": {
+      "message": "GitHub API rate limiting blocked private/repo#7.",
+      "suggestions": [
+        "Authenticate with GH_TOKEN or GITHUB_TOKEN, or retry after the rate limit resets."
+      ]
+    },
+    "forbidden": {
+      "message": "GitHub denied access to private/repo#7.",
+      "suggestions": [
+        "Check token repository permissions and organization SSO authorization."
+      ]
+    },
+    "missing": {
+      "message": "GitHub could not find an accessible pull request at private/repo#7.",
+      "suggestions": [
+        "Check the repository and PR number; private repositories require token access."
+      ]
+    },
+    "server": {
+      "message": "GitHub returned HTTP 500 for private/repo#7.",
+      "suggestions": []
+    },
+    "redirect": {
+      "message": "GitHub redirected the pull-request request; refusing to forward credentials.",
+      "suggestions": []
+    },
+    "malformedToken": {
+      "message": "The configured GitHub token contains characters that cannot be sent in an HTTP header.",
+      "suggestions": [
+        "Set GH_TOKEN or GITHUB_TOKEN to the token value without line breaks."
+      ]
+    },
+    "network": {
+      "message": "GitHub could not be reached while loading the pull request.",
+      "suggestions": ["Check network access and retry."]
+    }
+  },
+  "lifecycle": {
+    "command": {
+      "name": "gh",
+      "summary": "Review a GitHub pull request",
+      "usage": "<number|owner/repo#number|pull-request-url> [--repo <owner/repo>]"
+    },
+    "result": { "kind": "delegate", "argv": ["patch", "<TEMP_PATCH>", "--pager"] },
+    "patch": "diff --git a/src/pr.ts b/src/pr.ts\n--- a/src/pr.ts\n+++ b/src/pr.ts\n",
+    "directoryMode": "700",
+    "patchMode": "600",
+    "stdout": [],
+    "stderr": [
+      "Fetching GitHub pull request modem-dev/hunk#123…\n",
+      "Opening 67 bytes in Hunk…\n"
+    ],
+    "stdinReads": 0,
+    "existsAfterShutdown": false
+  },
+  "help": "Usage: hunk gh <pull-request> [--repo <owner/repo>] [-- <patch-options...>]\n\nReview a GitHub pull request without requiring the gh CLI.\n\nPull request forms:\n  123                                  infer owner/repo from the local origin\n  123 --repo modem-dev/hunk            use an explicit repository\n  'modem-dev/hunk#123'                 name the repository and pull request\n  https://github.com/modem-dev/hunk/pull/123\n\nAuthentication:\n  GH_TOKEN, then GITHUB_TOKEN           optional for public repositories\n"
+}

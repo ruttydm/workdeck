@@ -31,6 +31,8 @@ pub use workdeck_core::{WORKDECK_EXTENSION_USER_ERROR_NAME, WorkdeckExtensionUse
 pub const API_VERSION: u32 = 1;
 pub const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 2_000;
+/// Network-capable extension CLI commands receive a bounded but human-scale deadline.
+pub const DEFAULT_CLI_REQUEST_TIMEOUT_MS: u64 = 30_000;
 pub const MAX_VIEW_NODES: usize = 10_000;
 pub const MAX_VIEW_DEPTH: usize = 64;
 pub const FILE_VIEW_DRAFT_UNAVAILABLE_REASON: &str =

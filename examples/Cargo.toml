@@ -44,13 +44,20 @@ path = "extensions/inline-edit/main.rs"
 name = "workdeck-example-review-triage-extension"
 path = "extensions/review-triage/main.rs"
 
+[[bin]]
+name = "workdeck-example-github-pr-extension"
+path = "extensions/github-pr/main.rs"
+
 [dependencies]
 pulldown-cmark = "=0.13.4"
 ratatui = "0.29"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+tempfile = "3.13"
 unicode-segmentation = "1.12"
 unicode-width = "0.2"
+ureq = "3.4"
+url = "2.5"
 workdeck-core = { path = "../crates/workdeck-core" }
 workdeck-extension-api = { path = "../crates/workdeck-extension-api" }
 workdeck-tui = { path = "../crates/workdeck-tui" }
@@ -61,4 +68,3 @@ workdeck-diff = { path = "../crates/workdeck-diff" }
 workdeck-markup = { path = "../crates/workdeck-markup" }
 workdeck-extension-host = { path = "../crates/workdeck-extension-host" }
 workdeck-review = { path = "../crates/workdeck-review" }
-tempfile = "3.13"

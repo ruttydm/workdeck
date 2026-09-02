@@ -83,6 +83,9 @@ pub mod inline_edit_extension;
 #[path = "../extensions/review-triage/extension.rs"]
 pub mod review_triage_extension;
 
+#[path = "../extensions/github-pr/extension.rs"]
+pub mod github_pr_extension;
+
 #[cfg(test)]
 #[path = "../3-agent-review-demo/after/test/search_demo.rs"]
 mod agent_review_after_demo;

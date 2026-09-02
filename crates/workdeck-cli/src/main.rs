@@ -2259,7 +2259,9 @@ fn handle_extension_cli_command(
             command_name,
             command_args.to_vec(),
             &command_cwd,
-            std::time::Duration::from_millis(workdeck_extension_api::DEFAULT_REQUEST_TIMEOUT_MS),
+            std::time::Duration::from_millis(
+                workdeck_extension_api::DEFAULT_CLI_REQUEST_TIMEOUT_MS,
+            ),
             &cancelled,
             &mut stdout,
             &mut stderr,
@@ -2270,7 +2272,6 @@ fn handle_extension_cli_command(
         CliCommandResult::Exit { code: 0 } => Ok(()),
         CliCommandResult::Exit { code } => Err(CommandExit(i32::from(code)).into()),
         CliCommandResult::Delegate { argv } => {
-            drop(extensions);
             let Some(delegated) =
                 parse_delegated_args(cwd, extension_paths, extensions_disabled, argv)?
             else {
@@ -2279,7 +2280,11 @@ fn handle_extension_cli_command(
             if matches!(delegated.command, Some(Command::External(_))) {
                 bail!("Extension CLI commands may delegate only to built-in Workdeck commands.");
             }
-            run(delegated)
+            // Retain the registry until the delegated command returns. Extensions may own
+            // reloadable temporary inputs that are retired only during extension shutdown.
+            let result = run(delegated);
+            drop(extensions);
+            result
         }
     }
 }
