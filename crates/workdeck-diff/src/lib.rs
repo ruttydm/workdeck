@@ -10,6 +10,7 @@ mod compact_highlight;
 mod geometry;
 mod git_format;
 mod git_log;
+mod highlight_worker;
 mod highlighted_diff_cache;
 mod language;
 mod row_windowing;
@@ -39,6 +40,11 @@ pub use geometry::{
 };
 pub use git_format::{SanitizedGitPatch, SanitizedGitPatchFilePaths, sanitize_git_patch};
 pub use git_log::strip_git_log_metadata;
+pub use highlight_worker::{
+    HIGHLIGHT_WORKER_PROTOCOL_VERSION, HighlightWorkerClient, HighlightWorkerInput,
+    HighlightWorkerMessageOutcome, HighlightWorkerRequest, HighlightWorkerReset,
+    HighlightWorkerResponse, HighlightWorkerSettlement,
+};
 pub use highlighted_diff_cache::{
     HighlightedDiffCache, HighlightedDiffCode, MAX_HIGHLIGHTED_DIFF_CACHE_LINES,
 };

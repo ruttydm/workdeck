@@ -7,8 +7,9 @@
 
 use crate::compact_highlight::{decode_compact_syntax_lines, encode_compact_syntax_lines};
 use crate::{
-    CompactHighlightedDiff, HighlightLineArrays, HighlightedDiffCache, HighlightedDiffCode,
-    alias_context_highlight_lines, bundled_theme_assets::BUNDLED_THEME_ASSETS,
+    CompactHighlightedDiff, HIGHLIGHT_WORKER_PROTOCOL_VERSION, HighlightLineArrays,
+    HighlightWorkerClient, HighlightWorkerInput, HighlightWorkerResponse, HighlightedDiffCache,
+    HighlightedDiffCode, alias_context_highlight_lines, bundled_theme_assets::BUNDLED_THEME_ASSETS,
     compact_highlighted_diff_byte_length, create_source_backed_highlight_plan,
     remap_source_backed_highlight,
 };
@@ -446,6 +447,7 @@ pub struct HighlightCache {
     theme_appearances: HashMap<String, HighlightAppearance>,
     entries: HighlightedDiffCache,
     worker_entries: HighlightWorkerCache,
+    worker_client: HighlightWorkerClient,
 }
 
 impl Default for HighlightCache {
@@ -457,6 +459,7 @@ impl Default for HighlightCache {
             theme_appearances: HashMap::new(),
             entries: HighlightedDiffCache::default(),
             worker_entries: HighlightWorkerCache::new(MAX_WORKER_HIGHLIGHT_CACHE_BYTES),
+            worker_client: HighlightWorkerClient::new(),
         }
     }
 }
@@ -579,17 +582,41 @@ impl HighlightCache {
         if let Some(cached) = self.entries.get(&key) {
             return cached.highlighted;
         }
-        if let Some(cached) = self.worker_entries.get(&key)
-            && let Ok(sides) = decode_compact_syntax_lines(
+        self.worker_client.ensure_builtin_backend();
+        let request_id = self.worker_client.enqueue(HighlightWorkerInput {
+            alias_context,
+            metadata: metadata.clone(),
+            appearance,
+            language: language.clone(),
+            theme: theme.to_owned(),
+        });
+        let dispatched = self.worker_client.dispatch_next();
+        debug_assert_eq!(
+            dispatched.as_ref().map(|request| request.id),
+            Some(request_id)
+        );
+
+        if let Some(cached) = self.worker_entries.get(&key) {
+            let response = self
+                .worker_client
+                .handle_response(HighlightWorkerResponse::Success {
+                    version: HIGHLIGHT_WORKER_PROTOCOL_VERSION,
+                    id: request_id,
+                    code: Box::new(cached),
+                });
+            let cached = response
+                .and_then(|outcome| outcome.settlement.result.ok())
+                .expect("native highlight worker accepts its own protocol response");
+            if let Ok(sides) = decode_compact_syntax_lines(
                 &cached,
                 &metadata.deletion_lines,
                 &metadata.addition_lines,
-            )
-        {
-            let highlighted = assemble_highlighted_file(file, &metadata, &sides);
-            self.entries
-                .set(key, highlighted_diff_code(file, highlighted.clone()));
-            return highlighted;
+            ) {
+                let highlighted = assemble_highlighted_file(file, &metadata, &sides);
+                self.entries
+                    .set(key, highlighted_diff_code(file, highlighted.clone()));
+                return highlighted;
+            }
         }
         let syntax = self
             .syntaxes
@@ -611,6 +638,12 @@ impl HighlightCache {
             })
             .or_else(|| self.themes.themes.values().next())
         else {
+            self.worker_client
+                .handle_response(HighlightWorkerResponse::Failure {
+                    version: HIGHLIGHT_WORKER_PROTOCOL_VERSION,
+                    id: request_id,
+                    message: "No native syntax theme is available.".into(),
+                });
             return plain_file(file);
         };
         let highlight_metadata = source_plan
@@ -625,7 +658,24 @@ impl HighlightCache {
             alias_context_highlight_lines(&metadata, &mut visible);
             visible
         };
-        let compact = encode_compact_syntax_lines(&visible_sides).ok();
+        let compact_result =
+            encode_compact_syntax_lines(&visible_sides).map_err(|error| error.to_string());
+        let response = match compact_result {
+            Ok(compact) => HighlightWorkerResponse::Success {
+                version: HIGHLIGHT_WORKER_PROTOCOL_VERSION,
+                id: request_id,
+                code: Box::new(compact),
+            },
+            Err(message) => HighlightWorkerResponse::Failure {
+                version: HIGHLIGHT_WORKER_PROTOCOL_VERSION,
+                id: request_id,
+                message,
+            },
+        };
+        let compact = self
+            .worker_client
+            .handle_response(response)
+            .and_then(|outcome| outcome.settlement.result.ok());
         let cached_sides = compact
             .as_ref()
             .and_then(|payload| {
@@ -657,6 +707,11 @@ impl HighlightCache {
     pub fn clear(&mut self) {
         self.entries.clear();
         self.worker_entries.clear();
+    }
+
+    /// Release the logical native worker boundary and reject any outstanding jobs.
+    pub fn dispose_worker(&mut self) {
+        self.worker_client.dispose();
     }
 }
 
