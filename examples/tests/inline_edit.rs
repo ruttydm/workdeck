@@ -104,6 +104,7 @@ fn invocation(changeset: &Changeset) -> CommandInvocation {
         open_panes: Vec::new(),
         active_keyboard_mode: None,
         workspace: None,
+        commands: Default::default(),
     }
 }
 
@@ -1092,6 +1093,7 @@ fn compiled_subprocess_preserves_command_mode_layout_and_write_lifecycle() {
             None,
             "/repo".into(),
             None,
+            Default::default(),
             Some(workspace),
         )
         .unwrap()
@@ -1171,6 +1173,7 @@ fn compiled_command_context_reads_and_requests_a_consented_workspace_write() {
             None,
             "/repo".into(),
             None,
+            Default::default(),
             Some(workspace),
         )
         .unwrap()

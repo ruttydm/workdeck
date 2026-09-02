@@ -12,9 +12,10 @@ use workdeck_examples::review_triage_extension::{
     submit_input, submit_select,
 };
 use workdeck_extension_api::{
-    Capability, CommandInvocation, ConfirmDialogSubmission, ExtensionEventContext,
-    ExtensionHostAction, ExtensionNotifyType, InputDialogSubmission, PaneActionInvocation,
-    PanePlacement, PaneRenderRequest, Registration, ReviewEvent, SelectDialogSubmission, ViewNode,
+    Capability, CommandInvocation, ConfirmDialogSubmission, ExtensionCommandAvailability,
+    ExtensionEventContext, ExtensionHostAction, ExtensionNotifyType, InputDialogSubmission,
+    PaneActionInvocation, PanePlacement, PaneRenderRequest, Registration, ReviewEvent,
+    SelectDialogSubmission, ViewNode,
 };
 use workdeck_extension_host::LoadedExtension;
 use workdeck_review::{CommentAnchor, ReviewComment, ReviewNoteResolution, ReviewState};
@@ -91,6 +92,9 @@ fn command_invocation(command_id: &str) -> CommandInvocation {
         open_panes: Vec::new(),
         active_keyboard_mode: None,
         workspace: None,
+        commands: ExtensionCommandAvailability {
+            enabled: vec!["workdeck.review.align-current-line-center".into()],
+        },
     }
 }
 
@@ -279,6 +283,7 @@ fn command_dialog_flow_records_trimmed_decision_and_emits_the_public_event() {
             cwd: PathBuf::new(),
             review: None,
             active_keyboard_mode: None,
+            commands: Default::default(),
         },
         &mut state,
     );
@@ -295,6 +300,7 @@ fn command_dialog_flow_records_trimmed_decision_and_emits_the_public_event() {
             cwd: PathBuf::new(),
             review: None,
             active_keyboard_mode: None,
+            commands: Default::default(),
         },
         &mut state,
     );
@@ -331,9 +337,8 @@ fn focus_clear_and_cancellation_preserve_session_only_state() {
     let center = invoke_command(&command_invocation("center"), &mut state).unwrap();
     assert!(matches!(
         &center.actions[..],
-        [ExtensionHostAction::TryReviewCommand { id, unavailable_message, .. }]
+        [ExtensionHostAction::ExecuteReviewCommand { id, count: None }]
             if id == "workdeck.review.align-current-line-center"
-                && unavailable_message == "Enable the current-line marker before centering it"
     ));
     let focused = submit_input(
         &InputDialogSubmission {
@@ -343,6 +348,7 @@ fn focus_clear_and_cancellation_preserve_session_only_state() {
             cwd: PathBuf::new(),
             review: None,
             active_keyboard_mode: None,
+            commands: Default::default(),
         },
         &mut state,
     );
@@ -376,6 +382,7 @@ fn focus_clear_and_cancellation_preserve_session_only_state() {
             cwd: PathBuf::new(),
             review: None,
             active_keyboard_mode: None,
+            commands: Default::default(),
         },
         &mut state,
     );
@@ -389,6 +396,7 @@ fn focus_clear_and_cancellation_preserve_session_only_state() {
             cwd: PathBuf::new(),
             review: None,
             active_keyboard_mode: None,
+            commands: Default::default(),
         },
         &mut state,
     );

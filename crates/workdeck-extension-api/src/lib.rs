@@ -815,6 +815,55 @@ pub struct ExtensionPaneContext {
     pub open: Vec<String>,
 }
 
+/// Frozen view of the public product commands enabled for one native callback.
+///
+/// Native subprocesses cannot retain an in-process Rust closure. The host therefore sends the
+/// result of the same live-table probe with each callback and accepts only matching declarative
+/// execution actions in the response.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionCommandAvailability {
+    /// Canonical ids and supported compatibility aliases that are enabled for this callback.
+    #[serde(default)]
+    pub enabled: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum ExtensionCommandExecutionError {
+    #[error("Extension command controls require a non-empty command id.")]
+    EmptyCommandId,
+    #[error("Command execution count must be a positive safe integer no greater than 10000.")]
+    CountRange,
+}
+
+impl ExtensionCommandAvailability {
+    #[must_use]
+    pub fn is_enabled(&self, command_id: &str) -> bool {
+        !command_id.trim().is_empty()
+            && self.enabled.iter().any(|candidate| candidate == command_id)
+    }
+
+    /// Build the declarative native equivalent of Hunk's immediate `commands.execute` call.
+    pub fn execute(
+        &self,
+        command_id: &str,
+        count: Option<u16>,
+    ) -> Result<Option<ExtensionHostAction>, ExtensionCommandExecutionError> {
+        if command_id.trim().is_empty() {
+            return Err(ExtensionCommandExecutionError::EmptyCommandId);
+        }
+        if count.is_some_and(|count| !(1..=10_000).contains(&count)) {
+            return Err(ExtensionCommandExecutionError::CountRange);
+        }
+        Ok(self
+            .is_enabled(command_id)
+            .then(|| ExtensionHostAction::ExecuteReviewCommand {
+                id: command_id.to_owned(),
+                count,
+            }))
+    }
+}
+
 impl ExtensionPaneContext {
     #[must_use]
     pub fn is_open(&self, pane_id: &str) -> bool {
@@ -919,6 +968,9 @@ pub struct CommandInvocation {
     /// Immutable reviewed-document capability for this command invocation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<ExtensionWorkspaceSnapshot>,
+    /// Public product commands enabled when this invocation crossed the host boundary.
+    #[serde(default)]
+    pub commands: ExtensionCommandAvailability,
 }
 
 /// One reviewed file exposed through a native command's workspace capability.
@@ -1073,6 +1125,8 @@ pub struct CommandExecution {
 pub struct KeyboardModeLifecycleRequest {
     pub mode_id: String,
     pub snapshot: ReviewSnapshot,
+    #[serde(default)]
+    pub commands: ExtensionCommandAvailability,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1080,6 +1134,8 @@ pub struct KeyboardModeKeyRequest {
     pub mode_id: String,
     pub key: ExtensionKeyEvent,
     pub snapshot: ReviewSnapshot,
+    #[serde(default)]
+    pub commands: ExtensionCommandAvailability,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1147,6 +1203,8 @@ pub struct InputDialogSubmission {
     pub review: Option<ExtensionReviewSnapshot>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_keyboard_mode: Option<String>,
+    #[serde(default)]
+    pub commands: ExtensionCommandAvailability,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1160,6 +1218,8 @@ pub struct SelectDialogSubmission {
     pub review: Option<ExtensionReviewSnapshot>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_keyboard_mode: Option<String>,
+    #[serde(default)]
+    pub commands: ExtensionCommandAvailability,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1173,6 +1233,8 @@ pub struct ConfirmDialogSubmission {
     pub review: Option<ExtensionReviewSnapshot>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_keyboard_mode: Option<String>,
+    #[serde(default)]
+    pub commands: ExtensionCommandAvailability,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1648,6 +1710,12 @@ mod tests {
                 review_generation: 11,
                 documents: Vec::new(),
             }),
+            commands: ExtensionCommandAvailability {
+                enabled: vec![
+                    "workdeck.review.nextHunk".into(),
+                    "workdeck.review.next-hunk".into(),
+                ],
+            },
         };
         live_selection.file_index = 9;
 
@@ -1661,6 +1729,44 @@ mod tests {
         assert_eq!(encoded["open_panes"], serde_json::json!(["probe:summary"]));
         assert_eq!(encoded["active_keyboard_mode"], "probe:normal");
         assert_eq!(encoded["workspace"]["reviewGeneration"], 11);
+        assert_eq!(
+            encoded["commands"]["enabled"],
+            serde_json::json!(["workdeck.review.nextHunk", "workdeck.review.next-hunk"])
+        );
+        assert!(invocation.commands.is_enabled("workdeck.review.nextHunk"));
+        assert!(
+            !invocation
+                .commands
+                .is_enabled("workdeck.review.previousHunk")
+        );
+        assert_eq!(
+            invocation
+                .commands
+                .execute("workdeck.review.next-hunk", Some(3))
+                .unwrap(),
+            Some(ExtensionHostAction::ExecuteReviewCommand {
+                id: "workdeck.review.next-hunk".into(),
+                count: Some(3),
+            })
+        );
+        assert_eq!(
+            invocation
+                .commands
+                .execute("workdeck.review.previousHunk", None)
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            invocation.commands.execute("", None).unwrap_err(),
+            ExtensionCommandExecutionError::EmptyCommandId
+        );
+        assert_eq!(
+            invocation
+                .commands
+                .execute("workdeck.review.nextHunk", Some(0))
+                .unwrap_err(),
+            ExtensionCommandExecutionError::CountRange
+        );
         assert_eq!(
             serde_json::from_value::<CommandInvocation>(encoded).unwrap(),
             invocation

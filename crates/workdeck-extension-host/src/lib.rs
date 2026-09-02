@@ -36,16 +36,17 @@ use workdeck_extension_api::{
     API_VERSION, CliCommandExecution, CliCommandInvocation, CliCommandResult,
     CliOutputNotification, CliOutputStream, CommandExecution, CommandInvocation,
     ConfirmDialogSubmission, DEFAULT_HANDSHAKE_TIMEOUT_MS, DEFAULT_REQUEST_TIMEOUT_MS,
-    ExtensionDiffFile, ExtensionEventContext, ExtensionFileSide, ExtensionHostAction,
-    ExtensionKeyEvent, ExtensionManifest, ExtensionNotificationHub, ExtensionNotifyType,
-    ExtensionPaneView, ExtensionWorkspaceSnapshot, ExtensionWorkspaceWriteCompletion,
-    FileViewLayoutRequest, FileViewMatchRequest, FileViewModeKeyRequest,
-    FileViewModeLifecycleRequest, HandshakeRequest, HandshakeResponse, InputDialogSubmission,
-    JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, KeyboardModeExecution,
-    KeyboardModeKeyRequest, KeyboardModeLifecycleRequest, MAX_MESSAGE_BYTES, ManifestError,
-    PaneActionInvocation, PaneRenderRequest, PaneRenderResponse, Registration, ReviewEvent,
-    SelectDialogSubmission, TransformRequest, TransformResponse, ValidatedFileViewLayout,
-    extension_pane_size, is_vertical_pane_placement, parse_key_chord, validate_view,
+    ExtensionCommandAvailability, ExtensionDiffFile, ExtensionEventContext, ExtensionFileSide,
+    ExtensionHostAction, ExtensionKeyEvent, ExtensionManifest, ExtensionNotificationHub,
+    ExtensionNotifyType, ExtensionPaneView, ExtensionWorkspaceSnapshot,
+    ExtensionWorkspaceWriteCompletion, FileViewLayoutRequest, FileViewMatchRequest,
+    FileViewModeKeyRequest, FileViewModeLifecycleRequest, HandshakeRequest, HandshakeResponse,
+    InputDialogSubmission, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
+    KeyboardModeExecution, KeyboardModeKeyRequest, KeyboardModeLifecycleRequest, MAX_MESSAGE_BYTES,
+    ManifestError, PaneActionInvocation, PaneRenderRequest, PaneRenderResponse, Registration,
+    ReviewEvent, SelectDialogSubmission, TransformRequest, TransformResponse,
+    ValidatedFileViewLayout, extension_pane_size, is_vertical_pane_placement, parse_key_chord,
+    validate_view,
 };
 
 #[derive(Debug, Error)]
@@ -1144,6 +1145,7 @@ impl LoadedExtension {
             active_keyboard_mode,
             cwd,
             review,
+            ExtensionCommandAvailability::default(),
             None,
         )
     }
@@ -1157,6 +1159,7 @@ impl LoadedExtension {
         active_keyboard_mode: Option<String>,
         cwd: PathBuf,
         review: Option<workdeck_extension_api::ExtensionReviewSnapshot>,
+        commands: ExtensionCommandAvailability,
         workspace: Option<ExtensionWorkspaceSnapshot>,
     ) -> Result<CommandExecution, HostError> {
         if !self.handshake.registrations.iter().any(|registration| {
@@ -1178,6 +1181,7 @@ impl LoadedExtension {
                 open_panes,
                 active_keyboard_mode,
                 workspace,
+                commands,
             },
             Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
         )?;
@@ -1204,6 +1208,7 @@ impl LoadedExtension {
         active_keyboard_mode: Option<String>,
         cwd: PathBuf,
         review: Option<workdeck_extension_api::ExtensionReviewSnapshot>,
+        commands: ExtensionCommandAvailability,
         workspace: Option<ExtensionWorkspaceSnapshot>,
     ) -> Result<(), HostError> {
         if self.pending_command.is_some() {
@@ -1228,6 +1233,7 @@ impl LoadedExtension {
                 open_panes,
                 active_keyboard_mode,
                 workspace,
+                commands,
             },
         )?;
         self.pending_command = Some(PendingCommandRequest {
@@ -1283,7 +1289,20 @@ impl LoadedExtension {
         mode_id: &str,
         snapshot: ReviewSnapshot,
     ) -> Result<CommandExecution, HostError> {
-        self.keyboard_mode_lifecycle("workdeck/keyboard-mode/enter", mode_id, snapshot)
+        self.enter_keyboard_mode_with_commands(
+            mode_id,
+            snapshot,
+            ExtensionCommandAvailability::default(),
+        )
+    }
+
+    pub fn enter_keyboard_mode_with_commands(
+        &mut self,
+        mode_id: &str,
+        snapshot: ReviewSnapshot,
+        commands: ExtensionCommandAvailability,
+    ) -> Result<CommandExecution, HostError> {
+        self.keyboard_mode_lifecycle("workdeck/keyboard-mode/enter", mode_id, snapshot, commands)
     }
 
     pub fn exit_keyboard_mode(
@@ -1291,7 +1310,20 @@ impl LoadedExtension {
         mode_id: &str,
         snapshot: ReviewSnapshot,
     ) -> Result<CommandExecution, HostError> {
-        self.keyboard_mode_lifecycle("workdeck/keyboard-mode/exit", mode_id, snapshot)
+        self.exit_keyboard_mode_with_commands(
+            mode_id,
+            snapshot,
+            ExtensionCommandAvailability::default(),
+        )
+    }
+
+    pub fn exit_keyboard_mode_with_commands(
+        &mut self,
+        mode_id: &str,
+        snapshot: ReviewSnapshot,
+        commands: ExtensionCommandAvailability,
+    ) -> Result<CommandExecution, HostError> {
+        self.keyboard_mode_lifecycle("workdeck/keyboard-mode/exit", mode_id, snapshot, commands)
     }
 
     fn keyboard_mode_lifecycle(
@@ -1299,6 +1331,7 @@ impl LoadedExtension {
         method: &str,
         mode_id: &str,
         snapshot: ReviewSnapshot,
+        commands: ExtensionCommandAvailability,
     ) -> Result<CommandExecution, HostError> {
         self.require_keyboard_mode(mode_id)?;
         let value = self.request(
@@ -1306,6 +1339,7 @@ impl LoadedExtension {
             KeyboardModeLifecycleRequest {
                 mode_id: mode_id.to_owned(),
                 snapshot,
+                commands,
             },
             Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
         )?;
@@ -1325,6 +1359,21 @@ impl LoadedExtension {
         key: ExtensionKeyEvent,
         snapshot: ReviewSnapshot,
     ) -> Result<KeyboardModeExecution, HostError> {
+        self.route_keyboard_mode_key_with_commands(
+            mode_id,
+            key,
+            snapshot,
+            ExtensionCommandAvailability::default(),
+        )
+    }
+
+    pub fn route_keyboard_mode_key_with_commands(
+        &mut self,
+        mode_id: &str,
+        key: ExtensionKeyEvent,
+        snapshot: ReviewSnapshot,
+        commands: ExtensionCommandAvailability,
+    ) -> Result<KeyboardModeExecution, HostError> {
         self.require_keyboard_mode(mode_id)?;
         let value = self.request(
             "workdeck/keyboard-mode/key",
@@ -1332,6 +1381,7 @@ impl LoadedExtension {
                 mode_id: mode_id.to_owned(),
                 key,
                 snapshot,
+                commands,
             },
             Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
         )?;
@@ -1359,9 +1409,11 @@ impl LoadedExtension {
             active_keyboard_mode,
             std::env::current_dir().unwrap_or_default(),
             None,
+            ExtensionCommandAvailability::default(),
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn submit_input_dialog_with_context(
         &mut self,
         action_id: &str,
@@ -1370,6 +1422,7 @@ impl LoadedExtension {
         active_keyboard_mode: Option<String>,
         cwd: PathBuf,
         review: Option<workdeck_extension_api::ExtensionReviewSnapshot>,
+        commands: ExtensionCommandAvailability,
     ) -> Result<CommandExecution, HostError> {
         let value = self.request(
             "workdeck/dialog/input",
@@ -1380,6 +1433,7 @@ impl LoadedExtension {
                 cwd,
                 review,
                 active_keyboard_mode,
+                commands,
             },
             Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
         )?;
@@ -1393,6 +1447,7 @@ impl LoadedExtension {
         Ok(execution)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn submit_select_dialog_with_context(
         &mut self,
         action_id: &str,
@@ -1401,6 +1456,7 @@ impl LoadedExtension {
         active_keyboard_mode: Option<String>,
         cwd: PathBuf,
         review: Option<workdeck_extension_api::ExtensionReviewSnapshot>,
+        commands: ExtensionCommandAvailability,
     ) -> Result<CommandExecution, HostError> {
         let value = self.request(
             "workdeck/dialog/select",
@@ -1411,6 +1467,7 @@ impl LoadedExtension {
                 cwd,
                 review,
                 active_keyboard_mode,
+                commands,
             },
             Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
         )?;
@@ -1424,6 +1481,7 @@ impl LoadedExtension {
         Ok(execution)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn submit_confirm_dialog_with_context(
         &mut self,
         action_id: &str,
@@ -1432,6 +1490,7 @@ impl LoadedExtension {
         active_keyboard_mode: Option<String>,
         cwd: PathBuf,
         review: Option<workdeck_extension_api::ExtensionReviewSnapshot>,
+        commands: ExtensionCommandAvailability,
     ) -> Result<CommandExecution, HostError> {
         let value = self.request(
             "workdeck/dialog/confirm",
@@ -1442,6 +1501,7 @@ impl LoadedExtension {
                 cwd,
                 review,
                 active_keyboard_mode,
+                commands,
             },
             Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
         )?;

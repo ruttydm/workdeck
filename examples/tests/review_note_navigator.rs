@@ -335,6 +335,7 @@ fn compiled_extension_re_resolves_note_identity_and_reports_retired_states() {
             None,
             PathBuf::new(),
             Some(current),
+            Default::default(),
         )
         .unwrap();
     assert!(matches!(
@@ -363,6 +364,7 @@ fn compiled_extension_re_resolves_note_identity_and_reports_retired_states() {
             None,
             PathBuf::new(),
             Some(captured.clone()),
+            Default::default(),
         )
         .unwrap();
     assert!(matches!(
@@ -391,6 +393,7 @@ fn compiled_extension_re_resolves_note_identity_and_reports_retired_states() {
             None,
             PathBuf::new(),
             Some(removed),
+            Default::default(),
         )
         .unwrap();
     assert!(matches!(
@@ -419,6 +422,7 @@ fn compiled_extension_re_resolves_note_identity_and_reports_retired_states() {
             None,
             PathBuf::new(),
             Some(retired_file),
+            Default::default(),
         )
         .unwrap();
     assert!(matches!(
@@ -445,6 +449,7 @@ fn compiled_extension_re_resolves_note_identity_and_reports_retired_states() {
             None,
             PathBuf::new(),
             None,
+            Default::default(),
         )
         .unwrap();
     assert!(matches!(

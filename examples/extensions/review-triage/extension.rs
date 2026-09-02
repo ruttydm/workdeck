@@ -214,11 +214,18 @@ pub fn invoke_command(
                 ExtensionHostAction::OpenPane { id: PANE_ID.into() }
             }]
         }
-        "center" => vec![ExtensionHostAction::TryReviewCommand {
-            id: "workdeck.review.align-current-line-center".into(),
-            count: None,
-            unavailable_message: "Enable the current-line marker before centering it".into(),
-        }],
+        "center" => vec![
+            invocation
+                .commands
+                .execute("workdeck.review.align-current-line-center", None)
+                .expect("the built-in command id and count are valid")
+                .unwrap_or_else(|| {
+                    notify(
+                        "Enable the current-line marker before centering it",
+                        ExtensionNotifyType::Warning,
+                    )
+                }),
+        ],
         "mark" => {
             let Some((file, hunk_index)) = selected_hunk(&invocation.snapshot) else {
                 return Ok(CommandExecution {

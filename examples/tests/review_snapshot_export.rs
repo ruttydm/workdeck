@@ -246,6 +246,7 @@ fn compiled_extension_refuses_unavailable_stale_and_existing_exports() {
             None,
             output_directory.path().to_owned(),
             Some(advanced),
+            Default::default(),
         )
         .unwrap();
     assert!(matches!(
@@ -273,6 +274,7 @@ fn compiled_extension_refuses_unavailable_stale_and_existing_exports() {
             None,
             output_directory.path().to_owned(),
             Some(captured.clone()),
+            Default::default(),
         )
         .unwrap();
     assert!(matches!(
@@ -306,6 +308,7 @@ fn compiled_extension_refuses_unavailable_stale_and_existing_exports() {
             None,
             output_directory.path().to_owned(),
             Some(captured),
+            Default::default(),
         )
         .unwrap();
     assert!(matches!(

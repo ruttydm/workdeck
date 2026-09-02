@@ -219,6 +219,7 @@ mod tests {
             open_panes: Vec::new(),
             active_keyboard_mode: active.then(|| QUALIFIED_MODE_ID.into()),
             workspace: None,
+            commands: Default::default(),
         }
     }
 
@@ -258,6 +259,7 @@ mod tests {
             cwd: std::path::PathBuf::new(),
             review: None,
             active_keyboard_mode: Some(QUALIFIED_MODE_ID.into()),
+            commands: Default::default(),
         };
         assert!(submit_input(&submission).actions.is_empty());
         assert!(

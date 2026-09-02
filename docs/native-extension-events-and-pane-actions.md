@@ -2,6 +2,10 @@
 
 Workdeck extension API v1 keeps terminal rendering and input ownership in the host while allowing stateful review tools such as the bundled review-triage example.
 
+## Public commands
+
+Command invocations, keyboard-mode lifecycle/key requests, and dialog continuations carry a frozen `commands.enabled` projection of the live public Workdeck command table. It contains canonical IDs and public compatibility aliases. `commands.is_enabled(id)` is a non-throwing probe, while `commands.execute(id, count)` rejects an invalid ID/count and otherwise returns a declarative execution action only when that ID is currently enabled. The host resolves and validates the action again before dispatch, and command epochs discard results returned by a retired review handler.
+
 ## Clickable pane rows
 
 An extension wraps a declarative `ViewNode` in `ViewNode::Action { id, child }`. Ratatui renders the child, records its visible cell rectangle, and sends `workdeck/pane/action` with the pane ID, action ID, current review snapshot, semantic saved-note snapshot, working directory, and open panes. The extension answers with ordinary validated host actions. Action IDs are local opaque values, limited to 1,024 bytes; they cannot carry executable callbacks across the process boundary.

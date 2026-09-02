@@ -11,6 +11,7 @@ mod command_keys;
 mod current_review_controller;
 mod current_review_refresh;
 mod cursor_highlight;
+mod extension_command_controls;
 mod extension_dialogs;
 mod extension_notifications;
 mod extension_panes;
@@ -145,14 +146,15 @@ use workdeck_diff::{
     sanitize_terminal_line, slice_segments_window, word_diff_ranges, wrap_segments,
 };
 use workdeck_extension_api::{
-    CommandRegistration, ExtensionFileViewSpan, ExtensionFileViewTone, ExtensionHostAction,
-    ExtensionKeyEvent, ExtensionNotification, ExtensionNotificationHub,
-    ExtensionNotificationSubscription, ExtensionNotifyType, ExtensionPaintTheme, ExtensionPaneView,
-    ExtensionTextAttribute, ExtensionWorkspaceWriteCompletion, ExtensionWorkspaceWriteResult,
-    FileLanguageGlobTarget, FileLanguageMatcher, FileViewModeKeyRequest,
-    FileViewModeLifecycleRequest, KeyRoutingResult, KeyboardModeRegistration, PaneActionInvocation,
-    PanePlacement, PaneRegistration, PaneRenderRequest, Registration, ReviewEvent,
-    ValidatedFileViewLayout, ViewNode, ViewStyle, bundled_files_pane, extension_pane_size,
+    CommandRegistration, ExtensionCommandAvailability, ExtensionFileViewSpan,
+    ExtensionFileViewTone, ExtensionHostAction, ExtensionKeyEvent, ExtensionNotification,
+    ExtensionNotificationHub, ExtensionNotificationSubscription, ExtensionNotifyType,
+    ExtensionPaintTheme, ExtensionPaneView, ExtensionTextAttribute,
+    ExtensionWorkspaceWriteCompletion, ExtensionWorkspaceWriteResult, FileLanguageGlobTarget,
+    FileLanguageMatcher, FileViewModeKeyRequest, FileViewModeLifecycleRequest, KeyRoutingResult,
+    KeyboardModeRegistration, PaneActionInvocation, PanePlacement, PaneRegistration,
+    PaneRenderRequest, Registration, ReviewEvent, ValidatedFileViewLayout, ViewNode, ViewStyle,
+    bundled_files_pane, extension_pane_size,
 };
 use workdeck_extension_host::{
     ExtensionEventContextProviderInstallation, ExtensionEventContextProviderSlot,
@@ -1270,6 +1272,24 @@ impl ReviewApp {
         )
     }
 
+    fn extension_command_availability(&self) -> ExtensionCommandAvailability {
+        ExtensionCommandAvailability {
+            enabled: self
+                .builtin_commands()
+                .into_iter()
+                .filter(|command| command.enabled && command.public_to_extensions)
+                .flat_map(|command| {
+                    std::iter::once(command.id.to_owned())
+                        .chain(command.aliases.iter().map(|alias| (*alias).to_owned()))
+                        .chain(
+                            extension_command_controls::native_compatibility_aliases(command.id)
+                                .map(str::to_owned),
+                        )
+                })
+                .collect(),
+        }
+    }
+
     fn app_menus(&self) -> AppMenus {
         let builtins = self.builtin_commands();
         let mut commands = builtins
@@ -1629,6 +1649,7 @@ impl ReviewApp {
             )
         });
         let cwd = self.extension_command_cwd();
+        let commands = self.extension_command_availability();
         let started = {
             let mut runtime = self
                 .extension_pane_runtime
@@ -1653,6 +1674,7 @@ impl ReviewApp {
                     active_keyboard_mode,
                     cwd,
                     Some(review),
+                    commands,
                     workspace,
                 );
             if result.is_ok() {
@@ -1857,12 +1879,18 @@ impl ReviewApp {
             return true;
         }
         let snapshot = self.with_state(|state| state.snapshot());
+        let commands = self.extension_command_availability();
         let result = self
             .extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .extensions[active.extension_index]
-            .route_keyboard_mode_key(&active.mode.id, to_live_extension_key_event(key), snapshot);
+            .route_keyboard_mode_key_with_commands(
+                &active.mode.id,
+                to_live_extension_key_event(key),
+                snapshot,
+                commands,
+            );
         match result {
             Ok(execution) => {
                 let result = execution.result;
@@ -2292,12 +2320,13 @@ impl ReviewApp {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .active_keyboard_mode = Some(active.clone());
         let snapshot = self.with_state(|state| state.snapshot());
+        let commands = self.extension_command_availability();
         let execution = self
             .extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .extensions[extension_index]
-            .enter_keyboard_mode(&active.mode.id, snapshot);
+            .enter_keyboard_mode_with_commands(&active.mode.id, snapshot, commands);
         match execution {
             Ok(execution) => {
                 self.status = Some(format!("{} active · Esc exits", active.mode.title));
@@ -2336,12 +2365,13 @@ impl ReviewApp {
             return;
         };
         let snapshot = self.with_state(|state| state.snapshot());
+        let commands = self.extension_command_availability();
         let execution = self
             .extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .extensions[active.extension_index]
-            .exit_keyboard_mode(&active.mode.id, snapshot);
+            .exit_keyboard_mode_with_commands(&active.mode.id, snapshot, commands);
         match execution {
             Ok(execution) => {
                 self.status = Some(format!("{} exited", active.mode.title));
@@ -2603,6 +2633,7 @@ impl ReviewApp {
         let (snapshot, review) =
             self.with_state(|state| (state.snapshot(), build_extension_review_snapshot(state)));
         let cwd = self.extension_command_cwd();
+        let commands = self.extension_command_availability();
         let outcome = {
             let mut runtime = self
                 .extension_pane_runtime
@@ -2630,6 +2661,7 @@ impl ReviewApp {
                         active_keyboard_mode,
                         cwd,
                         Some(review),
+                        commands.clone(),
                     )
                 }
                 (ExtensionDialogRequest::Select(dialog), ExtensionDialogAnswer::Select(value)) => {
@@ -2640,6 +2672,7 @@ impl ReviewApp {
                         active_keyboard_mode,
                         cwd,
                         Some(review),
+                        commands.clone(),
                     )
                 }
                 (
@@ -2652,6 +2685,7 @@ impl ReviewApp {
                     active_keyboard_mode,
                     cwd,
                     Some(review),
+                    commands,
                 ),
                 _ => return,
             }
@@ -2967,6 +3001,7 @@ impl ReviewApp {
         let (snapshot, review) =
             self.with_state(|state| (state.snapshot(), build_extension_review_snapshot(state)));
         let cwd = self.extension_command_cwd();
+        let commands = self.extension_command_availability();
         let execution = {
             let mut runtime = self
                 .extension_pane_runtime
@@ -2989,6 +3024,7 @@ impl ReviewApp {
                 active_keyboard_mode,
                 cwd,
                 Some(review),
+                commands,
             )
         };
         match execution {
@@ -3010,6 +3046,7 @@ impl ReviewApp {
         let (snapshot, review) =
             self.with_state(|state| (state.snapshot(), build_extension_review_snapshot(state)));
         let cwd = self.extension_command_cwd();
+        let commands = self.extension_command_availability();
         let execution = {
             let mut runtime = self
                 .extension_pane_runtime
@@ -3032,6 +3069,7 @@ impl ReviewApp {
                 active_keyboard_mode,
                 cwd,
                 Some(review),
+                commands,
             )
         };
         match execution {
@@ -3053,6 +3091,7 @@ impl ReviewApp {
         let (snapshot, review) =
             self.with_state(|state| (state.snapshot(), build_extension_review_snapshot(state)));
         let cwd = self.extension_command_cwd();
+        let commands = self.extension_command_availability();
         let execution = {
             let mut runtime = self
                 .extension_pane_runtime
@@ -3075,6 +3114,7 @@ impl ReviewApp {
                 active_keyboard_mode,
                 cwd,
                 Some(review),
+                commands,
             )
         };
         match execution {
@@ -3094,8 +3134,12 @@ impl ReviewApp {
 
     fn execute_extension_review_command(&mut self, id: &str, count: u16) -> bool {
         let id = canonical_extension_review_command_id(id);
-        let dispatch =
-            execute_app_command_with_count(&self.builtin_commands(), id, usize::from(count));
+        let dispatch = extension_command_controls::execute_extension_command_with_count(
+            &self.builtin_commands(),
+            true,
+            id,
+            usize::from(count),
+        );
         let Some(dispatch) = dispatch else {
             return false;
         };
@@ -4351,21 +4395,7 @@ fn clear_file_view_component_state(runtime: &mut ExtensionPaneRuntime, file_id: 
 }
 
 fn canonical_extension_review_command_id(id: &str) -> &str {
-    match id {
-        "workdeck.view.cursor-line-row" => "workdeck.view.cursorLineRow",
-        "workdeck.review.step-down" => "workdeck.review.stepDown",
-        "workdeck.review.step-up" => "workdeck.review.stepUp",
-        "workdeck.review.previous-hunk" => "workdeck.review.previousHunk",
-        "workdeck.review.next-hunk" => "workdeck.review.nextHunk",
-        "workdeck.review.align-current-line-top" => "workdeck.review.alignCurrentLineTop",
-        "workdeck.review.align-current-line-center" => "workdeck.review.alignCurrentLineCenter",
-        "workdeck.review.align-current-line-bottom" => "workdeck.review.alignCurrentLineBottom",
-        "workdeck.review.half-page-down" => "workdeck.review.halfPageDown",
-        "workdeck.review.half-page-up" => "workdeck.review.halfPageUp",
-        "workdeck.review.jump-to-top" => "workdeck.review.jumpToTop",
-        "workdeck.review.jump-to-bottom" => "workdeck.review.jumpToBottom",
-        _ => id,
-    }
+    extension_command_controls::canonical_extension_review_command_id(id)
 }
 
 fn extension_command_failure_message(extension_id: &str, command_id: &str, detail: &str) -> String {
@@ -9379,6 +9409,26 @@ mod tests {
         assert!(app.execute_extension_review_command("workdeck.review.half-page-up", 1));
         assert!(app.current_line_row < moved);
         assert!(!app.execute_extension_review_command("missing.command", 1));
+    }
+
+    #[test]
+    fn native_command_context_projects_only_current_public_enablement_and_aliases() {
+        let app = ReviewApp::new(changeset(), ReviewOptions::default());
+        let commands = app.extension_command_availability();
+        assert!(commands.is_enabled("workdeck.review.nextHunk"));
+        assert!(commands.is_enabled("workdeck.review.next-hunk"));
+        assert!(!commands.is_enabled("workdeck.missing"));
+
+        let app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                cursor_line: CursorLineMode::Off,
+                ..ReviewOptions::default()
+            },
+        );
+        let commands = app.extension_command_availability();
+        assert!(!commands.is_enabled("workdeck.review.alignCurrentLineCenter"));
+        assert!(!commands.is_enabled("workdeck.review.align-current-line-center"));
     }
 
     #[test]

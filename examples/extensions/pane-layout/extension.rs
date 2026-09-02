@@ -199,6 +199,7 @@ mod tests {
             open_panes: vec!["example.pane-layout:top".into()],
             active_keyboard_mode: None,
             workspace: None,
+            commands: Default::default(),
         })
         .unwrap();
         assert!(

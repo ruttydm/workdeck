@@ -267,6 +267,7 @@ fn invocation(file: workdeck_core::DiffFile, command_id: &str) -> CommandInvocat
         open_panes: Vec::new(),
         active_keyboard_mode: None,
         workspace: None,
+        commands: Default::default(),
     }
 }
 
