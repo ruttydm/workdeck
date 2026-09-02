@@ -20,6 +20,8 @@ The committed pane controller owns that evaluator and all state transitions that
 
 Extension commands share one resolved session keymap with built-ins. The native command table probes built-in matchers first and then prior extension registrations in load order, removes only each conflicting chord, and derives dispatch plus menu labels from the accepted set. Commands with no remaining chord stay available in the Extensions menu. A user remap replaces the extension's declared defaults, and moving a built-in releases its former chord for an extension to claim.
 
+Top-level extension CLI commands use a separate immutable ownership table. Exact command names are case-sensitive, the first registry claim wins, and every rejected claim becomes a source-attributed load issue. Unknown-command help lists only winners in sorted order, with Workdeck-owned branding and extension-supplied usage and summaries collapsed to one control-free terminal line. The native host stores an owned copy of registration metadata and retains each loaded manifest path for provenance.
+
 ## Clickable pane rows
 
 An extension wraps a declarative `ViewNode` in `ViewNode::Action { id, child }`. Ratatui renders the child, records its visible cell rectangle, and sends `workdeck/pane/action` with the pane ID, action ID, current review snapshot, semantic saved-note snapshot, working directory, and open panes. The extension answers with ordinary validated host actions. Action IDs are local opaque values, limited to 1,024 bytes; they cannot carry executable callbacks across the process boundary.

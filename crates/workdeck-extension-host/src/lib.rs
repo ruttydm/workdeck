@@ -376,6 +376,7 @@ pub fn reconcile_scoped_epochs(
 #[derive(Debug)]
 pub struct LoadedExtension {
     pub manifest: ExtensionManifest,
+    pub manifest_path: PathBuf,
     pub handshake: HandshakeResponse,
     child: Child,
     stdin: ChildStdin,
@@ -403,6 +404,8 @@ impl LoadedExtension {
         notifications: ExtensionNotificationHub,
     ) -> Result<Self, HostError> {
         let manifest = ExtensionManifest::load(manifest_path)?;
+        let resolved_manifest_path =
+            fs::canonicalize(manifest_path).unwrap_or_else(|_| manifest_path.to_owned());
         let directory = manifest_path.parent().unwrap_or_else(|| Path::new("."));
         let directory = fs::canonicalize(directory).unwrap_or_else(|_| directory.to_owned());
         let mut executable = directory.join(&manifest.executable);
@@ -460,6 +463,7 @@ impl LoadedExtension {
         });
         let mut loaded = Self {
             manifest,
+            manifest_path: resolved_manifest_path,
             handshake: HandshakeResponse {
                 extension_api_version: 0,
                 extension_version: String::new(),

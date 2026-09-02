@@ -1,3 +1,5 @@
+mod extension_cli_commands;
+
 use anyhow::{Context, Result, bail};
 use chrono::Utc;
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
@@ -27,10 +29,7 @@ use workdeck_core::{
     VcsDiffCommandInput, VcsRangeEndpoints, VcsShowCommandInput, VcsStashShowCommandInput,
     resolve_app_state_path,
 };
-use workdeck_diff::{
-    LanguageMatcher, LanguageRegistration, LanguageRegistry, SanitizeOptions,
-    sanitize_terminal_text,
-};
+use workdeck_diff::{LanguageMatcher, LanguageRegistration, LanguageRegistry};
 use workdeck_extension_api::{
     CliCommandResult, ExtensionManifest, ExtensionNotificationHub, FileLanguageGlobTarget,
     FileLanguageMatcher, Registration,
@@ -53,6 +52,11 @@ use workdeck_tui::{
 };
 use workdeck_vcs::{
     AnyProvider, DiffRequest, GitProvider, ProviderPreference, VcsProvider, parse_patch_input,
+};
+
+use crate::extension_cli_commands::{
+    RegisteredExtensionCliCommand, create_extension_cli_collision_issues,
+    describe_extension_cli_commands, find_extension_cli_command, resolve_extension_cli_commands,
 };
 
 #[derive(Debug, Parser)]
@@ -927,7 +931,7 @@ mod extension_cli_tests {
     #[test]
     fn extension_metadata_is_collapsed_to_one_terminal_safe_line() {
         assert_eq!(
-            extension_cli_line("safe\n\x1b]52;c;AAAA\x07\ttext"),
+            extension_cli_commands::single_line("safe\n\x1b]52;c;AAAA\x07\ttext"),
             "safetext"
         );
     }
@@ -2224,17 +2228,55 @@ fn load_cli_extensions(
     .collect()
 }
 
-fn extension_cli_line(value: &str) -> String {
-    sanitize_terminal_text(
-        value,
-        SanitizeOptions {
-            preserve_newlines: false,
-            preserve_tabs: false,
-            preserve_ansi_style: false,
-        },
-    )
-    .trim()
-    .to_owned()
+fn registered_extension_cli_commands(
+    extensions: &[LoadedExtension],
+    explicit: &[PathBuf],
+) -> Vec<RegisteredExtensionCliCommand> {
+    let explicit = explicit
+        .iter()
+        .map(|path| {
+            let manifest = if path.is_dir() {
+                path.join("workdeck-extension.toml")
+            } else {
+                path.clone()
+            };
+            std::fs::canonicalize(&manifest).unwrap_or(manifest)
+        })
+        .collect::<BTreeSet<_>>();
+    extensions
+        .iter()
+        .enumerate()
+        .flat_map(|(extension_index, extension)| {
+            let origin = if explicit.contains(&extension.manifest_path) {
+                "explicit"
+            } else if extension
+                .manifest_path
+                .to_string_lossy()
+                .replace('\\', "/")
+                .contains("/.agents/workdeck/extensions/")
+            {
+                "project"
+            } else {
+                "config"
+            };
+            extension
+                .handshake
+                .registrations
+                .iter()
+                .filter_map(move |registration| {
+                    let Registration::CliCommand(command) = registration else {
+                        return None;
+                    };
+                    Some(RegisteredExtensionCliCommand {
+                        extension_index,
+                        extension_id: extension.manifest.id.clone(),
+                        source_path: extension.manifest_path.clone(),
+                        origin: origin.into(),
+                        command: extension_cli_commands::copy_extension_cli_command(command),
+                    })
+                })
+        })
+        .collect()
 }
 
 fn parse_delegated_args(
@@ -2277,52 +2319,22 @@ fn handle_extension_cli_command(
     command_args: &[String],
 ) -> Result<()> {
     let mut extensions = load_cli_extensions(cwd, extension_paths, extensions_disabled)?;
-    let mut claimed = std::collections::BTreeMap::<String, (usize, String)>::new();
-    for (index, extension) in extensions.iter().enumerate() {
-        for registration in &extension.handshake.registrations {
-            let Registration::CliCommand(command) = registration else {
-                continue;
-            };
-            if let Some((_, winner)) = claimed.get(&command.name) {
-                eprintln!(
-                    "workdeck: warning: CLI command {:?} is already registered by {}; {} cannot replace it.",
-                    extension_cli_line(&command.name),
-                    extension_cli_line(winner),
-                    extension_cli_line(&extension.manifest.id),
-                );
-            } else {
-                claimed.insert(command.name.clone(), (index, extension.manifest.id.clone()));
-            }
-        }
+    let registered = registered_extension_cli_commands(&extensions, extension_paths);
+    let resolved = resolve_extension_cli_commands(&registered);
+    for issue in create_extension_cli_collision_issues(&registered, &resolved.collisions) {
+        eprintln!("workdeck: warning: {}", issue.message);
     }
 
-    let Some((extension_index, _)) = claimed.get(command_name).cloned() else {
+    let Some(extension_index) =
+        find_extension_cli_command(command_name, &resolved).map(|owner| owner.extension_index)
+    else {
         let mut message = format!("Unknown command: {command_name}");
-        if !claimed.is_empty() {
+        let descriptions = describe_extension_cli_commands(&resolved);
+        if !descriptions.is_empty() {
             message.push_str("\nExtension commands available here:");
-            for (name, (index, _)) in &claimed {
-                let command = extensions[*index]
-                    .handshake
-                    .registrations
-                    .iter()
-                    .find_map(|registration| match registration {
-                        Registration::CliCommand(command) if &command.name == name => Some(command),
-                        _ => None,
-                    })
-                    .expect("claimed CLI registration remains present");
-                let usage = command
-                    .usage
-                    .as_deref()
-                    .map(extension_cli_line)
-                    .filter(|usage| !usage.is_empty())
-                    .map(|usage| format!(" {usage}"))
-                    .unwrap_or_default();
-                message.push_str(&format!(
-                    "\nworkdeck {}{} — {}",
-                    extension_cli_line(name),
-                    usage,
-                    extension_cli_line(&command.summary)
-                ));
+            for description in descriptions {
+                message.push('\n');
+                message.push_str(&description);
             }
         }
         bail!(message);
