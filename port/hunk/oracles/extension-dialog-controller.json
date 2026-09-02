@@ -1,0 +1,52 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "stablePresence": "absent",
+  "sources": [
+    {
+      "path": "src/ui/hooks/useExtensionDialogController.ts",
+      "blob": "0ac595b72cf4cc7fc6dd3b4aa93d98008f8c72a0"
+    },
+    {
+      "path": "src/ui/lib/extensionDialogs.ts",
+      "blob": "d97d5b9aec135ce79819af0cab0bb5cc6d9dfd7f"
+    }
+  ],
+  "tests": [
+    {
+      "path": "src/ui/hooks/useExtensionDialogController.test.tsx",
+      "blob": "1f12e4a118e1e43a1efe9104bc912062eda60880",
+      "cases": 3
+    },
+    {
+      "path": "src/ui/lib/extensionDialogs.test.ts",
+      "blob": "2b5b4ab8c5d822d5c27f3411c2867342a7c84033",
+      "cases": 12
+    }
+  ],
+  "executedOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 15,
+    "failed": 0,
+    "expectations": 63
+  },
+  "invariants": [
+    "one visible request and a cross-extension FIFO",
+    "monotonic request identity rejects stale answers",
+    "confirm cancellation returns false while select and input return null",
+    "promoted requests reset selection and input state",
+    "select navigation wraps at both ends",
+    "titles labels bodies options and initial text are terminal-sanitized",
+    "input initial text retains leading and trailing spaces",
+    "confirmation bodies retain at most six authored lines",
+    "soft reload drains pending requests without closing the queue",
+    "unmount drains and permanently closes the queue",
+    "expired capability leases cancel instead of accepting",
+    "only host-designated native UI may omit extension attribution"
+  ],
+  "nativeProtocolAdaptation": {
+    "handlerSettlement": "dialog answers are returned through typed JSON-RPC submission callbacks",
+    "rendering": "Ratatui reads the host-owned queue directly instead of subscribing through React useSyncExternalStore",
+    "workspaceWrite": "host-mediated workspace confirmation participates in the same FIFO"
+  }
+}

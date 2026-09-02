@@ -251,6 +251,7 @@ pub fn invoke_command(
             title: "Clear review triage?".into(),
             body: "This only clears this extension's session-local decisions.".into(),
             confirm_label: "clear".into(),
+            cancel_label: Some("keep".into()),
         }],
         command => return Err(format!("Unknown command: {command}")),
     };

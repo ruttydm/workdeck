@@ -1654,23 +1654,25 @@ impl LoadedExtension {
                         && !title.trim().is_empty()
                         && !options.is_empty()
                         && options.len() <= 1_000
-                        && options
-                            .iter()
-                            .all(|option| !option.trim().is_empty() && option.len() <= 4 * 1_024)
+                        && options.iter().all(|option| option.len() <= 4 * 1_024)
                 }
                 ExtensionHostAction::OpenConfirmDialog {
                     id,
                     title,
                     body,
                     confirm_label,
+                    cancel_label,
                 } => {
                     self.manifest
                         .capabilities
                         .contains(&workdeck_extension_api::Capability::Dialogs)
                         && !id.trim().is_empty()
                         && !title.trim().is_empty()
-                        && !body.trim().is_empty()
-                        && !confirm_label.trim().is_empty()
+                        && body.len() <= 64 * 1_024
+                        && confirm_label.len() <= 4 * 1_024
+                        && cancel_label
+                            .as_ref()
+                            .is_none_or(|label| label.len() <= 4 * 1_024)
                 }
                 ExtensionHostAction::EmitEvent { name, .. } => {
                     self.manifest

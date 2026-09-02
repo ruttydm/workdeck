@@ -729,7 +729,18 @@ fn ratatui_routes_clicks_dialogs_lifecycle_and_note_events_end_to_end() {
     assert!(updated.contains("[1 note]"));
     assert!(updated.contains("Reload pending…"));
 
+    press(&mut app, KeyCode::Char('x'));
+    assert!(app.has_extension_select_dialog());
     app.reload(one_hunk_changeset());
+    assert!(!app.has_extension_dialog());
+    app.shared_state()
+        .lock()
+        .unwrap()
+        .select_hunk(0, 0)
+        .unwrap();
+    press(&mut app, KeyCode::Char('x'));
+    assert!(app.has_extension_select_dialog());
+    press(&mut app, KeyCode::Esc);
     terminal
         .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
         .unwrap();

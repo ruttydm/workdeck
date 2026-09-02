@@ -10,7 +10,11 @@ An extension wraps a declarative `ViewNode` in `ViewNode::Action { id, child }`.
 
 ## Dialogs
 
-Input dialogs accept an optional initial value. Select, input, and confirmation dialogs are rendered by Workdeck, block other review input while open, and return a fresh review context to the owning subprocess. Confirmation accepts Enter or `y` and cancels with Escape or `n`.
+Input dialogs accept an optional initial value. Select, input, confirmation, and host-mediated workspace-write prompts enter one global FIFO, so requests from different extensions cannot replace or jump ahead of the visible question. Promoting a request resets its option cursor or input value; select movement wraps at both ends, and a stale answer ID cannot settle the request behind it.
+
+Workdeck normalizes and terminal-sanitizes extension text, preserves edge spaces in input initial values, limits confirmation prose to six authored lines, and supplies `ok`/`cancel` labels when an extension leaves them blank. Native extension prompts are attributed to their extension; host-compiled UI may explicitly omit that row. The host renders every modal and returns a fresh review context to the owning subprocess. Confirmation accepts Enter or `y` and cancels with Escape or `n`.
+
+A soft reload cancels the visible request and the complete queue before replacement lifecycle events are delivered, but leaves the controller open for the new review. App teardown closes and drains the queue, and runtime replacement cannot leave a request owned by a retired subprocess on screen.
 
 ## Events
 

@@ -1046,6 +1046,8 @@ pub enum ExtensionHostAction {
         title: String,
         body: String,
         confirm_label: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cancel_label: Option<String>,
     },
     /// Publish a namespaced extension event to every current subscriber.
     EmitEvent {
@@ -1552,6 +1554,7 @@ mod tests {
                     title: "Clear?".into(),
                     body: "Session state only".into(),
                     confirm_label: "clear".into(),
+                    cancel_label: Some("keep".into()),
                 },
                 ExtensionHostAction::EmitEvent {
                     name: "review-triage:decision".into(),

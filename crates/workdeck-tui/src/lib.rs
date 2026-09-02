@@ -11,6 +11,7 @@ mod command_keys;
 mod current_review_controller;
 mod current_review_refresh;
 mod cursor_highlight;
+mod extension_dialogs;
 mod extension_notifications;
 mod extension_panes;
 mod extension_trust_controller;
@@ -49,6 +50,12 @@ mod viewport_anchor;
 mod viewport_geometry;
 mod viewport_selection;
 mod watched_input;
+
+use extension_dialogs::{
+    ExtensionConfirmDialog, ExtensionDialogAnswer, ExtensionDialogError, ExtensionDialogQueue,
+    ExtensionDialogRequest, ExtensionDialogSettlement, ExtensionInputDialog, ExtensionSelectDialog,
+    ExtensionWorkspaceWriteDialog,
+};
 
 pub use agent_annotations::*;
 pub use agent_note_geometry::*;
@@ -334,55 +341,12 @@ struct ActiveFileViewModeRuntime {
 }
 
 #[derive(Debug, Clone)]
-struct ExtensionWorkspaceWriteDialog {
-    extension_index: usize,
-    extension_id: String,
-    request_id: String,
-    file_id: String,
-    path: String,
-    absolute_path: PathBuf,
-    root: PathBuf,
-    text: String,
-    review_generation: u64,
-}
-
-#[derive(Debug, Clone)]
 struct PendingExtensionCommand {
     extension_index: usize,
     extension_id: String,
     command_id: String,
     title: String,
     review_generation: u64,
-}
-
-#[derive(Debug, Clone)]
-struct ExtensionInputDialog {
-    extension_index: usize,
-    extension_id: String,
-    action_id: String,
-    title: String,
-    placeholder: String,
-    value: String,
-}
-
-#[derive(Debug, Clone)]
-struct ExtensionSelectDialog {
-    extension_index: usize,
-    extension_id: String,
-    action_id: String,
-    title: String,
-    options: Vec<String>,
-    selected: usize,
-}
-
-#[derive(Debug, Clone)]
-struct ExtensionConfirmDialog {
-    extension_index: usize,
-    extension_id: String,
-    action_id: String,
-    title: String,
-    body: String,
-    confirm_label: String,
 }
 
 #[derive(Debug, Clone)]
@@ -435,10 +399,7 @@ struct ExtensionPaneRuntime {
     file_view_component_pointer: MouseCapture<FileViewComponentPointer>,
     active_file_view_mode: Option<ActiveFileViewModeRuntime>,
     active_keyboard_mode: Option<ActiveKeyboardMode>,
-    workspace_write_dialog: Option<ExtensionWorkspaceWriteDialog>,
-    input_dialog: Option<ExtensionInputDialog>,
-    select_dialog: Option<ExtensionSelectDialog>,
-    confirm_dialog: Option<ExtensionConfirmDialog>,
+    dialogs: ExtensionDialogQueue,
     pane_action_hits: Vec<ExtensionPaneActionHit>,
     open: BTreeSet<String>,
     size_overrides: BTreeMap<String, u16>,
@@ -820,8 +781,8 @@ impl ReviewApp {
     }
 
     pub fn reload(&mut self, changeset: Changeset) {
-        self.expire_workspace_write_dialog();
         self.extension_command_epoch = self.extension_command_epoch.saturating_add(1);
+        self.cancel_extension_dialogs_for_reload();
         self.exit_active_keyboard_mode();
         self.exit_active_file_view_mode();
         {
@@ -829,10 +790,6 @@ impl ReviewApp {
                 .extension_pane_runtime
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            runtime.input_dialog = None;
-            runtime.select_dialog = None;
-            runtime.confirm_dialog = None;
-            runtime.workspace_write_dialog = None;
             runtime.pane_action_hits.clear();
             let file_ids = changeset
                 .files
@@ -892,6 +849,7 @@ impl ReviewApp {
         changeset: Changeset,
         extensions: Vec<LoadedExtension>,
     ) {
+        self.cancel_extension_dialogs_for_reload();
         self.exit_active_keyboard_mode();
         self.exit_active_file_view_mode();
         let replacement = ExtensionPaneRuntime::new(extensions);
@@ -1086,42 +1044,48 @@ impl ReviewApp {
 
     #[must_use]
     pub fn has_extension_input_dialog(&self) -> bool {
-        self.extension_pane_runtime
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .input_dialog
-            .is_some()
+        matches!(
+            self.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .dialogs
+                .current(),
+            Some(ExtensionDialogRequest::Input(_))
+        )
     }
 
     #[must_use]
     pub fn has_extension_select_dialog(&self) -> bool {
-        self.extension_pane_runtime
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .select_dialog
-            .is_some()
+        matches!(
+            self.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .dialogs
+                .current(),
+            Some(ExtensionDialogRequest::Select(_))
+        )
     }
 
     #[must_use]
     pub fn has_extension_confirm_dialog(&self) -> bool {
-        self.extension_pane_runtime
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .confirm_dialog
-            .is_some()
+        matches!(
+            self.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .dialogs
+                .current(),
+            Some(ExtensionDialogRequest::Confirm(_))
+        )
     }
 
     #[must_use]
     pub fn has_extension_dialog(&self) -> bool {
-        self.has_extension_input_dialog()
-            || self.has_extension_select_dialog()
-            || self.has_extension_confirm_dialog()
-            || self
-                .extension_pane_runtime
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .workspace_write_dialog
-                .is_some()
+        self.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .dialogs
+            .current()
+            .is_some()
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
@@ -2054,73 +2018,64 @@ impl ReviewApp {
                     placeholder,
                     initial,
                 } => {
-                    let mut runtime = self
-                        .extension_pane_runtime
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    runtime.menu.close();
-                    runtime.select_dialog = None;
-                    runtime.confirm_dialog = None;
-                    runtime.input_dialog = Some(ExtensionInputDialog {
-                        extension_index,
-                        extension_id: extension_id.into(),
-                        action_id: id,
-                        title: sanitize_terminal_line(&title),
-                        placeholder: sanitize_terminal_line(&placeholder),
-                        value: initial
-                            .map(|value| sanitize_terminal_line(&value))
-                            .unwrap_or_default(),
-                    });
+                    let queued = {
+                        let mut runtime = self
+                            .extension_pane_runtime
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        runtime.menu.close();
+                        runtime.dialogs.enqueue_input(
+                            extension_index,
+                            extension_id,
+                            id,
+                            &title,
+                            &placeholder,
+                            initial.as_deref(),
+                        )
+                    };
+                    self.finish_extension_dialog_enqueue(extension_id, queued);
                 }
                 ExtensionHostAction::OpenSelectDialog { id, title, options } => {
-                    let options = options
-                        .into_iter()
-                        .map(|option| {
-                            let option = sanitize_terminal_line(&option);
-                            if option.trim().is_empty() {
-                                "(empty option)".into()
-                            } else {
-                                option
-                            }
-                        })
-                        .collect();
-                    let mut runtime = self
-                        .extension_pane_runtime
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    runtime.menu.close();
-                    runtime.input_dialog = None;
-                    runtime.confirm_dialog = None;
-                    runtime.select_dialog = Some(ExtensionSelectDialog {
-                        extension_index,
-                        extension_id: extension_id.into(),
-                        action_id: id,
-                        title: sanitize_terminal_line(&title),
-                        options,
-                        selected: 0,
-                    });
+                    let queued = {
+                        let mut runtime = self
+                            .extension_pane_runtime
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        runtime.menu.close();
+                        runtime.dialogs.enqueue_select(
+                            extension_index,
+                            extension_id,
+                            id,
+                            &title,
+                            options,
+                        )
+                    };
+                    self.finish_extension_dialog_enqueue(extension_id, queued);
                 }
                 ExtensionHostAction::OpenConfirmDialog {
                     id,
                     title,
                     body,
                     confirm_label,
+                    cancel_label,
                 } => {
-                    let mut runtime = self
-                        .extension_pane_runtime
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    runtime.menu.close();
-                    runtime.input_dialog = None;
-                    runtime.select_dialog = None;
-                    runtime.confirm_dialog = Some(ExtensionConfirmDialog {
-                        extension_index,
-                        extension_id: extension_id.into(),
-                        action_id: id,
-                        title: sanitize_terminal_line(&title),
-                        body: sanitize_terminal_line(&body),
-                        confirm_label: sanitize_terminal_line(&confirm_label),
-                    });
+                    let queued = {
+                        let mut runtime = self
+                            .extension_pane_runtime
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        runtime.menu.close();
+                        runtime.dialogs.enqueue_confirm(
+                            extension_index,
+                            extension_id,
+                            id,
+                            &title,
+                            &body,
+                            &confirm_label,
+                            cancel_label.as_deref(),
+                        )
+                    };
+                    self.finish_extension_dialog_enqueue(extension_id, queued);
                 }
                 ExtensionHostAction::EmitEvent { name, payload } => {
                     self.publish_extension_event(&name, payload);
@@ -2139,6 +2094,20 @@ impl ReviewApp {
                         sanitize_terminal_line(&message)
                     ));
                 }
+            }
+        }
+    }
+
+    fn finish_extension_dialog_enqueue(
+        &mut self,
+        extension_id: &str,
+        queued: Result<Option<ExtensionDialogSettlement>, ExtensionDialogError>,
+    ) {
+        match queued {
+            Ok(Some(settlement)) => self.settle_extension_dialog(settlement),
+            Ok(None) => {}
+            Err(error) => {
+                self.status = Some(format!("extension {extension_id} dialog failed: {error}"));
             }
         }
     }
@@ -2347,38 +2316,22 @@ impl ReviewApp {
     }
 
     fn exit_active_keyboard_mode(&mut self) {
-        let active = {
+        let (active, dialog) = {
             let mut runtime = self
                 .extension_pane_runtime
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             let active = runtime.active_keyboard_mode.take();
-            if let Some(active) = &active
-                && runtime
-                    .input_dialog
-                    .as_ref()
-                    .is_some_and(|dialog| dialog.extension_index == active.extension_index)
-            {
-                runtime.input_dialog = None;
-            }
-            if let Some(active) = &active
-                && runtime
-                    .select_dialog
-                    .as_ref()
-                    .is_some_and(|dialog| dialog.extension_index == active.extension_index)
-            {
-                runtime.select_dialog = None;
-            }
-            if let Some(active) = &active
-                && runtime
-                    .confirm_dialog
-                    .as_ref()
-                    .is_some_and(|dialog| dialog.extension_index == active.extension_index)
-            {
-                runtime.confirm_dialog = None;
-            }
-            active
+            let dialog = active.as_ref().and_then(|active| {
+                runtime
+                    .dialogs
+                    .cancel_current_for_extension(active.extension_index)
+            });
+            (active, dialog)
         };
+        if let Some(dialog) = dialog {
+            self.retire_extension_dialog(dialog);
+        }
         let Some(active) = active else {
             return;
         };
@@ -2493,32 +2446,42 @@ impl ReviewApp {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         runtime.menu.close();
-        runtime.input_dialog = None;
-        runtime.select_dialog = None;
-        runtime.confirm_dialog = None;
-        runtime.workspace_write_dialog = Some(ExtensionWorkspaceWriteDialog {
-            extension_index,
-            extension_id: extension_id.into(),
-            request_id,
-            file_id,
-            path: path.clone(),
-            absolute_path,
-            root: root.clone(),
-            text,
-            review_generation,
-        });
-        self.status = Some(format!(
-            "ext {extension_id}: write {path}? Enter confirms · Esc cancels"
-        ));
+        let refused = runtime
+            .dialogs
+            .enqueue_workspace(ExtensionWorkspaceWriteDialog {
+                extension_index,
+                extension_id: extension_id.into(),
+                request_id,
+                file_id,
+                path: path.clone(),
+                absolute_path,
+                root: root.clone(),
+                text,
+                review_generation,
+            });
+        let visible = matches!(
+            runtime.dialogs.current(),
+            Some(ExtensionDialogRequest::Workspace { dialog, .. }) if dialog.path == path
+        );
+        drop(runtime);
+        if let Some(settlement) = refused {
+            self.settle_extension_dialog(settlement);
+        } else if visible {
+            self.status = Some(format!(
+                "ext {extension_id}: write {path}? Enter confirms · Esc cancels"
+            ));
+        }
     }
 
     fn handle_workspace_write_key(&mut self, key: &KeyEvent) -> bool {
-        let has_dialog = self
-            .extension_pane_runtime
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .workspace_write_dialog
-            .is_some();
+        let has_dialog = matches!(
+            self.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .dialogs
+                .current(),
+            Some(ExtensionDialogRequest::Workspace { .. })
+        );
         if !has_dialog {
             return false;
         }
@@ -2530,37 +2493,174 @@ impl ReviewApp {
         let Some(confirmed) = confirmed else {
             return true;
         };
-        let dialog = self
+        let settlement = {
+            let mut runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let request_id = runtime
+                .dialogs
+                .current()
+                .map(ExtensionDialogRequest::request_id);
+            request_id.and_then(|request_id| {
+                if confirmed {
+                    runtime.dialogs.accept(request_id, None)
+                } else {
+                    runtime.dialogs.cancel(request_id)
+                }
+            })
+        };
+        if let Some(settlement) = settlement {
+            self.settle_extension_dialog(settlement);
+        }
+        true
+    }
+
+    fn settle_extension_dialog(&mut self, settlement: ExtensionDialogSettlement) {
+        match (settlement.request, settlement.answer) {
+            (ExtensionDialogRequest::Input(dialog), ExtensionDialogAnswer::Input(value)) => {
+                self.submit_extension_input(dialog, value);
+            }
+            (ExtensionDialogRequest::Select(dialog), ExtensionDialogAnswer::Select(value)) => {
+                self.submit_extension_select(dialog, value);
+            }
+            (
+                ExtensionDialogRequest::Confirm(dialog),
+                ExtensionDialogAnswer::Confirm(confirmed),
+            ) => {
+                self.submit_extension_confirm(dialog, confirmed);
+            }
+            (
+                ExtensionDialogRequest::Workspace { dialog, .. },
+                ExtensionDialogAnswer::Workspace(confirmed),
+            ) => {
+                let result = if confirmed {
+                    match self.write_extension_workspace_document(&dialog) {
+                        Ok(()) => ExtensionWorkspaceWriteResult::Written,
+                        Err(failure) => failure.into_extension_result(),
+                    }
+                } else {
+                    ExtensionWorkspaceWriteResult::Cancelled {
+                        detail: format!("The write to {} was declined.", dialog.path),
+                    }
+                };
+                let written = result == ExtensionWorkspaceWriteResult::Written;
+                self.complete_extension_workspace_write(
+                    dialog.extension_index,
+                    &dialog.extension_id,
+                    dialog.request_id,
+                    result,
+                );
+                if written {
+                    self.exit_file_view_mode_for_extension(dialog.extension_index);
+                    self.reload_requested = true;
+                }
+            }
+            _ => {
+                self.status = Some("extension dialog queue returned a mismatched answer".into());
+            }
+        }
+    }
+
+    fn cancel_extension_dialogs_for_reload(&mut self) {
+        let settlements = self
             .extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .workspace_write_dialog
-            .take();
-        let Some(dialog) = dialog else {
-            return true;
-        };
-        let result = if confirmed {
-            match self.write_extension_workspace_document(&dialog) {
-                Ok(()) => ExtensionWorkspaceWriteResult::Written,
-                Err(failure) => failure.into_extension_result(),
-            }
-        } else {
-            ExtensionWorkspaceWriteResult::Cancelled {
-                detail: format!("The write to {} was declined.", dialog.path),
-            }
-        };
-        let written = result == ExtensionWorkspaceWriteResult::Written;
-        self.complete_extension_workspace_write(
-            dialog.extension_index,
-            &dialog.extension_id,
-            dialog.request_id,
-            result,
-        );
-        if written {
-            self.exit_file_view_mode_for_extension(dialog.extension_index);
-            self.reload_requested = true;
+            .dialogs
+            .cancel_all();
+        for settlement in settlements {
+            self.retire_extension_dialog(settlement);
         }
-        true
+    }
+
+    fn retire_extension_dialog(&mut self, settlement: ExtensionDialogSettlement) {
+        let extension_id = settlement.request.extension_id().to_owned();
+        let extension_index = settlement.request.extension_index();
+        if let ExtensionDialogRequest::Workspace { dialog, .. } = settlement.request {
+            let completion = ExtensionWorkspaceWriteCompletion {
+                request_id: dialog.request_id,
+                result: ExtensionWorkspaceWriteResult::Unavailable {
+                    detail: "The review reloaded before this extension operation could finish."
+                        .into(),
+                },
+            };
+            let outcome = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .extensions
+                .get_mut(extension_index)
+                .map(|extension| extension.complete_workspace_write(completion));
+            if let Some(Err(error)) = outcome {
+                self.status = Some(format!(
+                    "extension {extension_id} workspace write retirement failed: {error}"
+                ));
+            }
+            return;
+        }
+
+        let (snapshot, review) =
+            self.with_state(|state| (state.snapshot(), build_extension_review_snapshot(state)));
+        let cwd = self.extension_command_cwd();
+        let outcome = {
+            let mut runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let active_keyboard_mode = runtime
+                .active_keyboard_mode
+                .as_ref()
+                .map(|active| format!("{}:{}", active.extension_id, active.mode.id))
+                .or_else(|| {
+                    runtime
+                        .active_file_view_mode
+                        .as_ref()
+                        .map(|active| format!("{}:{}", active.extension_id, active.view_id))
+                });
+            let Some(extension) = runtime.extensions.get_mut(extension_index) else {
+                return;
+            };
+            match (settlement.request, settlement.answer) {
+                (ExtensionDialogRequest::Input(dialog), ExtensionDialogAnswer::Input(value)) => {
+                    extension.submit_input_dialog_with_context(
+                        &dialog.action_id,
+                        value,
+                        snapshot,
+                        active_keyboard_mode,
+                        cwd,
+                        Some(review),
+                    )
+                }
+                (ExtensionDialogRequest::Select(dialog), ExtensionDialogAnswer::Select(value)) => {
+                    extension.submit_select_dialog_with_context(
+                        &dialog.action_id,
+                        value,
+                        snapshot,
+                        active_keyboard_mode,
+                        cwd,
+                        Some(review),
+                    )
+                }
+                (
+                    ExtensionDialogRequest::Confirm(dialog),
+                    ExtensionDialogAnswer::Confirm(confirmed),
+                ) => extension.submit_confirm_dialog_with_context(
+                    &dialog.action_id,
+                    confirmed,
+                    snapshot,
+                    active_keyboard_mode,
+                    cwd,
+                    Some(review),
+                ),
+                _ => return,
+            }
+        };
+        if let Err(error) = outcome {
+            self.status = Some(format!(
+                "extension {extension_id} dialog retirement failed: {error}"
+            ));
+        }
     }
 
     fn complete_extension_workspace_write(
@@ -2585,36 +2685,6 @@ impl ReviewApp {
                     "extension {extension_id} workspace write completion failed: {error}"
                 ));
             }
-        }
-    }
-
-    fn expire_workspace_write_dialog(&mut self) {
-        let dialog = self
-            .extension_pane_runtime
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .workspace_write_dialog
-            .take();
-        let Some(dialog) = dialog else {
-            return;
-        };
-        let completion = ExtensionWorkspaceWriteCompletion {
-            request_id: dialog.request_id,
-            result: ExtensionWorkspaceWriteResult::Unavailable {
-                detail: "The review reloaded before this extension operation could finish.".into(),
-            },
-        };
-        let outcome = self
-            .extension_pane_runtime
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .extensions[dialog.extension_index]
-            .complete_workspace_write(completion);
-        if let Err(error) = outcome {
-            self.status = Some(format!(
-                "extension {} workspace write retirement failed: {error}",
-                dialog.extension_id
-            ));
         }
     }
 
@@ -2690,12 +2760,14 @@ impl ReviewApp {
     }
 
     fn handle_extension_confirm_key(&mut self, key: &KeyEvent) -> bool {
-        let has_dialog = self
-            .extension_pane_runtime
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .confirm_dialog
-            .is_some();
+        let has_dialog = matches!(
+            self.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .dialogs
+                .current(),
+            Some(ExtensionDialogRequest::Confirm(_))
+        );
         if !has_dialog {
             return false;
         }
@@ -2705,83 +2777,103 @@ impl ReviewApp {
             _ => None,
         };
         if let Some(confirmed) = confirmed {
-            let dialog = self
-                .extension_pane_runtime
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .confirm_dialog
-                .take();
-            if let Some(dialog) = dialog {
-                self.submit_extension_confirm(dialog, confirmed);
+            let settlement = {
+                let mut runtime = self
+                    .extension_pane_runtime
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                let request_id = runtime
+                    .dialogs
+                    .current()
+                    .map(ExtensionDialogRequest::request_id);
+                request_id.and_then(|request_id| {
+                    if confirmed {
+                        runtime.dialogs.accept(request_id, None)
+                    } else {
+                        runtime.dialogs.cancel(request_id)
+                    }
+                })
+            };
+            if let Some(settlement) = settlement {
+                self.settle_extension_dialog(settlement);
             }
         }
         true
     }
 
     fn handle_extension_select_key(&mut self, key: &KeyEvent) -> bool {
-        let has_dialog = self
-            .extension_pane_runtime
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .select_dialog
-            .is_some();
+        let has_dialog = matches!(
+            self.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .dialogs
+                .current(),
+            Some(ExtensionDialogRequest::Select(_))
+        );
         if !has_dialog {
             return false;
         }
         match key.code {
             KeyCode::Enter | KeyCode::Esc => {
-                let dialog = self
-                    .extension_pane_runtime
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .select_dialog
-                    .take();
-                if let Some(dialog) = dialog {
-                    let value = (key.code == KeyCode::Enter)
-                        .then(|| dialog.options[dialog.selected].clone());
-                    self.submit_extension_select(dialog, value);
+                let settlement = {
+                    let mut runtime = self
+                        .extension_pane_runtime
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    let selected = runtime.dialogs.current().map(|request| {
+                        let value = match request {
+                            ExtensionDialogRequest::Select(dialog) => {
+                                dialog.options.get(dialog.selected).cloned()
+                            }
+                            _ => None,
+                        };
+                        (request.request_id(), value)
+                    });
+                    selected.and_then(|(request_id, value)| {
+                        if key.code == KeyCode::Enter {
+                            runtime.dialogs.accept(request_id, value)
+                        } else {
+                            runtime.dialogs.cancel(request_id)
+                        }
+                    })
+                };
+                if let Some(settlement) = settlement {
+                    self.settle_extension_dialog(settlement);
                 }
             }
             KeyCode::Down | KeyCode::Tab | KeyCode::Char('j') => {
-                let mut runtime = self
-                    .extension_pane_runtime
+                self.extension_pane_runtime
                     .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                if let Some(dialog) = &mut runtime.select_dialog {
-                    dialog.selected = dialog
-                        .selected
-                        .saturating_add(1)
-                        .min(dialog.options.len().saturating_sub(1));
-                }
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .dialogs
+                    .move_selection(1);
             }
             KeyCode::Up | KeyCode::BackTab | KeyCode::Char('k') => {
+                self.extension_pane_runtime
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .dialogs
+                    .move_selection(-1);
+            }
+            KeyCode::Home => {
+                self.extension_pane_runtime
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .dialogs
+                    .pick_option(0);
+            }
+            KeyCode::End => {
                 let mut runtime = self
                     .extension_pane_runtime
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
-                if let Some(dialog) = &mut runtime.select_dialog {
-                    dialog.selected = dialog.selected.saturating_sub(1);
-                }
-            }
-            KeyCode::Home => {
-                if let Some(dialog) = &mut self
-                    .extension_pane_runtime
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .select_dialog
-                {
-                    dialog.selected = 0;
-                }
-            }
-            KeyCode::End => {
-                if let Some(dialog) = &mut self
-                    .extension_pane_runtime
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .select_dialog
-                {
-                    dialog.selected = dialog.options.len().saturating_sub(1);
-                }
+                let last = match runtime.dialogs.current() {
+                    Some(ExtensionDialogRequest::Select(dialog)) => {
+                        dialog.options.len().saturating_sub(1)
+                    }
+                    _ => 0,
+                };
+                runtime.dialogs.pick_option(last);
             }
             _ => {}
         }
@@ -2789,26 +2881,41 @@ impl ReviewApp {
     }
 
     fn handle_extension_input_key(&mut self, key: &KeyEvent) -> bool {
-        let has_dialog = self
-            .extension_pane_runtime
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .input_dialog
-            .is_some();
+        let has_dialog = matches!(
+            self.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .dialogs
+                .current(),
+            Some(ExtensionDialogRequest::Input(_))
+        );
         if !has_dialog {
             return false;
         }
         match key.code {
             KeyCode::Enter | KeyCode::Esc => {
-                let dialog = self
-                    .extension_pane_runtime
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .input_dialog
-                    .take();
-                if let Some(dialog) = dialog {
-                    let value = (key.code == KeyCode::Enter).then_some(dialog.value.clone());
-                    self.submit_extension_input(dialog, value);
+                let settlement = {
+                    let mut runtime = self
+                        .extension_pane_runtime
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    let input = runtime.dialogs.current().map(|request| {
+                        let value = match request {
+                            ExtensionDialogRequest::Input(dialog) => Some(dialog.value.clone()),
+                            _ => None,
+                        };
+                        (request.request_id(), value)
+                    });
+                    input.and_then(|(request_id, value)| {
+                        if key.code == KeyCode::Enter {
+                            runtime.dialogs.accept(request_id, value)
+                        } else {
+                            runtime.dialogs.cancel(request_id)
+                        }
+                    })
+                };
+                if let Some(settlement) = settlement {
+                    self.settle_extension_dialog(settlement);
                 }
             }
             KeyCode::Backspace => {
@@ -2816,10 +2923,18 @@ impl ReviewApp {
                     .extension_pane_runtime
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
-                if let Some(dialog) = &mut runtime.input_dialog
-                    && let Some(grapheme) = dialog.value.graphemes(true).next_back()
-                {
-                    dialog.value.truncate(dialog.value.len() - grapheme.len());
+                let next = match runtime.dialogs.current() {
+                    Some(ExtensionDialogRequest::Input(dialog)) => {
+                        let mut next = dialog.value.clone();
+                        if let Some(grapheme) = next.graphemes(true).next_back() {
+                            next.truncate(next.len() - grapheme.len());
+                        }
+                        Some(next)
+                    }
+                    _ => None,
+                };
+                if let Some(next) = next {
+                    runtime.dialogs.update_input(next);
                 }
             }
             KeyCode::Char(character)
@@ -2827,13 +2942,20 @@ impl ReviewApp {
                     KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
                 ) =>
             {
-                if let Some(dialog) = &mut self
+                let mut runtime = self
                     .extension_pane_runtime
                     .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .input_dialog
-                {
-                    dialog.value.push(character);
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                let next = match runtime.dialogs.current() {
+                    Some(ExtensionDialogRequest::Input(dialog)) => {
+                        let mut next = dialog.value.clone();
+                        next.push(character);
+                        Some(next)
+                    }
+                    _ => None,
+                };
+                if let Some(next) = next {
+                    runtime.dialogs.update_input(next);
                 }
             }
             _ => {}
@@ -3285,25 +3407,22 @@ impl ReviewApp {
     }
 
     fn exit_active_file_view_mode(&mut self) {
-        let active = {
+        let (active, dialogs) = {
             let mut runtime = self
                 .extension_pane_runtime
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             let active = runtime.active_file_view_mode.take();
-            if let Some(active) = &active
-                && runtime
-                    .workspace_write_dialog
-                    .as_ref()
-                    .is_some_and(|dialog| {
-                        dialog.extension_index == active.extension_index
-                            && dialog.file_id == active.file.id
-                    })
-            {
-                runtime.workspace_write_dialog = None;
-            }
-            active
+            let dialogs = active.as_ref().map_or_else(Vec::new, |active| {
+                runtime
+                    .dialogs
+                    .remove_workspace_for_file(active.extension_index, &active.file.id)
+            });
+            (active, dialogs)
         };
+        for dialog in dialogs {
+            self.retire_extension_dialog(dialog);
+        }
         let Some(active) = active else {
             return;
         };
@@ -4200,6 +4319,17 @@ impl ReviewApp {
     }
 }
 
+impl Drop for ReviewApp {
+    fn drop(&mut self) {
+        let _settlements = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .dialogs
+            .shutdown();
+    }
+}
+
 fn rect_contains(area: Rect, column: u16, row: u16) -> bool {
     column >= area.x && column < area.right() && row >= area.y && row < area.bottom()
 }
@@ -5029,20 +5159,35 @@ pub fn render_active_keyboard_mode_badge(area: Rect, buffer: &mut Buffer, app: &
     .render(bounds, buffer);
 }
 
+fn extension_dialog_title(title: &str, extension_id: &str, show_attribution: bool) -> String {
+    if show_attribution {
+        format!("{title} · {extension_id}")
+    } else {
+        title.into()
+    }
+}
+
 /// Draw the host-owned input modal requested by a native extension.
 pub fn render_extension_input_dialog(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     let dialog = app
         .extension_pane_runtime
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .input_dialog
-        .clone();
+        .dialogs
+        .current()
+        .and_then(|request| match request {
+            ExtensionDialogRequest::Input(dialog) => Some(dialog.clone()),
+            _ => None,
+        });
     let Some(dialog) = dialog else {
         return;
     };
+    let title =
+        extension_dialog_title(&dialog.title, &dialog.extension_id, dialog.show_attribution);
     let desired_width = dialog
         .title
         .width()
+        .max(title.width())
         .max(dialog.placeholder.width())
         .max(dialog.value.width())
         .saturating_add(4);
@@ -5060,7 +5205,7 @@ pub fn render_extension_input_dialog(area: Rect, buffer: &mut Buffer, app: &Revi
     );
     Clear.render(bounds, buffer);
     let block = Block::default()
-        .title(format!(" {} ", dialog.title))
+        .title(format!(" {title} "))
         .borders(Borders::ALL)
         .style(Style::default().bg(ratatui_theme_color(&app.options.theme.panel)))
         .border_style(Style::default().fg(ratatui_theme_color(&app.options.theme.accent)));
@@ -5086,18 +5231,24 @@ pub fn render_extension_select_dialog(area: Rect, buffer: &mut Buffer, app: &Rev
         .extension_pane_runtime
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .select_dialog
-        .clone();
+        .dialogs
+        .current()
+        .and_then(|request| match request {
+            ExtensionDialogRequest::Select(dialog) => Some(dialog.clone()),
+            _ => None,
+        });
     let Some(dialog) = dialog else {
         return;
     };
+    let title =
+        extension_dialog_title(&dialog.title, &dialog.extension_id, dialog.show_attribution);
     let desired_width = dialog
         .options
         .iter()
         .map(|option| option.width().saturating_add(4))
         .max()
         .unwrap_or(24)
-        .max(dialog.title.width().saturating_add(4));
+        .max(title.width().saturating_add(4));
     let width = u16::try_from(desired_width)
         .unwrap_or(u16::MAX)
         .max(24)
@@ -5115,7 +5266,7 @@ pub fn render_extension_select_dialog(area: Rect, buffer: &mut Buffer, app: &Rev
     );
     Clear.render(bounds, buffer);
     let block = Block::default()
-        .title(format!(" {} ", dialog.title))
+        .title(format!(" {title} "))
         .borders(Borders::ALL)
         .style(Style::default().bg(ratatui_theme_color(&app.options.theme.panel)))
         .border_style(Style::default().fg(ratatui_theme_color(&app.options.theme.accent)));
@@ -5157,23 +5308,41 @@ pub fn render_extension_confirm_dialog(area: Rect, buffer: &mut Buffer, app: &Re
         .extension_pane_runtime
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .confirm_dialog
-        .clone();
+        .dialogs
+        .current()
+        .and_then(|request| match request {
+            ExtensionDialogRequest::Confirm(dialog) => Some(dialog.clone()),
+            _ => None,
+        });
     let Some(dialog) = dialog else {
         return;
     };
-    let help = format!("Enter/y {} · Esc/n cancels", dialog.confirm_label);
-    let desired_width = dialog
-        .title
+    let title =
+        extension_dialog_title(&dialog.title, &dialog.extension_id, dialog.show_attribution);
+    let help = format!(
+        "Enter/y {} · Esc/n {}",
+        dialog.confirm_label, dialog.cancel_label
+    );
+    let body_width = dialog
+        .body_lines
+        .iter()
+        .map(|line| line.width())
+        .max()
+        .unwrap_or_default();
+    let desired_width = title
         .width()
-        .max(dialog.body.width())
+        .max(body_width)
         .max(help.width())
         .saturating_add(4);
     let width = u16::try_from(desired_width)
         .unwrap_or(u16::MAX)
         .max(30)
         .min(area.width.max(1));
-    let height = 4.min(area.height.max(1));
+    let height = u16::try_from(dialog.body_lines.len())
+        .unwrap_or(u16::MAX)
+        .saturating_add(3)
+        .max(3)
+        .min(area.height.max(1));
     let bounds = Rect::new(
         area.x.saturating_add(area.width.saturating_sub(width) / 2),
         area.y
@@ -5183,23 +5352,27 @@ pub fn render_extension_confirm_dialog(area: Rect, buffer: &mut Buffer, app: &Re
     );
     Clear.render(bounds, buffer);
     let block = Block::default()
-        .title(format!(" {} ", dialog.title))
+        .title(format!(" {title} "))
         .borders(Borders::ALL)
         .style(Style::default().bg(ratatui_theme_color(&app.options.theme.panel)))
         .border_style(Style::default().fg(ratatui_theme_color(&app.options.theme.accent)));
     let inner = block.inner(bounds);
     block.render(bounds, buffer);
-    Paragraph::new(vec![
-        Line::styled(
-            dialog.body,
-            Style::default().fg(ratatui_theme_color(&app.options.theme.text)),
-        ),
-        Line::styled(
-            help,
-            Style::default().fg(ratatui_theme_color(&app.options.theme.muted)),
-        ),
-    ])
-    .render(inner, buffer);
+    let mut lines = dialog
+        .body_lines
+        .into_iter()
+        .map(|body| {
+            Line::styled(
+                body,
+                Style::default().fg(ratatui_theme_color(&app.options.theme.text)),
+            )
+        })
+        .collect::<Vec<_>>();
+    lines.push(Line::styled(
+        help,
+        Style::default().fg(ratatui_theme_color(&app.options.theme.muted)),
+    ));
+    Paragraph::new(lines).render(inner, buffer);
 }
 
 /// Draw the host-owned consent prompt for a native extension workspace write.
@@ -5208,8 +5381,12 @@ pub fn render_extension_workspace_write_dialog(area: Rect, buffer: &mut Buffer, 
         .extension_pane_runtime
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .workspace_write_dialog
-        .clone();
+        .dialogs
+        .current()
+        .and_then(|request| match request {
+            ExtensionDialogRequest::Workspace { dialog, .. } => Some(dialog.clone()),
+            _ => None,
+        });
     let Some(dialog) = dialog else {
         return;
     };
@@ -7789,6 +7966,107 @@ mod tests {
             slot.context(Vec::new()).unwrap().cwd,
             PathBuf::from("/repo/second")
         );
+    }
+
+    #[test]
+    fn soft_reload_drains_the_dialog_controller_without_closing_its_queue() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        {
+            let mut runtime = app
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            runtime
+                .dialogs
+                .enqueue_confirm(usize::MAX, "retired", "old", "Old review?", "", "", None)
+                .unwrap();
+            runtime
+                .dialogs
+                .enqueue_input(
+                    usize::MAX,
+                    "retired",
+                    "queued",
+                    "Queued behind it",
+                    "",
+                    None,
+                )
+                .unwrap();
+        }
+
+        app.reload(changeset());
+        let mut runtime = app
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert!(runtime.dialogs.current().is_none());
+        assert!(
+            runtime
+                .dialogs
+                .enqueue_confirm(
+                    usize::MAX,
+                    "replacement",
+                    "new",
+                    "New review?",
+                    "",
+                    "",
+                    None,
+                )
+                .unwrap()
+                .is_none()
+        );
+        assert!(runtime.dialogs.current().is_some());
+    }
+
+    #[test]
+    fn extension_dialog_actions_enter_one_cross_kind_fifo_without_overwriting() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        app.apply_extension_actions(
+            0,
+            "probe",
+            vec![
+                ExtensionHostAction::OpenConfirmDialog {
+                    id: "first".into(),
+                    title: "First?".into(),
+                    body: "one\ntwo".into(),
+                    confirm_label: String::new(),
+                    cancel_label: None,
+                },
+                ExtensionHostAction::OpenSelectDialog {
+                    id: "second".into(),
+                    title: "Second?".into(),
+                    options: vec!["one".into(), "two".into()],
+                },
+                ExtensionHostAction::OpenInputDialog {
+                    id: "third".into(),
+                    title: "Third?".into(),
+                    placeholder: "value".into(),
+                    initial: Some("initial".into()),
+                },
+            ],
+        );
+        let mut runtime = app
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let first = runtime.dialogs.current().unwrap().request_id();
+        assert!(matches!(
+            runtime.dialogs.current(),
+            Some(ExtensionDialogRequest::Confirm(dialog))
+                if dialog.title == "First?" && dialog.body_lines == ["one", "two"]
+        ));
+        runtime.dialogs.cancel(first).unwrap();
+        let second = runtime.dialogs.current().unwrap().request_id();
+        assert!(matches!(
+            runtime.dialogs.current(),
+            Some(ExtensionDialogRequest::Select(dialog))
+                if dialog.title == "Second?" && dialog.selected == 0
+        ));
+        runtime.dialogs.cancel(second).unwrap();
+        assert!(matches!(
+            runtime.dialogs.current(),
+            Some(ExtensionDialogRequest::Input(dialog))
+                if dialog.title == "Third?" && dialog.value == "initial"
+        ));
     }
 
     #[test]
