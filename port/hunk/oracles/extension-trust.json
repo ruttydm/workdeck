@@ -1,0 +1,34 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "sourceBlob": "9d7421d75ecb6fc62ac37dd155beae153e144a5f",
+  "baselineTestBlob": "88f6502fec22646975d8cf39b7ce08435f50155f",
+  "stableTestBlob": "f0a90f330f6cdfd3d9b83297313987a39e963874",
+  "stateKey": "extensionTrust",
+  "decisions": ["trusted", "denied"],
+  "unknownBehavior": {
+    "load": false,
+    "pendingPrompt": true
+  },
+  "deniedBehavior": {
+    "load": false,
+    "pendingPrompt": false
+  },
+  "trustedBehavior": {
+    "load": true,
+    "pendingPrompt": false
+  },
+  "invariants": [
+    "canonical repository paths join aliases",
+    "pre-canonicalization absolute keys remain readable",
+    "malformed state and unknown decisions are ignored",
+    "writes preserve unrelated app-state keys",
+    "legacy imported provenance is not executable authority"
+  ],
+  "nativeAdaptation": {
+    "persistence": "workdeck-store shared JSON app state",
+    "policy": "workdeck-extension-host",
+    "composition": "workdeck-cli",
+    "legacyWorkdeckInput": "extension-trust.toml is imported before shared state"
+  }
+}

@@ -25,6 +25,7 @@ use workdeck_core::{
     AgentContext, Changeset, CliInput, CommonOptions, DiffToolCommandInput, InputCursorLine,
     InputLayoutMode, PatchCommandInput, ReviewSide, SelfUpdateCommandInput, SidebarVisibility,
     VcsDiffCommandInput, VcsRangeEndpoints, VcsShowCommandInput, VcsStashShowCommandInput,
+    resolve_app_state_path,
 };
 use workdeck_diff::{
     LanguageMatcher, LanguageRegistration, LanguageRegistry, SanitizeOptions,
@@ -2101,10 +2102,7 @@ fn load_review_extensions(
         return Ok((Vec::new(), notifications));
     }
     let config = user_config_root().map(|root| root.join("workdeck"));
-    let trust = config
-        .as_ref()
-        .map(|config| TrustStore::load(&config.join("extension-trust.toml")))
-        .unwrap_or_default();
+    let trust = load_extension_trust_store();
     let global_extensions = config.as_ref().map(|config| config.join("extensions"));
     let repo = AnyProvider::discover(cwd, review.preference())
         .ok()
@@ -2138,10 +2136,7 @@ fn load_cli_extensions(
         return Ok(Vec::new());
     }
     let config = user_config_root().map(|root| root.join("workdeck"));
-    let trust = config
-        .as_ref()
-        .map(|config| TrustStore::load(&config.join("extension-trust.toml")))
-        .unwrap_or_default();
+    let trust = load_extension_trust_store();
     let global_extensions = config.as_ref().map(|config| config.join("extensions"));
     let repo = AnyProvider::discover(cwd, ProviderPreference::Auto)
         .ok()
@@ -2808,10 +2803,9 @@ fn live_comment_id() -> String {
 fn handle_extension_command(cwd: &Path, command: ExtensionCommand) -> Result<()> {
     let config_root = user_config_root().context("could not resolve the user config directory")?;
     let extensions_root = config_root.join("workdeck/extensions");
-    let trust_path = config_root.join("workdeck/extension-trust.toml");
     match command {
         ExtensionCommand::List { json } => {
-            let trust = TrustStore::load(&trust_path);
+            let trust = load_extension_trust_store();
             let manifests = discover_manifests(Some(&extensions_root), Some(cwd), &trust, &[])?;
             let payload = manifests
                 .iter()
@@ -2863,7 +2857,7 @@ fn handle_extension_command(cwd: &Path, command: ExtensionCommand) -> Result<()>
             Ok(())
         }
         ExtensionCommand::Trust {
-            repo,
+            mut repo,
             allow,
             deny,
             yes,
@@ -2875,14 +2869,19 @@ fn handle_extension_command(cwd: &Path, command: ExtensionCommand) -> Result<()>
             if !yes {
                 bail!("native extensions run with your user permissions; pass --yes to confirm");
             }
-            let mut trust = TrustStore::load(&trust_path);
+            let state_path = resolve_app_state_path()
+                .context("could not resolve the Workdeck app-state path")?;
+            if !repo.is_absolute() {
+                repo = cwd.join(repo);
+            }
+            let mut trust = load_extension_trust_store();
             let decision = if allow {
                 TrustDecision::Trusted
             } else {
                 TrustDecision::Denied
             };
             trust.grant(&repo, decision);
-            trust.save(&trust_path)?;
+            workdeck_store::update_app_state_record(&state_path, trust.app_state_patch())?;
             if json {
                 json_success(
                     "extension_trust",
@@ -2955,6 +2954,16 @@ fn handle_migrate_command(cwd: &Path, command: MigrateCommand) -> Result<()> {
 
 fn user_config_root() -> Option<PathBuf> {
     workdeck_core::resolve_user_config_dir()
+}
+
+fn load_extension_trust_store() -> TrustStore {
+    let mut trust = user_config_root()
+        .map(|root| TrustStore::load_legacy_toml(&root.join("workdeck/extension-trust.toml")))
+        .unwrap_or_default();
+    if let Some(state_path) = resolve_app_state_path() {
+        trust.merge_app_state_record(&workdeck_store::read_app_state_record(state_path));
+    }
+    trust
 }
 
 impl FilesCommand {

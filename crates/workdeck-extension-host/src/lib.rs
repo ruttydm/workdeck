@@ -1,6 +1,7 @@
 //! Subprocess host for trusted native Workdeck extensions.
 
 mod extension_document_reader;
+mod extension_trust;
 mod file_view_host;
 mod file_view_mode;
 mod file_view_state;
@@ -9,6 +10,7 @@ mod line_highlights;
 mod synchronous_callbacks;
 
 pub use extension_document_reader::*;
+pub use extension_trust::*;
 pub use file_view_host::*;
 pub use file_view_mode::*;
 pub use file_view_state::*;
@@ -1798,46 +1800,10 @@ impl Drop for LoadedExtension {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TrustStore {
-    #[serde(default)]
-    pub repositories: BTreeMap<String, TrustDecision>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TrustDecision {
-    Trusted,
-    Denied,
-    Legacy,
-}
-
-impl TrustStore {
-    pub fn load(path: &Path) -> Self {
-        fs::read_to_string(path)
-            .ok()
-            .and_then(|source| toml::from_str(&source).ok())
-            .unwrap_or_default()
-    }
-
-    pub fn decision(&self, repo: &Path) -> Option<TrustDecision> {
-        let canonical = canonical_path(repo);
-        self.repositories.get(&canonical).copied()
-    }
-
-    pub fn grant(&mut self, repo: &Path, decision: TrustDecision) {
-        self.repositories.insert(canonical_path(repo), decision);
-    }
-
-    pub fn save(&self, path: &Path) -> Result<(), std::io::Error> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let encoded = toml::to_string_pretty(self).expect("trust store is TOML serializable");
-        let temporary = path.with_extension("toml.tmp");
-        fs::write(&temporary, encoded)?;
-        fs::rename(temporary, path)
-    }
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ManifestDiscovery {
+    pub manifests: Vec<PathBuf>,
+    pub pending_trust_repo_root: Option<PathBuf>,
 }
 
 pub fn discover_manifests(
@@ -1846,8 +1812,19 @@ pub fn discover_manifests(
     trust: &TrustStore,
     explicit: &[PathBuf],
 ) -> Result<Vec<PathBuf>, HostError> {
+    Ok(discover_manifests_with_status(global_directory, repo_root, trust, explicit)?.manifests)
+}
+
+/// Discover explicit and global extensions while nonfatally trust-gating repository extensions.
+pub fn discover_manifests_with_status(
+    global_directory: Option<&Path>,
+    repo_root: Option<&Path>,
+    trust: &TrustStore,
+    explicit: &[PathBuf],
+) -> Result<ManifestDiscovery, HostError> {
     let mut manifests = Vec::new();
     let mut seen = BTreeSet::new();
+    let mut pending_trust_repo_root = None;
     let mut explicit = explicit
         .iter()
         .map(|path| {
@@ -1866,13 +1843,21 @@ pub fn discover_manifests(
     if let Some(repo) = repo_root {
         let directory = repo.join(".agents/workdeck/extensions");
         if directory.exists() {
-            if trust.decision(repo) != Some(TrustDecision::Trusted) {
-                return Err(HostError::Untrusted(directory));
+            match trust.decision(repo) {
+                Some(TrustDecision::Trusted) => {
+                    append_manifests(scan_manifests(&directory), &mut manifests, &mut seen);
+                }
+                Some(TrustDecision::Denied) => {}
+                Some(TrustDecision::Legacy) | None => {
+                    pending_trust_repo_root = Some(repo.to_owned());
+                }
             }
-            append_manifests(scan_manifests(&directory), &mut manifests, &mut seen);
         }
     }
-    Ok(manifests)
+    Ok(ManifestDiscovery {
+        manifests,
+        pending_trust_repo_root,
+    })
 }
 
 fn append_manifests(
@@ -1906,13 +1891,6 @@ fn scan_manifests(directory: &Path) -> Vec<PathBuf> {
     manifests.into_iter().collect()
 }
 
-fn canonical_path(path: &Path) -> String {
-    fs::canonicalize(path)
-        .unwrap_or_else(|_| path.to_owned())
-        .to_string_lossy()
-        .into_owned()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1927,18 +1905,23 @@ mod tests {
         fs::create_dir_all(&extension).unwrap();
         fs::write(extension.join("workdeck-extension.toml"), "id = 'demo'").unwrap();
         let trust = TrustStore::default();
-        assert!(matches!(
-            discover_manifests(None, Some(repo.path()), &trust, &[]),
-            Err(HostError::Untrusted(_))
-        ));
+        let pending = discover_manifests_with_status(None, Some(repo.path()), &trust, &[]).unwrap();
+        assert!(pending.manifests.is_empty());
+        assert_eq!(
+            pending.pending_trust_repo_root.as_deref(),
+            Some(repo.path())
+        );
+
         let mut trust = trust;
         trust.grant(repo.path(), TrustDecision::Trusted);
-        assert_eq!(
-            discover_manifests(None, Some(repo.path()), &trust, &[])
-                .unwrap()
-                .len(),
-            1
-        );
+        let loaded = discover_manifests_with_status(None, Some(repo.path()), &trust, &[]).unwrap();
+        assert_eq!(loaded.manifests.len(), 1);
+        assert!(loaded.pending_trust_repo_root.is_none());
+
+        trust.grant(repo.path(), TrustDecision::Denied);
+        let denied = discover_manifests_with_status(None, Some(repo.path()), &trust, &[]).unwrap();
+        assert!(denied.manifests.is_empty());
+        assert!(denied.pending_trust_repo_root.is_none());
     }
 
     #[test]
@@ -1972,12 +1955,12 @@ mod tests {
     #[test]
     fn trust_store_round_trips_atomically() {
         let directory = TempDir::new().unwrap();
-        let path = directory.path().join("trust.toml");
+        let path = directory.path().join("legacy-trust.toml");
         let mut trust = TrustStore::default();
         trust.grant(directory.path(), TrustDecision::Legacy);
         trust.save(&path).unwrap();
         assert_eq!(
-            TrustStore::load(&path).decision(directory.path()),
+            TrustStore::load_legacy_toml(&path).decision(directory.path()),
             Some(TrustDecision::Legacy)
         );
     }

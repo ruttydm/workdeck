@@ -75,6 +75,70 @@ fn update_preserves_managed_channel_exit_semantics() {
 }
 
 #[test]
+fn extension_trust_uses_shared_state_preserves_siblings_and_gates_discovery() {
+    let repo = tempdir().unwrap();
+    let config = tempdir().unwrap();
+    let extension = repo
+        .path()
+        .join(".agents/workdeck/extensions/demo/workdeck-extension.toml");
+    fs::create_dir_all(extension.parent().unwrap()).unwrap();
+    fs::write(
+        &extension,
+        "id = 'demo'\nname = 'Demo'\nversion = '0.1.0'\napi_version = 1\nexecutable = 'demo'\ncapabilities = []\n",
+    )
+    .unwrap();
+    let state_path = config.path().join("workdeck/state.json");
+    fs::create_dir_all(state_path.parent().unwrap()).unwrap();
+    fs::write(
+        &state_path,
+        r#"{"version":1,"lastSeenCliVersion":"0.17.0"}"#,
+    )
+    .unwrap();
+
+    let mut trust = workdeck();
+    trust
+        .env("XDG_CONFIG_HOME", config.path())
+        .arg("--cwd")
+        .arg(repo.path())
+        .args(["extension", "trust", "--allow", "--yes", "--json"])
+        .assert()
+        .success();
+
+    let state: Value = serde_json::from_str(&fs::read_to_string(&state_path).unwrap()).unwrap();
+    assert_eq!(state["lastSeenCliVersion"], "0.17.0");
+    let canonical_repo = fs::canonicalize(repo.path()).unwrap();
+    assert_eq!(
+        state["extensionTrust"][canonical_repo.to_string_lossy().as_ref()],
+        "trusted"
+    );
+    let mut list = workdeck();
+    list.env("XDG_CONFIG_HOME", config.path())
+        .arg("--cwd")
+        .arg(repo.path())
+        .args(["extension", "list", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"id\": \"demo\""));
+
+    let mut deny = workdeck();
+    deny.env("XDG_CONFIG_HOME", config.path())
+        .arg("--cwd")
+        .arg(repo.path())
+        .args(["extension", "trust", "--deny", "--yes"])
+        .assert()
+        .success();
+    let mut denied_list = workdeck();
+    denied_list
+        .env("XDG_CONFIG_HOME", config.path())
+        .arg("--cwd")
+        .arg(repo.path())
+        .args(["extension", "list", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"data\": []"));
+}
+
+#[test]
 fn pager_plain_text_fallback_is_headless_sanitized_and_read_only() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init"]);
