@@ -92,7 +92,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
-use workdeck_core::{Changeset, DiffFile, DiffLine, DiffLineKind, ReviewSelection, ReviewSide};
+use workdeck_core::{
+    AgentAnnotation, Changeset, DiffFile, DiffLine, DiffLineKind, ReviewSelection, ReviewSide,
+};
 use workdeck_diff::{
     DIFF_RAIL_PREFIX_WIDTH, HighlightCache, HighlightedDiffLine, SyntaxToken, TextSegment,
     clip_segments, expand_diff_tabs, plan_split_line_pairs, resolve_split_cell_geometry,
@@ -100,16 +102,22 @@ use workdeck_diff::{
     sanitize_terminal_line, slice_segments_window, word_diff_ranges, wrap_segments,
 };
 use workdeck_extension_api::{
-    CommandRegistration, ExtensionHostAction, ExtensionKeyEvent, ExtensionNotification,
-    ExtensionNotificationHub, ExtensionNotificationSubscription, ExtensionNotifyType,
-    ExtensionPaintTheme, ExtensionPaneView, KeyRoutingResult, KeyboardModeRegistration,
-    PanePlacement, PaneRegistration, PaneRenderRequest, Registration, ViewNode, ViewStyle,
-    extension_pane_size,
+    CommandRegistration, ExtensionFileViewSpan, ExtensionFileViewTone, ExtensionHostAction,
+    ExtensionKeyEvent, ExtensionNotification, ExtensionNotificationHub,
+    ExtensionNotificationSubscription, ExtensionNotifyType, ExtensionPaintTheme, ExtensionPaneView,
+    ExtensionTextAttribute, KeyRoutingResult, KeyboardModeRegistration, PanePlacement,
+    PaneRegistration, PaneRenderRequest, Registration, ValidatedFileViewLayout, ViewNode,
+    ViewStyle, extension_pane_size,
 };
-use workdeck_extension_host::LoadedExtension;
+use workdeck_extension_host::{
+    ExtensionRequestCancellation, FileViewSelectionState, LoadedExtension, RegisteredFileView,
+    create_file_view_input, create_file_view_input_snapshot, reconcile_file_view_selections,
+    registered_file_view_key, select_file_view,
+};
 use workdeck_review::{
-    ExpandedSourceError, ExpandedSourceStatus, LayoutMode, ReviewComment, ReviewGapAddress,
-    ReviewState, build_extension_review_snapshot, plan_expanded_gap, review_expansion_side,
+    ExpandedSourceError, ExpandedSourceStatus, LayoutMode, PlannedFileViewRow, ReviewComment,
+    ReviewGapAddress, ReviewState, VisibleFileViewNote, build_extension_review_snapshot,
+    build_file_view_render_plan, plan_expanded_gap, review_expansion_side,
     review_gap_source_for_file, review_leading_gap, review_trailing_gap,
 };
 use workdeck_session::{ReviewSessionServer, default_discovery_directory};
@@ -206,6 +214,20 @@ struct LiveKeyboardModeRegistration {
 }
 
 #[derive(Debug, Clone)]
+struct LiveFileViewRegistration {
+    extension_index: usize,
+    view: RegisteredFileView,
+}
+
+#[derive(Debug, Clone)]
+struct CachedFileViewLayout {
+    view_key: String,
+    content_identity: String,
+    width: usize,
+    layout: ValidatedFileViewLayout,
+}
+
+#[derive(Debug, Clone)]
 struct ActiveKeyboardMode {
     extension_index: usize,
     extension_id: String,
@@ -263,6 +285,9 @@ struct ExtensionPaneRuntime {
     panes: Vec<LivePaneRegistration>,
     commands: Vec<LiveCommandRegistration>,
     keyboard_modes: Vec<LiveKeyboardModeRegistration>,
+    file_views: Vec<LiveFileViewRegistration>,
+    file_view_selections: FileViewSelectionState,
+    file_view_layouts: BTreeMap<String, CachedFileViewLayout>,
     active_keyboard_mode: Option<ActiveKeyboardMode>,
     input_dialog: Option<ExtensionInputDialog>,
     select_dialog: Option<ExtensionSelectDialog>,
@@ -283,6 +308,7 @@ impl ExtensionPaneRuntime {
         let mut panes = Vec::new();
         let mut commands = Vec::new();
         let mut keyboard_modes = Vec::new();
+        let mut file_views = Vec::new();
         let mut open = BTreeSet::new();
         for (extension_index, extension) in extensions.iter().enumerate() {
             for registration in &extension.handshake.registrations {
@@ -316,6 +342,18 @@ impl ExtensionPaneRuntime {
                             mode,
                         });
                     }
+                    Registration::FileView {
+                        id,
+                        interactive_mode,
+                        ..
+                    } => file_views.push(LiveFileViewRegistration {
+                        extension_index,
+                        view: RegisteredFileView {
+                            extension_id: extension.manifest.id.clone(),
+                            view_id: id.clone(),
+                            interactive_mode: *interactive_mode,
+                        },
+                    }),
                     _ => {}
                 }
             }
@@ -325,6 +363,7 @@ impl ExtensionPaneRuntime {
             panes,
             commands,
             keyboard_modes,
+            file_views,
             open,
             ..Self::default()
         }
@@ -428,6 +467,22 @@ impl ReviewApp {
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             runtime.input_dialog = None;
             runtime.select_dialog = None;
+            let file_ids = changeset
+                .files
+                .iter()
+                .map(|file| file.runtime_id.clone())
+                .collect::<Vec<_>>();
+            let view_keys = runtime
+                .file_views
+                .iter()
+                .map(|registration| registered_file_view_key(&registration.view))
+                .collect::<BTreeSet<_>>();
+            runtime.file_view_selections = reconcile_file_view_selections(
+                &runtime.file_view_selections,
+                &file_ids,
+                &view_keys,
+            );
+            runtime.file_view_layouts.clear();
         }
         let changeset = match self.apply_extension_transforms(changeset) {
             Ok(changeset) => changeset,
@@ -826,6 +881,9 @@ impl ReviewApp {
                     line,
                 } => {
                     self.reveal_extension_review_line(extension_id, &file_id, side, line);
+                }
+                ExtensionHostAction::ToggleFileView { id } => {
+                    self.toggle_extension_file_view(extension_index, extension_id, &id);
                 }
                 ExtensionHostAction::OpenInputDialog {
                     id,
@@ -1311,6 +1369,136 @@ impl ReviewApp {
         }
     }
 
+    fn toggle_extension_file_view(
+        &mut self,
+        extension_index: usize,
+        extension_id: &str,
+        view_id: &str,
+    ) {
+        let file = self.with_state(|state| {
+            state
+                .changeset()
+                .files
+                .get(state.selection().file_index)
+                .cloned()
+        });
+        let Some(file) = file else {
+            self.status = Some(format!("extension {extension_id} has no selected file"));
+            return;
+        };
+        let mut runtime = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(registration) = runtime.file_views.iter().find(|registration| {
+            registration.extension_index == extension_index && registration.view.view_id == view_id
+        }) else {
+            self.status = Some(format!(
+                "extension {extension_id} targeted unknown file view {view_id:?}"
+            ));
+            return;
+        };
+        let view_key = registered_file_view_key(&registration.view);
+        if runtime.file_view_selections.get(&file.runtime_id) == Some(view_key.as_str()) {
+            runtime.file_view_selections =
+                select_file_view(&runtime.file_view_selections, &file.runtime_id, None);
+            runtime.file_view_layouts.remove(&file.runtime_id);
+            self.status = Some("file presentation: raw diff".into());
+            return;
+        }
+        let snapshot = create_file_view_input_snapshot(&file);
+        match runtime.extensions[extension_index]
+            .file_view_matches(view_id, snapshot.file.as_ref().clone())
+        {
+            Ok(true) => {
+                runtime.file_view_selections = select_file_view(
+                    &runtime.file_view_selections,
+                    &file.runtime_id,
+                    Some(&view_key),
+                );
+                runtime.file_view_layouts.remove(&file.runtime_id);
+                self.status = Some(format!("file presentation: {view_key}"));
+            }
+            Ok(false) => {
+                self.status = Some(format!(
+                    "file view {view_id:?} does not match {} • using raw diff",
+                    file.path
+                ));
+            }
+            Err(error) => {
+                self.status = Some(format!(
+                    "extension {extension_id} file view match failed: {error}"
+                ));
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn selected_extension_file_view(&self, file_id: &str) -> Option<String> {
+        self.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .file_view_selections
+            .get(file_id)
+            .map(str::to_owned)
+    }
+
+    fn prepare_extension_file_view_layouts(
+        &self,
+        changeset: &Changeset,
+        width: u16,
+    ) -> BTreeMap<String, ValidatedFileViewLayout> {
+        let width = usize::from(width.max(1));
+        let mut runtime = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let selections = runtime.file_view_selections.entries().clone();
+        let registrations = runtime.file_views.clone();
+        let mut prepared = BTreeMap::new();
+        for file in &changeset.files {
+            let Some(view_key) = selections.get(&file.runtime_id) else {
+                continue;
+            };
+            if let Some(cached) = runtime.file_view_layouts.get(&file.runtime_id)
+                && cached.view_key == *view_key
+                && cached.content_identity == file.content_identity
+                && cached.width == width
+            {
+                prepared.insert(file.runtime_id.clone(), cached.layout.clone());
+                continue;
+            }
+            let Some(registration) = registrations
+                .iter()
+                .find(|registration| registered_file_view_key(&registration.view) == *view_key)
+            else {
+                continue;
+            };
+            let input =
+                create_file_view_input(file, width, ExtensionRequestCancellation::default(), None);
+            match runtime.extensions[registration.extension_index]
+                .layout_file_view(&registration.view.view_id, input)
+            {
+                Ok(Some(layout)) => {
+                    runtime.file_view_layouts.insert(
+                        file.runtime_id.clone(),
+                        CachedFileViewLayout {
+                            view_key: view_key.clone(),
+                            content_identity: file.content_identity.clone(),
+                            width,
+                            layout: layout.clone(),
+                        },
+                    );
+                    prepared.insert(file.runtime_id.clone(), layout);
+                }
+                Ok(None) | Err(_) => {
+                    runtime.file_view_layouts.remove(&file.runtime_id);
+                }
+            }
+        }
+        prepared
+    }
+
     fn select_extension_review_hunk(
         &mut self,
         extension_id: &str,
@@ -1378,6 +1566,7 @@ impl ReviewApp {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let width = self.review_width.get();
         let layout = state.resolved_layout(width);
+        let file_view_layouts = self.prepare_extension_file_view_layouts(state.changeset(), width);
         let mut highlights = self
             .highlights
             .lock()
@@ -1391,6 +1580,7 @@ impl ReviewApp {
             width,
             &mut highlights,
             &self.expanded_gaps,
+            &file_view_layouts,
         )
     }
 
@@ -1468,6 +1658,7 @@ impl ReviewApp {
         let selected = state.selection();
         let width = self.review_width.get();
         let layout = state.resolved_layout(width);
+        let file_view_layouts = self.prepare_extension_file_view_layouts(state.changeset(), width);
         let mut highlights = self
             .highlights
             .lock()
@@ -1481,6 +1672,7 @@ impl ReviewApp {
             width,
             &mut highlights,
             &self.expanded_gaps,
+            &file_view_layouts,
         );
         self.scroll = selected
             .hunk_index
@@ -2720,6 +2912,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let layout = state.resolved_layout(area.width);
+    let file_view_layouts = app.prepare_extension_file_view_layouts(state.changeset(), area.width);
     let mut highlights = app
         .highlights
         .lock()
@@ -2733,6 +2926,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         area.width,
         &mut highlights,
         &app.expanded_gaps,
+        &file_view_layouts,
     );
     drop(state);
     let cursor_row = app.current_line_row.min(rows.lines.len().saturating_sub(1));
@@ -2816,6 +3010,7 @@ fn build_review_rows(
         expanded_gaps,
         ReviewStreamChrome::default(),
         false,
+        &BTreeMap::new(),
     )
 }
 
@@ -2829,6 +3024,7 @@ fn build_live_review_rows(
     width: u16,
     highlight_cache: &mut HighlightCache,
     expanded_gaps: &BTreeSet<(String, usize)>,
+    file_view_layouts: &BTreeMap<String, ValidatedFileViewLayout>,
 ) -> ReviewRows {
     build_review_rows_with_chrome(
         changeset,
@@ -2841,6 +3037,7 @@ fn build_live_review_rows(
         expanded_gaps,
         ReviewStreamChrome::default(),
         true,
+        file_view_layouts,
     )
 }
 
@@ -2856,6 +3053,7 @@ fn build_review_rows_with_chrome(
     expanded_gaps: &BTreeSet<(String, usize)>,
     chrome: ReviewStreamChrome,
     live: bool,
+    file_view_layouts: &BTreeMap<String, ValidatedFileViewLayout>,
 ) -> ReviewRows {
     let mut rows = Vec::new();
     let mut file_tops = Vec::with_capacity(changeset.files.len());
@@ -2880,6 +3078,24 @@ fn build_review_rows_with_chrome(
         } else {
             ReviewSelection::default()
         };
+        if options.agent_notes {
+            rows.extend(agent_rows(file, layout, usize::from(width)));
+        }
+        if let Some(resolved) = file_view_layouts.get(&file.runtime_id)
+            && append_extension_file_view_rows(
+                &mut rows,
+                &mut hunk_tops,
+                file,
+                file_index,
+                file_selection,
+                comments,
+                resolved,
+                options,
+                usize::from(width),
+            )
+        {
+            continue;
+        }
         let highlighted = if options.highlight {
             let appearance = match options.theme.appearance {
                 ThemeAppearance::Light => workdeck_diff::HighlightAppearance::Light,
@@ -2949,9 +3165,6 @@ fn build_review_rows_with_chrome(
                 ))
             }
         });
-        if options.agent_notes {
-            rows.extend(agent_rows(file, layout, usize::from(width)));
-        }
         if file.flags.too_large {
             let qualifier = if file.stats.truncated {
                 "at least "
@@ -3047,6 +3260,235 @@ fn build_review_rows_with_chrome(
         file_tops,
         hunk_tops,
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn append_extension_file_view_rows(
+    rows: &mut Vec<Line<'static>>,
+    hunk_tops: &mut std::collections::HashMap<(usize, usize), usize>,
+    file: &DiffFile,
+    file_index: usize,
+    selection: ReviewSelection,
+    comments: &[ReviewComment],
+    resolved: &ValidatedFileViewLayout,
+    options: &ReviewOptions,
+    width: usize,
+) -> bool {
+    let notes = comments
+        .iter()
+        .filter(|comment| comment.anchor.file_key == file.key)
+        .filter(|comment| comment.resolution != workdeck_review::ReviewNoteResolution::Orphaned)
+        .map(|comment| {
+            let preferred = comment
+                .anchor
+                .preferred_side
+                .zip(comment.anchor.preferred_line);
+            let old_range = comment.anchor.old_range.or_else(|| {
+                preferred
+                    .filter(|(side, _)| *side == ReviewSide::Old)
+                    .map(|(_, line)| workdeck_core::LineRange {
+                        start: line,
+                        end: line,
+                    })
+            });
+            let new_range = comment.anchor.new_range.or_else(|| {
+                preferred
+                    .filter(|(side, _)| *side == ReviewSide::New)
+                    .map(|(_, line)| workdeck_core::LineRange {
+                        start: line,
+                        end: line,
+                    })
+            });
+            VisibleFileViewNote {
+                id: comment.id.clone(),
+                annotation: AgentAnnotation {
+                    id: Some(comment.id.clone()),
+                    old_range,
+                    new_range,
+                    summary: comment.summary.clone(),
+                    rationale: comment.rationale.clone(),
+                    markup: comment.markup.clone(),
+                    tags: comment.tags.clone(),
+                    confidence: comment.confidence,
+                    source: Some(comment.source.clone()),
+                    title: comment.title.clone(),
+                    author: comment.author.clone(),
+                    created_at: comment.created_at.clone(),
+                    updated_at: comment.updated_at.clone(),
+                    editable: comment.editable,
+                },
+                thread_depth: review_comment_thread_depth(comment, comments),
+                has_actions: comment.editable,
+            }
+        })
+        .collect::<Vec<_>>();
+    let plan = build_file_view_render_plan(&resolved.layout, &notes);
+    if !plan.unresolved_note_ids.is_empty() {
+        return false;
+    }
+    let starts = resolved.layout.hunk_rows.iter().enumerate().fold(
+        BTreeMap::<usize, Vec<usize>>::new(),
+        |mut starts, (index, bounds)| {
+            starts.entry(bounds.start_row).or_default().push(index);
+            starts
+        },
+    );
+    for planned in &plan.rows {
+        match planned {
+            PlannedFileViewRow::FileViewRow { row, row_index, .. } => {
+                if let Some(hunks) = starts.get(row_index) {
+                    for hunk_index in hunks {
+                        hunk_tops.insert((file_index, *hunk_index), rows.len());
+                    }
+                }
+                let selected = selection.file_index == file_index
+                    && selection.hunk_index.is_some_and(|selected| {
+                        resolved
+                            .layout
+                            .hunk_rows
+                            .get(selected)
+                            .is_some_and(|bounds| {
+                                *row_index >= bounds.start_row && *row_index <= bounds.end_row
+                            })
+                    });
+                rows.extend(extension_file_view_row_lines(
+                    row,
+                    resolved.row_heights[*row_index],
+                    &options.theme,
+                    width,
+                    selected,
+                ));
+            }
+            PlannedFileViewRow::InlineNote { note, .. } => {
+                rows.extend(extension_file_view_note_lines(note, width));
+            }
+        }
+    }
+    true
+}
+
+fn review_comment_thread_depth(comment: &ReviewComment, comments: &[ReviewComment]) -> usize {
+    let mut depth = 0;
+    let mut parent = comment.parent_id.as_deref();
+    while let Some(parent_id) = parent {
+        let Some(parent_comment) = comments.iter().find(|candidate| candidate.id == parent_id)
+        else {
+            break;
+        };
+        depth += 1;
+        if depth >= 64 {
+            break;
+        }
+        parent = parent_comment.parent_id.as_deref();
+    }
+    depth
+}
+
+fn extension_file_view_row_lines(
+    row: &workdeck_extension_api::ExtensionFileViewRow,
+    declared_height: usize,
+    theme: &AppTheme,
+    width: usize,
+    selected: bool,
+) -> Vec<Line<'static>> {
+    let mut lines = if let Some(component) = &row.component {
+        let mut lines = Vec::new();
+        flatten_view(&component.content, 0, &mut lines);
+        if lines.is_empty() {
+            extension_file_view_symbolic_lines(&row.spans, theme, width)
+        } else {
+            lines
+        }
+    } else {
+        extension_file_view_symbolic_lines(&row.spans, theme, width)
+    };
+    lines.truncate(declared_height);
+    lines.resize_with(declared_height, Line::default);
+    if selected {
+        let background = ratatui_theme_color(&theme.selected_hunk);
+        for line in &mut lines {
+            line.style = line.style.bg(background);
+            for span in &mut line.spans {
+                span.style = span.style.bg(background);
+            }
+        }
+    }
+    lines
+}
+
+fn extension_file_view_symbolic_lines(
+    spans: &[ExtensionFileViewSpan],
+    theme: &AppTheme,
+    width: usize,
+) -> Vec<Line<'static>> {
+    let spans = spans
+        .iter()
+        .map(|span| {
+            let foreground = match span.tone {
+                None | Some(ExtensionFileViewTone::Syntax) => &theme.text,
+                Some(ExtensionFileViewTone::Muted) => &theme.muted,
+                Some(ExtensionFileViewTone::Accent) => &theme.accent,
+                Some(ExtensionFileViewTone::AccentMuted) => &theme.accent_muted,
+                Some(ExtensionFileViewTone::Added) => &theme.badge_added,
+                Some(ExtensionFileViewTone::Removed) => &theme.badge_removed,
+            };
+            let mut style = Style::default().fg(ratatui_theme_color(foreground));
+            for attribute in &span.attributes {
+                style = style.add_modifier(match attribute {
+                    ExtensionTextAttribute::Bold => Modifier::BOLD,
+                    ExtensionTextAttribute::Italic => Modifier::ITALIC,
+                    ExtensionTextAttribute::Underline => Modifier::UNDERLINED,
+                    ExtensionTextAttribute::Strikethrough => Modifier::CROSSED_OUT,
+                });
+            }
+            Span::styled(span.text.clone(), style)
+        })
+        .collect::<Vec<_>>();
+    wrap_styled_spans(spans, width.max(1))
+        .into_iter()
+        .map(Line::from)
+        .collect()
+}
+
+fn extension_file_view_note_lines(note: &VisibleFileViewNote, width: usize) -> Vec<Line<'static>> {
+    let author = note
+        .annotation
+        .author
+        .as_deref()
+        .or(note.annotation.source.as_deref())
+        .unwrap_or("note");
+    let indent = "  ".repeat(note.thread_depth.min(8));
+    let mut rows = vec![Line::from(vec![
+        Span::styled(
+            format!("{indent}  │ note "),
+            Style::default().fg(Color::Magenta),
+        ),
+        Span::styled(
+            author.to_owned(),
+            Style::default()
+                .fg(Color::LightMagenta)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ])];
+    let body = note
+        .annotation
+        .markup
+        .as_deref()
+        .unwrap_or(&note.annotation.summary);
+    let rendered = workdeck_markup::render(body, width.saturating_sub(indent.len() + 8).max(1));
+    rows.extend(rendered.lines.into_iter().map(|text| {
+        Line::styled(
+            format!("{indent}  │   {text}"),
+            Style::default().fg(Color::LightMagenta),
+        )
+    }));
+    if let Some(rationale) = &note.annotation.rationale {
+        rows.push(Line::styled(
+            format!("{indent}  │   {rationale}"),
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+    rows
 }
 
 #[allow(clippy::too_many_arguments)]

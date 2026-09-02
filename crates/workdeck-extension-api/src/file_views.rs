@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::ViewNode;
@@ -148,6 +150,31 @@ pub struct ExtensionFileViewHunkRows {
 pub struct ExtensionFileViewLayout {
     pub rows: Vec<ExtensionFileViewRow>,
     pub hunk_rows: Vec<ExtensionFileViewHunkRows>,
+}
+
+/// One host request asking a registered native view whether it accepts a file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileViewMatchRequest {
+    pub view_id: String,
+    pub file: ExtensionDiffFile,
+}
+
+/// Immutable input for one native file-view layout calculation.
+///
+/// Exact source documents cross the subprocess boundary as owned snapshots. This
+/// keeps extensions unable to race subsequent reloads while preserving Hunk's
+/// `readDocument(side)` semantics without a nested, re-entrant RPC exchange.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileViewLayoutRequest {
+    pub view_id: String,
+    pub file: ExtensionDiffFile,
+    pub width: usize,
+    pub changes: Vec<ExtensionFileChangeRange>,
+    pub documents: BTreeMap<ExtensionFileSide, Option<String>>,
+    #[serde(default)]
+    pub aborted: bool,
 }
 
 /// Host-validated layout plus terminal row measurements retained for painting.

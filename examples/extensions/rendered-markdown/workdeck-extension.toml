@@ -1,0 +1,7 @@
+id = "example.rendered-markdown"
+name = "Rendered Markdown example"
+version = "0.1.0"
+api_version = 1
+executable = "bin/workdeck-example-rendered-markdown-extension"
+capabilities = ["commands", "file-views"]
+description = "Renders Markdown as host-owned symbolic review rows"

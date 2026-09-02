@@ -473,13 +473,28 @@ pub enum Registration {
     CliCommand(CliCommandRegistration),
     Pane(PaneRegistration),
     Theme(ThemeRegistration),
-    VcsAdapter { id: String, markers: Vec<String> },
-    ChangesetTransform { id: String },
-    FileView { id: String, priority: i32 },
+    VcsAdapter {
+        id: String,
+        markers: Vec<String>,
+    },
+    ChangesetTransform {
+        id: String,
+    },
+    FileView {
+        id: String,
+        title: String,
+        priority: i32,
+        #[serde(default)]
+        interactive_mode: bool,
+    },
     FileLanguage(FileLanguageRegistration),
     KeyboardMode(KeyboardModeRegistration),
-    LineHighlighter { id: String },
-    EventSubscription { names: Vec<String> },
+    LineHighlighter {
+        id: String,
+    },
+    EventSubscription {
+        names: Vec<String>,
+    },
 }
 
 impl Registration {
@@ -862,6 +877,9 @@ pub enum ExtensionHostAction {
         file_id: String,
         side: ReviewSide,
         line: u32,
+    },
+    ToggleFileView {
+        id: String,
     },
     OpenInputDialog {
         id: String,

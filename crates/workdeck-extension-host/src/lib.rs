@@ -33,13 +33,14 @@ use workdeck_diff::{SanitizeOptions, sanitize_terminal_text};
 use workdeck_extension_api::{
     API_VERSION, CliCommandExecution, CliCommandInvocation, CliCommandResult,
     CliOutputNotification, CliOutputStream, CommandExecution, CommandInvocation,
-    DEFAULT_REQUEST_TIMEOUT_MS, ExtensionHostAction, ExtensionKeyEvent, ExtensionManifest,
-    ExtensionNotificationHub, ExtensionNotifyType, ExtensionPaneView, HandshakeRequest,
+    DEFAULT_REQUEST_TIMEOUT_MS, ExtensionDiffFile, ExtensionFileSide, ExtensionHostAction,
+    ExtensionKeyEvent, ExtensionManifest, ExtensionNotificationHub, ExtensionNotifyType,
+    ExtensionPaneView, FileViewLayoutRequest, FileViewMatchRequest, HandshakeRequest,
     HandshakeResponse, InputDialogSubmission, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
     KeyboardModeExecution, KeyboardModeKeyRequest, KeyboardModeLifecycleRequest, MAX_MESSAGE_BYTES,
     ManifestError, PaneRenderRequest, PaneRenderResponse, Registration, SelectDialogSubmission,
-    TransformRequest, TransformResponse, extension_pane_size, is_vertical_pane_placement,
-    parse_key_chord, validate_view,
+    TransformRequest, TransformResponse, ValidatedFileViewLayout, extension_pane_size,
+    is_vertical_pane_placement, parse_key_chord, validate_view,
 };
 
 #[derive(Debug, Error)]
@@ -743,6 +744,88 @@ impl LoadedExtension {
         Ok(changeset)
     }
 
+    /// Ask one registered native file view whether it accepts this immutable file snapshot.
+    pub fn file_view_matches(
+        &mut self,
+        view_id: &str,
+        file: ExtensionDiffFile,
+    ) -> Result<bool, HostError> {
+        self.require_file_view(view_id)?;
+        let value = self.request(
+            "workdeck/file-view/matches",
+            FileViewMatchRequest {
+                view_id: view_id.to_owned(),
+                file,
+            },
+            Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+        )?;
+        serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+            id: self.manifest.id.clone(),
+            kind: "file view match",
+            message: error.to_string(),
+        })
+    }
+
+    /// Calculate and validate one immutable native file-view presentation.
+    pub fn layout_file_view(
+        &mut self,
+        view_id: &str,
+        input: FileViewInput,
+    ) -> Result<Option<ValidatedFileViewLayout>, HostError> {
+        self.require_file_view(view_id)?;
+        if input.cancellation.is_cancelled() {
+            return Ok(None);
+        }
+        let mut documents = BTreeMap::new();
+        for side in [ExtensionFileSide::Old, ExtensionFileSide::New] {
+            let document = input
+                .documents
+                .read_document(side)
+                .wait(&input.cancellation)
+                .map_err(|_| HostError::InvalidPayload {
+                    id: self.manifest.id.clone(),
+                    kind: "file view layout",
+                    message: "layout request was aborted".into(),
+                })?;
+            documents.insert(side, document);
+        }
+        if input.cancellation.is_cancelled() {
+            return Ok(None);
+        }
+        let hunk_count = input.file.hunks.len();
+        let value = self.request(
+            "workdeck/file-view/layout",
+            FileViewLayoutRequest {
+                view_id: view_id.to_owned(),
+                file: input.file.as_ref().clone(),
+                width: input.width,
+                changes: input.changes.as_ref().to_vec(),
+                documents: documents.clone(),
+                aborted: false,
+            },
+            Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+        )?;
+        if value.is_null() {
+            return Ok(None);
+        }
+        let validated =
+            validate_file_view_layout(&value, hunk_count, input.width).map_err(|message| {
+                HostError::InvalidPayload {
+                    id: self.manifest.id.clone(),
+                    kind: "file view layout",
+                    message,
+                }
+            })?;
+        if let Some(issue) = validate_file_view_source_ranges(&validated.layout, &documents) {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "file view layout",
+                message: issue.detail,
+            });
+        }
+        Ok(Some(validated))
+    }
+
     /// Render one registered pane inside the exact rectangle allocated by the host.
     pub fn render_pane(
         &mut self,
@@ -1028,6 +1111,20 @@ impl LoadedExtension {
         }
     }
 
+    fn require_file_view(&self, view_id: &str) -> Result<(), HostError> {
+        if self.handshake.registrations.iter().any(|registration| {
+            matches!(registration, Registration::FileView { id, .. } if id == view_id)
+        }) {
+            Ok(())
+        } else {
+            Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "file view",
+                message: format!("file view {view_id:?} is not registered"),
+            })
+        }
+    }
+
     fn validate_host_actions(
         &self,
         actions: &[ExtensionHostAction],
@@ -1054,6 +1151,9 @@ impl LoadedExtension {
                     Registration::Pane(pane) if registration_kind == "pane" => pane.id == local_id,
                     Registration::KeyboardMode(mode) if registration_kind == "keyboard mode" => {
                         mode.id == local_id
+                    }
+                    Registration::FileView { id, .. } if registration_kind == "file view" => {
+                        id == local_id
                     }
                     _ => false,
                 })
@@ -1108,6 +1208,12 @@ impl LoadedExtension {
                         .contains(&workdeck_extension_api::Capability::ReviewNavigation)
                         && !file_id.trim().is_empty()
                         && *line > 0
+                }
+                ExtensionHostAction::ToggleFileView { id } => {
+                    self.manifest
+                        .capabilities
+                        .contains(&workdeck_extension_api::Capability::FileViews)
+                        && owns(id, "file view")
                 }
                 ExtensionHostAction::OpenInputDialog { id, title, .. } => {
                     self.manifest
@@ -1366,6 +1472,14 @@ fn validate_registrations(
             return Err(HostError::Handshake {
                 id: manifest.id.clone(),
                 message: "keyboard modes require non-empty local ids and titles".into(),
+            });
+        }
+        if let Registration::FileView { id, title, .. } = registration
+            && (id.trim().is_empty() || id.contains(':') || title.trim().is_empty())
+        {
+            return Err(HostError::Handshake {
+                id: manifest.id.clone(),
+                message: "file views require non-empty local ids and titles".into(),
             });
         }
     }

@@ -534,6 +534,7 @@ fn workdeck_diff_body_rows(
             show_file_headers: false,
         },
         false,
+        &std::collections::BTreeMap::new(),
     );
     let map = WorkdeckDiffRenderMap {
         hunk_rows: rows

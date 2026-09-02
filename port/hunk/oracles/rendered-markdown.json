@@ -1,0 +1,99 @@
+{
+  "oracle": "Hunk rendered-markdown extension using marked 17.0.1",
+  "baselineCommits": [
+    "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+  ],
+  "source": "# Hello **bold** &amp; *italic*\n\nParagraph with [link](https://example.com) and `code`.\n\n> quoted ~~old~~ text\n\n- [x] done\n- item\n\n| A | B |\n| - | - |\n| 1 | 2 |\n\n```rust\nfn main() {}\n```\n\n---\n",
+  "width": 12,
+  "changes": [
+    { "hunkIndex": 0, "kind": "added", "range": [1, 1] },
+    { "hunkIndex": 1, "kind": "added", "range": [10, 12] }
+  ],
+  "hunks": [
+    { "index": 0, "header": "@@ -1 +1,3 @@", "newRange": [1, 3] },
+    { "index": 1, "header": "@@ -9 +9,4 @@", "newRange": [9, 12] }
+  ],
+  "layout": {
+    "rows": [
+      {
+        "id": "rendered:0",
+        "spans": [
+          { "text": "Hello ", "tone": "added", "attributes": ["bold"] },
+          { "text": "bold", "tone": "added", "attributes": ["bold", "bold"] },
+          { "text": " & ", "tone": "added", "attributes": ["bold"] },
+          { "text": "italic", "tone": "added", "attributes": ["bold", "italic"] }
+        ],
+        "sourceRanges": [{ "side": "new", "range": [1, 2] }]
+      },
+      {
+        "id": "rendered:1",
+        "spans": [
+          { "text": "Paragraph with " },
+          { "text": "link", "tone": "accent", "attributes": ["underline"] },
+          { "text": " <https://example.com>", "tone": "muted" },
+          { "text": " and " },
+          { "text": "code", "tone": "syntax" },
+          { "text": "." }
+        ]
+      },
+      { "id": "rendered:2", "spans": [{ "text": " " }] },
+      {
+        "id": "rendered:3",
+        "spans": [
+          { "text": "│ ", "tone": "accent-muted" },
+          { "text": "quoted ", "tone": "accent-muted" },
+          { "text": "old", "tone": "muted", "attributes": ["strikethrough"] },
+          { "text": " text", "tone": "accent-muted" }
+        ]
+      },
+      { "id": "rendered:4", "spans": [{ "text": " " }] },
+      {
+        "id": "rendered:5",
+        "spans": [
+          { "text": "[x] ", "tone": "muted" },
+          { "text": "[x] " },
+          { "text": "done" }
+        ]
+      },
+      {
+        "id": "rendered:6",
+        "spans": [
+          { "text": "• ", "tone": "muted" },
+          { "text": "item" }
+        ]
+      },
+      { "id": "rendered:7", "spans": [{ "text": " " }] },
+      {
+        "id": "rendered:8",
+        "spans": [{ "text": "A │ B", "tone": "added" }],
+        "sourceRanges": [{ "side": "new", "range": [10, 10] }]
+      },
+      {
+        "id": "rendered:9",
+        "spans": [{ "text": "──┼──", "tone": "added" }],
+        "sourceRanges": [{ "side": "new", "range": [11, 11] }]
+      },
+      {
+        "id": "rendered:10",
+        "spans": [{ "text": "1 │ 2", "tone": "added" }],
+        "sourceRanges": [{ "side": "new", "range": [12, 12] }]
+      },
+      { "id": "rendered:11", "spans": [{ "text": "┌─ rust", "tone": "muted" }] },
+      { "id": "rendered:12", "spans": [{ "text": "│ fn main() {}", "tone": "syntax" }] },
+      { "id": "rendered:13", "spans": [{ "text": "└─", "tone": "muted" }] },
+      { "id": "rendered:14", "spans": [{ "text": " " }] },
+      { "id": "rendered:15", "spans": [{ "text": "────────────", "tone": "muted" }] }
+    ],
+    "hunkRows": [
+      { "startRow": 0, "endRow": 0 },
+      { "startRow": 8, "endRow": 10 }
+    ]
+  },
+  "fallbacks": {
+    "empty": null,
+    "unterminatedFence": null,
+    "aborted": null,
+    "oversized": null
+  }
+}

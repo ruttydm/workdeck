@@ -52,6 +52,19 @@ Source: https://github.com/anomalyco/opentui
 Copyright (c) 2025 opentui
 License: MIT
 
+Markdown parsing and oracle
+---------------------------
+
+Workdeck's native rendered-Markdown extension uses pulldown-cmark 0.13.4. Differential fixtures
+for Hunk compatibility were captured from the pinned extension with Marked 17.0.1; Marked is not
+shipped or executed by Workdeck.
+
+pulldown-cmark source: https://github.com/pulldown-cmark/pulldown-cmark
+License: MIT
+
+Marked source: https://github.com/markedjs/marked
+License: MIT
+
 jsdiff
 ------
 
