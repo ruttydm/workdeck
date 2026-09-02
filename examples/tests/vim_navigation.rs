@@ -181,8 +181,7 @@ fn review_shell_routes_f6_counts_ex_dialog_escape_and_reload() {
         .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
         .unwrap();
     let active_frame = rendered_text(&terminal);
-    assert!(active_frame.contains(" Vim navigation — "));
-    assert!(!active_frame.contains("ext example.vim-navigation"));
+    assert!(active_frame.contains("Vim navigation — ext example.vim-navigation"));
 
     press(&mut app, KeyCode::Char('5'));
     press(&mut app, KeyCode::Char('j'));

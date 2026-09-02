@@ -167,11 +167,13 @@ use workdeck_extension_api::{
     extension_pane_size,
 };
 use workdeck_extension_host::{
-    ExtensionEventContextProviderInstallation, ExtensionEventContextProviderSlot,
-    ExtensionRequestCancellation, FileViewSelectionState, HostError, LineHighlightRefreshResult,
-    LineHighlightsController, LoadedExtension, RegisteredFileView, RegisteredLineHighlighter,
-    create_file_view_input, create_file_view_input_snapshot, reconcile_file_view_selections,
-    registered_file_view_key, select_file_view,
+    ActiveSessionKeyboardMode, ExtensionEventContextProviderInstallation,
+    ExtensionEventContextProviderSlot, ExtensionRequestCancellation, FileViewSelectionState,
+    HostError, LineHighlightRefreshResult, LineHighlightsController, LoadedExtension,
+    RegisteredFileView, RegisteredKeyboardMode, RegisteredLineHighlighter, create_file_view_input,
+    create_file_view_input_snapshot, format_keyboard_mode_failure, reconcile_file_view_selections,
+    registered_file_view_key, select_file_view, session_keyboard_mode_display_title,
+    session_keyboard_mode_status_hint, session_keyboard_mode_still_valid,
 };
 use workdeck_review::{
     ExpandedSourceError, ExpandedSourceStatus, LayoutMode, PlannedFileViewRow, ReviewComment,
@@ -288,6 +290,7 @@ struct LiveKeyboardModeRegistration {
     extension_index: usize,
     extension_id: String,
     mode: KeyboardModeRegistration,
+    registered: Arc<RegisteredKeyboardMode>,
 }
 
 #[derive(Debug, Clone)]
@@ -334,6 +337,7 @@ struct ActiveKeyboardMode {
     extension_index: usize,
     extension_id: String,
     mode: KeyboardModeRegistration,
+    session: ActiveSessionKeyboardMode,
 }
 
 #[derive(Debug, Clone)]
@@ -475,10 +479,15 @@ impl ExtensionPaneRuntime {
                         if mode.title.is_empty() {
                             mode.title = format!("{}:{}", extension.manifest.id, mode.id);
                         }
+                        let registered = Arc::new(RegisteredKeyboardMode {
+                            extension_id: extension.manifest.id.clone(),
+                            mode: mode.clone(),
+                        });
                         keyboard_modes.push(LiveKeyboardModeRegistration {
                             extension_index,
                             extension_id: extension.manifest.id.clone(),
                             mode,
+                            registered,
                         });
                     }
                     Registration::FileView {
@@ -1060,7 +1069,7 @@ impl ReviewApp {
         runtime
             .active_keyboard_mode
             .as_ref()
-            .map(|active| active.mode.title.clone())
+            .map(|active| session_keyboard_mode_display_title(&active.session))
             .or_else(|| {
                 runtime
                     .active_file_view_mode
@@ -1078,12 +1087,7 @@ impl ReviewApp {
         runtime
             .active_keyboard_mode
             .as_ref()
-            .map(|active| {
-                format!(
-                    "{} — ext {}:{} — Esc exits",
-                    active.mode.title, active.extension_id, active.mode.id
-                )
-            })
+            .map(|active| session_keyboard_mode_status_hint(&active.session))
             .or_else(|| {
                 runtime.active_file_view_mode.as_ref().map(|active| {
                     format!(
@@ -1981,15 +1985,40 @@ impl ReviewApp {
     }
 
     fn route_active_keyboard_mode(&mut self, key: &KeyEvent) -> bool {
-        let active = self
-            .extension_pane_runtime
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .active_keyboard_mode
-            .clone();
+        let (active, still_valid) = {
+            let runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let active = runtime.active_keyboard_mode.clone();
+            let still_valid = active.as_ref().is_some_and(|active| {
+                let registry = runtime
+                    .extensions
+                    .get(active.extension_index)
+                    .map(LoadedExtension::registry);
+                let registrations = runtime
+                    .keyboard_modes
+                    .iter()
+                    .map(|mode| Arc::clone(&mode.registered))
+                    .collect::<Vec<_>>();
+                session_keyboard_mode_still_valid(
+                    &active.session,
+                    registry.as_ref(),
+                    &registrations,
+                )
+            });
+            (active, still_valid)
+        };
         let Some(active) = active else {
             return false;
         };
+        if !still_valid {
+            self.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .active_keyboard_mode = None;
+            return false;
+        }
         if key.code == KeyCode::Esc {
             self.exit_active_keyboard_mode();
             return true;
@@ -2034,9 +2063,10 @@ impl ReviewApp {
             }
             Err(error) => {
                 self.exit_active_keyboard_mode();
-                self.status = Some(format!(
-                    "extension {} keyboard mode failed: {error}",
-                    active.extension_id
+                self.status = Some(format_keyboard_mode_failure(
+                    &active.session,
+                    "onKey",
+                    &error.to_string(),
                 ));
                 true
             }
@@ -2464,6 +2494,17 @@ impl ReviewApp {
             extension_index,
             extension_id: extension_id.into(),
             mode: registration.mode,
+            session: ActiveSessionKeyboardMode {
+                extension_id: registration.extension_id,
+                mode_id: registration.registered.mode.id.clone(),
+                registered: registration.registered,
+                registry: self
+                    .extension_pane_runtime
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .extensions[extension_index]
+                    .registry(),
+            },
         };
         self.extension_pane_runtime
             .lock()
@@ -2479,7 +2520,7 @@ impl ReviewApp {
             .enter_keyboard_mode_with_commands(&active.mode.id, snapshot, commands);
         match execution {
             Ok(execution) => {
-                self.status = Some(format!("{} active · Esc exits", active.mode.title));
+                self.status = Some(session_keyboard_mode_status_hint(&active.session));
                 self.apply_extension_actions(extension_index, extension_id, execution.actions);
             }
             Err(error) => {
@@ -2487,8 +2528,10 @@ impl ReviewApp {
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .active_keyboard_mode = None;
-                self.status = Some(format!(
-                    "extension {extension_id} could not enter mode: {error}"
+                self.status = Some(format_keyboard_mode_failure(
+                    &active.session,
+                    "onEnter",
+                    &error.to_string(),
                 ));
             }
         }
@@ -2532,9 +2575,10 @@ impl ReviewApp {
                 );
             }
             Err(error) => {
-                self.status = Some(format!(
-                    "extension {} mode exit failed: {error}",
-                    active.extension_id
+                self.status = Some(format_keyboard_mode_failure(
+                    &active.session,
+                    "onExit",
+                    &error.to_string(),
                 ));
             }
         }
@@ -10334,15 +10378,25 @@ mod tests {
         assert!(!text(&summary).contains("Update available"));
 
         app.filter.clear();
+        let registered = Arc::new(RegisteredKeyboardMode {
+            extension_id: "vim".into(),
+            mode: KeyboardModeRegistration {
+                id: "normal".into(),
+                title: "Vim navigation".into(),
+            },
+        });
         app.extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .active_keyboard_mode = Some(ActiveKeyboardMode {
             extension_index: 0,
             extension_id: "vim".into(),
-            mode: KeyboardModeRegistration {
-                id: "normal".into(),
-                title: "Vim navigation".into(),
+            mode: registered.mode.clone(),
+            session: ActiveSessionKeyboardMode {
+                extension_id: "vim".into(),
+                mode_id: "normal".into(),
+                registered,
+                registry: Arc::new(workdeck_extension_host::ExtensionRuntimeRegistry::new()),
             },
         });
         let mode = footer(&app);

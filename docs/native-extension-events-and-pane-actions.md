@@ -29,6 +29,14 @@ other. Unknown highlighters produce an attributed warning; a stale file ID racin
 silent no-op. Reload reconciliation removes retired file and registration epochs while retaining
 surviving counters across native extension replacement.
 
+An active keyboard mode retains the exact registry and registration identities that authorized it.
+The Ratatui input router refuses a mode after either identity is replaced or its registry closes,
+and Escape remains host-owned. Mode titles and fallback owner labels are terminal-sanitized; the
+persistent badge uses `<title> — ext <extension>:<mode> — Esc exits`. Lifecycle and key failures are
+contained at the subprocess boundary and reported with the same extension, mode, and callback
+attribution as the pinned Hunk behavior. Native JSON-RPC deadlines replace JavaScript promise
+detection; the pure Rust callback adapter also rejects deferred results explicitly for parity tests.
+
 ## Clickable pane rows
 
 An extension wraps a declarative `ViewNode` in `ViewNode::Action { id, child }`. Ratatui renders the child, records its visible cell rectangle, and sends `workdeck/pane/action` with the pane ID, action ID, current review snapshot, semantic saved-note snapshot, working directory, and open panes. The extension answers with ordinary validated host actions. Action IDs are local opaque values, limited to 1,024 bytes; they cannot carry executable callbacks across the process boundary.

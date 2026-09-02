@@ -7,6 +7,7 @@ mod file_view_host;
 mod file_view_mode;
 mod file_view_state;
 mod file_views;
+mod keyboard_mode;
 mod line_highlights;
 mod synchronous_callbacks;
 
@@ -17,6 +18,7 @@ pub use file_view_host::*;
 pub use file_view_mode::*;
 pub use file_view_state::*;
 pub use file_views::*;
+pub use keyboard_mode::*;
 pub use line_highlights::*;
 pub use synchronous_callbacks::*;
 
