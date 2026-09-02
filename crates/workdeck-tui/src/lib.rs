@@ -117,7 +117,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget, Wrap};
 use std::cell::Cell;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::{self, IsTerminal, Stdout};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -148,9 +148,9 @@ use workdeck_extension_api::{
     ValidatedFileViewLayout, ViewNode, ViewStyle, bundled_files_pane, extension_pane_size,
 };
 use workdeck_extension_host::{
-    ExtensionRequestCancellation, FileViewSelectionState, LoadedExtension, RegisteredFileView,
-    create_file_view_input, create_file_view_input_snapshot, reconcile_file_view_selections,
-    registered_file_view_key, select_file_view,
+    ExtensionRequestCancellation, FileViewSelectionState, HostError, LoadedExtension,
+    RegisteredFileView, create_file_view_input, create_file_view_input_snapshot,
+    reconcile_file_view_selections, registered_file_view_key, select_file_view,
 };
 use workdeck_review::{
     ExpandedSourceError, ExpandedSourceStatus, LayoutMode, PlannedFileViewRow, ReviewComment,
@@ -346,6 +346,15 @@ struct ExtensionWorkspaceWriteDialog {
 }
 
 #[derive(Debug, Clone)]
+struct PendingExtensionCommand {
+    extension_index: usize,
+    extension_id: String,
+    command_id: String,
+    title: String,
+    review_generation: u64,
+}
+
+#[derive(Debug, Clone)]
 struct ExtensionInputDialog {
     extension_index: usize,
     extension_id: String,
@@ -412,6 +421,8 @@ struct PaneResizeState {
 #[derive(Debug, Default)]
 struct ExtensionPaneRuntime {
     extensions: Vec<LoadedExtension>,
+    pending_commands: BTreeMap<usize, PendingExtensionCommand>,
+    deferred_events: BTreeMap<usize, VecDeque<ReviewEvent>>,
     panes: Vec<LivePaneRegistration>,
     commands: Vec<LiveCommandRegistration>,
     keyboard_modes: Vec<LiveKeyboardModeRegistration>,
@@ -537,6 +548,7 @@ pub struct ReviewApp {
     show_help: bool,
     should_quit: bool,
     reload_requested: bool,
+    extension_command_epoch: u64,
     editor_requested: bool,
     resolved_command_keys: ResolvedKeymap,
     show_menu_bar: bool,
@@ -633,6 +645,7 @@ impl ReviewApp {
             show_help: false,
             should_quit: false,
             reload_requested: false,
+            extension_command_epoch: 1,
             editor_requested: false,
             resolved_command_keys,
             show_menu_bar: true,
@@ -801,6 +814,7 @@ impl ReviewApp {
 
     pub fn reload(&mut self, changeset: Changeset) {
         self.expire_workspace_write_dialog();
+        self.extension_command_epoch = self.extension_command_epoch.saturating_add(1);
         self.exit_active_keyboard_mode();
         self.exit_active_file_view_mode();
         {
@@ -1621,6 +1635,7 @@ impl ReviewApp {
     }
 
     fn invoke_registered_extension_command(&mut self, command: LiveCommandRegistration) {
+        let command_epoch = self.extension_command_epoch;
         let (snapshot, review, workspace) = self.with_state(|state| {
             let workspace = self
                 .options
@@ -1632,7 +1647,7 @@ impl ReviewApp {
                         &state.changeset().files,
                         input,
                         root,
-                        state.generation(),
+                        command_epoch,
                     )
                 });
             (
@@ -1642,7 +1657,7 @@ impl ReviewApp {
             )
         });
         let cwd = self.extension_command_cwd();
-        let execution = {
+        let started = {
             let mut runtime = self
                 .extension_pane_runtime
                 .lock()
@@ -1658,32 +1673,167 @@ impl ReviewApp {
                         .as_ref()
                         .map(|active| format!("{}:{}", active.extension_id, active.view_id))
                 });
-            runtime.extensions[command.extension_index].invoke_command_with_workspace_context(
-                &command.command.id,
-                snapshot,
-                open_panes,
-                active_keyboard_mode,
-                cwd,
-                Some(review),
-                workspace,
-            )
-        };
-        match execution {
-            Ok(execution) => {
-                self.status = Some(command.command.title);
-                self.apply_extension_actions(
+            let result = runtime.extensions[command.extension_index]
+                .begin_command_with_workspace_context(
+                    &command.command.id,
+                    snapshot,
+                    open_panes,
+                    active_keyboard_mode,
+                    cwd,
+                    Some(review),
+                    workspace,
+                );
+            if result.is_ok() {
+                runtime.pending_commands.insert(
                     command.extension_index,
-                    &command.extension_id,
-                    execution.actions,
+                    PendingExtensionCommand {
+                        extension_index: command.extension_index,
+                        extension_id: command.extension_id.clone(),
+                        command_id: command.command.id.clone(),
+                        title: command.command.title.clone(),
+                        review_generation: command_epoch,
+                    },
                 );
             }
+            result
+        };
+        match started {
+            Ok(()) => self.status = Some(command.command.title),
             Err(error) => {
-                self.status = Some(format!(
-                    "extension {} command failed: {error}",
-                    command.extension_id
-                ))
+                self.report_extension_command_failure(
+                    &command.extension_id,
+                    &command.command.id,
+                    &error.to_string(),
+                );
             }
         }
+    }
+
+    /// Apply every ready native command result without blocking the Ratatui event loop.
+    pub fn poll_extension_commands(&mut self) {
+        let completions = {
+            let mut runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let pending_indices = runtime.pending_commands.keys().copied().collect::<Vec<_>>();
+            let mut completions = Vec::new();
+            for extension_index in pending_indices {
+                let Some(outcome) = runtime.extensions[extension_index].poll_command() else {
+                    continue;
+                };
+                if let Some(pending) = runtime.pending_commands.remove(&extension_index) {
+                    completions.push((pending, outcome));
+                }
+            }
+            completions
+        };
+
+        for (pending, outcome) in completions {
+            self.flush_deferred_extension_events(pending.extension_index, &pending.extension_id);
+            match outcome {
+                Ok(execution) => {
+                    self.status = Some(pending.title.clone());
+                    self.apply_extension_command_actions(pending, execution.actions);
+                }
+                Err(error) => {
+                    let detail = extension_command_error_detail(&error);
+                    self.report_extension_command_failure(
+                        &pending.extension_id,
+                        &pending.command_id,
+                        &detail,
+                    );
+                }
+            }
+        }
+    }
+
+    fn flush_deferred_extension_events(&mut self, extension_index: usize, extension_id: &str) {
+        loop {
+            let event = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .deferred_events
+                .get_mut(&extension_index)
+                .and_then(VecDeque::pop_front);
+            let Some(event) = event else {
+                self.extension_pane_runtime
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .deferred_events
+                    .remove(&extension_index);
+                return;
+            };
+            let outcome = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .extensions[extension_index]
+                .deliver_event(event);
+            match outcome {
+                Ok(execution) => {
+                    self.apply_extension_actions(extension_index, extension_id, execution.actions)
+                }
+                Err(error) => {
+                    self.status = Some(format!(
+                        "extension {extension_id} deferred event failed: {error}"
+                    ));
+                }
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn has_pending_extension_commands(&self) -> bool {
+        !self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .pending_commands
+            .is_empty()
+    }
+
+    fn apply_extension_command_actions(
+        &mut self,
+        pending: PendingExtensionCommand,
+        actions: Vec<ExtensionHostAction>,
+    ) {
+        let current_generation = self.extension_command_epoch;
+        let mut live_actions = Vec::with_capacity(actions.len());
+        for action in actions {
+            if current_generation != pending.review_generation
+                && let ExtensionHostAction::RequestWorkspaceWrite { request_id, .. } = action
+            {
+                self.complete_extension_workspace_write(
+                    pending.extension_index,
+                    &pending.extension_id,
+                    request_id,
+                    ExtensionWorkspaceWriteResult::Unavailable {
+                        detail: "The review reloaded before this extension operation could finish."
+                            .into(),
+                    },
+                );
+                continue;
+            }
+            live_actions.push(action);
+        }
+        self.apply_extension_actions(pending.extension_index, &pending.extension_id, live_actions);
+    }
+
+    /// Contain native construction, protocol, process, timeout, and handler failures at the
+    /// command boundary with Hunk's attributed warning shape.
+    fn report_extension_command_failure(
+        &mut self,
+        extension_id: &str,
+        command_id: &str,
+        detail: &str,
+    ) {
+        let message = extension_command_failure_message(extension_id, command_id, detail);
+        if let Some(notifications) = self.options.extension_notifications.as_ref() {
+            notifications.notify(message.clone(), ExtensionNotifyType::Warning);
+        }
+        self.status = Some(message);
     }
 
     fn invoke_extension_pane_action(&mut self, hit: ExtensionPaneActionHit) {
@@ -2013,23 +2163,34 @@ impl ReviewApp {
             self.with_state(|state| (state.snapshot(), build_extension_review_snapshot(state)));
         self.extension_event_dispatch_depth += 1;
         for (extension_index, extension_id) in targets {
+            let event = ReviewEvent {
+                name: name.into(),
+                snapshot: snapshot.clone(),
+                payload: payload.clone(),
+                review: Some(review.clone()),
+            };
             let execution = {
                 let mut runtime = self
                     .extension_pane_runtime
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
-                runtime.extensions[extension_index].deliver_event(ReviewEvent {
-                    name: name.into(),
-                    snapshot: snapshot.clone(),
-                    payload: payload.clone(),
-                    review: Some(review.clone()),
-                })
+                if runtime.pending_commands.contains_key(&extension_index) {
+                    runtime
+                        .deferred_events
+                        .entry(extension_index)
+                        .or_default()
+                        .push_back(event);
+                    None
+                } else {
+                    Some(runtime.extensions[extension_index].deliver_event(event))
+                }
             };
             match execution {
-                Ok(execution) => {
+                None => {}
+                Some(Ok(execution)) => {
                     self.apply_extension_actions(extension_index, &extension_id, execution.actions)
                 }
-                Err(error) => {
+                Some(Err(error)) => {
                     self.status = Some(format!("extension {extension_id} event failed: {error}"));
                 }
             }
@@ -3236,13 +3397,16 @@ impl ReviewApp {
                 prepared.insert(file.runtime_id.clone(), cached.layout.clone());
                 continue;
             }
-            clear_file_view_component_state(&mut runtime, &file.runtime_id);
             let Some(registration) = registrations
                 .iter()
                 .find(|registration| registered_file_view_key(&registration.view) == *view_key)
             else {
                 continue;
             };
+            if runtime.extensions[registration.extension_index].command_pending() {
+                continue;
+            }
+            clear_file_view_component_state(&mut runtime, &file.runtime_id);
             let input =
                 create_file_view_input(file, width, ExtensionRequestCancellation::default(), None);
             match runtime.extensions[registration.extension_index]
@@ -4044,6 +4208,17 @@ fn canonical_extension_review_command_id(id: &str) -> &str {
     }
 }
 
+fn extension_command_failure_message(extension_id: &str, command_id: &str, detail: &str) -> String {
+    format!("Extension {extension_id} failed command \"{command_id}\" • {detail}")
+}
+
+fn extension_command_error_detail(error: &HostError) -> std::borrow::Cow<'_, str> {
+    match error {
+        HostError::Remote { message, .. } => std::borrow::Cow::Borrowed(message),
+        _ => std::borrow::Cow::Owned(error.to_string()),
+    }
+}
+
 fn to_live_extension_key_event(key: &KeyEvent) -> ExtensionKeyEvent {
     let (name, sequence) = match key.code {
         KeyCode::Char(character) => (
@@ -4301,6 +4476,7 @@ fn run_loop(
 ) -> Result<()> {
     let mut next_reload = Instant::now() + Duration::from_millis(250);
     while !app.should_quit && !session_stop.is_some_and(|stop| stop.load(Ordering::Relaxed)) {
+        app.poll_extension_commands();
         app.tick_extension_notifications(Instant::now());
         terminal.draw(|frame| {
             let area = frame.area();
@@ -5130,7 +5306,21 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             .get(&planned.key)
             .filter(|cached| cached.signature == signature)
             .map(|cached| cached.view.clone());
-        let view = cached.unwrap_or_else(|| {
+        let view = if let Some(cached) = cached {
+            cached
+        } else if runtime.extensions[registration.extension_index].command_pending() {
+            ExtensionPaneView {
+                extension_id: registration.extension_id.clone(),
+                pane: registration.pane.clone(),
+                content: ViewNode::Text {
+                    text: "Command running…".into(),
+                    style: ViewStyle {
+                        foreground: Some("muted".into()),
+                        ..ViewStyle::default()
+                    },
+                },
+            }
+        } else {
             let current_snapshot = snapshot
                 .get_or_insert_with(|| app.with_state(|state| state.snapshot()))
                 .clone();
@@ -5163,7 +5353,7 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 },
             );
             result
-        });
+        };
         rendered_panes.push((
             planned.key.clone(),
             view,
@@ -8844,6 +9034,29 @@ mod tests {
         assert!(app.execute_extension_review_command("workdeck.review.half-page-up", 1));
         assert!(app.current_line_row < moved);
         assert!(!app.execute_extension_review_command("missing.command", 1));
+    }
+
+    #[test]
+    fn extension_command_failures_are_contained_and_reported_as_attributed_warnings() {
+        let notifications = ExtensionNotificationHub::new();
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                extension_notifications: Some(notifications),
+                ..ReviewOptions::default()
+            },
+        );
+
+        app.report_extension_command_failure("probe", "run", "context boom");
+        let expected = "Extension probe failed command \"run\" • context boom";
+        assert_eq!(app.status.as_deref(), Some(expected));
+        let notification = app.active_extension_notification().unwrap();
+        assert_eq!(notification.message, expected);
+        assert_eq!(notification.notification_type, ExtensionNotifyType::Warning);
+        assert_eq!(
+            extension_command_failure_message("probe", "run", "async boom"),
+            "Extension probe failed command \"run\" • async boom"
+        );
     }
 
     #[test]

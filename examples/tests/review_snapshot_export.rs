@@ -107,6 +107,16 @@ fn rendered_text(terminal: &Terminal<TestBackend>) -> String {
 
 fn press(app: &mut ReviewApp, code: KeyCode) {
     app.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+    settle_extension_commands(app);
+}
+
+fn settle_extension_commands(app: &mut ReviewApp) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while app.has_pending_extension_commands() {
+        app.poll_extension_commands();
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
 }
 
 #[test]

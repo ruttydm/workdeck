@@ -11,7 +11,7 @@ use workdeck_extension_api::{
     ExtensionDiffFile, ExtensionFileChangeKind, ExtensionFileChangeRange,
     ExtensionFileViewHunkRows, ExtensionFileViewLayout, ExtensionFileViewRow,
     ExtensionFileViewSourceRange, ExtensionFileViewSpan, ExtensionFileViewTone,
-    ExtensionHostAction, ExtensionKeyEvent, ExtensionTextAttribute,
+    ExtensionHostAction, ExtensionKeyEvent, ExtensionNotifyType, ExtensionTextAttribute,
     ExtensionWorkspaceWriteCompletion, ExtensionWorkspaceWriteResult, FileViewLayoutRequest,
     FileViewMatchRequest, FileViewModeKeyRequest, FileViewModeLifecycleRequest, HandshakeResponse,
     JsonRpcError, JsonRpcRequest, JsonRpcResponse, KeyRoutingResult, KeyboardModeExecution,
@@ -21,6 +21,9 @@ use workdeck_extension_api::{
 pub const VIEW_ID: &str = "inline-edit";
 pub const COMMAND_ID: &str = "edit";
 pub const REWRITE_COMMAND_ID: &str = "rewrite-selected";
+pub const DELAYED_COMMAND_ID: &str = "delayed-next-hunk";
+pub const FAIL_SYNC_COMMAND_ID: &str = "fail-sync";
+pub const FAIL_ASYNC_COMMAND_ID: &str = "fail-async";
 const HEADER_LABEL: &str = "EDITING — Esc exits · ctrl+s writes";
 const MODIFIED_MARKER: &str = "  MODIFIED";
 const CURSOR_MARK: &str = "▎";
@@ -206,7 +209,25 @@ impl InlineEditExtension {
                 id: REWRITE_COMMAND_ID.into(),
                 title: "Uppercase the selected file".into(),
                 description: Some("Demonstrates command-context workspace reads and writes".into()),
-                default_keys: Vec::new(),
+                default_keys: vec!["f5".into()],
+            }),
+            Registration::Command(CommandRegistration {
+                id: DELAYED_COMMAND_ID.into(),
+                title: "Delayed next hunk".into(),
+                description: Some("Demonstrates nonblocking async command context".into()),
+                default_keys: vec!["f12".into()],
+            }),
+            Registration::Command(CommandRegistration {
+                id: FAIL_SYNC_COMMAND_ID.into(),
+                title: "Fail synchronously".into(),
+                description: Some("Demonstrates contained command failures".into()),
+                default_keys: vec!["f11".into()],
+            }),
+            Registration::Command(CommandRegistration {
+                id: FAIL_ASYNC_COMMAND_ID.into(),
+                title: "Fail after awaiting".into(),
+                description: Some("Demonstrates contained async command failures".into()),
+                default_keys: vec!["f7".into()],
             }),
         ]
     }
@@ -217,6 +238,7 @@ impl InlineEditExtension {
             Capability::Commands,
             Capability::FileViews,
             Capability::Notifications,
+            Capability::ReviewNavigation,
             Capability::WorkspaceRead,
             Capability::WorkspaceWrite,
         ]
@@ -226,6 +248,29 @@ impl InlineEditExtension {
         &mut self,
         invocation: &CommandInvocation,
     ) -> Result<CommandExecution, String> {
+        if invocation.command_id == FAIL_SYNC_COMMAND_ID {
+            return Err("sync boom".into());
+        }
+        if invocation.command_id == FAIL_ASYNC_COMMAND_ID {
+            std::thread::sleep(std::time::Duration::from_millis(25));
+            return Err("async boom".into());
+        }
+        if invocation.command_id == DELAYED_COMMAND_ID {
+            let captured_file_index = invocation.snapshot.selection.file_index;
+            std::thread::sleep(std::time::Duration::from_millis(75));
+            return Ok(CommandExecution {
+                actions: vec![
+                    ExtensionHostAction::Notify {
+                        message: format!("Captured file index {captured_file_index}"),
+                        notification_type: ExtensionNotifyType::Info,
+                    },
+                    ExtensionHostAction::ExecuteReviewCommand {
+                        id: "workdeck.review.nextHunk".into(),
+                        count: None,
+                    },
+                ],
+            });
+        }
         if invocation.command_id == REWRITE_COMMAND_ID {
             let Some(file) = invocation
                 .snapshot

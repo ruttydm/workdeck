@@ -8,6 +8,15 @@ use workdeck_extension_api::{ExtensionHostAction, PanePlacement, PaneRenderReque
 use workdeck_extension_host::LoadedExtension;
 use workdeck_tui::{ReviewApp, ReviewOptions, render, to_extension_paint_theme};
 
+fn settle_extension_commands(app: &mut ReviewApp) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while app.has_pending_extension_commands() {
+        app.poll_extension_commands();
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
 fn staged_extension() -> (TempDir, std::path::PathBuf) {
     let directory = TempDir::new().unwrap();
     let binary_directory = directory.path().join("bin");
@@ -139,6 +148,7 @@ fn review_shell_routes_ctrl_p_and_resizes_the_right_pane() {
     assert!(!rendered_text(&terminal).contains("RIGHT PANE"));
 
     app.handle_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
+    settle_extension_commands(&mut app);
     terminal
         .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
         .unwrap();
@@ -172,6 +182,7 @@ fn review_shell_routes_ctrl_p_and_resizes_the_right_pane() {
     assert!(rendered_text(&terminal).contains("RIGHT PANE · 38×22"));
 
     app.handle_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
+    settle_extension_commands(&mut app);
     terminal
         .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
         .unwrap();
@@ -193,6 +204,7 @@ fn review_shell_routes_ctrl_p_and_resizes_the_right_pane() {
         row: 2,
         modifiers: KeyModifiers::NONE,
     });
+    settle_extension_commands(&mut app);
     terminal
         .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
         .unwrap();

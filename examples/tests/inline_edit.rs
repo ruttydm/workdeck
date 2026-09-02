@@ -11,18 +11,29 @@ use workdeck_core::{
 };
 use workdeck_diff::parse_patch;
 use workdeck_examples::inline_edit_extension::{
-    COMMAND_ID, InlineEditExtension, REWRITE_COMMAND_ID, VIEW_ID,
+    COMMAND_ID, DELAYED_COMMAND_ID, FAIL_ASYNC_COMMAND_ID, FAIL_SYNC_COMMAND_ID,
+    InlineEditExtension, REWRITE_COMMAND_ID, VIEW_ID,
 };
 use workdeck_extension_api::{
     Capability, CommandInvocation, ExtensionFileChangeKind, ExtensionFileChangeRange,
-    ExtensionFileSide, ExtensionHostAction, ExtensionKeyEvent, ExtensionNotifyType,
-    ExtensionWorkspaceWriteCompletion, ExtensionWorkspaceWriteResult, FileViewLayoutRequest,
-    FileViewModeKeyRequest, FileViewModeLifecycleRequest, KeyRoutingResult, Registration,
+    ExtensionFileSide, ExtensionHostAction, ExtensionKeyEvent, ExtensionNotificationHub,
+    ExtensionNotifyType, ExtensionWorkspaceWriteCompletion, ExtensionWorkspaceWriteResult,
+    FileViewLayoutRequest, FileViewModeKeyRequest, FileViewModeLifecycleRequest, KeyRoutingResult,
+    MAX_MESSAGE_BYTES, Registration,
 };
 use workdeck_extension_host::{
     LoadedExtension, create_file_view_input_snapshot, validate_file_view_layout,
 };
 use workdeck_tui::{ReviewApp, ReviewOptions, render};
+
+fn settle_extension_commands(app: &mut ReviewApp) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while app.has_pending_extension_commands() {
+        app.poll_extension_commands();
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
 
 fn oracle() -> serde_json::Value {
     serde_json::from_str(include_str!("../../port/hunk/oracles/inline-edit.json")).unwrap()
@@ -61,6 +72,18 @@ fn whole_file_changeset() -> Changeset {
     value.files[0].hunks[0].old_start = 1;
     value.files[0].hunks[0].old_count = 3;
     value
+}
+
+fn three_file_changeset() -> Changeset {
+    parse_patch(
+        "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old a\n+new a\ndiff --git a/b.rs b/b.rs\n--- a/b.rs\n+++ b/b.rs\n@@ -1 +1 @@\n-old b\n+new b\ndiff --git a/c.rs b/c.rs\n--- a/c.rs\n+++ b/c.rs\n@@ -1 +1 @@\n-old c\n+new c\n",
+        "async-command",
+        "Async command",
+        ChangesetSource::Patch {
+            label: "async-command".into(),
+        },
+    )
+    .unwrap()
 }
 
 fn invocation(changeset: &Changeset) -> CommandInvocation {
@@ -225,7 +248,19 @@ fn registers_one_interactive_file_view_and_both_workspace_commands() {
     }));
     assert!(registrations.iter().any(|registration| {
         matches!(registration, Registration::Command(command)
-            if command.id == REWRITE_COMMAND_ID && command.default_keys.is_empty())
+            if command.id == REWRITE_COMMAND_ID && command.default_keys == ["f5"])
+    }));
+    assert!(registrations.iter().any(|registration| {
+        matches!(registration, Registration::Command(command)
+            if command.id == DELAYED_COMMAND_ID && command.default_keys == ["f12"])
+    }));
+    assert!(registrations.iter().any(|registration| {
+        matches!(registration, Registration::Command(command)
+            if command.id == FAIL_SYNC_COMMAND_ID && command.default_keys == ["f11"])
+    }));
+    assert!(registrations.iter().any(|registration| {
+        matches!(registration, Registration::Command(command)
+            if command.id == FAIL_ASYNC_COMMAND_ID && command.default_keys == ["f7"])
     }));
     assert!(registrations.iter().any(|registration| {
         matches!(registration, Registration::FileView { id, interactive_mode: true, .. }
@@ -237,6 +272,7 @@ fn registers_one_interactive_file_view_and_both_workspace_commands() {
             Capability::Commands,
             Capability::FileViews,
             Capability::Notifications,
+            Capability::ReviewNavigation,
             Capability::WorkspaceRead,
             Capability::WorkspaceWrite,
         ]
@@ -783,6 +819,7 @@ fn ratatui_host_confirms_guards_writes_and_exits_the_mode_after_success() {
     );
 
     app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL));
+    settle_extension_commands(&mut app);
     assert_eq!(app.active_keyboard_mode_title().as_deref(), Some(VIEW_ID));
     let file_id = app.shared_state().lock().unwrap().changeset().files[0]
         .runtime_id
@@ -842,6 +879,7 @@ fn ratatui_host_rejects_a_stale_working_tree_without_losing_the_edit_session() {
         vec![loaded],
     );
     app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL));
+    settle_extension_commands(&mut app);
     app.handle_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE));
     app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
     fs::write(&path, "outside change\n").unwrap();
@@ -870,6 +908,7 @@ fn ratatui_host_refuses_a_missing_target_before_and_after_consent() {
         vec![loaded],
     );
     app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL));
+    settle_extension_commands(&mut app);
     app.handle_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE));
 
     fs::remove_file(&path).unwrap();
@@ -907,6 +946,7 @@ fn ratatui_host_retires_a_pending_workspace_write_when_the_review_reloads() {
         vec![loaded],
     );
     app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL));
+    settle_extension_commands(&mut app);
     app.handle_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE));
     app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
     assert!(app.has_extension_dialog());
@@ -916,6 +956,121 @@ fn ratatui_host_retires_a_pending_workspace_write_when_the_review_reloads() {
     assert_eq!(app.active_keyboard_mode_title(), None);
     app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(fs::read_to_string(path).unwrap(), "alpha\nbeta\n");
+}
+
+#[test]
+fn ratatui_command_awaits_without_blocking_and_applies_navigation_to_live_state() {
+    let (_extension_directory, manifest) = staged_extension();
+    let loaded = LoadedExtension::spawn(&manifest, "test").unwrap();
+    let mut app = ReviewApp::new_with_extensions(
+        three_file_changeset(),
+        ReviewOptions::default(),
+        vec![loaded],
+    );
+
+    let started = std::time::Instant::now();
+    app.handle_key(KeyEvent::new(KeyCode::F(12), KeyModifiers::NONE));
+    assert!(started.elapsed() < std::time::Duration::from_millis(50));
+    assert!(app.has_pending_extension_commands());
+    app.shared_state()
+        .lock()
+        .unwrap()
+        .select_hunk(1, 0)
+        .unwrap();
+
+    settle_extension_commands(&mut app);
+    assert_eq!(app.shared_state().lock().unwrap().selection().file_index, 2);
+    let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+    terminal
+        .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+        .unwrap();
+    assert!(terminal_text(&terminal).contains("Captured file index 0"));
+}
+
+#[test]
+fn ratatui_retires_a_workspace_action_returned_after_review_reload() {
+    let repository = TempDir::new().unwrap();
+    let path = repository.path().join("alpha.ts");
+    fs::write(&path, "alpha\nbeta\n").unwrap();
+    let (_extension_directory, manifest) = staged_extension();
+    let loaded = LoadedExtension::spawn(&manifest, "test").unwrap();
+    let mut app = ReviewApp::new_with_extensions(
+        changeset("alpha\nbeta\n"),
+        ReviewOptions {
+            repo: Some(repository.path().into()),
+            command_cwd: Some(repository.path().into()),
+            review_input: Some(writable_input()),
+            ..ReviewOptions::default()
+        },
+        vec![loaded],
+    );
+
+    app.handle_key(KeyEvent::new(KeyCode::F(5), KeyModifiers::NONE));
+    assert!(app.has_pending_extension_commands());
+    app.reload(changeset("alpha\nbeta\n"));
+    settle_extension_commands(&mut app);
+
+    assert!(!app.has_extension_dialog());
+    assert_eq!(fs::read_to_string(path).unwrap(), "alpha\nbeta\n");
+    assert!(!app.take_reload_requested());
+}
+
+#[test]
+fn ratatui_contains_sync_and_async_command_failures_with_the_same_attribution() {
+    for (key, command_id, detail) in [
+        (KeyCode::F(11), FAIL_SYNC_COMMAND_ID, "sync boom"),
+        (KeyCode::F(7), FAIL_ASYNC_COMMAND_ID, "async boom"),
+    ] {
+        let (_extension_directory, manifest) = staged_extension();
+        let notifications = ExtensionNotificationHub::new();
+        let loaded =
+            LoadedExtension::spawn_with_notifications(&manifest, "test", notifications.clone())
+                .unwrap();
+        let mut app = ReviewApp::new_with_extensions(
+            changeset("alpha\nbeta\n"),
+            ReviewOptions {
+                extension_notifications: Some(notifications),
+                ..ReviewOptions::default()
+            },
+            vec![loaded],
+        );
+
+        app.handle_key(KeyEvent::new(key, KeyModifiers::NONE));
+        settle_extension_commands(&mut app);
+        let notification = app.active_extension_notification().unwrap();
+        assert_eq!(
+            notification.message,
+            format!("Extension example.inline-edit failed command \"{command_id}\" • {detail}")
+        );
+        assert_eq!(notification.notification_type, ExtensionNotifyType::Warning);
+    }
+}
+
+#[test]
+fn ratatui_contains_command_context_transport_failures_before_handler_entry() {
+    let (_extension_directory, manifest) = staged_extension();
+    let notifications = ExtensionNotificationHub::new();
+    let loaded =
+        LoadedExtension::spawn_with_notifications(&manifest, "test", notifications.clone())
+            .unwrap();
+    let mut oversized = changeset("alpha\nbeta\n");
+    oversized.files[0].patch = "x".repeat(MAX_MESSAGE_BYTES);
+    let mut app = ReviewApp::new_with_extensions(
+        oversized,
+        ReviewOptions {
+            extension_notifications: Some(notifications),
+            ..ReviewOptions::default()
+        },
+        vec![loaded],
+    );
+
+    app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL));
+    assert!(!app.has_pending_extension_commands());
+    let notification = app.active_extension_notification().unwrap();
+    assert!(notification.message.starts_with(
+        "Extension example.inline-edit failed command \"edit\" • extension example.inline-edit returned an oversized protocol message"
+    ));
+    assert_eq!(notification.notification_type, ExtensionNotifyType::Warning);
 }
 
 #[test]

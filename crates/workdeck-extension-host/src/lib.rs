@@ -35,12 +35,12 @@ use workdeck_diff::{SanitizeOptions, sanitize_terminal_text};
 use workdeck_extension_api::{
     API_VERSION, CliCommandExecution, CliCommandInvocation, CliCommandResult,
     CliOutputNotification, CliOutputStream, CommandExecution, CommandInvocation,
-    ConfirmDialogSubmission, DEFAULT_REQUEST_TIMEOUT_MS, ExtensionDiffFile, ExtensionFileSide,
-    ExtensionHostAction, ExtensionKeyEvent, ExtensionManifest, ExtensionNotificationHub,
-    ExtensionNotifyType, ExtensionPaneView, ExtensionWorkspaceSnapshot,
-    ExtensionWorkspaceWriteCompletion, FileViewLayoutRequest, FileViewMatchRequest,
-    FileViewModeKeyRequest, FileViewModeLifecycleRequest, HandshakeRequest, HandshakeResponse,
-    InputDialogSubmission, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
+    ConfirmDialogSubmission, DEFAULT_HANDSHAKE_TIMEOUT_MS, DEFAULT_REQUEST_TIMEOUT_MS,
+    ExtensionDiffFile, ExtensionFileSide, ExtensionHostAction, ExtensionKeyEvent,
+    ExtensionManifest, ExtensionNotificationHub, ExtensionNotifyType, ExtensionPaneView,
+    ExtensionWorkspaceSnapshot, ExtensionWorkspaceWriteCompletion, FileViewLayoutRequest,
+    FileViewMatchRequest, FileViewModeKeyRequest, FileViewModeLifecycleRequest, HandshakeRequest,
+    HandshakeResponse, InputDialogSubmission, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
     KeyboardModeExecution, KeyboardModeKeyRequest, KeyboardModeLifecycleRequest, MAX_MESSAGE_BYTES,
     ManifestError, PaneActionInvocation, PaneRenderRequest, PaneRenderResponse, Registration,
     ReviewEvent, SelectDialogSubmission, TransformRequest, TransformResponse,
@@ -64,6 +64,8 @@ pub enum HostError {
     Timeout(String),
     #[error("extension {0} closed its protocol stream")]
     Closed(String),
+    #[error("extension {0} is already handling a command")]
+    Busy(String),
     #[error("extension {id} returned an oversized protocol message ({bytes} bytes)")]
     Oversized { id: String, bytes: usize },
     #[error("extension {id} returned invalid JSON: {source}")]
@@ -307,8 +309,15 @@ pub struct LoadedExtension {
     stdin: ChildStdin,
     responses: mpsc::Receiver<Result<String, std::io::Error>>,
     next_id: u64,
+    pending_command: Option<PendingCommandRequest>,
     registry: Arc<ExtensionRuntimeRegistry>,
     notifications: ExtensionNotificationHub,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PendingCommandRequest {
+    id: u64,
+    deadline: Instant,
 }
 
 impl LoadedExtension {
@@ -388,6 +397,7 @@ impl LoadedExtension {
             stdin,
             responses,
             next_id: 1,
+            pending_command: None,
             registry: Arc::new(ExtensionRuntimeRegistry::new()),
             notifications,
         };
@@ -399,7 +409,7 @@ impl LoadedExtension {
                 extension_id: loaded.manifest.id.clone(),
                 granted_capabilities: loaded.manifest.capabilities.clone(),
             },
-            Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+            Duration::from_millis(DEFAULT_HANDSHAKE_TIMEOUT_MS),
         )?;
         let handshake: HandshakeResponse =
             serde_json::from_value(result).map_err(|error| HostError::Handshake {
@@ -437,6 +447,9 @@ impl LoadedExtension {
         params: impl Serialize,
         timeout: Duration,
     ) -> Result<Value, HostError> {
+        if self.pending_command.is_some() {
+            return Err(HostError::Busy(self.manifest.id.clone()));
+        }
         let id = self.send_request(method, params)?;
         let line = self.receive_protocol_line(Instant::now() + timeout)?;
         self.decode_response(id, &line)
@@ -1107,6 +1120,93 @@ impl LoadedExtension {
             })?;
         self.validate_host_actions(&execution.actions, "command")?;
         Ok(execution)
+    }
+
+    /// Start one command without waiting on the extension process.
+    ///
+    /// Ratatui polls the result from its event loop, preserving Hunk's rule that selection is
+    /// frozen at invocation while the rest of the review can continue changing during an await.
+    #[allow(clippy::too_many_arguments)]
+    pub fn begin_command_with_workspace_context(
+        &mut self,
+        command_id: &str,
+        snapshot: ReviewSnapshot,
+        open_panes: Vec<String>,
+        active_keyboard_mode: Option<String>,
+        cwd: PathBuf,
+        review: Option<workdeck_extension_api::ExtensionReviewSnapshot>,
+        workspace: Option<ExtensionWorkspaceSnapshot>,
+    ) -> Result<(), HostError> {
+        if self.pending_command.is_some() {
+            return Err(HostError::Busy(self.manifest.id.clone()));
+        }
+        if !self.handshake.registrations.iter().any(|registration| {
+            matches!(registration, Registration::Command(command) if command.id == command_id)
+        }) {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "command",
+                message: format!("command {command_id:?} is not registered"),
+            });
+        }
+        let id = self.send_request(
+            "workdeck/command/invoke",
+            CommandInvocation {
+                command_id: command_id.to_owned(),
+                snapshot,
+                cwd,
+                review,
+                open_panes,
+                active_keyboard_mode,
+                workspace,
+            },
+        )?;
+        self.pending_command = Some(PendingCommandRequest {
+            id,
+            deadline: Instant::now() + Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+        });
+        Ok(())
+    }
+
+    #[must_use]
+    pub const fn command_pending(&self) -> bool {
+        self.pending_command.is_some()
+    }
+
+    /// Poll the in-flight command once without blocking the host event loop.
+    pub fn poll_command(&mut self) -> Option<Result<CommandExecution, HostError>> {
+        let pending = self.pending_command?;
+        let line = match self.responses.try_recv() {
+            Ok(Ok(line)) => line,
+            Ok(Err(source)) => {
+                self.pending_command = None;
+                return Some(Err(HostError::Io {
+                    id: self.manifest.id.clone(),
+                    source,
+                }));
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.pending_command = None;
+                return Some(Err(HostError::Closed(self.manifest.id.clone())));
+            }
+            Err(mpsc::TryRecvError::Empty) if Instant::now() >= pending.deadline => {
+                self.pending_command = None;
+                return Some(Err(HostError::Timeout(self.manifest.id.clone())));
+            }
+            Err(mpsc::TryRecvError::Empty) => return None,
+        };
+        self.pending_command = None;
+        let result = self.decode_response(pending.id, &line).and_then(|value| {
+            let execution: CommandExecution =
+                serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+                    id: self.manifest.id.clone(),
+                    kind: "command",
+                    message: error.to_string(),
+                })?;
+            self.validate_host_actions(&execution.actions, "command")?;
+            Ok(execution)
+        });
+        Some(result)
     }
 
     pub fn enter_keyboard_mode(

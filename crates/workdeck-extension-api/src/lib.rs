@@ -33,6 +33,7 @@ pub use workdeck_core::{WORKDECK_EXTENSION_USER_ERROR_NAME, WorkdeckExtensionUse
 pub const API_VERSION: u32 = 1;
 pub const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 2_000;
+pub const DEFAULT_HANDSHAKE_TIMEOUT_MS: u64 = 10_000;
 /// Network-capable extension CLI commands receive a bounded but human-scale deadline.
 pub const DEFAULT_CLI_REQUEST_TIMEOUT_MS: u64 = 30_000;
 pub const MAX_VIEW_NODES: usize = 10_000;
@@ -1562,6 +1563,59 @@ mod tests {
             })
             .unwrap()["kind"],
             "unavailable"
+        );
+    }
+
+    #[test]
+    fn command_invocation_freezes_the_complete_native_context() {
+        let mut live_selection = workdeck_core::ReviewSelection {
+            file_index: 2,
+            hunk_index: Some(3),
+            side: Some(ReviewSide::New),
+            line: Some(41),
+        };
+        let invocation = CommandInvocation {
+            command_id: "run".into(),
+            snapshot: ReviewSnapshot {
+                generation: 11,
+                changeset: Changeset {
+                    id: "review-11".into(),
+                    title: "Review".into(),
+                    source: workdeck_core::ChangesetSource::Patch {
+                        label: "stdin".into(),
+                    },
+                    files: Vec::new(),
+                },
+                selection: live_selection,
+            },
+            cwd: PathBuf::from("/repo"),
+            review: Some(ExtensionReviewSnapshot {
+                generation: "review-11".into(),
+                state_revision: 4,
+                ..ExtensionReviewSnapshot::default()
+            }),
+            open_panes: vec!["probe:summary".into()],
+            active_keyboard_mode: Some("probe:normal".into()),
+            workspace: Some(ExtensionWorkspaceSnapshot {
+                review_generation: 11,
+                documents: Vec::new(),
+            }),
+        };
+        live_selection.file_index = 9;
+
+        assert_eq!(live_selection.file_index, 9);
+        assert_eq!(invocation.snapshot.selection.file_index, 2);
+        let encoded = serde_json::to_value(&invocation).unwrap();
+        assert_eq!(encoded["cwd"], "/repo");
+        assert_eq!(encoded["snapshot"]["generation"], 11);
+        assert_eq!(encoded["snapshot"]["selection"]["line"], 41);
+        assert_eq!(encoded["review"]["stateRevision"], 4);
+        assert_eq!(encoded["open_panes"], serde_json::json!(["probe:summary"]));
+        assert_eq!(encoded["active_keyboard_mode"], "probe:normal");
+        assert_eq!(encoded["workspace"]["reviewGeneration"], 11);
+        assert_eq!(
+            serde_json::from_value::<CommandInvocation>(encoded).unwrap(),
+            invocation
         );
     }
 

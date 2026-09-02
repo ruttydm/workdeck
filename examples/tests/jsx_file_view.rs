@@ -18,6 +18,15 @@ use workdeck_extension_host::{
 };
 use workdeck_tui::{ReviewApp, ReviewOptions, render};
 
+fn settle_extension_commands(app: &mut ReviewApp) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while app.has_pending_extension_commands() {
+        app.poll_extension_commands();
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
 fn oracle() -> Value {
     serde_json::from_str(include_str!("../../port/hunk/oracles/jsx-file-view.json")).unwrap()
 }
@@ -202,6 +211,7 @@ fn ratatui_rows_toggle_only_on_an_undragged_left_mouse_up() {
         vec![loaded],
     );
     app.handle_key(KeyEvent::new(KeyCode::F(8), KeyModifiers::NONE));
+    settle_extension_commands(&mut app);
 
     let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
     terminal

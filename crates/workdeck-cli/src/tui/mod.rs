@@ -181,6 +181,7 @@ fn run_loop(
             next_review_reload = Instant::now() + Duration::from_millis(250);
         }
         if let Some(review) = &mut app.review {
+            review.poll_extension_commands();
             review.tick_extension_notifications(Instant::now());
         }
         terminal.draw(|frame| views::render(app, highlighter, frame))?;

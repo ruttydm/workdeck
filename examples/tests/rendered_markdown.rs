@@ -25,6 +25,15 @@ use workdeck_extension_host::{
 };
 use workdeck_tui::{ReviewApp, ReviewOptions, render};
 
+fn settle_extension_commands(app: &mut ReviewApp) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while app.has_pending_extension_commands() {
+        app.poll_extension_commands();
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
 fn oracle() -> Value {
     serde_json::from_str(include_str!(
         "../../port/hunk/oracles/rendered-markdown.json"
@@ -229,11 +238,13 @@ fn review_shell_accepts_and_clears_the_native_file_view_selection() {
     let file_id = changeset.files[0].runtime_id.clone();
     let mut app = ReviewApp::new_with_extensions(changeset, ReviewOptions::default(), vec![loaded]);
     app.handle_key(KeyEvent::new(KeyCode::F(8), KeyModifiers::NONE));
+    settle_extension_commands(&mut app);
     assert_eq!(
         app.selected_extension_file_view(&file_id).as_deref(),
         Some("example.rendered-markdown:rendered-markdown")
     );
     app.handle_key(KeyEvent::new(KeyCode::F(8), KeyModifiers::NONE));
+    settle_extension_commands(&mut app);
     assert_eq!(app.selected_extension_file_view(&file_id), None);
 }
 
@@ -270,6 +281,7 @@ fn review_shell_paints_the_selected_symbolic_rows_and_restores_raw_diff() {
     let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
 
     app.handle_key(KeyEvent::new(KeyCode::F(8), KeyModifiers::NONE));
+    settle_extension_commands(&mut app);
     terminal
         .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
         .unwrap();
@@ -285,6 +297,7 @@ fn review_shell_paints_the_selected_symbolic_rows_and_restores_raw_diff() {
     assert!(!rendered.contains("-old"));
 
     app.handle_key(KeyEvent::new(KeyCode::F(8), KeyModifiers::NONE));
+    settle_extension_commands(&mut app);
     terminal
         .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
         .unwrap();

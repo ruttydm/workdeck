@@ -3,5 +3,5 @@ name = "Inline edit example"
 version = "0.1.0"
 api_version = 1
 executable = "bin/workdeck-example-inline-edit-extension"
-capabilities = ["commands", "file-views", "notifications", "workspace-read", "workspace-write"]
+capabilities = ["commands", "file-views", "notifications", "review-navigation", "workspace-read", "workspace-write"]
 description = "Edits the selected working-tree document through an interactive file presentation"

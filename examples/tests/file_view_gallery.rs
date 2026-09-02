@@ -28,6 +28,15 @@ use workdeck_extension_host::{
 };
 use workdeck_tui::{ReviewApp, ReviewOptions, render};
 
+fn settle_extension_commands(app: &mut ReviewApp) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while app.has_pending_extension_commands() {
+        app.poll_extension_commands();
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
 const CHANGE_BEFORE: &str =
     include_str!("../extensions/file-view-gallery/fixtures/change-atlas/before.rs");
 const CHANGE_AFTER: &str =
@@ -678,6 +687,7 @@ fn ratatui_paints_selection_sensitive_atlas_and_exact_css_swatches() {
         ReviewApp::new_with_extensions(changeset(file), ReviewOptions::default(), vec![loaded]);
     let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
     app.handle_key(KeyEvent::new(KeyCode::F(8), KeyModifiers::NONE));
+    settle_extension_commands(&mut app);
     assert_eq!(
         app.selected_extension_file_view(&file_id).as_deref(),
         Some("example.file-view-gallery:change-atlas")
@@ -698,6 +708,7 @@ fn ratatui_paints_selection_sensitive_atlas_and_exact_css_swatches() {
     assert!(second.contains("▶ CHANGE 02"));
 
     app.handle_key(KeyEvent::new(KeyCode::F(8), KeyModifiers::NONE));
+    settle_extension_commands(&mut app);
     assert_eq!(app.selected_extension_file_view(&file_id), None);
 
     let (_directory, manifest_path) = staged_extension();
@@ -707,6 +718,7 @@ fn ratatui_paints_selection_sensitive_atlas_and_exact_css_swatches() {
         ReviewApp::new_with_extensions(changeset(file), ReviewOptions::default(), vec![loaded]);
     let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
     app.handle_key(KeyEvent::new(KeyCode::F(8), KeyModifiers::NONE));
+    settle_extension_commands(&mut app);
     terminal
         .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
         .unwrap();

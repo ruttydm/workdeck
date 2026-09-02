@@ -184,6 +184,16 @@ fn find_text(buffer: &Buffer, needle: &str) -> Option<(u16, u16)> {
 
 fn press(app: &mut ReviewApp, code: KeyCode) {
     app.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+    settle_extension_commands(app);
+}
+
+fn settle_extension_commands(app: &mut ReviewApp) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while app.has_pending_extension_commands() {
+        app.poll_extension_commands();
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
 }
 
 #[test]
@@ -399,6 +409,7 @@ fn disabled_current_line_marker_preserves_the_hunk_warning_fallback() {
     );
     let mut terminal = Terminal::new(TestBackend::new(160, 24)).unwrap();
     app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::ALT));
+    settle_extension_commands(&mut app);
     press(&mut app, KeyCode::Down);
     press(&mut app, KeyCode::Enter);
     terminal
@@ -638,6 +649,7 @@ fn ratatui_routes_clicks_dialogs_lifecycle_and_note_events_end_to_end() {
     assert!(rendered_text(&terminal).contains("! hunk 2 — ordering 🧭"));
 
     app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::ALT));
+    settle_extension_commands(&mut app);
     for _ in 0..4 {
         press(&mut app, KeyCode::Down);
     }
@@ -654,6 +666,7 @@ fn ratatui_routes_clicks_dialogs_lifecycle_and_note_events_end_to_end() {
     assert!(rendered_text(&terminal).contains("ordering 🧭"));
 
     app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::ALT));
+    settle_extension_commands(&mut app);
     for _ in 0..4 {
         press(&mut app, KeyCode::Down);
     }
