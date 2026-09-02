@@ -98,6 +98,7 @@ fn invoke_export(
             id: DIALOG_ID.into(),
             title: "Export review snapshot".into(),
             placeholder: "workdeck-review-snapshot.json".into(),
+            initial: None,
         }],
     })
 }

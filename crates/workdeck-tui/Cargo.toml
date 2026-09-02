@@ -9,7 +9,8 @@ description = "Hunk-style Ratatui review canvas for Workdeck"
 [dependencies]
 anyhow = "1.0"
 crossterm = "0.28"
-ratatui = "0.29"
+ratatui = { version = "0.29", features = ["unstable-rendered-line-info"] }
+serde_json = "1.0"
 unicode-width = "0.2"
 unicode-segmentation = "1.12"
 workdeck-core = { path = "../workdeck-core" }
@@ -20,6 +21,3 @@ workdeck-markup = { path = "../workdeck-markup" }
 workdeck-review = { path = "../workdeck-review" }
 workdeck-session = { path = "../workdeck-session" }
 workdeck-vcs = { path = "../workdeck-vcs" }
-
-[dev-dependencies]
-serde_json = "1.0"

@@ -108,8 +108,9 @@ use workdeck_extension_api::{
     ExtensionNotificationSubscription, ExtensionNotifyType, ExtensionPaintTheme, ExtensionPaneView,
     ExtensionTextAttribute, ExtensionWorkspaceWriteCompletion, ExtensionWorkspaceWriteResult,
     FileViewModeKeyRequest, FileViewModeLifecycleRequest, KeyRoutingResult,
-    KeyboardModeRegistration, PanePlacement, PaneRegistration, PaneRenderRequest, Registration,
-    ValidatedFileViewLayout, ViewNode, ViewStyle, extension_pane_size,
+    KeyboardModeRegistration, PaneActionInvocation, PanePlacement, PaneRegistration,
+    PaneRenderRequest, Registration, ReviewEvent, ValidatedFileViewLayout, ViewNode, ViewStyle,
+    extension_pane_size,
 };
 use workdeck_extension_host::{
     ExtensionRequestCancellation, FileViewSelectionState, LoadedExtension, RegisteredFileView,
@@ -302,6 +303,25 @@ struct ExtensionSelectDialog {
 }
 
 #[derive(Debug, Clone)]
+struct ExtensionConfirmDialog {
+    extension_index: usize,
+    extension_id: String,
+    action_id: String,
+    title: String,
+    body: String,
+    confirm_label: String,
+}
+
+#[derive(Debug, Clone)]
+struct ExtensionPaneActionHit {
+    bounds: Rect,
+    extension_index: usize,
+    extension_id: String,
+    pane_id: String,
+    action_id: String,
+}
+
+#[derive(Debug, Clone)]
 struct CachedPaneRender {
     signature: PaneRenderSignature,
     view: ExtensionPaneView,
@@ -343,6 +363,8 @@ struct ExtensionPaneRuntime {
     workspace_write_dialog: Option<ExtensionWorkspaceWriteDialog>,
     input_dialog: Option<ExtensionInputDialog>,
     select_dialog: Option<ExtensionSelectDialog>,
+    confirm_dialog: Option<ExtensionConfirmDialog>,
+    pane_action_hits: Vec<ExtensionPaneActionHit>,
     open: BTreeSet<String>,
     size_overrides: BTreeMap<String, u16>,
     cached_renders: BTreeMap<String, CachedPaneRender>,
@@ -443,6 +465,8 @@ pub struct ReviewApp {
     mouse_scroll_acceleration: ReviewMouseWheelScrollAcceleration,
     mouse_scroll_accumulator: f64,
     extension_pane_runtime: Mutex<ExtensionPaneRuntime>,
+    extension_event_dispatch_depth: usize,
+    extension_known_note_ids: BTreeSet<String>,
 }
 
 impl ReviewApp {
@@ -472,7 +496,12 @@ impl ReviewApp {
                             .enqueue(notification);
                     })
                 });
-        Self {
+        let extension_known_note_ids = state
+            .comments()
+            .iter()
+            .map(|comment| comment.id.clone())
+            .collect();
+        let mut app = Self {
             state: Arc::new(Mutex::new(state)),
             options,
             focus: Focus::Review,
@@ -492,7 +521,12 @@ impl ReviewApp {
             mouse_scroll_acceleration: ReviewMouseWheelScrollAcceleration::default(),
             mouse_scroll_accumulator: 0.0,
             extension_pane_runtime: Mutex::new(ExtensionPaneRuntime::new(extensions)),
-        }
+            extension_event_dispatch_depth: 0,
+            extension_known_note_ids,
+        };
+        app.publish_extension_event("changeset_loaded", serde_json::json!({}));
+        app.publish_extension_selection_events();
+        app
     }
 
     pub fn shared_state(&self) -> Arc<Mutex<ReviewState>> {
@@ -525,7 +559,9 @@ impl ReviewApp {
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             runtime.input_dialog = None;
             runtime.select_dialog = None;
+            runtime.confirm_dialog = None;
             runtime.workspace_write_dialog = None;
+            runtime.pane_action_hits.clear();
             let file_ids = changeset
                 .files
                 .iter()
@@ -566,6 +602,15 @@ impl ReviewApp {
                 .cached_renders
                 .clear();
         }
+        self.extension_known_note_ids = self.with_state(|state| {
+            state
+                .comments()
+                .iter()
+                .map(|comment| comment.id.clone())
+                .collect()
+        });
+        self.publish_extension_event("session_reload", serde_json::json!({}));
+        self.publish_extension_selection_events();
     }
 
     fn apply_extension_transforms(&self, mut changeset: Changeset) -> Result<Changeset> {
@@ -585,6 +630,7 @@ impl ReviewApp {
     }
 
     pub fn tick_extension_notifications(&mut self, now: Instant) {
+        self.sync_extension_note_events();
         self.extension_toasts
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -677,9 +723,19 @@ impl ReviewApp {
     }
 
     #[must_use]
+    pub fn has_extension_confirm_dialog(&self) -> bool {
+        self.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .confirm_dialog
+            .is_some()
+    }
+
+    #[must_use]
     pub fn has_extension_dialog(&self) -> bool {
         self.has_extension_input_dialog()
             || self.has_extension_select_dialog()
+            || self.has_extension_confirm_dialog()
             || self
                 .extension_pane_runtime
                 .lock()
@@ -694,6 +750,7 @@ impl ReviewApp {
             return;
         }
         if self.handle_workspace_write_key(&key)
+            || self.handle_extension_confirm_key(&key)
             || self.handle_extension_select_key(&key)
             || self.handle_extension_input_key(&key)
         {
@@ -865,6 +922,40 @@ impl ReviewApp {
         }
     }
 
+    fn invoke_extension_pane_action(&mut self, hit: ExtensionPaneActionHit) {
+        let (snapshot, review) =
+            self.with_state(|state| (state.snapshot(), build_extension_review_snapshot(state)));
+        let cwd = self.extension_command_cwd();
+        let execution = {
+            let mut runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let open_panes = runtime.open.iter().cloned().collect();
+            runtime.extensions[hit.extension_index].invoke_pane_action(PaneActionInvocation {
+                pane_id: hit.pane_id,
+                action_id: hit.action_id,
+                snapshot,
+                cwd,
+                review: Some(review),
+                open_panes,
+            })
+        };
+        match execution {
+            Ok(execution) => self.apply_extension_actions(
+                hit.extension_index,
+                &hit.extension_id,
+                execution.actions,
+            ),
+            Err(error) => {
+                self.status = Some(format!(
+                    "extension {} pane action failed: {error}",
+                    hit.extension_id
+                ));
+            }
+        }
+    }
+
     fn route_active_keyboard_mode(&mut self, key: &KeyEvent) -> bool {
         let active = self
             .extension_pane_runtime
@@ -956,6 +1047,18 @@ impl ReviewApp {
                     runtime.open.remove(&pane_key);
                     runtime.cached_renders.remove(&pane_key);
                 }
+                ExtensionHostAction::RefreshPane { id } => {
+                    let pane_key = if id.contains(':') {
+                        id
+                    } else {
+                        format!("{extension_id}:{id}")
+                    };
+                    self.extension_pane_runtime
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .cached_renders
+                        .remove(&pane_key);
+                }
                 ExtensionHostAction::EnterKeyboardMode { id } => {
                     self.enter_keyboard_mode(extension_index, extension_id, &id);
                 }
@@ -964,6 +1067,18 @@ impl ReviewApp {
                 }
                 ExtensionHostAction::ExecuteReviewCommand { id, count } => {
                     self.execute_extension_review_command(&id, count.unwrap_or(1));
+                }
+                ExtensionHostAction::TryReviewCommand {
+                    id,
+                    count,
+                    unavailable_message,
+                } => {
+                    if !self.execute_extension_review_command(&id, count.unwrap_or(1)) {
+                        self.status = Some(format!(
+                            "extension {extension_id}: warning: {}",
+                            sanitize_terminal_line(&unavailable_message)
+                        ));
+                    }
                 }
                 ExtensionHostAction::SelectReviewFile { file_id } => {
                     self.select_extension_review_file(extension_id, &file_id);
@@ -1015,6 +1130,7 @@ impl ReviewApp {
                     id,
                     title,
                     placeholder,
+                    initial,
                 } => {
                     let mut runtime = self
                         .extension_pane_runtime
@@ -1022,13 +1138,16 @@ impl ReviewApp {
                         .unwrap_or_else(|poisoned| poisoned.into_inner());
                     runtime.menu_open = false;
                     runtime.select_dialog = None;
+                    runtime.confirm_dialog = None;
                     runtime.input_dialog = Some(ExtensionInputDialog {
                         extension_index,
                         extension_id: extension_id.into(),
                         action_id: id,
                         title: sanitize_terminal_line(&title),
                         placeholder: sanitize_terminal_line(&placeholder),
-                        value: String::new(),
+                        value: initial
+                            .map(|value| sanitize_terminal_line(&value))
+                            .unwrap_or_default(),
                     });
                 }
                 ExtensionHostAction::OpenSelectDialog { id, title, options } => {
@@ -1049,6 +1168,7 @@ impl ReviewApp {
                         .unwrap_or_else(|poisoned| poisoned.into_inner());
                     runtime.menu_open = false;
                     runtime.input_dialog = None;
+                    runtime.confirm_dialog = None;
                     runtime.select_dialog = Some(ExtensionSelectDialog {
                         extension_index,
                         extension_id: extension_id.into(),
@@ -1057,6 +1177,31 @@ impl ReviewApp {
                         options,
                         selected: 0,
                     });
+                }
+                ExtensionHostAction::OpenConfirmDialog {
+                    id,
+                    title,
+                    body,
+                    confirm_label,
+                } => {
+                    let mut runtime = self
+                        .extension_pane_runtime
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    runtime.menu_open = false;
+                    runtime.input_dialog = None;
+                    runtime.select_dialog = None;
+                    runtime.confirm_dialog = Some(ExtensionConfirmDialog {
+                        extension_index,
+                        extension_id: extension_id.into(),
+                        action_id: id,
+                        title: sanitize_terminal_line(&title),
+                        body: sanitize_terminal_line(&body),
+                        confirm_label: sanitize_terminal_line(&confirm_label),
+                    });
+                }
+                ExtensionHostAction::EmitEvent { name, payload } => {
+                    self.publish_extension_event(&name, payload);
                 }
                 ExtensionHostAction::Notify {
                     message,
@@ -1074,6 +1219,120 @@ impl ReviewApp {
                 }
             }
         }
+    }
+
+    fn publish_extension_event(&mut self, name: &str, payload: serde_json::Value) {
+        const MAX_EVENT_DISPATCH_DEPTH: usize = 16;
+        if self.extension_event_dispatch_depth >= MAX_EVENT_DISPATCH_DEPTH {
+            self.status = Some(format!(
+                "extension event {name} exceeded the {MAX_EVENT_DISPATCH_DEPTH}-event recursion limit"
+            ));
+            return;
+        }
+        let targets = {
+            let runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            runtime
+                .extensions
+                .iter()
+                .enumerate()
+                .filter(|(_, extension)| extension.subscribes_to_event(name))
+                .map(|(index, extension)| (index, extension.manifest.id.clone()))
+                .collect::<Vec<_>>()
+        };
+        if targets.is_empty() {
+            return;
+        }
+        let (snapshot, review) =
+            self.with_state(|state| (state.snapshot(), build_extension_review_snapshot(state)));
+        self.extension_event_dispatch_depth += 1;
+        for (extension_index, extension_id) in targets {
+            let execution = {
+                let mut runtime = self
+                    .extension_pane_runtime
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                runtime.extensions[extension_index].deliver_event(ReviewEvent {
+                    name: name.into(),
+                    snapshot: snapshot.clone(),
+                    payload: payload.clone(),
+                    review: Some(review.clone()),
+                })
+            };
+            match execution {
+                Ok(execution) => {
+                    self.apply_extension_actions(extension_index, &extension_id, execution.actions)
+                }
+                Err(error) => {
+                    self.status = Some(format!("extension {extension_id} event failed: {error}"));
+                }
+            }
+        }
+        self.extension_event_dispatch_depth -= 1;
+    }
+
+    fn publish_extension_selection_events(&mut self) {
+        let (file_id, hunk_index) = self.with_state(|state| {
+            let selection = state.selection();
+            (
+                state
+                    .changeset()
+                    .files
+                    .get(selection.file_index)
+                    .map(|file| file.runtime_id.clone()),
+                selection.hunk_index,
+            )
+        });
+        self.publish_extension_event(
+            "selection_changed",
+            serde_json::json!({ "fileId": file_id, "hunkIndex": hunk_index }),
+        );
+        if let (Some(file_id), Some(hunk_index)) = (file_id, hunk_index) {
+            self.publish_extension_event(
+                "hunk_viewed",
+                serde_json::json!({ "fileId": file_id, "hunkIndex": hunk_index }),
+            );
+        }
+    }
+
+    fn sync_extension_note_events(&mut self) {
+        let (current_ids, created) = self.with_state(|state| {
+            let current_ids = state
+                .comments()
+                .iter()
+                .map(|comment| comment.id.clone())
+                .collect::<BTreeSet<_>>();
+            let created = state
+                .comments()
+                .iter()
+                .filter(|comment| !self.extension_known_note_ids.contains(&comment.id))
+                .map(|comment| {
+                    let file_id = state
+                        .changeset()
+                        .files
+                        .iter()
+                        .find(|file| file.key == comment.anchor.file_key)
+                        .map(|file| file.runtime_id.clone());
+                    serde_json::json!({
+                        "noteId": comment.id,
+                        "fileId": file_id,
+                        "hunkIndex": comment.anchor.owner_hunk_index,
+                    })
+                })
+                .collect::<Vec<_>>();
+            (current_ids, created)
+        });
+        self.extension_known_note_ids = current_ids;
+        for payload in created {
+            self.publish_extension_event("note_created", payload);
+        }
+    }
+
+    /// Inform subscribed extensions that watch mode has observed a source change.
+    pub fn notify_watch_reload_pending(&mut self) {
+        self.publish_extension_event("watch_reload_pending", serde_json::json!({}));
     }
 
     fn enter_keyboard_mode(&mut self, extension_index: usize, extension_id: &str, id: &str) {
@@ -1165,6 +1424,14 @@ impl ReviewApp {
                     .is_some_and(|dialog| dialog.extension_index == active.extension_index)
             {
                 runtime.select_dialog = None;
+            }
+            if let Some(active) = &active
+                && runtime
+                    .confirm_dialog
+                    .as_ref()
+                    .is_some_and(|dialog| dialog.extension_index == active.extension_index)
+            {
+                runtime.confirm_dialog = None;
             }
             active
         };
@@ -1263,6 +1530,7 @@ impl ReviewApp {
         runtime.menu_open = false;
         runtime.input_dialog = None;
         runtime.select_dialog = None;
+        runtime.confirm_dialog = None;
         runtime.workspace_write_dialog = Some(ExtensionWorkspaceWriteDialog {
             extension_index,
             extension_id: extension_id.into(),
@@ -1429,6 +1697,35 @@ impl ReviewApp {
         }
         std::fs::write(&target, replacement)
             .map_err(|error| format!("Failed to write {} • {error}", file.path))
+    }
+
+    fn handle_extension_confirm_key(&mut self, key: &KeyEvent) -> bool {
+        let has_dialog = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .confirm_dialog
+            .is_some();
+        if !has_dialog {
+            return false;
+        }
+        let confirmed = match key.code {
+            KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => Some(true),
+            KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => Some(false),
+            _ => None,
+        };
+        if let Some(confirmed) = confirmed {
+            let dialog = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .confirm_dialog
+                .take();
+            if let Some(dialog) = dialog {
+                self.submit_extension_confirm(dialog, confirmed);
+            }
+        }
+        true
     }
 
     fn handle_extension_select_key(&mut self, key: &KeyEvent) -> bool {
@@ -1640,7 +1937,59 @@ impl ReviewApp {
         }
     }
 
-    fn execute_extension_review_command(&mut self, id: &str, count: u16) {
+    fn submit_extension_confirm(&mut self, dialog: ExtensionConfirmDialog, confirmed: bool) {
+        let (snapshot, review) =
+            self.with_state(|state| (state.snapshot(), build_extension_review_snapshot(state)));
+        let cwd = self.extension_command_cwd();
+        let execution = {
+            let mut runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let active_keyboard_mode = runtime
+                .active_keyboard_mode
+                .as_ref()
+                .map(|active| format!("{}:{}", active.extension_id, active.mode.id))
+                .or_else(|| {
+                    runtime
+                        .active_file_view_mode
+                        .as_ref()
+                        .map(|active| format!("{}:{}", active.extension_id, active.view_id))
+                });
+            runtime.extensions[dialog.extension_index].submit_confirm_dialog_with_context(
+                &dialog.action_id,
+                confirmed,
+                snapshot,
+                active_keyboard_mode,
+                cwd,
+                Some(review),
+            )
+        };
+        match execution {
+            Ok(execution) => self.apply_extension_actions(
+                dialog.extension_index,
+                &dialog.extension_id,
+                execution.actions,
+            ),
+            Err(error) => {
+                self.status = Some(format!(
+                    "extension {} confirmation failed: {error}",
+                    dialog.extension_id
+                ));
+            }
+        }
+    }
+
+    fn execute_extension_review_command(&mut self, id: &str, count: u16) -> bool {
+        if matches!(
+            id,
+            "workdeck.review.align-current-line-top"
+                | "workdeck.review.align-current-line-center"
+                | "workdeck.review.align-current-line-bottom"
+        ) && self.options.cursor_line == CursorLineMode::Off
+        {
+            return false;
+        }
         let rows = self.current_review_rows();
         let last = rows.lines.len().saturating_sub(1);
         let viewport = usize::from(self.review_height.get().saturating_sub(1).max(1));
@@ -1701,8 +2050,9 @@ impl ReviewApp {
                     .current_line_row
                     .saturating_sub(viewport.saturating_sub(1));
             }
-            _ => {}
+            _ => return false,
         }
+        true
     }
 
     fn extension_review_file_index(&self, file_id: &str) -> Option<usize> {
@@ -1728,6 +2078,7 @@ impl ReviewApp {
         {
             self.reconcile_active_file_view_mode();
             self.scroll_to_selection();
+            self.publish_extension_selection_events();
         }
     }
 
@@ -2227,6 +2578,7 @@ impl ReviewApp {
             return;
         }
         self.scroll_to_selection();
+        self.publish_extension_selection_events();
     }
 
     fn reveal_extension_review_line(
@@ -2249,6 +2601,7 @@ impl ReviewApp {
             return;
         }
         self.scroll_to_selection();
+        self.publish_extension_selection_events();
     }
 
     fn keep_current_line_visible(&mut self, viewport: usize, last: usize) {
@@ -2414,6 +2767,7 @@ impl ReviewApp {
         if self.with_state(action) {
             self.reconcile_active_file_view_mode();
             self.scroll_to_selection();
+            self.publish_extension_selection_events();
         }
     }
 
@@ -2574,6 +2928,18 @@ impl ReviewApp {
             .extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if event.kind == MouseEventKind::Down(MouseButton::Left)
+            && let Some(hit) = runtime
+                .pane_action_hits
+                .iter()
+                .rev()
+                .find(|hit| rect_contains(hit.bounds, event.column, event.row))
+                .cloned()
+        {
+            drop(runtime);
+            self.invoke_extension_pane_action(hit);
+            return true;
+        }
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 let Some(planned) = runtime.layout.panes.iter().find(|planned| {
@@ -3029,6 +3395,7 @@ fn run_loop<B: Backend>(
                 Ok::<(), anyhow::Error>(())
             });
             if outcome.reload_pending {
+                app.notify_watch_reload_pending();
                 app.status = Some("review reload pending".into());
             }
             if let Some(error) = outcome.errors.last() {
@@ -3086,6 +3453,7 @@ pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     }
     render_extension_input_dialog(area, buffer, app);
     render_extension_select_dialog(area, buffer, app);
+    render_extension_confirm_dialog(area, buffer, app);
     render_extension_workspace_write_dialog(area, buffer, app);
 }
 
@@ -3418,6 +3786,57 @@ pub fn render_extension_select_dialog(area: Rect, buffer: &mut Buffer, app: &Rev
     Paragraph::new(lines).render(inner, buffer);
 }
 
+/// Draw the host-owned confirmation modal requested by a native extension.
+pub fn render_extension_confirm_dialog(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+    let dialog = app
+        .extension_pane_runtime
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .confirm_dialog
+        .clone();
+    let Some(dialog) = dialog else {
+        return;
+    };
+    let help = format!("Enter/y {} · Esc/n cancels", dialog.confirm_label);
+    let desired_width = dialog
+        .title
+        .width()
+        .max(dialog.body.width())
+        .max(help.width())
+        .saturating_add(4);
+    let width = u16::try_from(desired_width)
+        .unwrap_or(u16::MAX)
+        .max(30)
+        .min(area.width.max(1));
+    let height = 4.min(area.height.max(1));
+    let bounds = Rect::new(
+        area.x.saturating_add(area.width.saturating_sub(width) / 2),
+        area.y
+            .saturating_add(area.height.saturating_sub(height) / 2),
+        width,
+        height,
+    );
+    Clear.render(bounds, buffer);
+    let block = Block::default()
+        .title(format!(" {} ", dialog.title))
+        .borders(Borders::ALL)
+        .style(Style::default().bg(ratatui_theme_color(&app.options.theme.panel)))
+        .border_style(Style::default().fg(ratatui_theme_color(&app.options.theme.accent)));
+    let inner = block.inner(bounds);
+    block.render(bounds, buffer);
+    Paragraph::new(vec![
+        Line::styled(
+            dialog.body,
+            Style::default().fg(ratatui_theme_color(&app.options.theme.text)),
+        ),
+        Line::styled(
+            help,
+            Style::default().fg(ratatui_theme_color(&app.options.theme.muted)),
+        ),
+    ])
+    .render(inner, buffer);
+}
+
 /// Draw the host-owned consent prompt for a native extension workspace write.
 pub fn render_extension_workspace_write_dialog(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     let dialog = app
@@ -3487,6 +3906,7 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .extension_pane_runtime
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    runtime.pane_action_hits.clear();
     let mut specs = static_specs.clone();
     specs.extend(runtime.panes.iter().map(|registration| ExtensionPaneSpec {
         key: registration.key.clone(),
@@ -3516,6 +3936,7 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 app.options.extension_panes[index].clone(),
                 planned.bounds,
                 planned.divider,
+                None,
             ));
             continue;
         }
@@ -3574,16 +3995,25 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             );
             result
         });
-        rendered_panes.push((view, planned.bounds, planned.divider));
+        rendered_panes.push((
+            view,
+            planned.bounds,
+            planned.divider,
+            Some((
+                registration.extension_index,
+                registration.extension_id,
+                registration.pane.id,
+            )),
+        ));
     }
     drop(runtime);
 
     render_builtin_body(plan.review_bounds, buffer, app);
-    for (pane, pane_area, divider) in rendered_panes {
+    for (pane, pane_area, divider, owner) in rendered_panes {
         if let Some(divider) = divider {
             render_extension_pane_divider(divider, buffer, pane.pane.placement, app);
         }
-        render_extension_pane(pane_area, buffer, &pane, app);
+        render_extension_pane(pane_area, buffer, &pane, owner, app);
     }
 }
 
@@ -3629,16 +4059,54 @@ fn render_extension_pane(
     area: Rect,
     buffer: &mut Buffer,
     pane: &ExtensionPaneView,
+    owner: Option<(usize, String, String)>,
     app: &ReviewApp,
 ) {
     let mut lines = Vec::new();
-    flatten_view(&pane.content, 0, &mut lines);
+    let mut actions = Vec::new();
+    flatten_view(&pane.content, 0, None, &mut lines, &mut actions);
     Block::default()
         .style(Style::default().bg(ratatui_theme_color(&app.options.theme.panel)))
         .render(area, buffer);
+    if let Some((extension_index, extension_id, pane_id)) = owner {
+        let mut y = area.y;
+        let mut hits = Vec::new();
+        for (line, action_id) in lines.iter().zip(&actions) {
+            let height = extension_pane_line_height(line, area.width);
+            let visible_height = height.min(area.bottom().saturating_sub(y));
+            if let Some(action_id) = action_id
+                && visible_height > 0
+            {
+                hits.push(ExtensionPaneActionHit {
+                    bounds: Rect::new(area.x, y, area.width, visible_height),
+                    extension_index,
+                    extension_id: extension_id.clone(),
+                    pane_id: pane_id.clone(),
+                    action_id: action_id.clone(),
+                });
+            }
+            y = y.saturating_add(height);
+            if y >= area.bottom() {
+                break;
+            }
+        }
+        app.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .pane_action_hits
+            .extend(hits);
+    }
     Paragraph::new(lines)
         .wrap(Wrap { trim: false })
         .render(area, buffer);
+}
+
+fn extension_pane_line_height(line: &Line<'_>, width: u16) -> u16 {
+    let height = Paragraph::new(line.clone())
+        .wrap(Wrap { trim: false })
+        .line_count(width.max(1))
+        .max(1);
+    u16::try_from(height).unwrap_or(u16::MAX)
 }
 
 fn render_extension_pane_divider(
@@ -3657,12 +4125,21 @@ fn render_extension_pane_divider(
     }
 }
 
-fn flatten_view(node: &ViewNode, indent: usize, lines: &mut Vec<Line<'static>>) {
+fn flatten_view(
+    node: &ViewNode,
+    indent: usize,
+    action_id: Option<&str>,
+    lines: &mut Vec<Line<'static>>,
+    actions: &mut Vec<Option<String>>,
+) {
     match node {
-        ViewNode::Text { text, style } => lines.push(Line::from(vec![
-            Span::raw(" ".repeat(indent)),
-            Span::styled(text.clone(), extension_style(style)),
-        ])),
+        ViewNode::Text { text, style } => {
+            lines.push(Line::from(vec![
+                Span::raw(" ".repeat(indent)),
+                Span::styled(text.clone(), extension_style(style)),
+            ]));
+            actions.push(action_id.map(str::to_owned));
+        }
         ViewNode::Row { children, gap } => {
             let mut spans = vec![Span::raw(" ".repeat(indent))];
             for (index, child) in children.iter().enumerate() {
@@ -3677,13 +4154,17 @@ fn flatten_view(node: &ViewNode, indent: usize, lines: &mut Vec<Line<'static>>) 
                 }
             }
             lines.push(Line::from(spans));
+            actions.push(action_id.map(str::to_owned));
         }
         ViewNode::Column { children, gap } => {
             for (index, child) in children.iter().enumerate() {
                 if index > 0 {
-                    lines.extend((0..*gap).map(|_| Line::default()));
+                    for _ in 0..*gap {
+                        lines.push(Line::default());
+                        actions.push(action_id.map(str::to_owned));
+                    }
                 }
-                flatten_view(child, indent, lines);
+                flatten_view(child, indent, action_id, lines, actions);
             }
         }
         ViewNode::List { items, selected } => {
@@ -3697,13 +4178,20 @@ fn flatten_view(node: &ViewNode, indent: usize, lines: &mut Vec<Line<'static>>) 
                     format!("{}{}", " ".repeat(indent), marker),
                     Style::default().fg(Color::Cyan),
                 ));
-                flatten_view(item, indent + 2, lines);
+                actions.push(action_id.map(str::to_owned));
+                flatten_view(item, indent + 2, action_id, lines, actions);
             }
         }
-        ViewNode::Divider => lines.push(Line::styled(
-            format!("{}────────", " ".repeat(indent)),
-            Style::default().fg(Color::DarkGray),
-        )),
+        ViewNode::Action { id, child } => {
+            flatten_view(child, indent, Some(id), lines, actions);
+        }
+        ViewNode::Divider => {
+            lines.push(Line::styled(
+                format!("{}────────", " ".repeat(indent)),
+                Style::default().fg(Color::DarkGray),
+            ));
+            actions.push(action_id.map(str::to_owned));
+        }
         ViewNode::Empty => {}
     }
 }
@@ -3756,6 +4244,9 @@ fn flatten_file_view_component(
                 ));
                 flatten_file_view_component(item, indent + 2, theme, lines);
             }
+        }
+        ViewNode::Action { child, .. } => {
+            flatten_file_view_component(child, indent, theme, lines);
         }
         ViewNode::Divider => lines.push(Line::styled(
             format!("{}────────", " ".repeat(indent)),
@@ -6159,6 +6650,14 @@ mod tests {
             .map(|cell| cell.symbol())
             .collect::<String>();
         assert!(rendered.contains("native pane content"));
+    }
+
+    #[test]
+    fn pane_action_hit_heights_follow_ratatuis_word_wrapping() {
+        let line = Line::raw("aaaaa bbbbb ccccc");
+        assert_eq!(extension_pane_line_height(&line, 10), 3);
+        assert_eq!(extension_pane_line_height(&line, 17), 1);
+        assert_eq!(extension_pane_line_height(&Line::default(), 0), 1);
     }
 
     #[test]

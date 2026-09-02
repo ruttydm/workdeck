@@ -732,6 +732,11 @@ pub enum ViewNode {
         items: Vec<ViewNode>,
         selected: Option<usize>,
     },
+    /// A host-rendered subtree that invokes one extension-owned pane action when clicked.
+    Action {
+        id: String,
+        child: Box<ViewNode>,
+    },
     Divider,
     Empty,
 }
@@ -803,6 +808,8 @@ pub struct ReviewEvent {
     pub snapshot: ReviewSnapshot,
     #[serde(default)]
     pub payload: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<ExtensionReviewSnapshot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -831,6 +838,20 @@ pub struct PaneRenderResponse {
     pub content: ViewNode,
 }
 
+/// One click on an extension-owned action subtree inside a host-rendered pane.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaneActionInvocation {
+    pub pane_id: String,
+    pub action_id: String,
+    pub snapshot: ReviewSnapshot,
+    #[serde(default)]
+    pub cwd: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<ExtensionReviewSnapshot>,
+    #[serde(default)]
+    pub open_panes: Vec<String>,
+}
+
 /// One invocation of a registered in-review command.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandInvocation {
@@ -857,6 +878,10 @@ pub enum ExtensionHostAction {
     ClosePane {
         id: String,
     },
+    /// Invalidate one extension-owned pane without changing its open state.
+    RefreshPane {
+        id: String,
+    },
     EnterKeyboardMode {
         id: String,
     },
@@ -865,6 +890,13 @@ pub enum ExtensionHostAction {
         id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         count: Option<u16>,
+    },
+    /// Execute a semantic review command and notify when its current precondition is absent.
+    TryReviewCommand {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        count: Option<u16>,
+        unavailable_message: String,
     },
     SelectReviewFile {
         file_id: String,
@@ -903,11 +935,25 @@ pub enum ExtensionHostAction {
         id: String,
         title: String,
         placeholder: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        initial: Option<String>,
     },
     OpenSelectDialog {
         id: String,
         title: String,
         options: Vec<String>,
+    },
+    OpenConfirmDialog {
+        id: String,
+        title: String,
+        body: String,
+        confirm_label: String,
+    },
+    /// Publish a namespaced extension event to every current subscriber.
+    EmitEvent {
+        name: String,
+        #[serde(default)]
+        payload: Value,
     },
     Notify {
         message: String,
@@ -1006,6 +1052,19 @@ pub struct InputDialogSubmission {
 pub struct SelectDialogSubmission {
     pub action_id: String,
     pub value: Option<String>,
+    pub snapshot: ReviewSnapshot,
+    #[serde(default)]
+    pub cwd: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<ExtensionReviewSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_keyboard_mode: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfirmDialogSubmission {
+    pub action_id: String,
+    pub confirmed: bool,
     pub snapshot: ReviewSnapshot,
     #[serde(default)]
     pub cwd: PathBuf,
@@ -1145,6 +1204,12 @@ pub fn validate_view(root: &ViewNode) -> Result<(), String> {
             }
             ViewNode::List { items, .. } => {
                 pending.extend(items.iter().map(|child| (child, depth + 1)));
+            }
+            ViewNode::Action { id, child } => {
+                if id.trim().is_empty() || id.len() > 1_024 {
+                    return Err("view action ids must be 1..=1024 bytes".into());
+                }
+                pending.push((child, depth + 1));
             }
             ViewNode::Divider | ViewNode::Empty => {}
         }
@@ -1286,6 +1351,7 @@ mod tests {
                     id: "vim-command".into(),
                     title: "Vim command (:)".into(),
                     placeholder: "top or bottom".into(),
+                    initial: None,
                 },
             ],
         };
@@ -1357,6 +1423,51 @@ mod tests {
             };
         }
         assert!(validate_view(&view).unwrap_err().contains("depth"));
+    }
+
+    #[test]
+    fn pane_actions_and_confirmation_dialogs_round_trip_without_executable_ui_objects() {
+        let action = ViewNode::Action {
+            id: "select-hunk:4".into(),
+            child: Box::new(ViewNode::Text {
+                text: "hunk 5".into(),
+                style: ViewStyle::default(),
+            }),
+        };
+        assert!(validate_view(&action).is_ok());
+        assert!(
+            validate_view(&ViewNode::Action {
+                id: String::new(),
+                child: Box::new(ViewNode::Empty),
+            })
+            .is_err()
+        );
+
+        let execution = CommandExecution {
+            actions: vec![
+                ExtensionHostAction::RefreshPane {
+                    id: "triage".into(),
+                },
+                ExtensionHostAction::OpenConfirmDialog {
+                    id: "clear".into(),
+                    title: "Clear?".into(),
+                    body: "Session state only".into(),
+                    confirm_label: "clear".into(),
+                },
+                ExtensionHostAction::EmitEvent {
+                    name: "review-triage:decision".into(),
+                    payload: serde_json::json!({ "status": "approved" }),
+                },
+            ],
+        };
+        let encoded = serde_json::to_value(&execution).unwrap();
+        assert_eq!(encoded["actions"][0]["kind"], "refresh-pane");
+        assert_eq!(encoded["actions"][1]["kind"], "open-confirm-dialog");
+        assert_eq!(encoded["actions"][2]["kind"], "emit-event");
+        assert_eq!(
+            serde_json::from_value::<CommandExecution>(encoded).unwrap(),
+            execution
+        );
     }
 
     #[test]

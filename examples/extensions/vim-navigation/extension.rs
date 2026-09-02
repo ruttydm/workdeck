@@ -46,6 +46,7 @@ fn invoke_command(invocation: &CommandInvocation) -> Result<CommandExecution, St
             id: "vim-command".into(),
             title: "Vim command (:)".into(),
             placeholder: "top or bottom".into(),
+            initial: None,
         }],
         "command-line" => vec![ExtensionHostAction::Notify {
             message: "Enter Vim navigation before opening its command line".into(),

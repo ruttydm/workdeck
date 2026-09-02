@@ -40,6 +40,10 @@ path = "extensions/jsx-file-view/main.rs"
 name = "workdeck-example-inline-edit-extension"
 path = "extensions/inline-edit/main.rs"
 
+[[bin]]
+name = "workdeck-example-review-triage-extension"
+path = "extensions/review-triage/main.rs"
+
 [dependencies]
 pulldown-cmark = "=0.13.4"
 ratatui = "0.29"

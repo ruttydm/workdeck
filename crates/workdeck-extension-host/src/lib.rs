@@ -33,15 +33,16 @@ use workdeck_diff::{SanitizeOptions, sanitize_terminal_text};
 use workdeck_extension_api::{
     API_VERSION, CliCommandExecution, CliCommandInvocation, CliCommandResult,
     CliOutputNotification, CliOutputStream, CommandExecution, CommandInvocation,
-    DEFAULT_REQUEST_TIMEOUT_MS, ExtensionDiffFile, ExtensionFileSide, ExtensionHostAction,
-    ExtensionKeyEvent, ExtensionManifest, ExtensionNotificationHub, ExtensionNotifyType,
-    ExtensionPaneView, ExtensionWorkspaceWriteCompletion, FileViewLayoutRequest,
-    FileViewMatchRequest, FileViewModeKeyRequest, FileViewModeLifecycleRequest, HandshakeRequest,
-    HandshakeResponse, InputDialogSubmission, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
-    KeyboardModeExecution, KeyboardModeKeyRequest, KeyboardModeLifecycleRequest, MAX_MESSAGE_BYTES,
-    ManifestError, PaneRenderRequest, PaneRenderResponse, Registration, SelectDialogSubmission,
-    TransformRequest, TransformResponse, ValidatedFileViewLayout, extension_pane_size,
-    is_vertical_pane_placement, parse_key_chord, validate_view,
+    ConfirmDialogSubmission, DEFAULT_REQUEST_TIMEOUT_MS, ExtensionDiffFile, ExtensionFileSide,
+    ExtensionHostAction, ExtensionKeyEvent, ExtensionManifest, ExtensionNotificationHub,
+    ExtensionNotifyType, ExtensionPaneView, ExtensionWorkspaceWriteCompletion,
+    FileViewLayoutRequest, FileViewMatchRequest, FileViewModeKeyRequest,
+    FileViewModeLifecycleRequest, HandshakeRequest, HandshakeResponse, InputDialogSubmission,
+    JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, KeyboardModeExecution,
+    KeyboardModeKeyRequest, KeyboardModeLifecycleRequest, MAX_MESSAGE_BYTES, ManifestError,
+    PaneActionInvocation, PaneRenderRequest, PaneRenderResponse, Registration, ReviewEvent,
+    SelectDialogSubmission, TransformRequest, TransformResponse, ValidatedFileViewLayout,
+    extension_pane_size, is_vertical_pane_placement, parse_key_chord, validate_view,
 };
 
 #[derive(Debug, Error)]
@@ -948,6 +949,73 @@ impl LoadedExtension {
         })
     }
 
+    /// Invoke one extension-owned action embedded in a declarative pane tree.
+    pub fn invoke_pane_action(
+        &mut self,
+        invocation: PaneActionInvocation,
+    ) -> Result<CommandExecution, HostError> {
+        if !self.handshake.registrations.iter().any(|registration| {
+            matches!(registration, Registration::Pane(pane) if pane.id == invocation.pane_id)
+        }) {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "pane action",
+                message: format!("pane {:?} is not registered", invocation.pane_id),
+            });
+        }
+        if invocation.action_id.trim().is_empty() || invocation.action_id.len() > 1_024 {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "pane action",
+                message: "pane action ids must be 1..=1024 bytes".into(),
+            });
+        }
+        let value = self.request(
+            "workdeck/pane/action",
+            invocation,
+            Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+        )?;
+        let execution: CommandExecution =
+            serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "pane action",
+                message: error.to_string(),
+            })?;
+        self.validate_host_actions(&execution.actions, "pane action")?;
+        Ok(execution)
+    }
+
+    #[must_use]
+    pub fn subscribes_to_event(&self, name: &str) -> bool {
+        self.handshake.registrations.iter().any(|registration| {
+            matches!(registration, Registration::EventSubscription { names } if names.iter().any(|candidate| candidate == name))
+        })
+    }
+
+    /// Deliver one host lifecycle or namespaced extension event to a declared subscriber.
+    pub fn deliver_event(&mut self, event: ReviewEvent) -> Result<CommandExecution, HostError> {
+        if !self.subscribes_to_event(&event.name) {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "event",
+                message: format!("event {:?} is not subscribed", event.name),
+            });
+        }
+        let value = self.request(
+            "workdeck/event",
+            event,
+            Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+        )?;
+        let execution: CommandExecution =
+            serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "event",
+                message: error.to_string(),
+            })?;
+        self.validate_host_actions(&execution.actions, "event")?;
+        Ok(execution)
+    }
+
     /// Invoke one registered in-review command and validate all requested host mutations.
     pub fn invoke_command(
         &mut self,
@@ -1161,6 +1229,37 @@ impl LoadedExtension {
         Ok(execution)
     }
 
+    pub fn submit_confirm_dialog_with_context(
+        &mut self,
+        action_id: &str,
+        confirmed: bool,
+        snapshot: ReviewSnapshot,
+        active_keyboard_mode: Option<String>,
+        cwd: PathBuf,
+        review: Option<workdeck_extension_api::ExtensionReviewSnapshot>,
+    ) -> Result<CommandExecution, HostError> {
+        let value = self.request(
+            "workdeck/dialog/confirm",
+            ConfirmDialogSubmission {
+                action_id: action_id.to_owned(),
+                confirmed,
+                snapshot,
+                cwd,
+                review,
+                active_keyboard_mode,
+            },
+            Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+        )?;
+        let execution: CommandExecution =
+            serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "confirm dialog",
+                message: error.to_string(),
+            })?;
+        self.validate_host_actions(&execution.actions, "confirm dialog")?;
+        Ok(execution)
+    }
+
     fn require_keyboard_mode(&self, mode_id: &str) -> Result<(), HostError> {
         if self.handshake.registrations.iter().any(|registration| {
             matches!(registration, Registration::KeyboardMode(mode) if mode.id == mode_id)
@@ -1238,7 +1337,9 @@ impl LoadedExtension {
         };
         for action in actions {
             let valid = match action {
-                ExtensionHostAction::OpenPane { id } | ExtensionHostAction::ClosePane { id } => {
+                ExtensionHostAction::OpenPane { id }
+                | ExtensionHostAction::ClosePane { id }
+                | ExtensionHostAction::RefreshPane { id } => {
                     self.manifest
                         .capabilities
                         .contains(&workdeck_extension_api::Capability::Panes)
@@ -1263,6 +1364,22 @@ impl LoadedExtension {
                         .contains(&workdeck_extension_api::Capability::ReviewNavigation)
                         && is_public_review_command(id)
                         && count.is_none_or(|count| (1..=10_000).contains(&count))
+                }
+                ExtensionHostAction::TryReviewCommand {
+                    id,
+                    count,
+                    unavailable_message,
+                } => {
+                    self.manifest
+                        .capabilities
+                        .contains(&workdeck_extension_api::Capability::ReviewNavigation)
+                        && self
+                            .manifest
+                            .capabilities
+                            .contains(&workdeck_extension_api::Capability::Notifications)
+                        && is_public_review_command(id)
+                        && count.is_none_or(|count| (1..=10_000).contains(&count))
+                        && !unavailable_message.trim().is_empty()
                 }
                 ExtensionHostAction::SelectReviewFile { file_id } => {
                     self.manifest
@@ -1346,6 +1463,26 @@ impl LoadedExtension {
                             .iter()
                             .all(|option| !option.trim().is_empty() && option.len() <= 4 * 1_024)
                 }
+                ExtensionHostAction::OpenConfirmDialog {
+                    id,
+                    title,
+                    body,
+                    confirm_label,
+                } => {
+                    self.manifest
+                        .capabilities
+                        .contains(&workdeck_extension_api::Capability::Dialogs)
+                        && !id.trim().is_empty()
+                        && !title.trim().is_empty()
+                        && !body.trim().is_empty()
+                        && !confirm_label.trim().is_empty()
+                }
+                ExtensionHostAction::EmitEvent { name, .. } => {
+                    self.manifest
+                        .capabilities
+                        .contains(&workdeck_extension_api::Capability::Events)
+                        && valid_custom_event_name(name)
+                }
                 ExtensionHostAction::Notify { .. } => self
                     .manifest
                     .capabilities
@@ -1379,6 +1516,19 @@ fn is_public_review_command(id: &str) -> bool {
             | "workdeck.review.jump-to-top"
             | "workdeck.review.jump-to-bottom"
     )
+}
+
+fn valid_custom_event_name(name: &str) -> bool {
+    let Some((namespace, event)) = name.split_once(':') else {
+        return false;
+    };
+    !namespace.is_empty()
+        && !event.is_empty()
+        && name.len() <= 256
+        && !name.starts_with("workdeck:")
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1593,6 +1743,25 @@ fn validate_registrations(
                 id: manifest.id.clone(),
                 message: "file views require non-empty local ids and titles".into(),
             });
+        }
+        if let Registration::EventSubscription { names } = registration {
+            let unique = names.iter().collect::<BTreeSet<_>>();
+            if names.is_empty()
+                || unique.len() != names.len()
+                || names.iter().any(|name| {
+                    name.trim().is_empty()
+                        || name.len() > 256
+                        || !name.bytes().all(|byte| {
+                            byte.is_ascii_alphanumeric()
+                                || matches!(byte, b'-' | b'_' | b'.' | b':')
+                        })
+                })
+            {
+                return Err(HostError::Handshake {
+                    id: manifest.id.clone(),
+                    message: "event subscriptions require unique, non-empty protocol names".into(),
+                });
+            }
         }
     }
     Ok(())
@@ -2106,5 +2275,52 @@ mod tests {
 
         manifest.capabilities.clear();
         assert!(validate_registrations(&manifest, &response("tools", "Tools", None)).is_err());
+    }
+
+    #[test]
+    fn event_names_distinguish_host_lifecycle_subscriptions_from_extension_emissions() {
+        for valid in [
+            "review-triage:decision",
+            "vendor.feature:opened",
+            "a:b_c-1.2",
+        ] {
+            assert!(valid_custom_event_name(valid), "{valid}");
+        }
+        for invalid in [
+            "selection_changed",
+            "workdeck:selection_changed",
+            "missing space:event",
+            ":",
+            "",
+        ] {
+            assert!(!valid_custom_event_name(invalid), "{invalid}");
+        }
+
+        let manifest = ExtensionManifest {
+            id: "events".into(),
+            name: "Events".into(),
+            version: "1.0.0".into(),
+            api_version: API_VERSION,
+            executable: "events".into(),
+            capabilities: vec![workdeck_extension_api::Capability::Events],
+            description: None,
+        };
+        let response = |names: &[&str]| HandshakeResponse {
+            extension_api_version: API_VERSION,
+            extension_version: "1.0.0".into(),
+            registrations: vec![Registration::EventSubscription {
+                names: names.iter().map(|name| (*name).into()).collect(),
+            }],
+        };
+        assert!(
+            validate_registrations(
+                &manifest,
+                &response(&["selection_changed", "review-triage:open"])
+            )
+            .is_ok()
+        );
+        assert!(validate_registrations(&manifest, &response(&[])).is_err());
+        assert!(validate_registrations(&manifest, &response(&["same", "same"])).is_err());
+        assert!(validate_registrations(&manifest, &response(&["bad name"])).is_err());
     }
 }

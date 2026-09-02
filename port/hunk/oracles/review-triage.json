@@ -1,0 +1,112 @@
+{
+  "capture": {
+    "method": "Executed each pinned TypeScript extension through Bun with hook-only React and host API test doubles; invoked registrations, lifecycle callbacks, command/dialog flows, pane component, click callbacks, and custom event listener.",
+    "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+  },
+  "sources": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "viewedEvent": "hunk_viewed",
+      "lifecycle": [
+        "changeset_loaded",
+        "session_reload",
+        "selection_changed",
+        "hunk_viewed",
+        "note_created",
+        "filter_changed",
+        "watch_reload_pending"
+      ]
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "viewedEvent": "file_viewed",
+      "lifecycle": [
+        "changeset_loaded",
+        "session_reload",
+        "selection_changed",
+        "file_viewed",
+        "note_created",
+        "filter_changed",
+        "watch_reload_pending"
+      ]
+    }
+  ],
+  "pane": {
+    "id": "triage",
+    "title": "Review triage",
+    "placement": "right"
+  },
+  "commands": [
+    { "id": "toggle", "title": "Toggle review triage", "key": "y" },
+    { "id": "center", "title": "Center current review line" },
+    { "id": "mark", "title": "Mark selected hunk…", "key": "x" },
+    { "id": "focus", "title": "Set review focus…" },
+    { "id": "clear", "title": "Clear triage decisions" }
+  ],
+  "customEvents": ["review-triage:open"],
+  "beforeClear": [
+    { "content": " Review triage (session only)", "fg": "accent", "bg": "panel", "clickable": false },
+    { "content": " 0/3 reviewed · !0 · ×1", "fg": "muted", "bg": "panel", "clickable": false },
+    { "content": " Reload pending…", "fg": "accent-muted", "bg": "panel", "clickable": false },
+    { "content": " Filter: src/**", "fg": "muted", "bg": "panel", "clickable": false },
+    { "content": " src/lib.ts (2)", "fg": "text", "bg": "panel", "clickable": true },
+    { "content": "   · hunk 1 [1 note]", "fg": "text", "bg": "panel", "clickable": true },
+    { "content": "   × hunk 2 — race window", "fg": "removed", "bg": "selected", "clickable": true },
+    { "content": " src/other.ts (1)", "fg": "text", "bg": "panel", "clickable": true },
+    { "content": "   ○ hunk 1", "fg": "text", "bg": "panel", "clickable": true }
+  ],
+  "afterCancelledClear": [
+    " Review triage (session only)",
+    " 0/3 reviewed · !0 · ×1",
+    " Reload pending…",
+    " Focus: concurrency",
+    " Filter: src/**",
+    " src/lib.ts (2)",
+    "   · hunk 1 [1 note]",
+    "   × hunk 2 — race window",
+    " src/other.ts (1)",
+    "   ○ hunk 1"
+  ],
+  "afterConfirmedClear": [
+    " Review triage (session only)",
+    " 0/3 reviewed · !0 · ×0",
+    " Reload pending…",
+    " Focus: concurrency",
+    " Filter: src/**",
+    " src/lib.ts (2)",
+    "   · hunk 1 [1 note]",
+    "   ○ hunk 2",
+    " src/other.ts (1)",
+    "   ○ hunk 1"
+  ],
+  "afterReload": [
+    " Review triage (session only)",
+    " 0/1 reviewed · !0 · ×0",
+    " Focus: concurrency",
+    " Filter: src/**",
+    " src/lib.ts (1)",
+    "   · hunk 1 [1 note]"
+  ],
+  "emitted": [
+    {
+      "name": "review-triage:decision",
+      "payload": { "fileId": "file-a", "hunkIndex": 1, "status": "blocked" }
+    }
+  ],
+  "notices": [
+    { "message": "Enable the current-line marker before centering it", "type": "warning" },
+    { "message": "Marked hunk 2 blocked", "type": "info" },
+    { "message": "Cleared review triage decisions", "type": "info" }
+  ],
+  "paneCalls": [
+    { "method": "toggle", "id": "triage" },
+    { "method": "open", "id": "triage" },
+    { "method": "open", "id": "triage" }
+  ],
+  "commandCalls": ["hunk.review.alignCurrentLineCenter"],
+  "clickCalls": [
+    { "method": "selectHunk", "fileId": "file-a", "hunkIndex": 1 },
+    { "method": "selectFile", "fileId": "file-b" }
+  ]
+}
