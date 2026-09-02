@@ -6,6 +6,7 @@
 mod alignment;
 mod bundled_theme_assets;
 mod code_columns;
+mod compact_highlight;
 mod geometry;
 mod git_format;
 mod git_log;
@@ -24,6 +25,13 @@ pub use code_columns::{
     expand_diff_tabs, find_max_line_number, find_max_line_number_in_rows, max_file_code_line_width,
     measure_rendered_code_line_width, resolve_code_viewport_width, resolve_split_cell_geometry,
     resolve_split_pane_widths, resolve_stack_cell_geometry,
+};
+pub use compact_highlight::{
+    COMPACT_HIGHLIGHT_FLAG_WORD_DIFF, COMPACT_HIGHLIGHT_PROTOCOL_VERSION, CompactHighlightError,
+    CompactHighlightLineLengths, CompactHighlightRun, CompactHighlightSide, CompactHighlightedDiff,
+    HastAppearance, HastHighlightRun, HastNode, collect_hast_highlight_runs,
+    compact_highlight_runs_for_line, compact_highlighted_diff_byte_length,
+    encode_compact_highlighted_diff, validate_compact_highlighted_diff,
 };
 pub use geometry::{
     SegmentWindow, TextSegment, clip_segments, measure_wrapped_segments_line_count, segments_width,

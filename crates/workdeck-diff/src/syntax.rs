@@ -5,15 +5,16 @@
 //! source packages and complete licenses are recorded in `THIRD_PARTY_NOTICES` and
 //! `third_party/themes`.
 
+use crate::compact_highlight::{decode_compact_syntax_lines, encode_compact_syntax_lines};
 use crate::{
-    HighlightLineArrays, HighlightedDiffCache, HighlightedDiffCode, alias_context_highlight_lines,
-    bundled_theme_assets::BUNDLED_THEME_ASSETS, create_source_backed_highlight_plan,
+    CompactHighlightedDiff, HighlightLineArrays, HighlightedDiffCache, HighlightedDiffCode,
+    alias_context_highlight_lines, bundled_theme_assets::BUNDLED_THEME_ASSETS,
+    compact_highlighted_diff_byte_length, create_source_backed_highlight_plan,
     remap_source_backed_highlight,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, VecDeque};
-use std::mem::size_of;
 use std::path::Path;
 use std::str::FromStr;
 use syntect::easy::HighlightLines;
@@ -279,7 +280,7 @@ pub const MAX_WORKER_HIGHLIGHT_CACHE_BYTES: usize = 8 * 1024 * 1024;
 #[derive(Debug, Clone)]
 struct HighlightWorkerCacheEntry {
     bytes: usize,
-    payload: HighlightedFile,
+    payload: CompactHighlightedDiff,
 }
 
 /// Byte-bounded LRU that returns deep clones and retains its own payloads.
@@ -301,15 +302,15 @@ impl HighlightWorkerCache {
         }
     }
 
-    fn get(&mut self, cache_key: &str) -> Option<HighlightedFile> {
+    fn get(&mut self, cache_key: &str) -> Option<CompactHighlightedDiff> {
         let payload = self.entries.get(cache_key)?.payload.clone();
         self.promote(cache_key);
         Some(payload)
     }
 
     /// Retain a worker-owned clone and evict least-recently-used entries over budget.
-    fn set(&mut self, cache_key: String, payload: &HighlightedFile) -> bool {
-        let bytes = highlighted_file_byte_length(payload);
+    fn set(&mut self, cache_key: String, payload: &CompactHighlightedDiff) -> bool {
+        let bytes = compact_highlighted_diff_byte_length(payload);
         if bytes > self.max_bytes {
             return false;
         }
@@ -360,37 +361,6 @@ impl HighlightWorkerCache {
     fn cached_bytes(&self) -> usize {
         self.cached_bytes
     }
-}
-
-fn highlighted_file_byte_length(payload: &HighlightedFile) -> usize {
-    let container_bytes = size_of::<HighlightedFile>()
-        .saturating_add(payload.len().saturating_mul(size_of::<HighlightedHunk>()));
-    payload.iter().fold(container_bytes, |file_bytes, hunk| {
-        let hunk_bytes = size_of::<HighlightedHunk>()
-            .saturating_add(hunk.len().saturating_mul(size_of::<HighlightedLine>()));
-        file_bytes.saturating_add(hunk.iter().fold(hunk_bytes, |line_bytes, line| {
-            line_bytes
-                .saturating_add(size_of::<HighlightedDiffLine>())
-                .saturating_add(
-                    line.deletion
-                        .as_ref()
-                        .map_or(0, highlighted_line_byte_length),
-                )
-                .saturating_add(
-                    line.addition
-                        .as_ref()
-                        .map_or(0, highlighted_line_byte_length),
-                )
-        }))
-    })
-}
-
-fn highlighted_line_byte_length(line: &HighlightedLine) -> usize {
-    size_of::<HighlightedLine>().saturating_add(line.iter().fold(0, |bytes, token| {
-        bytes
-            .saturating_add(size_of::<SyntaxToken>())
-            .saturating_add(token.text.len())
-    }))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -609,10 +579,17 @@ impl HighlightCache {
         if let Some(cached) = self.entries.get(&key) {
             return cached.highlighted;
         }
-        if let Some(cached) = self.worker_entries.get(&key) {
+        if let Some(cached) = self.worker_entries.get(&key)
+            && let Ok(sides) = decode_compact_syntax_lines(
+                &cached,
+                &metadata.deletion_lines,
+                &metadata.addition_lines,
+            )
+        {
+            let highlighted = assemble_highlighted_file(file, &metadata, &sides);
             self.entries
-                .set(key, highlighted_diff_code(file, cached.clone()));
-            return cached;
+                .set(key, highlighted_diff_code(file, highlighted.clone()));
+            return highlighted;
         }
         let syntax = self
             .syntaxes
@@ -648,8 +625,22 @@ impl HighlightCache {
             alias_context_highlight_lines(&metadata, &mut visible);
             visible
         };
-        let highlighted = assemble_highlighted_file(file, &metadata, &visible_sides);
-        self.worker_entries.set(key.clone(), &highlighted);
+        let compact = encode_compact_syntax_lines(&visible_sides).ok();
+        let cached_sides = compact
+            .as_ref()
+            .and_then(|payload| {
+                decode_compact_syntax_lines(
+                    payload,
+                    &metadata.deletion_lines,
+                    &metadata.addition_lines,
+                )
+                .ok()
+            })
+            .unwrap_or(visible_sides);
+        let highlighted = assemble_highlighted_file(file, &metadata, &cached_sides);
+        if let Some(compact) = &compact {
+            self.worker_entries.set(key.clone(), compact);
+        }
         self.entries
             .set(key, highlighted_diff_code(file, highlighted.clone()));
         highlighted
@@ -910,12 +901,12 @@ mod tests {
         .remove(0)
     }
 
-    fn test_highlight_payload(line_count: usize) -> HighlightedFile {
-        vec![
-            (0..line_count)
-                .map(|index| HighlightedDiffLine {
-                    deletion: None,
-                    addition: Some(vec![SyntaxToken {
+    fn test_highlight_payload(line_count: usize) -> CompactHighlightedDiff {
+        encode_compact_syntax_lines(&HighlightLineArrays {
+            deletion_lines: vec![None; line_count],
+            addition_lines: (0..line_count)
+                .map(|index| {
+                    Some(vec![SyntaxToken {
                         text: format!("line-{index}"),
                         foreground: SyntaxColor {
                             red: 1,
@@ -925,10 +916,11 @@ mod tests {
                         bold: false,
                         italic: false,
                         underline: false,
-                    }]),
+                    }])
                 })
                 .collect(),
-        ]
+        })
+        .unwrap()
     }
 
     #[test]
@@ -939,20 +931,17 @@ mod tests {
 
         let mut first_response = cache.get("first").unwrap();
         assert!(!std::ptr::eq(
-            first_response[0][0].addition.as_ref().unwrap().as_ptr(),
-            payload[0][0].addition.as_ref().unwrap().as_ptr()
+            first_response.addition.starts.as_ptr(),
+            payload.addition.starts.as_ptr()
         ));
-        first_response[0][0].addition.as_mut().unwrap()[0].text = "transferred-away".into();
-        assert_eq!(
-            cache.get("first").unwrap()[0][0].addition.as_ref().unwrap()[0].text,
-            "line-0"
-        );
+        first_response.addition.starts[0] = 99;
+        assert_eq!(cache.get("first").unwrap().addition.starts[0], 0);
     }
 
     #[test]
     fn worker_cache_evicts_the_least_recently_used_payload_under_budget() {
         let payload = test_highlight_payload(1);
-        let payload_bytes = highlighted_file_byte_length(&payload);
+        let payload_bytes = compact_highlighted_diff_byte_length(&payload);
         let mut cache = HighlightWorkerCache::new(payload_bytes * 2);
 
         assert!(cache.set("first".into(), &test_highlight_payload(1)));
@@ -968,7 +957,7 @@ mod tests {
     #[test]
     fn worker_cache_skips_oversized_payloads_without_evicting_a_resident() {
         let payload = test_highlight_payload(1);
-        let mut cache = HighlightWorkerCache::new(highlighted_file_byte_length(&payload));
+        let mut cache = HighlightWorkerCache::new(compact_highlighted_diff_byte_length(&payload));
         assert!(cache.set("fitting".into(), &payload));
         assert!(!cache.set("oversized".into(), &test_highlight_payload(2)));
 
@@ -979,7 +968,8 @@ mod tests {
     #[test]
     fn worker_cache_releases_a_replaced_payloads_previous_byte_charge() {
         let payload = test_highlight_payload(1);
-        let mut cache = HighlightWorkerCache::new(highlighted_file_byte_length(&payload) * 2);
+        let mut cache =
+            HighlightWorkerCache::new(compact_highlighted_diff_byte_length(&payload) * 2);
 
         assert!(cache.set("reloaded".into(), &test_highlight_payload(1)));
         assert!(cache.set("reloaded".into(), &test_highlight_payload(2)));
@@ -987,7 +977,47 @@ mod tests {
 
         assert!(cache.get("reloaded").is_none());
         assert!(cache.get("kept").is_some());
-        assert_eq!(cache.cached_bytes(), highlighted_file_byte_length(&payload));
+        assert_eq!(
+            cache.cached_bytes(),
+            compact_highlighted_diff_byte_length(&payload)
+        );
+    }
+
+    #[test]
+    fn native_highlight_cache_reconstructs_text_from_review_sources() {
+        let file = identity_file("const answer = '🦀';\n", "example.ts");
+        let mut cache = HighlightCache::default();
+        let first = cache.highlight(&file, PIERRE_DARK_THEME);
+        assert!(!cache.worker_entries.entries.is_empty());
+        let compact = cache
+            .worker_entries
+            .entries
+            .values()
+            .next()
+            .unwrap()
+            .payload
+            .clone();
+        assert!(
+            compact
+                .foreground_palette
+                .iter()
+                .all(|color| color.starts_with('#'))
+        );
+
+        // Force the second call through the worker-owned compact cache instead of the terminal
+        // line cache. The reconstructed rows must use the authoritative diff text, including a
+        // non-BMP scalar whose compact range occupies two UTF-16 columns.
+        cache.entries.clear();
+        let second = cache.highlight(&file, PIERRE_DARK_THEME);
+        assert_eq!(second, first);
+        let reconstructed = second[0][1]
+            .addition
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|token| token.text.as_str())
+            .collect::<String>();
+        assert_eq!(reconstructed, "const answer = '🦀';");
     }
 
     #[test]
