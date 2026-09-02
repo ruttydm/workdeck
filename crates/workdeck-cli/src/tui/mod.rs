@@ -23,6 +23,7 @@ use workdeck_session::{ReviewSessionServer, default_discovery_directory};
 use workdeck_tui::{
     DEFAULT_STARTUP_NOTICE_DELAY, DEFAULT_STARTUP_NOTICE_DURATION, DEFAULT_STARTUP_NOTICE_REPEAT,
     JobControlAction, JobControlPlatform, JobControlSupport, StartupNoticeQueue,
+    open_review_editor_in_crossterm,
 };
 #[cfg(unix)]
 use workdeck_tui::{JobControlRuntime, suspend_foreground_process_group};
@@ -517,6 +518,11 @@ fn handle_key(
             _ => {
                 if let Some(review) = &mut app.review {
                     review.handle_key(key);
+                    if let Some(request) = review.take_editor_request()
+                        && let Some(message) = open_review_editor_in_crossterm(terminal, &request)
+                    {
+                        review.set_status(message);
+                    }
                     if review.take_reload_requested() {
                         reload_review(app);
                     }

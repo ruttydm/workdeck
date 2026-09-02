@@ -21,3 +21,6 @@ workdeck-markup = { path = "../workdeck-markup" }
 workdeck-review = { path = "../workdeck-review" }
 workdeck-session = { path = "../workdeck-session" }
 workdeck-vcs = { path = "../workdeck-vcs" }
+
+[dev-dependencies]
+tempfile = "3.13"

@@ -25,6 +25,7 @@ mod list_geometry;
 mod menu;
 mod mouse_capture;
 mod mouse_scroll;
+mod open_in_editor;
 mod public_review;
 mod review_state_helpers;
 mod shutdown;
@@ -67,6 +68,7 @@ pub use list_geometry::*;
 pub use menu::*;
 pub use mouse_capture::*;
 pub use mouse_scroll::*;
+pub use open_in_editor::*;
 pub use public_review::*;
 pub use review_state_helpers::*;
 pub use shutdown::*;
@@ -94,7 +96,7 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use ratatui::Terminal;
-use ratatui::backend::{Backend, CrosstermBackend};
+use ratatui::backend::CrosstermBackend;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -102,7 +104,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Widget, Wrap};
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::{self, IsTerminal};
+use std::io::{self, IsTerminal, Stdout};
 use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -484,6 +486,7 @@ pub struct ReviewApp {
     show_help: bool,
     should_quit: bool,
     reload_requested: bool,
+    editor_requested: bool,
     status: Option<String>,
     review_width: Cell<u16>,
     review_height: Cell<u16>,
@@ -544,6 +547,7 @@ impl ReviewApp {
             show_help: false,
             should_quit: false,
             reload_requested: false,
+            editor_requested: false,
             status: None,
             review_width: Cell::new(120),
             review_height: Cell::new(20),
@@ -586,6 +590,48 @@ impl ReviewApp {
     /// Consume a reload requested by a host-mediated extension write.
     pub fn take_reload_requested(&mut self) -> bool {
         std::mem::take(&mut self.reload_requested)
+    }
+
+    #[must_use]
+    pub fn take_editor_request(&mut self) -> Option<ReviewEditorRequest> {
+        if !std::mem::take(&mut self.editor_requested) {
+            return None;
+        }
+        let (file, line_cursor, selected_hunk) = self.with_state(|state| {
+            let selection = state.selection();
+            let file = state.selected_file().cloned();
+            let selected_hunk = file
+                .as_ref()
+                .and_then(|file| selection.hunk_index.and_then(|index| file.hunks.get(index)))
+                .cloned();
+            let line_cursor = file.as_ref().and_then(|file| {
+                Some(EditorLineCursor {
+                    file_id: if file.runtime_id.is_empty() {
+                        file.key.clone()
+                    } else {
+                        file.runtime_id.clone()
+                    },
+                    hunk_index: selection.hunk_index?,
+                    target: EditorLineTarget {
+                        side: selection.side?,
+                        line: selection.line?,
+                    },
+                })
+            });
+            (file, line_cursor, selected_hunk)
+        });
+        Some(ReviewEditorRequest {
+            base_path: self
+                .options
+                .repo
+                .clone()
+                .or_else(|| self.options.command_cwd.clone())
+                .or_else(|| std::env::current_dir().ok())
+                .unwrap_or_default(),
+            file,
+            line_cursor,
+            selected_hunk,
+        })
     }
 
     pub fn reload(&mut self, changeset: Changeset) {
@@ -843,7 +889,8 @@ impl ReviewApp {
             }
             KeyCode::Char('f') => self.options.sidebar = !self.options.sidebar,
             KeyCode::Char('w') => self.options.wrap_lines = !self.options.wrap_lines,
-            KeyCode::Char('e') => self.toggle_source_gap(),
+            KeyCode::Char('e') => self.editor_requested = true,
+            KeyCode::Char('z') => self.toggle_source_gap(),
             KeyCode::Char('o') => self.options.agent_notes = !self.options.agent_notes,
             KeyCode::Char('l') => self.options.line_numbers = !self.options.line_numbers,
             KeyCode::Char('t') => {
@@ -3439,8 +3486,8 @@ fn run_review_inner(
     result
 }
 
-fn run_loop<B: Backend>(
-    terminal: &mut Terminal<B>,
+fn run_loop(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut ReviewApp,
     session_stop: Option<&AtomicBool>,
     session_reload: Option<&AtomicBool>,
@@ -3453,7 +3500,14 @@ fn run_loop<B: Backend>(
         terminal.draw(|frame| render(frame.area(), frame.buffer_mut(), app))?;
         if event::poll(Duration::from_millis(100))? {
             match event::read()? {
-                Event::Key(key) => app.handle_key(key),
+                Event::Key(key) => {
+                    app.handle_key(key);
+                    if let Some(request) = app.take_editor_request()
+                        && let Some(message) = open_review_editor_in_crossterm(terminal, &request)
+                    {
+                        app.status = Some(message);
+                    }
+                }
                 Event::Mouse(mouse) => app.handle_mouse_event(mouse),
                 Event::Resize(_, _) | Event::FocusGained | Event::FocusLost | Event::Paste(_) => {}
             }
@@ -6816,6 +6870,31 @@ mod tests {
         assert!(!app.options.sidebar);
         app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
         assert!(app.show_help);
+    }
+
+    #[test]
+    fn editor_shortcut_prepares_an_owned_request_and_context_expansion_uses_z() {
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                repo: Some(PathBuf::from("/repo")),
+                ..ReviewOptions::default()
+            },
+        );
+        app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
+        let request = app.take_editor_request().expect("editor request");
+        assert_eq!(request.base_path, Path::new("/repo"));
+        assert_eq!(request.file.unwrap().path, "a.rs");
+        assert_eq!(request.selected_hunk.unwrap().new_start, 1);
+        assert!(request.line_cursor.is_none());
+        assert!(app.take_editor_request().is_none());
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE));
+        assert_eq!(
+            app.status.as_deref(),
+            Some("source expansion is unavailable for this file")
+        );
+        assert!(app.take_editor_request().is_none());
     }
 
     #[test]

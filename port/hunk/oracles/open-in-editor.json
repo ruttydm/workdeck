@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "capture": {
+    "runtime": "Bun 1.3.5",
+    "method": "executed both pinned trees from disposable git archives",
+    "paths": ["src/ui/lib/openInEditor.ts", "src/ui/lib/openInEditor.test.ts"],
+    "testResult": "18 pass, 0 fail, 43 expectations on each pinned tree",
+    "sourceIdentical": true
+  },
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "sharedProjection": {
+    "commands": [
+      {
+        "editor": "nvim",
+        "command": "nvim",
+        "args": ["+12", "/tmp/project/file with spaces's.ts"]
+      },
+      {
+        "editor": "code --reuse-window",
+        "command": "code",
+        "args": ["--reuse-window", "--goto", "/tmp/project/example.ts:4"]
+      },
+      {
+        "editor": "\"C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd\" --wait",
+        "command": "C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd",
+        "args": ["--wait", "--goto", "C:\\Users\\Duarte\\repo\\file with spaces.ts:7"]
+      },
+      {
+        "editor": "zed --new-window",
+        "command": "zed",
+        "args": ["--new-window", "/tmp/project/example.ts"]
+      }
+    ],
+    "suspend": { "code": false, "cursorExe": false, "nvim": true },
+    "mappedLines": { "removedBlock": 2, "leadingContext": 2, "replacementOffset": 3 },
+    "errors": [
+      "No file selected.",
+      "$EDITOR is not set.",
+      "Cannot edit missing-on-disk.ts: file does not exist on disk.",
+      "Editor exited with status 2.",
+      "Failed to launch editor: boom"
+    ]
+  }
+}
