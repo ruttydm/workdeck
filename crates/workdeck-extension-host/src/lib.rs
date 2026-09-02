@@ -45,10 +45,10 @@ use workdeck_extension_api::{
     FileViewModeKeyRequest, FileViewModeLifecycleRequest, HandshakeRequest, HandshakeResponse,
     InputDialogSubmission, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
     KeyboardModeExecution, KeyboardModeKeyRequest, KeyboardModeLifecycleRequest, MAX_MESSAGE_BYTES,
-    ManifestError, PaneActionInvocation, PaneRenderRequest, PaneRenderResponse, Registration,
-    ReviewEvent, SelectDialogSubmission, TransformRequest, TransformResponse,
-    ValidatedFileViewLayout, extension_pane_size, is_vertical_pane_placement, parse_key_chord,
-    validate_view,
+    ManifestError, PaneActionInvocation, PaneAvailabilityRequest, PaneAvailabilityResponse,
+    PaneRenderRequest, PaneRenderResponse, Registration, ReviewEvent, SelectDialogSubmission,
+    TransformRequest, TransformResponse, ValidatedFileViewLayout, extension_pane_size,
+    is_vertical_pane_placement, parse_key_chord, validate_view,
 };
 
 #[derive(Debug, Error)]
@@ -977,6 +977,55 @@ impl LoadedExtension {
             })?;
         self.validate_host_actions(&execution.actions, "workspace write completion")?;
         Ok(execution)
+    }
+
+    /// Invoke one registered pane's synchronous availability callback.
+    pub fn pane_available(&mut self, request: PaneAvailabilityRequest) -> Result<bool, HostError> {
+        let pane = self
+            .handshake
+            .registrations
+            .iter()
+            .find_map(|registration| match registration {
+                Registration::Pane(pane) if pane.id == request.pane_id => Some(pane),
+                _ => None,
+            })
+            .ok_or_else(|| HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "pane availability",
+                message: format!("pane {:?} is not registered", request.pane_id),
+            })?;
+        if request.placement != pane.placement {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "pane availability",
+                message: format!(
+                    "pane {:?} requested placement {:?}, registered as {:?}",
+                    pane.id, request.placement, pane.placement
+                ),
+            });
+        }
+        if !pane.available {
+            return Ok(true);
+        }
+        if !pane.current_line && request.current_line.is_some() {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "pane availability",
+                message: format!("pane {:?} did not opt into current-line context", pane.id),
+            });
+        }
+        let value = self.request(
+            "workdeck/pane/available",
+            request,
+            Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+        )?;
+        let response: PaneAvailabilityResponse =
+            serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "pane availability",
+                message: error.to_string(),
+            })?;
+        Ok(response.available)
     }
 
     /// Render one registered pane inside the exact rectangle allocated by the host.

@@ -941,6 +941,23 @@ pub struct PaneRenderRequest {
     pub theme: ExtensionPaintTheme,
 }
 
+/// Synchronous native equivalent of Hunk's pane `available(context)` callback.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaneAvailabilityRequest {
+    pub pane_id: String,
+    pub placement: PanePlacement,
+    pub files: Vec<ExtensionDiffFile>,
+    pub selected_file_id: Option<String>,
+    pub selected_hunk_index: Option<usize>,
+    pub current_line: Option<ExtensionReviewSnapshotLineAddress>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaneAvailabilityResponse {
+    pub available: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaneRenderResponse {
     pub content: ViewNode,
@@ -1643,6 +1660,35 @@ mod tests {
         assert_eq!(
             serde_json::from_value::<CommandExecution>(encoded).unwrap(),
             execution
+        );
+    }
+
+    #[test]
+    fn pane_availability_request_is_method_free_and_uses_public_line_addresses() {
+        let request = PaneAvailabilityRequest {
+            pane_id: "detail".into(),
+            placement: PanePlacement::Bottom,
+            files: Vec::new(),
+            selected_file_id: Some("alpha".into()),
+            selected_hunk_index: Some(2),
+            current_line: Some(ExtensionReviewSnapshotLineAddress {
+                side: ReviewSide::New,
+                line: 41,
+            }),
+        };
+        let value = serde_json::to_value(&request).unwrap();
+        assert_eq!(value["paneId"], "detail");
+        assert_eq!(value["selectedFileId"], "alpha");
+        assert_eq!(value["selectedHunkIndex"], 2);
+        assert_eq!(value["currentLine"]["side"], "new");
+        assert_eq!(value["currentLine"]["line"], 41);
+        assert_eq!(
+            serde_json::from_value::<PaneAvailabilityRequest>(value).unwrap(),
+            request
+        );
+        assert_eq!(
+            serde_json::to_value(PaneAvailabilityResponse { available: true }).unwrap(),
+            serde_json::json!({ "available": true })
         );
     }
 

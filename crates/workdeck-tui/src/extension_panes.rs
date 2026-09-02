@@ -6,10 +6,9 @@ use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
 };
-use workdeck_core::DiffFile;
 use workdeck_extension_api::{
-    PanePlacement, PaneRegistration, WORKDECK_FILES_PANE_KEY, WORKDECK_VENDOR_EXTENSION_ID,
-    bundled_files_pane, extension_pane_size,
+    ExtensionDiffFile, PanePlacement, PaneRegistration, WORKDECK_FILES_PANE_KEY,
+    WORKDECK_VENDOR_EXTENSION_ID, bundled_files_pane, extension_pane_size,
 };
 
 use crate::ExtensionCurrentLinePaint;
@@ -228,7 +227,7 @@ pub fn resolve_pane_key(panes: &[SessionPane], extension_id: &str, id: &str) -> 
 /// Immutable review state supplied to a native pane availability callback.
 #[derive(Debug, Clone, Copy)]
 pub struct PaneAvailabilityContext<'a> {
-    pub files: &'a [DiffFile],
+    pub files: &'a [ExtensionDiffFile],
     pub selected_file_id: Option<&'a str>,
     pub selected_hunk_index: Option<usize>,
     pub placement: PanePlacement,
@@ -253,7 +252,7 @@ pub struct PaneAvailabilityProbe {
 /// keeps extension execution out of the pure rectangle planner.
 pub fn probe_extension_pane_availability<F>(
     panes: &[SessionPane],
-    files: &[DiffFile],
+    files: &[ExtensionDiffFile],
     selected_file_id: Option<&str>,
     selected_hunk_index: Option<usize>,
     current_line: Option<&ExtensionCurrentLinePaint>,
