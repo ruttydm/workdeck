@@ -10,6 +10,8 @@ Each command invocation also carries a frozen provider-neutral `selection`: the 
 
 Review navigation is guarded again when a declarative action reaches the host. Targets resolve from the files visible at that moment, hunk indexes clamp to the live file, invalid addresses are refused, and an absent source line produces an attributed warning. Navigation returned by a command from a retired review generation is discarded with the reload warning; a line hidden inside a collapsed region may still land quietly on its containing hunk.
 
+Line-granular review movement is derived from measured Ratatui row geometry, not reparsed patch order. Stable row anchors preserve split-side ordering, context-row aliases, expanded-gap identity, and reload recovery; an indexed, identity-stable cursor list keeps keypress stepping constant-time and clamps the marker to fully visible viewport rows.
+
 ## Clickable pane rows
 
 An extension wraps a declarative `ViewNode` in `ViewNode::Action { id, child }`. Ratatui renders the child, records its visible cell rectangle, and sends `workdeck/pane/action` with the pane ID, action ID, current review snapshot, semantic saved-note snapshot, working directory, and open panes. The extension answers with ordinary validated host actions. Action IDs are local opaque values, limited to 1,024 bytes; they cannot carry executable callbacks across the process boundary.

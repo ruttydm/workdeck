@@ -1,0 +1,48 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "sources": {
+    "baseline": {
+      "path": "src/ui/lib/lineCursors.ts",
+      "blob": "34f76a6ba9cd8c98f417483531a63c3e556d4ca5"
+    },
+    "stable": {
+      "path": "src/ui/lib/lineCursors.ts",
+      "blob": "510c576c9ffb2eb0a9f652af034d70a5fd86b737"
+    }
+  },
+  "tests": {
+    "baselineBlob": "0b043b0f8b5024a7a9e75e12a674982c6c606447",
+    "stableBlob": "f88eda01e232bb6a2bf03d3d89f2980f41e94bc7"
+  },
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 37,
+    "failed": 0,
+    "expectations": 54
+  },
+  "stableOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 33,
+    "failed": 0,
+    "expectations": 48
+  },
+  "stableDifference": {
+    "authoritative": "baseline",
+    "detail": "The older stable tree predates main commit 42d2b9dd, which added identity stabilization to restore review-stream responsiveness. The pinned main implementation and all four additional tests are retained."
+  },
+  "invariants": [
+    "navigation stops are derived only from measured row stable keys",
+    "context rows expose one canonical new-side stop addressable by either side's number",
+    "split rows enumerate old then new while stack rows follow measured vertical order",
+    "expanded source lines retain their exact gap identity",
+    "stepping uses a cached cursor index and clamps at review-stream edges",
+    "reload recovery remains inside the cursor's prior hunk or file",
+    "viewport clamping uses monotonic binary search and requires the current row to be fully visible",
+    "equivalent remeasurement preserves list and index storage identity"
+  ],
+  "nativeAdaptation": {
+    "identity": "Arc-backed cursor and index storage replaces JavaScript array identity and WeakMap indexes",
+    "geometry": "ViewportSectionGeometry is Workdeck's measured Ratatui row-bounds projection"
+  }
+}
