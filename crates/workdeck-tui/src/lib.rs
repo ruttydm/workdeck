@@ -3417,63 +3417,65 @@ impl ReviewApp {
             .extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if event.kind == MouseEventKind::Down(MouseButton::Left)
-            && let Some(hit) = runtime
-                .pane_action_hits
-                .iter()
-                .rev()
-                .find(|hit| rect_contains(hit.bounds, event.column, event.row))
-                .cloned()
-        {
-            drop(runtime);
-            self.invoke_extension_pane_action(hit);
-            return true;
-        }
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
-                let Some(planned) = runtime.layout.panes.iter().find(|planned| {
+                let planned = runtime.layout.panes.iter().find(|planned| {
                     planned.divider.is_some_and(|divider| {
-                        event.column >= divider.x
-                            && event.column < divider.right()
-                            && event.row >= divider.y
-                            && event.row < divider.bottom()
+                        rect_contains(
+                            pane_divider_hit_area(divider, planned.pane.placement),
+                            event.column,
+                            event.row,
+                        )
                     })
-                }) else {
-                    return false;
-                };
-                let vertical = matches!(
-                    planned.pane.placement,
-                    PanePlacement::Left | PanePlacement::Right
-                );
-                let requested = extension_pane_size(&planned.pane, None);
-                let current_size = if vertical {
-                    planned.bounds.width
+                });
+                if let Some(planned) = planned {
+                    let vertical = matches!(
+                        planned.pane.placement,
+                        PanePlacement::Left | PanePlacement::Right
+                    );
+                    let requested = extension_pane_size(&planned.pane, None);
+                    let current_size = if vertical {
+                        planned.bounds.width
+                    } else {
+                        planned.bounds.height
+                    };
+                    let review_size = if vertical {
+                        runtime.layout.review_bounds.width
+                    } else {
+                        runtime.layout.review_bounds.height
+                    };
+                    let review_minimum = if vertical {
+                        20
+                    } else {
+                        MIN_EXTENSION_REVIEW_HEIGHT
+                    };
+                    let max_size = current_size
+                        .saturating_add(review_size.saturating_sub(review_minimum))
+                        .min(requested.max.unwrap_or(u16::MAX));
+                    let resize = PaneResizeState {
+                        placement: planned.pane.placement,
+                        origin: if vertical { event.column } else { event.row },
+                        start_size: current_size,
+                        min_size: requested.min.unwrap_or(1),
+                        max_size,
+                    };
+                    let key = planned.key.clone();
+                    runtime.resize.capture((key, resize));
+                    return true;
+                }
+                let hit = runtime
+                    .pane_action_hits
+                    .iter()
+                    .rev()
+                    .find(|hit| rect_contains(hit.bounds, event.column, event.row))
+                    .cloned();
+                drop(runtime);
+                if let Some(hit) = hit {
+                    self.invoke_extension_pane_action(hit);
+                    true
                 } else {
-                    planned.bounds.height
-                };
-                let review_size = if vertical {
-                    runtime.layout.review_bounds.width
-                } else {
-                    runtime.layout.review_bounds.height
-                };
-                let review_minimum = if vertical {
-                    20
-                } else {
-                    MIN_EXTENSION_REVIEW_HEIGHT
-                };
-                let max_size = current_size
-                    .saturating_add(review_size.saturating_sub(review_minimum))
-                    .min(requested.max.unwrap_or(u16::MAX));
-                let resize = PaneResizeState {
-                    placement: planned.pane.placement,
-                    origin: if vertical { event.column } else { event.row },
-                    start_size: current_size,
-                    min_size: requested.min.unwrap_or(1),
-                    max_size,
-                };
-                let key = planned.key.clone();
-                runtime.resize.capture((key, resize));
-                true
+                    false
+                }
             }
             MouseEventKind::Drag(MouseButton::Left) => {
                 let Some((key, resize)) = runtime.resize.as_ref().cloned() else {
@@ -4504,6 +4506,7 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             .find(|(_, spec)| spec.key == planned.key)
         {
             rendered_panes.push((
+                planned.key.clone(),
                 app.options.extension_panes[index].clone(),
                 planned.bounds,
                 planned.divider,
@@ -4567,6 +4570,7 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             result
         });
         rendered_panes.push((
+            planned.key.clone(),
             view,
             planned.bounds,
             planned.divider,
@@ -4580,9 +4584,9 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     drop(runtime);
 
     render_builtin_body(plan.review_bounds, buffer, app);
-    for (pane, pane_area, divider, owner) in rendered_panes {
+    for (key, pane, pane_area, divider, owner) in rendered_panes {
         if let Some(divider) = divider {
-            render_extension_pane_divider(divider, buffer, pane.pane.placement, app);
+            render_extension_pane_divider(divider, buffer, &key, pane.pane.placement, app);
         }
         render_extension_pane(pane_area, buffer, &pane, owner, app);
     }
@@ -4716,10 +4720,28 @@ fn extension_pane_line_height(line: &Line<'_>, width: u16) -> u16 {
 fn render_extension_pane_divider(
     area: Rect,
     buffer: &mut Buffer,
+    pane_key: &str,
     placement: PanePlacement,
     app: &ReviewApp,
 ) {
-    let style = Style::default().fg(ratatui_theme_color(&app.options.theme.border));
+    let is_resizing = app
+        .extension_pane_runtime
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .resize
+        .as_ref()
+        .is_some_and(|(key, _)| key == pane_key);
+    let style = Style::default()
+        .fg(ratatui_theme_color(if is_resizing {
+            &app.options.theme.accent
+        } else {
+            &app.options.theme.border
+        }))
+        .bg(ratatui_theme_color(if is_resizing {
+            &app.options.theme.accent_muted
+        } else {
+            &app.options.theme.panel
+        }));
     if matches!(placement, PanePlacement::Left | PanePlacement::Right) {
         Paragraph::new(vec![Line::styled("│", style); usize::from(area.height)])
             .render(area, buffer);
@@ -7288,10 +7310,10 @@ mod tests {
     }
 
     #[test]
-    fn renders_declarative_native_extension_panes() {
+    fn renders_and_resizes_declarative_native_extension_panes() {
         let backend = TestBackend::new(100, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        let app = ReviewApp::new(
+        let mut app = ReviewApp::new(
             changeset(),
             ReviewOptions {
                 extension_panes: vec![ExtensionPaneView {
@@ -7331,6 +7353,129 @@ mod tests {
             .map(|cell| cell.symbol())
             .collect::<String>();
         assert!(rendered.contains("native pane content"));
+
+        let (key, divider) = {
+            let runtime = app
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let planned = runtime.layout.panes.first().expect("planned pane");
+            (planned.key.clone(), planned.divider.expect("pane divider"))
+        };
+        let inactive = terminal
+            .backend()
+            .buffer()
+            .cell((divider.x, divider.y))
+            .unwrap();
+        assert_eq!(inactive.symbol(), "│");
+        assert_eq!(inactive.fg, ratatui_theme_color(&app.options.theme.border));
+        assert_eq!(inactive.fg, Color::Rgb(52, 57, 63));
+        assert_eq!(inactive.bg, ratatui_theme_color(&app.options.theme.panel));
+        assert_eq!(inactive.bg, Color::Rgb(30, 35, 41));
+
+        let hit_column = divider.x.saturating_sub(PANE_DIVIDER_HIT_AREA_OFFSET);
+        let hit_row = divider.y.saturating_add(1);
+        app.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .pane_action_hits
+            .push(ExtensionPaneActionHit {
+                bounds: pane_divider_hit_area(divider, PanePlacement::Right),
+                extension_index: usize::MAX,
+                extension_id: "must-not-run".into(),
+                pane_id: "must-not-run".into(),
+                action_id: "must-not-run".into(),
+            });
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: hit_column,
+            row: hit_row,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(
+            app.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .resize
+                .is_some()
+        );
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let active = terminal
+            .backend()
+            .buffer()
+            .cell((divider.x, divider.y))
+            .unwrap();
+        assert_eq!(active.fg, ratatui_theme_color(&app.options.theme.accent));
+        assert_eq!(active.fg, Color::Rgb(187, 128, 9));
+        assert_eq!(
+            active.bg,
+            ratatui_theme_color(&app.options.theme.accent_muted)
+        );
+        assert_eq!(active.bg, Color::Rgb(57, 45, 20));
+
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: hit_column.saturating_sub(3),
+            row: hit_row,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert_eq!(
+            app.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .size_overrides
+                .get(&key),
+            Some(&31)
+        );
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: hit_column.saturating_sub(3),
+            row: hit_row,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(
+            !app.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .resize
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn active_horizontal_extension_divider_uses_the_pinned_glyph_and_paint() {
+        let app = ReviewApp::new(changeset(), ReviewOptions::default());
+        app.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .resize
+            .capture((
+                "probe".into(),
+                PaneResizeState {
+                    placement: PanePlacement::Bottom,
+                    origin: 2,
+                    start_size: 8,
+                    min_size: 3,
+                    max_size: 20,
+                },
+            ));
+        let area = Rect::new(0, 0, 9, 1);
+        let mut buffer = Buffer::empty(area);
+        render_extension_pane_divider(area, &mut buffer, "probe", PanePlacement::Bottom, &app);
+
+        assert_eq!(
+            buffer
+                .content()
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>(),
+            "─────────"
+        );
+        assert!(buffer.content().iter().all(|cell| {
+            cell.fg == Color::Rgb(187, 128, 9) && cell.bg == Color::Rgb(57, 45, 20)
+        }));
     }
 
     #[test]

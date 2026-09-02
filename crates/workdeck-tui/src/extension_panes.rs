@@ -6,8 +6,31 @@ use workdeck_extension_api::{PanePlacement, PaneRegistration, extension_pane_siz
 
 /// One cell between a resizable edge pane and its neighbor.
 pub const EXTENSION_PANE_DIVIDER_SIZE: u16 = 1;
+/// Pointer target centered over the visible one-cell divider.
+pub const PANE_DIVIDER_HIT_AREA_SIZE: u16 = 5;
+pub const PANE_DIVIDER_HIT_AREA_OFFSET: u16 = PANE_DIVIDER_HIT_AREA_SIZE / 2;
 /// Smallest review height preserved while edge panes are open or resized.
 pub const MIN_EXTENSION_REVIEW_HEIGHT: u16 = 5;
+
+/// Expand the visible divider to Hunk's five-cell pointer target on its resize axis.
+#[must_use]
+pub const fn pane_divider_hit_area(divider: Rect, placement: PanePlacement) -> Rect {
+    if matches!(placement, PanePlacement::Left | PanePlacement::Right) {
+        Rect::new(
+            divider.x.saturating_sub(PANE_DIVIDER_HIT_AREA_OFFSET),
+            divider.y,
+            PANE_DIVIDER_HIT_AREA_SIZE,
+            divider.height,
+        )
+    } else {
+        Rect::new(
+            divider.x,
+            divider.y.saturating_sub(PANE_DIVIDER_HIT_AREA_OFFSET),
+            divider.width,
+            PANE_DIVIDER_HIT_AREA_SIZE,
+        )
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExtensionPaneSpec {
@@ -295,5 +318,17 @@ mod tests {
         assert_eq!(plan.omitted_keys, ["demo:side"]);
         assert!(plan.panes.is_empty());
         assert_eq!(plan.review_bounds, Rect::new(0, 0, 38, 10));
+    }
+
+    #[test]
+    fn expands_divider_pointer_targets_to_five_cells_on_the_resize_axis() {
+        assert_eq!(
+            pane_divider_hit_area(Rect::new(20, 3, 1, 12), PanePlacement::Right),
+            Rect::new(18, 3, 5, 12)
+        );
+        assert_eq!(
+            pane_divider_hit_area(Rect::new(4, 10, 30, 1), PanePlacement::Bottom),
+            Rect::new(4, 8, 30, 5)
+        );
     }
 }

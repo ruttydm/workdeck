@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "capture": {
+    "runtime": "Bun 1.3.5 and @opentui/react testRender",
+    "method": "rendered vertical inactive and horizontal active PaneDivider instances directly in each pinned source archive, captured character frames and spans, then exercised the full five-cell vertical pointer target",
+    "baselineResult": "2 pass, 0 fail, 3 expectations",
+    "stableResult": "2 pass, 0 fail, 3 expectations"
+  },
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "sourceIdentical": true,
+  "verticalInactive": {
+    "width": 1,
+    "height": 6,
+    "glyph": "│",
+    "foreground": "#34393f",
+    "background": "#1e2329"
+  },
+  "horizontalActive": {
+    "width": 9,
+    "height": 1,
+    "glyphs": "─────────",
+    "baselineForeground": "#bb8009",
+    "baselineBackground": "#392d14",
+    "stableForeground": "#d29922",
+    "stableBackground": "#3e331a",
+    "stableDifference": "the stable branch predates the baseline theme contrast adjustment; both versions use accent and accentMuted semantic tokens"
+  },
+  "pointer": {
+    "visibleColumn": 4,
+    "acceptedColumns": [2, 3, 4, 5, 6],
+    "capturedCallbacks": ["down", "drag", "drag-end", "up", "up"],
+    "backendProjection": "Crossterm exposes drag and mouse-up but no separate drag-end event; Workdeck releases the same captured resize state once on mouse-up, equivalent to Hunk's idempotent end handler on drag-end and mouse-up"
+  },
+  "rustParityTests": [
+    "workdeck_tui::extension_panes::tests::expands_divider_pointer_targets_to_five_cells_on_the_resize_axis",
+    "workdeck_tui::tests::renders_and_resizes_declarative_native_extension_panes",
+    "workdeck_tui::tests::active_horizontal_extension_divider_uses_the_pinned_glyph_and_paint"
+  ],
+  "normalization": "Workdeck naming and backend event spelling only; terminal geometry, paint, drag capture, resize delta, and final lifecycle state are not normalized"
+}
