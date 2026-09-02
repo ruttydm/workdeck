@@ -240,7 +240,7 @@ fn ratatui_rows_toggle_only_on_an_undragged_left_mouse_up() {
             .any(|line| line.contains("lines 1–1 ·"))
     );
 
-    app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+    app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
     terminal
         .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
         .unwrap();

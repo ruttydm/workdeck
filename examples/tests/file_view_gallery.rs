@@ -688,7 +688,7 @@ fn ratatui_paints_selection_sensitive_atlas_and_exact_css_swatches() {
     assert!(first.contains("▶ CHANGE 01"));
     assert!(first.contains("◇ CHANGE 02"));
 
-    app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+    app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
     terminal
         .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
         .unwrap();
