@@ -86,14 +86,15 @@ use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, IsTerminal};
 use std::ops::Range;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use workdeck_core::{
-    AgentAnnotation, Changeset, DiffFile, DiffLine, DiffLineKind, ReviewSelection, ReviewSide,
+    AgentAnnotation, Changeset, ChangesetSource, DiffFile, DiffLine, DiffLineKind, ReviewSelection,
+    ReviewSide, SourceOrigin,
 };
 use workdeck_diff::{
     DIFF_RAIL_PREFIX_WIDTH, HighlightCache, HighlightedDiffLine, SyntaxToken, TextSegment,
@@ -105,9 +106,10 @@ use workdeck_extension_api::{
     CommandRegistration, ExtensionFileViewSpan, ExtensionFileViewTone, ExtensionHostAction,
     ExtensionKeyEvent, ExtensionNotification, ExtensionNotificationHub,
     ExtensionNotificationSubscription, ExtensionNotifyType, ExtensionPaintTheme, ExtensionPaneView,
-    ExtensionTextAttribute, KeyRoutingResult, KeyboardModeRegistration, PanePlacement,
-    PaneRegistration, PaneRenderRequest, Registration, ValidatedFileViewLayout, ViewNode,
-    ViewStyle, extension_pane_size,
+    ExtensionTextAttribute, ExtensionWorkspaceWriteCompletion, ExtensionWorkspaceWriteResult,
+    FileViewModeKeyRequest, FileViewModeLifecycleRequest, KeyRoutingResult,
+    KeyboardModeRegistration, PanePlacement, PaneRegistration, PaneRenderRequest, Registration,
+    ValidatedFileViewLayout, ViewNode, ViewStyle, extension_pane_size,
 };
 use workdeck_extension_host::{
     ExtensionRequestCancellation, FileViewSelectionState, LoadedExtension, RegisteredFileView,
@@ -216,7 +218,7 @@ struct LiveKeyboardModeRegistration {
 #[derive(Debug, Clone)]
 struct LiveFileViewRegistration {
     extension_index: usize,
-    view: RegisteredFileView,
+    view: Arc<RegisteredFileView>,
 }
 
 #[derive(Debug, Clone)]
@@ -257,6 +259,26 @@ struct ActiveKeyboardMode {
     extension_index: usize,
     extension_id: String,
     mode: KeyboardModeRegistration,
+}
+
+#[derive(Debug, Clone)]
+struct ActiveFileViewModeRuntime {
+    extension_index: usize,
+    extension_id: String,
+    view_id: String,
+    view_key: String,
+    file: Arc<workdeck_extension_api::ExtensionDiffFile>,
+    review_generation: u64,
+}
+
+#[derive(Debug, Clone)]
+struct ExtensionWorkspaceWriteDialog {
+    extension_index: usize,
+    extension_id: String,
+    request_id: String,
+    file_id: String,
+    path: String,
+    text: String,
 }
 
 #[derive(Debug, Clone)]
@@ -316,7 +338,9 @@ struct ExtensionPaneRuntime {
     file_view_component_expanded: BTreeSet<FileViewComponentStateKey>,
     file_view_component_hits: Vec<FileViewComponentHit>,
     file_view_component_pointer: Option<FileViewComponentPointer>,
+    active_file_view_mode: Option<ActiveFileViewModeRuntime>,
     active_keyboard_mode: Option<ActiveKeyboardMode>,
+    workspace_write_dialog: Option<ExtensionWorkspaceWriteDialog>,
     input_dialog: Option<ExtensionInputDialog>,
     select_dialog: Option<ExtensionSelectDialog>,
     open: BTreeSet<String>,
@@ -376,11 +400,11 @@ impl ExtensionPaneRuntime {
                         ..
                     } => file_views.push(LiveFileViewRegistration {
                         extension_index,
-                        view: RegisteredFileView {
+                        view: Arc::new(RegisteredFileView {
                             extension_id: extension.manifest.id.clone(),
                             view_id: id.clone(),
                             interactive_mode: *interactive_mode,
-                        },
+                        }),
                     }),
                     _ => {}
                 }
@@ -486,8 +510,14 @@ impl ReviewApp {
         &self.options
     }
 
+    /// Consume a reload requested by a host-mediated extension write.
+    pub fn take_reload_requested(&mut self) -> bool {
+        std::mem::take(&mut self.reload_requested)
+    }
+
     pub fn reload(&mut self, changeset: Changeset) {
         self.exit_active_keyboard_mode();
+        self.exit_active_file_view_mode();
         {
             let mut runtime = self
                 .extension_pane_runtime
@@ -495,6 +525,7 @@ impl ReviewApp {
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             runtime.input_dialog = None;
             runtime.select_dialog = None;
+            runtime.workspace_write_dialog = None;
             let file_ids = changeset
                 .files
                 .iter()
@@ -576,19 +607,29 @@ impl ReviewApp {
 
     #[must_use]
     pub fn active_keyboard_mode_title(&self) -> Option<String> {
-        self.extension_pane_runtime
+        let runtime = self
+            .extension_pane_runtime
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        runtime
             .active_keyboard_mode
             .as_ref()
             .map(|active| active.mode.title.clone())
+            .or_else(|| {
+                runtime
+                    .active_file_view_mode
+                    .as_ref()
+                    .map(|active| active.view_id.clone())
+            })
     }
 
     #[must_use]
     pub fn active_keyboard_mode_status_hint(&self) -> Option<String> {
-        self.extension_pane_runtime
+        let runtime = self
+            .extension_pane_runtime
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        runtime
             .active_keyboard_mode
             .as_ref()
             .map(|active| {
@@ -596,6 +637,14 @@ impl ReviewApp {
                     "{} — ext {}:{} — Esc exits",
                     active.mode.title, active.extension_id, active.mode.id
                 )
+            })
+            .or_else(|| {
+                runtime.active_file_view_mode.as_ref().map(|active| {
+                    format!(
+                        "{}:{} mode — Esc exits",
+                        active.extension_id, active.view_id
+                    )
+                })
             })
     }
 
@@ -629,7 +678,14 @@ impl ReviewApp {
 
     #[must_use]
     pub fn has_extension_dialog(&self) -> bool {
-        self.has_extension_input_dialog() || self.has_extension_select_dialog()
+        self.has_extension_input_dialog()
+            || self.has_extension_select_dialog()
+            || self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .workspace_write_dialog
+                .is_some()
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
@@ -637,7 +693,10 @@ impl ReviewApp {
             self.should_quit = true;
             return;
         }
-        if self.handle_extension_select_key(&key) || self.handle_extension_input_key(&key) {
+        if self.handle_workspace_write_key(&key)
+            || self.handle_extension_select_key(&key)
+            || self.handle_extension_input_key(&key)
+        {
             return;
         }
         if self.handle_extension_menu_key(&key) {
@@ -650,6 +709,9 @@ impl ReviewApp {
             ) {
                 self.show_help = false;
             }
+            return;
+        }
+        if self.route_active_file_view_mode(&key) {
             return;
         }
         if self.route_active_keyboard_mode(&key) {
@@ -769,7 +831,13 @@ impl ReviewApp {
             let active_keyboard_mode = runtime
                 .active_keyboard_mode
                 .as_ref()
-                .map(|active| format!("{}:{}", active.extension_id, active.mode.id));
+                .map(|active| format!("{}:{}", active.extension_id, active.mode.id))
+                .or_else(|| {
+                    runtime
+                        .active_file_view_mode
+                        .as_ref()
+                        .map(|active| format!("{}:{}", active.extension_id, active.view_id))
+                });
             runtime.extensions[command.extension_index].invoke_command_with_review_context(
                 &command.command.id,
                 snapshot,
@@ -916,6 +984,33 @@ impl ReviewApp {
                 ExtensionHostAction::ToggleFileView { id } => {
                     self.toggle_extension_file_view(extension_index, extension_id, &id);
                 }
+                ExtensionHostAction::EnterFileViewMode { id } => {
+                    self.enter_file_view_mode(extension_index, extension_id, &id);
+                }
+                ExtensionHostAction::ExitFileViewMode => {
+                    self.exit_file_view_mode_for_extension(extension_index);
+                }
+                ExtensionHostAction::RefreshFileView { id, file_id } => {
+                    self.refresh_extension_file_view(
+                        extension_index,
+                        extension_id,
+                        &id,
+                        file_id.as_deref(),
+                    );
+                }
+                ExtensionHostAction::RequestWorkspaceWrite {
+                    request_id,
+                    file_id,
+                    text,
+                } => {
+                    self.open_workspace_write_dialog(
+                        extension_index,
+                        extension_id,
+                        request_id,
+                        file_id,
+                        text,
+                    );
+                }
                 ExtensionHostAction::OpenInputDialog {
                     id,
                     title,
@@ -1014,6 +1109,7 @@ impl ReviewApp {
             return;
         }
         self.exit_active_keyboard_mode();
+        self.exit_active_file_view_mode();
         let active = ActiveKeyboardMode {
             extension_index,
             extension_id: extension_id.into(),
@@ -1111,6 +1207,228 @@ impl ReviewApp {
         if owns_active_mode {
             self.exit_active_keyboard_mode();
         }
+    }
+
+    fn open_workspace_write_dialog(
+        &mut self,
+        extension_index: usize,
+        extension_id: &str,
+        request_id: String,
+        file_id: String,
+        text: String,
+    ) {
+        let path = self.with_state(|state| {
+            state
+                .changeset()
+                .files
+                .iter()
+                .find(|file| file.runtime_id == file_id)
+                .map(|file| file.path.clone())
+        });
+        let Some(path) = path else {
+            self.complete_extension_workspace_write(
+                extension_index,
+                extension_id,
+                request_id,
+                ExtensionWorkspaceWriteResult::Failed {
+                    detail: "Reviewed file is no longer available".into(),
+                },
+            );
+            return;
+        };
+        let active_owns_file = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .active_file_view_mode
+            .as_ref()
+            .is_some_and(|active| {
+                active.extension_index == extension_index && active.file.id == file_id
+            });
+        if !active_owns_file {
+            self.complete_extension_workspace_write(
+                extension_index,
+                extension_id,
+                request_id,
+                ExtensionWorkspaceWriteResult::Failed {
+                    detail: format!("Failed to write {path} • its edit mode is no longer active"),
+                },
+            );
+            return;
+        }
+        let mut runtime = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        runtime.menu_open = false;
+        runtime.input_dialog = None;
+        runtime.select_dialog = None;
+        runtime.workspace_write_dialog = Some(ExtensionWorkspaceWriteDialog {
+            extension_index,
+            extension_id: extension_id.into(),
+            request_id,
+            file_id,
+            path: path.clone(),
+            text,
+        });
+        self.status = Some(format!(
+            "ext {extension_id}: write {path}? Enter confirms · Esc cancels"
+        ));
+    }
+
+    fn handle_workspace_write_key(&mut self, key: &KeyEvent) -> bool {
+        let has_dialog = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .workspace_write_dialog
+            .is_some();
+        if !has_dialog {
+            return false;
+        }
+        let confirmed = match key.code {
+            KeyCode::Enter | KeyCode::Char('y') => Some(true),
+            KeyCode::Esc | KeyCode::Char('n') => Some(false),
+            _ => None,
+        };
+        let Some(confirmed) = confirmed else {
+            return true;
+        };
+        let dialog = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .workspace_write_dialog
+            .take();
+        let Some(dialog) = dialog else {
+            return true;
+        };
+        let result = if confirmed {
+            match self.write_extension_workspace_document(&dialog.file_id, &dialog.text) {
+                Ok(()) => ExtensionWorkspaceWriteResult::Written,
+                Err(detail) => ExtensionWorkspaceWriteResult::Failed { detail },
+            }
+        } else {
+            ExtensionWorkspaceWriteResult::Cancelled
+        };
+        let written = result == ExtensionWorkspaceWriteResult::Written;
+        self.complete_extension_workspace_write(
+            dialog.extension_index,
+            &dialog.extension_id,
+            dialog.request_id,
+            result,
+        );
+        if written {
+            self.exit_file_view_mode_for_extension(dialog.extension_index);
+            self.reload_requested = true;
+        }
+        true
+    }
+
+    fn complete_extension_workspace_write(
+        &mut self,
+        extension_index: usize,
+        extension_id: &str,
+        request_id: String,
+        result: ExtensionWorkspaceWriteResult,
+    ) {
+        let execution = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .extensions[extension_index]
+            .complete_workspace_write(ExtensionWorkspaceWriteCompletion { request_id, result });
+        match execution {
+            Ok(execution) => {
+                self.apply_extension_actions(extension_index, extension_id, execution.actions)
+            }
+            Err(error) => {
+                self.status = Some(format!(
+                    "extension {extension_id} workspace write completion failed: {error}"
+                ));
+            }
+        }
+    }
+
+    fn write_extension_workspace_document(
+        &self,
+        file_id: &str,
+        replacement: &str,
+    ) -> Result<(), String> {
+        let (source, file) = self.with_state(|state| {
+            (
+                state.changeset().source.clone(),
+                state
+                    .changeset()
+                    .files
+                    .iter()
+                    .find(|file| file.runtime_id == file_id)
+                    .cloned(),
+            )
+        });
+        let Some(file) = file else {
+            return Err("Reviewed file is no longer available".into());
+        };
+        if !matches!(source, ChangesetSource::WorkingTree { staged: false })
+            || !file.sources.new.as_ref().is_some_and(|snapshot| {
+                matches!(snapshot.origin, SourceOrigin::WorkingTree) && snapshot.attested
+            })
+        {
+            return Err(format!(
+                "Failed to write {} • this review is not an attested working-tree diff",
+                file.path
+            ));
+        }
+        let relative = Path::new(&file.path);
+        if relative.is_absolute()
+            || relative
+                .components()
+                .any(|component| !matches!(component, Component::Normal(_)))
+        {
+            return Err(format!(
+                "Failed to write {} • unsafe reviewed path",
+                file.path
+            ));
+        }
+        let root = self.options.repo.as_ref().ok_or_else(|| {
+            format!(
+                "Failed to write {} • repository root is unavailable",
+                file.path
+            )
+        })?;
+        let root = std::fs::canonicalize(root)
+            .map_err(|error| format!("Failed to write {} • {error}", file.path))?;
+        let target = root.join(relative);
+        let parent = target
+            .parent()
+            .and_then(|parent| std::fs::canonicalize(parent).ok())
+            .ok_or_else(|| {
+                format!(
+                    "Failed to write {} • parent directory is unavailable",
+                    file.path
+                )
+            })?;
+        if !parent.starts_with(&root)
+            || std::fs::symlink_metadata(&target)
+                .map(|metadata| metadata.file_type().is_symlink() || !metadata.is_file())
+                .unwrap_or(true)
+        {
+            return Err(format!(
+                "Failed to write {} • path leaves the repository",
+                file.path
+            ));
+        }
+        let expected = &file.sources.new.as_ref().expect("checked above").content;
+        let current = std::fs::read_to_string(&target)
+            .map_err(|error| format!("Failed to write {} • {error}", file.path))?;
+        if &current != expected {
+            return Err(format!(
+                "Failed to write {} • file changed since the review was loaded",
+                file.path
+            ));
+        }
+        std::fs::write(&target, replacement)
+            .map_err(|error| format!("Failed to write {} • {error}", file.path))
     }
 
     fn handle_extension_select_key(&mut self, key: &KeyEvent) -> bool {
@@ -1248,7 +1566,13 @@ impl ReviewApp {
             let active_keyboard_mode = runtime
                 .active_keyboard_mode
                 .as_ref()
-                .map(|active| format!("{}:{}", active.extension_id, active.mode.id));
+                .map(|active| format!("{}:{}", active.extension_id, active.mode.id))
+                .or_else(|| {
+                    runtime
+                        .active_file_view_mode
+                        .as_ref()
+                        .map(|active| format!("{}:{}", active.extension_id, active.view_id))
+                });
             runtime.extensions[dialog.extension_index].submit_input_dialog_with_context(
                 &dialog.action_id,
                 value,
@@ -1285,7 +1609,13 @@ impl ReviewApp {
             let active_keyboard_mode = runtime
                 .active_keyboard_mode
                 .as_ref()
-                .map(|active| format!("{}:{}", active.extension_id, active.mode.id));
+                .map(|active| format!("{}:{}", active.extension_id, active.mode.id))
+                .or_else(|| {
+                    runtime
+                        .active_file_view_mode
+                        .as_ref()
+                        .map(|active| format!("{}:{}", active.extension_id, active.view_id))
+                });
             runtime.extensions[dialog.extension_index].submit_select_dialog_with_context(
                 &dialog.action_id,
                 value,
@@ -1396,6 +1726,7 @@ impl ReviewApp {
             .with_state(|state| state.select_file(file_index))
             .is_ok()
         {
+            self.reconcile_active_file_view_mode();
             self.scroll_to_selection();
         }
     }
@@ -1417,6 +1748,16 @@ impl ReviewApp {
             self.status = Some(format!("extension {extension_id} has no selected file"));
             return;
         };
+        let replaces_active_mode = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .active_file_view_mode
+            .as_ref()
+            .is_some_and(|active| active.file.id == file.runtime_id);
+        if replaces_active_mode {
+            self.exit_active_file_view_mode();
+        }
         let mut runtime = self
             .extension_pane_runtime
             .lock()
@@ -1462,6 +1803,303 @@ impl ReviewApp {
                 self.status = Some(format!(
                     "extension {extension_id} file view match failed: {error}"
                 ));
+            }
+        }
+    }
+
+    fn enter_file_view_mode(&mut self, extension_index: usize, extension_id: &str, view_id: &str) {
+        let (file, review_generation) = self.with_state(|state| {
+            (
+                state
+                    .changeset()
+                    .files
+                    .get(state.selection().file_index)
+                    .cloned(),
+                state.generation(),
+            )
+        });
+        let Some(file) = file else {
+            self.status = Some(format!("extension {extension_id} has no selected file"));
+            return;
+        };
+        let registration = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .file_views
+            .iter()
+            .find(|registration| {
+                registration.extension_index == extension_index
+                    && registration.view.view_id == view_id
+            })
+            .cloned();
+        let Some(registration) = registration else {
+            self.status = Some(format!(
+                "extension {extension_id} targeted unknown file view {view_id:?}"
+            ));
+            return;
+        };
+        if !registration.view.interactive_mode {
+            self.status = Some(format!(
+                "extension {extension_id} file view {view_id:?} has no interactive mode"
+            ));
+            return;
+        }
+        let snapshot = create_file_view_input_snapshot(&file);
+        let matches = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .extensions[extension_index]
+            .file_view_matches(view_id, snapshot.file.as_ref().clone());
+        match matches {
+            Ok(true) => {}
+            Ok(false) => {
+                self.status = Some(format!(
+                    "file view {view_id:?} does not match {} • using raw diff",
+                    file.path
+                ));
+                return;
+            }
+            Err(error) => {
+                self.status = Some(format!(
+                    "extension {extension_id} file view match failed: {error}"
+                ));
+                return;
+            }
+        }
+
+        self.exit_active_keyboard_mode();
+        self.exit_active_file_view_mode();
+        let view_key = registered_file_view_key(&registration.view);
+        let active = ActiveFileViewModeRuntime {
+            extension_index,
+            extension_id: extension_id.into(),
+            view_id: view_id.into(),
+            view_key: view_key.clone(),
+            file: snapshot.file,
+            review_generation,
+        };
+        {
+            let mut runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            runtime.file_view_selections = select_file_view(
+                &runtime.file_view_selections,
+                &file.runtime_id,
+                Some(&view_key),
+            );
+            runtime.file_view_layouts.remove(&file.runtime_id);
+            clear_file_view_component_state(&mut runtime, &file.runtime_id);
+            runtime.active_file_view_mode = Some(active.clone());
+        }
+        let request = self.file_view_mode_lifecycle_request(&active);
+        let execution = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .extensions[extension_index]
+            .file_view_mode_lifecycle("workdeck/file-view-mode/enter", request);
+        match execution {
+            Ok(execution) => {
+                self.status = Some(format!("{extension_id}:{view_id} mode — Esc exits"));
+                self.apply_extension_actions(extension_index, extension_id, execution.actions);
+            }
+            Err(error) => {
+                self.extension_pane_runtime
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .active_file_view_mode = None;
+                self.status = Some(format!(
+                    "extension {extension_id} could not enter file-view mode: {error}"
+                ));
+            }
+        }
+    }
+
+    fn file_view_mode_lifecycle_request(
+        &self,
+        active: &ActiveFileViewModeRuntime,
+    ) -> FileViewModeLifecycleRequest {
+        FileViewModeLifecycleRequest {
+            view_id: active.view_id.clone(),
+            file: active.file.as_ref().clone(),
+            cwd: self.extension_command_cwd(),
+            review_generation: active.review_generation,
+        }
+    }
+
+    fn route_active_file_view_mode(&mut self, key: &KeyEvent) -> bool {
+        let active = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .active_file_view_mode
+            .clone();
+        let Some(active) = active else {
+            return false;
+        };
+        if key.code == KeyCode::Esc {
+            self.exit_active_file_view_mode();
+            return true;
+        }
+        let still_valid = self.with_state(|state| {
+            state.generation() == active.review_generation
+                && state
+                    .selected_file()
+                    .is_some_and(|file| file.runtime_id == active.file.id)
+        }) && self
+            .selected_extension_file_view(&active.file.id)
+            .as_deref()
+            == Some(active.view_key.as_str());
+        if !still_valid {
+            self.exit_active_file_view_mode();
+            return false;
+        }
+        let request = FileViewModeKeyRequest {
+            view_id: active.view_id.clone(),
+            file: active.file.as_ref().clone(),
+            key: to_live_extension_key_event(key),
+            cwd: self.extension_command_cwd(),
+            review_generation: active.review_generation,
+        };
+        let result = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .extensions[active.extension_index]
+            .route_file_view_mode_key(request);
+        match result {
+            Ok(execution) => {
+                let routing = execution.result;
+                self.apply_extension_actions(
+                    active.extension_index,
+                    &active.extension_id,
+                    execution.actions,
+                );
+                if routing == KeyRoutingResult::Exit {
+                    let unchanged = self
+                        .extension_pane_runtime
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .active_file_view_mode
+                        .as_ref()
+                        .is_some_and(|current| {
+                            current.extension_index == active.extension_index
+                                && current.view_id == active.view_id
+                                && current.file.id == active.file.id
+                        });
+                    if unchanged {
+                        self.exit_active_file_view_mode();
+                    }
+                }
+                routing != KeyRoutingResult::Pass
+            }
+            Err(error) => {
+                self.exit_active_file_view_mode();
+                self.status = Some(format!(
+                    "extension {} file-view mode failed: {error}",
+                    active.extension_id
+                ));
+                true
+            }
+        }
+    }
+
+    fn exit_active_file_view_mode(&mut self) {
+        let active = {
+            let mut runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let active = runtime.active_file_view_mode.take();
+            if let Some(active) = &active
+                && runtime
+                    .workspace_write_dialog
+                    .as_ref()
+                    .is_some_and(|dialog| {
+                        dialog.extension_index == active.extension_index
+                            && dialog.file_id == active.file.id
+                    })
+            {
+                runtime.workspace_write_dialog = None;
+            }
+            active
+        };
+        let Some(active) = active else {
+            return;
+        };
+        let request = self.file_view_mode_lifecycle_request(&active);
+        let execution = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .extensions[active.extension_index]
+            .file_view_mode_lifecycle("workdeck/file-view-mode/exit", request);
+        match execution {
+            Ok(execution) => self.apply_extension_actions(
+                active.extension_index,
+                &active.extension_id,
+                execution.actions,
+            ),
+            Err(error) => {
+                self.status = Some(format!(
+                    "extension {} file-view mode exit failed: {error}",
+                    active.extension_id
+                ));
+            }
+        }
+    }
+
+    fn exit_file_view_mode_for_extension(&mut self, extension_index: usize) {
+        let owns = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .active_file_view_mode
+            .as_ref()
+            .is_some_and(|active| active.extension_index == extension_index);
+        if owns {
+            self.exit_active_file_view_mode();
+        }
+    }
+
+    fn refresh_extension_file_view(
+        &mut self,
+        extension_index: usize,
+        extension_id: &str,
+        view_id: &str,
+        file_id: Option<&str>,
+    ) {
+        let mut runtime = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let owned = runtime.file_views.iter().any(|registration| {
+            registration.extension_index == extension_index && registration.view.view_id == view_id
+        });
+        if !owned {
+            self.status = Some(format!(
+                "extension {extension_id} targeted unknown file view {view_id:?}"
+            ));
+            return;
+        }
+        if let Some(file_id) = file_id {
+            runtime.file_view_layouts.remove(file_id);
+            clear_file_view_component_state(&mut runtime, file_id);
+        } else {
+            let view_key = format!("{extension_id}:{view_id}");
+            let invalidated = runtime
+                .file_view_layouts
+                .iter()
+                .filter_map(|(file_id, layout)| {
+                    (layout.view_key == view_key).then_some(file_id.clone())
+                })
+                .collect::<Vec<_>>();
+            for file_id in invalidated {
+                runtime.file_view_layouts.remove(&file_id);
+                clear_file_view_component_state(&mut runtime, &file_id);
             }
         }
     }
@@ -1678,8 +2316,9 @@ impl ReviewApp {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let menu_shortcut = key.code == KeyCode::Menu
             || (key.code == KeyCode::Char('e') && key.modifiers == KeyModifiers::ALT);
-        let entry_count =
-            runtime.commands.len() + usize::from(runtime.active_keyboard_mode.is_some());
+        let has_exit =
+            runtime.active_keyboard_mode.is_some() || runtime.active_file_view_mode.is_some();
+        let entry_count = runtime.commands.len() + usize::from(has_exit);
         if menu_shortcut && entry_count > 0 {
             runtime.menu_open = !runtime.menu_open;
             runtime.menu_selected = 0;
@@ -1705,7 +2344,8 @@ impl ReviewApp {
                 true
             }
             KeyCode::Enter => {
-                let has_exit = runtime.active_keyboard_mode.is_some();
+                let has_exit = runtime.active_keyboard_mode.is_some()
+                    || runtime.active_file_view_mode.is_some();
                 let exit_mode = has_exit && runtime.menu_selected == 0;
                 let command = (!exit_mode)
                     .then(|| {
@@ -1718,7 +2358,7 @@ impl ReviewApp {
                 runtime.menu_open = false;
                 drop(runtime);
                 if exit_mode {
-                    self.exit_active_keyboard_mode();
+                    self.exit_active_extension_mode();
                 } else if let Some(command) = command {
                     self.invoke_registered_extension_command(command);
                 }
@@ -1772,7 +2412,27 @@ impl ReviewApp {
 
     fn navigate(&mut self, action: impl FnOnce(&mut ReviewState) -> bool) {
         if self.with_state(action) {
+            self.reconcile_active_file_view_mode();
             self.scroll_to_selection();
+        }
+    }
+
+    fn reconcile_active_file_view_mode(&mut self) {
+        let active_file_id = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .active_file_view_mode
+            .as_ref()
+            .map(|active| active.file.id.clone());
+        if active_file_id.is_some_and(|file_id| {
+            !self.with_state(|state| {
+                state
+                    .selected_file()
+                    .is_some_and(|file| file.runtime_id == file_id)
+            })
+        }) {
+            self.exit_active_file_view_mode();
         }
     }
 
@@ -1841,7 +2501,7 @@ impl ReviewApp {
             .mode_badge_bounds
             .is_some_and(|area| rect_contains(area, event.column, event.row));
         if hit {
-            self.exit_active_keyboard_mode();
+            self.exit_active_extension_mode();
         }
         hit
     }
@@ -1874,7 +2534,8 @@ impl ReviewApp {
             }
             Some(usize::from(event.row.saturating_sub(area.y + 1)))
         });
-        let has_exit = runtime.active_keyboard_mode.is_some();
+        let has_exit =
+            runtime.active_keyboard_mode.is_some() || runtime.active_file_view_mode.is_some();
         let exit_mode = selection.is_some_and(|selection| has_exit && selection == 0);
         let command = selection
             .filter(|_| !exit_mode)
@@ -1887,11 +2548,25 @@ impl ReviewApp {
         runtime.menu_open = false;
         drop(runtime);
         if exit_mode {
-            self.exit_active_keyboard_mode();
+            self.exit_active_extension_mode();
         } else if let Some(command) = command {
             self.invoke_registered_extension_command(command);
         }
         true
+    }
+
+    fn exit_active_extension_mode(&mut self) {
+        let has_file_view_mode = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .active_file_view_mode
+            .is_some();
+        if has_file_view_mode {
+            self.exit_active_file_view_mode();
+        } else {
+            self.exit_active_keyboard_mode();
+        }
     }
 
     fn handle_extension_pane_mouse(&mut self, event: &MouseEvent) -> bool {
@@ -2411,6 +3086,7 @@ pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     }
     render_extension_input_dialog(area, buffer, app);
     render_extension_select_dialog(area, buffer, app);
+    render_extension_workspace_write_dialog(area, buffer, app);
 }
 
 /// Render the review surface inside Workdeck's unified tab shell.
@@ -2481,7 +3157,9 @@ pub fn render_extension_menu_button(area: Rect, buffer: &mut Buffer, app: &Revie
         .extension_pane_runtime
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if (runtime.commands.is_empty() && runtime.active_keyboard_mode.is_none())
+    if (runtime.commands.is_empty()
+        && runtime.active_keyboard_mode.is_none()
+        && runtime.active_file_view_mode.is_none())
         || area.width == 0
         || area.height == 0
     {
@@ -2510,7 +3188,10 @@ pub fn render_extension_command_menu(area: Rect, buffer: &mut Buffer, app: &Revi
         .extension_pane_runtime
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if !runtime.menu_open || (runtime.commands.is_empty() && runtime.active_keyboard_mode.is_none())
+    if !runtime.menu_open
+        || (runtime.commands.is_empty()
+            && runtime.active_keyboard_mode.is_none()
+            && runtime.active_file_view_mode.is_none())
     {
         runtime.menu_bounds = None;
         return;
@@ -2535,6 +3216,8 @@ pub fn render_extension_command_menu(area: Rect, buffer: &mut Buffer, app: &Revi
         .collect::<Vec<_>>();
     if let Some(active) = &runtime.active_keyboard_mode {
         labels.insert(0, format!("Exit {}", active.mode.title));
+    } else if let Some(active) = &runtime.active_file_view_mode {
+        labels.insert(0, format!("Exit {}", active.view_id));
     }
     let desired_width = labels
         .iter()
@@ -2733,6 +3416,58 @@ pub fn render_extension_select_dialog(area: Rect, buffer: &mut Buffer, app: &Rev
         })
         .collect::<Vec<_>>();
     Paragraph::new(lines).render(inner, buffer);
+}
+
+/// Draw the host-owned consent prompt for a native extension workspace write.
+pub fn render_extension_workspace_write_dialog(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+    let dialog = app
+        .extension_pane_runtime
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .workspace_write_dialog
+        .clone();
+    let Some(dialog) = dialog else {
+        return;
+    };
+    let title = format!(" ext {} ", dialog.extension_id);
+    let question = format!("Write {}?", dialog.path);
+    let help = "Enter/y confirms · Esc/n cancels";
+    let desired_width = title
+        .width()
+        .max(question.width())
+        .max(help.width())
+        .saturating_add(4);
+    let width = u16::try_from(desired_width)
+        .unwrap_or(u16::MAX)
+        .max(30)
+        .min(area.width.max(1));
+    let height = 4.min(area.height.max(1));
+    let bounds = Rect::new(
+        area.x.saturating_add(area.width.saturating_sub(width) / 2),
+        area.y
+            .saturating_add(area.height.saturating_sub(height) / 2),
+        width,
+        height,
+    );
+    Clear.render(bounds, buffer);
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .style(Style::default().bg(ratatui_theme_color(&app.options.theme.panel)))
+        .border_style(Style::default().fg(ratatui_theme_color(&app.options.theme.accent)));
+    let inner = block.inner(bounds);
+    block.render(bounds, buffer);
+    Paragraph::new(vec![
+        Line::styled(
+            question,
+            Style::default().fg(ratatui_theme_color(&app.options.theme.text)),
+        ),
+        Line::styled(
+            help,
+            Style::default().fg(ratatui_theme_color(&app.options.theme.muted)),
+        ),
+    ])
+    .render(inner, buffer);
 }
 
 fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {

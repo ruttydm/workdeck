@@ -50,6 +50,7 @@ pub fn render(app: &App, highlighter: &SyntaxHighlighter, frame: &mut Frame) {
     {
         workdeck_tui::render_extension_input_dialog(area, frame.buffer_mut(), review);
         workdeck_tui::render_extension_select_dialog(area, frame.buffer_mut(), review);
+        workdeck_tui::render_extension_workspace_write_dialog(area, frame.buffer_mut(), review);
     }
 }
 

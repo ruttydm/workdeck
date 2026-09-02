@@ -441,6 +441,9 @@ fn handle_key(
         && review.has_extension_dialog()
     {
         review.handle_key(key);
+        if review.take_reload_requested() {
+            reload_review(app);
+        }
         return Ok(false);
     }
 
@@ -514,6 +517,9 @@ fn handle_key(
             _ => {
                 if let Some(review) = &mut app.review {
                     review.handle_key(key);
+                    if review.take_reload_requested() {
+                        reload_review(app);
+                    }
                 }
             }
         }

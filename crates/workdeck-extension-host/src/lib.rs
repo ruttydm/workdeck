@@ -35,7 +35,8 @@ use workdeck_extension_api::{
     CliOutputNotification, CliOutputStream, CommandExecution, CommandInvocation,
     DEFAULT_REQUEST_TIMEOUT_MS, ExtensionDiffFile, ExtensionFileSide, ExtensionHostAction,
     ExtensionKeyEvent, ExtensionManifest, ExtensionNotificationHub, ExtensionNotifyType,
-    ExtensionPaneView, FileViewLayoutRequest, FileViewMatchRequest, HandshakeRequest,
+    ExtensionPaneView, ExtensionWorkspaceWriteCompletion, FileViewLayoutRequest,
+    FileViewMatchRequest, FileViewModeKeyRequest, FileViewModeLifecycleRequest, HandshakeRequest,
     HandshakeResponse, InputDialogSubmission, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
     KeyboardModeExecution, KeyboardModeKeyRequest, KeyboardModeLifecycleRequest, MAX_MESSAGE_BYTES,
     ManifestError, PaneRenderRequest, PaneRenderResponse, Registration, SelectDialogSubmission,
@@ -826,6 +827,69 @@ impl LoadedExtension {
         Ok(Some(validated))
     }
 
+    /// Notify an attached file-view mode that it acquired or released the keyboard.
+    pub fn file_view_mode_lifecycle(
+        &mut self,
+        method: &str,
+        request: FileViewModeLifecycleRequest,
+    ) -> Result<CommandExecution, HostError> {
+        self.require_interactive_file_view(&request.view_id)?;
+        let value = self.request(
+            method,
+            request,
+            Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+        )?;
+        let execution: CommandExecution =
+            serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "file view mode lifecycle",
+                message: error.to_string(),
+            })?;
+        self.validate_host_actions(&execution.actions, "file view mode lifecycle")?;
+        Ok(execution)
+    }
+
+    /// Route one key through an attached file-view mode.
+    pub fn route_file_view_mode_key(
+        &mut self,
+        request: FileViewModeKeyRequest,
+    ) -> Result<KeyboardModeExecution, HostError> {
+        self.require_interactive_file_view(&request.view_id)?;
+        let value = self.request(
+            "workdeck/file-view-mode/key",
+            request,
+            Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+        )?;
+        let execution: KeyboardModeExecution =
+            serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "file view mode key",
+                message: error.to_string(),
+            })?;
+        self.validate_host_actions(&execution.actions, "file view mode key")?;
+        Ok(execution)
+    }
+
+    /// Return the result of a host-owned, consented workspace operation.
+    pub fn complete_workspace_write(
+        &mut self,
+        completion: ExtensionWorkspaceWriteCompletion,
+    ) -> Result<CommandExecution, HostError> {
+        let value = self.request(
+            "workdeck/workspace/write-complete",
+            completion,
+            Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+        )?;
+        let execution: CommandExecution =
+            serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "workspace write completion",
+                message: error.to_string(),
+            })?;
+        self.validate_host_actions(&execution.actions, "workspace write completion")?;
+        Ok(execution)
+    }
+
     /// Render one registered pane inside the exact rectangle allocated by the host.
     pub fn render_pane(
         &mut self,
@@ -1125,6 +1189,20 @@ impl LoadedExtension {
         }
     }
 
+    fn require_interactive_file_view(&self, view_id: &str) -> Result<(), HostError> {
+        if self.handshake.registrations.iter().any(|registration| {
+            matches!(registration, Registration::FileView { id, interactive_mode: true, .. } if id == view_id)
+        }) {
+            Ok(())
+        } else {
+            Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "file view mode",
+                message: format!("interactive file view {view_id:?} is not registered"),
+            })
+        }
+    }
+
     fn validate_host_actions(
         &self,
         actions: &[ExtensionHostAction],
@@ -1214,6 +1292,40 @@ impl LoadedExtension {
                         .capabilities
                         .contains(&workdeck_extension_api::Capability::FileViews)
                         && owns(id, "file view")
+                }
+                ExtensionHostAction::EnterFileViewMode { id } => {
+                    self.manifest
+                        .capabilities
+                        .contains(&workdeck_extension_api::Capability::FileViews)
+                        && kind != "file view mode lifecycle"
+                        && owns(id, "file view")
+                }
+                ExtensionHostAction::ExitFileViewMode => {
+                    self.manifest
+                        .capabilities
+                        .contains(&workdeck_extension_api::Capability::FileViews)
+                        && kind != "file view mode lifecycle"
+                }
+                ExtensionHostAction::RefreshFileView { id, file_id } => {
+                    self.manifest
+                        .capabilities
+                        .contains(&workdeck_extension_api::Capability::FileViews)
+                        && owns(id, "file view")
+                        && file_id
+                            .as_deref()
+                            .is_none_or(|file_id| !file_id.trim().is_empty())
+                }
+                ExtensionHostAction::RequestWorkspaceWrite {
+                    request_id,
+                    file_id,
+                    ..
+                } => {
+                    self.manifest
+                        .capabilities
+                        .contains(&workdeck_extension_api::Capability::WorkspaceWrite)
+                        && !request_id.trim().is_empty()
+                        && !file_id.trim().is_empty()
+                        && kind == "file view mode key"
                 }
                 ExtensionHostAction::OpenInputDialog { id, title, .. } => {
                     self.manifest

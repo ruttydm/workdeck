@@ -77,6 +77,9 @@ pub mod rendered_markdown_extension;
 #[path = "../extensions/jsx-file-view/extension.rs"]
 pub mod jsx_file_view_extension;
 
+#[path = "../extensions/inline-edit/extension.rs"]
+pub mod inline_edit_extension;
+
 #[cfg(test)]
 #[path = "../3-agent-review-demo/after/test/search_demo.rs"]
 mod agent_review_after_demo;

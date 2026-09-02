@@ -881,6 +881,24 @@ pub enum ExtensionHostAction {
     ToggleFileView {
         id: String,
     },
+    /// Atomically select an interactive file view for the selected file and give it input.
+    EnterFileViewMode {
+        id: String,
+    },
+    /// Leave the native file-view mode currently owned by this extension.
+    ExitFileViewMode,
+    /// Invalidate one file-view layout. Omitting `file_id` invalidates every file using it.
+    RefreshFileView {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        file_id: Option<String>,
+    },
+    /// Ask the host to confirm and perform a working-tree document replacement.
+    RequestWorkspaceWrite {
+        request_id: String,
+        file_id: String,
+        text: String,
+    },
     OpenInputDialog {
         id: String,
         title: String,
@@ -931,6 +949,44 @@ pub struct KeyboardModeExecution {
     pub result: KeyRoutingResult,
     #[serde(default)]
     pub actions: Vec<ExtensionHostAction>,
+}
+
+/// Lifecycle callback for a mode attached to one registered file presentation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileViewModeLifecycleRequest {
+    pub view_id: String,
+    pub file: ExtensionDiffFile,
+    pub cwd: PathBuf,
+    pub review_generation: u64,
+}
+
+/// Synchronous keyboard delivery to the active file presentation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileViewModeKeyRequest {
+    pub view_id: String,
+    pub file: ExtensionDiffFile,
+    pub key: ExtensionKeyEvent,
+    pub cwd: PathBuf,
+    pub review_generation: u64,
+}
+
+/// Result of a host-mediated workspace write requested by an extension.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum ExtensionWorkspaceWriteResult {
+    Written,
+    Cancelled,
+    Failed { detail: String },
+}
+
+/// Correlates a workspace result with the request that produced it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionWorkspaceWriteCompletion {
+    pub request_id: String,
+    pub result: ExtensionWorkspaceWriteResult,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

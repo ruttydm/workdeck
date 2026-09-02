@@ -177,6 +177,7 @@ fn stage_extension_example(name: &str) -> Result<()> {
         "review-note-navigator" => "workdeck-example-review-note-navigator-extension",
         "rendered-markdown" => "workdeck-example-rendered-markdown-extension",
         "jsx-file-view" => "workdeck-example-jsx-file-view-extension",
+        "inline-edit" => "workdeck-example-inline-edit-extension",
         _ => bail!("unknown native extension example {name:?}"),
     };
     let repo = repo_root()?;
@@ -2110,7 +2111,7 @@ fn print_help() {
     println!("cargo xtask licenses [--output PATH]");
     println!("cargo xtask verify");
     println!(
-        "cargo xtask extension stage-example <cli-tools|pane-layout|vim-navigation|review-snapshot-export|review-note-navigator|rendered-markdown|jsx-file-view>"
+        "cargo xtask extension stage-example <cli-tools|pane-layout|vim-navigation|review-snapshot-export|review-note-navigator|rendered-markdown|jsx-file-view|inline-edit>"
     );
     println!("cargo xtask site <build|check|serve>");
     println!("cargo xtask release package --target TRIPLE [--binary PATH] [--output DIR]");
