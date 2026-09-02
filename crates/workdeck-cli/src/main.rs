@@ -19,7 +19,7 @@ use workdeck_cli::store::{
     AgentSession, AgentTouchedFile, Cycle, Issue, IssueStatus, IssueUpdate, Label, Priority,
     Project, ReferenceData, StoreEvent, WorkdeckStore,
 };
-use workdeck_core::{AgentContext, Changeset, ReviewSide};
+use workdeck_core::{AgentContext, Changeset, ReviewSide, SelfUpdateCommandInput};
 use workdeck_diff::{LanguageMatcher, LanguageRegistration, LanguageRegistry};
 use workdeck_extension_api::{
     ExtensionManifest, ExtensionNotificationHub, ExtensionPaneView, FileLanguageGlobTarget,
@@ -135,6 +135,19 @@ enum Command {
     Skill {
         #[command(subcommand)]
         command: SkillCommand,
+    },
+    #[command(about = "Update Workdeck through the channel that installed it")]
+    Update {
+        #[arg(value_name = "VERSION", help = "Install an exact release version")]
+        version: Option<String>,
+        #[arg(
+            long,
+            value_name = "METHOD",
+            help = "Override detection: cargo, brew, nix, curl, powershell, or direct"
+        )]
+        method: Option<String>,
+        #[arg(long, help = "Report versions without installing")]
+        check: bool,
     },
     #[command(about = "Print a Git status snapshot")]
     Status {
@@ -1174,6 +1187,10 @@ enum LabelCommand {
     },
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("command exited with status {0}")]
+struct CommandExit(i32);
+
 fn main() -> ExitCode {
     let args = match Args::try_parse() {
         Ok(args) => args,
@@ -1187,7 +1204,9 @@ fn main() -> ExitCode {
     match run(args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            if is_json_error_already_printed(&error) {
+            if error.downcast_ref::<CommandExit>().is_some()
+                || is_json_error_already_printed(&error)
+            {
                 // The command printed a structured JSON error with command-specific details.
             } else if wants_json {
                 let _ = print_json_error(&error);
@@ -1283,7 +1302,8 @@ fn run(mut args: Args) -> Result<()> {
             | Command::Extension { .. }
             | Command::Migrate { .. }
             | Command::Markup { .. }
-            | Command::Skill { .. } => {
+            | Command::Skill { .. }
+            | Command::Update { .. } => {
                 unreachable!("global commands are handled before repository config load")
             }
             Command::Files { command } => handle_files_command(&repo_root, command)?,
@@ -1395,6 +1415,7 @@ impl Command {
                 | Command::Migrate { .. }
                 | Command::Markup { .. }
                 | Command::Skill { .. }
+                | Command::Update { .. }
         )
     }
 
@@ -1411,6 +1432,7 @@ impl Command {
             Command::Migrate { command } => command.wants_json(),
             Command::Markup { command } => command.wants_json(),
             Command::Skill { command } => command.wants_json(),
+            Command::Update { .. } => false,
             Command::Status { json } => *json,
             Command::Files { command } => command.wants_json(),
             Command::Changes { command } => command.wants_json(),
@@ -1774,8 +1796,54 @@ fn handle_global_command(cwd: &Path, command: Command) -> Result<()> {
         Command::Migrate { command } => handle_migrate_command(cwd, command),
         Command::Markup { command } => handle_markup_command(command),
         Command::Skill { command } => handle_skill_command(command),
+        Command::Update {
+            version,
+            method,
+            check,
+        } => handle_update_command(version, method, check),
         _ => unreachable!("non-global command passed to global handler"),
     }
+}
+
+fn handle_update_command(
+    version: Option<String>,
+    method: Option<String>,
+    check: bool,
+) -> Result<()> {
+    let version = version
+        .as_deref()
+        .map(workdeck_cli::update::parse_update_version)
+        .transpose()
+        .map_err(format_update_error)?;
+    let method = method
+        .as_deref()
+        .map(workdeck_cli::update::parse_update_method)
+        .transpose()
+        .map_err(format_update_error)?;
+    let context =
+        workdeck_cli::update::SelfUpdateContext::current().map_err(format_update_error)?;
+    let result = workdeck_cli::update::run_self_update(
+        &SelfUpdateCommandInput {
+            version,
+            method,
+            check,
+        },
+        &context,
+    )
+    .map_err(format_update_error)?;
+    if result.exit_code != 0 {
+        return Err(CommandExit(result.exit_code).into());
+    }
+    Ok(())
+}
+
+fn format_update_error(error: workdeck_cli::update::UpdateError) -> anyhow::Error {
+    let mut message = error.message;
+    for suggestion in error.suggestions {
+        message.push('\n');
+        message.push_str(&suggestion);
+    }
+    anyhow::anyhow!(message)
 }
 
 fn handle_markup_command(command: MarkupCommand) -> Result<()> {
@@ -2483,6 +2551,9 @@ impl LabelCommand {
 }
 
 fn classify_exit_code(error: &anyhow::Error) -> u8 {
+    if let Some(exit) = error.downcast_ref::<CommandExit>() {
+        return u8::try_from(exit.0).unwrap_or(1).max(1);
+    }
     let message = format!("{error:#}").to_ascii_lowercase();
     if message.contains("__json_error_printed__") {
         1

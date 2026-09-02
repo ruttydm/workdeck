@@ -30,6 +30,51 @@ fn version_renders() {
 }
 
 #[test]
+fn update_help_lists_only_native_install_channels() {
+    workdeck()
+        .args(["update", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "cargo, brew, nix, curl, powershell, or direct",
+        ))
+        .stdout(predicate::str::contains("npm").not())
+        .stdout(predicate::str::contains("bun").not());
+}
+
+#[test]
+fn update_rejects_invalid_inputs_before_network_or_repository_access() {
+    workdeck()
+        .args(["update", "--method", "apt"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("Unknown update method: apt"))
+        .stderr(predicate::str::contains("Supported methods are"));
+    workdeck()
+        .args(["update", "latest"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("Invalid version: latest"));
+}
+
+#[test]
+fn update_preserves_managed_channel_exit_semantics() {
+    workdeck()
+        .args(["update", "--method", "nix"])
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("Workdeck was installed with Nix."))
+        .stderr(predicate::str::is_empty());
+    workdeck()
+        .args(["update", "--method", "nix", "--check"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Update it through your Nix configuration",
+        ));
+}
+
+#[test]
 fn outside_git_repo_prints_actionable_error() {
     let dir = tempdir().unwrap();
 
