@@ -7,3 +7,7 @@ publish = false
 
 [lib]
 path = "src/lib.rs"
+
+[dev-dependencies]
+workdeck-core = { path = "../crates/workdeck-core" }
+workdeck-diff = { path = "../crates/workdeck-diff" }

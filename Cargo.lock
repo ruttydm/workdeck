@@ -2735,6 +2735,10 @@ dependencies = [
 [[package]]
 name = "workdeck-examples"
 version = "0.1.0"
+dependencies = [
+ "workdeck-core",
+ "workdeck-diff",
+]
 
 [[package]]
 name = "workdeck-extension-api"
