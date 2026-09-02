@@ -1,9 +1,11 @@
 //! Session-scoped state and side effects for repository-extension trust.
 
 use std::collections::BTreeSet;
+use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use workdeck_extension_host::TrustDecision;
+use workdeck_extension_host::{LoadedExtension, TrustDecision};
 
 use crate::next_extension_trust_prompt_root;
 
@@ -17,11 +19,52 @@ pub enum ExtensionTrustWriteError {
 }
 
 impl ExtensionTrustWriteError {
-    fn notice(self) -> String {
+    pub fn notice(self) -> String {
         match self {
             Self::Message(message) => message,
             Self::Unknown => WRITE_FAILURE_NOTICE.into(),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExtensionTrustHostError {
+    Write(ExtensionTrustWriteError),
+    Reload,
+}
+
+type ExtensionTrustHandlerFn = dyn Fn(&Path, TrustDecision, bool) -> Result<Vec<LoadedExtension>, ExtensionTrustHostError>
+    + Send
+    + Sync;
+
+/// Cloneable composition-root callback for persistence and native-extension loading.
+#[derive(Clone)]
+pub struct ExtensionTrustHandler(Arc<ExtensionTrustHandlerFn>);
+
+impl ExtensionTrustHandler {
+    pub fn new<F>(handler: F) -> Self
+    where
+        F: Fn(&Path, TrustDecision, bool) -> Result<Vec<LoadedExtension>, ExtensionTrustHostError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        Self(Arc::new(handler))
+    }
+
+    pub fn run(
+        &self,
+        repo_root: &Path,
+        decision: TrustDecision,
+        load_extensions: bool,
+    ) -> Result<Vec<LoadedExtension>, ExtensionTrustHostError> {
+        (self.0)(repo_root, decision, load_extensions)
+    }
+}
+
+impl fmt::Debug for ExtensionTrustHandler {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("ExtensionTrustHandler(..)")
     }
 }
 

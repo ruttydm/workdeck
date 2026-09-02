@@ -35,7 +35,7 @@
   },
   "allowedNormalization": {
     "productName": "Workdeck",
-    "repositoryExtensionDirectory": ".workdeck/extensions",
+    "repositoryExtensionDirectory": ".agents/workdeck/extensions",
     "renderer": "Ratatui cell buffer replaces OpenTUI character frame"
   }
 }

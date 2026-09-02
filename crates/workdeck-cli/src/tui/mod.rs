@@ -192,11 +192,13 @@ fn run_loop(
                 if handle_key(terminal, app, key, &refresh_tx, &job_control)? {
                     return Ok(());
                 }
+                process_review_extension_trust(app);
             }
             Event::Mouse(mouse) if app.active_tab == Tab::Review => {
                 if let Some(review) = &mut app.review {
                     review.handle_mouse_event(mouse);
                 }
+                process_review_extension_trust(app);
             }
             Event::Mouse(_)
             | Event::Resize(_, _)
@@ -205,6 +207,31 @@ fn run_loop(
             | Event::Paste(_) => {}
         }
     }
+}
+
+fn process_review_extension_trust(app: &mut App) {
+    let repo_root = app.repo_root.clone();
+    let vcs = app.config.review.vcs.clone();
+    let exclude_untracked = app.config.review.exclude_untracked;
+    let color_moved = app.config.review.color_moved;
+    let Some(review) = &mut app.review else {
+        return;
+    };
+    let mut reload = || {
+        let preference = ProviderPreference::parse(&vcs).map_err(anyhow::Error::from)?;
+        let provider =
+            AnyProvider::discover(&repo_root, preference).map_err(anyhow::Error::from)?;
+        provider
+            .working_tree(&DiffRequest {
+                exclude_untracked,
+                color_moved,
+                ..DiffRequest::default()
+            })
+            .map_err(anyhow::Error::from)
+    };
+    let mut reload: Option<&mut dyn FnMut() -> anyhow::Result<workdeck_core::Changeset>> =
+        Some(&mut reload);
+    review.process_extension_trust_request(&mut reload);
 }
 
 fn maybe_spawn_startup_notice_lookup(
@@ -427,6 +454,14 @@ fn handle_key(
     let narrow_files = app.active_tab == Tab::Files
         && layout == LayoutMode::Narrow
         && app.focus != crate::app::FocusPane::Preview;
+
+    if app.active_tab == Tab::Review
+        && let Some(review) = &mut app.review
+        && review.extension_trust_prompt_root().is_some()
+    {
+        review.handle_key(key);
+        return Ok(false);
+    }
 
     match job_control.action(key, JobControlPlatform::current(), false) {
         Some(JobControlAction::Interrupt) => return Ok(true),

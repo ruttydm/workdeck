@@ -35,7 +35,9 @@ use workdeck_extension_api::{
     CliCommandResult, ExtensionManifest, ExtensionNotificationHub, FileLanguageGlobTarget,
     FileLanguageMatcher, Registration,
 };
-use workdeck_extension_host::{LoadedExtension, TrustDecision, TrustStore, discover_manifests};
+use workdeck_extension_host::{
+    LoadedExtension, TrustDecision, TrustStore, discover_manifests, discover_manifests_with_status,
+};
 use workdeck_review::{
     CommentTargetInput, LayoutMode, ReviewComment, build_live_comment, find_diff_file_by_path,
     resolve_comment_target,
@@ -45,7 +47,10 @@ use workdeck_session::{
     decode_snapshot, default_discovery_directory, normalize_session_selector,
     repo_selector_distance,
 };
-use workdeck_tui::{CursorLineMode, ReviewOptions, UserKeyBindingEntry};
+use workdeck_tui::{
+    CursorLineMode, ExtensionTrustHandler, ExtensionTrustHostError, ExtensionTrustWriteError,
+    ReviewOptions, UserKeyBindingEntry,
+};
 use workdeck_vcs::{
     AnyProvider, DiffRequest, GitProvider, ProviderPreference, VcsProvider, parse_patch_input,
 };
@@ -709,6 +714,7 @@ impl ReviewCliOptions {
             extension_panes: Vec::new(),
             extension_notifications: None,
             pending_extension_trust_repo_root: None,
+            extension_trust_handler: None,
         }
     }
 
@@ -1647,10 +1653,17 @@ fn run(mut args: Args) -> Result<()> {
         let mut review = ReviewCliOptions::from_config(&config);
         review.extension = args.extension;
         review.no_extensions = args.no_extensions && !args.extensions;
-        let (mut extensions, notifications) = load_review_extensions(&repo_root, &review)?;
+        let (mut extensions, notifications, pending_trust_repo_root) =
+            load_review_extensions(&repo_root, &review)?;
         let changeset = apply_review_extensions(changeset, &mut extensions)?;
         let mut options = review.tui_options();
-        options.extension_notifications = Some(notifications);
+        options.extension_notifications = Some(notifications.clone());
+        options.pending_extension_trust_repo_root = pending_trust_repo_root;
+        options.extension_trust_handler = Some(review_extension_trust_handler(
+            &repo_root,
+            &review,
+            &notifications,
+        ));
         let app = App::with_review(&args.cwd, changeset, options, extensions)?;
         workdeck_cli::tui::run(app)
     } else {
@@ -1986,10 +1999,14 @@ fn run_review_with_options(
         bail!("--watch requires a file- or VCS-backed review input");
     }
     apply_agent_context(cwd, review.agent_context.as_deref(), &mut changeset)?;
-    let (mut extensions, notifications) = load_review_extensions(cwd, &review)?;
+    let (mut extensions, notifications, pending_trust_repo_root) =
+        load_review_extensions(cwd, &review)?;
     changeset = apply_review_extensions(changeset, &mut extensions)?;
     let mut options = review.tui_options();
-    options.extension_notifications = Some(notifications);
+    options.extension_notifications = Some(notifications.clone());
+    options.pending_extension_trust_repo_root = pending_trust_repo_root;
+    options.extension_trust_handler =
+        Some(review_extension_trust_handler(cwd, &review, &notifications));
     options.command_cwd = Some(cwd.to_owned());
     options.repo = AnyProvider::discover(cwd, review.preference())
         .ok()
@@ -2097,10 +2114,24 @@ fn apply_agent_context(cwd: &Path, path: Option<&Path>, changeset: &mut Changese
 fn load_review_extensions(
     cwd: &Path,
     review: &ReviewCliOptions,
-) -> Result<(Vec<LoadedExtension>, ExtensionNotificationHub)> {
+) -> Result<(
+    Vec<LoadedExtension>,
+    ExtensionNotificationHub,
+    Option<PathBuf>,
+)> {
     let notifications = ExtensionNotificationHub::new();
+    let (extensions, pending_trust_repo_root) =
+        load_review_extensions_with_notifications(cwd, review, &notifications)?;
+    Ok((extensions, notifications, pending_trust_repo_root))
+}
+
+fn load_review_extensions_with_notifications(
+    cwd: &Path,
+    review: &ReviewCliOptions,
+    notifications: &ExtensionNotificationHub,
+) -> Result<(Vec<LoadedExtension>, Option<PathBuf>)> {
     if review.no_extensions {
-        return Ok((Vec::new(), notifications));
+        return Ok((Vec::new(), None));
     }
     let config = user_config_root().map(|root| root.join("workdeck"));
     let trust = load_extension_trust_store();
@@ -2108,13 +2139,14 @@ fn load_review_extensions(
     let repo = AnyProvider::discover(cwd, review.preference())
         .ok()
         .map(|provider| provider.root().to_owned());
-    let manifests = discover_manifests(
+    let discovery = discover_manifests_with_status(
         global_extensions.as_deref(),
         repo.as_deref(),
         &trust,
         &review.extension,
     )?;
-    let extensions = manifests
+    let extensions = discovery
+        .manifests
         .iter()
         .map(|path| {
             LoadedExtension::spawn_with_notifications(
@@ -2125,7 +2157,41 @@ fn load_review_extensions(
             .with_context(|| format!("failed to load native extension {}", path.display()))
         })
         .collect::<Result<Vec<_>>>()?;
-    Ok((extensions, notifications))
+    Ok((extensions, discovery.pending_trust_repo_root))
+}
+
+fn review_extension_trust_handler(
+    cwd: &Path,
+    review: &ReviewCliOptions,
+    notifications: &ExtensionNotificationHub,
+) -> ExtensionTrustHandler {
+    let cwd = cwd.to_owned();
+    let review = review.clone();
+    let notifications = notifications.clone();
+    ExtensionTrustHandler::new(move |repo_root, decision, load_extensions| {
+        let state_path = resolve_app_state_path().ok_or_else(|| {
+            ExtensionTrustHostError::Write(ExtensionTrustWriteError::Message(
+                "could not resolve the Workdeck app-state path".into(),
+            ))
+        })?;
+        let mut trust = load_extension_trust_store();
+        trust.grant(repo_root, decision);
+        workdeck_store::update_app_state_record(&state_path, trust.app_state_patch()).map_err(
+            |error| {
+                ExtensionTrustHostError::Write(ExtensionTrustWriteError::Message(error.to_string()))
+            },
+        )?;
+        if !load_extensions {
+            return Ok(Vec::new());
+        }
+        let (extensions, pending) =
+            load_review_extensions_with_notifications(&cwd, &review, &notifications)
+                .map_err(|_| ExtensionTrustHostError::Reload)?;
+        if pending.is_some() {
+            return Err(ExtensionTrustHostError::Reload);
+        }
+        Ok(extensions)
+    })
 }
 
 fn load_cli_extensions(

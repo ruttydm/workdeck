@@ -129,8 +129,9 @@ use workdeck_core::{
     ReviewSide, SourceOrigin,
 };
 use workdeck_diff::{
-    DIFF_RAIL_PREFIX_WIDTH, HighlightCache, HighlightedDiffLine, SyntaxToken, TextSegment,
-    clip_segments, expand_diff_tabs, plan_split_line_pairs, resolve_split_cell_geometry,
+    DIFF_RAIL_PREFIX_WIDTH, HighlightCache, HighlightedDiffLine, LanguageMatcher,
+    LanguageRegistration, LanguageRegistry, SyntaxToken, TextSegment, clip_segments,
+    expand_diff_tabs, plan_split_line_pairs, resolve_split_cell_geometry,
     resolve_split_pane_widths as resolve_diff_split_pane_widths, resolve_stack_cell_geometry,
     sanitize_terminal_line, slice_segments_window, word_diff_ranges, wrap_segments,
 };
@@ -139,10 +140,10 @@ use workdeck_extension_api::{
     ExtensionKeyEvent, ExtensionNotification, ExtensionNotificationHub,
     ExtensionNotificationSubscription, ExtensionNotifyType, ExtensionPaintTheme, ExtensionPaneView,
     ExtensionTextAttribute, ExtensionWorkspaceWriteCompletion, ExtensionWorkspaceWriteResult,
-    FileViewModeKeyRequest, FileViewModeLifecycleRequest, KeyRoutingResult,
-    KeyboardModeRegistration, PaneActionInvocation, PanePlacement, PaneRegistration,
-    PaneRenderRequest, Registration, ReviewEvent, ValidatedFileViewLayout, ViewNode, ViewStyle,
-    bundled_files_pane, extension_pane_size,
+    FileLanguageGlobTarget, FileLanguageMatcher, FileViewModeKeyRequest,
+    FileViewModeLifecycleRequest, KeyRoutingResult, KeyboardModeRegistration, PaneActionInvocation,
+    PanePlacement, PaneRegistration, PaneRenderRequest, Registration, ReviewEvent,
+    ValidatedFileViewLayout, ViewNode, ViewStyle, bundled_files_pane, extension_pane_size,
 };
 use workdeck_extension_host::{
     ExtensionRequestCancellation, FileViewSelectionState, LoadedExtension, RegisteredFileView,
@@ -190,6 +191,8 @@ pub struct ReviewOptions {
     pub extension_notifications: Option<ExtensionNotificationHub>,
     /// Repository whose native extensions are waiting on an explicit trust decision.
     pub pending_extension_trust_repo_root: Option<PathBuf>,
+    /// Composition-root authority for persisting a decision and loading newly trusted code.
+    pub extension_trust_handler: Option<ExtensionTrustHandler>,
 }
 
 impl Default for ReviewOptions {
@@ -219,6 +222,7 @@ impl Default for ReviewOptions {
             extension_panes: Vec::new(),
             extension_notifications: None,
             pending_extension_trust_repo_root: None,
+            extension_trust_handler: None,
         }
     }
 }
@@ -440,6 +444,15 @@ struct SidebarRevealKey {
     mode: FileSidebarMode,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ExtensionTrustPromptHits {
+    bounds: Rect,
+    close: Rect,
+    trust: Rect,
+    dismiss: Rect,
+    deny: Rect,
+}
+
 impl ExtensionPaneRuntime {
     fn new(extensions: Vec<LoadedExtension>) -> Self {
         let mut panes = Vec::new();
@@ -544,6 +557,7 @@ pub struct ReviewApp {
     extension_known_note_ids: BTreeSet<String>,
     extension_trust_controller: ExtensionTrustController,
     extension_trust_request: Option<ExtensionTrustRequest>,
+    extension_trust_prompt_hits: Cell<Option<ExtensionTrustPromptHits>>,
 }
 
 impl ReviewApp {
@@ -639,6 +653,7 @@ impl ReviewApp {
             extension_known_note_ids,
             extension_trust_controller,
             extension_trust_request: None,
+            extension_trust_prompt_hits: Cell::new(None),
         };
         app.publish_extension_event("changeset_loaded", serde_json::json!({}));
         app.publish_extension_selection_events();
@@ -686,6 +701,52 @@ impl ReviewApp {
     /// Consume one trust decision for persistence and extension-aware refresh by the host.
     pub fn take_extension_trust_request(&mut self) -> Option<ExtensionTrustRequest> {
         self.extension_trust_request.take()
+    }
+
+    /// Persist one queued security decision and atomically install extensions after a fresh reload.
+    pub fn process_extension_trust_request(
+        &mut self,
+        reloader: &mut Option<&mut dyn FnMut() -> Result<Changeset>>,
+    ) {
+        let Some(request) = self.take_extension_trust_request() else {
+            return;
+        };
+        let Some(handler) = self.options.extension_trust_handler.clone() else {
+            self.status = Some("Failed to record the trust decision.".into());
+            return;
+        };
+        let can_reload = reloader.is_some();
+        let load_extensions =
+            can_reload && request.decision == workdeck_extension_host::TrustDecision::Trusted;
+        let extensions = match handler.run(&request.repo_root, request.decision, load_extensions) {
+            Ok(extensions) => extensions,
+            Err(ExtensionTrustHostError::Write(error)) => {
+                self.status = Some(error.notice());
+                return;
+            }
+            Err(ExtensionTrustHostError::Reload) => {
+                self.status =
+                    Some("Failed to reload after trusting this repository's extensions.".into());
+                return;
+            }
+        };
+        self.reconcile_extension_trust_repo_root(None);
+        if request.decision == workdeck_extension_host::TrustDecision::Denied {
+            self.status = Some("Won't run this repository's extensions".into());
+            return;
+        }
+        let Some(reload) = reloader.as_deref_mut() else {
+            self.status =
+                Some("Trusted this repository • restart Workdeck to load its extensions".into());
+            return;
+        };
+        match reload() {
+            Ok(changeset) => self.replace_extensions_and_reload(changeset, extensions),
+            Err(_) => {
+                self.status =
+                    Some("Failed to reload after trusting this repository's extensions.".into());
+            }
+        }
     }
 
     #[must_use]
@@ -763,6 +824,8 @@ impl ReviewApp {
             runtime.file_view_component_hits.clear();
             runtime.file_view_component_pointer.release();
         }
+        let mut changeset = changeset;
+        self.apply_extension_file_languages(&mut changeset);
         let changeset = match self.apply_extension_transforms(changeset) {
             Ok(changeset) => changeset,
             Err(error) => {
@@ -792,6 +855,73 @@ impl ReviewApp {
         });
         self.publish_extension_event("session_reload", serde_json::json!({}));
         self.publish_extension_selection_events();
+    }
+
+    fn replace_extensions_and_reload(
+        &mut self,
+        changeset: Changeset,
+        extensions: Vec<LoadedExtension>,
+    ) {
+        self.exit_active_keyboard_mode();
+        self.exit_active_file_view_mode();
+        let replacement = ExtensionPaneRuntime::new(extensions);
+        let mut command_defaults = builtin_command_key_defaults();
+        command_defaults.extend(replacement.commands.iter().map(|registration| {
+            CommandKeyDefaults {
+                id: format!("{}.{}", registration.extension_id, registration.command.id),
+                aliases: Vec::new(),
+                default_keys: registration.command.default_keys.clone(),
+            }
+        }));
+        self.resolved_command_keys =
+            resolve_command_keys(&command_defaults, &self.options.keybindings);
+        let previous = {
+            let mut runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            std::mem::replace(&mut *runtime, replacement)
+        };
+        drop(previous);
+        self.reload(changeset);
+    }
+
+    fn apply_extension_file_languages(&self, changeset: &mut Changeset) {
+        let runtime = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let file_languages = runtime
+            .extensions
+            .iter()
+            .flat_map(|extension| &extension.handshake.registrations)
+            .filter_map(|registration| match registration {
+                Registration::FileLanguage(registration) => Some(LanguageRegistration {
+                    matcher: match &registration.matcher {
+                        FileLanguageMatcher::Extension { value } => {
+                            LanguageMatcher::Extension(value.clone())
+                        }
+                        FileLanguageMatcher::Filename { value } => {
+                            LanguageMatcher::Filename(value.clone())
+                        }
+                        FileLanguageMatcher::Glob { value, target } => LanguageMatcher::Glob {
+                            value: value.clone(),
+                            target_path: *target == FileLanguageGlobTarget::Path,
+                        },
+                    },
+                    language: registration.language.clone(),
+                    reserved: false,
+                }),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        drop(runtime);
+        let mut language_registry = LanguageRegistry::default();
+        language_registry.replace_extensions(file_languages);
+        for file in &mut changeset.files {
+            let language = language_registry.language_for_path(&file.path);
+            file.language = (language != "text").then_some(language);
+        }
     }
 
     fn apply_extension_transforms(&self, mut changeset: Changeset) -> Result<Changeset> {
@@ -1024,13 +1154,9 @@ impl ReviewApp {
 
     /// The trust prompt is a security decision and owns every key while visible.
     fn handle_extension_trust_prompt_key(&mut self, key: &KeyEvent) -> bool {
-        let Some(repo_root) = self
-            .extension_trust_controller
-            .prompt_root()
-            .map(Path::to_owned)
-        else {
+        if !self.extension_trust_controller.prompt_open() {
             return false;
-        };
+        }
         let decision = match key.code {
             KeyCode::Enter | KeyCode::Char('t') => {
                 Some(workdeck_extension_host::TrustDecision::Trusted)
@@ -1043,13 +1169,25 @@ impl ReviewApp {
             _ => None,
         };
         if let Some(decision) = decision {
-            self.extension_trust_controller.close();
-            self.extension_trust_request = Some(ExtensionTrustRequest {
-                repo_root,
-                decision,
-            });
+            self.queue_extension_trust_decision(decision);
         }
         true
+    }
+
+    fn queue_extension_trust_decision(&mut self, decision: workdeck_extension_host::TrustDecision) {
+        let Some(repo_root) = self
+            .extension_trust_controller
+            .prompt_root()
+            .map(Path::to_owned)
+        else {
+            return;
+        };
+        self.extension_trust_controller.close();
+        self.extension_trust_prompt_hits.set(None);
+        self.extension_trust_request = Some(ExtensionTrustRequest {
+            repo_root,
+            decision,
+        });
     }
 
     fn handle_filter_key(&mut self, key: &KeyEvent) -> bool {
@@ -3405,6 +3543,33 @@ impl ReviewApp {
     }
 
     pub fn handle_mouse_event(&mut self, event: MouseEvent) {
+        if self.extension_trust_controller.prompt_open() {
+            if event.kind == MouseEventKind::Up(MouseButton::Left) {
+                let hits = self.extension_trust_prompt_hits.get();
+                match hits {
+                    Some(hits) if rect_contains(hits.trust, event.column, event.row) => {
+                        self.queue_extension_trust_decision(
+                            workdeck_extension_host::TrustDecision::Trusted,
+                        );
+                    }
+                    Some(hits) if rect_contains(hits.deny, event.column, event.row) => {
+                        self.queue_extension_trust_decision(
+                            workdeck_extension_host::TrustDecision::Denied,
+                        );
+                    }
+                    Some(hits)
+                        if rect_contains(hits.dismiss, event.column, event.row)
+                            || rect_contains(hits.close, event.column, event.row)
+                            || !rect_contains(hits.bounds, event.column, event.row) =>
+                    {
+                        self.extension_trust_controller.close();
+                        self.extension_trust_prompt_hits.set(None);
+                    }
+                    _ => {}
+                }
+            }
+            return;
+        }
         if self.has_extension_dialog() {
             return;
         }
@@ -4088,6 +4253,7 @@ fn run_loop(
                 Event::Mouse(mouse) => app.handle_mouse_event(mouse),
                 Event::Resize(_, _) | Event::FocusGained | Event::FocusLost | Event::Paste(_) => {}
             }
+            app.process_extension_trust_request(reloader);
         }
         let session_requested =
             session_reload.is_some_and(|reload| reload.swap(false, Ordering::Relaxed));
@@ -4177,6 +4343,7 @@ pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
 /// Draw the host-owned repository-extension security decision above the review.
 pub fn render_extension_trust_prompt(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     let Some(repo_root) = app.extension_trust_controller.prompt_root() else {
+        app.extension_trust_prompt_hits.set(None);
         return;
     };
     let width = 72.min(area.width.saturating_sub(2).max(1));
@@ -4201,53 +4368,112 @@ pub fn render_extension_trust_prompt(area: Rect, buffer: &mut Buffer, app: &Revi
     let inner = block.inner(bounds);
     block.render(bounds, buffer);
     if inner.height == 0 || inner.width == 0 {
+        app.extension_trust_prompt_hits
+            .set(Some(ExtensionTrustPromptHits {
+                bounds,
+                close: Rect::default(),
+                trust: Rect::default(),
+                dismiss: Rect::default(),
+                deny: Rect::default(),
+            }));
         return;
     }
-
-    let rows = vec![
-        Line::raw(""),
-        Line::from(vec![
-            Span::styled(
-                "Run this repository's extensions?",
-                Style::default().fg(text),
-            ),
-            Span::raw(" "),
-            Span::styled("[Esc]", Style::default().fg(neutral)),
-        ]),
-        Line::styled(
-            "This repository contains extensions in .workdeck/extensions.",
-            Style::default().fg(muted),
+    let content = Rect::new(
+        inner.x.saturating_add(u16::from(inner.width > 1)),
+        inner.y,
+        inner.width.saturating_sub(2),
+        inner.height,
+    );
+    let row = |offset: u16| {
+        Rect::new(
+            content.x,
+            content.y.saturating_add(offset),
+            content.width,
+            u16::from(offset < content.height),
+        )
+    };
+    let close_width = content.width.min(5);
+    let close = Rect::new(
+        content.right().saturating_sub(close_width),
+        content.y.saturating_add(1),
+        close_width,
+        u16::from(content.height > 1),
+    );
+    let title = row(1);
+    Paragraph::new(Line::styled(
+        "Run this repository's extensions?",
+        Style::default().fg(text),
+    ))
+    .render(
+        Rect::new(
+            title.x,
+            title.y,
+            title.width.saturating_sub(close_width.saturating_add(1)),
+            title.height,
         ),
-        Line::styled(
-            "Extensions run with your user permissions.",
-            Style::default().fg(muted),
-        ),
-        Line::raw(""),
-        Line::styled(
-            repo_root.display().to_string(),
-            Style::default().fg(neutral),
-        ),
-        Line::styled(
-            "Trust runs them now and remembers this repo; never won't ask again.",
-            Style::default().fg(muted),
-        ),
-        Line::raw(""),
-        Line::from(vec![
-            Span::raw(" "),
-            Span::styled("enter/t", Style::default().fg(accent)),
-            Span::styled(" trust ", Style::default().fg(muted)),
-            Span::styled("·", Style::default().fg(neutral)),
-            Span::raw(" "),
-            Span::styled("esc", Style::default().fg(accent)),
-            Span::styled(" not now ", Style::default().fg(muted)),
-            Span::styled("·", Style::default().fg(neutral)),
-            Span::raw(" "),
-            Span::styled("n", Style::default().fg(accent)),
-            Span::styled(" never ", Style::default().fg(muted)),
-        ]),
-        Line::raw(""),
-    ];
-    Paragraph::new(rows).render(inner, buffer);
+        buffer,
+    );
+    Paragraph::new(Line::styled("[Esc]", Style::default().fg(neutral)))
+        .alignment(Alignment::Right)
+        .render(close, buffer);
+    Paragraph::new(Line::styled(
+        "This repository contains extensions in .agents/workdeck/extensions.",
+        Style::default().fg(muted),
+    ))
+    .render(row(2), buffer);
+    Paragraph::new(Line::styled(
+        "Extensions run with your user permissions.",
+        Style::default().fg(muted),
+    ))
+    .render(row(3), buffer);
+    Paragraph::new(Line::styled(
+        repo_root.display().to_string(),
+        Style::default().fg(neutral),
+    ))
+    .render(row(5), buffer);
+    Paragraph::new(Line::styled(
+        "Trust runs them now and remembers this repo; never won't ask again.",
+        Style::default().fg(muted),
+    ))
+    .render(row(6), buffer);
+    Paragraph::new(Line::from(vec![
+        Span::raw(" "),
+        Span::styled("enter/t", Style::default().fg(accent)),
+        Span::styled(" trust ", Style::default().fg(muted)),
+        Span::styled("·", Style::default().fg(neutral)),
+        Span::raw(" "),
+        Span::styled("esc", Style::default().fg(accent)),
+        Span::styled(" not now ", Style::default().fg(muted)),
+        Span::styled("·", Style::default().fg(neutral)),
+        Span::raw(" "),
+        Span::styled("n", Style::default().fg(accent)),
+        Span::styled(" never ", Style::default().fg(muted)),
+    ]))
+    .render(row(8), buffer);
+    let action_y = content.y.saturating_add(8);
+    let trust = Rect::new(content.x, action_y, content.width.min(15), 1);
+    let dismiss_x = content.x.saturating_add(18);
+    let dismiss = Rect::new(
+        dismiss_x,
+        action_y,
+        content.right().saturating_sub(dismiss_x).min(13),
+        1,
+    );
+    let deny_x = content.x.saturating_add(34);
+    let deny = Rect::new(
+        deny_x,
+        action_y,
+        content.right().saturating_sub(deny_x).min(9),
+        1,
+    );
+    app.extension_trust_prompt_hits
+        .set(Some(ExtensionTrustPromptHits {
+            bounds,
+            close,
+            trust,
+            dismiss,
+            deny,
+        }));
 }
 
 /// Render the review surface inside Workdeck's unified tab shell.
@@ -4263,6 +4489,11 @@ pub fn render_embedded(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         Clear.render(toast_area, buffer);
         render_extension_toast(toast_area, buffer, app);
     }
+    render_extension_input_dialog(area, buffer, app);
+    render_extension_select_dialog(area, buffer, app);
+    render_extension_confirm_dialog(area, buffer, app);
+    render_extension_workspace_write_dialog(area, buffer, app);
+    render_extension_trust_prompt(area, buffer, app);
 }
 
 /// Render Hunk's desktop-style top menu bar with a one-cell outer gutter.
@@ -7143,7 +7374,7 @@ mod tests {
         let initial = rendered_review_text(&mut terminal, &app);
         assert!(initial.contains("Run this repository's extensions?"));
         assert!(initial.contains("/repo/alpha"));
-        assert!(initial.contains(".workdeck/extensions"));
+        assert!(initial.contains(".agents/workdeck/extensions"));
 
         app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(
@@ -7205,6 +7436,145 @@ mod tests {
                 decision: workdeck_extension_host::TrustDecision::Denied,
             })
         );
+    }
+
+    #[test]
+    fn repository_extension_trust_decisions_run_host_authority_and_reload_atomically() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let observed = Arc::clone(&calls);
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                pending_extension_trust_repo_root: Some(PathBuf::from("/repo/alpha")),
+                extension_trust_handler: Some(ExtensionTrustHandler::new(
+                    move |root, decision, load_extensions| {
+                        observed
+                            .lock()
+                            .unwrap()
+                            .push((root.to_owned(), decision, load_extensions));
+                        Ok(Vec::new())
+                    },
+                )),
+                ..ReviewOptions::default()
+            },
+        );
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let reloads = Arc::new(Mutex::new(0));
+        let observed_reloads = Arc::clone(&reloads);
+        let mut reload = move || {
+            *observed_reloads.lock().unwrap() += 1;
+            Ok(two_file_changeset())
+        };
+        let mut reload: Option<&mut dyn FnMut() -> Result<Changeset>> = Some(&mut reload);
+        app.process_extension_trust_request(&mut reload);
+
+        assert_eq!(
+            *calls.lock().unwrap(),
+            [(
+                PathBuf::from("/repo/alpha"),
+                workdeck_extension_host::TrustDecision::Trusted,
+                true,
+            )]
+        );
+        assert_eq!(*reloads.lock().unwrap(), 1);
+        assert_eq!(app.with_state(|state| state.changeset().files.len()), 2);
+        assert_eq!(app.status.as_deref(), Some("review reloaded"));
+        assert!(app.options.pending_extension_trust_repo_root.is_none());
+    }
+
+    #[test]
+    fn repository_extension_denial_and_nonreloadable_trust_never_load_code() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let observed = Arc::clone(&calls);
+        let handler = ExtensionTrustHandler::new(move |root, decision, load_extensions| {
+            observed
+                .lock()
+                .unwrap()
+                .push((root.to_owned(), decision, load_extensions));
+            assert!(!load_extensions);
+            Ok(Vec::new())
+        });
+        let mut denied = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                pending_extension_trust_repo_root: Some(PathBuf::from("/repo/deny")),
+                extension_trust_handler: Some(handler.clone()),
+                ..ReviewOptions::default()
+            },
+        );
+        denied.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+        let mut unavailable = None;
+        denied.process_extension_trust_request(&mut unavailable);
+        assert_eq!(
+            denied.status.as_deref(),
+            Some("Won't run this repository's extensions")
+        );
+
+        let mut deferred = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                pending_extension_trust_repo_root: Some(PathBuf::from("/repo/defer")),
+                extension_trust_handler: Some(handler),
+                ..ReviewOptions::default()
+            },
+        );
+        deferred.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+        deferred.process_extension_trust_request(&mut unavailable);
+        assert_eq!(
+            deferred.status.as_deref(),
+            Some("Trusted this repository • restart Workdeck to load its extensions")
+        );
+        assert_eq!(calls.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn repository_extension_trust_prompt_renders_embedded_and_owns_mouse_actions() {
+        let backend = TestBackend::new(140, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                pending_extension_trust_repo_root: Some(PathBuf::from("/repo/alpha")),
+                ..ReviewOptions::default()
+            },
+        );
+        terminal
+            .draw(|frame| render_embedded(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(rendered.contains("Run this repository's extensions?"));
+
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 36,
+            row: 15,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert_eq!(
+            app.take_extension_trust_request(),
+            Some(ExtensionTrustRequest {
+                repo_root: PathBuf::from("/repo/alpha"),
+                decision: workdeck_extension_host::TrustDecision::Trusted,
+            })
+        );
+
+        app.reconcile_extension_trust_repo_root(Some(PathBuf::from("/repo/beta")));
+        terminal
+            .draw(|frame| render_embedded(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(app.extension_trust_prompt_root().is_none());
     }
 
     #[test]
