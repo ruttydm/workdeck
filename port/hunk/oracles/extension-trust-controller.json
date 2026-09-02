@@ -1,0 +1,25 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": "src/ui/hooks/useExtensionTrustController.ts",
+  "sourceBlob": "a614b7d0dd3a8485c4a821ee52874656df735648",
+  "test": "src/ui/hooks/useExtensionTrustController.test.tsx",
+  "testBlob": "424ab96ec523fda7fdc8dd2cdc5cca5f947710c1",
+  "stablePresence": "absent",
+  "testCases": [
+    "pager suppression and later offer",
+    "same-root dismissal and changed-root offer",
+    "temporary pager suppression stays dismissed",
+    "replayed reconciliation is idempotent",
+    "trust writes before extension-aware refresh",
+    "nonreloadable trust defers load to restart",
+    "trust write errors are contained",
+    "reload rejection is contained without reopening",
+    "denial writes without refreshing",
+    "unknown denial failures use a safe fallback"
+  ],
+  "allowedNormalization": {
+    "productName": "Workdeck",
+    "synchronousNativeRefreshResult": "Rust host outcome replaces JavaScript Promise settlement"
+  }
+}
