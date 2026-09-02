@@ -51,6 +51,11 @@ pub mod ratatui_component_support;
 #[path = "../8-ratatui-primitives/primitives_demo.rs"]
 pub mod ratatui_primitives_demo;
 
+#[path = "../9-agent-markup-notes/after/retry.rs"]
+pub mod agent_markup_after;
+#[path = "../9-agent-markup-notes/before/retry.rs"]
+pub mod agent_markup_before;
+
 #[cfg(test)]
 #[path = "../3-agent-review-demo/after/test/search_demo.rs"]
 mod agent_review_after_demo;
@@ -232,6 +237,48 @@ mod patch_tests {
         assert_eq!(changeset.files[0].path, "src/review_summary.rs");
         assert!(patch.contains("pub tags: Vec<String>"));
         assert!(patch.contains("format_review_summary"));
+        assert!(!patch.contains(".ts"));
+    }
+
+    #[test]
+    fn agent_markup_patch_and_both_stml_notes_are_executable() {
+        let patch = include_str!("../9-agent-markup-notes/change.patch");
+        let mut changeset = parse_patch(
+            patch,
+            "agent-markup-notes",
+            "Agent markup notes",
+            ChangesetSource::Patch {
+                label: "agent-markup-notes".into(),
+            },
+        )
+        .expect("translated retry patch parses");
+        let context = workdeck_core::AgentContext::from_json(include_str!(
+            "../9-agent-markup-notes/agent-context.json"
+        ))
+        .expect("translated STML sidecar validates");
+        context.apply_to(&mut changeset);
+
+        assert_eq!(changeset.files.len(), 1);
+        assert_eq!(changeset.files[0].path, "src/retry.rs");
+        let annotations = &changeset.files[0]
+            .agent
+            .as_ref()
+            .expect("retry file has agent context")
+            .annotations;
+        assert_eq!(annotations.len(), 2);
+        let rendered = annotations
+            .iter()
+            .map(|annotation| {
+                workdeck_markup::render(
+                    annotation.markup.as_deref().expect("annotation has STML"),
+                    56,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(rendered.iter().all(|markup| markup.notes.is_empty()));
+        assert!(rendered[0].lines.join("\n").contains("Retry flow"));
+        assert!(rendered[0].lines.join("\n").contains("3 attempts"));
+        assert!(rendered[1].lines.join("\n").contains("fn backoff"));
         assert!(!patch.contains(".ts"));
     }
 }

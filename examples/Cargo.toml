@@ -15,3 +15,4 @@ workdeck-tui = { path = "../crates/workdeck-tui" }
 [dev-dependencies]
 workdeck-core = { path = "../crates/workdeck-core" }
 workdeck-diff = { path = "../crates/workdeck-diff" }
+workdeck-markup = { path = "../crates/workdeck-markup" }
