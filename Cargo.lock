@@ -2727,6 +2727,7 @@ dependencies = [
  "similar",
  "syntect",
  "thiserror",
+ "unicode-segmentation",
  "unicode-width 0.2.0",
  "workdeck-core",
 ]

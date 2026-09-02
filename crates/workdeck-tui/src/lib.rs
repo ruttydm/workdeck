@@ -94,7 +94,7 @@ use workdeck_diff::{
     DIFF_RAIL_PREFIX_WIDTH, HighlightCache, HighlightedDiffLine, SyntaxToken, TextSegment,
     clip_segments, expand_diff_tabs, plan_split_line_pairs, resolve_split_cell_geometry,
     resolve_split_pane_widths as resolve_diff_split_pane_widths, resolve_stack_cell_geometry,
-    word_diff_ranges, wrap_segments,
+    slice_segments_window, word_diff_ranges, wrap_segments,
 };
 use workdeck_extension_api::{
     ExtensionNotification, ExtensionNotificationHub, ExtensionNotificationSubscription,
@@ -2074,23 +2074,8 @@ fn skip_styled_spans(spans: Vec<Span<'static>>, offset: usize) -> Vec<Span<'stat
     if offset == 0 {
         return spans;
     }
-    let mut skipped = 0_usize;
-    let mut visible: Vec<Span<'static>> = Vec::new();
-    for span in spans {
-        for character in span.content.chars() {
-            let width = character.width().unwrap_or_default();
-            if skipped < offset {
-                skipped = skipped.saturating_add(width);
-                continue;
-            }
-            if let Some(last) = visible.last_mut().filter(|last| last.style == span.style) {
-                last.content.to_mut().push(character);
-            } else {
-                visible.push(Span::styled(character.to_string(), span.style));
-            }
-        }
-    }
-    visible
+    let segments = spans_to_segments(spans);
+    segments_to_spans(slice_segments_window(&segments, offset, usize::MAX).segments)
 }
 
 fn spans_to_segments(spans: Vec<Span<'static>>) -> Vec<TextSegment<Style>> {

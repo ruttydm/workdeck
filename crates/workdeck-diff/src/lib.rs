@@ -25,7 +25,10 @@ pub use code_columns::{
     measure_rendered_code_line_width, resolve_code_viewport_width, resolve_split_cell_geometry,
     resolve_split_pane_widths, resolve_stack_cell_geometry,
 };
-pub use geometry::{TextSegment, clip_segments, segments_width, wrap_segments};
+pub use geometry::{
+    SegmentWindow, TextSegment, clip_segments, measure_wrapped_segments_line_count, segments_width,
+    slice_segments_window, wrap_segments,
+};
 pub use git_format::{SanitizedGitPatch, SanitizedGitPatchFilePaths, sanitize_git_patch};
 pub use git_log::strip_git_log_metadata;
 pub use highlighted_diff_cache::{
