@@ -218,6 +218,7 @@ mod tests {
             review: None,
             open_panes: Vec::new(),
             active_keyboard_mode: active.then(|| QUALIFIED_MODE_ID.into()),
+            workspace: None,
         }
     }
 

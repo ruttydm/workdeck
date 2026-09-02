@@ -198,6 +198,7 @@ mod tests {
             review: None,
             open_panes: vec!["example.pane-layout:top".into()],
             active_keyboard_mode: None,
+            workspace: None,
         })
         .unwrap();
         assert!(

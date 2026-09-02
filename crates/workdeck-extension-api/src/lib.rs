@@ -870,6 +870,54 @@ pub struct CommandInvocation {
     pub open_panes: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_keyboard_mode: Option<String>,
+    /// Immutable reviewed-document capability for this command invocation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<ExtensionWorkspaceSnapshot>,
+}
+
+/// One reviewed file exposed through a native command's workspace capability.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionWorkspaceDocument {
+    pub file_id: String,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub old: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new: Option<String>,
+    pub writable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable_detail: Option<String>,
+}
+
+/// Frozen native equivalent of Hunk's review-generation-bound `ctx.workspace` reads and probe.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionWorkspaceSnapshot {
+    pub review_generation: u64,
+    pub documents: Vec<ExtensionWorkspaceDocument>,
+}
+
+impl ExtensionWorkspaceSnapshot {
+    #[must_use]
+    pub fn read_document(&self, file_id: &str, side: ExtensionFileSide) -> Option<&str> {
+        let document = self
+            .documents
+            .iter()
+            .find(|document| document.file_id == file_id)?;
+        match side {
+            ExtensionFileSide::Old => document.old.as_deref(),
+            ExtensionFileSide::New => document.new.as_deref(),
+        }
+    }
+
+    #[must_use]
+    pub fn can_write_document(&self, file_id: &str) -> bool {
+        self.documents
+            .iter()
+            .find(|document| document.file_id == file_id)
+            .is_some_and(|document| document.writable)
+    }
 }
 
 /// Declarative host mutation requested by an in-review command.
@@ -1027,7 +1075,8 @@ pub struct FileViewModeKeyRequest {
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum ExtensionWorkspaceWriteResult {
     Written,
-    Cancelled,
+    Cancelled { detail: String },
+    Unavailable { detail: String },
     Failed { detail: String },
 }
 
@@ -1471,6 +1520,48 @@ mod tests {
         assert_eq!(
             serde_json::from_value::<CommandExecution>(encoded).unwrap(),
             execution
+        );
+    }
+
+    #[test]
+    fn command_workspace_snapshot_preserves_reads_probes_and_result_reasons() {
+        let workspace = ExtensionWorkspaceSnapshot {
+            review_generation: 7,
+            documents: vec![ExtensionWorkspaceDocument {
+                file_id: "alpha".into(),
+                path: "src/alpha.rs".into(),
+                old: Some("old\n".into()),
+                new: Some("new\n".into()),
+                writable: true,
+                unavailable_detail: None,
+            }],
+        };
+        assert_eq!(
+            workspace.read_document("alpha", ExtensionFileSide::New),
+            Some("new\n")
+        );
+        assert_eq!(
+            workspace.read_document("missing", ExtensionFileSide::Old),
+            None
+        );
+        assert!(workspace.can_write_document("alpha"));
+        assert!(!workspace.can_write_document("missing"));
+        assert_eq!(
+            serde_json::to_value(ExtensionWorkspaceWriteResult::Cancelled {
+                detail: "The write to src/alpha.rs was declined.".into(),
+            })
+            .unwrap(),
+            serde_json::json!({
+                "kind": "cancelled",
+                "detail": "The write to src/alpha.rs was declined."
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(ExtensionWorkspaceWriteResult::Unavailable {
+                detail: "The review reloaded before this extension operation could finish.".into(),
+            })
+            .unwrap()["kind"],
+            "unavailable"
         );
     }
 

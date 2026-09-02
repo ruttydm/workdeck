@@ -6,11 +6,13 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{Terminal, backend::TestBackend};
 use tempfile::TempDir;
 use workdeck_core::{
-    Changeset, ChangesetSource, FileSourceSnapshots, ReviewSelection, ReviewSnapshot, SourceOrigin,
-    SourceSnapshot,
+    Changeset, ChangesetSource, CliInput, CommonOptions, FileSourceSnapshots, ReviewSelection,
+    ReviewSnapshot, SourceOrigin, SourceSnapshot, VcsDiffCommandInput,
 };
 use workdeck_diff::parse_patch;
-use workdeck_examples::inline_edit_extension::{COMMAND_ID, InlineEditExtension, VIEW_ID};
+use workdeck_examples::inline_edit_extension::{
+    COMMAND_ID, InlineEditExtension, REWRITE_COMMAND_ID, VIEW_ID,
+};
 use workdeck_extension_api::{
     Capability, CommandInvocation, ExtensionFileChangeKind, ExtensionFileChangeRange,
     ExtensionFileSide, ExtensionHostAction, ExtensionKeyEvent, ExtensionNotifyType,
@@ -78,7 +80,18 @@ fn invocation(changeset: &Changeset) -> CommandInvocation {
         review: None,
         open_panes: Vec::new(),
         active_keyboard_mode: None,
+        workspace: None,
     }
+}
+
+fn writable_input() -> CliInput {
+    CliInput::Vcs(VcsDiffCommandInput {
+        range: None,
+        range_endpoints: None,
+        staged: false,
+        pathspecs: Vec::new(),
+        options: CommonOptions::default(),
+    })
 }
 
 struct Harness {
@@ -204,11 +217,15 @@ fn requested_write(actions: &[ExtensionHostAction]) -> Option<(&str, &str)> {
 }
 
 #[test]
-fn registers_one_interactive_file_view_and_one_command_on_ctrl_e() {
+fn registers_one_interactive_file_view_and_both_workspace_commands() {
     let registrations = InlineEditExtension::registrations();
     assert!(registrations.iter().any(|registration| {
         matches!(registration, Registration::Command(command)
             if command.id == COMMAND_ID && command.default_keys == ["ctrl+e"])
+    }));
+    assert!(registrations.iter().any(|registration| {
+        matches!(registration, Registration::Command(command)
+            if command.id == REWRITE_COMMAND_ID && command.default_keys.is_empty())
     }));
     assert!(registrations.iter().any(|registration| {
         matches!(registration, Registration::FileView { id, interactive_mode: true, .. }
@@ -533,7 +550,9 @@ fn cancelled_and_failed_writes_keep_the_buffer_and_report_only_failure() {
             .extension
             .complete_write(&ExtensionWorkspaceWriteCompletion {
                 request_id,
-                result: ExtensionWorkspaceWriteResult::Cancelled
+                result: ExtensionWorkspaceWriteResult::Cancelled {
+                    detail: "The write to src/demo.md was declined.".into(),
+                }
             })
             .actions
             .is_empty()
@@ -757,6 +776,7 @@ fn ratatui_host_confirms_guards_writes_and_exits_the_mode_after_success() {
         ReviewOptions {
             repo: Some(repository.path().into()),
             command_cwd: Some(repository.path().into()),
+            review_input: Some(writable_input()),
             ..ReviewOptions::default()
         },
         vec![loaded],
@@ -781,6 +801,9 @@ fn ratatui_host_confirms_guards_writes_and_exits_the_mode_after_success() {
     let frame = terminal_text(&terminal);
     assert!(frame.contains("ext example.inline-edit"));
     assert!(frame.contains("Write alpha.ts?"));
+    assert!(
+        frame.contains("Extension example.inline-edit will replace this file's contents on disk.")
+    );
 
     app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert!(!app.has_extension_dialog());
@@ -796,6 +819,8 @@ fn ratatui_host_confirms_guards_writes_and_exits_the_mode_after_success() {
         fs::read_to_string(repository.path().join("alpha.ts")).unwrap(),
         "alpha\nzbeta\n"
     );
+    assert!(app.take_reload_requested());
+    assert!(!app.take_reload_requested());
     assert_eq!(app.active_keyboard_mode_title(), None);
 }
 
@@ -811,6 +836,7 @@ fn ratatui_host_rejects_a_stale_working_tree_without_losing_the_edit_session() {
         ReviewOptions {
             repo: Some(repository.path().into()),
             command_cwd: Some(repository.path().into()),
+            review_input: Some(writable_input()),
             ..ReviewOptions::default()
         },
         vec![loaded],
@@ -827,18 +853,91 @@ fn ratatui_host_rejects_a_stale_working_tree_without_losing_the_edit_session() {
 }
 
 #[test]
+fn ratatui_host_refuses_a_missing_target_before_and_after_consent() {
+    let repository = TempDir::new().unwrap();
+    let path = repository.path().join("alpha.ts");
+    fs::write(&path, "alpha\nbeta\n").unwrap();
+    let (_extension_directory, manifest) = staged_extension();
+    let loaded = LoadedExtension::spawn(&manifest, "test").unwrap();
+    let mut app = ReviewApp::new_with_extensions(
+        changeset("alpha\nbeta\n"),
+        ReviewOptions {
+            repo: Some(repository.path().into()),
+            command_cwd: Some(repository.path().into()),
+            review_input: Some(writable_input()),
+            ..ReviewOptions::default()
+        },
+        vec![loaded],
+    );
+    app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL));
+    app.handle_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE));
+
+    fs::remove_file(&path).unwrap();
+    app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+    assert!(!app.has_extension_dialog());
+    assert_eq!(app.active_keyboard_mode_title().as_deref(), Some(VIEW_ID));
+    assert!(!app.take_reload_requested());
+
+    fs::write(&path, "alpha\nbeta\n").unwrap();
+    app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+    assert!(app.has_extension_dialog());
+    fs::remove_file(&path).unwrap();
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(!path.exists());
+    assert!(!app.has_extension_dialog());
+    assert_eq!(app.active_keyboard_mode_title().as_deref(), Some(VIEW_ID));
+    assert!(!app.take_reload_requested());
+}
+
+#[test]
+fn ratatui_host_retires_a_pending_workspace_write_when_the_review_reloads() {
+    let repository = TempDir::new().unwrap();
+    let path = repository.path().join("alpha.ts");
+    fs::write(&path, "alpha\nbeta\n").unwrap();
+    let (_extension_directory, manifest) = staged_extension();
+    let loaded = LoadedExtension::spawn(&manifest, "test").unwrap();
+    let mut app = ReviewApp::new_with_extensions(
+        changeset("alpha\nbeta\n"),
+        ReviewOptions {
+            repo: Some(repository.path().into()),
+            command_cwd: Some(repository.path().into()),
+            review_input: Some(writable_input()),
+            ..ReviewOptions::default()
+        },
+        vec![loaded],
+    );
+    app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL));
+    app.handle_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE));
+    app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+    assert!(app.has_extension_dialog());
+
+    app.reload(changeset("alpha\nbeta\n"));
+    assert!(!app.has_extension_dialog());
+    assert_eq!(app.active_keyboard_mode_title(), None);
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(fs::read_to_string(path).unwrap(), "alpha\nbeta\n");
+}
+
+#[test]
 fn compiled_subprocess_preserves_command_mode_layout_and_write_lifecycle() {
     let (_directory, manifest) = staged_extension();
     let mut loaded = LoadedExtension::spawn(&manifest, "test").unwrap();
     let changeset = changeset("alpha\nbeta\n");
+    let workspace = workdeck_tui::build_extension_workspace_snapshot(
+        &changeset.files,
+        &writable_input(),
+        std::path::Path::new("/repo"),
+        1,
+    );
     let actions = loaded
-        .invoke_command_with_review_context(
+        .invoke_command_with_workspace_context(
             COMMAND_ID,
             invocation(&changeset).snapshot,
             Vec::new(),
             None,
             "/repo".into(),
             None,
+            Some(workspace),
         )
         .unwrap()
         .actions;
@@ -894,4 +993,36 @@ fn compiled_subprocess_preserves_command_mode_layout_and_write_lifecycle() {
         matches!(&completion.actions[0], ExtensionHostAction::Notify { message, .. } if message == "Wrote alpha.ts")
     );
     assert!(loaded.file_view_mode_lifecycle("workdeck/file-view-mode/exit", lifecycle).unwrap().actions.iter().all(|action| !matches!(action, ExtensionHostAction::Notify { message, .. } if message.contains("Discarded"))));
+}
+
+#[test]
+fn compiled_command_context_reads_and_requests_a_consented_workspace_write() {
+    let (_directory, manifest) = staged_extension();
+    let mut loaded = LoadedExtension::spawn(&manifest, "test").unwrap();
+    let changeset = changeset("alpha\nbeta\n");
+    let workspace = workdeck_tui::build_extension_workspace_snapshot(
+        &changeset.files,
+        &writable_input(),
+        std::path::Path::new("/repo"),
+        1,
+    );
+    let mut request = invocation(&changeset);
+    request.command_id = REWRITE_COMMAND_ID.into();
+    let actions = loaded
+        .invoke_command_with_workspace_context(
+            REWRITE_COMMAND_ID,
+            request.snapshot,
+            Vec::new(),
+            None,
+            "/repo".into(),
+            None,
+            Some(workspace),
+        )
+        .unwrap()
+        .actions;
+    assert!(matches!(
+        actions.as_slice(),
+        [ExtensionHostAction::RequestWorkspaceWrite { file_id, text, .. }]
+            if file_id == &changeset.files[0].runtime_id && text == "ALPHA\nBETA\n"
+    ));
 }

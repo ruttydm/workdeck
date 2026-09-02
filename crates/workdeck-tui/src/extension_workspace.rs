@@ -13,7 +13,9 @@ use std::path::{Component, Path, PathBuf};
 use serde_json::Value;
 use workdeck_core::{CliInput, DiffFile, FileChangeKind};
 use workdeck_diff::normalize_diff_path;
-use workdeck_extension_api::ExtensionFileSide;
+use workdeck_extension_api::{
+    ExtensionFileSide, ExtensionWorkspaceDocument, ExtensionWorkspaceSnapshot,
+};
 
 use crate::can_reload_cli_input;
 
@@ -32,6 +34,26 @@ pub enum ExtensionWorkspaceWriteTarget {
     Unavailable {
         detail: String,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WorkspaceWriteFailure {
+    Unavailable(String),
+    Failed(String),
+}
+
+impl WorkspaceWriteFailure {
+    #[must_use]
+    pub fn into_extension_result(self) -> workdeck_extension_api::ExtensionWorkspaceWriteResult {
+        match self {
+            Self::Unavailable(detail) => {
+                workdeck_extension_api::ExtensionWorkspaceWriteResult::Unavailable { detail }
+            }
+            Self::Failed(detail) => {
+                workdeck_extension_api::ExtensionWorkspaceWriteResult::Failed { detail }
+            }
+        }
+    }
 }
 
 impl ExtensionWorkspaceWriteTarget {
@@ -190,6 +212,43 @@ pub fn resolve_extension_workspace_read<'a>(
         ExtensionFileSide::New => file.sources.new.as_ref(),
     }?;
     Some(&snapshot.content)
+}
+
+/// Freeze Hunk's command-context workspace reads and optimistic write probes for native RPC.
+#[must_use]
+pub fn build_extension_workspace_snapshot(
+    files: &[DiffFile],
+    input: &CliInput,
+    root: &Path,
+    review_generation: u64,
+) -> ExtensionWorkspaceSnapshot {
+    let documents = files
+        .iter()
+        .map(|file| {
+            let target =
+                resolve_extension_workspace_write_target(&file.runtime_id, files, input, root);
+            ExtensionWorkspaceDocument {
+                file_id: file.runtime_id.clone(),
+                path: normalize_diff_path(Some(&file.path)).unwrap_or_else(|| file.path.clone()),
+                old: file
+                    .sources
+                    .old
+                    .as_ref()
+                    .map(|source| source.content.clone()),
+                new: file
+                    .sources
+                    .new
+                    .as_ref()
+                    .map(|source| source.content.clone()),
+                writable: target.writable(),
+                unavailable_detail: target.detail().map(str::to_owned),
+            }
+        })
+        .collect();
+    ExtensionWorkspaceSnapshot {
+        review_generation,
+        documents,
+    }
 }
 
 /// Verify an already-resolved target against the current filesystem state.
@@ -603,6 +662,39 @@ mod tests {
         ] {
             assert!(serde_json::from_value::<ExtensionFileSide>(invalid).is_err());
         }
+    }
+
+    #[test]
+    fn native_command_snapshot_exposes_all_reviewed_reads_and_write_probes() {
+        let mut hidden = file("hidden.txt");
+        hidden.runtime_id = "hidden".into();
+        let mut deleted = file("deleted.txt");
+        deleted.runtime_id = "deleted".into();
+        deleted.change_kind = FileChangeKind::Deleted;
+        let files = [file("alpha.txt"), hidden, deleted];
+        let snapshot = build_extension_workspace_snapshot(
+            &files,
+            &working_tree(CommonOptions::default()),
+            &test_root(),
+            7,
+        );
+        assert_eq!(snapshot.review_generation, 7);
+        assert_eq!(snapshot.documents.len(), 3);
+        assert_eq!(
+            snapshot.read_document("hidden", ExtensionFileSide::New),
+            Some("new text")
+        );
+        assert!(snapshot.can_write_document("alpha"));
+        assert!(!snapshot.can_write_document("deleted"));
+        assert!(!snapshot.can_write_document("missing"));
+        assert!(
+            snapshot
+                .documents
+                .iter()
+                .find(|document| document.file_id == "deleted")
+                .and_then(|document| document.unavailable_detail.as_deref())
+                .is_some_and(|detail| detail.contains("was deleted"))
+        );
     }
 
     #[test]

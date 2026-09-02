@@ -37,14 +37,15 @@ use workdeck_extension_api::{
     CliOutputNotification, CliOutputStream, CommandExecution, CommandInvocation,
     ConfirmDialogSubmission, DEFAULT_REQUEST_TIMEOUT_MS, ExtensionDiffFile, ExtensionFileSide,
     ExtensionHostAction, ExtensionKeyEvent, ExtensionManifest, ExtensionNotificationHub,
-    ExtensionNotifyType, ExtensionPaneView, ExtensionWorkspaceWriteCompletion,
-    FileViewLayoutRequest, FileViewMatchRequest, FileViewModeKeyRequest,
-    FileViewModeLifecycleRequest, HandshakeRequest, HandshakeResponse, InputDialogSubmission,
-    JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, KeyboardModeExecution,
-    KeyboardModeKeyRequest, KeyboardModeLifecycleRequest, MAX_MESSAGE_BYTES, ManifestError,
-    PaneActionInvocation, PaneRenderRequest, PaneRenderResponse, Registration, ReviewEvent,
-    SelectDialogSubmission, TransformRequest, TransformResponse, ValidatedFileViewLayout,
-    extension_pane_size, is_vertical_pane_placement, parse_key_chord, validate_view,
+    ExtensionNotifyType, ExtensionPaneView, ExtensionWorkspaceSnapshot,
+    ExtensionWorkspaceWriteCompletion, FileViewLayoutRequest, FileViewMatchRequest,
+    FileViewModeKeyRequest, FileViewModeLifecycleRequest, HandshakeRequest, HandshakeResponse,
+    InputDialogSubmission, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
+    KeyboardModeExecution, KeyboardModeKeyRequest, KeyboardModeLifecycleRequest, MAX_MESSAGE_BYTES,
+    ManifestError, PaneActionInvocation, PaneRenderRequest, PaneRenderResponse, Registration,
+    ReviewEvent, SelectDialogSubmission, TransformRequest, TransformResponse,
+    ValidatedFileViewLayout, extension_pane_size, is_vertical_pane_placement, parse_key_chord,
+    validate_view,
 };
 
 #[derive(Debug, Error)]
@@ -1054,6 +1055,28 @@ impl LoadedExtension {
         cwd: PathBuf,
         review: Option<workdeck_extension_api::ExtensionReviewSnapshot>,
     ) -> Result<CommandExecution, HostError> {
+        self.invoke_command_with_workspace_context(
+            command_id,
+            snapshot,
+            open_panes,
+            active_keyboard_mode,
+            cwd,
+            review,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn invoke_command_with_workspace_context(
+        &mut self,
+        command_id: &str,
+        snapshot: ReviewSnapshot,
+        open_panes: Vec<String>,
+        active_keyboard_mode: Option<String>,
+        cwd: PathBuf,
+        review: Option<workdeck_extension_api::ExtensionReviewSnapshot>,
+        workspace: Option<ExtensionWorkspaceSnapshot>,
+    ) -> Result<CommandExecution, HostError> {
         if !self.handshake.registrations.iter().any(|registration| {
             matches!(registration, Registration::Command(command) if command.id == command_id)
         }) {
@@ -1072,6 +1095,7 @@ impl LoadedExtension {
                 review,
                 open_panes,
                 active_keyboard_mode,
+                workspace,
             },
             Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
         )?;
@@ -1444,7 +1468,7 @@ impl LoadedExtension {
                         .contains(&workdeck_extension_api::Capability::WorkspaceWrite)
                         && !request_id.trim().is_empty()
                         && !file_id.trim().is_empty()
-                        && kind == "file view mode key"
+                        && matches!(kind, "command" | "file view mode key")
                 }
                 ExtensionHostAction::OpenInputDialog { id, title, .. } => {
                     self.manifest

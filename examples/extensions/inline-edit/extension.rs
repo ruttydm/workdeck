@@ -20,6 +20,7 @@ use workdeck_extension_api::{
 
 pub const VIEW_ID: &str = "inline-edit";
 pub const COMMAND_ID: &str = "edit";
+pub const REWRITE_COMMAND_ID: &str = "rewrite-selected";
 const HEADER_LABEL: &str = "EDITING — Esc exits · ctrl+s writes";
 const MODIFIED_MARKER: &str = "  MODIFIED";
 const CURSOR_MARK: &str = "▎";
@@ -201,6 +202,12 @@ impl InlineEditExtension {
                 description: None,
                 default_keys: vec!["ctrl+e".into()],
             }),
+            Registration::Command(CommandRegistration {
+                id: REWRITE_COMMAND_ID.into(),
+                title: "Uppercase the selected file".into(),
+                description: Some("Demonstrates command-context workspace reads and writes".into()),
+                default_keys: Vec::new(),
+            }),
         ]
     }
 
@@ -219,6 +226,38 @@ impl InlineEditExtension {
         &mut self,
         invocation: &CommandInvocation,
     ) -> Result<CommandExecution, String> {
+        if invocation.command_id == REWRITE_COMMAND_ID {
+            let Some(file) = invocation
+                .snapshot
+                .changeset
+                .files
+                .get(invocation.snapshot.selection.file_index)
+            else {
+                return Ok(warn("Select a file to rewrite"));
+            };
+            let Some(workspace) = invocation.workspace.as_ref() else {
+                return Ok(warn("Workspace controls are unavailable for this command"));
+            };
+            if !workspace.can_write_document(&file.runtime_id) {
+                return Ok(warn(format!(
+                    "{} cannot be written from this review",
+                    file.path
+                )));
+            }
+            let Some(document) = workspace.read_document(
+                &file.runtime_id,
+                workdeck_extension_api::ExtensionFileSide::New,
+            ) else {
+                return Ok(warn(format!("{} could not be read", file.path)));
+            };
+            return Ok(CommandExecution {
+                actions: vec![ExtensionHostAction::RequestWorkspaceWrite {
+                    request_id: format!("rewrite-selected:{}", invocation.snapshot.generation),
+                    file_id: file.runtime_id.clone(),
+                    text: document.to_uppercase(),
+                }],
+            });
+        }
         if invocation.command_id != COMMAND_ID {
             return Err(format!("Unknown command: {}", invocation.command_id));
         }
@@ -236,18 +275,32 @@ impl InlineEditExtension {
         else {
             return Ok(warn("Select a file to edit"));
         };
-        if !can_write_document(&invocation.snapshot.changeset.source, file) {
+        let can_write = invocation.workspace.as_ref().map_or_else(
+            || can_write_document(&invocation.snapshot.changeset.source, file),
+            |workspace| workspace.can_write_document(&file.runtime_id),
+        );
+        if !can_write {
             return Ok(warn(format!(
                 "{} cannot be written from this review — inline edit needs a working-tree diff",
                 file.path
             )));
         }
-        let Some(document) = file
-            .sources
-            .new
+        let document = invocation
+            .workspace
             .as_ref()
-            .map(|source| source.content.as_str())
-        else {
+            .and_then(|workspace| {
+                workspace.read_document(
+                    &file.runtime_id,
+                    workdeck_extension_api::ExtensionFileSide::New,
+                )
+            })
+            .or_else(|| {
+                file.sources
+                    .new
+                    .as_ref()
+                    .map(|source| source.content.as_str())
+            });
+        let Some(document) = document else {
             return Ok(warn(format!("No readable document for {}", file.path)));
         };
         let selected_hunk = invocation
@@ -521,8 +574,9 @@ impl InlineEditExtension {
                 session.saved_text = session.text();
                 notify(format!("Wrote {}", session.path))
             }
-            ExtensionWorkspaceWriteResult::Cancelled => CommandExecution::default(),
-            ExtensionWorkspaceWriteResult::Failed { detail } => warn(detail),
+            ExtensionWorkspaceWriteResult::Cancelled { .. } => CommandExecution::default(),
+            ExtensionWorkspaceWriteResult::Unavailable { detail }
+            | ExtensionWorkspaceWriteResult::Failed { detail } => warn(detail),
         }
     }
 }

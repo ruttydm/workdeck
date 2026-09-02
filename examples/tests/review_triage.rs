@@ -90,6 +90,7 @@ fn command_invocation(command_id: &str) -> CommandInvocation {
         review: None,
         open_panes: Vec::new(),
         active_keyboard_mode: None,
+        workspace: None,
     }
 }
 
