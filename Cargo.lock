@@ -3165,6 +3165,7 @@ dependencies = [
  "syn 2.0.119",
  "tar",
  "tempfile",
+ "workdeck-session",
  "zip",
 ]
 

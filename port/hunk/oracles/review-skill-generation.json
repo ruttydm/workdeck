@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "baselineBlobs": {
+    "docs/agent-workflows.md": "09ce109f1ca12fee1386a4d14713c35f66e3ca61",
+    "scripts/generate-skill.ts": "130b9fd544354c3980982938b4522861a08642ea",
+    "skills/hunk-review/SKILL.md": "3148599cb38abec28db6cba43f26e94d2c0831e0",
+    "src/hunk-review/skillDocument.test.ts": "e45f4175e8269e8d2d4f298c5df5ff615d7a44b3",
+    "src/hunk-review/skillDocument.ts": "79694d61236cba0cc52449e04e8d6ffadc425adf"
+  },
+  "stableBlobs": {
+    "docs/agent-workflows.md": "4dbcfa842effd47da900563809d7d233a2776bea",
+    "scripts/generate-skill.ts": "130b9fd544354c3980982938b4522861a08642ea",
+    "skills/hunk-review/SKILL.md": "01c7472d5514b40576dc9282faec60d86f42e373",
+    "src/hunk-review/skillDocument.test.ts": "e45f4175e8269e8d2d4f298c5df5ff615d7a44b3",
+    "src/hunk-review/skillDocument.ts": "fdfa9013a930a8ed3f693089bdf00b34955150e2"
+  },
+  "capture": {
+    "method": "read the complete baseline and stable Git blobs through git show and compare their trees",
+    "baselineSkillSha256": "8974aeeaf4239a0f74691f92a44357821360aac373b4d0c215141e4b4c7f9f8f",
+    "stableSkillSha256": "3be51363a248b83db2210f8ef5a59b54ab5ce4f78e856b08431420f85a2b0878",
+    "baselineWorkflowSha256": "3ad6ea4ccf25e6bd3fb9bc3c93bca83ad18c2d3fce6501adf39765eec9c95c88",
+    "stableWorkflowSha256": "d5fbf87de1ebc4d710b3b7659f8c631e1d1dfa97edc370a415c033899b8fade1"
+  },
+  "stableDifference": "the stable tag predates exact comment-id navigation and the dim highlight tone documentation; neither of the five stable-only commits changes this subsystem, so the newer pinned main behavior is authoritative",
+  "behaviorProjection": {
+    "sourceOfTruth": "workdeck-session owns one typed 13-action command surface plus the stable agent error catalog",
+    "renderer": "render_workdeck_review_skill derives every command synopsis, example block, and common error from those native values",
+    "generator": "cargo xtask skill generate writes the checked-in skill without Bun or Node",
+    "driftGate": "cargo xtask skill check and cargo xtask verify compare normalized checked-in bytes with the live renderer",
+    "brand": "Hunk executable and product names become Workdeck while session semantics stay intact",
+    "productBoundary": "the generated skill states that Workdeck owns review state and Herder owns agents, PTYs, and process lifecycle",
+    "workflowGuide": "the complete agent workflow is migrated with Workdeck commands and authenticated local-session guidance"
+  },
+  "generatedArtifact": {
+    "path": "skills/workdeck-review/SKILL.md",
+    "lines": 221,
+    "bytes": 13333,
+    "sha256": "bd7b830034c48ec418096c5fbe26609959a6b002d01f29d8ad1b19b862dde6ba"
+  },
+  "translatedTests": [
+    "skill_document::tests::checked_in_skill_matches_the_generated_document",
+    "skill_document::tests::generated_skill_only_mentions_declared_agent_flags",
+    "skill_document::tests::agent_workflow_guide_only_mentions_declared_agent_flags",
+    "skill_document::tests::generated_skill_documents_every_session_command_synopsis",
+    "skill_document::tests::generated_skill_has_workdeck_branding_and_product_boundary",
+    "skill::tests::normalizes_checkout_line_endings",
+    "skill::tests::live_checked_in_skill_matches_renderer"
+  ]
+}

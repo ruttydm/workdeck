@@ -14,6 +14,7 @@ use std::process::{Command, Output};
 
 mod architecture;
 mod nix;
+mod skill;
 
 const DEFAULT_BASELINE: &str = "hunk-port/main-2c00f435^{}";
 const DEFAULT_STABLE: &str = "hunk-port/stable-v0.20.1^{}";
@@ -164,6 +165,21 @@ fn run() -> Result<()> {
                 nix::check(&repo_root()?)
             }
             _ => bail!("nix requires the check command"),
+        },
+        Some("skill") => match args.next().as_deref() {
+            Some("generate") => {
+                if args.next().is_some() {
+                    bail!("skill generate accepts no options");
+                }
+                skill::generate(&repo_root()?)
+            }
+            Some("check") => {
+                if args.next().is_some() {
+                    bail!("skill check accepts no options");
+                }
+                skill::check(&repo_root()?)
+            }
+            _ => bail!("skill requires the generate or check command"),
         },
         Some("extension") => match args.next().as_deref() {
             Some("stage-example") => {
@@ -1311,6 +1327,7 @@ fn sha256_file(path: &Path) -> Result<String> {
 fn verify() -> Result<()> {
     let repo = repo_root()?;
     verify_vendored_themes()?;
+    skill::check(&repo)?;
     architecture::check(&repo)?;
     run_checked(&repo, "cargo", &["fmt", "--all", "--check"])?;
     run_checked(
@@ -2137,6 +2154,7 @@ fn print_help() {
     println!("cargo xtask verify");
     println!("cargo xtask architecture check");
     println!("cargo xtask nix check");
+    println!("cargo xtask skill <generate|check>");
     println!(
         "cargo xtask extension stage-example <cli-tools|pane-layout|vim-navigation|review-snapshot-export|review-note-navigator|rendered-markdown|jsx-file-view|inline-edit|review-triage|github-pr|file-view-gallery>"
     );

@@ -46,6 +46,7 @@ mod selectors;
 mod session_bridge;
 mod session_models;
 mod session_registration;
+mod skill_document;
 mod terminal_metadata;
 mod workdeck_broker_state;
 mod workdeck_wire;
@@ -99,6 +100,7 @@ pub use selectors::{
 pub use session_bridge::*;
 pub use session_models::*;
 pub use session_registration::*;
+pub use skill_document::*;
 pub use terminal_metadata::*;
 pub use workdeck_broker_state::*;
 pub use workdeck_wire::*;
