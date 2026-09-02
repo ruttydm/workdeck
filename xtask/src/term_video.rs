@@ -7,8 +7,10 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
+mod capture;
 mod compose;
 
+pub use capture::capture_file;
 pub use compose::compose_file;
 
 const DEFAULT_FPS: f64 = 30.0;

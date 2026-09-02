@@ -178,6 +178,20 @@ The release archives retain these complete notice files. The asset manifest reco
 source-archive and generated-file SHA-256 digests. Release SBOM and dependency-license outputs
 enumerate the exact Rust packages used to load and execute the themes and grammars.
 
+Ghostty-derived terminal model
+------------------------------
+
+Workdeck's Rust terminal-media capture tooling uses qwertty-term-vt, a terminal emulation core
+ported from Ghostty. It supplies the VT parser, terminal state machine, page-based scrollback, owned
+styled snapshots, dynamic palette state, Unicode graphemes, wide cells, and cursor state consumed by
+Workdeck's native PNG renderer.
+
+qwertty-term-vt source: https://github.com/joshka/qwertty-term
+License: MIT OR Apache-2.0
+
+Ghostty source: https://github.com/ghostty-org/ghostty
+License: MIT
+
 Rust dependencies
 -----------------
 

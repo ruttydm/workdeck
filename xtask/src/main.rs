@@ -198,7 +198,8 @@ fn run() -> Result<()> {
         Some("media") => match args.next().as_deref() {
             Some("plan") => term_video::plan_file(&repo_root()?, args),
             Some("compose") => term_video::compose_file(&repo_root()?, args),
-            _ => bail!("media requires the plan or compose command"),
+            Some("capture") => term_video::capture_file(&repo_root()?, args),
+            _ => bail!("media requires the plan, capture, or compose command"),
         },
         Some("release") => match args.next().as_deref() {
             Some("package") => package_release(parse_package_options(args)?),
@@ -2171,6 +2172,7 @@ fn print_help() {
     println!(
         "cargo xtask media compose --storyboard FILE --work-dir DIR --font FILE [--frames-dir DIR] [--stage FILE] [--webdriver FILE] [--chromium FILE]"
     );
+    println!("cargo xtask media capture --script FILE [--scenes NAME,NAME]");
     println!("cargo xtask release package --target TRIPLE [--binary PATH] [--output DIR]");
 }
 

@@ -1,0 +1,37 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "packages/term-video/src/capture.ts",
+    "baselineBlob": "12f2d8459a9684c4ff0655b628245fd3391a714b",
+    "stableBlob": "12f2d8459a9684c4ff0655b628245fd3391a714b"
+  },
+  "baselineOracle": {
+    "allScenes": [true, true],
+    "selectedScenes": [true, true, true, false],
+    "typed": ["a", "😀", "b"],
+    "snapped": ["a", "emoji"],
+    "presses": ["?", "?", "?", "escape"],
+    "waits": 3,
+    "wrapperDirectoryReturned": true,
+    "wrapperText": "#!/bin/bash\nexec \"cargo\" \"run\" \"two words\" \"$@\"\n",
+    "wrapperMode": 493
+  },
+  "stableOracle": {
+    "allScenes": [true, true],
+    "selectedScenes": [true, true, true, false],
+    "typed": ["a", "😀", "b"],
+    "snapped": ["a", "emoji"],
+    "presses": ["?", "?", "?", "escape"],
+    "waits": 3,
+    "wrapperDirectoryReturned": true,
+    "wrapperText": "#!/bin/bash\nexec \"cargo\" \"run\" \"two words\" \"$@\"\n",
+    "wrapperMode": 493
+  },
+  "nativeAdaptation": {
+    "pty": "portable-pty launches applications and clean interactive shells at the requested terminal geometry; a reader thread transports bytes while the owner thread feeds the terminal model.",
+    "terminal": "The Ghostty-derived qwertty-term-vt core preserves streaming UTF-8, combining characters, wide cells, dynamic palettes, full SGR attributes, and cursor geometry without a JavaScript or WASM runtime.",
+    "renderer": "Rust and fontdue render styled terminal snapshots directly to RGB PNG, including inverse, faint, bold, italic, invisible, underline variants, strike, overline, and cursor shapes.",
+    "driver": "A strict JSON scene format exposes application and shell launch, environment/path setup, wrappers, waits, keyboard probes, raw/key input, Unicode typing, indexed snapshots, and manifests through cargo xtask media capture."
+  }
+}
