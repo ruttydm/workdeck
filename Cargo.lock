@@ -2971,6 +2971,7 @@ dependencies = [
  "workdeck-core",
  "workdeck-diff",
  "workdeck-extension-api",
+ "workdeck-review",
 ]
 
 [[package]]

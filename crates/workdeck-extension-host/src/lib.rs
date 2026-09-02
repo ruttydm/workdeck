@@ -1501,21 +1501,23 @@ impl LoadedExtension {
 }
 
 fn is_public_review_command(id: &str) -> bool {
-    matches!(
-        id,
-        "workdeck.view.cursor-line-row"
-            | "workdeck.review.step-down"
-            | "workdeck.review.step-up"
-            | "workdeck.review.previous-hunk"
-            | "workdeck.review.next-hunk"
-            | "workdeck.review.align-current-line-top"
-            | "workdeck.review.align-current-line-center"
-            | "workdeck.review.align-current-line-bottom"
-            | "workdeck.review.half-page-down"
-            | "workdeck.review.half-page-up"
-            | "workdeck.review.jump-to-top"
-            | "workdeck.review.jump-to-bottom"
-    )
+    let canonical = match id {
+        "workdeck.view.cursor-line-row" => "workdeck.view.cursorLineRow",
+        "workdeck.review.step-down" => "workdeck.review.stepDown",
+        "workdeck.review.step-up" => "workdeck.review.stepUp",
+        "workdeck.review.previous-hunk" => "workdeck.review.previousHunk",
+        "workdeck.review.next-hunk" => "workdeck.review.nextHunk",
+        "workdeck.review.align-current-line-top" => "workdeck.review.alignCurrentLineTop",
+        "workdeck.review.align-current-line-center" => "workdeck.review.alignCurrentLineCenter",
+        "workdeck.review.align-current-line-bottom" => "workdeck.review.alignCurrentLineBottom",
+        "workdeck.review.half-page-down" => "workdeck.review.halfPageDown",
+        "workdeck.review.half-page-up" => "workdeck.review.halfPageUp",
+        "workdeck.review.jump-to-top" => "workdeck.review.jumpToTop",
+        "workdeck.review.jump-to-bottom" => "workdeck.review.jumpToBottom",
+        _ => id,
+    };
+    workdeck_review::app_command_catalog_entry(canonical)
+        .is_some_and(|command| command.public_to_extensions)
 }
 
 fn valid_custom_event_name(name: &str) -> bool {

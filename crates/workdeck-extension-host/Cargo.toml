@@ -14,6 +14,7 @@ toml = "0.8"
 workdeck-core = { path = "../workdeck-core" }
 workdeck-diff = { path = "../workdeck-diff" }
 workdeck-extension-api = { path = "../workdeck-extension-api" }
+workdeck-review = { path = "../workdeck-review" }
 unicode-segmentation = "1.12"
 unicode-width = "0.2"
 

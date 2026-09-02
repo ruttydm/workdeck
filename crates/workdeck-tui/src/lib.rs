@@ -3,6 +3,7 @@
 mod agent_annotations;
 mod agent_note_geometry;
 mod agent_popover;
+mod app_commands;
 mod color;
 mod command_keymap;
 mod command_keys;
@@ -47,6 +48,7 @@ mod watched_input;
 pub use agent_annotations::*;
 pub use agent_note_geometry::*;
 pub use agent_popover::*;
+pub use app_commands::*;
 pub use color::*;
 pub use command_keymap::*;
 pub use command_keys::*;
@@ -141,9 +143,11 @@ use workdeck_extension_host::{
 };
 use workdeck_review::{
     ExpandedSourceError, ExpandedSourceStatus, LayoutMode, PlannedFileViewRow, ReviewComment,
-    ReviewGapAddress, ReviewState, VisibleFileViewNote, build_extension_review_snapshot,
-    build_file_view_render_plan, plan_expanded_gap, review_expansion_side,
-    review_gap_source_for_file, review_leading_gap, review_trailing_gap,
+    ReviewGapAddress, ReviewNavigationFile, ReviewNavigationModel, ReviewSelectionMove,
+    ReviewSelectionScope, ReviewState, SemanticReviewAnnotationIndex, SemanticReviewSelection,
+    VisibleFileViewNote, build_extension_review_snapshot, build_file_view_render_plan,
+    plan_expanded_gap, plan_review_selection_move, review_annotated_hunk_indices,
+    review_expansion_side, review_gap_source_for_file, review_leading_gap, review_trailing_gap,
 };
 use workdeck_session::{ReviewSessionServer, default_discovery_directory};
 
@@ -170,6 +174,8 @@ pub struct ReviewOptions {
     pub theme: AppTheme,
     pub repo: Option<PathBuf>,
     pub command_cwd: Option<PathBuf>,
+    /// Ordered user command bindings; ordering decides conflicting explicit claims.
+    pub keybindings: Vec<UserKeyBindingEntry>,
     pub extension_panes: Vec<ExtensionPaneView>,
     pub extension_notifications: Option<ExtensionNotificationHub>,
 }
@@ -196,6 +202,7 @@ impl Default for ReviewOptions {
             theme: resolve_theme(Some(DEFAULT_DARK_THEME_ID), None, &[]),
             repo: None,
             command_cwd: None,
+            keybindings: Vec::new(),
             extension_panes: Vec::new(),
             extension_notifications: None,
         }
@@ -489,6 +496,9 @@ pub struct ReviewApp {
     should_quit: bool,
     reload_requested: bool,
     editor_requested: bool,
+    resolved_command_keys: ResolvedKeymap,
+    show_menu_bar: bool,
+    copy_decorations: bool,
     status: Option<String>,
     review_width: Cell<u16>,
     review_height: Cell<u16>,
@@ -541,6 +551,24 @@ impl ReviewApp {
             .iter()
             .map(|comment| comment.id.clone())
             .collect();
+        let extension_pane_runtime = ExtensionPaneRuntime::new(extensions);
+        let mut command_defaults = builtin_command_key_defaults();
+        command_defaults.extend(extension_pane_runtime.commands.iter().map(|registration| {
+            CommandKeyDefaults {
+                id: format!("{}.{}", registration.extension_id, registration.command.id),
+                aliases: Vec::new(),
+                default_keys: registration.command.default_keys.clone(),
+            }
+        }));
+        let resolved_command_keys = resolve_command_keys(&command_defaults, &options.keybindings);
+        let keymap_status = (!resolved_command_keys.issues.is_empty()).then(|| {
+            resolved_command_keys
+                .issues
+                .iter()
+                .map(|issue| issue.message.as_str())
+                .collect::<Vec<_>>()
+                .join(" • ")
+        });
         let mut app = Self {
             state: Arc::new(Mutex::new(state)),
             options,
@@ -550,7 +578,10 @@ impl ReviewApp {
             should_quit: false,
             reload_requested: false,
             editor_requested: false,
-            status: None,
+            resolved_command_keys,
+            show_menu_bar: true,
+            copy_decorations: false,
+            status: keymap_status,
             review_width: Cell::new(120),
             review_height: Cell::new(20),
             sidebar_bounds: Cell::new(None),
@@ -565,7 +596,7 @@ impl ReviewApp {
             extension_notification_subscription,
             mouse_scroll_acceleration: ReviewMouseWheelScrollAcceleration::default(),
             mouse_scroll_accumulator: 0.0,
-            extension_pane_runtime: Mutex::new(ExtensionPaneRuntime::new(extensions)),
+            extension_pane_runtime: Mutex::new(extension_pane_runtime),
             extension_event_dispatch_depth: 0,
             extension_known_note_ids,
         };
@@ -592,6 +623,10 @@ impl ReviewApp {
     /// Consume a reload requested by a host-mediated extension write.
     pub fn take_reload_requested(&mut self) -> bool {
         std::mem::take(&mut self.reload_requested)
+    }
+
+    pub fn take_quit_requested(&mut self) -> bool {
+        std::mem::take(&mut self.should_quit)
     }
 
     #[must_use]
@@ -861,84 +896,293 @@ impl ReviewApp {
         if self.route_active_keyboard_mode(&key) {
             return;
         }
-        if self.invoke_extension_command(&key) {
-            return;
-        }
-        if matches!(
-            key.code,
-            KeyCode::Down
-                | KeyCode::Up
-                | KeyCode::PageDown
-                | KeyCode::PageUp
-                | KeyCode::Home
-                | KeyCode::End
-                | KeyCode::Char('j')
-                | KeyCode::Char('k')
-                | KeyCode::Char('g')
-                | KeyCode::Char('G')
-        ) {
+        let live_key = to_live_extension_key_event(&key);
+        let commands = self.builtin_commands();
+        if vertical_command_direction(&commands, &live_key).is_some() {
             self.mouse_scroll_acceleration.reset();
             self.mouse_scroll_accumulator = 0.0;
         }
-        match key.code {
-            KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
-            KeyCode::Char('?') => self.show_help = true,
-            KeyCode::Tab => {
+        if let Some(dispatch) = dispatch_app_command(&commands, &live_key) {
+            self.apply_builtin_command_action(dispatch.action);
+            return;
+        }
+        if self.invoke_extension_command(&key) {
+            return;
+        }
+        if key.code == KeyCode::Enter && self.focus == Focus::Sidebar {
+            self.focus = Focus::Review;
+            self.scroll_to_selection();
+        }
+    }
+
+    fn builtin_command_availability(&self) -> BuiltinCommandAvailability {
+        let (can_edit_active_note, can_reply_to_active_note) = self.with_state(|state| {
+            let selection = state.selection();
+            let file_key = state
+                .changeset()
+                .files
+                .get(selection.file_index)
+                .map(|file| file.key.as_str());
+            let active = state.comments().iter().filter(|comment| {
+                comment.resolution == workdeck_review::ReviewNoteResolution::Active
+                    && file_key == Some(comment.anchor.file_key.as_str())
+                    && selection.hunk_index.is_some_and(|hunk_index| {
+                        comment.anchor.owner_hunk_index == Some(hunk_index)
+                            || comment
+                                .anchor
+                                .intersecting_hunk_indices
+                                .contains(&hunk_index)
+                    })
+                    && (self.options.agent_notes || comment.source == "user")
+            });
+            let comments = active.collect::<Vec<_>>();
+            (
+                comments
+                    .iter()
+                    .any(|comment| comment.source == "user" && comment.editable),
+                !comments.is_empty(),
+            )
+        });
+        BuiltinCommandAvailability {
+            can_align_current_line: self.options.cursor_line != CursorLineMode::Off,
+            can_apply_file_presentation_to_all_matching: false,
+            can_edit_active_note,
+            can_reply_to_active_note,
+            can_refresh_current_input: true,
+        }
+    }
+
+    fn builtin_commands(&self) -> Vec<AppCommand> {
+        build_app_commands(
+            Some(&self.resolved_command_keys),
+            self.builtin_command_availability(),
+        )
+    }
+
+    fn help_commands(&self) -> Vec<HelpCommand> {
+        self.builtin_commands()
+            .into_iter()
+            .map(|command| HelpCommand {
+                id: command.id.into(),
+                key_labels: command.key_labels,
+                enabled: command.enabled,
+            })
+            .collect()
+    }
+
+    fn apply_builtin_command_action(&mut self, action: AppCommandAction) {
+        match action {
+            AppCommandAction::ScrollDiff { delta, unit } => self.scroll_diff(delta, unit),
+            AppCommandAction::RequestQuit => self.should_quit = true,
+            AppCommandAction::ToggleHelp => self.show_help = !self.show_help,
+            AppCommandAction::OpenAgentSkill => {
+                self.status = Some("agent skill is available through `workdeck skill`".into());
+            }
+            AppCommandAction::ToggleFocusArea => {
                 self.focus = match self.focus {
                     Focus::Review => Focus::Sidebar,
                     Focus::Sidebar => Focus::Review,
                 };
             }
-            KeyCode::Char('f') => self.options.sidebar = !self.options.sidebar,
-            KeyCode::Char('w') => self.options.wrap_lines = !self.options.wrap_lines,
-            KeyCode::Char('e') => self.editor_requested = true,
-            KeyCode::Char('z') => self.toggle_source_gap(),
-            KeyCode::Char('o') => self.options.agent_notes = !self.options.agent_notes,
-            KeyCode::Char('l') => self.options.line_numbers = !self.options.line_numbers,
-            KeyCode::Char('t') => {
-                let theme = self.themes.cycle_preview();
-                let resolved = resolve_theme(Some(&theme), None, &[]);
-                self.options.theme = if self.options.transparent_background {
-                    with_transparent_surfaces(&resolved)
-                } else {
-                    resolved
+            AppCommandAction::FocusFilter => {
+                self.focus = Focus::Sidebar;
+                self.status = Some("file filter focused".into());
+            }
+            AppCommandAction::StartUserNote => {
+                self.status = Some("review note composer is not active".into());
+            }
+            AppCommandAction::EditActiveNote => {
+                self.status = Some("active review note editor is not active".into());
+            }
+            AppCommandAction::ReplyToActiveNote => {
+                self.status = Some("review note reply composer is not active".into());
+            }
+            AppCommandAction::StepDiffLine(delta) => self.step_diff_line(delta),
+            AppCommandAction::ScrollCodeHorizontally(delta) => {
+                self.options.horizontal_offset =
+                    self.options.horizontal_offset.saturating_add_signed(delta);
+            }
+            AppCommandAction::AlignCurrentLine(alignment) => {
+                self.align_current_line(alignment);
+            }
+            AppCommandAction::SelectCursorLine(cursor) => {
+                self.options.cursor_line = match cursor {
+                    CommandCursorLine::Row => CursorLineMode::Row,
+                    CommandCursorLine::Number => CursorLineMode::Number,
+                    CommandCursorLine::Off => CursorLineMode::Off,
                 };
-                self.highlights
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .clear();
-                self.status = Some(format!("theme {theme}"));
             }
-            KeyCode::Char('r') => self.reload_requested = true,
-            KeyCode::Char('s') => self.with_state(|state| state.set_layout(LayoutMode::Split)),
-            KeyCode::Char('u') => self.with_state(|state| state.set_layout(LayoutMode::Stack)),
-            KeyCode::Char('a') => self.with_state(|state| state.set_layout(LayoutMode::Auto)),
-            KeyCode::Char(']') => self.navigate(ReviewState::next_file),
-            KeyCode::Char('[') => self.navigate(ReviewState::previous_file),
-            KeyCode::Char('n') => self.navigate(ReviewState::next_hunk),
-            KeyCode::Char('p') => self.navigate(ReviewState::previous_hunk),
-            KeyCode::Down | KeyCode::Char('j') => match self.focus {
-                Focus::Review => self.scroll = self.scroll.saturating_add(1),
-                Focus::Sidebar => {
-                    self.navigate(ReviewState::next_file);
-                }
-            },
-            KeyCode::Up | KeyCode::Char('k') => match self.focus {
-                Focus::Review => self.scroll = self.scroll.saturating_sub(1),
-                Focus::Sidebar => {
-                    self.navigate(ReviewState::previous_file);
-                }
-            },
-            KeyCode::PageDown => self.scroll = self.scroll.saturating_add(10),
-            KeyCode::PageUp => self.scroll = self.scroll.saturating_sub(10),
-            KeyCode::Home | KeyCode::Char('g') => self.scroll = 0,
-            KeyCode::End | KeyCode::Char('G') => self.scroll = usize::MAX,
-            KeyCode::Enter if self.focus == Focus::Sidebar => {
-                self.focus = Focus::Review;
-                self.scroll_to_selection();
+            AppCommandAction::SelectLayoutMode(layout) => {
+                self.with_state(|state| state.set_layout(layout));
             }
-            _ => {}
+            AppCommandAction::ApplyFilePresentationToAllMatching => {}
+            AppCommandAction::ToggleFilesPane => self.options.sidebar = !self.options.sidebar,
+            AppCommandAction::RefreshCurrentInput => self.reload_requested = true,
+            AppCommandAction::OpenThemeSelector => self.cycle_theme_preview(),
+            AppCommandAction::ToggleAgentNotes => {
+                self.options.agent_notes = !self.options.agent_notes;
+            }
+            AppCommandAction::ToggleLineNumbers => {
+                self.options.line_numbers = !self.options.line_numbers;
+            }
+            AppCommandAction::ToggleLineWrap => {
+                self.options.wrap_lines = !self.options.wrap_lines;
+            }
+            AppCommandAction::ToggleMenuBar => self.show_menu_bar = !self.show_menu_bar,
+            AppCommandAction::ToggleHunkHeaders => {
+                self.options.hunk_headers = !self.options.hunk_headers;
+            }
+            AppCommandAction::ToggleCopyDecorations => {
+                self.copy_decorations = !self.copy_decorations;
+            }
+            AppCommandAction::ToggleGapForSelectedHunk => self.toggle_source_gap(),
+            AppCommandAction::EditSelectedFile => self.editor_requested = true,
+            AppCommandAction::MoveSelection { scope, delta } => {
+                self.move_selection(scope, delta);
+            }
         }
+    }
+
+    fn scroll_diff(&mut self, delta: isize, unit: ScrollUnit) {
+        let rows = self.current_review_rows();
+        let last = rows.lines.len().saturating_sub(1);
+        let viewport = usize::from(self.review_height.get().saturating_sub(1).max(1));
+        if unit == ScrollUnit::Content {
+            if delta < 0 {
+                self.scroll = 0;
+                self.current_line_row = 0;
+            } else {
+                self.current_line_row = last;
+                self.scroll = last.saturating_sub(viewport.saturating_sub(1));
+            }
+            return;
+        }
+        let rows_per_step = match unit {
+            ScrollUnit::Step => 1,
+            ScrollUnit::Viewport => viewport,
+            ScrollUnit::Half => (viewport / 2).max(1),
+            ScrollUnit::Content => unreachable!(),
+        };
+        let movement = isize::try_from(rows_per_step)
+            .unwrap_or(isize::MAX)
+            .saturating_mul(delta);
+        self.scroll = self.scroll.saturating_add_signed(movement).min(last);
+        self.current_line_row = self.scroll.min(last);
+    }
+
+    fn step_diff_line(&mut self, delta: isize) {
+        let last = self.current_review_rows().lines.len().saturating_sub(1);
+        let viewport = usize::from(self.review_height.get().saturating_sub(1).max(1));
+        self.current_line_row = self.current_line_row.saturating_add_signed(delta).min(last);
+        self.keep_current_line_visible(viewport, last);
+    }
+
+    fn align_current_line(&mut self, alignment: AppCommandLineAlignment) {
+        let viewport = usize::from(self.review_height.get().saturating_sub(1).max(1));
+        self.scroll = match alignment {
+            AppCommandLineAlignment::Top => self.current_line_row,
+            AppCommandLineAlignment::Center => self.current_line_row.saturating_sub(viewport / 2),
+            AppCommandLineAlignment::Bottom => self
+                .current_line_row
+                .saturating_sub(viewport.saturating_sub(1)),
+        };
+    }
+
+    fn cycle_theme_preview(&mut self) {
+        let theme = self.themes.cycle_preview();
+        let resolved = resolve_theme(Some(&theme), None, &[]);
+        self.options.theme = if self.options.transparent_background {
+            with_transparent_surfaces(&resolved)
+        } else {
+            resolved
+        };
+        self.highlights
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
+        self.status = Some(format!("theme {theme}"));
+    }
+
+    fn move_selection(&mut self, scope: ReviewSelectionScope, delta: isize) {
+        if delta == 0 {
+            return;
+        }
+        let (selection, model) = self.with_state(|state| {
+            let selection = state.selection();
+            let mut annotations = SemanticReviewAnnotationIndex::default();
+            let files = state
+                .changeset()
+                .files
+                .iter()
+                .map(|file| {
+                    let mut annotated_hunks = review_annotated_hunk_indices(Some(file));
+                    let mut annotated_file = file.agent.is_some();
+                    for comment in state.comments().iter().filter(|comment| {
+                        comment.resolution == workdeck_review::ReviewNoteResolution::Active
+                            && comment.anchor.file_key == file.key
+                            && (self.options.agent_notes || comment.source == "user")
+                    }) {
+                        annotated_file = true;
+                        if let Some(owner) = comment.anchor.owner_hunk_index {
+                            annotated_hunks.insert(owner);
+                        }
+                        annotated_hunks
+                            .extend(comment.anchor.intersecting_hunk_indices.iter().copied());
+                    }
+                    if annotated_file {
+                        annotations.annotated_file_keys.insert(file.key.clone());
+                    }
+                    if !annotated_hunks.is_empty() {
+                        annotations
+                            .annotated_hunk_indices_by_file_key
+                            .insert(file.key.clone(), annotated_hunks);
+                    }
+                    ReviewNavigationFile {
+                        file_key: file.key.clone(),
+                        hunk_count: file.hunks.len(),
+                    }
+                })
+                .collect();
+            (
+                SemanticReviewSelection {
+                    file_key: state
+                        .changeset()
+                        .files
+                        .get(selection.file_index)
+                        .map(|file| file.key.clone()),
+                    hunk_index: selection.hunk_index.unwrap_or(0),
+                },
+                ReviewNavigationModel { files, annotations },
+            )
+        });
+        let Some(target) =
+            plan_review_selection_move(&model, &selection, ReviewSelectionMove { scope, delta })
+        else {
+            return;
+        };
+        let Some(file_index) = self.with_state(|state| {
+            state
+                .changeset()
+                .files
+                .iter()
+                .position(|file| file.key == target.file_key)
+        }) else {
+            return;
+        };
+        self.navigate(|state| {
+            let previous = state.selection();
+            let changed = if state
+                .changeset()
+                .files
+                .get(file_index)
+                .is_some_and(|file| target.hunk_index < file.hunks.len())
+            {
+                state.select_hunk(file_index, target.hunk_index).is_ok()
+            } else {
+                state.select_file(file_index).is_ok()
+            };
+            changed && state.selection() != previous
+        });
     }
 
     fn invoke_extension_command(&mut self, key: &KeyEvent) -> bool {
@@ -952,7 +1196,11 @@ impl ReviewApp {
                 .commands
                 .iter()
                 .find(|registration| {
-                    matches_any_key_chord(&registration.command.default_keys).matches(&key)
+                    let id = format!("{}.{}", registration.extension_id, registration.command.id);
+                    self.resolved_command_keys
+                        .keys
+                        .get(&id)
+                        .is_some_and(|keys| matches_any_key_chord(keys).matches(&key))
                 })
                 .cloned()
         };
@@ -2069,77 +2317,13 @@ impl ReviewApp {
     }
 
     fn execute_extension_review_command(&mut self, id: &str, count: u16) -> bool {
-        if matches!(
-            id,
-            "workdeck.review.align-current-line-top"
-                | "workdeck.review.align-current-line-center"
-                | "workdeck.review.align-current-line-bottom"
-        ) && self.options.cursor_line == CursorLineMode::Off
-        {
+        let id = canonical_extension_review_command_id(id);
+        let dispatch =
+            execute_app_command_with_count(&self.builtin_commands(), id, usize::from(count));
+        let Some(dispatch) = dispatch else {
             return false;
-        }
-        let rows = self.current_review_rows();
-        let last = rows.lines.len().saturating_sub(1);
-        let viewport = usize::from(self.review_height.get().saturating_sub(1).max(1));
-        let magnitude = usize::from(count);
-        match id {
-            "workdeck.view.cursor-line-row" => {
-                self.options.cursor_line = CursorLineMode::Row;
-                self.scroll_to_selection();
-                self.current_line_row = self.scroll.min(last);
-            }
-            "workdeck.review.step-down" => {
-                self.current_line_row = self.current_line_row.saturating_add(magnitude).min(last);
-                self.keep_current_line_visible(viewport, last);
-            }
-            "workdeck.review.step-up" => {
-                self.current_line_row = self.current_line_row.saturating_sub(magnitude);
-                self.keep_current_line_visible(viewport, last);
-            }
-            "workdeck.review.previous-hunk" => {
-                for _ in 0..magnitude {
-                    self.navigate(ReviewState::previous_hunk);
-                }
-                self.current_line_row = self.scroll.min(last);
-            }
-            "workdeck.review.next-hunk" => {
-                for _ in 0..magnitude {
-                    self.navigate(ReviewState::next_hunk);
-                }
-                self.current_line_row = self.scroll.min(last);
-            }
-            "workdeck.review.half-page-down" => {
-                self.current_line_row = self
-                    .current_line_row
-                    .saturating_add((viewport / 2).max(1).saturating_mul(magnitude))
-                    .min(last);
-                self.keep_current_line_visible(viewport, last);
-            }
-            "workdeck.review.half-page-up" => {
-                self.current_line_row = self
-                    .current_line_row
-                    .saturating_sub((viewport / 2).max(1).saturating_mul(magnitude));
-                self.keep_current_line_visible(viewport, last);
-            }
-            "workdeck.review.jump-to-top" => {
-                self.current_line_row = 0;
-                self.scroll = 0;
-            }
-            "workdeck.review.jump-to-bottom" => {
-                self.current_line_row = last;
-                self.scroll = last.saturating_sub(viewport.saturating_sub(1));
-            }
-            "workdeck.review.align-current-line-top" => self.scroll = self.current_line_row,
-            "workdeck.review.align-current-line-center" => {
-                self.scroll = self.current_line_row.saturating_sub(viewport / 2);
-            }
-            "workdeck.review.align-current-line-bottom" => {
-                self.scroll = self
-                    .current_line_row
-                    .saturating_sub(viewport.saturating_sub(1));
-            }
-            _ => return false,
-        }
+        };
+        self.apply_builtin_command_action(dispatch.action);
         true
     }
 
@@ -3242,6 +3426,24 @@ fn clear_file_view_component_state(runtime: &mut ExtensionPaneRuntime, file_id: 
     }
 }
 
+fn canonical_extension_review_command_id(id: &str) -> &str {
+    match id {
+        "workdeck.view.cursor-line-row" => "workdeck.view.cursorLineRow",
+        "workdeck.review.step-down" => "workdeck.review.stepDown",
+        "workdeck.review.step-up" => "workdeck.review.stepUp",
+        "workdeck.review.previous-hunk" => "workdeck.review.previousHunk",
+        "workdeck.review.next-hunk" => "workdeck.review.nextHunk",
+        "workdeck.review.align-current-line-top" => "workdeck.review.alignCurrentLineTop",
+        "workdeck.review.align-current-line-center" => "workdeck.review.alignCurrentLineCenter",
+        "workdeck.review.align-current-line-bottom" => "workdeck.review.alignCurrentLineBottom",
+        "workdeck.review.half-page-down" => "workdeck.review.halfPageDown",
+        "workdeck.review.half-page-up" => "workdeck.review.halfPageUp",
+        "workdeck.review.jump-to-top" => "workdeck.review.jumpToTop",
+        "workdeck.review.jump-to-bottom" => "workdeck.review.jumpToBottom",
+        _ => id,
+    }
+}
+
 fn to_live_extension_key_event(key: &KeyEvent) -> ExtensionKeyEvent {
     let (name, sequence) = match key.code {
         KeyCode::Char(character) => (
@@ -3589,7 +3791,8 @@ pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     render_footer(outer[2], buffer, app);
     render_extension_command_menu(area, buffer, app);
     if app.show_help {
-        render_help(area, buffer);
+        let commands = app.help_commands();
+        render_help(area, buffer, &commands);
     }
     render_extension_input_dialog(area, buffer, app);
     render_extension_select_dialog(area, buffer, app);
@@ -6183,8 +6386,8 @@ fn render_extension_toast(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     .render(area, buffer);
 }
 
-fn render_help(area: Rect, buffer: &mut Buffer) {
-    let sections = build_help_sections(&default_help_commands());
+fn render_help(area: Rect, buffer: &mut Buffer, commands: &[HelpCommand]) {
+    let sections = build_help_sections(commands);
     let mut lines = Vec::new();
     for (section_index, section) in sections.into_iter().enumerate() {
         if section_index > 0 {
@@ -6866,12 +7069,52 @@ mod tests {
     #[test]
     fn review_shortcuts_change_layout_and_navigation() {
         let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
-        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE));
         assert_eq!(app.layout(), LayoutMode::Split);
-        app.handle_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
         assert!(!app.options.sidebar);
         app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
         assert!(app.show_help);
+    }
+
+    #[test]
+    fn resolved_command_keys_drive_runtime_help_and_unbind_the_shipped_chord() {
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                keybindings: vec![UserKeyBindingEntry::new(
+                    "workdeck.view.toggleFilesPane",
+                    UserKeyBinding::Chord("x".into()),
+                )],
+                ..ReviewOptions::default()
+            },
+        );
+        let sidebar = app.options.sidebar;
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        assert_eq!(app.options.sidebar, sidebar);
+        app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        assert_eq!(app.options.sidebar, !sidebar);
+        assert_eq!(
+            app.help_commands()
+                .into_iter()
+                .find(|command| command.id == "workdeck.view.toggleFilesPane")
+                .unwrap()
+                .key_labels,
+            ["x"]
+        );
+    }
+
+    #[test]
+    fn programmatic_extension_commands_share_the_catalog_and_keep_legacy_ids() {
+        let mut app = ReviewApp::new(long_changeset(), ReviewOptions::default());
+        assert!(app.execute_extension_review_command("workdeck.view.layoutStack", 1));
+        assert_eq!(app.layout(), LayoutMode::Stack);
+        assert!(app.execute_extension_review_command("workdeck.review.halfPageDown", 2));
+        let moved = app.current_line_row;
+        assert!(moved > 0);
+        assert!(app.execute_extension_review_command("workdeck.review.half-page-up", 1));
+        assert!(app.current_line_row < moved);
+        assert!(!app.execute_extension_review_command("missing.command", 1));
     }
 
     #[test]
@@ -6904,7 +7147,9 @@ mod tests {
         let backend = TestBackend::new(100, 40);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
-            .draw(|frame| render_help(frame.area(), frame.buffer_mut()))
+            .draw(|frame| {
+                render_help(frame.area(), frame.buffer_mut(), &default_help_commands());
+            })
             .unwrap();
         let rendered = terminal
             .backend()

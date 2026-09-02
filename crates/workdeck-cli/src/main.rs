@@ -695,6 +695,7 @@ impl ReviewCliOptions {
             theme,
             repo: None,
             command_cwd: None,
+            keybindings: Vec::new(),
             extension_panes: Vec::new(),
             extension_notifications: None,
         }

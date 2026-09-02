@@ -483,6 +483,28 @@ fn handle_key(
         return Ok(false);
     }
 
+    if app.active_tab == Tab::Review {
+        if key.code == KeyCode::BackTab {
+            app.active_tab = app.active_tab.previous();
+            return Ok(false);
+        }
+        if let Some(review) = &mut app.review {
+            review.handle_key(key);
+            if review.take_quit_requested() {
+                return Ok(true);
+            }
+            if let Some(request) = review.take_editor_request()
+                && let Some(message) = open_review_editor_in_crossterm(terminal, &request)
+            {
+                review.set_status(message);
+            }
+            if review.take_reload_requested() {
+                reload_review(app);
+            }
+        }
+        return Ok(false);
+    }
+
     if configured_key(key, &app.config.keys.quit) {
         return Ok(true);
     } else if app.focus == crate::app::FocusPane::Preview {
@@ -510,25 +532,6 @@ fn handle_key(
         app.active_tab = Tab::Search;
         app.search_query.clear();
         app.rebuild_search();
-    } else if app.active_tab == Tab::Review {
-        match key.code {
-            KeyCode::Tab => app.active_tab = app.active_tab.next(),
-            KeyCode::BackTab => app.active_tab = app.active_tab.previous(),
-            _ if configured_key(key, &app.config.keys.refresh) => reload_review(app),
-            _ => {
-                if let Some(review) = &mut app.review {
-                    review.handle_key(key);
-                    if let Some(request) = review.take_editor_request()
-                        && let Some(message) = open_review_editor_in_crossterm(terminal, &request)
-                    {
-                        review.set_status(message);
-                    }
-                    if review.take_reload_requested() {
-                        reload_review(app);
-                    }
-                }
-            }
-        }
     } else if configured_key(key, &app.config.keys.help) {
         app.help_visible = true;
     } else if configured_key(key, &app.config.keys.toggle_preview) {
