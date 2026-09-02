@@ -143,7 +143,7 @@ fn review_shell_routes_ctrl_p_and_resizes_the_right_pane() {
         .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
         .unwrap();
     let opened = rendered_text(&terminal);
-    assert!(opened.contains("RIGHT PANE · 28×21"));
+    assert!(opened.contains("RIGHT PANE · 28×22"), "{opened}");
     assert!(opened.contains("TOP PANE · 71×2"));
     assert!(opened.contains("BOTTOM PANE · 71×2"));
     assert!(opened.contains("src/lib.rs"));
@@ -169,7 +169,7 @@ fn review_shell_routes_ctrl_p_and_resizes_the_right_pane() {
     terminal
         .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
         .unwrap();
-    assert!(rendered_text(&terminal).contains("RIGHT PANE · 38×21"));
+    assert!(rendered_text(&terminal).contains("RIGHT PANE · 38×22"));
 
     app.handle_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
     terminal
@@ -178,9 +178,9 @@ fn review_shell_routes_ctrl_p_and_resizes_the_right_pane() {
     assert!(!rendered_text(&terminal).contains("RIGHT PANE"));
 
     app.handle_mouse_event(MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: 90,
-        row: 1,
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: 31,
+        row: 0,
         modifiers: KeyModifiers::NONE,
     });
     terminal
@@ -188,15 +188,16 @@ fn review_shell_routes_ctrl_p_and_resizes_the_right_pane() {
         .unwrap();
     assert!(rendered_text(&terminal).contains("Toggle pane layout example"));
     app.handle_mouse_event(MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: 70,
-        row: 3,
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: 31,
+        row: 2,
         modifiers: KeyModifiers::NONE,
     });
     terminal
         .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
         .unwrap();
-    assert!(rendered_text(&terminal).contains("RIGHT PANE · 38×21"));
+    let rendered = rendered_text(&terminal);
+    assert!(rendered.contains("RIGHT PANE · 38×22"), "{rendered}");
 }
 
 #[test]
