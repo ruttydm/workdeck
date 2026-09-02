@@ -1,0 +1,50 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "authoritative": "baseline",
+  "sources": {
+    "baseline": {
+      "path": "src/ui/lib/extensionPanes.ts",
+      "blob": "ca556e0c26cd5f0e07b40aac35b2830d4724a5a9"
+    },
+    "stable": {
+      "path": "src/ui/lib/extensionPanes.ts",
+      "blob": "37181f4221dc70f4baf869a6a35ac7dd9b3448ef"
+    }
+  },
+  "tests": {
+    "baselineBlob": "a89433ae824920dcaf918852dc71c209410edc32",
+    "stableBlob": "66828ce3233729d0317da4fe2a1cf949c5d5a1bb"
+  },
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 16,
+    "failed": 0,
+    "expectations": 46
+  },
+  "stableOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 12,
+    "failed": 0,
+    "expectations": 37
+  },
+  "baselineAdditions": [
+    "availability probing is separated from pure geometry planning",
+    "pending current-line panes are retained by registration identity rather than pane key",
+    "responsive fractions use the full body axis and round before bounds are applied"
+  ],
+  "invariants": [
+    "the bundled files pane precedes native registrations",
+    "replacement ownership changes initial defaults without erasing known user choices",
+    "replacement chains resolve to the deepest open owner and survive cycles",
+    "bare pane ids resolve only inside the caller namespace",
+    "vertical panes allocate before horizontal panes while output retains registration order",
+    "minimum review bounds omit later panes deterministically",
+    "fixed panes have no divider and resizable panes reserve exactly one cell",
+    "availability failures are returned to the controller and do not mutate geometry state"
+  ],
+  "nativeAdaptation": {
+    "registrationIdentity": "A monotonic host identity replaces JavaScript WeakSet object identity across native extension reloads.",
+    "availability": "The pure probe accepts a transport evaluator for registrations declaring available; the pane controller owns native request deadlines and failure reporting."
+  }
+}

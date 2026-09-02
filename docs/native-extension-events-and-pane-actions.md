@@ -14,6 +14,8 @@ Line-granular review movement is derived from measured Ratatui row geometry, not
 
 An opted-in pane's current-line paint is built only from the accepted split-row plan and exact stable cursor. The host adapts either half to a clipped, no-wrap full-width row while preserving source address, movement paint, spans, line-number policy, horizontal offset, and theme. Pending plans and mismatched cursor identities expose no stale painter.
 
+Pane registration now carries Hunk's replacement, current-line, and availability opt-ins across native JSON-RPC. The Ratatui session registry prepends the built-in Files pane, applies first-registration and first-replacement ownership, preserves known open choices across extension reloads, and resolves replacement chains by stable qualified key. Availability is probed through a controller-supplied native transport evaluator before the pure four-edge geometry pass; pending current-line panes are retained only by monotonic registration identity, never by a stale same-key registration.
+
 ## Clickable pane rows
 
 An extension wraps a declarative `ViewNode` in `ViewNode::Action { id, child }`. Ratatui renders the child, records its visible cell rectangle, and sends `workdeck/pane/action` with the pane ID, action ID, current review snapshot, semantic saved-note snapshot, working directory, and open panes. The extension answers with ordinary validated host actions. Action IDs are local opaque values, limited to 1,024 bytes; they cannot carry executable callbacks across the process boundary.

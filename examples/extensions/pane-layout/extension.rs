@@ -31,6 +31,9 @@ fn pane_registration(id: &str, placement: PanePlacement) -> PaneRegistration {
             fraction: None,
         }),
         height: (id != "side").then_some(fixed),
+        replaces: None,
+        current_line: false,
+        available: false,
     }
 }
 

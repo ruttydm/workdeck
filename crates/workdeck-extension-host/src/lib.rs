@@ -2297,6 +2297,9 @@ mod tests {
                 fraction: Some(0.25),
             }),
             height: None,
+            replaces: None,
+            current_line: false,
+            available: false,
         };
         let response = |pane: PaneRegistration, chord: &str| HandshakeResponse {
             extension_api_version: API_VERSION,

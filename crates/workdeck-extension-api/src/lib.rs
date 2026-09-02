@@ -673,6 +673,15 @@ pub struct PaneRegistration {
     pub width: Option<ExtensionPaneSize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub height: Option<ExtensionPaneSize>,
+    /// Fully qualified pane key whose initial slot this registration replaces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replaces: Option<String>,
+    /// Opt into the selected-row address and host-owned current-line paint.
+    #[serde(default, rename = "currentLine")]
+    pub current_line: bool,
+    /// Ask the host to invoke the extension's synchronous availability probe.
+    #[serde(default)]
+    pub available: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

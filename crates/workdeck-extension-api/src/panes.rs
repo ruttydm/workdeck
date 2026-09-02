@@ -91,6 +91,9 @@ mod tests {
             preferred_size: None,
             width: None,
             height: None,
+            replaces: None,
+            current_line: false,
+            available: false,
         }
     }
 

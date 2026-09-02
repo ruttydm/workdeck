@@ -28,6 +28,9 @@ pub fn bundled_ui_registry() -> &'static [Registration] {
                 fraction: Some(0.16),
             }),
             height: None,
+            replaces: None,
+            current_line: false,
+            available: false,
         })]
     })
 }
@@ -85,5 +88,28 @@ mod tests {
     #[test]
     fn loads_once_and_returns_the_same_registration() {
         assert!(std::ptr::eq(bundled_files_pane(), bundled_files_pane()));
+    }
+
+    #[test]
+    fn optional_hunk_pane_lifecycle_fields_are_wire_compatible() {
+        let mut pane = bundled_files_pane().clone();
+        pane.replaces = Some("vendor:files".into());
+        pane.current_line = true;
+        pane.available = true;
+        let value = serde_json::to_value(&pane).unwrap();
+        assert_eq!(value["replaces"], "vendor:files");
+        assert_eq!(value["currentLine"], true);
+        assert_eq!(value["available"], true);
+
+        let legacy = serde_json::json!({
+            "id": "files",
+            "title": "Files",
+            "placement": "left",
+            "default_open": true
+        });
+        let decoded: PaneRegistration = serde_json::from_value(legacy).unwrap();
+        assert_eq!(decoded.replaces, None);
+        assert!(!decoded.current_line);
+        assert!(!decoded.available);
     }
 }

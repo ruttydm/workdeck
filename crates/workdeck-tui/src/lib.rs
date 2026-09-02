@@ -160,7 +160,7 @@ use workdeck_extension_api::{
     FileLanguageMatcher, FileViewModeKeyRequest, FileViewModeLifecycleRequest, KeyRoutingResult,
     KeyboardModeRegistration, PaneActionInvocation, PanePlacement, PaneRegistration,
     PaneRenderRequest, Registration, ReviewEvent, ValidatedFileViewLayout, ViewNode, ViewStyle,
-    bundled_files_pane, extension_pane_size,
+    WORKDECK_FILES_PANE_KEY, bundled_files_pane, extension_pane_size,
 };
 use workdeck_extension_host::{
     ExtensionEventContextProviderInstallation, ExtensionEventContextProviderSlot,
@@ -397,6 +397,7 @@ struct ExtensionPaneRuntime {
     pending_commands: BTreeMap<usize, PendingExtensionCommand>,
     deferred_events: BTreeMap<usize, VecDeque<ReviewEvent>>,
     panes: Vec<LivePaneRegistration>,
+    session_panes: Vec<SessionPane>,
     commands: Vec<LiveCommandRegistration>,
     keyboard_modes: Vec<LiveKeyboardModeRegistration>,
     file_views: Vec<LiveFileViewRegistration>,
@@ -444,7 +445,7 @@ struct ExtensionTrustPromptHits {
 
 impl ExtensionPaneRuntime {
     fn new(extensions: Vec<LoadedExtension>) -> Self {
-        let mut panes = Vec::new();
+        let mut pane_candidates = Vec::new();
         let mut commands = Vec::new();
         let mut keyboard_modes = Vec::new();
         let mut file_views = Vec::new();
@@ -453,16 +454,13 @@ impl ExtensionPaneRuntime {
             for registration in &extension.handshake.registrations {
                 match registration {
                     Registration::Pane(pane) => {
-                        let key = format!("{}:{}", extension.manifest.id, pane.id);
-                        if pane.default_open {
-                            open.insert(key.clone());
-                        }
-                        panes.push(LivePaneRegistration {
-                            key,
+                        pane_candidates.push((
                             extension_index,
-                            extension_id: extension.manifest.id.clone(),
-                            pane: pane.clone(),
-                        });
+                            RegisteredExtensionPane::new(
+                                extension.manifest.id.clone(),
+                                pane.clone(),
+                            ),
+                        ));
                     }
                     Registration::Command(command) => commands.push(LiveCommandRegistration {
                         extension_index,
@@ -497,15 +495,69 @@ impl ExtensionPaneRuntime {
                 }
             }
         }
+        let registered = pane_candidates
+            .iter()
+            .map(|(_, registered)| Arc::clone(registered))
+            .collect::<Vec<_>>();
+        let session_panes = build_session_panes(&registered);
+        let initial_open_state = initial_pane_open_state(&session_panes);
+        let accepted = session_panes
+            .iter()
+            .map(|pane| pane.registered.identity)
+            .collect::<BTreeSet<_>>();
+        let panes = pane_candidates
+            .into_iter()
+            .filter(|(_, registered)| accepted.contains(&registered.identity))
+            .map(|(extension_index, registered)| LivePaneRegistration {
+                key: registered.key(),
+                extension_index,
+                extension_id: registered.extension_id.clone(),
+                pane: registered.pane.clone(),
+            })
+            .collect::<Vec<_>>();
+        open.extend(
+            initial_open_state
+                .open
+                .iter()
+                .filter(|key| key.as_str() != WORKDECK_FILES_PANE_KEY)
+                .cloned(),
+        );
         Self {
             extensions,
             panes,
+            session_panes,
             commands,
             keyboard_modes,
             file_views,
             open,
             ..Self::default()
         }
+    }
+
+    fn reconcile_panes_from(&mut self, previous: &Self, files_pane_open: bool) -> bool {
+        let mut previous_open = previous.open.iter().cloned().collect::<Vec<_>>();
+        if files_pane_open {
+            previous_open.insert(0, WORKDECK_FILES_PANE_KEY.into());
+        }
+        let previous_state = Arc::new(PaneOpenState {
+            known: previous
+                .session_panes
+                .iter()
+                .map(|pane| pane.key.clone())
+                .collect(),
+            open: previous_open,
+        });
+        let reconciled = reconcile_pane_open_state(&self.session_panes, &previous_state);
+        self.open = reconciled
+            .open
+            .iter()
+            .filter(|key| key.as_str() != WORKDECK_FILES_PANE_KEY)
+            .cloned()
+            .collect();
+        reconciled
+            .open
+            .iter()
+            .any(|key| key == WORKDECK_FILES_PANE_KEY)
     }
 }
 
@@ -559,7 +611,7 @@ impl ReviewApp {
 
     pub fn new_with_extensions(
         changeset: Changeset,
-        options: ReviewOptions,
+        mut options: ReviewOptions,
         extensions: Vec<LoadedExtension>,
     ) -> Self {
         let mut state = ReviewState::new(changeset);
@@ -585,6 +637,14 @@ impl ReviewApp {
             .map(|comment| comment.id.clone())
             .collect();
         let extension_pane_runtime = ExtensionPaneRuntime::new(extensions);
+        if !extension_pane_runtime
+            .session_panes
+            .iter()
+            .find(|pane| pane.key == WORKDECK_FILES_PANE_KEY)
+            .is_some_and(|pane| pane.default_open)
+        {
+            options.sidebar = false;
+        }
         let mut extension_trust_controller = ExtensionTrustController::default();
         extension_trust_controller.reconcile(
             options.pager,
@@ -860,7 +920,7 @@ impl ReviewApp {
         self.cancel_extension_dialogs_for_reload();
         self.exit_active_keyboard_mode();
         self.exit_active_file_view_mode();
-        let replacement = ExtensionPaneRuntime::new(extensions);
+        let mut replacement = ExtensionPaneRuntime::new(extensions);
         let mut command_defaults = builtin_command_key_defaults();
         command_defaults.extend(replacement.commands.iter().map(|registration| {
             CommandKeyDefaults {
@@ -876,6 +936,7 @@ impl ReviewApp {
                 .extension_pane_runtime
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
+            self.options.sidebar = replacement.reconcile_panes_from(&runtime, self.options.sidebar);
             std::mem::replace(&mut *runtime, replacement)
         };
         drop(previous);
@@ -1437,7 +1498,7 @@ impl ReviewApp {
                 self.with_state(|state| state.set_layout(layout));
             }
             AppCommandAction::ApplyFilePresentationToAllMatching => {}
-            AppCommandAction::ToggleFilesPane => self.options.sidebar = !self.options.sidebar,
+            AppCommandAction::ToggleFilesPane => self.toggle_files_pane_role(),
             AppCommandAction::RefreshCurrentInput => self.reload_requested = true,
             AppCommandAction::OpenThemeSelector => self.cycle_theme_preview(),
             AppCommandAction::ToggleAgentNotes => {
@@ -1489,6 +1550,29 @@ impl ReviewApp {
             .saturating_mul(delta);
         self.scroll = self.scroll.saturating_add_signed(movement).min(last);
         self.current_line_row = self.scroll.min(last);
+    }
+
+    fn toggle_files_pane_role(&mut self) {
+        let mut runtime = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut open = runtime.open.clone();
+        if self.options.sidebar {
+            open.insert(WORKDECK_FILES_PANE_KEY.into());
+        }
+        let key = resolve_pane_slot_key(
+            &runtime.session_panes,
+            WORKDECK_FILES_PANE_KEY,
+            &open,
+            &BTreeSet::new(),
+        );
+        if key == WORKDECK_FILES_PANE_KEY {
+            self.options.sidebar = !self.options.sidebar;
+        } else if !runtime.open.remove(&key) {
+            runtime.open.insert(key.clone());
+        }
+        runtime.cached_renders.remove(&key);
     }
 
     fn step_diff_line(&mut self, delta: isize) {
@@ -1956,42 +2040,54 @@ impl ReviewApp {
         for action in actions {
             match action {
                 ExtensionHostAction::OpenPane { id } => {
-                    let pane_key = if id.contains(':') {
-                        id
-                    } else {
-                        format!("{extension_id}:{id}")
-                    };
                     let mut runtime = self
                         .extension_pane_runtime
                         .lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    let Some(pane_key) =
+                        resolve_pane_key(&runtime.session_panes, extension_id, &id)
+                    else {
+                        drop(runtime);
+                        self.status = Some(format!(
+                            "extension {extension_id}: warning: unknown pane {id:?}"
+                        ));
+                        continue;
+                    };
                     runtime.open.insert(pane_key.clone());
                     runtime.cached_renders.remove(&pane_key);
                 }
                 ExtensionHostAction::ClosePane { id } => {
-                    let pane_key = if id.contains(':') {
-                        id
-                    } else {
-                        format!("{extension_id}:{id}")
-                    };
                     let mut runtime = self
                         .extension_pane_runtime
                         .lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    let Some(pane_key) =
+                        resolve_pane_key(&runtime.session_panes, extension_id, &id)
+                    else {
+                        drop(runtime);
+                        self.status = Some(format!(
+                            "extension {extension_id}: warning: unknown pane {id:?}"
+                        ));
+                        continue;
+                    };
                     runtime.open.remove(&pane_key);
                     runtime.cached_renders.remove(&pane_key);
                 }
                 ExtensionHostAction::RefreshPane { id } => {
-                    let pane_key = if id.contains(':') {
-                        id
-                    } else {
-                        format!("{extension_id}:{id}")
-                    };
-                    self.extension_pane_runtime
+                    let mut runtime = self
+                        .extension_pane_runtime
                         .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .cached_renders
-                        .remove(&pane_key);
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    let Some(pane_key) =
+                        resolve_pane_key(&runtime.session_panes, extension_id, &id)
+                    else {
+                        drop(runtime);
+                        self.status = Some(format!(
+                            "extension {extension_id}: warning: unknown pane {id:?}"
+                        ));
+                        continue;
+                    };
+                    runtime.cached_renders.remove(&pane_key);
                 }
                 ExtensionHostAction::EnterKeyboardMode { id } => {
                     self.enter_keyboard_mode(extension_index, extension_id, &id);
@@ -9119,6 +9215,9 @@ mod tests {
                         preferred_size: Some(28),
                         width: None,
                         height: None,
+                        replaces: None,
+                        current_line: false,
+                        available: false,
                     },
                     content: ViewNode::Column {
                         children: vec![ViewNode::Text {
