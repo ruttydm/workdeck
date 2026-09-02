@@ -3339,10 +3339,31 @@ impl ReviewApp {
             || self.handle_extension_file_view_mouse(&event)
             || self.handle_sidebar_mouse(&event)
             || self.handle_review_file_header_mouse(&event)
+            || self.handle_horizontal_mouse_scroll(&event)
         {
             return;
         }
         self.handle_mouse_at(event.kind, Instant::now());
+    }
+
+    /// Route horizontal wheel gestures without leaving a fractional vertical
+    /// remainder that can move the review on the next ordinary wheel event.
+    fn handle_horizontal_mouse_scroll(&mut self, event: &MouseEvent) -> bool {
+        if self.options.wrap_lines {
+            return false;
+        }
+        let delta = match event.kind {
+            MouseEventKind::ScrollLeft => -1,
+            MouseEventKind::ScrollRight => 1,
+            MouseEventKind::ScrollUp if event.modifiers.contains(KeyModifiers::SHIFT) => -1,
+            MouseEventKind::ScrollDown if event.modifiers.contains(KeyModifiers::SHIFT) => 1,
+            _ => return false,
+        };
+        self.options.horizontal_offset =
+            self.options.horizontal_offset.saturating_add_signed(delta);
+        self.mouse_scroll_acceleration.reset();
+        self.mouse_scroll_accumulator = 0.0;
+        true
     }
 
     fn handle_sidebar_mouse(&mut self, event: &MouseEvent) -> bool {
@@ -8068,6 +8089,120 @@ mod tests {
             );
         }
         assert!(app.scroll > 6);
+    }
+
+    #[test]
+    fn shifted_and_native_horizontal_wheel_events_never_move_the_vertical_viewport() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        let start = Instant::now();
+        app.handle_mouse_at(MouseEventKind::ScrollDown, start);
+        app.handle_mouse_at(
+            MouseEventKind::ScrollDown,
+            start + Duration::from_millis(50),
+        );
+        let vertical = app.scroll;
+        assert!(app.mouse_scroll_accumulator > 0.0);
+
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: 20,
+            row: 5,
+            modifiers: KeyModifiers::SHIFT,
+        });
+        assert_eq!(app.options.horizontal_offset, 1);
+        assert_eq!(app.scroll, vertical);
+        assert_eq!(app.mouse_scroll_accumulator, 0.0);
+
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::ScrollRight,
+            column: 20,
+            row: 5,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert_eq!(app.options.horizontal_offset, 2);
+        assert_eq!(app.scroll, vertical);
+
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::ScrollLeft,
+            column: 20,
+            row: 5,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert_eq!(app.options.horizontal_offset, 1);
+        assert_eq!(app.scroll, vertical);
+    }
+
+    #[test]
+    fn wrapped_review_leaves_shifted_wheel_available_for_vertical_scrolling() {
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                wrap_lines: true,
+                ..ReviewOptions::default()
+            },
+        );
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: 20,
+            row: 5,
+            modifiers: KeyModifiers::SHIFT,
+        });
+        assert_eq!(app.options.horizontal_offset, 0);
+        assert_eq!(app.scroll, 1);
+    }
+
+    #[test]
+    fn nested_row_mouse_action_claims_parent_selection_event() {
+        let mut app = ReviewApp::new(two_file_changeset(), ReviewOptions::default());
+        let bounds = Rect::new(10, 4, 12, 1);
+        let state_key = FileViewComponentStateKey {
+            file_id: "file-0".into(),
+            row_id: "nested-action".into(),
+        };
+        app.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .file_view_component_hits
+            .push(FileViewComponentHit {
+                state_key: state_key.clone(),
+                bounds,
+            });
+        app.review_file_header_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(SidebarFileHit {
+                bounds,
+                file_index: 1,
+            });
+
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: bounds.x,
+            row: bounds.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: bounds.x,
+            row: bounds.y,
+            modifiers: KeyModifiers::NONE,
+        });
+
+        assert!(
+            app.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .file_view_component_expanded
+                .contains(&state_key)
+        );
+        assert_eq!(
+            app.shared_state()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .selection()
+                .file_index,
+            0
+        );
     }
 
     #[test]

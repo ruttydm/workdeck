@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "baselineBlobs": {
+    "src/ui/components/panes/DiffPane.test.tsx": "1e19cb329701bb43995e2db3f9a926e1df07db6a",
+    "src/ui/diff/rowMouseActions.ts": "983bf71181403f95b36b6a62b20e9f39df3acaee"
+  },
+  "stableBlobs": {
+    "src/ui/components/panes/DiffPane.test.tsx": "3ca904d5d489d62414f963c56644c2a56669c5ac",
+    "src/ui/diff/rowMouseActions.ts": null
+  },
+  "capture": "read every byte of both baseline files and the stable test; the row ownership helper was introduced after the stable release",
+  "stableDifference": "the stable test pins OpenTUI 0.5.1 and main pins 0.5.6; the Rust renderer has no OpenTUI private method and owns its wheel state directly",
+  "behaviorProjection": {
+    "nestedControlClaim": "a nested file-view component returns true from the child handler, short-circuiting the parent file-header selection handler for the same MouseEvent",
+    "nestedControlIdentity": "the captured file and row key replaces JavaScript WeakSet event identity while preserving one-gesture ownership",
+    "horizontalDirections": "native ScrollLeft and ScrollRight plus Shift+ScrollUp and Shift+ScrollDown adjust the code-column offset when wrapping is disabled",
+    "verticalIsolation": "a claimed horizontal gesture returns before vertical scroll handling",
+    "remainderReset": "Workdeck resets its owned fractional vertical accumulator and acceleration immediately after horizontal routing",
+    "wrappedBehavior": "with wrapping enabled Shift+Wheel remains an ordinary vertical review gesture"
+  },
+  "ratatuiAdaptation": "Ratatui and crossterm expose events and scroll state directly, so the required missing-private-method failure becomes a compile-time owned-state guarantee instead of an OpenTUI compatibility reflection check",
+  "translatedTests": [
+    "tests::nested_row_mouse_action_claims_parent_selection_event",
+    "tests::shifted_and_native_horizontal_wheel_events_never_move_the_vertical_viewport",
+    "tests::wrapped_review_leaves_shifted_wheel_available_for_vertical_scrolling"
+  ]
+}
