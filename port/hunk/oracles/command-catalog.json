@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "capture": {
+    "runtime": "Bun 1.3.5",
+    "method": "executed each pinned source tree directly from its disposable git archive",
+    "paths": [
+      "src/core/run/commandCatalog.ts",
+      "src/core/run/commandCatalog.test.ts"
+    ],
+    "baselineTestResult": "12 pass, 0 fail, 117 expectations",
+    "stableTestResult": "11 pass, 0 fail, 111 expectations",
+    "sourceIdentical": false
+  },
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "workdeckBrandingNormalization": "hunk command-id owner renamed to workdeck",
+  "baselineProjection": {
+    "commandCount": 47,
+    "hostOnly": [
+      "workdeck.app.quit",
+      "workdeck.app.openAgentSkill",
+      "workdeck.app.refresh",
+      "workdeck.review.editSelectedFile"
+    ],
+    "compatibilityAlias": {
+      "workdeck.view.toggleSidebar": "workdeck.view.toggleFilesPane"
+    },
+    "mainOnlyCommands": [
+      "workdeck.review.editActiveNote",
+      "workdeck.review.replyToActiveNote"
+    ],
+    "halfPageDownKeys": ["d", "ctrl+d"],
+    "halfPageUpKeys": ["u", "ctrl+u"]
+  },
+  "stableProjection": {
+    "commandCount": 45,
+    "halfPageDownKeys": ["d"],
+    "halfPageUpKeys": ["u"]
+  }
+}

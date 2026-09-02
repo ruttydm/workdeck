@@ -3,6 +3,7 @@
 mod anchors;
 mod annotations;
 mod canonical_file;
+mod command_catalog;
 mod content_manifest;
 mod expansion;
 mod file_view_plan;
@@ -28,6 +29,7 @@ mod semantic_test_support;
 pub use anchors::*;
 pub use annotations::*;
 pub use canonical_file::*;
+pub use command_catalog::*;
 pub use content_manifest::*;
 pub use expansion::*;
 pub use file_view_plan::*;
