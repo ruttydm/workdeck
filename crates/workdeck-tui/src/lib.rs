@@ -6561,6 +6561,23 @@ fn render_extension_toast(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     let Some(notification) = app.active_extension_notification() else {
         return;
     };
+    let background = ratatui_theme_color(&app.options.theme.panel_alt);
+    Block::default()
+        .style(
+            Style::default()
+                .fg(Color::Rgb(255, 255, 255))
+                .bg(background),
+        )
+        .render(area, buffer);
+    let content = Rect::new(
+        area.x.saturating_add(1),
+        area.y,
+        area.width.saturating_sub(2),
+        area.height.min(1),
+    );
+    if content.width == 0 || content.height == 0 {
+        return;
+    }
     let theme = ExtensionToastTheme {
         badge_removed: ratatui_theme_color(&app.options.theme.badge_removed),
         file_modified: ratatui_theme_color(&app.options.theme.file_modified),
@@ -6569,21 +6586,20 @@ fn render_extension_toast(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     let color = extension_toast_color(notification.notification_type, theme);
     Paragraph::new(Line::from(vec![
         Span::styled(
-            format!(" {} ", extension_toast_prefix()),
-            Style::default()
-                .fg(Color::Black)
-                .bg(color)
-                .add_modifier(Modifier::BOLD),
+            extension_toast_prefix(),
+            Style::default().fg(color).bg(background),
         ),
         Span::styled(
             format!(
                 " {}",
                 extension_toast_message(&notification.message, area.width)
             ),
-            Style::default().fg(color),
+            Style::default()
+                .fg(ratatui_theme_color(&app.options.theme.muted))
+                .bg(background),
         ),
     ]))
-    .render(area, buffer);
+    .render(content, buffer);
 }
 
 fn render_help(area: Rect, buffer: &mut Buffer, commands: &[HelpCommand]) {
@@ -7696,6 +7712,50 @@ mod tests {
         );
         app.tick_extension_notifications(start + Duration::from_millis(8_002));
         assert!(app.active_extension_notification().is_none());
+    }
+
+    #[test]
+    fn extension_toast_matches_the_one_row_theme_and_padding_contract() {
+        let hub = ExtensionNotificationHub::new();
+        hub.notify("loaded", ExtensionNotifyType::Error);
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                extension_notifications: Some(hub),
+                ..ReviewOptions::default()
+            },
+        );
+        app.tick_extension_notifications(Instant::now());
+
+        let area = Rect::new(0, 0, 20, 1);
+        let mut buffer = Buffer::empty(area);
+        render_extension_toast(area, &mut buffer, &app);
+
+        let panel_alt = ratatui_theme_color(&app.options.theme.panel_alt);
+        let muted = ratatui_theme_color(&app.options.theme.muted);
+        let error = ratatui_theme_color(&app.options.theme.badge_removed);
+        assert_eq!(panel_alt, Color::Rgb(39, 43, 49));
+        assert_eq!(muted, Color::Rgb(173, 174, 177));
+        assert_eq!(error, Color::Rgb(250, 142, 137));
+        let symbols = buffer
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert_eq!(symbols, " ext loaded         ");
+        assert!(buffer.content().iter().all(|cell| cell.bg == panel_alt));
+        for x in 1..=3 {
+            let cell = buffer.cell((x, 0)).unwrap();
+            assert_eq!(cell.fg, error);
+            assert!(!cell.modifier.contains(Modifier::BOLD));
+        }
+        for x in 4..=10 {
+            assert_eq!(buffer.cell((x, 0)).unwrap().fg, muted);
+        }
+        assert_eq!(buffer.cell((0, 0)).unwrap().symbol(), " ");
+        assert_eq!(buffer.cell((0, 0)).unwrap().fg, Color::Rgb(255, 255, 255));
+        assert_eq!(buffer.cell((19, 0)).unwrap().symbol(), " ");
+        assert_eq!(buffer.cell((19, 0)).unwrap().fg, Color::Rgb(255, 255, 255));
     }
 
     #[test]
