@@ -16,6 +16,10 @@ path = "extensions/cli-tools/main.rs"
 name = "workdeck-example-pane-layout-extension"
 path = "extensions/pane-layout/main.rs"
 
+[[bin]]
+name = "workdeck-example-vim-navigation-extension"
+path = "extensions/vim-navigation/main.rs"
+
 [dependencies]
 ratatui = "0.29"
 serde = { version = "1.0", features = ["derive"] }

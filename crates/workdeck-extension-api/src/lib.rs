@@ -474,7 +474,7 @@ pub enum Registration {
     ChangesetTransform { id: String },
     FileView { id: String, priority: i32 },
     FileLanguage(FileLanguageRegistration),
-    KeyboardMode { id: String },
+    KeyboardMode(KeyboardModeRegistration),
     LineHighlighter { id: String },
     EventSubscription { names: Vec<String> },
 }
@@ -490,7 +490,7 @@ impl Registration {
             Self::ChangesetTransform { id } => format!("changeset-transform:{id}"),
             Self::FileView { id, .. } => format!("file-view:{id}"),
             Self::FileLanguage(value) => format!("file-language:{}", value.matcher.key()),
-            Self::KeyboardMode { id } => format!("keyboard-mode:{id}"),
+            Self::KeyboardMode(value) => format!("keyboard-mode:{}", value.id),
             Self::LineHighlighter { id } => format!("line-highlighter:{id}"),
             Self::EventSubscription { names } => format!("event-subscription:{}", names.join(",")),
         }
@@ -506,7 +506,7 @@ impl Registration {
             Self::ChangesetTransform { .. } => Capability::ChangesetTransforms,
             Self::FileView { .. } => Capability::FileViews,
             Self::FileLanguage(_) => Capability::FileLanguages,
-            Self::KeyboardMode { .. } => Capability::KeyboardModes,
+            Self::KeyboardMode(_) => Capability::KeyboardModes,
             Self::LineHighlighter { .. } => Capability::LineHighlighters,
             Self::EventSubscription { .. } => Capability::Events,
         }
@@ -561,6 +561,12 @@ pub struct CommandRegistration {
     pub description: Option<String>,
     #[serde(default)]
     pub default_keys: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeyboardModeRegistration {
+    pub id: String,
+    pub title: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -815,14 +821,39 @@ pub struct CommandInvocation {
     /// Fully qualified `extension-id:pane-id` keys currently open in the host.
     #[serde(default)]
     pub open_panes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_keyboard_mode: Option<String>,
 }
 
 /// Declarative host mutation requested by an in-review command.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum ExtensionHostAction {
-    OpenPane { id: String },
-    ClosePane { id: String },
+    OpenPane {
+        id: String,
+    },
+    ClosePane {
+        id: String,
+    },
+    EnterKeyboardMode {
+        id: String,
+    },
+    ExitKeyboardMode,
+    ExecuteReviewCommand {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        count: Option<u16>,
+    },
+    OpenInputDialog {
+        id: String,
+        title: String,
+        placeholder: String,
+    },
+    Notify {
+        message: String,
+        #[serde(rename = "type")]
+        notification_type: ExtensionNotifyType,
+    },
 }
 
 /// Atomic result of one in-review command invocation.
@@ -830,6 +861,43 @@ pub enum ExtensionHostAction {
 pub struct CommandExecution {
     #[serde(default)]
     pub actions: Vec<ExtensionHostAction>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeyboardModeLifecycleRequest {
+    pub mode_id: String,
+    pub snapshot: ReviewSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeyboardModeKeyRequest {
+    pub mode_id: String,
+    pub key: ExtensionKeyEvent,
+    pub snapshot: ReviewSnapshot,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum KeyRoutingResult {
+    Handled,
+    Pass,
+    Exit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeyboardModeExecution {
+    pub result: KeyRoutingResult,
+    #[serde(default)]
+    pub actions: Vec<ExtensionHostAction>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InputDialogSubmission {
+    pub action_id: String,
+    pub value: Option<String>,
+    pub snapshot: ReviewSnapshot,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_keyboard_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -983,6 +1051,42 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<JsonRpcRequest>(&encoded).unwrap(),
             request
+        );
+    }
+
+    #[test]
+    fn keyboard_mode_protocol_round_trips_lifecycle_keys_and_host_actions() {
+        let execution = KeyboardModeExecution {
+            result: KeyRoutingResult::Exit,
+            actions: vec![
+                ExtensionHostAction::ExecuteReviewCommand {
+                    id: "workdeck.review.step-down".into(),
+                    count: Some(10_000),
+                },
+                ExtensionHostAction::OpenInputDialog {
+                    id: "vim-command".into(),
+                    title: "Vim command (:)".into(),
+                    placeholder: "top or bottom".into(),
+                },
+            ],
+        };
+        let encoded = serde_json::to_value(&execution).unwrap();
+        assert_eq!(encoded["result"], "exit");
+        assert_eq!(encoded["actions"][0]["kind"], "execute-review-command");
+        assert_eq!(encoded["actions"][0]["count"], 10_000);
+        assert_eq!(
+            serde_json::from_value::<KeyboardModeExecution>(encoded).unwrap(),
+            execution
+        );
+
+        let registration = Registration::KeyboardMode(KeyboardModeRegistration {
+            id: "normal".into(),
+            title: "Vim navigation".into(),
+        });
+        assert_eq!(registration.key(), "keyboard-mode:normal");
+        assert_eq!(
+            registration.required_capability(),
+            Capability::KeyboardModes
         );
     }
 

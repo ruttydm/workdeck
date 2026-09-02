@@ -33,11 +33,22 @@ pub fn render(app: &App, highlighter: &SyntaxHighlighter, frame: &mut Frame) {
     if app.active_tab == Tab::Review
         && let Some(review) = &app.review
     {
+        workdeck_tui::render_active_keyboard_mode_badge(chunks[2], frame.buffer_mut(), review);
+    }
+
+    if app.active_tab == Tab::Review
+        && let Some(review) = &app.review
+    {
         workdeck_tui::render_extension_command_menu(area, frame.buffer_mut(), review);
     }
 
     if app.help_visible {
         render_help(area, frame);
+    }
+    if app.active_tab == Tab::Review
+        && let Some(review) = &app.review
+    {
+        workdeck_tui::render_extension_input_dialog(area, frame.buffer_mut(), review);
     }
 }
 

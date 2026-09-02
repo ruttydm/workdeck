@@ -33,11 +33,13 @@ use workdeck_diff::{SanitizeOptions, sanitize_terminal_text};
 use workdeck_extension_api::{
     API_VERSION, CliCommandExecution, CliCommandInvocation, CliCommandResult,
     CliOutputNotification, CliOutputStream, CommandExecution, CommandInvocation,
-    DEFAULT_REQUEST_TIMEOUT_MS, ExtensionHostAction, ExtensionManifest, ExtensionNotificationHub,
-    ExtensionNotifyType, ExtensionPaneView, HandshakeRequest, HandshakeResponse,
-    JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, MAX_MESSAGE_BYTES, ManifestError,
-    PaneRenderRequest, PaneRenderResponse, Registration, TransformRequest, TransformResponse,
-    extension_pane_size, is_vertical_pane_placement, parse_key_chord, validate_view,
+    DEFAULT_REQUEST_TIMEOUT_MS, ExtensionHostAction, ExtensionKeyEvent, ExtensionManifest,
+    ExtensionNotificationHub, ExtensionNotifyType, ExtensionPaneView, HandshakeRequest,
+    HandshakeResponse, InputDialogSubmission, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
+    KeyboardModeExecution, KeyboardModeKeyRequest, KeyboardModeLifecycleRequest, MAX_MESSAGE_BYTES,
+    ManifestError, PaneRenderRequest, PaneRenderResponse, Registration, TransformRequest,
+    TransformResponse, extension_pane_size, is_vertical_pane_placement, parse_key_chord,
+    validate_view,
 };
 
 #[derive(Debug, Error)]
@@ -806,6 +808,16 @@ impl LoadedExtension {
         snapshot: ReviewSnapshot,
         open_panes: Vec<String>,
     ) -> Result<CommandExecution, HostError> {
+        self.invoke_command_with_context(command_id, snapshot, open_panes, None)
+    }
+
+    pub fn invoke_command_with_context(
+        &mut self,
+        command_id: &str,
+        snapshot: ReviewSnapshot,
+        open_panes: Vec<String>,
+        active_keyboard_mode: Option<String>,
+    ) -> Result<CommandExecution, HostError> {
         if !self.handshake.registrations.iter().any(|registration| {
             matches!(registration, Registration::Command(command) if command.id == command_id)
         }) {
@@ -821,6 +833,7 @@ impl LoadedExtension {
                 command_id: command_id.to_owned(),
                 snapshot,
                 open_panes,
+                active_keyboard_mode,
             },
             Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
         )?;
@@ -830,27 +843,216 @@ impl LoadedExtension {
                 kind: "command",
                 message: error.to_string(),
             })?;
-        for action in &execution.actions {
-            let id = match action {
-                ExtensionHostAction::OpenPane { id } | ExtensionHostAction::ClosePane { id } => id,
-            };
+        self.validate_host_actions(&execution.actions, "command")?;
+        Ok(execution)
+    }
+
+    pub fn enter_keyboard_mode(
+        &mut self,
+        mode_id: &str,
+        snapshot: ReviewSnapshot,
+    ) -> Result<CommandExecution, HostError> {
+        self.keyboard_mode_lifecycle("workdeck/keyboard-mode/enter", mode_id, snapshot)
+    }
+
+    pub fn exit_keyboard_mode(
+        &mut self,
+        mode_id: &str,
+        snapshot: ReviewSnapshot,
+    ) -> Result<CommandExecution, HostError> {
+        self.keyboard_mode_lifecycle("workdeck/keyboard-mode/exit", mode_id, snapshot)
+    }
+
+    fn keyboard_mode_lifecycle(
+        &mut self,
+        method: &str,
+        mode_id: &str,
+        snapshot: ReviewSnapshot,
+    ) -> Result<CommandExecution, HostError> {
+        self.require_keyboard_mode(mode_id)?;
+        let value = self.request(
+            method,
+            KeyboardModeLifecycleRequest {
+                mode_id: mode_id.to_owned(),
+                snapshot,
+            },
+            Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+        )?;
+        let execution: CommandExecution =
+            serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "keyboard mode lifecycle",
+                message: error.to_string(),
+            })?;
+        self.validate_host_actions(&execution.actions, "keyboard mode lifecycle")?;
+        Ok(execution)
+    }
+
+    pub fn route_keyboard_mode_key(
+        &mut self,
+        mode_id: &str,
+        key: ExtensionKeyEvent,
+        snapshot: ReviewSnapshot,
+    ) -> Result<KeyboardModeExecution, HostError> {
+        self.require_keyboard_mode(mode_id)?;
+        let value = self.request(
+            "workdeck/keyboard-mode/key",
+            KeyboardModeKeyRequest {
+                mode_id: mode_id.to_owned(),
+                key,
+                snapshot,
+            },
+            Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+        )?;
+        let execution: KeyboardModeExecution =
+            serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "keyboard mode key",
+                message: error.to_string(),
+            })?;
+        self.validate_host_actions(&execution.actions, "keyboard mode key")?;
+        Ok(execution)
+    }
+
+    pub fn submit_input_dialog(
+        &mut self,
+        action_id: &str,
+        value: Option<String>,
+        snapshot: ReviewSnapshot,
+        active_keyboard_mode: Option<String>,
+    ) -> Result<CommandExecution, HostError> {
+        let value = self.request(
+            "workdeck/dialog/input",
+            InputDialogSubmission {
+                action_id: action_id.to_owned(),
+                value,
+                snapshot,
+                active_keyboard_mode,
+            },
+            Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+        )?;
+        let execution: CommandExecution =
+            serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "input dialog",
+                message: error.to_string(),
+            })?;
+        self.validate_host_actions(&execution.actions, "input dialog")?;
+        Ok(execution)
+    }
+
+    fn require_keyboard_mode(&self, mode_id: &str) -> Result<(), HostError> {
+        if self.handshake.registrations.iter().any(|registration| {
+            matches!(registration, Registration::KeyboardMode(mode) if mode.id == mode_id)
+        }) {
+            Ok(())
+        } else {
+            Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "keyboard mode",
+                message: format!("mode {mode_id:?} is not registered"),
+            })
+        }
+    }
+
+    fn validate_host_actions(
+        &self,
+        actions: &[ExtensionHostAction],
+        kind: &'static str,
+    ) -> Result<(), HostError> {
+        if actions.len() > 64 {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind,
+                message: "response exceeds 64 host actions".into(),
+            });
+        }
+        let owns = |id: &str, registration_kind: &str| {
             let local_id = id
                 .strip_prefix(&format!("{}:", self.manifest.id))
                 .unwrap_or(id);
-            if (id.contains(':') && local_id == id)
-                || !self.handshake.registrations.iter().any(|registration| {
-                    matches!(registration, Registration::Pane(pane) if pane.id == local_id)
+            if id.contains(':') && local_id == id {
+                return false;
+            }
+            self.handshake
+                .registrations
+                .iter()
+                .any(|registration| match registration {
+                    Registration::Pane(pane) if registration_kind == "pane" => pane.id == local_id,
+                    Registration::KeyboardMode(mode) if registration_kind == "keyboard mode" => {
+                        mode.id == local_id
+                    }
+                    _ => false,
                 })
-            {
+        };
+        for action in actions {
+            let valid = match action {
+                ExtensionHostAction::OpenPane { id } | ExtensionHostAction::ClosePane { id } => {
+                    self.manifest
+                        .capabilities
+                        .contains(&workdeck_extension_api::Capability::Panes)
+                        && owns(id, "pane")
+                }
+                ExtensionHostAction::EnterKeyboardMode { id } => {
+                    self.manifest
+                        .capabilities
+                        .contains(&workdeck_extension_api::Capability::KeyboardModes)
+                        && kind != "keyboard mode lifecycle"
+                        && owns(id, "keyboard mode")
+                }
+                ExtensionHostAction::ExitKeyboardMode => {
+                    self.manifest
+                        .capabilities
+                        .contains(&workdeck_extension_api::Capability::KeyboardModes)
+                        && kind != "keyboard mode lifecycle"
+                }
+                ExtensionHostAction::ExecuteReviewCommand { id, count } => {
+                    self.manifest
+                        .capabilities
+                        .contains(&workdeck_extension_api::Capability::ReviewNavigation)
+                        && is_public_review_command(id)
+                        && count.is_none_or(|count| (1..=10_000).contains(&count))
+                }
+                ExtensionHostAction::OpenInputDialog { id, title, .. } => {
+                    self.manifest
+                        .capabilities
+                        .contains(&workdeck_extension_api::Capability::Dialogs)
+                        && !id.trim().is_empty()
+                        && !title.trim().is_empty()
+                }
+                ExtensionHostAction::Notify { .. } => self
+                    .manifest
+                    .capabilities
+                    .contains(&workdeck_extension_api::Capability::Notifications),
+            };
+            if !valid {
                 return Err(HostError::InvalidPayload {
                     id: self.manifest.id.clone(),
-                    kind: "command",
-                    message: format!("command targeted unknown pane {id:?}"),
+                    kind,
+                    message: format!("invalid or undeclared host action {action:?}"),
                 });
             }
         }
-        Ok(execution)
+        Ok(())
     }
+}
+
+fn is_public_review_command(id: &str) -> bool {
+    matches!(
+        id,
+        "workdeck.view.cursor-line-row"
+            | "workdeck.review.step-down"
+            | "workdeck.review.step-up"
+            | "workdeck.review.previous-hunk"
+            | "workdeck.review.next-hunk"
+            | "workdeck.review.align-current-line-top"
+            | "workdeck.review.align-current-line-center"
+            | "workdeck.review.align-current-line-bottom"
+            | "workdeck.review.half-page-down"
+            | "workdeck.review.half-page-up"
+            | "workdeck.review.jump-to-top"
+            | "workdeck.review.jump-to-bottom"
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -1049,6 +1251,14 @@ fn validate_registrations(
                     ),
                 });
             }
+        }
+        if let Registration::KeyboardMode(mode) = registration
+            && (mode.id.trim().is_empty() || mode.id.contains(':') || mode.title.trim().is_empty())
+        {
+            return Err(HostError::Handshake {
+                id: manifest.id.clone(),
+                message: "keyboard modes require non-empty local ids and titles".into(),
+            });
         }
     }
     Ok(())

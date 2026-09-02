@@ -62,6 +62,9 @@ pub mod cli_tools_extension;
 #[path = "../extensions/pane-layout/extension.rs"]
 pub mod pane_layout_extension;
 
+#[path = "../extensions/vim-navigation/extension.rs"]
+pub mod vim_navigation_extension;
+
 #[cfg(test)]
 #[path = "../3-agent-review-demo/after/test/search_demo.rs"]
 mod agent_review_after_demo;

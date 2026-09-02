@@ -1,0 +1,7 @@
+id = "example.vim-navigation"
+name = "Vim navigation example"
+version = "0.1.0"
+api_version = 1
+executable = "bin/workdeck-example-vim-navigation-extension"
+capabilities = ["commands", "keyboard-modes", "review-navigation", "dialogs", "notifications"]
+description = "Vim-normal review navigation with counts, alignment, jumps, and an Ex command dialog"

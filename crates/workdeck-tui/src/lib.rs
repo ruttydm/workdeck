@@ -90,6 +90,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use workdeck_core::{Changeset, DiffFile, DiffLine, DiffLineKind, ReviewSelection, ReviewSide};
 use workdeck_diff::{
@@ -100,9 +101,10 @@ use workdeck_diff::{
 };
 use workdeck_extension_api::{
     CommandRegistration, ExtensionHostAction, ExtensionKeyEvent, ExtensionNotification,
-    ExtensionNotificationHub, ExtensionNotificationSubscription, ExtensionPaintTheme,
-    ExtensionPaneView, PanePlacement, PaneRegistration, PaneRenderRequest, Registration, ViewNode,
-    ViewStyle, extension_pane_size,
+    ExtensionNotificationHub, ExtensionNotificationSubscription, ExtensionNotifyType,
+    ExtensionPaintTheme, ExtensionPaneView, KeyRoutingResult, KeyboardModeRegistration,
+    PanePlacement, PaneRegistration, PaneRenderRequest, Registration, ViewNode, ViewStyle,
+    extension_pane_size,
 };
 use workdeck_extension_host::LoadedExtension;
 use workdeck_review::{
@@ -195,6 +197,30 @@ struct LiveCommandRegistration {
 }
 
 #[derive(Debug, Clone)]
+struct LiveKeyboardModeRegistration {
+    extension_index: usize,
+    extension_id: String,
+    mode: KeyboardModeRegistration,
+}
+
+#[derive(Debug, Clone)]
+struct ActiveKeyboardMode {
+    extension_index: usize,
+    extension_id: String,
+    mode: KeyboardModeRegistration,
+}
+
+#[derive(Debug, Clone)]
+struct ExtensionInputDialog {
+    extension_index: usize,
+    extension_id: String,
+    action_id: String,
+    title: String,
+    placeholder: String,
+    value: String,
+}
+
+#[derive(Debug, Clone)]
 struct CachedPaneRender {
     signature: PaneRenderSignature,
     view: ExtensionPaneView,
@@ -224,6 +250,9 @@ struct ExtensionPaneRuntime {
     extensions: Vec<LoadedExtension>,
     panes: Vec<LivePaneRegistration>,
     commands: Vec<LiveCommandRegistration>,
+    keyboard_modes: Vec<LiveKeyboardModeRegistration>,
+    active_keyboard_mode: Option<ActiveKeyboardMode>,
+    input_dialog: Option<ExtensionInputDialog>,
     open: BTreeSet<String>,
     size_overrides: BTreeMap<String, u16>,
     cached_renders: BTreeMap<String, CachedPaneRender>,
@@ -233,12 +262,14 @@ struct ExtensionPaneRuntime {
     menu_selected: usize,
     menu_trigger: Option<Rect>,
     menu_bounds: Option<Rect>,
+    mode_badge_bounds: Option<Rect>,
 }
 
 impl ExtensionPaneRuntime {
     fn new(extensions: Vec<LoadedExtension>) -> Self {
         let mut panes = Vec::new();
         let mut commands = Vec::new();
+        let mut keyboard_modes = Vec::new();
         let mut open = BTreeSet::new();
         for (extension_index, extension) in extensions.iter().enumerate() {
             for registration in &extension.handshake.registrations {
@@ -260,6 +291,18 @@ impl ExtensionPaneRuntime {
                         extension_id: extension.manifest.id.clone(),
                         command: command.clone(),
                     }),
+                    Registration::KeyboardMode(mode) => {
+                        let mut mode = mode.clone();
+                        mode.title = sanitize_terminal_line(&mode.title).trim().to_owned();
+                        if mode.title.is_empty() {
+                            mode.title = format!("{}:{}", extension.manifest.id, mode.id);
+                        }
+                        keyboard_modes.push(LiveKeyboardModeRegistration {
+                            extension_index,
+                            extension_id: extension.manifest.id.clone(),
+                            mode,
+                        });
+                    }
                     _ => {}
                 }
             }
@@ -268,6 +311,7 @@ impl ExtensionPaneRuntime {
             extensions,
             panes,
             commands,
+            keyboard_modes,
             open,
             ..Self::default()
         }
@@ -285,6 +329,8 @@ pub struct ReviewApp {
     reload_requested: bool,
     status: Option<String>,
     review_width: Cell<u16>,
+    review_height: Cell<u16>,
+    current_line_row: usize,
     expanded_gaps: BTreeSet<(String, usize)>,
     highlights: Mutex<HighlightCache>,
     themes: ThemeController,
@@ -332,6 +378,8 @@ impl ReviewApp {
             reload_requested: false,
             status: None,
             review_width: Cell::new(120),
+            review_height: Cell::new(20),
+            current_line_row: 0,
             expanded_gaps: BTreeSet::new(),
             highlights: Mutex::new(HighlightCache::default()),
             themes,
@@ -359,6 +407,7 @@ impl ReviewApp {
     }
 
     pub fn reload(&mut self, changeset: Changeset) {
+        self.exit_active_keyboard_mode();
         let changeset = match self.apply_extension_transforms(changeset) {
             Ok(changeset) => changeset,
             Err(error) => {
@@ -418,9 +467,56 @@ impl ReviewApp {
         self.extension_notification_subscription.is_some()
     }
 
+    #[must_use]
+    pub fn active_keyboard_mode_title(&self) -> Option<String> {
+        self.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .active_keyboard_mode
+            .as_ref()
+            .map(|active| active.mode.title.clone())
+    }
+
+    #[must_use]
+    pub fn active_keyboard_mode_status_hint(&self) -> Option<String> {
+        self.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .active_keyboard_mode
+            .as_ref()
+            .map(|active| {
+                format!(
+                    "{} — ext {}:{} — Esc exits",
+                    active.mode.title, active.extension_id, active.mode.id
+                )
+            })
+    }
+
+    #[must_use]
+    pub const fn current_line_row(&self) -> usize {
+        self.current_line_row
+    }
+
+    #[must_use]
+    pub const fn review_scroll(&self) -> usize {
+        self.scroll
+    }
+
+    #[must_use]
+    pub fn has_extension_input_dialog(&self) -> bool {
+        self.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .input_dialog
+            .is_some()
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             self.should_quit = true;
+            return;
+        }
+        if self.handle_extension_input_key(&key) {
             return;
         }
         if self.handle_extension_menu_key(&key) {
@@ -433,6 +529,9 @@ impl ReviewApp {
             ) {
                 self.show_help = false;
             }
+            return;
+        }
+        if self.route_active_keyboard_mode(&key) {
             return;
         }
         if self.invoke_extension_command(&key) {
@@ -538,36 +637,31 @@ impl ReviewApp {
 
     fn invoke_registered_extension_command(&mut self, command: LiveCommandRegistration) {
         let snapshot = self.with_state(|state| state.snapshot());
-        let mut runtime = self
-            .extension_pane_runtime
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let open_panes = runtime.open.iter().cloned().collect();
-        let execution = runtime.extensions[command.extension_index].invoke_command(
-            &command.command.id,
-            snapshot,
-            open_panes,
-        );
+        let execution = {
+            let mut runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let open_panes = runtime.open.iter().cloned().collect();
+            let active_keyboard_mode = runtime
+                .active_keyboard_mode
+                .as_ref()
+                .map(|active| format!("{}:{}", active.extension_id, active.mode.id));
+            runtime.extensions[command.extension_index].invoke_command_with_context(
+                &command.command.id,
+                snapshot,
+                open_panes,
+                active_keyboard_mode,
+            )
+        };
         match execution {
             Ok(execution) => {
-                for action in execution.actions {
-                    let (id, opening) = match action {
-                        ExtensionHostAction::OpenPane { id } => (id, true),
-                        ExtensionHostAction::ClosePane { id } => (id, false),
-                    };
-                    let pane_key = if id.contains(':') {
-                        id
-                    } else {
-                        format!("{}:{id}", command.extension_id)
-                    };
-                    if opening {
-                        runtime.open.insert(pane_key.clone());
-                    } else {
-                        runtime.open.remove(&pane_key);
-                    }
-                    runtime.cached_renders.remove(&pane_key);
-                }
                 self.status = Some(command.command.title);
+                self.apply_extension_actions(
+                    command.extension_index,
+                    &command.extension_id,
+                    execution.actions,
+                );
             }
             Err(error) => {
                 self.status = Some(format!(
@@ -578,6 +672,458 @@ impl ReviewApp {
         }
     }
 
+    fn route_active_keyboard_mode(&mut self, key: &KeyEvent) -> bool {
+        let active = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .active_keyboard_mode
+            .clone();
+        let Some(active) = active else {
+            return false;
+        };
+        if key.code == KeyCode::Esc {
+            self.exit_active_keyboard_mode();
+            return true;
+        }
+        let snapshot = self.with_state(|state| state.snapshot());
+        let result = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .extensions[active.extension_index]
+            .route_keyboard_mode_key(&active.mode.id, to_live_extension_key_event(key), snapshot);
+        match result {
+            Ok(execution) => {
+                let result = execution.result;
+                self.apply_extension_actions(
+                    active.extension_index,
+                    &active.extension_id,
+                    execution.actions,
+                );
+                if result == KeyRoutingResult::Exit {
+                    let activation_unchanged = self
+                        .extension_pane_runtime
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .active_keyboard_mode
+                        .as_ref()
+                        .is_some_and(|current| {
+                            current.extension_index == active.extension_index
+                                && current.mode.id == active.mode.id
+                        });
+                    if activation_unchanged {
+                        self.exit_active_keyboard_mode();
+                    }
+                }
+                result != KeyRoutingResult::Pass
+            }
+            Err(error) => {
+                self.exit_active_keyboard_mode();
+                self.status = Some(format!(
+                    "extension {} keyboard mode failed: {error}",
+                    active.extension_id
+                ));
+                true
+            }
+        }
+    }
+
+    fn apply_extension_actions(
+        &mut self,
+        extension_index: usize,
+        extension_id: &str,
+        actions: Vec<ExtensionHostAction>,
+    ) {
+        for action in actions {
+            match action {
+                ExtensionHostAction::OpenPane { id } => {
+                    let pane_key = if id.contains(':') {
+                        id
+                    } else {
+                        format!("{extension_id}:{id}")
+                    };
+                    let mut runtime = self
+                        .extension_pane_runtime
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    runtime.open.insert(pane_key.clone());
+                    runtime.cached_renders.remove(&pane_key);
+                }
+                ExtensionHostAction::ClosePane { id } => {
+                    let pane_key = if id.contains(':') {
+                        id
+                    } else {
+                        format!("{extension_id}:{id}")
+                    };
+                    let mut runtime = self
+                        .extension_pane_runtime
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    runtime.open.remove(&pane_key);
+                    runtime.cached_renders.remove(&pane_key);
+                }
+                ExtensionHostAction::EnterKeyboardMode { id } => {
+                    self.enter_keyboard_mode(extension_index, extension_id, &id);
+                }
+                ExtensionHostAction::ExitKeyboardMode => {
+                    self.exit_keyboard_mode_for_extension(extension_index);
+                }
+                ExtensionHostAction::ExecuteReviewCommand { id, count } => {
+                    self.execute_extension_review_command(&id, count.unwrap_or(1));
+                }
+                ExtensionHostAction::OpenInputDialog {
+                    id,
+                    title,
+                    placeholder,
+                } => {
+                    let mut runtime = self
+                        .extension_pane_runtime
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    runtime.menu_open = false;
+                    runtime.input_dialog = Some(ExtensionInputDialog {
+                        extension_index,
+                        extension_id: extension_id.into(),
+                        action_id: id,
+                        title: sanitize_terminal_line(&title),
+                        placeholder: sanitize_terminal_line(&placeholder),
+                        value: String::new(),
+                    });
+                }
+                ExtensionHostAction::Notify {
+                    message,
+                    notification_type,
+                } => {
+                    let prefix = match notification_type {
+                        ExtensionNotifyType::Info => "",
+                        ExtensionNotifyType::Warning => "warning: ",
+                        ExtensionNotifyType::Error => "error: ",
+                    };
+                    self.status = Some(format!(
+                        "{extension_id}: {prefix}{}",
+                        sanitize_terminal_line(&message)
+                    ));
+                }
+            }
+        }
+    }
+
+    fn enter_keyboard_mode(&mut self, extension_index: usize, extension_id: &str, id: &str) {
+        let local_id = id.strip_prefix(&format!("{extension_id}:")).unwrap_or(id);
+        let registration = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .keyboard_modes
+            .iter()
+            .find(|mode| {
+                mode.extension_index == extension_index
+                    && mode.extension_id == extension_id
+                    && mode.mode.id == local_id
+            })
+            .cloned();
+        let Some(registration) = registration else {
+            self.status = Some(format!(
+                "extension {extension_id} requested an unknown mode"
+            ));
+            return;
+        };
+        if self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .active_keyboard_mode
+            .as_ref()
+            .is_some_and(|active| {
+                active.extension_index == extension_index && active.mode.id == local_id
+            })
+        {
+            return;
+        }
+        self.exit_active_keyboard_mode();
+        let active = ActiveKeyboardMode {
+            extension_index,
+            extension_id: extension_id.into(),
+            mode: registration.mode,
+        };
+        self.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .active_keyboard_mode = Some(active.clone());
+        let snapshot = self.with_state(|state| state.snapshot());
+        let execution = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .extensions[extension_index]
+            .enter_keyboard_mode(&active.mode.id, snapshot);
+        match execution {
+            Ok(execution) => {
+                self.status = Some(format!("{} active · Esc exits", active.mode.title));
+                self.apply_extension_actions(extension_index, extension_id, execution.actions);
+            }
+            Err(error) => {
+                self.extension_pane_runtime
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .active_keyboard_mode = None;
+                self.status = Some(format!(
+                    "extension {extension_id} could not enter mode: {error}"
+                ));
+            }
+        }
+    }
+
+    fn exit_active_keyboard_mode(&mut self) {
+        let active = {
+            let mut runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let active = runtime.active_keyboard_mode.take();
+            if let Some(active) = &active
+                && runtime
+                    .input_dialog
+                    .as_ref()
+                    .is_some_and(|dialog| dialog.extension_index == active.extension_index)
+            {
+                runtime.input_dialog = None;
+            }
+            active
+        };
+        let Some(active) = active else {
+            return;
+        };
+        let snapshot = self.with_state(|state| state.snapshot());
+        let execution = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .extensions[active.extension_index]
+            .exit_keyboard_mode(&active.mode.id, snapshot);
+        match execution {
+            Ok(execution) => {
+                self.status = Some(format!("{} exited", active.mode.title));
+                self.apply_extension_actions(
+                    active.extension_index,
+                    &active.extension_id,
+                    execution.actions,
+                );
+            }
+            Err(error) => {
+                self.status = Some(format!(
+                    "extension {} mode exit failed: {error}",
+                    active.extension_id
+                ));
+            }
+        }
+    }
+
+    fn exit_keyboard_mode_for_extension(&mut self, extension_index: usize) {
+        let owns_active_mode = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .active_keyboard_mode
+            .as_ref()
+            .is_some_and(|active| active.extension_index == extension_index);
+        if owns_active_mode {
+            self.exit_active_keyboard_mode();
+        }
+    }
+
+    fn handle_extension_input_key(&mut self, key: &KeyEvent) -> bool {
+        let has_dialog = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .input_dialog
+            .is_some();
+        if !has_dialog {
+            return false;
+        }
+        match key.code {
+            KeyCode::Enter | KeyCode::Esc => {
+                let dialog = self
+                    .extension_pane_runtime
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .input_dialog
+                    .take();
+                if let Some(dialog) = dialog {
+                    let value = (key.code == KeyCode::Enter).then_some(dialog.value.clone());
+                    self.submit_extension_input(dialog, value);
+                }
+            }
+            KeyCode::Backspace => {
+                let mut runtime = self
+                    .extension_pane_runtime
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                if let Some(dialog) = &mut runtime.input_dialog
+                    && let Some(grapheme) = dialog.value.graphemes(true).next_back()
+                {
+                    dialog.value.truncate(dialog.value.len() - grapheme.len());
+                }
+            }
+            KeyCode::Char(character)
+                if !key.modifiers.intersects(
+                    KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
+                ) =>
+            {
+                if let Some(dialog) = &mut self
+                    .extension_pane_runtime
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .input_dialog
+                {
+                    dialog.value.push(character);
+                }
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn submit_extension_input(&mut self, dialog: ExtensionInputDialog, value: Option<String>) {
+        let snapshot = self.with_state(|state| state.snapshot());
+        let execution = {
+            let mut runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let active_keyboard_mode = runtime
+                .active_keyboard_mode
+                .as_ref()
+                .map(|active| format!("{}:{}", active.extension_id, active.mode.id));
+            runtime.extensions[dialog.extension_index].submit_input_dialog(
+                &dialog.action_id,
+                value,
+                snapshot,
+                active_keyboard_mode,
+            )
+        };
+        match execution {
+            Ok(execution) => self.apply_extension_actions(
+                dialog.extension_index,
+                &dialog.extension_id,
+                execution.actions,
+            ),
+            Err(error) => {
+                self.status = Some(format!(
+                    "extension {} input failed: {error}",
+                    dialog.extension_id
+                ));
+            }
+        }
+    }
+
+    fn execute_extension_review_command(&mut self, id: &str, count: u16) {
+        let rows = self.current_review_rows();
+        let last = rows.lines.len().saturating_sub(1);
+        let viewport = usize::from(self.review_height.get().saturating_sub(1).max(1));
+        let magnitude = usize::from(count);
+        match id {
+            "workdeck.view.cursor-line-row" => {
+                self.options.cursor_line = CursorLineMode::Row;
+                self.scroll_to_selection();
+                self.current_line_row = self.scroll.min(last);
+            }
+            "workdeck.review.step-down" => {
+                self.current_line_row = self.current_line_row.saturating_add(magnitude).min(last);
+                self.keep_current_line_visible(viewport, last);
+            }
+            "workdeck.review.step-up" => {
+                self.current_line_row = self.current_line_row.saturating_sub(magnitude);
+                self.keep_current_line_visible(viewport, last);
+            }
+            "workdeck.review.previous-hunk" => {
+                for _ in 0..magnitude {
+                    self.navigate(ReviewState::previous_hunk);
+                }
+                self.current_line_row = self.scroll.min(last);
+            }
+            "workdeck.review.next-hunk" => {
+                for _ in 0..magnitude {
+                    self.navigate(ReviewState::next_hunk);
+                }
+                self.current_line_row = self.scroll.min(last);
+            }
+            "workdeck.review.half-page-down" => {
+                self.current_line_row = self
+                    .current_line_row
+                    .saturating_add((viewport / 2).max(1).saturating_mul(magnitude))
+                    .min(last);
+                self.keep_current_line_visible(viewport, last);
+            }
+            "workdeck.review.half-page-up" => {
+                self.current_line_row = self
+                    .current_line_row
+                    .saturating_sub((viewport / 2).max(1).saturating_mul(magnitude));
+                self.keep_current_line_visible(viewport, last);
+            }
+            "workdeck.review.jump-to-top" => {
+                self.current_line_row = 0;
+                self.scroll = 0;
+            }
+            "workdeck.review.jump-to-bottom" => {
+                self.current_line_row = last;
+                self.scroll = last.saturating_sub(viewport.saturating_sub(1));
+            }
+            "workdeck.review.align-current-line-top" => self.scroll = self.current_line_row,
+            "workdeck.review.align-current-line-center" => {
+                self.scroll = self.current_line_row.saturating_sub(viewport / 2);
+            }
+            "workdeck.review.align-current-line-bottom" => {
+                self.scroll = self
+                    .current_line_row
+                    .saturating_sub(viewport.saturating_sub(1));
+            }
+            _ => {}
+        }
+    }
+
+    fn keep_current_line_visible(&mut self, viewport: usize, last: usize) {
+        let max_scroll = last.saturating_add(1).saturating_sub(viewport);
+        let scroll = if self.scroll == usize::MAX {
+            max_scroll
+        } else {
+            self.scroll.min(max_scroll)
+        };
+        self.scroll = if self.current_line_row < scroll {
+            self.current_line_row
+        } else if self.current_line_row >= scroll.saturating_add(viewport) {
+            self.current_line_row
+                .saturating_sub(viewport.saturating_sub(1))
+        } else {
+            scroll
+        };
+    }
+
+    fn current_review_rows(&self) -> ReviewRows {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let width = self.review_width.get();
+        let layout = state.resolved_layout(width);
+        let mut highlights = self
+            .highlights
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        build_live_review_rows(
+            state.changeset(),
+            state.comments(),
+            state.selection(),
+            layout,
+            &self.options,
+            width,
+            &mut highlights,
+            &self.expanded_gaps,
+        )
+    }
+
     fn handle_extension_menu_key(&mut self, key: &KeyEvent) -> bool {
         let mut runtime = self
             .extension_pane_runtime
@@ -585,7 +1131,9 @@ impl ReviewApp {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let menu_shortcut = key.code == KeyCode::Menu
             || (key.code == KeyCode::Char('e') && key.modifiers == KeyModifiers::ALT);
-        if menu_shortcut && !runtime.commands.is_empty() {
+        let entry_count =
+            runtime.commands.len() + usize::from(runtime.active_keyboard_mode.is_some());
+        if menu_shortcut && entry_count > 0 {
             runtime.menu_open = !runtime.menu_open;
             runtime.menu_selected = 0;
             return true;
@@ -599,21 +1147,32 @@ impl ReviewApp {
                 true
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                runtime.menu_selected = (runtime.menu_selected + 1) % runtime.commands.len().max(1);
+                runtime.menu_selected = (runtime.menu_selected + 1) % entry_count.max(1);
                 true
             }
             KeyCode::Up | KeyCode::Char('k') => {
                 runtime.menu_selected = runtime
                     .menu_selected
                     .checked_sub(1)
-                    .unwrap_or_else(|| runtime.commands.len().saturating_sub(1));
+                    .unwrap_or_else(|| entry_count.saturating_sub(1));
                 true
             }
             KeyCode::Enter => {
-                let command = runtime.commands.get(runtime.menu_selected).cloned();
+                let has_exit = runtime.active_keyboard_mode.is_some();
+                let exit_mode = has_exit && runtime.menu_selected == 0;
+                let command = (!exit_mode)
+                    .then(|| {
+                        runtime
+                            .commands
+                            .get(runtime.menu_selected.saturating_sub(usize::from(has_exit)))
+                    })
+                    .flatten()
+                    .cloned();
                 runtime.menu_open = false;
                 drop(runtime);
-                if let Some(command) = command {
+                if exit_mode {
+                    self.exit_active_keyboard_mode();
+                } else if let Some(command) = command {
                     self.invoke_registered_extension_command(command);
                 }
                 true
@@ -702,10 +1261,32 @@ impl ReviewApp {
     }
 
     pub fn handle_mouse_event(&mut self, event: MouseEvent) {
-        if self.handle_extension_menu_mouse(&event) || self.handle_extension_pane_mouse(&event) {
+        if self.has_extension_input_dialog() {
+            return;
+        }
+        if self.handle_extension_mode_badge_mouse(&event)
+            || self.handle_extension_menu_mouse(&event)
+            || self.handle_extension_pane_mouse(&event)
+        {
             return;
         }
         self.handle_mouse_at(event.kind, Instant::now());
+    }
+
+    fn handle_extension_mode_badge_mouse(&mut self, event: &MouseEvent) -> bool {
+        if event.kind != MouseEventKind::Up(MouseButton::Left) {
+            return false;
+        }
+        let hit = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .mode_badge_bounds
+            .is_some_and(|area| rect_contains(area, event.column, event.row));
+        if hit {
+            self.exit_active_keyboard_mode();
+        }
+        hit
     }
 
     fn handle_extension_menu_mouse(&mut self, event: &MouseEvent) -> bool {
@@ -727,21 +1308,30 @@ impl ReviewApp {
         if !runtime.menu_open {
             return false;
         }
-        let command = runtime.menu_bounds.and_then(|area| {
+        let selection = runtime.menu_bounds.and_then(|area| {
             if !rect_contains(area, event.column, event.row)
                 || event.row == area.y
                 || event.row + 1 == area.bottom()
             {
                 return None;
             }
-            runtime
-                .commands
-                .get(usize::from(event.row.saturating_sub(area.y + 1)))
-                .cloned()
+            Some(usize::from(event.row.saturating_sub(area.y + 1)))
         });
+        let has_exit = runtime.active_keyboard_mode.is_some();
+        let exit_mode = selection.is_some_and(|selection| has_exit && selection == 0);
+        let command = selection
+            .filter(|_| !exit_mode)
+            .and_then(|selection| {
+                runtime
+                    .commands
+                    .get(selection.saturating_sub(usize::from(has_exit)))
+            })
+            .cloned();
         runtime.menu_open = false;
         drop(runtime);
-        if let Some(command) = command {
+        if exit_mode {
+            self.exit_active_keyboard_mode();
+        } else if let Some(command) = command {
             self.invoke_registered_extension_command(command);
         }
         true
@@ -1193,6 +1783,7 @@ pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     if app.show_help {
         render_help(area, buffer);
     }
+    render_extension_input_dialog(area, buffer, app);
 }
 
 /// Render the review surface inside Workdeck's unified tab shell.
@@ -1263,7 +1854,10 @@ pub fn render_extension_menu_button(area: Rect, buffer: &mut Buffer, app: &Revie
         .extension_pane_runtime
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if runtime.commands.is_empty() || area.width == 0 || area.height == 0 {
+    if (runtime.commands.is_empty() && runtime.active_keyboard_mode.is_none())
+        || area.width == 0
+        || area.height == 0
+    {
         runtime.menu_trigger = None;
         runtime.menu_open = false;
         return;
@@ -1289,7 +1883,8 @@ pub fn render_extension_command_menu(area: Rect, buffer: &mut Buffer, app: &Revi
         .extension_pane_runtime
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if !runtime.menu_open || runtime.commands.is_empty() {
+    if !runtime.menu_open || (runtime.commands.is_empty() && runtime.active_keyboard_mode.is_none())
+    {
         runtime.menu_bounds = None;
         return;
     }
@@ -1298,7 +1893,7 @@ pub fn render_extension_command_menu(area: Rect, buffer: &mut Buffer, app: &Revi
         runtime.menu_bounds = None;
         return;
     };
-    let labels = runtime
+    let mut labels = runtime
         .commands
         .iter()
         .map(|registration| {
@@ -1311,6 +1906,9 @@ pub fn render_extension_command_menu(area: Rect, buffer: &mut Buffer, app: &Revi
             }
         })
         .collect::<Vec<_>>();
+    if let Some(active) = &runtime.active_keyboard_mode {
+        labels.insert(0, format!("Exit {}", active.mode.title));
+    }
     let desired_width = labels
         .iter()
         .map(|label| label.width())
@@ -1354,6 +1952,89 @@ pub fn render_extension_command_menu(area: Rect, buffer: &mut Buffer, app: &Revi
         ListItem::new(Line::styled(label, style))
     });
     List::new(items).render(inner, buffer);
+}
+
+/// Draw the clickable host-owned escape hatch for an active extension mode.
+pub fn render_active_keyboard_mode_badge(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+    let hint = app.active_keyboard_mode_status_hint();
+    let mut runtime = app
+        .extension_pane_runtime
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let Some(hint) = hint else {
+        runtime.mode_badge_bounds = None;
+        return;
+    };
+    if area.width == 0 || area.height == 0 {
+        runtime.mode_badge_bounds = None;
+        return;
+    }
+    let maximum = (area.width / 2).max(6).min(area.width);
+    let width = u16::try_from(hint.width().saturating_add(2))
+        .unwrap_or(u16::MAX)
+        .min(maximum);
+    let bounds = Rect::new(area.right().saturating_sub(width), area.y, width, 1);
+    runtime.mode_badge_bounds = Some(bounds);
+    drop(runtime);
+    Paragraph::new(Line::styled(
+        format!(" {hint} "),
+        Style::default()
+            .fg(ratatui_theme_color(&app.options.theme.panel_alt))
+            .bg(ratatui_theme_color(&app.options.theme.badge_neutral))
+            .add_modifier(Modifier::BOLD),
+    ))
+    .render(bounds, buffer);
+}
+
+/// Draw the host-owned input modal requested by a native extension.
+pub fn render_extension_input_dialog(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+    let dialog = app
+        .extension_pane_runtime
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .input_dialog
+        .clone();
+    let Some(dialog) = dialog else {
+        return;
+    };
+    let desired_width = dialog
+        .title
+        .width()
+        .max(dialog.placeholder.width())
+        .max(dialog.value.width())
+        .saturating_add(4);
+    let width = u16::try_from(desired_width)
+        .unwrap_or(u16::MAX)
+        .max(24)
+        .min(area.width.max(1));
+    let height = 3.min(area.height.max(1));
+    let bounds = Rect::new(
+        area.x.saturating_add(area.width.saturating_sub(width) / 2),
+        area.y
+            .saturating_add(area.height.saturating_sub(height) / 2),
+        width,
+        height,
+    );
+    Clear.render(bounds, buffer);
+    let block = Block::default()
+        .title(format!(" {} ", dialog.title))
+        .borders(Borders::ALL)
+        .style(Style::default().bg(ratatui_theme_color(&app.options.theme.panel)))
+        .border_style(Style::default().fg(ratatui_theme_color(&app.options.theme.accent)));
+    let inner = block.inner(bounds);
+    block.render(bounds, buffer);
+    let (value, style) = if dialog.value.is_empty() {
+        (
+            dialog.placeholder,
+            Style::default().fg(ratatui_theme_color(&app.options.theme.muted)),
+        )
+    } else {
+        (
+            dialog.value,
+            Style::default().fg(ratatui_theme_color(&app.options.theme.text)),
+        )
+    };
+    Paragraph::new(Line::styled(value, style)).render(inner, buffer);
 }
 
 fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
@@ -1682,6 +2363,7 @@ fn render_sidebar(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
 
 fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     app.review_width.set(area.width);
+    app.review_height.set(area.height);
     let state = app
         .state
         .lock()
@@ -1691,7 +2373,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .highlights
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let rows = build_live_review_rows(
+    let mut rows = build_live_review_rows(
         state.changeset(),
         state.comments(),
         state.selection(),
@@ -1702,6 +2384,16 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         &app.expanded_gaps,
     );
     drop(state);
+    let cursor_row = app.current_line_row.min(rows.lines.len().saturating_sub(1));
+    if app.active_keyboard_mode_title().is_some()
+        && let Some(line) = rows.lines.get_mut(cursor_row)
+    {
+        let background = ratatui_theme_color(&app.options.theme.accent_muted);
+        line.style = line.style.bg(background);
+        for span in &mut line.spans {
+            span.style = span.style.bg(background);
+        }
+    }
     let viewport = area.height.saturating_sub(1) as usize;
     let max_scroll = rows.lines.len().saturating_sub(viewport);
     let scroll = if app.scroll == usize::MAX {
@@ -2840,29 +3532,29 @@ fn truncate_start(value: &str, width: usize) -> String {
 fn render_footer(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     if app.active_extension_notification().is_some() {
         render_extension_toast(area, buffer, app);
+        render_active_keyboard_mode_badge(area, buffer, app);
         return;
     }
     let focus = match app.focus {
         Focus::Review => "review",
         Focus::Sidebar => "files",
     };
-    let mut spans = vec![
-        Span::styled(
-            format!(" {focus} "),
-            Style::default().fg(ratatui_theme_color(&app.options.theme.accent)),
-        ),
-        Span::styled(
-            "j/k scroll  n/p hunk  [/ ] file  e source  r reload  s/u/a layout  ? help  q quit",
-            Style::default().fg(ratatui_theme_color(&app.options.theme.muted)),
-        ),
-    ];
+    let mut spans = vec![Span::styled(
+        format!(" {focus} "),
+        Style::default().fg(ratatui_theme_color(&app.options.theme.accent)),
+    )];
     if let Some(status) = &app.status {
         spans.push(Span::styled(
             format!("  {status}"),
             Style::default().fg(ratatui_theme_color(&app.options.theme.file_modified)),
         ));
     }
+    spans.push(Span::styled(
+        "  j/k scroll  n/p hunk  [/ ] file  e source  r reload  s/u/a layout  ? help  q quit",
+        Style::default().fg(ratatui_theme_color(&app.options.theme.muted)),
+    ));
     Paragraph::new(Line::from(spans)).render(area, buffer);
+    render_active_keyboard_mode_badge(area, buffer, app);
 }
 
 fn render_extension_toast(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {

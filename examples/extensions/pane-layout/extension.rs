@@ -195,6 +195,7 @@ mod tests {
             command_id: "toggle".into(),
             snapshot: workdeck_review_snapshot(),
             open_panes: vec!["example.pane-layout:top".into()],
+            active_keyboard_mode: None,
         })
         .unwrap();
         assert!(
