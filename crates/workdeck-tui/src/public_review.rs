@@ -20,8 +20,8 @@ use workdeck_core::{
     ReviewSelection,
 };
 use workdeck_diff::{
-    HighlightCache, PatchError, VisibleBodyBounds, format_terminal_path, parse_patch,
-    resolve_visible_row_index_window, unit_row_bounds,
+    HighlightCache, PatchError, VisibleBodyBounds, find_max_line_number, format_terminal_path,
+    parse_patch, resolve_visible_row_index_window, unit_row_bounds,
 };
 use workdeck_review::LayoutMode;
 
@@ -550,15 +550,7 @@ fn workdeck_diff_body_rows(
 }
 
 fn max_line_number_digits(file: &DiffFile) -> usize {
-    file.hunks
-        .iter()
-        .flat_map(|hunk| &hunk.lines)
-        .flat_map(|line| [line.old_line, line.new_line])
-        .flatten()
-        .max()
-        .unwrap_or(1)
-        .to_string()
-        .len()
+    find_max_line_number(file).to_string().len()
 }
 
 fn empty_diff_message(file: &DiffFile) -> &'static str {

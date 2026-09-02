@@ -5,6 +5,7 @@
 
 mod alignment;
 mod bundled_theme_assets;
+mod code_columns;
 mod geometry;
 mod git_format;
 mod git_log;
@@ -15,6 +16,13 @@ mod terminal;
 mod word_diff;
 
 pub use alignment::{SplitLinePair, plan_split_line_pairs};
+pub use code_columns::{
+    CodeLayout, DEFAULT_TAB_WIDTH, DIFF_RAIL_PREFIX_WIDTH, DIFF_SPLIT_SEPARATOR_WIDTH,
+    DiffRowLineNumbers, MAX_TAB_WIDTH, MIN_TAB_WIDTH, MaxFileCodeLineWidthCache, SplitPaneWidths,
+    expand_diff_tabs, find_max_line_number, find_max_line_number_in_rows, max_file_code_line_width,
+    measure_rendered_code_line_width, resolve_code_viewport_width, resolve_split_cell_geometry,
+    resolve_split_pane_widths, resolve_stack_cell_geometry,
+};
 pub use geometry::{TextSegment, clip_segments, segments_width, wrap_segments};
 pub use git_format::{SanitizedGitPatch, SanitizedGitPatchFilePaths, sanitize_git_patch};
 pub use git_log::strip_git_log_metadata;

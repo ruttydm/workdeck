@@ -91,7 +91,9 @@ use std::time::{Duration, Instant};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use workdeck_core::{Changeset, DiffFile, DiffLine, DiffLineKind, ReviewSelection, ReviewSide};
 use workdeck_diff::{
-    HighlightCache, SyntaxToken, TextSegment, clip_segments, plan_split_line_pairs,
+    DIFF_RAIL_PREFIX_WIDTH, HighlightCache, SyntaxToken, TextSegment, clip_segments,
+    expand_diff_tabs, plan_split_line_pairs, resolve_split_cell_geometry,
+    resolve_split_pane_widths as resolve_diff_split_pane_widths, resolve_stack_cell_geometry,
     word_diff_ranges, wrap_segments,
 };
 use workdeck_extension_api::{
@@ -1623,8 +1625,15 @@ fn stack_line_rows(
         emphasis,
         emphasis_background(line.kind, &options.theme),
     );
-    let prefix_width = gutter.width() + 1;
-    let content_width = usize::from(width).saturating_sub(prefix_width);
+    let digits = options.line_number_digits.unwrap_or(4).max(1);
+    let geometry = resolve_stack_cell_geometry(
+        usize::from(width),
+        digits,
+        options.line_numbers,
+        DIFF_RAIL_PREFIX_WIDTH,
+    );
+    let prefix_width = geometry.gutter_width + DIFF_RAIL_PREFIX_WIDTH;
+    let content_width = geometry.content_width;
     let wrapped = if options.wrap_lines {
         wrap_styled_spans(code, content_width)
     } else {
@@ -1671,9 +1680,9 @@ fn split_hunk_rows(
     hunk_selected: bool,
 ) -> Vec<Line<'static>> {
     let mut rows = Vec::new();
-    let usable = usize::from(width.saturating_sub(2));
-    let left_width = 1_usize.saturating_add(usable / 2);
-    let right_width = 1_usize.saturating_add(usable.saturating_sub(usable / 2));
+    let pane_widths = resolve_diff_split_pane_widths(usize::from(width));
+    let left_width = pane_widths.left_width;
+    let right_width = pane_widths.right_width;
     for pair in plan_split_line_pairs(&hunk.lines) {
         let old = pair.old_index.and_then(|index| hunk.lines.get(index));
         let new = pair.new_index.and_then(|index| hunk.lines.get(index));
@@ -1923,8 +1932,11 @@ fn split_cell_lines(
         emphasis,
         emphasis_background(line.kind, &options.theme),
     );
-    let prefix_width = gutter.width() + 1;
-    let content_width = width.saturating_sub(prefix_width);
+    let digits = options.line_number_digits.unwrap_or(4).max(1);
+    let geometry =
+        resolve_split_cell_geometry(width, digits, options.line_numbers, DIFF_RAIL_PREFIX_WIDTH);
+    let prefix_width = geometry.gutter_width + DIFF_RAIL_PREFIX_WIDTH;
+    let content_width = geometry.content_width;
     let wrapped = if options.wrap_lines {
         wrap_styled_spans(code, content_width)
     } else {
@@ -2102,18 +2114,8 @@ fn pad_spans(spans: &mut Vec<Span<'static>>, width: usize, style: Style) {
 }
 
 fn expand_tabs(value: &str, tab_width: u16, column: &mut usize) -> String {
-    let tab_width = usize::from(tab_width.max(1));
-    let mut output = String::with_capacity(value.len());
-    for character in value.chars() {
-        if character == '\t' {
-            let spaces = tab_width - (*column % tab_width);
-            output.push_str(&" ".repeat(spaces));
-            *column += spaces;
-        } else {
-            output.push(character);
-            *column += character.width().unwrap_or(0);
-        }
-    }
+    let output = expand_diff_tabs(value, tab_width, *column);
+    *column = column.saturating_add(output.width());
     output
 }
 
