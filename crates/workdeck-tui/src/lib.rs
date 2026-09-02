@@ -26,6 +26,7 @@ mod startup_notices;
 mod synthetic_key_event;
 mod terminal_runtime;
 mod text;
+mod theme;
 mod theme_detection;
 mod timed_notice;
 mod ui_geometry;
@@ -57,6 +58,7 @@ pub use startup_notices::*;
 pub use synthetic_key_event::*;
 pub use terminal_runtime::*;
 pub use text::*;
+pub use theme::*;
 pub use theme_detection::*;
 pub use timed_notice::*;
 pub use ui_geometry::*;
@@ -119,7 +121,7 @@ pub struct ReviewOptions {
     pub pager: bool,
     pub watch: bool,
     pub agent_notes: bool,
-    pub syntax_theme: String,
+    pub theme: AppTheme,
     pub repo: Option<PathBuf>,
     pub extension_panes: Vec<ExtensionPaneView>,
     pub extension_notifications: Option<ExtensionNotificationHub>,
@@ -144,7 +146,7 @@ impl Default for ReviewOptions {
             pager: false,
             watch: false,
             agent_notes: false,
-            syntax_theme: "base16-ocean.dark".into(),
+            theme: resolve_theme(Some(DEFAULT_DARK_THEME_ID), None, &[]),
             repo: None,
             extension_panes: Vec::new(),
             extension_notifications: None,
@@ -190,7 +192,7 @@ impl ReviewApp {
     pub fn new(changeset: Changeset, options: ReviewOptions) -> Self {
         let mut state = ReviewState::new(changeset);
         state.set_layout(options.layout);
-        let themes = ThemeController::new(options.syntax_theme.clone());
+        let themes = ThemeController::new(options.theme.id.clone());
         let extension_toasts = Arc::new(Mutex::new(ExtensionNotificationSurface::default()));
         let extension_notification_subscription =
             options
@@ -322,7 +324,12 @@ impl ReviewApp {
             KeyCode::Char('l') => self.options.line_numbers = !self.options.line_numbers,
             KeyCode::Char('t') => {
                 let theme = self.themes.cycle_preview();
-                self.options.syntax_theme = theme.clone();
+                let resolved = resolve_theme(Some(&theme), None, &[]);
+                self.options.theme = if self.options.transparent_background {
+                    with_transparent_surfaces(&resolved)
+                } else {
+                    resolved
+                };
                 self.highlights
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -496,20 +503,15 @@ impl ThemeController {
     }
 
     fn cycle_preview(&mut self) -> String {
-        const THEMES: &[&str] = &[
-            "base16-ocean.dark",
-            "Solarized (dark)",
-            "Solarized (light)",
-            "InspiredGitHub",
-        ];
         let next = THEMES
             .iter()
-            .position(|theme| *theme == self.requested)
+            .position(|theme| theme.id == self.requested)
             .map_or(0, |index| (index + 1) % THEMES.len());
-        let generation = self.request_preview(THEMES[next]);
+        let next = THEMES[next].id.clone();
+        let generation = self.request_preview(&next);
         self.commit_preview(generation);
-        self.set_cursor_palette(Some(THEMES[next].into()));
-        self.active.clone()
+        self.set_cursor_palette(Some(next.clone()));
+        next
     }
 }
 
@@ -692,7 +694,7 @@ pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     let background = if app.options.transparent_background {
         Color::Reset
     } else {
-        Color::Rgb(13, 17, 23)
+        ratatui_theme_color(&app.options.theme.background)
     };
     Block::default()
         .style(Style::default().bg(background))
@@ -735,35 +737,36 @@ fn render_header(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let stats = state.changeset().stats();
     let layout = state.resolved_layout(area.width);
+    let theme = &app.options.theme;
     let title = Line::from(vec![
         Span::styled(
             " Workdeck ",
             Style::default()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
+                .fg(ratatui_theme_color(&theme.background))
+                .bg(ratatui_theme_color(&theme.accent))
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!(" {} ", state.changeset().title),
             Style::default()
-                .fg(Color::White)
+                .fg(ratatui_theme_color(&theme.text))
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!("{} files", state.changeset().files.len()),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(ratatui_theme_color(&theme.muted)),
         ),
         Span::styled(
             format!("  +{}", stats.additions),
-            Style::default().fg(Color::Green),
+            Style::default().fg(ratatui_theme_color(&theme.badge_added)),
         ),
         Span::styled(
             format!(" -{}", stats.deletions),
-            Style::default().fg(Color::Red),
+            Style::default().fg(ratatui_theme_color(&theme.badge_removed)),
         ),
         Span::styled(
             format!("  {:?}", layout).to_lowercase(),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(ratatui_theme_color(&theme.muted)),
         ),
     ]);
     Paragraph::new(title).render(area, buffer);
@@ -823,7 +826,7 @@ fn render_builtin_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     if state.changeset().is_empty() {
         Paragraph::new("No changes to review")
-            .style(Style::default().fg(Color::DarkGray))
+            .style(Style::default().fg(ratatui_theme_color(&app.options.theme.muted)))
             .block(Block::default().borders(Borders::TOP))
             .render(area, buffer);
         return;
@@ -971,26 +974,29 @@ fn render_sidebar(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .map(|(index, file)| {
             let marker = if index == selected { "›" } else { " " };
             ListItem::new(Line::from(vec![
-                Span::styled(format!("{marker} "), Style::default().fg(Color::Cyan)),
-                Span::raw(truncate_start(
-                    &file.path,
-                    area.width.saturating_sub(10) as usize,
-                )),
+                Span::styled(
+                    format!("{marker} "),
+                    Style::default().fg(ratatui_theme_color(&app.options.theme.accent)),
+                ),
+                Span::styled(
+                    truncate_start(&file.path, area.width.saturating_sub(10) as usize),
+                    Style::default().fg(ratatui_theme_color(&app.options.theme.text)),
+                ),
                 Span::styled(
                     format!(" +{}", file.stats.additions),
-                    Style::default().fg(Color::Green),
+                    Style::default().fg(ratatui_theme_color(&app.options.theme.badge_added)),
                 ),
                 Span::styled(
                     format!(" -{}", file.stats.deletions),
-                    Style::default().fg(Color::Red),
+                    Style::default().fg(ratatui_theme_color(&app.options.theme.badge_removed)),
                 ),
             ]))
         })
         .collect::<Vec<_>>();
     let border_style = if app.focus == Focus::Sidebar {
-        Style::default().fg(Color::Cyan)
+        Style::default().fg(ratatui_theme_color(&app.options.theme.accent))
     } else {
-        Style::default().fg(Color::DarkGray)
+        Style::default().fg(ratatui_theme_color(&app.options.theme.border))
     };
     List::new(items)
         .block(
@@ -1038,9 +1044,9 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .take(viewport)
         .collect::<Vec<_>>();
     let border_style = if app.focus == Focus::Review {
-        Style::default().fg(Color::Cyan)
+        Style::default().fg(ratatui_theme_color(&app.options.theme.accent))
     } else {
-        Style::default().fg(Color::DarkGray)
+        Style::default().fg(ratatui_theme_color(&app.options.theme.border))
     };
     Paragraph::new(visible)
         .block(
@@ -1123,6 +1129,7 @@ fn build_review_rows_with_chrome(
                 selection.file_index == file_index,
                 usize::from(width),
                 header_stats_width,
+                &options.theme,
             ));
         }
         let file_selection = if selection.file_index == file_index {
@@ -1131,7 +1138,15 @@ fn build_review_rows_with_chrome(
             ReviewSelection::default()
         };
         let highlighted = if options.highlight {
-            highlight_cache.highlight(file, &options.syntax_theme)
+            highlight_cache.highlight_with_syntax_theme(
+                file,
+                match options.theme.appearance {
+                    ThemeAppearance::Light => workdeck_diff::HighlightAppearance::Light,
+                    ThemeAppearance::Dark => workdeck_diff::HighlightAppearance::Dark,
+                },
+                options.theme.syntax_theme.as_deref(),
+                &options.theme.syntax_scope_overrides,
+            )
         } else {
             Vec::new()
         };
@@ -1187,10 +1202,10 @@ fn build_review_rows_with_chrome(
                     format!("▌{}", hunk.formatted_header()),
                     if selected_hunk {
                         Style::default()
-                            .fg(Color::Cyan)
+                            .fg(ratatui_theme_color(&options.theme.accent))
                             .add_modifier(Modifier::BOLD)
                     } else {
-                        Style::default().fg(Color::Rgb(139, 148, 158))
+                        Style::default().fg(ratatui_theme_color(&options.theme.muted))
                     },
                 ));
             }
@@ -1453,6 +1468,7 @@ fn file_header(
     selected: bool,
     width: usize,
     header_stats_width: usize,
+    theme: &AppTheme,
 ) -> Line<'static> {
     let label_width = width.saturating_sub(2 + header_stats_width + 1);
     let label = fit_file_header_label(file, label_width);
@@ -1469,17 +1485,27 @@ fn file_header(
         Span::styled(
             label.filename,
             Style::default()
-                .fg(if selected { Color::Cyan } else { Color::White })
+                .fg(ratatui_theme_color(if selected {
+                    &theme.accent
+                } else {
+                    &theme.text
+                }))
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             label.state_label.unwrap_or_default(),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(ratatui_theme_color(&theme.muted)),
         ),
         Span::raw(" ".repeat(gap.saturating_add(header_stats_width.saturating_sub(stats.width)))),
-        Span::styled(stats.additions_text, Style::default().fg(Color::Green)),
+        Span::styled(
+            stats.additions_text,
+            Style::default().fg(ratatui_theme_color(&theme.badge_added)),
+        ),
         Span::raw(" "),
-        Span::styled(stats.deletions_text, Style::default().fg(Color::Red)),
+        Span::styled(
+            stats.deletions_text,
+            Style::default().fg(ratatui_theme_color(&theme.badge_removed)),
+        ),
         Span::raw("  "),
     ])
 }
@@ -1533,10 +1559,10 @@ fn stack_line_rows(
     selected: bool,
     width: u16,
 ) -> Vec<Line<'static>> {
-    let (marker, fg, default_bg) = line_style(line.kind);
-    let bg = moved_line_background(line).unwrap_or(default_bg);
+    let (marker, fg, default_bg) = line_style(line.kind, &options.theme);
+    let bg = moved_line_background(line, &options.theme).unwrap_or(default_bg);
     let row_bg = if selected && options.cursor_line == CursorLineMode::Row {
-        Color::Rgb(45, 55, 72)
+        ratatui_theme_color(&options.theme.selected_hunk)
     } else {
         bg
     };
@@ -1554,9 +1580,9 @@ fn stack_line_rows(
     let number_style = Style::default()
         .fg(
             if selected && options.cursor_line == CursorLineMode::Number {
-                Color::Cyan
+                ratatui_theme_color(&options.theme.accent)
             } else {
-                Color::DarkGray
+                ratatui_theme_color(&options.theme.line_number_fg)
             },
         )
         .bg(row_bg);
@@ -1592,7 +1618,11 @@ fn stack_line_rows(
             Style::default().fg(fg).bg(row_bg),
         ));
     }
-    code = emphasize_spans(code, emphasis, emphasis_background(line.kind));
+    code = emphasize_spans(
+        code,
+        emphasis,
+        emphasis_background(line.kind, &options.theme),
+    );
     let prefix_width = gutter.width() + 1;
     let content_width = usize::from(width).saturating_sub(prefix_width);
     let wrapped = if options.wrap_lines {
@@ -1822,14 +1852,17 @@ fn split_cell_lines(
 ) -> Vec<Vec<Span<'static>>> {
     let Some(line) = line else {
         return vec![vec![
-            Span::styled("▌", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "▌",
+                Style::default().fg(ratatui_theme_color(&options.theme.muted)),
+            ),
             Span::raw(" ".repeat(width.saturating_sub(1))),
         ]];
     };
-    let (marker, fg, default_bg) = line_style(line.kind);
-    let bg = moved_line_background(line).unwrap_or(default_bg);
+    let (marker, fg, default_bg) = line_style(line.kind, &options.theme);
+    let bg = moved_line_background(line, &options.theme).unwrap_or(default_bg);
     let row_bg = if selected && options.cursor_line == CursorLineMode::Row {
-        Color::Rgb(45, 55, 72)
+        ratatui_theme_color(&options.theme.selected_hunk)
     } else {
         bg
     };
@@ -1847,9 +1880,9 @@ fn split_cell_lines(
     let number_style = Style::default()
         .fg(
             if selected && options.cursor_line == CursorLineMode::Number {
-                Color::Cyan
+                ratatui_theme_color(&options.theme.accent)
             } else {
-                Color::DarkGray
+                ratatui_theme_color(&options.theme.line_number_fg)
             },
         )
         .bg(row_bg);
@@ -1885,7 +1918,11 @@ fn split_cell_lines(
             Style::default().fg(fg).bg(row_bg),
         ));
     }
-    code = emphasize_spans(code, emphasis, emphasis_background(line.kind));
+    code = emphasize_spans(
+        code,
+        emphasis,
+        emphasis_background(line.kind, &options.theme),
+    );
     let prefix_width = gutter.width() + 1;
     let content_width = width.saturating_sub(prefix_width);
     let wrapped = if options.wrap_lines {
@@ -1922,21 +1959,33 @@ fn split_cell_lines(
         .collect()
 }
 
-fn line_style(kind: DiffLineKind) -> (char, Color, Color) {
+fn line_style(kind: DiffLineKind, theme: &AppTheme) -> (char, Color, Color) {
     match kind {
-        DiffLineKind::Context => (' ', Color::Rgb(201, 209, 217), Color::Reset),
-        DiffLineKind::Addition => ('+', Color::Rgb(126, 231, 135), Color::Rgb(14, 54, 30)),
-        DiffLineKind::Deletion => ('-', Color::Rgb(255, 123, 114), Color::Rgb(67, 24, 29)),
+        DiffLineKind::Context => (
+            ' ',
+            ratatui_theme_color(&theme.text),
+            ratatui_theme_color(&theme.context_bg),
+        ),
+        DiffLineKind::Addition => (
+            '+',
+            ratatui_theme_color(&theme.added_sign_color),
+            ratatui_theme_color(&theme.added_bg),
+        ),
+        DiffLineKind::Deletion => (
+            '-',
+            ratatui_theme_color(&theme.removed_sign_color),
+            ratatui_theme_color(&theme.removed_bg),
+        ),
     }
 }
 
-fn moved_line_background(line: &DiffLine) -> Option<Color> {
+fn moved_line_background(line: &DiffLine, theme: &AppTheme) -> Option<Color> {
     if !line.moved {
         return None;
     }
     match line.kind {
-        DiffLineKind::Addition => Some(Color::Rgb(17, 66, 64)),
-        DiffLineKind::Deletion => Some(Color::Rgb(73, 35, 75)),
+        DiffLineKind::Addition => Some(ratatui_theme_color(&theme.moved_added_bg)),
+        DiffLineKind::Deletion => Some(ratatui_theme_color(&theme.moved_removed_bg)),
         DiffLineKind::Context => None,
     }
 }
@@ -1945,11 +1994,19 @@ fn expanded_line_content(line: &DiffLine, tab_width: u16) -> String {
     expand_tabs(&line.content, tab_width, &mut 0)
 }
 
-fn emphasis_background(kind: DiffLineKind) -> Color {
+fn emphasis_background(kind: DiffLineKind, theme: &AppTheme) -> Color {
     match kind {
-        DiffLineKind::Deletion => Color::Rgb(126, 42, 49),
-        DiffLineKind::Addition => Color::Rgb(34, 104, 58),
-        DiffLineKind::Context => Color::Reset,
+        DiffLineKind::Deletion => ratatui_theme_color(&resolve_word_diff_highlight_bg(
+            &theme.removed_content_bg,
+            &theme.removed_bg,
+            &theme.removed_sign_color,
+        )),
+        DiffLineKind::Addition => ratatui_theme_color(&resolve_word_diff_highlight_bg(
+            &theme.added_content_bg,
+            &theme.added_bg,
+            &theme.added_sign_color,
+        )),
+        DiffLineKind::Context => ratatui_theme_color(&theme.context_content_bg),
     }
 }
 
@@ -2091,16 +2148,19 @@ fn render_footer(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         Focus::Sidebar => "files",
     };
     let mut spans = vec![
-        Span::styled(format!(" {focus} "), Style::default().fg(Color::Cyan)),
+        Span::styled(
+            format!(" {focus} "),
+            Style::default().fg(ratatui_theme_color(&app.options.theme.accent)),
+        ),
         Span::styled(
             "j/k scroll  n/p hunk  [/ ] file  e source  r reload  s/u/a layout  ? help  q quit",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(ratatui_theme_color(&app.options.theme.muted)),
         ),
     ];
     if let Some(status) = &app.status {
         spans.push(Span::styled(
             format!("  {status}"),
-            Style::default().fg(Color::Yellow),
+            Style::default().fg(ratatui_theme_color(&app.options.theme.file_modified)),
         ));
     }
     Paragraph::new(Line::from(spans)).render(area, buffer);
@@ -2111,9 +2171,9 @@ fn render_extension_toast(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         return;
     };
     let theme = ExtensionToastTheme {
-        badge_removed: Color::Red,
-        file_modified: Color::Yellow,
-        badge_neutral: Color::Cyan,
+        badge_removed: ratatui_theme_color(&app.options.theme.badge_removed),
+        file_modified: ratatui_theme_color(&app.options.theme.file_modified),
+        badge_neutral: ratatui_theme_color(&app.options.theme.badge_neutral),
     };
     let color = extension_toast_color(notification.notification_type, theme);
     Paragraph::new(Line::from(vec![
@@ -2226,6 +2286,65 @@ mod tests {
         assert!(rendered.contains("a.rs"));
         assert!(rendered.contains("old"));
         assert!(rendered.contains("new"));
+    }
+
+    #[test]
+    fn explicit_light_theme_reaches_the_complete_review_cell_buffer() {
+        fn cells_matching_text(buffer: &Buffer, text: &str) -> Vec<ratatui::buffer::Cell> {
+            let symbols = text
+                .chars()
+                .map(|value| value.to_string())
+                .collect::<Vec<_>>();
+            let mut matches = Vec::new();
+            for y in buffer.area.y..buffer.area.bottom() {
+                let max_x = buffer.area.right().saturating_sub(symbols.len() as u16);
+                for x in buffer.area.x..=max_x {
+                    if symbols.iter().enumerate().all(|(offset, symbol)| {
+                        buffer
+                            .cell((x.saturating_add(offset as u16), y))
+                            .is_some_and(|cell| cell.symbol() == symbol)
+                    }) {
+                        matches.push(buffer.cell((x, y)).unwrap().clone());
+                    }
+                }
+            }
+            matches
+        }
+
+        let theme = resolve_theme(Some("github-light-default"), None, &[]);
+        let backend = TestBackend::new(100, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                layout: LayoutMode::Stack,
+                sidebar: false,
+                line_numbers: false,
+                highlight: false,
+                theme: theme.clone(),
+                ..ReviewOptions::default()
+            },
+        );
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let old = cells_matching_text(buffer, "old");
+        let new = cells_matching_text(buffer, "new");
+        assert_eq!(old.len(), 1);
+        assert_eq!(new.len(), 1);
+        assert_eq!(old[0].fg, ratatui_theme_color(&theme.removed_sign_color));
+        assert_eq!(old[0].bg, ratatui_theme_color(&theme.removed_content_bg));
+        assert_eq!(new[0].fg, ratatui_theme_color(&theme.added_sign_color));
+        assert_eq!(new[0].bg, ratatui_theme_color(&theme.added_content_bg));
+        assert_eq!(
+            buffer.cell((99, 19)).unwrap().bg,
+            ratatui_theme_color(&theme.background)
+        );
+        let workdeck = cells_matching_text(buffer, "Workdeck");
+        assert_eq!(workdeck.len(), 1);
+        assert_eq!(workdeck[0].fg, ratatui_theme_color(&theme.background));
+        assert_eq!(workdeck[0].bg, ratatui_theme_color(&theme.accent));
     }
 
     #[test]
@@ -2419,7 +2538,11 @@ mod tests {
             assert!(rows.lines.iter().flat_map(|line| &line.spans).any(|span| {
                 span.content.contains(", tax")
                     && span.style.add_modifier.contains(Modifier::BOLD)
-                    && span.style.bg == Some(emphasis_background(DiffLineKind::Addition))
+                    && span.style.bg
+                        == Some(emphasis_background(
+                            DiffLineKind::Addition,
+                            &ReviewOptions::default().theme,
+                        ))
             }));
         }
     }

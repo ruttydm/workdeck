@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, bail};
 use cargo_metadata::MetadataCommand;
 use flate2::Compression;
+use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -16,6 +17,11 @@ const DEFAULT_STABLE: &str = "hunk-port/stable-v0.20.1^{}";
 const DEFAULT_LEDGER: &str = "port/hunk/ledger.jsonl";
 const DEFAULT_METADATA: &str = "port/hunk/baseline.json";
 const DEFAULT_STABLE_FIXES: &str = "port/hunk/stable-fixes.jsonl";
+const SHIKI_THEMES_SHA256: &str =
+    "3ede8069dbdf87d16534256f06d9ff972fb317cd599c2ebfff4614e723430b0b";
+const TM_THEMES_SHA256: &str = "dbcb0b853e04825304bea19a4b255862da211a884eaa86c7644c312d7f02812d";
+const PIERRE_THEME_SHA256: &str =
+    "47a78fa060c13411bb91ec5b8bfefb64059d89a7b69ebe6aa1d13f93d8a6ed62";
 const SOURCE_EXTENSIONS: &[&str] = &[
     ".ts", ".tsx", ".mts", ".js", ".jsx", ".mjs", ".cjs", ".astro", ".css", ".scss", ".sass",
     ".less", ".html", ".htm", ".rs", ".py", ".rb", ".go", ".java", ".kt", ".swift", ".c", ".h",
@@ -127,6 +133,16 @@ fn run() -> Result<()> {
             }
         }
         Some("licenses") => licenses(parse_output_option(args)?),
+        Some("themes") => match args.next().as_deref() {
+            Some("vendor") => vendor_themes(parse_theme_vendor_options(args)?),
+            Some("verify") => {
+                if args.next().is_some() {
+                    bail!("themes verify accepts no options");
+                }
+                verify_vendored_themes()
+            }
+            _ => bail!("themes requires the vendor or verify command"),
+        },
         Some("verify") => verify(),
         Some("site") => site(args.next().as_deref()),
         Some("release") => match args.next().as_deref() {
@@ -317,6 +333,491 @@ struct RetainedAssetRecord {
     destination: String,
     bytes: usize,
     sha256: String,
+}
+
+#[derive(Debug)]
+struct ThemeVendorOptions {
+    shiki_archive: PathBuf,
+    tm_themes_archive: PathBuf,
+    pierre_archive: PathBuf,
+}
+
+fn parse_theme_vendor_options(
+    mut args: impl Iterator<Item = String>,
+) -> Result<ThemeVendorOptions> {
+    let mut shiki_archive = None;
+    let mut tm_themes_archive = None;
+    let mut pierre_archive = None;
+    while let Some(argument) = args.next() {
+        match argument.as_str() {
+            "--shiki-archive" => {
+                shiki_archive = Some(PathBuf::from(required_value(&mut args, &argument)?));
+            }
+            "--tm-themes-archive" => {
+                tm_themes_archive = Some(PathBuf::from(required_value(&mut args, &argument)?));
+            }
+            "--pierre-archive" => {
+                pierre_archive = Some(PathBuf::from(required_value(&mut args, &argument)?));
+            }
+            _ => bail!("unknown themes vendor option {argument:?}"),
+        }
+    }
+    Ok(ThemeVendorOptions {
+        shiki_archive: shiki_archive.context("themes vendor requires --shiki-archive")?,
+        tm_themes_archive: tm_themes_archive
+            .context("themes vendor requires --tm-themes-archive")?,
+        pierre_archive: pierre_archive.context("themes vendor requires --pierre-archive")?,
+    })
+}
+
+fn verify_archive(path: &Path, package: &str, expected_sha256: &str) -> Result<()> {
+    if !path.is_file() {
+        bail!("{package} archive does not exist: {}", path.display());
+    }
+    let actual = sha256_file(path)?;
+    if actual != expected_sha256 {
+        bail!("{package} archive has SHA-256 {actual}, expected {expected_sha256}");
+    }
+    Ok(())
+}
+
+fn tar_gz_files(path: &Path) -> Result<BTreeMap<String, Vec<u8>>> {
+    let decoder = GzDecoder::new(
+        File::open(path).with_context(|| format!("open archive {}", path.display()))?,
+    );
+    let mut archive = tar::Archive::new(decoder);
+    let mut files = BTreeMap::new();
+    for entry in archive.entries().context("read archive entries")? {
+        let mut entry = entry.context("read archive entry")?;
+        if !entry.header().entry_type().is_file() {
+            continue;
+        }
+        let path = entry.path().context("read archive path")?;
+        if path.components().any(|component| {
+            !matches!(
+                component,
+                std::path::Component::Normal(_) | std::path::Component::CurDir
+            )
+        }) {
+            bail!("archive contains unsafe path {}", path.display());
+        }
+        let path = path.to_string_lossy().replace('\\', "/");
+        let mut bytes = Vec::new();
+        entry
+            .read_to_end(&mut bytes)
+            .with_context(|| format!("read archive member {path}"))?;
+        if files.insert(path.clone(), bytes).is_some() {
+            bail!("archive contains duplicate path {path}");
+        }
+    }
+    Ok(files)
+}
+
+fn required_archive_file<'a>(files: &'a BTreeMap<String, Vec<u8>>, path: &str) -> Result<&'a [u8]> {
+    files
+        .get(path)
+        .map(Vec::as_slice)
+        .with_context(|| format!("archive is missing {path}"))
+}
+
+fn shiki_module_theme(module: &[u8], path: &str) -> Result<serde_json::Value> {
+    let source =
+        std::str::from_utf8(module).with_context(|| format!("Shiki module {path} is not UTF-8"))?;
+    let marker = "JSON.parse(";
+    let start = source
+        .find(marker)
+        .map(|index| index + marker.len())
+        .with_context(|| format!("Shiki module {path} lacks JSON.parse"))?;
+    let end = source
+        .rfind("))")
+        .filter(|end| *end >= start)
+        .with_context(|| format!("Shiki module {path} lacks its closing wrapper"))?;
+    let json_literal = &source[start..end];
+    let embedded: String = serde_json::from_str(json_literal)
+        .with_context(|| format!("decode JSON string in Shiki module {path}"))?;
+    serde_json::from_str(&embedded).with_context(|| format!("parse theme JSON in {path}"))
+}
+
+fn package_version(files: &BTreeMap<String, Vec<u8>>, expected: &str) -> Result<()> {
+    let package: serde_json::Value =
+        serde_json::from_slice(required_archive_file(files, "package/package.json")?)
+            .context("parse package/package.json")?;
+    let actual = package
+        .get("version")
+        .and_then(serde_json::Value::as_str)
+        .context("package.json lacks a string version")?;
+    if actual != expected {
+        bail!("archive contains package version {actual}, expected {expected}");
+    }
+    Ok(())
+}
+
+fn theme_id_from_path<'a>(path: &'a str, prefix: &str, suffix: &str) -> Option<&'a str> {
+    path.strip_prefix(prefix)?.strip_suffix(suffix)
+}
+
+/// Vendor the exact TextMate theme payloads used by the Hunk-pinned dependency graph.
+///
+/// The Shiki npm archive is used only as the byte-authenticated oracle. The semantically identical
+/// `tm-themes` JSON is retained so the Rust product contains data rather than JavaScript modules,
+/// together with the complete upstream per-theme NOTICE. Pierre's two default themes are copied
+/// from its own JSON distribution. No Node/Bun/JavaScript runtime participates in this process.
+fn vendor_themes(options: ThemeVendorOptions) -> Result<()> {
+    verify_archive(
+        &options.shiki_archive,
+        "@shikijs/themes 3.23.0",
+        SHIKI_THEMES_SHA256,
+    )?;
+    verify_archive(
+        &options.tm_themes_archive,
+        "tm-themes 1.12.0",
+        TM_THEMES_SHA256,
+    )?;
+    verify_archive(
+        &options.pierre_archive,
+        "@pierre/theme 2.0.0",
+        PIERRE_THEME_SHA256,
+    )?;
+
+    let shiki = tar_gz_files(&options.shiki_archive)?;
+    let tm_themes = tar_gz_files(&options.tm_themes_archive)?;
+    let pierre = tar_gz_files(&options.pierre_archive)?;
+    package_version(&shiki, "3.23.0")?;
+    package_version(&tm_themes, "1.12.0")?;
+    package_version(&pierre, "2.0.0")?;
+
+    let mut bundled = BTreeMap::<String, Vec<u8>>::new();
+    for (path, bytes) in &tm_themes {
+        let Some(theme_id) = theme_id_from_path(path, "package/themes/", ".json") else {
+            continue;
+        };
+        let value: serde_json::Value = serde_json::from_slice(bytes)
+            .with_context(|| format!("parse tm-themes payload {path}"))?;
+        let shiki_path = format!("package/dist/{theme_id}.mjs");
+        let shiki_value =
+            shiki_module_theme(required_archive_file(&shiki, &shiki_path)?, &shiki_path)?;
+        if value != shiki_value {
+            bail!("{path} is not semantically identical to {shiki_path}");
+        }
+        if value.get("name").and_then(serde_json::Value::as_str) != Some(theme_id) {
+            bail!("{path} does not declare theme name {theme_id}");
+        }
+        bundled.insert(theme_id.to_owned(), bytes.clone());
+    }
+    if bundled.len() != 65 {
+        bail!(
+            "tm-themes archive produced {} verified Shiki themes, expected 65",
+            bundled.len()
+        );
+    }
+
+    for theme_id in ["pierre-dark", "pierre-light"] {
+        let path = format!("package/themes/{theme_id}.json");
+        let bytes = required_archive_file(&pierre, &path)?;
+        let value: serde_json::Value =
+            serde_json::from_slice(bytes).with_context(|| format!("parse Pierre theme {path}"))?;
+        if value.get("name").and_then(serde_json::Value::as_str) != Some(theme_id) {
+            bail!("{path} does not declare theme name {theme_id}");
+        }
+        bundled.insert(theme_id.to_owned(), bytes.to_vec());
+    }
+
+    let repo = repo_root()?;
+    let assets = repo.join("crates/workdeck-diff/assets/themes");
+    fs::create_dir_all(&assets).context("create bundled theme asset directory")?;
+    let expected_files = bundled
+        .keys()
+        .map(|theme_id| format!("{theme_id}.json"))
+        .collect::<BTreeSet<_>>();
+    for entry in fs::read_dir(&assets).context("read bundled theme asset directory")? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name != "manifest.json" && !expected_files.contains(&name) {
+            bail!(
+                "unexpected bundled theme asset {}; remove it deliberately",
+                entry.path().display()
+            );
+        }
+    }
+
+    let mut manifest_themes = Vec::with_capacity(bundled.len());
+    for (theme_id, bytes) in &bundled {
+        let path = assets.join(format!("{theme_id}.json"));
+        fs::write(&path, bytes).with_context(|| format!("write {}", path.display()))?;
+        manifest_themes.push(serde_json::json!({
+            "id": theme_id,
+            "path": relative_to(&repo, &path),
+            "bytes": bytes.len(),
+            "sha256": format!("{:x}", Sha256::digest(bytes)),
+        }));
+    }
+    let notice_payloads = vec![
+        (
+            "third_party/themes/tm-themes-LICENSE".to_owned(),
+            required_archive_file(&tm_themes, "package/LICENSE")?.to_vec(),
+        ),
+        (
+            "third_party/themes/tm-themes-NOTICE".to_owned(),
+            required_archive_file(&tm_themes, "package/NOTICE")?.to_vec(),
+        ),
+        (
+            "third_party/themes/pierre-theme-LICENSE".to_owned(),
+            required_archive_file(&pierre, "package/LICENSE")?.to_vec(),
+        ),
+        (
+            "third_party/themes/pierre-theme-NOTICE.md".to_owned(),
+            required_archive_file(&pierre, "package/NOTICE.md")?.to_vec(),
+        ),
+    ];
+    let manifest_notices = notice_payloads
+        .iter()
+        .map(|(path, bytes)| {
+            serde_json::json!({
+                "path": path,
+                "bytes": bytes.len(),
+                "sha256": format!("{:x}", Sha256::digest(bytes)),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let manifest = serde_json::json!({
+        "schema_version": 1,
+        "generated_by": "cargo xtask themes vendor",
+        "packages": [
+            {
+                "name": "@shikijs/themes",
+                "version": "3.23.0",
+                "sha256": SHIKI_THEMES_SHA256,
+                "role": "semantic oracle for all 65 Shiki module payloads"
+            },
+            {
+                "name": "tm-themes",
+                "version": "1.12.0",
+                "sha256": TM_THEMES_SHA256,
+                "role": "byte-retained JSON and per-theme notices"
+            },
+            {
+                "name": "@pierre/theme",
+                "version": "2.0.0",
+                "sha256": PIERRE_THEME_SHA256,
+                "role": "byte-retained Pierre default themes"
+            }
+        ],
+        "themes": manifest_themes,
+        "notices": manifest_notices,
+    });
+    let mut manifest_bytes = serde_json::to_vec_pretty(&manifest)?;
+    manifest_bytes.push(b'\n');
+    fs::write(assets.join("manifest.json"), manifest_bytes)?;
+
+    let generated_module = repo.join("crates/workdeck-diff/src/bundled_theme_assets.rs");
+    let mut generated = String::from(
+        "// @generated by `cargo xtask themes vendor`; do not edit by hand.\n\n\
+         pub(crate) const BUNDLED_THEME_ASSETS: &[(&str, &str)] = &[\n",
+    );
+    for theme_id in bundled.keys() {
+        generated.push_str(&format!(
+            "    (\n        {theme_id:?},\n        include_str!(\"../assets/themes/{theme_id}.json\"),\n    ),\n"
+        ));
+    }
+    generated.push_str("];\n");
+    fs::write(&generated_module, generated)
+        .with_context(|| format!("write {}", generated_module.display()))?;
+    let generated_relative = relative_to(&repo, &generated_module);
+    run_checked(
+        &repo,
+        "rustfmt",
+        &["--edition", "2024", generated_relative.as_str()],
+    )?;
+
+    let notices = repo.join("third_party/themes");
+    fs::create_dir_all(&notices).context("create theme notice directory")?;
+    for (path, bytes) in notice_payloads {
+        fs::write(repo.join(path), bytes)?;
+    }
+
+    println!(
+        "vendored {} authenticated TextMate themes and complete notices",
+        bundled.len()
+    );
+    println!(
+        "manifest: {}",
+        relative_to(&repo, &assets.join("manifest.json"))
+    );
+    Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+struct BundledThemeManifest {
+    schema_version: u32,
+    generated_by: String,
+    packages: Vec<BundledThemePackage>,
+    themes: Vec<BundledThemeFile>,
+    notices: Vec<BundledThemeNotice>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BundledThemePackage {
+    name: String,
+    version: String,
+    sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct BundledThemeFile {
+    id: String,
+    path: String,
+    bytes: usize,
+    sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct BundledThemeNotice {
+    path: String,
+    bytes: usize,
+    sha256: String,
+}
+
+fn verify_vendored_themes() -> Result<()> {
+    let repo = repo_root()?;
+    let assets = repo.join("crates/workdeck-diff/assets/themes");
+    let manifest_path = assets.join("manifest.json");
+    let manifest: BundledThemeManifest = serde_json::from_slice(
+        &fs::read(&manifest_path).with_context(|| format!("read {}", manifest_path.display()))?,
+    )
+    .context("parse bundled theme manifest")?;
+    if manifest.schema_version != 1 || manifest.generated_by != "cargo xtask themes vendor" {
+        bail!("bundled theme manifest has unsupported provenance metadata");
+    }
+
+    let packages = manifest
+        .packages
+        .iter()
+        .map(|package| {
+            (
+                package.name.as_str(),
+                (package.version.as_str(), package.sha256.as_str()),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let expected_packages = BTreeMap::from([
+        ("@pierre/theme", ("2.0.0", PIERRE_THEME_SHA256)),
+        ("@shikijs/themes", ("3.23.0", SHIKI_THEMES_SHA256)),
+        ("tm-themes", ("1.12.0", TM_THEMES_SHA256)),
+    ]);
+    if packages != expected_packages {
+        bail!("bundled theme manifest package provenance does not match pinned archives");
+    }
+    if manifest.themes.len() != 67 {
+        bail!(
+            "bundled theme manifest contains {} themes, expected 67",
+            manifest.themes.len()
+        );
+    }
+
+    let generated_module =
+        fs::read_to_string(repo.join("crates/workdeck-diff/src/bundled_theme_assets.rs"))
+            .context("read generated bundled-theme module")?;
+    if generated_module.matches("include_str!(").count() != 67 {
+        bail!("generated bundled-theme module does not contain exactly 67 assets");
+    }
+    let mut ids = BTreeSet::new();
+    let mut expected_files = BTreeSet::new();
+    for theme in &manifest.themes {
+        if !ids.insert(theme.id.as_str()) {
+            bail!("bundled theme manifest repeats {}", theme.id);
+        }
+        let expected_path = format!("crates/workdeck-diff/assets/themes/{}.json", theme.id);
+        if theme.path != expected_path {
+            bail!(
+                "bundled theme {} has path {}, expected {}",
+                theme.id,
+                theme.path,
+                expected_path
+            );
+        }
+        let path = repo.join(&theme.path);
+        let bytes = fs::read(&path).with_context(|| format!("read {}", path.display()))?;
+        if bytes.len() != theme.bytes {
+            bail!(
+                "bundled theme {} has {} bytes, manifest records {}",
+                theme.id,
+                bytes.len(),
+                theme.bytes
+            );
+        }
+        let actual = format!("{:x}", Sha256::digest(&bytes));
+        if actual != theme.sha256 {
+            bail!(
+                "bundled theme {} has SHA-256 {}, manifest records {}",
+                theme.id,
+                actual,
+                theme.sha256
+            );
+        }
+        let id_literal = format!("{:?}", theme.id);
+        let include_literal = format!("include_str!(\"../assets/themes/{}.json\")", theme.id);
+        if !generated_module.contains(&id_literal) || !generated_module.contains(&include_literal) {
+            bail!("generated bundled-theme module omits {}", theme.id);
+        }
+        expected_files.insert(format!("{}.json", theme.id));
+    }
+
+    for entry in fs::read_dir(&assets).context("read bundled theme directory")? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name != "manifest.json" && !expected_files.contains(&name) {
+            bail!(
+                "unmanifested bundled theme asset: {}",
+                entry.path().display()
+            );
+        }
+    }
+    let expected_notices = BTreeSet::from([
+        "third_party/themes/tm-themes-LICENSE",
+        "third_party/themes/tm-themes-NOTICE",
+        "third_party/themes/pierre-theme-LICENSE",
+        "third_party/themes/pierre-theme-NOTICE.md",
+    ]);
+    let mut notices = BTreeSet::new();
+    for notice in &manifest.notices {
+        if !expected_notices.contains(notice.path.as_str()) {
+            bail!(
+                "bundled theme manifest names unexpected notice {}",
+                notice.path
+            );
+        }
+        if !notices.insert(notice.path.as_str()) {
+            bail!("bundled theme manifest repeats notice {}", notice.path);
+        }
+        let bytes = fs::read(repo.join(&notice.path))
+            .with_context(|| format!("read bundled theme notice {}", notice.path))?;
+        if bytes.len() != notice.bytes {
+            bail!(
+                "bundled theme notice {} has {} bytes, manifest records {}",
+                notice.path,
+                bytes.len(),
+                notice.bytes
+            );
+        }
+        let actual = format!("{:x}", Sha256::digest(&bytes));
+        if actual != notice.sha256 {
+            bail!(
+                "bundled theme notice {} has SHA-256 {}, manifest records {}",
+                notice.path,
+                actual,
+                notice.sha256
+            );
+        }
+    }
+    if notices != expected_notices {
+        bail!("bundled theme manifest does not cover all four complete notices");
+    }
+    if !repo.join("third_party/themes/README.md").is_file() {
+        bail!("bundled theme provenance README is missing");
+    }
+    println!("verified 67 pinned TextMate theme assets and complete notices");
+    Ok(())
 }
 
 /// Materialize byte-exact, non-executable media from the pinned Hunk tree.
@@ -606,6 +1107,30 @@ fn release_entries<'a>(
         (format!("{root}/licenses.json"), inventory.to_vec(), 0o644),
         (format!("{root}/sbom.cdx.json"), sbom.to_vec(), 0o644),
     ];
+    for (archive_name, source) in [
+        (
+            "third-party/themes/tm-themes-LICENSE",
+            "third_party/themes/tm-themes-LICENSE",
+        ),
+        (
+            "third-party/themes/tm-themes-NOTICE",
+            "third_party/themes/tm-themes-NOTICE",
+        ),
+        (
+            "third-party/themes/pierre-theme-LICENSE",
+            "third_party/themes/pierre-theme-LICENSE",
+        ),
+        (
+            "third-party/themes/pierre-theme-NOTICE.md",
+            "third_party/themes/pierre-theme-NOTICE.md",
+        ),
+    ] {
+        entries.push((
+            format!("{root}/{archive_name}"),
+            fs::read(repo.join(source)).with_context(|| format!("read {source}"))?,
+            0o644,
+        ));
+    }
     entries.sort_by(|left, right| left.0.cmp(&right.0));
     Ok(entries)
 }
@@ -703,6 +1228,7 @@ fn sha256_file(path: &Path) -> Result<String> {
 
 fn verify() -> Result<()> {
     let repo = repo_root()?;
+    verify_vendored_themes()?;
     run_checked(&repo, "cargo", &["fmt", "--all", "--check"])?;
     run_checked(
         &repo,
@@ -1521,6 +2047,9 @@ fn print_help() {
     println!(
         "cargo xtask port <fetch|inventory|reclassify|map|materialize-assets|audit|status> [port options]"
     );
+    println!(
+        "cargo xtask themes <vendor --shiki-archive FILE --tm-themes-archive FILE --pierre-archive FILE|verify>"
+    );
     println!("cargo xtask licenses [--output PATH]");
     println!("cargo xtask verify");
     println!("cargo xtask site <build|check|serve>");
@@ -1530,8 +2059,10 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::{
-        LedgerRecord, classify, parse_map_options, source_line_count, validate_test_evidence,
+        LedgerRecord, classify, parse_map_options, release_entries, source_line_count,
+        validate_test_evidence,
     };
+    use std::collections::BTreeSet;
     use std::fs;
 
     #[test]
@@ -1652,5 +2183,46 @@ mod tests {
         record.disposition = "unmapped".into();
         record.evidence.clear();
         assert!(validate_test_evidence(directory.path(), &record).is_ok());
+    }
+
+    #[test]
+    fn release_entries_retain_every_complete_theme_notice() {
+        let scratch = tempfile::tempdir().unwrap();
+        let root = scratch.path();
+        fs::create_dir_all(root.join("third_party/themes")).unwrap();
+        fs::write(root.join("LICENSE"), b"license").unwrap();
+        fs::write(root.join("THIRD_PARTY_NOTICES"), b"notices").unwrap();
+        let binary = root.join("workdeck");
+        fs::write(&binary, b"binary").unwrap();
+        for notice in [
+            "tm-themes-LICENSE",
+            "tm-themes-NOTICE",
+            "pierre-theme-LICENSE",
+            "pierre-theme-NOTICE.md",
+        ] {
+            fs::write(root.join("third_party/themes").join(notice), notice).unwrap();
+        }
+
+        let entries = release_entries(
+            "workdeck-test",
+            &binary,
+            "workdeck",
+            root,
+            b"licenses",
+            b"sbom",
+        )
+        .unwrap();
+        let names = entries
+            .into_iter()
+            .map(|(name, _, _)| name)
+            .collect::<BTreeSet<_>>();
+        for notice in [
+            "tm-themes-LICENSE",
+            "tm-themes-NOTICE",
+            "pierre-theme-LICENSE",
+            "pierre-theme-NOTICE.md",
+        ] {
+            assert!(names.contains(&format!("workdeck-test/third-party/themes/{notice}")));
+        }
     }
 }

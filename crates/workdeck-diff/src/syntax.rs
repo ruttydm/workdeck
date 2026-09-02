@@ -1,10 +1,21 @@
-use serde::Serialize;
+//! Native syntax highlighting and Hunk/Pierre-compatible theme registration.
+//!
+//! Theme normalization and content addressing translate the behavior pinned through Hunk's
+//! `@pierre/diffs` 1.3.5, `@pierre/theming` 1.0.1, Shiki 3.23.0, and Pierre Theme 2.0.0. The
+//! source packages and complete licenses are recorded in `THIRD_PARTY_NOTICES` and
+//! `third_party/themes`.
+
+use crate::bundled_theme_assets::BUNDLED_THEME_ASSETS;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, VecDeque};
 use std::mem::size_of;
 use std::path::Path;
+use std::str::FromStr;
 use syntect::easy::HighlightLines;
-use syntect::highlighting::{FontStyle, ThemeSet};
+use syntect::highlighting::{
+    Color as SyntectColor, FontStyle, ScopeSelectors, StyleModifier, Theme, ThemeItem, ThemeSet,
+};
 use syntect::parsing::SyntaxSet;
 use workdeck_core::{
     DiffFile, DiffHunk, FileChangeKind, FileFlags, FileSourceSnapshots, FileStats,
@@ -12,6 +23,211 @@ use workdeck_core::{
 };
 
 const HIGHLIGHT_WORKER_CACHE_REVISION: u32 = 1;
+pub const PIERRE_LIGHT_THEME: &str = "pierre-light";
+pub const PIERRE_DARK_THEME: &str = "pierre-dark";
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TextMateTheme {
+    name: String,
+    #[serde(default)]
+    r#type: Option<String>,
+    #[serde(default)]
+    bg: Option<String>,
+    #[serde(default)]
+    fg: Option<String>,
+    #[serde(default)]
+    colors: HashMap<String, serde_json::Value>,
+    #[serde(default)]
+    token_colors: Option<Vec<TextMateThemeRule>>,
+    #[serde(default)]
+    settings: Option<Vec<TextMateThemeRule>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct TextMateThemeRule {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    scope: Option<TextMateScopes>,
+    #[serde(default)]
+    settings: Option<TextMateRuleSettings>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum TextMateScopes {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl TextMateScopes {
+    fn selectors(&self) -> String {
+        match self {
+            Self::One(scope) => scope.clone(),
+            Self::Many(scopes) => scopes.join(", "),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TextMateRuleSettings {
+    #[serde(default)]
+    foreground: Option<String>,
+    #[serde(default)]
+    background: Option<String>,
+    #[serde(default)]
+    font_style: Option<String>,
+}
+
+impl TextMateTheme {
+    /// Apply the data-shape normalization performed by Shiki 3.23.0's `normalizeTheme`.
+    fn normalize_shiki(mut self) -> Self {
+        if self.settings.is_none() {
+            self.settings = self.token_colors.take();
+        }
+        self.r#type.get_or_insert_with(|| "dark".into());
+        self.settings.get_or_insert_default();
+
+        let global = self.settings.as_ref().and_then(|settings| {
+            settings
+                .iter()
+                .find(|setting| setting.name.is_none() && setting.scope.is_none())
+                .and_then(|setting| setting.settings.as_ref())
+        });
+        if self.fg.is_none() {
+            self.fg = global
+                .and_then(|settings| settings.foreground.clone())
+                .or_else(|| self.color("editor.foreground"))
+                .or_else(|| {
+                    Some(if self.r#type.as_deref() == Some("light") {
+                        "#333333".into()
+                    } else {
+                        "#bbbbbb".into()
+                    })
+                });
+        }
+        if self.bg.is_none() {
+            self.bg = global
+                .and_then(|settings| settings.background.clone())
+                .or_else(|| self.color("editor.background"))
+                .or_else(|| {
+                    Some(if self.r#type.as_deref() == Some("light") {
+                        "#fffffe".into()
+                    } else {
+                        "#1e1e1e".into()
+                    })
+                });
+        }
+
+        let has_leading_global = self
+            .settings
+            .as_ref()
+            .and_then(|settings| settings.first())
+            .is_some_and(|setting| setting.settings.is_some() && setting.scope.is_none());
+        if !has_leading_global {
+            self.settings
+                .as_mut()
+                .expect("settings initialized above")
+                .insert(
+                    0,
+                    TextMateThemeRule {
+                        name: None,
+                        scope: None,
+                        settings: Some(TextMateRuleSettings {
+                            foreground: self.fg.clone(),
+                            background: self.bg.clone(),
+                            font_style: None,
+                        }),
+                    },
+                );
+        }
+        self
+    }
+
+    fn color(&self, key: &str) -> Option<String> {
+        self.colors
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    }
+
+    fn append_scope_overrides(&mut self, scope_overrides: &[(String, String)]) {
+        let settings = self.settings.get_or_insert_default();
+        settings.extend(
+            scope_overrides
+                .iter()
+                .map(|(scope, foreground)| TextMateThemeRule {
+                    name: None,
+                    scope: Some(TextMateScopes::One(scope.clone())),
+                    settings: Some(TextMateRuleSettings {
+                        foreground: Some(foreground.clone()),
+                        ..TextMateRuleSettings::default()
+                    }),
+                }),
+        );
+    }
+
+    fn compile_syntect(&self) -> Theme {
+        let mut theme = Theme {
+            name: Some(self.name.clone()),
+            ..Theme::default()
+        };
+        theme.settings.foreground = self.fg.as_deref().and_then(syntect_color_from_hex);
+        theme.settings.background = self.bg.as_deref().and_then(syntect_color_from_hex);
+        theme.scopes = self
+            .settings
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            // Shiki/TextMate resolves equal-specificity rules by latest declaration. Syntect
+            // retains the first equal score, so reversing is the exact precedence adapter.
+            .rev()
+            .filter_map(compile_textmate_rule)
+            .collect();
+        theme
+    }
+}
+
+fn compile_textmate_rule(rule: &TextMateThemeRule) -> Option<ThemeItem> {
+    let scope = rule.scope.as_ref()?.selectors();
+    // Syntect has no direct-child combinator; collapsing it to an adjacent scope-stack match is
+    // the closest lossless representation its selector model can hold. The exact source selector
+    // remains retained in `TextMateTheme` for a future renderer adapter with child semantics.
+    let syntect_scope = scope.replace(" > ", " ");
+    let settings = rule.settings.as_ref()?;
+    Some(ThemeItem {
+        scope: ScopeSelectors::from_str(&syntect_scope).ok()?,
+        style: StyleModifier {
+            foreground: settings
+                .foreground
+                .as_deref()
+                .and_then(syntect_color_from_hex),
+            background: settings
+                .background
+                .as_deref()
+                .and_then(syntect_color_from_hex),
+            font_style: settings.font_style.as_deref().map(syntect_font_style),
+        },
+    })
+}
+
+fn syntect_font_style(value: &str) -> FontStyle {
+    let mut style = FontStyle::empty();
+    for item in value.split_whitespace() {
+        match item {
+            "bold" => style |= FontStyle::BOLD,
+            "italic" => style |= FontStyle::ITALIC,
+            "underline" => style |= FontStyle::UNDERLINE,
+            // `normal` and `regular` explicitly clear inherited styles. Syntect does not carry
+            // TextMate's strikethrough bit, but `Some(empty)` still preserves that clearing.
+            "normal" | "regular" | "strikethrough" => {}
+            _ => {}
+        }
+    }
+    style
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SyntaxColor {
@@ -225,6 +441,8 @@ pub fn highlight_worker_cache_key(
 pub struct HighlightCache {
     syntaxes: SyntaxSet,
     themes: ThemeSet,
+    textmate_themes: HashMap<String, TextMateTheme>,
+    theme_appearances: HashMap<String, HighlightAppearance>,
     entries: HighlightWorkerCache,
 }
 
@@ -233,22 +451,114 @@ impl Default for HighlightCache {
         Self {
             syntaxes: SyntaxSet::load_defaults_newlines(),
             themes: ThemeSet::load_defaults(),
+            textmate_themes: HashMap::new(),
+            theme_appearances: HashMap::new(),
             entries: HighlightWorkerCache::new(MAX_WORKER_HIGHLIGHT_CACHE_BYTES),
         }
     }
 }
 
 impl HighlightCache {
-    pub fn highlight(&mut self, file: &DiffFile, theme: &str) -> HighlightedFile {
-        let theme = resolve_legacy_theme_id(Some(theme)).unwrap_or(theme);
-        let language = file.language.clone().unwrap_or_default();
-        let appearance = if bundled_shiki_theme_is_light(Some(theme))
-            .unwrap_or_else(|| theme.to_ascii_lowercase().contains("light"))
-        {
+    fn ensure_bundled_theme_loaded(&mut self, theme_name: &str) -> bool {
+        if self.textmate_themes.contains_key(theme_name) {
+            return true;
+        }
+        let Some((expected_name, source)) = BUNDLED_THEME_ASSETS
+            .iter()
+            .find(|(name, _)| *name == theme_name)
+        else {
+            return false;
+        };
+        let theme = serde_json::from_str::<TextMateTheme>(source)
+            .unwrap_or_else(|error| panic!("invalid bundled theme {expected_name}: {error}"))
+            .normalize_shiki();
+        assert_eq!(
+            &theme.name, expected_name,
+            "bundled theme asset name does not match its manifest id"
+        );
+        let appearance = if theme.r#type.as_deref() == Some("light") {
             HighlightAppearance::Light
         } else {
             HighlightAppearance::Dark
         };
+        self.themes
+            .themes
+            .insert(theme_name.into(), theme.compile_syntect());
+        self.theme_appearances.insert(theme_name.into(), appearance);
+        self.textmate_themes.insert(theme_name.into(), theme);
+        true
+    }
+
+    /// Register a content-addressed TextMate theme and return its stable cache identity.
+    pub fn ensure_syntax_highlight_theme_registered(
+        &mut self,
+        appearance: HighlightAppearance,
+        base_theme: Option<&str>,
+        scope_overrides: &[(String, String)],
+    ) -> String {
+        let theme_name = syntax_highlight_theme_name(appearance, base_theme, scope_overrides);
+        if scope_overrides.is_empty() || self.themes.themes.contains_key(&theme_name) {
+            return theme_name;
+        }
+        let base_theme_name = base_theme.unwrap_or(match appearance {
+            HighlightAppearance::Light => PIERRE_LIGHT_THEME,
+            HighlightAppearance::Dark => PIERRE_DARK_THEME,
+        });
+        let fallback = match appearance {
+            HighlightAppearance::Light => PIERRE_LIGHT_THEME,
+            HighlightAppearance::Dark => PIERRE_DARK_THEME,
+        };
+        if !self.ensure_bundled_theme_loaded(base_theme_name) {
+            self.ensure_bundled_theme_loaded(fallback);
+        }
+        let Some(mut textmate_theme) = self
+            .textmate_themes
+            .get(base_theme_name)
+            .or_else(|| self.textmate_themes.get(fallback))
+            .cloned()
+        else {
+            return theme_name;
+        };
+        textmate_theme.name.clone_from(&theme_name);
+        textmate_theme.append_scope_overrides(scope_overrides);
+        let theme = textmate_theme.compile_syntect();
+        self.theme_appearances
+            .insert(theme_name.clone(), appearance);
+        self.themes.themes.insert(theme_name.clone(), theme);
+        self.textmate_themes
+            .insert(theme_name.clone(), textmate_theme);
+        theme_name
+    }
+
+    pub fn highlight_with_syntax_theme(
+        &mut self,
+        file: &DiffFile,
+        appearance: HighlightAppearance,
+        base_theme: Option<&str>,
+        scope_overrides: &[(String, String)],
+    ) -> HighlightedFile {
+        let theme_name =
+            self.ensure_syntax_highlight_theme_registered(appearance, base_theme, scope_overrides);
+        self.highlight(file, &theme_name)
+    }
+
+    pub fn highlight(&mut self, file: &DiffFile, theme: &str) -> HighlightedFile {
+        let theme = resolve_legacy_theme_id(Some(theme)).unwrap_or(theme);
+        self.ensure_bundled_theme_loaded(theme);
+        let language = file.language.clone().unwrap_or_default();
+        let appearance = self
+            .theme_appearances
+            .get(theme)
+            .copied()
+            .unwrap_or_else(|| {
+                if bundled_shiki_theme_is_light(Some(theme))
+                    .unwrap_or_else(|| theme.to_ascii_lowercase().contains("light"))
+                {
+                    HighlightAppearance::Light
+                } else {
+                    HighlightAppearance::Dark
+                }
+            });
         let key = highlight_worker_cache_key(file, false, appearance, &language, theme);
         if let Some(cached) = self.entries.get(&key) {
             return cached;
@@ -323,6 +633,81 @@ impl HighlightCache {
     pub fn clear(&mut self) {
         self.entries.clear();
     }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SyntaxThemeFingerprint<'a> {
+    base_theme_name: &'a str,
+    ordered_overrides: Vec<(&'a str, String)>,
+}
+
+/// Content-address one base theme plus precedence-sensitive TextMate rules.
+#[must_use]
+pub fn syntax_highlight_theme_name(
+    appearance: HighlightAppearance,
+    base_theme: Option<&str>,
+    scope_overrides: &[(String, String)],
+) -> String {
+    let base_theme_name = base_theme.unwrap_or(match appearance {
+        HighlightAppearance::Light => PIERRE_LIGHT_THEME,
+        HighlightAppearance::Dark => PIERRE_DARK_THEME,
+    });
+    if scope_overrides.is_empty() {
+        return base_theme_name.into();
+    }
+    let payload = SyntaxThemeFingerprint {
+        base_theme_name,
+        ordered_overrides: scope_overrides
+            .iter()
+            .map(|(scope, color)| (scope.as_str(), color.to_ascii_lowercase()))
+            .collect(),
+    };
+    let encoded = serde_json::to_vec(&payload).expect("syntax theme identity is JSON serializable");
+    let fingerprint = format!("{:x}", Sha256::digest(encoded));
+    format!("workdeck-custom-{}", &fingerprint[..16])
+}
+
+fn syntect_color_from_hex(value: &str) -> Option<SyntectColor> {
+    fn nibble(value: u8) -> Option<u8> {
+        match value {
+            b'0'..=b'9' => Some(value - b'0'),
+            b'a'..=b'f' => Some(value - b'a' + 10),
+            b'A'..=b'F' => Some(value - b'A' + 10),
+            _ => None,
+        }
+    }
+    fn pair(first: u8, second: u8) -> Option<u8> {
+        Some(nibble(first)? * 16 + nibble(second)?)
+    }
+
+    let value = value.strip_prefix('#')?.as_bytes();
+    let (r, g, b, a) = match value.len() {
+        3 => (
+            nibble(value[0])? * 17,
+            nibble(value[1])? * 17,
+            nibble(value[2])? * 17,
+            u8::MAX,
+        ),
+        4 => (
+            nibble(value[0])? * 17,
+            nibble(value[1])? * 17,
+            nibble(value[2])? * 17,
+            nibble(value[3])? * 17,
+        ),
+        6 | 8 => (
+            pair(value[0], value[1])?,
+            pair(value[2], value[3])?,
+            pair(value[4], value[5])?,
+            if value.len() == 8 {
+                pair(value[6], value[7])?
+            } else {
+                u8::MAX
+            },
+        ),
+        _ => return None,
+    };
+    Some(SyntectColor { r, g, b, a })
 }
 
 fn plain_file(file: &DiffFile) -> Vec<Vec<Vec<SyntaxToken>>> {
@@ -569,5 +954,222 @@ mod tests {
         cache.highlight(&first.files[0], "base16-ocean.dark");
         cache.highlight(&second.files[0], "base16-ocean.dark");
         assert_eq!(cache.len(), 2);
+    }
+
+    #[test]
+    fn syntax_theme_identity_includes_precedence_sensitive_scope_order() {
+        let broad_first = vec![
+            ("comment".into(), "#111111".into()),
+            ("comment, string".into(), "#222222".into()),
+        ];
+        let broad_last = vec![
+            ("comment, string".into(), "#222222".into()),
+            ("comment".into(), "#111111".into()),
+        ];
+        assert_ne!(
+            syntax_highlight_theme_name(
+                HighlightAppearance::Dark,
+                Some("github-dark-default"),
+                &broad_first,
+            ),
+            syntax_highlight_theme_name(
+                HighlightAppearance::Dark,
+                Some("github-dark-default"),
+                &broad_last,
+            )
+        );
+        assert_eq!(
+            syntax_highlight_theme_name(
+                HighlightAppearance::Dark,
+                Some("github-dark-default"),
+                &broad_first,
+            ),
+            syntax_highlight_theme_name(
+                HighlightAppearance::Dark,
+                Some("github-dark-default"),
+                &[
+                    ("comment".into(), "#111111".into()),
+                    ("comment, string".into(), "#222222".into()),
+                ],
+            )
+        );
+        assert_eq!(
+            syntax_highlight_theme_name(
+                HighlightAppearance::Dark,
+                Some("github-dark-default"),
+                &broad_first,
+            ),
+            "workdeck-custom-35128eff5a5bf474"
+        );
+    }
+
+    #[test]
+    fn syntax_theme_defaults_and_registration_use_native_theme_storage() {
+        assert_eq!(
+            syntax_highlight_theme_name(HighlightAppearance::Light, None, &[]),
+            PIERRE_LIGHT_THEME
+        );
+        assert_eq!(
+            syntax_highlight_theme_name(HighlightAppearance::Dark, None, &[]),
+            PIERRE_DARK_THEME
+        );
+        let mut cache = HighlightCache::default();
+        let name = cache.ensure_syntax_highlight_theme_registered(
+            HighlightAppearance::Light,
+            Some("github-light-default"),
+            &[("keyword.control".into(), "#AABBCC".into())],
+        );
+        assert!(name.starts_with("workdeck-custom-"));
+        assert_eq!(name.len(), "workdeck-custom-".len() + 16);
+        assert!(cache.themes.themes.contains_key(&name));
+        assert_eq!(
+            cache.theme_appearances.get(&name),
+            Some(&HighlightAppearance::Light)
+        );
+        assert_eq!(
+            cache.ensure_syntax_highlight_theme_registered(
+                HighlightAppearance::Light,
+                Some("github-light-default"),
+                &[("keyword.control".into(), "#aabbcc".into())],
+            ),
+            name
+        );
+        let registered = cache.textmate_themes.get(&name).unwrap();
+        let last = registered.settings.as_ref().unwrap().last().unwrap();
+        assert_eq!(last.scope.as_ref().unwrap().selectors(), "keyword.control");
+        assert_eq!(
+            last.settings.as_ref().unwrap().foreground.as_deref(),
+            Some("#AABBCC")
+        );
+    }
+
+    #[test]
+    fn all_pinned_shiki_and_pierre_theme_payloads_compile_without_dropped_rules() {
+        let mut cache = HighlightCache::default();
+        assert!(cache.textmate_themes.is_empty());
+        for (theme_id, _) in BUNDLED_THEME_ASSETS {
+            assert!(cache.ensure_bundled_theme_loaded(theme_id));
+        }
+        assert_eq!(cache.textmate_themes.len(), 67);
+        assert_eq!(cache.theme_appearances.len(), 67);
+        for theme_id in workdeck_core::BUNDLED_SHIKI_THEME_IDS {
+            assert!(cache.textmate_themes.contains_key(*theme_id), "{theme_id}");
+        }
+        for theme_id in [PIERRE_LIGHT_THEME, PIERRE_DARK_THEME] {
+            assert!(cache.textmate_themes.contains_key(theme_id));
+        }
+
+        for (theme_id, textmate) in &cache.textmate_themes {
+            let expected_rules = textmate
+                .settings
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .filter(|rule| rule.scope.is_some() && rule.settings.is_some())
+                .count();
+            let compiled_rules = cache.themes.themes[theme_id].scopes.len();
+            assert_eq!(compiled_rules, expected_rules, "{theme_id}");
+        }
+    }
+
+    #[test]
+    fn shiki_normalization_preserves_exact_defaults_rules_and_alpha_colors() {
+        let mut cache = HighlightCache::default();
+        assert!(cache.ensure_bundled_theme_loaded("github-dark-default"));
+        let github = &cache.textmate_themes["github-dark-default"];
+        assert_eq!(github.fg.as_deref(), Some("#e6edf3"));
+        assert_eq!(github.bg.as_deref(), Some("#0d1117"));
+        assert_eq!(github.settings.as_ref().unwrap().len(), 50);
+        assert!(github.token_colors.is_none());
+        assert_eq!(
+            cache.themes.themes["github-dark-default"]
+                .settings
+                .foreground,
+            Some(SyntectColor {
+                r: 0xe6,
+                g: 0xed,
+                b: 0xf3,
+                a: 0xff,
+            })
+        );
+        assert_eq!(
+            syntect_color_from_hex("#D50"),
+            Some(SyntectColor {
+                r: 0xdd,
+                g: 0x55,
+                b: 0x00,
+                a: 0xff,
+            })
+        );
+        assert_eq!(
+            syntect_color_from_hex("#565869AA"),
+            Some(SyntectColor {
+                r: 0x56,
+                g: 0x58,
+                b: 0x69,
+                a: 0xaa,
+            })
+        );
+        assert_eq!(syntect_color_from_hex("#\u{e9}00"), None);
+    }
+
+    #[test]
+    fn native_highlighter_uses_the_selected_pinned_theme_payload() {
+        let file = identity_file("const answer = true;\n", "example.rs");
+        let mut cache = HighlightCache::default();
+        let github = cache.highlight(&file, "github-dark-default");
+        let github_added = &github[0][1];
+        assert_eq!(
+            github_added
+                .iter()
+                .map(|token| token.text.as_str())
+                .collect::<String>(),
+            "const answer = true;"
+        );
+        let github_keyword = github_added
+            .iter()
+            .find(|token| token.text == "const")
+            .unwrap();
+        assert_eq!(
+            github_keyword.foreground,
+            SyntaxColor {
+                red: 0xff,
+                green: 0x7b,
+                blue: 0x72,
+            }
+        );
+
+        let pierre = cache.highlight(&file, PIERRE_DARK_THEME);
+        let pierre_keyword = pierre[0][1]
+            .iter()
+            .find(|token| token.text == "const")
+            .unwrap();
+        assert_eq!(
+            pierre_keyword.foreground,
+            SyntaxColor {
+                red: 0xd5,
+                green: 0x68,
+                blue: 0xea,
+            }
+        );
+
+        let custom = cache.highlight_with_syntax_theme(
+            &file,
+            HighlightAppearance::Dark,
+            Some("github-dark-default"),
+            &[("storage.type".into(), "#123456".into())],
+        );
+        let custom_keyword = custom[0][1]
+            .iter()
+            .find(|token| token.text == "const")
+            .unwrap();
+        assert_eq!(
+            custom_keyword.foreground,
+            SyntaxColor {
+                red: 0x12,
+                green: 0x34,
+                blue: 0x56,
+            }
+        );
     }
 }

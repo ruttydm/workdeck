@@ -542,7 +542,7 @@ fn public_body_honors_header_number_and_selected_hunk_options() {
         .iter()
         .find(|cell| cell.symbol() == "e")
         .expect("rendered code cell");
-    assert_eq!(code_cell.bg, Color::Rgb(44, 37, 20));
+    assert_eq!(code_cell.bg, Color::Rgb(57, 45, 20));
 }
 
 #[test]
@@ -629,6 +629,7 @@ fn public_theme_option_reaches_native_header_and_code_palettes() {
             layout: LayoutMode::Stack,
             theme: "github-light-default".into(),
             highlight: false,
+            selected_hunk_index: None,
             ..WorkdeckDiffBodyOptions::default()
         },
     );
@@ -644,13 +645,13 @@ fn public_theme_option_reaches_native_header_and_code_palettes() {
         buffer
             .content()
             .iter()
-            .any(|cell| cell.bg == Color::Rgb(212, 227, 216))
+            .any(|cell| cell.bg == Color::Rgb(226, 236, 229))
     );
     assert!(
         buffer
             .content()
             .iter()
-            .any(|cell| cell.bg == Color::Rgb(246, 215, 217))
+            .any(|cell| cell.bg == Color::Rgb(249, 228, 230))
     );
 }
 
@@ -668,7 +669,7 @@ fn public_palette_uses_exact_bundled_surfaces_foregrounds_and_accents() {
     assert_eq!(dawn.text, Color::Rgb(87, 82, 121));
     assert_eq!(dawn.added, Color::Rgb(86, 148, 159));
     assert_eq!(dawn.removed, Color::Rgb(180, 99, 122));
-    assert_eq!(dawn.accent, Color::Rgb(215, 130, 126));
+    assert_eq!(dawn.accent, Color::Rgb(198, 120, 116));
 
     assert_eq!(
         public_palette("graphite"),

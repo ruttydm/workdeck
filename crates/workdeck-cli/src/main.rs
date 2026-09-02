@@ -645,6 +645,12 @@ impl ReviewCliOptions {
     }
 
     fn tui_options(&self) -> ReviewOptions {
+        let theme = workdeck_tui::resolve_theme(self.theme.as_deref(), None, &[]);
+        let theme = if self.transparent_background && !self.opaque_background {
+            workdeck_tui::with_transparent_surfaces(&theme)
+        } else {
+            theme
+        };
         ReviewOptions {
             layout: match self.mode.unwrap_or(ReviewLayoutArg::Auto) {
                 ReviewLayoutArg::Auto => LayoutMode::Auto,
@@ -670,10 +676,7 @@ impl ReviewCliOptions {
             pager: self.pager,
             watch: self.watch && !self.no_watch,
             agent_notes: self.agent_notes && !self.no_agent_notes,
-            syntax_theme: self
-                .theme
-                .clone()
-                .unwrap_or_else(|| "base16-ocean.dark".into()),
+            theme,
             repo: None,
             extension_panes: Vec::new(),
             extension_notifications: None,

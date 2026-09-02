@@ -87,9 +87,24 @@ OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 TextMate grammars and themes
 ----------------------------
 
-Workdeck uses the TextMate-compatible grammars and themes compiled into syntect. Individual
-grammar and theme authors retain their respective copyright and license notices. Release SBOM and
-dependency-license outputs enumerate the exact Rust packages used to load and execute them.
+Workdeck uses TextMate-compatible grammars compiled into syntect and embeds the exact 65 Shiki
+theme payloads selected by Hunk plus Pierre's two default themes. Individual grammar and theme
+authors retain their respective copyright and license notices.
+
+Shiki theme source package: tm-themes 1.12.0
+Hunk-pinned semantic oracle: @shikijs/themes 3.23.0
+License: MIT plus each source theme's permissive license
+Complete notices: third_party/themes/tm-themes-LICENSE and
+third_party/themes/tm-themes-NOTICE
+
+Pierre default theme source package: @pierre/theme 2.0.0
+License: Apache-2.0 with Primer MIT attribution
+Complete notices: third_party/themes/pierre-theme-LICENSE and
+third_party/themes/pierre-theme-NOTICE.md
+
+The release archives retain these complete notice files. The asset manifest records the fixed
+source-archive and generated-file SHA-256 digests. Release SBOM and dependency-license outputs
+enumerate the exact Rust packages used to load and execute the themes and grammars.
 
 Rust dependencies
 -----------------

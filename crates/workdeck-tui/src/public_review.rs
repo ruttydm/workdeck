@@ -6,7 +6,7 @@
 
 use super::{
     ReviewOptions, ReviewStreamChrome, build_review_rows_with_chrome, file_header,
-    max_file_header_stats_width,
+    max_file_header_stats_width, resolve_theme,
 };
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -17,9 +17,7 @@ use std::collections::BTreeSet;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use workdeck_core::{
     BUNDLED_SHIKI_THEME_IDS, Changeset, ChangesetSource, DiffFile, FileChangeKind, FileStats,
-    ReviewSelection, bundled_shiki_theme_is_light, get_bundled_shiki_theme_background,
-    get_bundled_shiki_theme_diff_colors, get_bundled_shiki_theme_foreground,
-    resolve_bundled_shiki_theme_id,
+    ReviewSelection,
 };
 use workdeck_diff::{HighlightCache, PatchError, format_terminal_path, parse_patch};
 use workdeck_review::LayoutMode;
@@ -265,6 +263,7 @@ pub fn render_workdeck_diff_file_header(
         options.selected,
         usize::from(area.width),
         max_file_header_stats_width(std::slice::from_ref(file)),
+        &resolve_theme(Some(&options.theme), None, &[]),
     );
     apply_public_theme(std::slice::from_mut(&mut line), &options.theme);
     Paragraph::new(line).render(area, buffer);
@@ -308,6 +307,7 @@ pub fn render_workdeck_review_stream(
                     .is_some_and(|selection| selection.file_id == public_file_id(file)),
                 usize::from(area.width),
                 max_file_header_stats_width(std::slice::from_ref(file)),
+                &resolve_theme(Some(&options.body.theme), None, &[]),
             );
             apply_public_theme(std::slice::from_mut(&mut header), &options.body.theme);
             lines.push(header);
@@ -478,7 +478,7 @@ fn workdeck_diff_body_rows(
         highlight: options.highlight,
         file_gap: 0,
         hunk_gap: options.hunk_gap,
-        syntax_theme: syntax_theme_name(&options.theme).into(),
+        theme: resolve_theme(Some(&options.theme), None, &[]),
         ..ReviewOptions::default()
     };
     let mut highlights = HighlightCache::default();
@@ -862,84 +862,18 @@ struct PublicPalette {
 }
 
 fn public_palette(theme: &str) -> PublicPalette {
-    let canonical = resolve_bundled_shiki_theme_id(Some(theme));
-    let is_light = bundled_shiki_theme_is_light(canonical).unwrap_or_else(|| is_light_theme(theme));
-    let mut palette = if is_light {
-        PublicPalette {
-            panel: Color::Rgb(255, 255, 255),
-            panel_alt: Color::Rgb(246, 248, 250),
-            text: Color::Rgb(31, 35, 40),
-            muted: Color::Rgb(101, 109, 118),
-            accent: Color::Rgb(9, 105, 218),
-            added: Color::Rgb(26, 127, 55),
-            removed: Color::Rgb(207, 34, 46),
-            added_bg: Color::Rgb(218, 251, 225),
-            removed_bg: Color::Rgb(255, 235, 233),
-            selected_bg: Color::Rgb(221, 244, 255),
-        }
-    } else {
-        PublicPalette {
-            panel: Color::Rgb(13, 17, 23),
-            panel_alt: Color::Rgb(33, 38, 45),
-            text: Color::Rgb(230, 237, 243),
-            muted: Color::Rgb(139, 148, 158),
-            accent: Color::Cyan,
-            added: Color::Rgb(126, 231, 135),
-            removed: Color::Rgb(255, 123, 114),
-            added_bg: Color::Rgb(14, 54, 30),
-            removed_bg: Color::Rgb(67, 24, 29),
-            selected_bg: Color::Rgb(45, 55, 72),
-        }
-    };
-    if let Some(theme_id) = canonical {
-        palette.panel = get_bundled_shiki_theme_background(Some(theme_id))
-            .and_then(color_from_hex)
-            .unwrap_or(palette.panel);
-        palette.text = get_bundled_shiki_theme_foreground(Some(theme_id))
-            .and_then(color_from_hex)
-            .unwrap_or(palette.text);
-        if let Some(diff) = get_bundled_shiki_theme_diff_colors(Some(theme_id)) {
-            palette.added = diff.added.and_then(color_from_hex).unwrap_or(palette.added);
-            palette.removed = diff
-                .removed
-                .and_then(color_from_hex)
-                .unwrap_or(palette.removed);
-            palette.accent = diff
-                .modified
-                .and_then(color_from_hex)
-                .unwrap_or(palette.accent);
-        }
-        palette.panel_alt = blend_color(palette.panel, palette.text, 10);
-        palette.added_bg = blend_color(palette.panel, palette.added, 18);
-        palette.removed_bg = blend_color(palette.panel, palette.removed, 18);
-        palette.selected_bg = blend_color(palette.panel, palette.accent, 18);
-    }
-    palette
-}
-
-fn is_light_theme(theme: &str) -> bool {
-    bundled_shiki_theme_is_light(Some(theme)).unwrap_or_else(|| {
-        theme.contains("light")
-            || matches!(
-                theme,
-                "catppuccin-latte"
-                    | "everforest-light"
-                    | "horizon-bright"
-                    | "kanagawa-lotus"
-                    | "material-theme-lighter"
-                    | "one-light"
-                    | "rose-pine-dawn"
-                    | "slack-ochin"
-                    | "snazzy-light"
-            )
-    })
-}
-
-fn syntax_theme_name(theme: &str) -> &str {
-    if is_light_theme(theme) {
-        "InspiredGitHub"
-    } else {
-        theme
+    let theme = resolve_theme(Some(theme), None, &[]);
+    PublicPalette {
+        panel: color_from_hex(&theme.background).unwrap_or(Color::Reset),
+        panel_alt: color_from_hex(&theme.panel_alt).unwrap_or(Color::Reset),
+        text: color_from_hex(&theme.text).unwrap_or(Color::White),
+        muted: color_from_hex(&theme.muted).unwrap_or(Color::DarkGray),
+        accent: color_from_hex(&theme.accent).unwrap_or(Color::Cyan),
+        added: color_from_hex(&theme.added_sign_color).unwrap_or(Color::Green),
+        removed: color_from_hex(&theme.removed_sign_color).unwrap_or(Color::Red),
+        added_bg: color_from_hex(&theme.added_bg).unwrap_or(Color::Reset),
+        removed_bg: color_from_hex(&theme.removed_bg).unwrap_or(Color::Reset),
+        selected_bg: color_from_hex(&theme.selected_hunk).unwrap_or(Color::Reset),
     }
 }
 
@@ -950,31 +884,6 @@ fn color_from_hex(value: &str) -> Option<Color> {
         u8::from_str_radix(&value[3..5], 16).ok()?,
         u8::from_str_radix(&value[5..7], 16).ok()?,
     ))
-}
-
-fn blend_color(background: Color, foreground: Color, foreground_percent: u16) -> Color {
-    let (
-        Color::Rgb(background_red, background_green, background_blue),
-        Color::Rgb(foreground_red, foreground_green, foreground_blue),
-    ) = (background, foreground)
-    else {
-        return background;
-    };
-    let blend = |background: u8, foreground: u8| {
-        let background_percent = 100_u16.saturating_sub(foreground_percent);
-        u8::try_from(
-            (u16::from(background) * background_percent
-                + u16::from(foreground) * foreground_percent
-                + 50)
-                / 100,
-        )
-        .unwrap_or(background)
-    };
-    Color::Rgb(
-        blend(background_red, foreground_red),
-        blend(background_green, foreground_green),
-        blend(background_blue, foreground_blue),
-    )
 }
 
 fn apply_public_theme(lines: &mut [Line<'static>], theme: &str) {

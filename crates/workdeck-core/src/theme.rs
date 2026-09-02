@@ -463,6 +463,62 @@ pub const LEGACY_CUSTOM_SYNTAX_COLOR_KEYS: &[&str] = &[
     "punctuation",
 ];
 
+fn legacy_syntax_role_scopes(role: &str) -> &'static [&'static str] {
+    match role {
+        "default" => &["source"],
+        "keyword" => &["keyword"],
+        "string" => &["string"],
+        "comment" => &["comment", "punctuation.definition.comment"],
+        "number" => &["constant.numeric"],
+        "function" => &[
+            "entity.name.function",
+            "support.function",
+            "variable.function",
+        ],
+        "property" => &["variable.other.property", "support.variable.property"],
+        "type" => &[
+            "entity.name.type",
+            "entity.name.class",
+            "support.type",
+            "support.class",
+        ],
+        "variable" => &["variable"],
+        "operator" => &["keyword.operator"],
+        "punctuation" => &["punctuation"],
+        _ => &[],
+    }
+}
+
+/// Translate deprecated semantic syntax roles into approximate TextMate selectors.
+#[must_use]
+pub fn legacy_custom_syntax_colors_to_scopes(
+    syntax: &IndexMap<String, String>,
+) -> IndexMap<String, String> {
+    let mut scopes = IndexMap::new();
+    for role in LEGACY_CUSTOM_SYNTAX_COLOR_KEYS {
+        let Some(color) = syntax.get(*role).filter(|color| !color.is_empty()) else {
+            continue;
+        };
+        for scope in legacy_syntax_role_scopes(role) {
+            scopes.insert((*scope).to_owned(), color.clone());
+        }
+    }
+    scopes
+}
+
+/// Layer exact scopes after translated legacy roles without changing declaration positions.
+#[must_use]
+pub fn resolve_custom_syntax_scope_overrides(
+    syntax: &IndexMap<String, String>,
+    syntax_scopes: &IndexMap<String, String>,
+) -> IndexMap<String, String> {
+    let mut resolved = legacy_custom_syntax_colors_to_scopes(syntax);
+    for (scope, color) in syntax_scopes {
+        resolved.insert(scope.clone(), color.clone());
+    }
+    resolved
+}
+
 /// One normalized `[themes.<id>]` table or native extension registration.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]

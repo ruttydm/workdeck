@@ -4,6 +4,7 @@
 //! and preserves each original per-file patch for review/session consumers.
 
 mod alignment;
+mod bundled_theme_assets;
 mod geometry;
 mod git_format;
 mod git_log;
@@ -18,7 +19,8 @@ pub use git_format::{SanitizedGitPatch, SanitizedGitPatchFilePaths, sanitize_git
 pub use git_log::strip_git_log_metadata;
 pub use language::{LanguageMatcher, LanguageRegistration, LanguageRegistry};
 pub use syntax::{
-    HighlightAppearance, HighlightCache, SyntaxColor, SyntaxToken, highlight_worker_cache_key,
+    HighlightAppearance, HighlightCache, PIERRE_DARK_THEME, PIERRE_LIGHT_THEME, SyntaxColor,
+    SyntaxToken, highlight_worker_cache_key, syntax_highlight_theme_name,
 };
 pub use terminal::{
     SanitizeOptions, TerminalSpan, format_terminal_path, sanitize_terminal_line,

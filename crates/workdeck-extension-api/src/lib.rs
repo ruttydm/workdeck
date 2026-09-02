@@ -583,6 +583,38 @@ pub struct ThemeRegistration {
     pub colors: std::collections::BTreeMap<String, String>,
 }
 
+/// Host-resolved, paint-only palette passed to declarative native extension surfaces.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionPaintTheme {
+    pub appearance: ExtensionThemeAppearance,
+    pub background: String,
+    pub panel: String,
+    pub panel_alt: String,
+    pub border: String,
+    pub accent: String,
+    pub accent_muted: String,
+    pub text: String,
+    pub muted: String,
+    pub selected_hunk: String,
+    pub badge_added: String,
+    pub badge_removed: String,
+    pub badge_neutral: String,
+    pub file_new: String,
+    pub file_deleted: String,
+    pub file_renamed: String,
+    pub file_modified: String,
+    pub file_untracked: String,
+    pub note_border: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ExtensionThemeAppearance {
+    Light,
+    Dark,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ViewNode {
