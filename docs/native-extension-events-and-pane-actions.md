@@ -12,6 +12,8 @@ Review navigation is guarded again when a declarative action reaches the host. T
 
 Line-granular review movement is derived from measured Ratatui row geometry, not reparsed patch order. Stable row anchors preserve split-side ordering, context-row aliases, expanded-gap identity, and reload recovery; an indexed, identity-stable cursor list keeps keypress stepping constant-time and clamps the marker to fully visible viewport rows.
 
+An opted-in pane's current-line paint is built only from the accepted split-row plan and exact stable cursor. The host adapts either half to a clipped, no-wrap full-width row while preserving source address, movement paint, spans, line-number policy, horizontal offset, and theme. Pending plans and mismatched cursor identities expose no stale painter.
+
 ## Clickable pane rows
 
 An extension wraps a declarative `ViewNode` in `ViewNode::Action { id, child }`. Ratatui renders the child, records its visible cell rectangle, and sends `workdeck/pane/action` with the pane ID, action ID, current review snapshot, semantic saved-note snapshot, working directory, and open panes. The extension answers with ordinary validated host actions. Action IDs are local opaque values, limited to 1,024 bytes; they cannot carry executable callbacks across the process boundary.

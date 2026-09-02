@@ -1,0 +1,44 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "authoritative": "baseline",
+  "sources": {
+    "baseline": {
+      "path": "src/ui/lib/extensionCurrentLine.tsx",
+      "blob": "b9e62cf8f5c1b1dd50bac22e2b5cd86816a0f0ba"
+    },
+    "stable": {
+      "path": "src/ui/lib/extensionCurrentLine.tsx",
+      "blob": "c1bab07650aa141edd67fe1566301ce06276fe56"
+    }
+  },
+  "tests": {
+    "baselineBlob": "8fae4ffe10abbdd30535e288a8523fdb804a7902",
+    "stableBlob": "59144a47cfcaa127c8b2af76dc44cbf964cbc58e"
+  },
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 5,
+    "failed": 0,
+    "expectations": 18
+  },
+  "stableOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 5,
+    "failed": 0,
+    "expectations": 16
+  },
+  "baselineAddition": "Pinned main adds the public side and one-based line address to the opaque painter; the older stable tree exposes only render().",
+  "invariants": [
+    "paint resolves only through a split row's canonical or alias stable key",
+    "each requested side is adapted into a full-width stack row without wrapping or selection paint",
+    "an absent split side becomes an explicit blank context row",
+    "move kind, syntax spans, line-number setting, horizontal offset, width, and theme survive adaptation",
+    "accepted paint is scoped to the exact file and cursor identity that produced it",
+    "pending and unavailable lifecycle updates clear stale paint immediately"
+  ],
+  "nativeAdaptation": {
+    "renderer": "ExtensionCurrentLineRenderedRow is the owned Ratatui row-render input replacing a React element callback result",
+    "identity": "Arc state preserves Hunk's equal-empty update identity without shared mutable objects"
+  }
+}
