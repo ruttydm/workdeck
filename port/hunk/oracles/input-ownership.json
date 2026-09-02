@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "capture": {
+    "runtime": "Bun 1.3.5",
+    "method": "executed each available pinned source tree from disposable git archives",
+    "paths": [
+      "src/ui/lib/keyRouting.ts",
+      "src/ui/lib/keyRouting.test.ts",
+      "src/ui/lib/mouseCapture.ts"
+    ]
+  },
+  "baseline": {
+    "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "keyRoutingTests": { "passed": 5, "failed": 0, "expectations": 16 },
+    "cases": [
+      { "owners": ["notMine", "mine"], "owned": true, "calls": 2, "consumed": 1 },
+      { "owners": ["mine", "mine"], "owned": true, "calls": 1, "consumed": 1 },
+      { "owners": ["focused", "mine"], "owned": true, "calls": 1, "consumed": 0 },
+      { "owners": ["notMine", "notMine"], "owned": false, "calls": 2, "consumed": 0 },
+      { "owners": [], "owned": false, "calls": 0, "consumed": 0 }
+    ],
+    "mouseCaptureCalls": [{ "id": "pane-before-rerender" }, null]
+  },
+  "stable": {
+    "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+    "keyRoutingTests": { "passed": 5, "failed": 0, "expectations": 16 },
+    "keyRoutingSourceIdentical": true,
+    "mouseCaptureSourcePresent": false
+  }
+}

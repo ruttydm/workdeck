@@ -17,10 +17,12 @@ mod file_view_geometry;
 mod hunk_scroll;
 mod ids;
 mod job_control;
+mod key_routing;
 mod keyboard;
 mod line_highlights;
 mod list_geometry;
 mod menu;
+mod mouse_capture;
 mod mouse_scroll;
 mod public_review;
 mod shutdown;
@@ -55,10 +57,12 @@ pub use file_view_geometry::*;
 pub use hunk_scroll::*;
 pub use ids::*;
 pub use job_control::*;
+pub use key_routing::*;
 pub use keyboard::*;
 pub use line_highlights::*;
 pub use list_geometry::*;
 pub use menu::*;
+pub use mouse_capture::*;
 pub use mouse_scroll::*;
 pub use public_review::*;
 pub use shutdown::*;
@@ -367,7 +371,7 @@ struct ExtensionPaneRuntime {
     file_view_layouts: BTreeMap<String, CachedFileViewLayout>,
     file_view_component_expanded: BTreeSet<FileViewComponentStateKey>,
     file_view_component_hits: Vec<FileViewComponentHit>,
-    file_view_component_pointer: Option<FileViewComponentPointer>,
+    file_view_component_pointer: MouseCapture<FileViewComponentPointer>,
     active_file_view_mode: Option<ActiveFileViewModeRuntime>,
     active_keyboard_mode: Option<ActiveKeyboardMode>,
     workspace_write_dialog: Option<ExtensionWorkspaceWriteDialog>,
@@ -379,7 +383,7 @@ struct ExtensionPaneRuntime {
     size_overrides: BTreeMap<String, u16>,
     cached_renders: BTreeMap<String, CachedPaneRender>,
     layout: ExtensionPaneLayoutPlan,
-    resize: Option<(String, PaneResizeState)>,
+    resize: MouseCapture<(String, PaneResizeState)>,
     menu_open: bool,
     menu_selected: usize,
     menu_trigger: Option<Rect>,
@@ -611,7 +615,7 @@ impl ReviewApp {
             runtime.file_view_layouts.clear();
             runtime.file_view_component_expanded.clear();
             runtime.file_view_component_hits.clear();
-            runtime.file_view_component_pointer = None;
+            runtime.file_view_component_pointer.release();
         }
         let changeset = match self.apply_extension_transforms(changeset) {
             Ok(changeset) => changeset,
@@ -3058,11 +3062,11 @@ impl ReviewApp {
                     max_size,
                 };
                 let key = planned.key.clone();
-                runtime.resize = Some((key, resize));
+                runtime.resize.capture((key, resize));
                 true
             }
             MouseEventKind::Drag(MouseButton::Left) => {
-                let Some((key, resize)) = runtime.resize.clone() else {
+                let Some((key, resize)) = runtime.resize.as_ref().cloned() else {
                     return false;
                 };
                 let position =
@@ -3087,7 +3091,7 @@ impl ReviewApp {
                 true
             }
             MouseEventKind::Up(MouseButton::Left) if runtime.resize.is_some() => {
-                runtime.resize = None;
+                runtime.resize.release();
                 true
             }
             _ => false,
@@ -3101,7 +3105,7 @@ impl ReviewApp {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
-                runtime.file_view_component_pointer = runtime
+                let pointer = runtime
                     .file_view_component_hits
                     .iter()
                     .find(|hit| rect_contains(hit.bounds, event.column, event.row))
@@ -3109,10 +3113,11 @@ impl ReviewApp {
                         state_key: hit.state_key.clone(),
                         dragged: false,
                     });
+                runtime.file_view_component_pointer.set_captured(pointer);
                 false
             }
             MouseEventKind::Drag(MouseButton::Left) => {
-                if let Some(pointer) = &mut runtime.file_view_component_pointer {
+                if let Some(pointer) = runtime.file_view_component_pointer.as_mut() {
                     pointer.dragged = true;
                 }
                 false
@@ -3140,7 +3145,7 @@ impl ReviewApp {
                 true
             }
             MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
-                runtime.file_view_component_pointer = None;
+                runtime.file_view_component_pointer.release();
                 false
             }
             _ => false,
@@ -3180,7 +3185,7 @@ fn clear_file_view_component_state(runtime: &mut ExtensionPaneRuntime, file_id: 
         .as_ref()
         .is_some_and(|pointer| pointer.state_key.file_id == file_id)
     {
-        runtime.file_view_component_pointer = None;
+        runtime.file_view_component_pointer.release();
     }
 }
 
@@ -4108,7 +4113,7 @@ fn render_builtin_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         runtime.file_view_component_hits.clear();
-        runtime.file_view_component_pointer = None;
+        runtime.file_view_component_pointer.release();
         drop(runtime);
         Paragraph::new("No changes to review")
             .style(Style::default().fg(ratatui_theme_color(&app.options.theme.muted)))
@@ -4640,13 +4645,6 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             .file_view_component_expanded
             .retain(|key| visible_state_keys.contains(key));
         runtime.file_view_component_hits = component_hits;
-        if runtime
-            .file_view_component_pointer
-            .as_ref()
-            .is_some_and(|pointer| !visible_state_keys.contains(&pointer.state_key))
-        {
-            runtime.file_view_component_pointer = None;
-        }
     }
     let border_style = if app.focus == Focus::Review {
         Style::default().fg(ratatui_theme_color(&app.options.theme.accent))
