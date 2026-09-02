@@ -4972,9 +4972,21 @@ fn extension_file_view_row_lines(
 ) -> Vec<Line<'static>> {
     let mut lines = if let Some(component) = &row.component {
         let mut lines = Vec::new();
-        let content = if expanded {
+        let content = if selected && expanded {
+            component
+                .selected_expanded_content
+                .as_ref()
+                .or(component.expanded_content.as_ref())
+                .or(component.selected_content.as_ref())
+                .unwrap_or(&component.content)
+        } else if expanded {
             component
                 .expanded_content
+                .as_ref()
+                .unwrap_or(&component.content)
+        } else if selected {
+            component
+                .selected_content
                 .as_ref()
                 .unwrap_or(&component.content)
         } else {
@@ -5011,7 +5023,10 @@ fn extension_file_view_row_lines(
     };
     lines.truncate(declared_height);
     lines.resize_with(declared_height, Line::default);
-    if selected {
+    let component_owns_selection_paint = row.component.as_ref().is_some_and(|component| {
+        component.selected_content.is_some() || component.selected_expanded_content.is_some()
+    });
+    if selected && !component_owns_selection_paint {
         let background = ratatui_theme_color(&theme.selected_hunk);
         for line in &mut lines {
             line.style = line.style.bg(background);

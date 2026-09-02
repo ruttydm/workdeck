@@ -86,6 +86,14 @@ pub mod review_triage_extension;
 #[path = "../extensions/github-pr/extension.rs"]
 pub mod github_pr_extension;
 
+#[path = "../extensions/file-view-gallery/extension.rs"]
+pub mod file_view_gallery_extension;
+
+#[path = "../extensions/file-view-gallery/fixtures/change-atlas/after.rs"]
+pub mod file_view_gallery_change_atlas_after;
+#[path = "../extensions/file-view-gallery/fixtures/change-atlas/before.rs"]
+pub mod file_view_gallery_change_atlas_before;
+
 #[cfg(test)]
 #[path = "../3-agent-review-demo/after/test/search_demo.rs"]
 mod agent_review_after_demo;

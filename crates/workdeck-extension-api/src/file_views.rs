@@ -123,9 +123,15 @@ pub struct ExtensionFileViewSpan {
 pub struct ExtensionFileViewRowComponent {
     pub height: usize,
     pub content: ViewNode,
+    /// Alternate declarative paint tree used while this row's owning hunk is selected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_content: Option<ViewNode>,
     /// Alternate declarative paint tree selected by ephemeral host-owned row state.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expanded_content: Option<ViewNode>,
+    /// Expanded paint tree used while this row's owning hunk is selected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_expanded_content: Option<ViewNode>,
     /// Cooperatively consume an un-dragged left-button mouse-up inside this row.
     #[serde(default)]
     pub toggle_expanded_on_left_mouse_up: bool,

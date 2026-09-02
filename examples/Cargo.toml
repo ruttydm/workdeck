@@ -48,12 +48,22 @@ path = "extensions/review-triage/main.rs"
 name = "workdeck-example-github-pr-extension"
 path = "extensions/github-pr/main.rs"
 
+[[bin]]
+name = "workdeck-example-file-view-gallery-extension"
+path = "extensions/file-view-gallery/main.rs"
+
+[[bin]]
+name = "workdeck-example-file-view-gallery-mixed-review"
+path = "extensions/file-view-gallery/mixed-review/run.rs"
+
 [dependencies]
 pulldown-cmark = "=0.13.4"
 ratatui = "0.29"
+regex = "1.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tempfile = "3.13"
+toml = "0.8"
 unicode-segmentation = "1.12"
 unicode-width = "0.2"
 ureq = "3.4"

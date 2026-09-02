@@ -1,13 +1,13 @@
 # Fixed-height native file-view rows
 
-Workdeck preserves Hunk's constrained custom-row escape hatch without embedding React, OpenTUI, JavaScript, or a second renderer. A validated row may include an atomic `component` descriptor with a fixed height, collapsed and optional expanded declarative `ViewNode` trees, an optional selection prefix, and a cooperative left-mouse-up toggle. Ratatui's cell buffer remains authoritative, and native extensions remain trusted subprocesses rather than sandboxes.
+Workdeck preserves Hunk's constrained custom-row escape hatch without embedding React, OpenTUI, JavaScript, or a second renderer. A validated row may include an atomic `component` descriptor with a fixed height, ordinary and selection-aware declarative `ViewNode` trees, optional expanded variants, an optional selection prefix, and a cooperative left-mouse-up toggle. Ratatui's cell buffer remains authoritative, and native extensions remain trusted subprocesses rather than sandboxes.
 
 ## Contract
 
 - Layout still happens before paint and supplies stable row IDs plus one inclusive row range for every parsed hunk.
 - Every custom row retains symbolic `spans`. Workdeck renders them when component content is empty, clipped to the same declared fixed height. Invalid component declarations reject the layout to the raw diff; symbolic-only layouts use the same renderer unchanged.
 - A component row declares `height` and `content` atomically. Each declarative tree must pass the extension view limits, one row is limited to 256 terminal lines, and all symbolic and component rows together are limited to 100,000 terminal lines. Existing row, span, and text limits still apply. An invalid layout falls back to the raw diff.
-- The host supplies current width, fixed height, selection, row index, and semantic theme through deterministic declarative fields and paint state. Theme changes repaint mounted rows without relayout or geometry changes. No opaque renderer payload crosses the JSON-RPC boundary.
+- The host supplies current width, fixed height, selection, row index, and semantic theme through deterministic declarative fields and paint state. `selectedContent` replaces `content` while the row's owning hunk is selected. `expandedContent` and `selectedExpandedContent` provide the corresponding host-owned expansion states. A selection-aware tree owns its cell backgrounds, so literal color swatches are not overwritten by the generic selected-hunk fill; components without one retain that fallback highlight. Theme changes repaint mounted rows without relayout or geometry changes. No opaque renderer payload crosses the JSON-RPC boundary.
 - Ratatui paints component content inside exactly the declared height, clips overflow, and never feeds post-paint measurement back into geometry. Stable IDs, hunk bounds, selection, scrolling, and row windowing remain host-owned.
 
 ## Deliberate limits
@@ -20,4 +20,4 @@ Workdeck preserves Hunk's constrained custom-row escape hatch without embedding 
 - **Clipping is not a security boundary.** Native extensions are trusted programs. The contract preserves geometry for cooperative components; it does not claim to sandbox arbitrary native code.
 - Custom rows cannot replace the file section, control outer layout, request post-paint geometry changes, or bypass raw fallback and resource validation.
 
-See [`examples/extensions/jsx-file-view/`](../examples/extensions/jsx-file-view/) for the smallest stateful example. Hunk's companion gallery contract adds real-diff demos for a responsive source-change atlas, exact-source CSS color swatches, and semantic `package.json` version highlights; that gallery has its own ledger records and executable evidence.
+See [`examples/extensions/jsx-file-view/`](../examples/extensions/jsx-file-view/) for the smallest stateful example and [`examples/extensions/file-view-gallery/`](../examples/extensions/file-view-gallery/) for the complete native gallery. The latter ports Hunk's real-diff demos for a responsive source-change atlas, exact-source CSS color swatches, and semantic dependency-version highlights. Its Hunk layouts and painter projections are frozen in `port/hunk/oracles/file-view-gallery.json`; `examples/tests/file_view_gallery.rs` executes the Rust layouts, subprocess protocol, Ratatui cells, conservative fallbacks, and five-file launcher.

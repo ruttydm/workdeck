@@ -1,0 +1,1797 @@
+{
+  "baselineCommits": [
+    "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+  ],
+  "fixtures": {
+    "atlas": {
+      "file": {
+        "id": "change-atlas",
+        "path": "invoice.ts",
+        "previousPath": null,
+        "language": "typescript",
+        "stats": {
+          "additions": 12,
+          "deletions": 3
+        },
+        "hunks": [
+          {
+            "header": "@@ -2,6 +2,7 @@",
+            "oldRange": [
+              2,
+              7
+            ],
+            "newRange": [
+              2,
+              8
+            ]
+          },
+          {
+            "header": "@@ -16,16 +17,22 @@",
+            "oldRange": [
+              16,
+              31
+            ],
+            "newRange": [
+              17,
+              38
+            ]
+          },
+          {
+            "header": "@@ -34,8 +41,10 @@",
+            "oldRange": [
+              34,
+              41
+            ],
+            "newRange": [
+              41,
+              50
+            ]
+          }
+        ]
+      },
+      "hunkCount": 3,
+      "changes": [
+        {
+          "hunkIndex": 0,
+          "kind": "added",
+          "range": [
+            5,
+            5
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "removed",
+          "range": [
+            19,
+            19
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "added",
+          "range": [
+            20,
+            21
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "removed",
+          "range": [
+            23,
+            23
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "added",
+          "range": [
+            25,
+            29
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "added",
+          "range": [
+            34,
+            34
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "removed",
+          "range": [
+            28,
+            28
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "added",
+          "range": [
+            35,
+            35
+          ]
+        },
+        {
+          "hunkIndex": 2,
+          "kind": "added",
+          "range": [
+            44,
+            44
+          ]
+        },
+        {
+          "hunkIndex": 2,
+          "kind": "added",
+          "range": [
+            48,
+            48
+          ]
+        }
+      ],
+      "layout": {
+        "rows": [
+          {
+            "id": "impact:0",
+            "spans": [
+              {
+                "text": "Change 1: +1 -0 · @@ -2,6 +2,7 @@",
+                "tone": "accent"
+              }
+            ],
+            "sourceRanges": [
+              {
+                "side": "old",
+                "range": [
+                  2,
+                  7
+                ]
+              },
+              {
+                "side": "new",
+                "range": [
+                  2,
+                  8
+                ]
+              }
+            ],
+            "component": {
+              "height": 3
+            }
+          },
+          {
+            "id": "impact:1",
+            "spans": [
+              {
+                "text": "Change 2: +9 -3 · @@ -16,16 +17,22 @@",
+                "tone": "accent"
+              }
+            ],
+            "sourceRanges": [
+              {
+                "side": "old",
+                "range": [
+                  16,
+                  31
+                ]
+              },
+              {
+                "side": "new",
+                "range": [
+                  17,
+                  38
+                ]
+              }
+            ],
+            "component": {
+              "height": 3
+            }
+          },
+          {
+            "id": "impact:2",
+            "spans": [
+              {
+                "text": "Change 3: +2 -0 · @@ -34,8 +41,10 @@",
+                "tone": "accent"
+              }
+            ],
+            "sourceRanges": [
+              {
+                "side": "old",
+                "range": [
+                  34,
+                  41
+                ]
+              },
+              {
+                "side": "new",
+                "range": [
+                  41,
+                  50
+                ]
+              }
+            ],
+            "component": {
+              "height": 3
+            }
+          }
+        ],
+        "hunkRows": [
+          {
+            "startRow": 0,
+            "endRow": 0
+          },
+          {
+            "startRow": 1,
+            "endRow": 1
+          },
+          {
+            "startRow": 2,
+            "endRow": 2
+          }
+        ]
+      },
+      "valid": true,
+      "painter": {
+        "rowId": "impact:0",
+        "height": 3,
+        "unselected": {
+          "type": "box",
+          "key": null,
+          "props": {
+            "style": {
+              "width": 100,
+              "height": 3,
+              "flexDirection": "column"
+            },
+            "children": [
+              {
+                "type": "box",
+                "key": null,
+                "props": {
+                  "style": {
+                    "height": 1,
+                    "flexDirection": "row"
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "key": null,
+                      "props": {
+                        "content": "◇ CHANGE 01",
+                        "style": {
+                          "fg": "#aa0002"
+                        }
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "key": null,
+                      "props": {
+                        "content": "   +1 / -0",
+                        "style": {
+                          "fg": "#aa0003"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "box",
+                "key": null,
+                "props": {
+                  "style": {
+                    "height": 1,
+                    "flexDirection": "row"
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "key": null,
+                      "props": {
+                        "content": "  + ████████████████",
+                        "style": {
+                          "fg": "#aa0004"
+                        }
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "key": null,
+                      "props": {
+                        "content": "   - ░░░░░░░░░░░░░░░░",
+                        "style": {
+                          "fg": "#aa0005"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "text",
+                "key": null,
+                "props": {
+                  "content": "  @@ -2,6 +2,7 @@",
+                  "style": {
+                    "fg": "#aa0006"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "selected": {
+          "type": "box",
+          "key": null,
+          "props": {
+            "style": {
+              "width": 100,
+              "height": 3,
+              "flexDirection": "column"
+            },
+            "children": [
+              {
+                "type": "box",
+                "key": null,
+                "props": {
+                  "style": {
+                    "height": 1,
+                    "flexDirection": "row"
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "key": null,
+                      "props": {
+                        "content": "▶ CHANGE 01",
+                        "style": {
+                          "fg": "#aa0001"
+                        }
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "key": null,
+                      "props": {
+                        "content": "   +1 / -0",
+                        "style": {
+                          "fg": "#aa0003"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "box",
+                "key": null,
+                "props": {
+                  "style": {
+                    "height": 1,
+                    "flexDirection": "row"
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "key": null,
+                      "props": {
+                        "content": "  + ████████████████",
+                        "style": {
+                          "fg": "#aa0004"
+                        }
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "key": null,
+                      "props": {
+                        "content": "   - ░░░░░░░░░░░░░░░░",
+                        "style": {
+                          "fg": "#aa0005"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "text",
+                "key": null,
+                "props": {
+                  "content": "  @@ -2,6 +2,7 @@",
+                  "style": {
+                    "fg": "#aa0006"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "css": {
+      "file": {
+        "id": "css-palette",
+        "path": "theme.css",
+        "previousPath": null,
+        "language": "typescript",
+        "stats": {
+          "additions": 15,
+          "deletions": 13
+        },
+        "hunks": [
+          {
+            "header": "@@ -1,12 +1,12 @@",
+            "oldRange": [
+              1,
+              12
+            ],
+            "newRange": [
+              1,
+              12
+            ]
+          },
+          {
+            "header": "@@ -16,27 +16,29 @@",
+            "oldRange": [
+              16,
+              42
+            ],
+            "newRange": [
+              16,
+              44
+            ]
+          }
+        ]
+      },
+      "hunkCount": 2,
+      "changes": [
+        {
+          "hunkIndex": 0,
+          "kind": "removed",
+          "range": [
+            2,
+            9
+          ]
+        },
+        {
+          "hunkIndex": 0,
+          "kind": "added",
+          "range": [
+            2,
+            9
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "removed",
+          "range": [
+            19,
+            19
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "added",
+          "range": [
+            19,
+            19
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "removed",
+          "range": [
+            21,
+            21
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "added",
+          "range": [
+            21,
+            21
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "removed",
+          "range": [
+            23,
+            23
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "added",
+          "range": [
+            23,
+            23
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "removed",
+          "range": [
+            28,
+            28
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "added",
+          "range": [
+            28,
+            28
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "removed",
+          "range": [
+            33,
+            33
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "added",
+          "range": [
+            33,
+            33
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "added",
+          "range": [
+            38,
+            38
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "added",
+          "range": [
+            43,
+            43
+          ]
+        }
+      ],
+      "calls": [
+        "old",
+        "new"
+      ],
+      "layout": {
+        "rows": [
+          {
+            "id": "palette:0:0:--canvas",
+            "spans": [
+              {
+                "text": "--canvas: #0b1020 → #090d18",
+                "tone": "syntax"
+              }
+            ],
+            "sourceRanges": [
+              {
+                "side": "old",
+                "range": [
+                  2,
+                  2
+                ]
+              },
+              {
+                "side": "new",
+                "range": [
+                  2,
+                  2
+                ]
+              }
+            ],
+            "component": {
+              "height": 2
+            }
+          },
+          {
+            "id": "palette:0:1:--panel",
+            "spans": [
+              {
+                "text": "--panel: #151d33 → #121a2b",
+                "tone": "syntax"
+              }
+            ],
+            "sourceRanges": [
+              {
+                "side": "old",
+                "range": [
+                  3,
+                  3
+                ]
+              },
+              {
+                "side": "new",
+                "range": [
+                  3,
+                  3
+                ]
+              }
+            ],
+            "component": {
+              "height": 2
+            }
+          },
+          {
+            "id": "palette:0:2:--border",
+            "spans": [
+              {
+                "text": "--border: #2b3858 → #34466d",
+                "tone": "syntax"
+              }
+            ],
+            "sourceRanges": [
+              {
+                "side": "old",
+                "range": [
+                  4,
+                  4
+                ]
+              },
+              {
+                "side": "new",
+                "range": [
+                  4,
+                  4
+                ]
+              }
+            ],
+            "component": {
+              "height": 2
+            }
+          },
+          {
+            "id": "palette:0:3:--text",
+            "spans": [
+              {
+                "text": "--text: #dbe7ff → #edf4ff",
+                "tone": "syntax"
+              }
+            ],
+            "sourceRanges": [
+              {
+                "side": "old",
+                "range": [
+                  5,
+                  5
+                ]
+              },
+              {
+                "side": "new",
+                "range": [
+                  5,
+                  5
+                ]
+              }
+            ],
+            "component": {
+              "height": 2
+            }
+          },
+          {
+            "id": "palette:0:4:--muted",
+            "spans": [
+              {
+                "text": "--muted: #8290ad → #91a0bc",
+                "tone": "syntax"
+              }
+            ],
+            "sourceRanges": [
+              {
+                "side": "old",
+                "range": [
+                  6,
+                  6
+                ]
+              },
+              {
+                "side": "new",
+                "range": [
+                  6,
+                  6
+                ]
+              }
+            ],
+            "component": {
+              "height": 2
+            }
+          },
+          {
+            "id": "palette:0:5:--accent",
+            "spans": [
+              {
+                "text": "--accent: #7aa2f7 → #b48ead",
+                "tone": "syntax"
+              }
+            ],
+            "sourceRanges": [
+              {
+                "side": "old",
+                "range": [
+                  7,
+                  7
+                ]
+              },
+              {
+                "side": "new",
+                "range": [
+                  7,
+                  7
+                ]
+              }
+            ],
+            "component": {
+              "height": 2
+            }
+          },
+          {
+            "id": "palette:0:6:--success",
+            "spans": [
+              {
+                "text": "--success: #73daca → #8fbcbb",
+                "tone": "syntax"
+              }
+            ],
+            "sourceRanges": [
+              {
+                "side": "old",
+                "range": [
+                  8,
+                  8
+                ]
+              },
+              {
+                "side": "new",
+                "range": [
+                  8,
+                  8
+                ]
+              }
+            ],
+            "component": {
+              "height": 2
+            }
+          },
+          {
+            "id": "palette:0:7:--danger",
+            "spans": [
+              {
+                "text": "--danger: #f7768e → #bf616a",
+                "tone": "syntax"
+              }
+            ],
+            "sourceRanges": [
+              {
+                "side": "old",
+                "range": [
+                  9,
+                  9
+                ]
+              },
+              {
+                "side": "new",
+                "range": [
+                  9,
+                  9
+                ]
+              }
+            ],
+            "component": {
+              "height": 2
+            }
+          },
+          {
+            "id": "palette:1:0:--card-highlight",
+            "spans": [
+              {
+                "text": "--card-highlight: #24304a → #3b3150",
+                "tone": "syntax"
+              }
+            ],
+            "sourceRanges": [
+              {
+                "side": "old",
+                "range": [
+                  19,
+                  19
+                ]
+              },
+              {
+                "side": "new",
+                "range": [
+                  19,
+                  19
+                ]
+              }
+            ],
+            "component": {
+              "height": 2
+            }
+          }
+        ],
+        "hunkRows": [
+          {
+            "startRow": 0,
+            "endRow": 7
+          },
+          {
+            "startRow": 8,
+            "endRow": 8
+          }
+        ]
+      },
+      "valid": true,
+      "painter": {
+        "rowId": "palette:0:0:--canvas",
+        "height": 2,
+        "unselected": {
+          "type": "box",
+          "key": null,
+          "props": {
+            "style": {
+              "width": 100,
+              "height": 2,
+              "flexDirection": "column"
+            },
+            "children": [
+              {
+                "type": "text",
+                "key": null,
+                "props": {
+                  "content": "  --canvas",
+                  "style": {
+                    "fg": "#aa0002"
+                  }
+                }
+              },
+              {
+                "type": "box",
+                "key": null,
+                "props": {
+                  "style": {
+                    "height": 1,
+                    "flexDirection": "row"
+                  },
+                  "children": [
+                    {
+                      "type": "box",
+                      "key": null,
+                      "props": {
+                        "style": {
+                          "width": 18,
+                          "height": 1,
+                          "backgroundColor": "#0b1020"
+                        },
+                        "children": {
+                          "type": "text",
+                          "key": null,
+                          "props": {
+                            "content": " OLD #0b1020",
+                            "style": {
+                              "fg": "white"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "key": null,
+                      "props": {
+                        "content": "  →  "
+                      }
+                    },
+                    {
+                      "type": "box",
+                      "key": null,
+                      "props": {
+                        "style": {
+                          "width": 18,
+                          "height": 1,
+                          "backgroundColor": "#090d18"
+                        },
+                        "children": {
+                          "type": "text",
+                          "key": null,
+                          "props": {
+                            "content": " NEW #090d18",
+                            "style": {
+                              "fg": "white"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "selected": {
+          "type": "box",
+          "key": null,
+          "props": {
+            "style": {
+              "width": 100,
+              "height": 2,
+              "flexDirection": "column"
+            },
+            "children": [
+              {
+                "type": "text",
+                "key": null,
+                "props": {
+                  "content": "▶ --canvas",
+                  "style": {
+                    "fg": "#aa0001"
+                  }
+                }
+              },
+              {
+                "type": "box",
+                "key": null,
+                "props": {
+                  "style": {
+                    "height": 1,
+                    "flexDirection": "row"
+                  },
+                  "children": [
+                    {
+                      "type": "box",
+                      "key": null,
+                      "props": {
+                        "style": {
+                          "width": 18,
+                          "height": 1,
+                          "backgroundColor": "#0b1020"
+                        },
+                        "children": {
+                          "type": "text",
+                          "key": null,
+                          "props": {
+                            "content": " OLD #0b1020",
+                            "style": {
+                              "fg": "white"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "key": null,
+                      "props": {
+                        "content": "  →  "
+                      }
+                    },
+                    {
+                      "type": "box",
+                      "key": null,
+                      "props": {
+                        "style": {
+                          "width": 18,
+                          "height": 1,
+                          "backgroundColor": "#090d18"
+                        },
+                        "children": {
+                          "type": "text",
+                          "key": null,
+                          "props": {
+                            "content": " NEW #090d18",
+                            "style": {
+                              "fg": "white"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "dependencies": {
+      "file": {
+        "id": "package-dependencies",
+        "path": "package.json",
+        "previousPath": null,
+        "language": "typescript",
+        "stats": {
+          "additions": 12,
+          "deletions": 12
+        },
+        "hunks": [
+          {
+            "header": "@@ -1,6 +1,6 @@",
+            "oldRange": [
+              1,
+              6
+            ],
+            "newRange": [
+              1,
+              6
+            ]
+          },
+          {
+            "header": "@@ -15,20 +15,20 @@",
+            "oldRange": [
+              15,
+              34
+            ],
+            "newRange": [
+              15,
+              34
+            ]
+          }
+        ]
+      },
+      "hunkCount": 2,
+      "changes": [
+        {
+          "hunkIndex": 0,
+          "kind": "removed",
+          "range": [
+            3,
+            3
+          ]
+        },
+        {
+          "hunkIndex": 0,
+          "kind": "added",
+          "range": [
+            3,
+            3
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "removed",
+          "range": [
+            18,
+            22
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "added",
+          "range": [
+            18,
+            22
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "removed",
+          "range": [
+            25,
+            29
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "added",
+          "range": [
+            25,
+            29
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "removed",
+          "range": [
+            32,
+            32
+          ]
+        },
+        {
+          "hunkIndex": 1,
+          "kind": "added",
+          "range": [
+            32,
+            32
+          ]
+        }
+      ],
+      "layout": {
+        "rows": [
+          {
+            "id": "dependency:0:summary",
+            "spans": [
+              {
+                "text": "Package metadata hunk 1: @@ -1,6 +1,6 @@",
+                "tone": "muted"
+              }
+            ],
+            "sourceRanges": [
+              {
+                "side": "old",
+                "range": [
+                  1,
+                  6
+                ]
+              },
+              {
+                "side": "new",
+                "range": [
+                  1,
+                  6
+                ]
+              }
+            ],
+            "component": {
+              "height": 2
+            }
+          },
+          {
+            "id": "dependency:1:0:dependencies:@opentui/core",
+            "spans": [
+              {
+                "text": "@opentui/core: 0.4.1 → 0.4.3 (dependencies)",
+                "tone": "accent"
+              }
+            ],
+            "sourceRanges": [
+              {
+                "side": "old",
+                "range": [
+                  18,
+                  18
+                ]
+              },
+              {
+                "side": "new",
+                "range": [
+                  18,
+                  18
+                ]
+              }
+            ],
+            "component": {
+              "height": 2
+            }
+          },
+          {
+            "id": "dependency:1:1:dependencies:@opentui/react",
+            "spans": [
+              {
+                "text": "@opentui/react: 0.4.1 → 0.4.3 (dependencies)",
+                "tone": "accent"
+              }
+            ],
+            "sourceRanges": [
+              {
+                "side": "old",
+                "range": [
+                  19,
+                  19
+                ]
+              },
+              {
+                "side": "new",
+                "range": [
+                  19,
+                  19
+                ]
+              }
+            ],
+            "component": {
+              "height": 2
+            }
+          },
+          {
+            "id": "dependency:1:2:dependencies:commander",
+            "spans": [
+              {
+                "text": "commander: 12.1.0 → 13.1.0 (dependencies)",
+                "tone": "accent"
+              }
+            ],
+            "sourceRanges": [
+              {
+                "side": "old",
+                "range": [
+                  20,
+                  20
+                ]
+              },
+              {
+                "side": "new",
+                "range": [
+                  20,
+                  20
+                ]
+              }
+            ],
+            "component": {
+              "height": 2
+            }
+          },
+          {
+            "id": "dependency:1:3:dependencies:react",
+            "spans": [
+              {
+                "text": "react: 19.1.0 → 19.2.0 (dependencies)",
+                "tone": "accent"
+              }
+            ],
+            "sourceRanges": [
+              {
+                "side": "old",
+                "range": [
+                  21,
+                  21
+                ]
+              },
+              {
+                "side": "new",
+                "range": [
+                  21,
+                  21
+                ]
+              }
+            ],
+            "component": {
+              "height": 2
+            }
+          },
+          {
+            "id": "dependency:1:4:dependencies:zod",
+            "spans": [
+              {
+                "text": "zod: 3.24.2 → 4.0.5 (dependencies)",
+                "tone": "accent"
+              }
+            ],
+            "sourceRanges": [
+              {
+                "side": "old",
+                "range": [
+                  22,
+                  22
+                ]
+              },
+              {
+                "side": "new",
+                "range": [
+                  22,
+                  22
+                ]
+              }
+            ],
+            "component": {
+              "height": 2
+            }
+          },
+          {
+            "id": "dependency:1:5:devDependencies:@types/bun",
+            "spans": [
+              {
+                "text": "@types/bun: 1.2.4 → 1.3.1 (devDependencies)",
+                "tone": "accent"
+              }
+            ],
+            "sourceRanges": [
+              {
+                "side": "old",
+                "range": [
+                  25,
+                  25
+                ]
+              },
+              {
+                "side": "new",
+                "range": [
+                  25,
+                  25
+                ]
+              }
+            ],
+            "component": {
+              "height": 2
+            }
+          },
+          {
+            "id": "dependency:1:6:devDependencies:@types/react",
+            "spans": [
+              {
+                "text": "@types/react: 19.0.10 → 19.2.2 (devDependencies)",
+                "tone": "accent"
+              }
+            ],
+            "sourceRanges": [
+              {
+                "side": "old",
+                "range": [
+                  26,
+                  26
+                ]
+              },
+              {
+                "side": "new",
+                "range": [
+                  26,
+                  26
+                ]
+              }
+            ],
+            "component": {
+              "height": 2
+            }
+          },
+          {
+            "id": "dependency:1:7:devDependencies:oxfmt",
+            "spans": [
+              {
+                "text": "oxfmt: 0.16.0 → 0.20.0 (devDependencies)",
+                "tone": "accent"
+              }
+            ],
+            "sourceRanges": [
+              {
+                "side": "old",
+                "range": [
+                  27,
+                  27
+                ]
+              },
+              {
+                "side": "new",
+                "range": [
+                  27,
+                  27
+                ]
+              }
+            ],
+            "component": {
+              "height": 2
+            }
+          },
+          {
+            "id": "dependency:1:8:devDependencies:oxlint",
+            "spans": [
+              {
+                "text": "oxlint: 0.16.0 → 1.15.0 (devDependencies)",
+                "tone": "accent"
+              }
+            ],
+            "sourceRanges": [
+              {
+                "side": "old",
+                "range": [
+                  28,
+                  28
+                ]
+              },
+              {
+                "side": "new",
+                "range": [
+                  28,
+                  28
+                ]
+              }
+            ],
+            "component": {
+              "height": 2
+            }
+          },
+          {
+            "id": "dependency:1:9:devDependencies:typescript",
+            "spans": [
+              {
+                "text": "typescript: 5.7.3 → 5.9.2 (devDependencies)",
+                "tone": "accent"
+              }
+            ],
+            "sourceRanges": [
+              {
+                "side": "old",
+                "range": [
+                  29,
+                  29
+                ]
+              },
+              {
+                "side": "new",
+                "range": [
+                  29,
+                  29
+                ]
+              }
+            ],
+            "component": {
+              "height": 2
+            }
+          }
+        ],
+        "hunkRows": [
+          {
+            "startRow": 0,
+            "endRow": 0
+          },
+          {
+            "startRow": 1,
+            "endRow": 10
+          }
+        ]
+      },
+      "valid": true,
+      "painter": {
+        "rowId": "dependency:1:0:dependencies:@opentui/core",
+        "height": 2,
+        "unselected": {
+          "type": "box",
+          "key": null,
+          "props": {
+            "style": {
+              "width": 100,
+              "height": 2,
+              "flexDirection": "column"
+            },
+            "children": [
+              {
+                "type": "text",
+                "key": null,
+                "props": {
+                  "content": "  @opentui/core  dependencies",
+                  "style": {
+                    "fg": "#aa0002"
+                  }
+                }
+              },
+              {
+                "type": "text",
+                "key": null,
+                "props": {
+                  "children": [
+                    {
+                      "type": "span",
+                      "key": null,
+                      "props": {
+                        "fg": "#aa0006",
+                        "children": " "
+                      }
+                    },
+                    {
+                      "key": null,
+                      "props": {
+                        "children": [
+                          {
+                            "type": "span",
+                            "key": null,
+                            "props": {
+                              "fg": "#aa0006",
+                              "children": "0.4."
+                            }
+                          },
+                          {
+                            "type": "span",
+                            "key": null,
+                            "props": {
+                              "fg": "#aa0005",
+                              "bg": "#aa0007",
+                              "children": "1"
+                            }
+                          },
+                          {
+                            "type": "span",
+                            "key": null,
+                            "props": {
+                              "fg": "#aa0006",
+                              "children": ""
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "type": "span",
+                      "key": null,
+                      "props": {
+                        "fg": "#aa0006",
+                        "children": " → "
+                      }
+                    },
+                    {
+                      "key": null,
+                      "props": {
+                        "children": [
+                          {
+                            "type": "span",
+                            "key": null,
+                            "props": {
+                              "fg": "#aa0006",
+                              "children": "0.4."
+                            }
+                          },
+                          {
+                            "type": "span",
+                            "key": null,
+                            "props": {
+                              "fg": "#aa0004",
+                              "bg": "#aa0007",
+                              "children": "3"
+                            }
+                          },
+                          {
+                            "type": "span",
+                            "key": null,
+                            "props": {
+                              "fg": "#aa0006",
+                              "children": ""
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "selected": {
+          "type": "box",
+          "key": null,
+          "props": {
+            "style": {
+              "width": 100,
+              "height": 2,
+              "flexDirection": "column"
+            },
+            "children": [
+              {
+                "type": "text",
+                "key": null,
+                "props": {
+                  "content": "▶ @opentui/core  dependencies",
+                  "style": {
+                    "fg": "#aa0001"
+                  }
+                }
+              },
+              {
+                "type": "text",
+                "key": null,
+                "props": {
+                  "children": [
+                    {
+                      "type": "span",
+                      "key": null,
+                      "props": {
+                        "fg": "#aa0006",
+                        "children": " "
+                      }
+                    },
+                    {
+                      "key": null,
+                      "props": {
+                        "children": [
+                          {
+                            "type": "span",
+                            "key": null,
+                            "props": {
+                              "fg": "#aa0006",
+                              "children": "0.4."
+                            }
+                          },
+                          {
+                            "type": "span",
+                            "key": null,
+                            "props": {
+                              "fg": "#aa0005",
+                              "bg": "#aa0007",
+                              "children": "1"
+                            }
+                          },
+                          {
+                            "type": "span",
+                            "key": null,
+                            "props": {
+                              "fg": "#aa0006",
+                              "children": ""
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "type": "span",
+                      "key": null,
+                      "props": {
+                        "fg": "#aa0006",
+                        "children": " → "
+                      }
+                    },
+                    {
+                      "key": null,
+                      "props": {
+                        "children": [
+                          {
+                            "type": "span",
+                            "key": null,
+                            "props": {
+                              "fg": "#aa0006",
+                              "children": "0.4."
+                            }
+                          },
+                          {
+                            "type": "span",
+                            "key": null,
+                            "props": {
+                              "fg": "#aa0004",
+                              "bg": "#aa0007",
+                              "children": "3"
+                            }
+                          },
+                          {
+                            "type": "span",
+                            "key": null,
+                            "props": {
+                              "fg": "#aa0006",
+                              "children": ""
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "impactMeters": [
+    "░░░░░░",
+    "██░░░░",
+    "██████"
+  ],
+  "versionHighlights": [
+    {
+      "old": {
+        "before": "1.2.",
+        "changed": "3",
+        "after": ""
+      },
+      "new": {
+        "before": "1.2.",
+        "changed": "4",
+        "after": ""
+      }
+    },
+    {
+      "old": {
+        "before": "1.",
+        "changed": "2",
+        "after": ".9"
+      },
+      "new": {
+        "before": "1.",
+        "changed": "3",
+        "after": ".0"
+      }
+    },
+    {
+      "old": {
+        "before": "",
+        "changed": "1.9.4",
+        "after": ""
+      },
+      "new": {
+        "before": "",
+        "changed": "2.1.0",
+        "after": ""
+      }
+    },
+    {
+      "old": {
+        "before": "",
+        "changed": "^1.2.3",
+        "after": ""
+      },
+      "new": {
+        "before": "",
+        "changed": "~1.2.4",
+        "after": ""
+      }
+    },
+    {
+      "old": {
+        "before": "",
+        "changed": "1.2.3-beta.1",
+        "after": ""
+      },
+      "new": {
+        "before": "",
+        "changed": "1.2.4-beta.2",
+        "after": ""
+      }
+    }
+  ],
+  "fallbackCases": {
+    "unsupportedCss": null,
+    "alphaCss": null,
+    "duplicateCss": null,
+    "emptyOldCss": {
+      "rows": [
+        {
+          "id": "palette:0:0:--accent",
+          "spans": [
+            {
+              "text": "--accent: missing → #123456",
+              "tone": "syntax"
+            }
+          ],
+          "sourceRanges": [
+            {
+              "side": "new",
+              "range": [
+                2,
+                2
+              ]
+            }
+          ],
+          "component": {
+            "height": 2
+          }
+        }
+      ],
+      "hunkRows": [
+        {
+          "startRow": 0,
+          "endRow": 0
+        }
+      ]
+    },
+    "metadataOnlyPackage": null,
+    "duplicateDependency": null
+  },
+  "registrations": {
+    "viewIds": [
+      "change-atlas",
+      "palette-delta",
+      "dependency-delta"
+    ],
+    "viewTitles": [
+      "JSX demo: Change atlas",
+      "JSX demo: CSS palette delta",
+      "JSX demo: Dependency delta"
+    ],
+    "command": {
+      "id": "toggle-jsx-gallery",
+      "title": "Toggle JSX demo for current file",
+      "key": "f8"
+    },
+    "matchMatrix": [
+      true,
+      false,
+      false
+    ],
+    "toggled": [
+      "change-atlas",
+      "palette-delta",
+      "dependency-delta"
+    ]
+  }
+}

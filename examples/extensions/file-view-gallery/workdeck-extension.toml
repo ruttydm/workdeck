@@ -1,0 +1,7 @@
+id = "example.file-view-gallery"
+name = "File-view gallery"
+version = "0.1.0"
+api_version = 1
+executable = "bin/workdeck-example-file-view-gallery-extension"
+capabilities = ["commands", "file-views", "notifications"]
+description = "Native semantic change atlas, CSS palette, and dependency views"

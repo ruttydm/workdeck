@@ -200,6 +200,18 @@ fn parse_component(
         .map_err(|_| format!("rows[{row_index}].component.content is not a declarative view"))?;
     validate_view(&content)
         .map_err(|issue| format!("rows[{row_index}].component.content {issue}"))?;
+    let selected_content = component
+        .get("selectedContent")
+        .cloned()
+        .map(|content| {
+            let content = serde_json::from_value::<ViewNode>(content).map_err(|_| {
+                format!("rows[{row_index}].component.selectedContent is not a declarative view")
+            })?;
+            validate_view(&content)
+                .map_err(|issue| format!("rows[{row_index}].component.selectedContent {issue}"))?;
+            Ok::<_, String>(content)
+        })
+        .transpose()?;
     let expanded_content = component
         .get("expandedContent")
         .cloned()
@@ -209,6 +221,21 @@ fn parse_component(
             })?;
             validate_view(&content)
                 .map_err(|issue| format!("rows[{row_index}].component.expandedContent {issue}"))?;
+            Ok::<_, String>(content)
+        })
+        .transpose()?;
+    let selected_expanded_content = component
+        .get("selectedExpandedContent")
+        .cloned()
+        .map(|content| {
+            let content = serde_json::from_value::<ViewNode>(content).map_err(|_| {
+                format!(
+                    "rows[{row_index}].component.selectedExpandedContent is not a declarative view"
+                )
+            })?;
+            validate_view(&content).map_err(|issue| {
+                format!("rows[{row_index}].component.selectedExpandedContent {issue}")
+            })?;
             Ok::<_, String>(content)
         })
         .transpose()?;
@@ -248,7 +275,9 @@ fn parse_component(
     Ok(Some(ExtensionFileViewRowComponent {
         height,
         content,
+        selected_content,
         expanded_content,
+        selected_expanded_content,
         toggle_expanded_on_left_mouse_up,
         selection_prefix,
     }))

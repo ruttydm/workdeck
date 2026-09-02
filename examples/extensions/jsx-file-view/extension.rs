@@ -66,7 +66,9 @@ fn hunk_card(
     ExtensionFileViewRowComponent {
         height: 2,
         content: card(collapsed_detail),
+        selected_content: None,
         expanded_content: Some(card(expanded_detail)),
+        selected_expanded_content: None,
         toggle_expanded_on_left_mouse_up: true,
         selection_prefix: Some(ExtensionFileViewSelectionPrefix {
             selected: "▶ ".into(),
