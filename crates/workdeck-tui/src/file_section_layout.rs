@@ -1,6 +1,5 @@
 //! Absolute multi-file review-stream geometry.
 
-use std::collections::BTreeSet;
 use workdeck_core::DiffFile;
 
 pub const DEFAULT_FILE_GAP: i64 = 1;
@@ -123,8 +122,8 @@ pub fn collect_intersecting_file_section_ids(
     layouts: &[FileSectionLayout],
     min_y: i64,
     max_y: i64,
-) -> BTreeSet<String> {
-    let mut result = BTreeSet::new();
+) -> Vec<String> {
+    let mut result = Vec::new();
     if layouts.is_empty() || max_y < min_y {
         return result;
     }
@@ -135,7 +134,7 @@ pub fn collect_intersecting_file_section_ids(
         if layout.section_top > max_y {
             break;
         }
-        result.insert(layout.file_id.clone());
+        result.push(layout.file_id.clone());
     }
     result
 }
@@ -247,11 +246,7 @@ mod tests {
     #[test]
     fn intersection_collects_every_overlapping_section() {
         let layouts = layouts();
-        let ids = |min_y, max_y| {
-            collect_intersecting_file_section_ids(&layouts, min_y, max_y)
-                .into_iter()
-                .collect::<Vec<_>>()
-        };
+        let ids = |min_y, max_y| collect_intersecting_file_section_ids(&layouts, min_y, max_y);
         assert_eq!(ids(6, 10), ["beta"]);
         assert_eq!(ids(4, 12), ["alpha", "beta", "gamma"]);
         assert!(ids(20, 24).is_empty());
@@ -272,10 +267,25 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(
-            collect_intersecting_file_section_ids(&layouts, 15_000, 15_006)
-                .into_iter()
-                .collect::<Vec<_>>(),
+            collect_intersecting_file_section_ids(&layouts, 15_000, 15_006),
             ["file:5000", "file:5001", "file:5002"]
+        );
+    }
+
+    #[test]
+    fn intersection_preserves_review_stream_order_instead_of_sorting_ids() {
+        let mut layouts = layouts();
+        layouts[0].file_id = "z-last-lexically".into();
+        layouts[1].file_id = "a-first-lexically".into();
+        layouts[2].file_id = "m-middle-lexically".into();
+
+        assert_eq!(
+            collect_intersecting_file_section_ids(&layouts, 0, 19),
+            [
+                "z-last-lexically",
+                "a-first-lexically",
+                "m-middle-lexically"
+            ]
         );
     }
 

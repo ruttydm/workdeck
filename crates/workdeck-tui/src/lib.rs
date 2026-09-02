@@ -33,6 +33,9 @@ mod theme;
 mod theme_detection;
 mod timed_notice;
 mod ui_geometry;
+mod viewport_anchor;
+mod viewport_geometry;
+mod viewport_selection;
 mod watched_input;
 
 pub use agent_annotations::*;
@@ -68,6 +71,9 @@ pub use theme::*;
 pub use theme_detection::*;
 pub use timed_notice::*;
 pub use ui_geometry::*;
+pub use viewport_anchor::*;
+pub use viewport_geometry::*;
+pub use viewport_selection::*;
 pub use watched_input::*;
 
 use anyhow::Result;
