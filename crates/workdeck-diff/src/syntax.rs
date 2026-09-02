@@ -12,9 +12,9 @@ use crate::{
     CompactHighlightedDiff, HIGHLIGHT_TOKENIZE_MAX_LINE_LENGTH_UTF16,
     HIGHLIGHT_WORKER_PROTOCOL_VERSION, HighlightLineArrays, HighlightWorkerClient,
     HighlightWorkerInput, HighlightWorkerResponse, HighlightedDiffCache, HighlightedDiffCode,
-    alias_context_highlight_lines, bundled_theme_assets::BUNDLED_THEME_ASSETS,
-    compact_highlighted_diff_byte_length, create_source_backed_highlight_plan,
-    remap_source_backed_highlight,
+    MAX_HIGHLIGHTED_DIFF_CACHE_LINES, alias_context_highlight_lines,
+    bundled_theme_assets::BUNDLED_THEME_ASSETS, compact_highlighted_diff_byte_length,
+    create_source_backed_highlight_plan, remap_source_backed_highlight,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -282,6 +282,81 @@ impl HighlightedDiffLine {
 pub type HighlightedHunk = Vec<HighlightedDiffLine>;
 pub type HighlightedFile = Vec<HighlightedHunk>;
 
+/// Syntax output for one complete source snapshot, indexed by zero-based source line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HighlightedSourceCode {
+    pub lines: Vec<Option<HighlightedLine>>,
+}
+
+#[derive(Debug, Clone)]
+struct HighlightedSourceCacheEntry {
+    line_cost: usize,
+    value: HighlightedSourceCode,
+}
+
+/// Source highlights are retained independently from patch highlights because expanded gaps can
+/// address lines that do not occur in the patch. The budget uses the same line unit as Hunk's
+/// highlighted-diff cache and always retains the source currently being viewed.
+#[derive(Debug)]
+struct HighlightedSourceCache {
+    entries: HashMap<String, HighlightedSourceCacheEntry>,
+    lru: VecDeque<String>,
+    max_lines: usize,
+    retained_lines: usize,
+}
+
+impl HighlightedSourceCache {
+    fn new(max_lines: usize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            lru: VecDeque::new(),
+            max_lines: max_lines.max(1),
+            retained_lines: 0,
+        }
+    }
+
+    fn get(&mut self, key: &str) -> Option<HighlightedSourceCode> {
+        let value = self.entries.get(key)?.value.clone();
+        self.remove_from_lru(key);
+        self.lru.push_back(key.to_owned());
+        Some(value)
+    }
+
+    fn set(&mut self, key: String, value: HighlightedSourceCode) {
+        if let Some(previous) = self.entries.remove(&key) {
+            self.retained_lines = self.retained_lines.saturating_sub(previous.line_cost);
+            self.remove_from_lru(&key);
+        }
+        let line_cost = value.lines.len().saturating_add(8);
+        self.entries.insert(
+            key.clone(),
+            HighlightedSourceCacheEntry { line_cost, value },
+        );
+        self.lru.push_back(key);
+        self.retained_lines = self.retained_lines.saturating_add(line_cost);
+        while self.retained_lines > self.max_lines && self.entries.len() > 1 {
+            let Some(oldest) = self.lru.pop_front() else {
+                break;
+            };
+            if let Some(evicted) = self.entries.remove(&oldest) {
+                self.retained_lines = self.retained_lines.saturating_sub(evicted.line_cost);
+            }
+        }
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.lru.clear();
+        self.retained_lines = 0;
+    }
+
+    fn remove_from_lru(&mut self, key: &str) {
+        if let Some(index) = self.lru.iter().position(|candidate| candidate == key) {
+            self.lru.remove(index);
+        }
+    }
+}
+
 /// Bounds highlighter payload bytes retained between renderer frames.
 pub const MAX_WORKER_HIGHLIGHT_CACHE_BYTES: usize = 8 * 1024 * 1024;
 
@@ -316,6 +391,22 @@ struct ActiveNativeHighlight {
     key: String,
     original_metadata: SemanticReviewFile,
     receiver: Receiver<Result<CompactHighlightedDiff, String>>,
+}
+
+#[derive(Debug)]
+struct QueuedNativeSourceHighlight {
+    key: String,
+    text: String,
+    language: String,
+    path: String,
+    syntaxes: Arc<SyntaxSet>,
+    theme: Theme,
+}
+
+#[derive(Debug)]
+struct ActiveNativeSourceHighlight {
+    key: String,
+    receiver: Receiver<HighlightedSourceCode>,
 }
 
 impl HighlightWorkerCache {
@@ -396,6 +487,14 @@ pub enum HighlightAppearance {
     Light,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct SourceHighlightTheme<'a> {
+    pub id: &'a str,
+    pub appearance: HighlightAppearance,
+    pub syntax_theme: Option<&'a str>,
+    pub syntax_scope_overrides: &'a [(String, String)],
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct HighlightWorkerIdentity<'a> {
@@ -459,6 +558,51 @@ pub fn highlight_worker_cache_key(
     format!("{:x}", Sha256::digest(encoded))
 }
 
+/// Reproduce Hunk's FNV-1a fingerprint over JavaScript UTF-16 code units.
+#[must_use]
+pub fn source_text_fingerprint(text: &str) -> String {
+    let mut hash = 2_166_136_261_u32;
+    let mut length = 0_usize;
+    for code_unit in text.encode_utf16() {
+        length = length.saturating_add(1);
+        hash ^= u32::from(code_unit);
+        hash = hash.wrapping_mul(16_777_619);
+    }
+    format!("{length}:{}", unsigned_base36(hash))
+}
+
+fn unsigned_base36(mut value: u32) -> String {
+    const DIGITS: &[u8; 36] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+    if value == 0 {
+        return "0".into();
+    }
+    let mut encoded = [0_u8; 7];
+    let mut cursor = encoded.len();
+    while value > 0 {
+        cursor -= 1;
+        encoded[cursor] = DIGITS[(value % 36) as usize];
+        value /= 36;
+    }
+    String::from_utf8(encoded[cursor..].to_vec()).expect("base36 alphabet is UTF-8")
+}
+
+/// Cache identity for full-source highlights used by expanded unchanged rows.
+#[must_use]
+pub fn highlighted_source_cache_key(
+    theme_id: &str,
+    syntax_theme_name: &str,
+    file: &DiffFile,
+    text: &str,
+) -> String {
+    format!(
+        "{theme_id}:{syntax_theme_name}:{}:{}:{}:{}",
+        file.runtime_id,
+        file.path,
+        file.language.as_deref().unwrap_or_default(),
+        source_text_fingerprint(text)
+    )
+}
+
 /// TextMate highlighter backed by syntect's Oniguruma-compatible engine.
 ///
 /// Cache identity includes full renderer metadata, alias mode, appearance, language, and theme.
@@ -477,6 +621,10 @@ pub struct HighlightCache {
     active_worker_job: Option<ActiveNativeHighlight>,
     pending_worker_keys: HashSet<String>,
     ready_worker_results: HashMap<String, CompactHighlightedDiff>,
+    source_entries: HighlightedSourceCache,
+    queued_source_jobs: VecDeque<QueuedNativeSourceHighlight>,
+    active_source_job: Option<ActiveNativeSourceHighlight>,
+    pending_source_keys: HashSet<String>,
 }
 
 impl Default for HighlightCache {
@@ -493,6 +641,10 @@ impl Default for HighlightCache {
             active_worker_job: None,
             pending_worker_keys: HashSet::new(),
             ready_worker_results: HashMap::new(),
+            source_entries: HighlightedSourceCache::new(MAX_HIGHLIGHTED_DIFF_CACHE_LINES),
+            queued_source_jobs: VecDeque::new(),
+            active_source_job: None,
+            pending_source_keys: HashSet::new(),
         }
     }
 }
@@ -933,6 +1085,143 @@ impl HighlightCache {
         highlighted
     }
 
+    /// Highlight one complete source snapshot immediately for deterministic/noninteractive
+    /// rendering. The cache identity matches Hunk's hook and includes all UTF-16 source bytes.
+    pub fn highlight_source_with_syntax_theme(
+        &mut self,
+        file: &DiffFile,
+        text: &str,
+        theme: SourceHighlightTheme<'_>,
+    ) -> HighlightedSourceCode {
+        let syntax_theme = self.ensure_syntax_highlight_theme_registered(
+            theme.appearance,
+            theme.syntax_theme,
+            theme.syntax_scope_overrides,
+        );
+        let key = highlighted_source_cache_key(theme.id, &syntax_theme, file, text);
+        if let Some(cached) = self.source_entries.get(&key) {
+            return cached;
+        }
+        let result = self
+            .source_highlight_job(key.clone(), file, text, &syntax_theme, theme.appearance)
+            .map_or_else(
+                || HighlightedSourceCode { lines: Vec::new() },
+                run_source_highlight_job,
+            );
+        self.source_entries.set(key, result.clone());
+        result
+    }
+
+    /// Read a full-source highlight without blocking the terminal loop. A missing result queues
+    /// one FIFO native job only when the expanded-gap surface is actually visible.
+    pub fn highlight_source_with_syntax_theme_live(
+        &mut self,
+        file: &DiffFile,
+        text: &str,
+        theme: SourceHighlightTheme<'_>,
+        should_load_highlight: bool,
+    ) -> Option<HighlightedSourceCode> {
+        self.poll_native_source_highlighter();
+        let syntax_theme = syntax_highlight_theme_name(
+            theme.appearance,
+            theme.syntax_theme,
+            theme.syntax_scope_overrides,
+        );
+        let key = highlighted_source_cache_key(theme.id, &syntax_theme, file, text);
+        if let Some(cached) = self.source_entries.get(&key) {
+            return Some(cached);
+        }
+        if !should_load_highlight || self.pending_source_keys.contains(&key) {
+            return None;
+        }
+        let registered_theme = self.ensure_syntax_highlight_theme_registered(
+            theme.appearance,
+            theme.syntax_theme,
+            theme.syntax_scope_overrides,
+        );
+        debug_assert_eq!(registered_theme, syntax_theme);
+        let Some(job) =
+            self.source_highlight_job(key.clone(), file, text, &registered_theme, theme.appearance)
+        else {
+            let empty = HighlightedSourceCode { lines: Vec::new() };
+            self.source_entries.set(key, empty.clone());
+            return Some(empty);
+        };
+        self.pending_source_keys.insert(key);
+        self.queued_source_jobs.push_back(job);
+        self.start_next_source_highlight();
+        None
+    }
+
+    fn source_highlight_job(
+        &self,
+        key: String,
+        file: &DiffFile,
+        text: &str,
+        syntax_theme: &str,
+        appearance: HighlightAppearance,
+    ) -> Option<QueuedNativeSourceHighlight> {
+        let theme = self
+            .themes
+            .themes
+            .get(syntax_theme)
+            .or_else(|| match appearance {
+                HighlightAppearance::Light => self.themes.themes.get("InspiredGitHub"),
+                HighlightAppearance::Dark => self.themes.themes.get("base16-ocean.dark"),
+            })
+            .or_else(|| self.themes.themes.values().next())?
+            .clone();
+        Some(QueuedNativeSourceHighlight {
+            key,
+            text: text.to_owned(),
+            language: file.language.clone().unwrap_or_default(),
+            path: file.path.clone(),
+            syntaxes: self.syntaxes.clone(),
+            theme,
+        })
+    }
+
+    fn start_next_source_highlight(&mut self) {
+        if self.active_source_job.is_some() {
+            return;
+        }
+        let Some(job) = self.queued_source_jobs.pop_front() else {
+            return;
+        };
+        let key = job.key.clone();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let spawn = std::thread::Builder::new()
+            .name("workdeck-source-highlight".into())
+            .spawn(move || {
+                let _ = sender.send(run_source_highlight_job(job));
+            });
+        if spawn.is_err() {
+            self.pending_source_keys.remove(&key);
+            self.source_entries
+                .set(key, HighlightedSourceCode { lines: Vec::new() });
+            self.start_next_source_highlight();
+            return;
+        }
+        self.active_source_job = Some(ActiveNativeSourceHighlight { key, receiver });
+    }
+
+    fn poll_native_source_highlighter(&mut self) {
+        let Some(active) = self.active_source_job.take() else {
+            return;
+        };
+        let result = match active.receiver.try_recv() {
+            Ok(result) => result,
+            Err(TryRecvError::Empty) => {
+                self.active_source_job = Some(active);
+                return;
+            }
+            Err(TryRecvError::Disconnected) => HighlightedSourceCode { lines: Vec::new() },
+        };
+        self.pending_source_keys.remove(&active.key);
+        self.source_entries.set(active.key, result);
+        self.start_next_source_highlight();
+    }
+
     pub fn len(&self) -> usize {
         self.entries.len()
     }
@@ -948,6 +1237,10 @@ impl HighlightCache {
         self.pending_worker_keys.clear();
         self.queued_worker_jobs.clear();
         self.active_worker_job = None;
+        self.source_entries.clear();
+        self.pending_source_keys.clear();
+        self.queued_source_jobs.clear();
+        self.active_source_job = None;
         self.worker_client.dispose();
     }
 
@@ -958,6 +1251,38 @@ impl HighlightCache {
         self.pending_worker_keys.clear();
         self.queued_worker_jobs.clear();
         self.active_worker_job = None;
+        self.pending_source_keys.clear();
+        self.queued_source_jobs.clear();
+        self.active_source_job = None;
+    }
+}
+
+fn run_source_highlight_job(job: QueuedNativeSourceHighlight) -> HighlightedSourceCode {
+    let syntax = job
+        .syntaxes
+        .find_syntax_by_token(&job.language)
+        .or_else(|| {
+            Path::new(&job.path)
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .and_then(|extension| job.syntaxes.find_syntax_by_extension(extension))
+        })
+        .unwrap_or_else(|| job.syntaxes.find_syntax_plain_text());
+    let lines = source_highlight_lines(&job.text);
+    HighlightedSourceCode {
+        lines: highlight_source_side(&lines, syntax, &job.theme, &job.syntaxes),
+    }
+}
+
+fn source_highlight_lines(text: &str) -> Vec<String> {
+    let normalized = text.replace("\r\n", "\n");
+    if normalized.is_empty() {
+        Vec::new()
+    } else {
+        normalized
+            .split_inclusive('\n')
+            .map(str::to_owned)
+            .collect()
     }
 }
 
@@ -1228,6 +1553,152 @@ mod tests {
                 .collect(),
         })
         .unwrap()
+    }
+
+    #[test]
+    fn source_text_fingerprint_matches_javascript_utf16_fnv1a() {
+        assert_eq!(source_text_fingerprint(""), "0:ztntfp");
+        assert_eq!(source_text_fingerprint("hello"), "5:m3bicr");
+        assert_eq!(source_text_fingerprint("🦀"), "2:1ghktbn");
+        assert_eq!(source_text_fingerprint("a🦀b"), "4:1iir1q8");
+        assert_eq!(source_text_fingerprint("line\r\n"), "6:13vvp18");
+    }
+
+    #[test]
+    fn expanded_source_cache_key_tracks_every_hook_identity_input() {
+        let file = identity_file("const answer = 42;\n", "example.ts");
+        let original = highlighted_source_cache_key("nord", "pierre-dark", &file, "one\n");
+        assert_eq!(
+            original,
+            highlighted_source_cache_key("nord", "pierre-dark", &file, "one\n")
+        );
+
+        let mut variants = Vec::new();
+        variants.push(highlighted_source_cache_key(
+            "github-dark-default",
+            "pierre-dark",
+            &file,
+            "one\n",
+        ));
+        variants.push(highlighted_source_cache_key(
+            "nord",
+            "workdeck-custom-theme",
+            &file,
+            "one\n",
+        ));
+        let mut changed = file.clone();
+        changed.runtime_id.push_str("-mounted-again");
+        variants.push(highlighted_source_cache_key(
+            "nord",
+            "pierre-dark",
+            &changed,
+            "one\n",
+        ));
+        changed = file.clone();
+        changed.path = "renamed.ts".into();
+        variants.push(highlighted_source_cache_key(
+            "nord",
+            "pierre-dark",
+            &changed,
+            "one\n",
+        ));
+        changed = file.clone();
+        changed.language = Some("tsx".into());
+        variants.push(highlighted_source_cache_key(
+            "nord",
+            "pierre-dark",
+            &changed,
+            "one\n",
+        ));
+        variants.push(highlighted_source_cache_key(
+            "nord",
+            "pierre-dark",
+            &file,
+            "two\n",
+        ));
+        assert!(variants.into_iter().all(|variant| variant != original));
+    }
+
+    #[test]
+    fn highlights_complete_expanded_source_with_crlf_normalization() {
+        let file = identity_file("pub fn answer() -> u8 { 42 }\n", "example.rs");
+        let mut cache = HighlightCache::default();
+        let highlighted = cache.highlight_source_with_syntax_theme(
+            &file,
+            "// hidden\r\npub fn answer() -> u8 { 42 }\r\n",
+            SourceHighlightTheme {
+                id: "github-dark-default",
+                appearance: HighlightAppearance::Dark,
+                syntax_theme: None,
+                syntax_scope_overrides: &[],
+            },
+        );
+        assert_eq!(highlighted.lines.len(), 2);
+        assert_eq!(
+            highlighted.lines[0]
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|token| token.text.as_str())
+                .collect::<String>(),
+            "// hidden"
+        );
+        let code = highlighted.lines[1].as_ref().unwrap();
+        assert_eq!(
+            code.iter()
+                .map(|token| token.text.as_str())
+                .collect::<String>(),
+            "pub fn answer() -> u8 { 42 }"
+        );
+        assert!(code.iter().any(|token| token.text.contains("pub")));
+        assert!(
+            code.windows(2)
+                .any(|tokens| tokens[0].foreground != tokens[1].foreground)
+        );
+    }
+
+    #[test]
+    fn live_expanded_source_loading_is_gated_deduplicated_and_fifo() {
+        let first = identity_file("const answer = 42;\n", "first.ts");
+        let second = identity_file("const answer = 42;\n", "second.ts");
+        let mut cache = HighlightCache::default();
+        let load = |cache: &mut HighlightCache, file: &DiffFile, text: &str, should_load| {
+            cache.highlight_source_with_syntax_theme_live(
+                file,
+                text,
+                SourceHighlightTheme {
+                    id: "github-dark-default",
+                    appearance: HighlightAppearance::Dark,
+                    syntax_theme: None,
+                    syntax_scope_overrides: &[],
+                },
+                should_load,
+            )
+        };
+
+        assert!(load(&mut cache, &first, "export const first = 1;\n", false).is_none());
+        assert!(cache.pending_source_keys.is_empty());
+        assert!(load(&mut cache, &first, "export const first = 1;\n", true).is_none());
+        assert!(load(&mut cache, &first, "export const first = 1;\n", true).is_none());
+        assert!(load(&mut cache, &second, "export const second = 2;\n", true).is_none());
+        assert_eq!(cache.pending_source_keys.len(), 2);
+        assert_eq!(cache.queued_source_jobs.len(), 1);
+
+        let mut first_result = None;
+        let mut second_result = None;
+        for _ in 0..10_000 {
+            first_result = load(&mut cache, &first, "export const first = 1;\n", true);
+            second_result = load(&mut cache, &second, "export const second = 2;\n", true);
+            if first_result.is_some() && second_result.is_some() {
+                break;
+            }
+            std::thread::yield_now();
+        }
+        assert!(first_result.is_some());
+        assert!(second_result.is_some());
+        assert!(cache.pending_source_keys.is_empty());
+        assert!(cache.queued_source_jobs.is_empty());
+        assert!(cache.active_source_job.is_none());
     }
 
     #[test]

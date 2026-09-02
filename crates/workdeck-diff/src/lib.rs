@@ -61,8 +61,9 @@ pub use source_backed_highlight::{
 };
 pub use syntax::{
     HighlightAppearance, HighlightCache, HighlightedDiffLine, HighlightedFile, HighlightedHunk,
-    HighlightedLine, PIERRE_DARK_THEME, PIERRE_LIGHT_THEME, SyntaxColor, SyntaxToken,
-    highlight_worker_cache_key, syntax_highlight_theme_name,
+    HighlightedLine, HighlightedSourceCode, PIERRE_DARK_THEME, PIERRE_LIGHT_THEME,
+    SourceHighlightTheme, SyntaxColor, SyntaxToken, highlight_worker_cache_key,
+    highlighted_source_cache_key, source_text_fingerprint, syntax_highlight_theme_name,
 };
 pub use terminal::{
     SanitizeOptions, TerminalSpan, format_terminal_path, sanitize_terminal_line,

@@ -89,7 +89,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
-use workdeck_core::{Changeset, DiffFile, DiffLine, DiffLineKind, ReviewSelection, ReviewSide};
+use workdeck_core::{
+    Changeset, DiffFile, DiffLine, DiffLineKind, FileChangeKind, ReviewSelection, ReviewSide,
+};
 use workdeck_diff::{
     DIFF_RAIL_PREFIX_WIDTH, HighlightCache, HighlightedDiffLine, SyntaxToken, TextSegment,
     clip_segments, expand_diff_tabs, plan_split_line_pairs, resolve_split_cell_geometry,
@@ -1192,6 +1194,50 @@ fn build_review_rows_with_chrome(
         } else {
             Vec::new()
         };
+        let expanded_source = expanded_gaps
+            .iter()
+            .any(|(file_key, _)| file_key == &file.key)
+            .then(|| {
+                if file.change_kind == FileChangeKind::Deleted {
+                    file.sources.old.as_ref().or(file.sources.new.as_ref())
+                } else {
+                    file.sources.new.as_ref().or(file.sources.old.as_ref())
+                }
+            })
+            .flatten();
+        let highlighted_source = expanded_source.and_then(|source| {
+            if !options.highlight {
+                return None;
+            }
+            let appearance = match options.theme.appearance {
+                ThemeAppearance::Light => workdeck_diff::HighlightAppearance::Light,
+                ThemeAppearance::Dark => workdeck_diff::HighlightAppearance::Dark,
+            };
+            if live {
+                highlight_cache.highlight_source_with_syntax_theme_live(
+                    file,
+                    &source.content,
+                    workdeck_diff::SourceHighlightTheme {
+                        id: &options.theme.id,
+                        appearance,
+                        syntax_theme: options.theme.syntax_theme.as_deref(),
+                        syntax_scope_overrides: &options.theme.syntax_scope_overrides,
+                    },
+                    true,
+                )
+            } else {
+                Some(highlight_cache.highlight_source_with_syntax_theme(
+                    file,
+                    &source.content,
+                    workdeck_diff::SourceHighlightTheme {
+                        id: &options.theme.id,
+                        appearance,
+                        syntax_theme: options.theme.syntax_theme.as_deref(),
+                        syntax_scope_overrides: &options.theme.syntax_scope_overrides,
+                    },
+                ))
+            }
+        });
         if options.agent_notes {
             rows.extend(agent_rows(file, layout, usize::from(width)));
         }
@@ -1231,6 +1277,7 @@ fn build_review_rows_with_chrome(
                 options,
                 width,
                 expanded_gaps,
+                highlighted_source.as_ref(),
             ));
             if hunk_index > 0 {
                 rows.extend((0..options.hunk_gap).map(|_| Line::default()));
@@ -1306,6 +1353,7 @@ fn build_review_rows_with_chrome(
                 options,
                 width,
                 expanded_gaps,
+                highlighted_source.as_ref(),
             ));
         }
     }
@@ -1330,6 +1378,7 @@ fn source_gap_rows(
     options: &ReviewOptions,
     width: u16,
     expanded_gaps: &BTreeSet<(String, usize)>,
+    highlighted_source: Option<&workdeck_diff::HighlightedSourceCode>,
 ) -> Vec<Line<'static>> {
     let old_source = file.sources.old.as_ref();
     let new_source = file.sources.new.as_ref();
@@ -1376,6 +1425,15 @@ fn source_gap_rows(
                 .map(String::as_str)
         });
         let content = new_content.or(old_content).unwrap_or_default().to_owned();
+        let source_number = if file.change_kind == FileChangeKind::Deleted {
+            old_number
+        } else {
+            new_number
+        };
+        let highlighted = source_number
+            .and_then(|line| usize::try_from(line.saturating_sub(1)).ok())
+            .and_then(|index| highlighted_source?.lines.get(index))
+            .and_then(Option::as_ref);
         let kind = match (old_content.is_some(), new_content.is_some()) {
             (true, false) => DiffLineKind::Deletion,
             (false, true) => DiffLineKind::Addition,
@@ -1390,9 +1448,14 @@ fn source_gap_rows(
             no_newline_at_eof: false,
         };
         match layout {
-            LayoutMode::Stack | LayoutMode::Auto => {
-                rows.extend(stack_line_rows(&line, options, None, &[], false, width))
-            }
+            LayoutMode::Stack | LayoutMode::Auto => rows.extend(stack_line_rows(
+                &line,
+                options,
+                highlighted,
+                &[],
+                false,
+                width,
+            )),
             LayoutMode::Split => {
                 let available = usize::from(width.saturating_sub(1));
                 let left_width = available / 2;
@@ -1400,12 +1463,12 @@ fn source_gap_rows(
                 rows.extend(split_pair_rows(
                     SplitCellInput {
                         line: old_content.map(|_| &line),
-                        highlighted: None,
+                        highlighted,
                         emphasis: &[],
                     },
                     SplitCellInput {
                         line: new_content.map(|_| &line),
-                        highlighted: None,
+                        highlighted,
                         emphasis: &[],
                     },
                     options,
@@ -2538,6 +2601,63 @@ mod tests {
         assert!(expanded_text.contains("one"));
         assert!(expanded_text.contains("two"));
         assert!(expanded_text.contains("1 unchanged lines"));
+    }
+
+    #[test]
+    fn expanded_source_rows_use_full_source_syntax_spans() {
+        let mut changeset = parse_patch(
+            "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -3 +3 @@\n-old\n+new\n",
+            "source-highlight",
+            "Expanded source highlight",
+            ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap();
+        let file_key = changeset.files[0].key.clone();
+        changeset.files[0].set_sources(FileSourceSnapshots {
+            old: Some(SourceSnapshot::new(
+                "// hidden\npub fn marker() {}\nold\n".into(),
+                SourceOrigin::Revision {
+                    revision: "HEAD".into(),
+                },
+                true,
+            )),
+            new: Some(SourceSnapshot::new(
+                "// hidden\npub fn marker() {}\nnew\n".into(),
+                SourceOrigin::WorkingTree,
+                false,
+            )),
+        });
+        let options = ReviewOptions {
+            layout: LayoutMode::Stack,
+            sidebar: false,
+            line_numbers: false,
+            ..ReviewOptions::default()
+        };
+        let mut highlights = HighlightCache::default();
+        let rows = build_review_rows(
+            &changeset,
+            &[],
+            ReviewSelection::default(),
+            LayoutMode::Stack,
+            &options,
+            80,
+            &mut highlights,
+            &BTreeSet::from([(file_key, 0)]),
+        );
+        let source_row = rows
+            .lines
+            .iter()
+            .find(|line| line.to_string().contains("pub fn marker"))
+            .expect("expanded source row is rendered");
+        let base_foreground = ratatui_theme_color(&options.theme.text);
+        assert!(
+            source_row.spans.iter().any(|span| {
+                span.content.contains("pub") && span.style.fg != Some(base_foreground)
+            }),
+            "expanded source spans: {:?}; base foreground: {:?}",
+            source_row.spans,
+            base_foreground
+        );
     }
 
     #[test]
