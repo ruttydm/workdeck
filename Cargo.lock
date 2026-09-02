@@ -2880,6 +2880,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "toml",
+ "toml_edit",
  "workdeck-core",
  "workdeck-diff",
  "workdeck-extension-api",

@@ -3,6 +3,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use workdeck_diff::sanitize_terminal_line;
+use workdeck_tui::{UserKeyBinding, UserKeyBindingEntry};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
@@ -18,6 +20,12 @@ pub struct Config {
     pub review: ReviewConfig,
     #[serde(default)]
     pub keys: KeyConfig,
+    /// Hunk-compatible command bindings from the global user layer only.
+    #[serde(skip)]
+    pub keybindings: Vec<UserKeyBindingEntry>,
+    /// Unsupported values ignored while reading `[keybindings]`.
+    #[serde(skip)]
+    pub keybinding_notices: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -289,8 +297,11 @@ impl Config {
         user_config_path: Option<&Path>,
     ) -> Result<Self> {
         let mut merged = toml::Value::Table(Default::default());
+        let mut keybindings = Vec::new();
+        let mut keybinding_notices = Vec::new();
 
         if let Some(path) = user_config_path.filter(|path| path.exists()) {
+            (keybindings, keybinding_notices) = read_user_keybindings(path)?;
             let user = read_config_value(path)?;
             merge_toml_values(&mut merged, user);
         }
@@ -300,9 +311,11 @@ impl Config {
             merge_toml_values(&mut merged, repo);
         }
 
-        let config: Self = merged
+        let mut config: Self = merged
             .try_into()
             .with_context(|| "failed to parse merged config")?;
+        config.keybindings = keybindings;
+        config.keybinding_notices = keybinding_notices;
         config
             .validate()
             .with_context(|| "invalid Workdeck config")?;
@@ -344,6 +357,55 @@ impl Config {
         }
         self.keys.validate()
     }
+}
+
+fn read_user_keybindings(path: &Path) -> Result<(Vec<UserKeyBindingEntry>, Vec<String>)> {
+    let raw = fs::read_to_string(path)
+        .with_context(|| format!("failed to read config at {}", path.display()))?;
+    let document = raw
+        .parse::<toml_edit::DocumentMut>()
+        .with_context(|| format!("failed to parse {}", path.display()))?;
+    let Some(item) = document.get("keybindings") else {
+        return Ok((Vec::new(), Vec::new()));
+    };
+    let Some(table) = item.as_table_like() else {
+        bail!("Expected keybindings to contain a TOML table.");
+    };
+    let mut bindings = Vec::new();
+    let mut unusable = Vec::new();
+    for (command_id, item) in table.iter() {
+        let Some(value) = item.as_value() else {
+            unusable.push(command_id.to_owned());
+            continue;
+        };
+        let binding = if let Some(chord) = value.as_str() {
+            Some(UserKeyBinding::Chord(chord.into()))
+        } else if value.as_bool() == Some(false) {
+            Some(UserKeyBinding::Disabled)
+        } else if let Some(chords) = value.as_array() {
+            chords
+                .iter()
+                .map(|value| value.as_str().map(str::to_owned))
+                .collect::<Option<Vec<_>>>()
+                .map(UserKeyBinding::Chords)
+        } else {
+            None
+        };
+        match binding {
+            Some(binding) => bindings.push(UserKeyBindingEntry::new(command_id, binding)),
+            None => unusable.push(command_id.to_owned()),
+        }
+    }
+    let notices = if unusable.is_empty() {
+        Vec::new()
+    } else {
+        unusable.sort();
+        let listed = sanitize_terminal_line(&unusable.join(", "));
+        vec![format!(
+            "Ignored [keybindings] entries with unsupported values: {listed}. Use a chord string, a list of chords, or false to unbind."
+        )]
+    };
+    Ok((bindings, notices))
 }
 
 fn read_config_value(path: &Path) -> Result<toml::Value> {
@@ -682,6 +744,69 @@ mod tests {
         let config = Config::load_from_paths(&repo_config, Some(&user_config)).unwrap();
 
         assert_eq!(config.paths.data_dir, PathBuf::from(".workdeck"));
+    }
+
+    #[test]
+    fn command_keybindings_load_from_user_layer_only_in_declaration_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let user_config = dir.path().join("user-config.toml");
+        let repo_config = dir.path().join("repo-config.toml");
+        fs::write(
+            &user_config,
+            r#"
+            [keybindings]
+            "workdeck.app.quit" = "ctrl+q"
+            "workdeck.review.nextHunk" = ["n", "ctrl+n"]
+            "workdeck.view.toggleFilesPane" = false
+            "bad.boolean" = true
+            "bad.array" = ["q", 1]
+            "#,
+        )
+        .unwrap();
+        fs::write(
+            &repo_config,
+            r#"
+            [keybindings]
+            "workdeck.app.quit" = "x"
+            "repo.command" = "y"
+            "#,
+        )
+        .unwrap();
+
+        let config = Config::load_from_paths(&repo_config, Some(&user_config)).unwrap();
+        assert_eq!(
+            config.keybindings,
+            [
+                UserKeyBindingEntry::new(
+                    "workdeck.app.quit",
+                    UserKeyBinding::Chord("ctrl+q".into()),
+                ),
+                UserKeyBindingEntry::new(
+                    "workdeck.review.nextHunk",
+                    UserKeyBinding::Chords(vec!["n".into(), "ctrl+n".into()]),
+                ),
+                UserKeyBindingEntry::new("workdeck.view.toggleFilesPane", UserKeyBinding::Disabled,),
+            ]
+        );
+        assert_eq!(config.keybinding_notices.len(), 1);
+        assert!(config.keybinding_notices[0].contains("bad.array, bad.boolean"));
+        assert!(!config.keybindings.iter().any(|entry| {
+            entry.command_id == "repo.command"
+                || matches!(&entry.binding, UserKeyBinding::Chord(chord) if chord == "x")
+        }));
+    }
+
+    #[test]
+    fn command_keybindings_require_a_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let user_config = dir.path().join("user-config.toml");
+        let repo_config = dir.path().join("missing-repo-config.toml");
+        fs::write(&user_config, "keybindings = 'ctrl+q'\n").unwrap();
+
+        let error = Config::load_from_paths(&repo_config, Some(&user_config))
+            .unwrap_err()
+            .to_string();
+        assert_eq!(error, "Expected keybindings to contain a TOML table.");
     }
 
     #[test]

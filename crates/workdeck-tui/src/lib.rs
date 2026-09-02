@@ -178,6 +178,8 @@ pub struct ReviewOptions {
     pub command_cwd: Option<PathBuf>,
     /// Ordered user command bindings; ordering decides conflicting explicit claims.
     pub keybindings: Vec<UserKeyBindingEntry>,
+    /// Non-fatal diagnostics produced while reading the user's binding table.
+    pub keybinding_notices: Vec<String>,
     pub extension_panes: Vec<ExtensionPaneView>,
     pub extension_notifications: Option<ExtensionNotificationHub>,
 }
@@ -205,6 +207,7 @@ impl Default for ReviewOptions {
             repo: None,
             command_cwd: None,
             keybindings: Vec::new(),
+            keybinding_notices: Vec::new(),
             extension_panes: Vec::new(),
             extension_notifications: None,
         }
@@ -562,14 +565,16 @@ impl ReviewApp {
             }
         }));
         let resolved_command_keys = resolve_command_keys(&command_defaults, &options.keybindings);
-        let keymap_status = (!resolved_command_keys.issues.is_empty()).then(|| {
-            resolved_command_keys
-                .issues
-                .iter()
-                .map(|issue| issue.message.as_str())
-                .collect::<Vec<_>>()
-                .join(" • ")
-        });
+        let keymap_status = {
+            let mut notices = options.keybinding_notices.clone();
+            notices.extend(
+                resolved_command_keys
+                    .issues
+                    .iter()
+                    .map(|issue| issue.message.clone()),
+            );
+            (!notices.is_empty()).then(|| notices.join(" • "))
+        };
         let mut app = Self {
             state: Arc::new(Mutex::new(state)),
             options,
@@ -7443,6 +7448,26 @@ mod tests {
                 .key_labels,
             ["x"]
         );
+    }
+
+    #[test]
+    fn config_keybinding_notices_share_the_runtime_diagnostic_surface() {
+        let app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                keybinding_notices: vec![
+                    "Ignored [keybindings] entries with unsupported values: bad.boolean.".into(),
+                ],
+                keybindings: vec![UserKeyBindingEntry::new(
+                    "workdeck.app.quit",
+                    UserKeyBinding::Chord("not-a-chord".into()),
+                )],
+                ..ReviewOptions::default()
+            },
+        );
+        let status = app.status.as_deref().expect("keybinding diagnostics");
+        assert!(status.contains("bad.boolean"));
+        assert!(status.contains("not-a-chord"));
     }
 
     #[test]

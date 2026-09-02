@@ -44,7 +44,7 @@ use workdeck_session::{
     decode_snapshot, default_discovery_directory, normalize_session_selector,
     repo_selector_distance,
 };
-use workdeck_tui::{CursorLineMode, ReviewOptions};
+use workdeck_tui::{CursorLineMode, ReviewOptions, UserKeyBindingEntry};
 use workdeck_vcs::{
     AnyProvider, DiffRequest, GitProvider, ProviderPreference, VcsProvider, parse_patch_input,
 };
@@ -567,6 +567,10 @@ struct ReviewCliOptions {
     no_extensions: bool,
     #[arg(skip)]
     color_moved: Option<bool>,
+    #[arg(skip)]
+    keybindings: Vec<UserKeyBindingEntry>,
+    #[arg(skip)]
+    keybinding_notices: Vec<String>,
 }
 
 impl ReviewCliOptions {
@@ -611,6 +615,8 @@ impl ReviewCliOptions {
             extension: Vec::new(),
             no_extensions: false,
             color_moved: config.review.color_moved,
+            keybindings: config.keybindings.clone(),
+            keybinding_notices: config.keybinding_notices.clone(),
         }
     }
 
@@ -654,6 +660,8 @@ impl ReviewCliOptions {
             self.theme = configured.theme;
         }
         self.color_moved = self.color_moved.or(configured.color_moved);
+        self.keybindings = configured.keybindings;
+        self.keybinding_notices = configured.keybinding_notices;
     }
 
     fn preference(&self) -> ProviderPreference {
@@ -695,7 +703,8 @@ impl ReviewCliOptions {
             theme,
             repo: None,
             command_cwd: None,
-            keybindings: Vec::new(),
+            keybindings: self.keybindings.clone(),
+            keybinding_notices: self.keybinding_notices.clone(),
             extension_panes: Vec::new(),
             extension_notifications: None,
         }
@@ -814,6 +823,23 @@ mod review_cli_option_tests {
         assert_eq!(common.vcs, None);
         assert_eq!(common.watch, Some(false));
         assert_eq!(common.extensions, Some(false));
+    }
+
+    #[test]
+    fn user_command_bindings_flow_from_config_into_review_options() {
+        let config = Config {
+            keybindings: vec![UserKeyBindingEntry::new(
+                "workdeck.app.quit",
+                workdeck_tui::UserKeyBinding::Chord("ctrl+q".into()),
+            )],
+            keybinding_notices: vec!["ignored invalid binding".into()],
+            ..Config::default()
+        };
+
+        let review = ReviewCliOptions::from_config(&config);
+        let tui = review.tui_options();
+        assert_eq!(tui.keybindings, config.keybindings);
+        assert_eq!(tui.keybinding_notices, config.keybinding_notices);
     }
 }
 
