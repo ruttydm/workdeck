@@ -8,5 +8,6 @@ pub mod store;
 pub mod syntax;
 pub mod tui;
 pub mod update;
+pub mod update_notice;
 pub mod version;
 pub mod views;

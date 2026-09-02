@@ -745,12 +745,13 @@ fn preview_title(app: &App, title: &str) -> String {
 }
 
 fn render_status(app: &App, area: Rect, frame: &mut Frame) {
+    let message = app.startup_notice.as_deref().unwrap_or(&app.status_message);
     let status = trim_end(
         &format!(
             " {}  |  {}  |  {}",
             context_summary(app),
             key_hint(app),
-            app.status_message
+            message
         ),
         area.width as usize,
     );
@@ -1681,6 +1682,23 @@ mod tests {
         assert!(!rendered.contains("file_0.rs"));
     }
 
+    #[test]
+    fn startup_notice_temporarily_owns_the_shared_footer_surface() {
+        let mut terminal = Terminal::new(TestBackend::new(240, 12)).unwrap();
+        let mut app = test_app();
+        app.status_message = "ordinary status".into();
+        app.startup_notice = Some("Update available: 9.9.9".into());
+        let highlighter = SyntaxHighlighter::default();
+
+        terminal
+            .draw(|frame| render(&app, &highlighter, frame))
+            .unwrap();
+
+        let rendered = format!("{:?}", terminal.backend().buffer());
+        assert!(rendered.contains("Update available: 9.9.9"));
+        assert!(!rendered.contains("ordinary status"));
+    }
+
     fn test_app() -> App {
         let change = ChangeEntry {
             path: PathBuf::from("src/main.rs"),
@@ -1712,6 +1730,7 @@ mod tests {
             help_visible: false,
             search_query: String::new(),
             status_message: String::new(),
+            startup_notice: None,
             loading: false,
             refresh_pending: false,
             refresh_generation: 0,

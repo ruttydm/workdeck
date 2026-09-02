@@ -37,6 +37,7 @@ workdeck-migration = { path = "../workdeck-migration" }
 workdeck-markup = { path = "../workdeck-markup" }
 workdeck-review = { path = "../workdeck-review" }
 workdeck-session = { path = "../workdeck-session" }
+workdeck-store = { path = "../workdeck-store" }
 workdeck-tui = { path = "../workdeck-tui" }
 workdeck-vcs = { path = "../workdeck-vcs" }
 

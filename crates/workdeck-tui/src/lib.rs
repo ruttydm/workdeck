@@ -18,10 +18,12 @@ mod menu;
 mod mouse_scroll;
 mod shutdown;
 mod spatial;
+mod startup_notices;
 mod synthetic_key_event;
 mod terminal_runtime;
 mod text;
 mod theme_detection;
+mod timed_notice;
 mod ui_geometry;
 
 pub use agent_annotations::*;
@@ -42,10 +44,12 @@ pub use menu::*;
 pub use mouse_scroll::*;
 pub use shutdown::*;
 pub use spatial::*;
+pub use startup_notices::*;
 pub use synthetic_key_event::*;
 pub use terminal_runtime::*;
 pub use text::*;
 pub use theme_detection::*;
+pub use timed_notice::*;
 pub use ui_geometry::*;
 
 use anyhow::Result;

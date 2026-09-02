@@ -18,7 +18,12 @@ use std::panic;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
+use workdeck_core::StartupNotice;
 use workdeck_session::{ReviewSessionServer, default_discovery_directory};
+use workdeck_tui::{
+    DEFAULT_STARTUP_NOTICE_DELAY, DEFAULT_STARTUP_NOTICE_DURATION, DEFAULT_STARTUP_NOTICE_REPEAT,
+    StartupNoticeQueue,
+};
 use workdeck_vcs::{AnyProvider, DiffRequest, ProviderPreference, VcsProvider};
 
 pub fn run(mut app: App) -> Result<()> {
@@ -123,9 +128,13 @@ fn run_loop(
 ) -> Result<()> {
     let (refresh_tx, refresh_rx) = mpsc::channel();
     let (preview_tx, preview_rx) = mpsc::channel();
+    let (notice_tx, notice_rx) = mpsc::channel();
     spawn_refresh(app, refresh_tx.clone());
     let mut next_auto_refresh = next_auto_refresh_deadline(app);
     let mut next_review_reload = Instant::now() + Duration::from_millis(250);
+    let mut startup_notices = StartupNoticeQueue::new(true, DEFAULT_STARTUP_NOTICE_DURATION);
+    let mut notice_lookup_in_flight = false;
+    let mut next_notice_check = Instant::now() + DEFAULT_STARTUP_NOTICE_DELAY;
 
     loop {
         if review_session.is_some_and(|session| {
@@ -139,6 +148,20 @@ fn run_loop(
         maybe_spawn_auto_refresh(app, &refresh_tx, &mut next_auto_refresh);
         drain_preview_results(app, &preview_rx);
         spawn_preview_if_needed(app, preview_tx.clone());
+        drain_startup_notice_results(
+            app,
+            &notice_rx,
+            &mut startup_notices,
+            &mut notice_lookup_in_flight,
+        );
+        maybe_spawn_startup_notice_lookup(
+            &notice_tx,
+            &mut notice_lookup_in_flight,
+            &mut next_notice_check,
+        );
+        if startup_notices.tick(Instant::now()) {
+            sync_startup_notice(app, &startup_notices);
+        }
         let session_reload = review_session.is_some_and(|session| {
             session
                 .reload_signal()
@@ -177,6 +200,49 @@ fn run_loop(
             | Event::FocusLost
             | Event::Paste(_) => {}
         }
+    }
+}
+
+fn maybe_spawn_startup_notice_lookup(
+    sender: &Sender<Option<StartupNotice>>,
+    in_flight: &mut bool,
+    next_check: &mut Instant,
+) {
+    let now = Instant::now();
+    if now < *next_check {
+        return;
+    }
+    *next_check = now + DEFAULT_STARTUP_NOTICE_REPEAT;
+    if *in_flight {
+        return;
+    }
+    *in_flight = true;
+    let sender = sender.clone();
+    thread::spawn(move || {
+        let notice = crate::update_notice::StartupUpdateNoticeContext::current()
+            .ok()
+            .and_then(|context| crate::update_notice::resolve_startup_update_notice(&context));
+        let _ = sender.send(notice);
+    });
+}
+
+fn drain_startup_notice_results(
+    app: &mut App,
+    receiver: &Receiver<Option<StartupNotice>>,
+    queue: &mut StartupNoticeQueue,
+    in_flight: &mut bool,
+) {
+    while let Ok(notice) = receiver.try_recv() {
+        *in_flight = false;
+        queue.enqueue(notice, Instant::now());
+    }
+    sync_startup_notice(app, queue);
+}
+
+fn sync_startup_notice(app: &mut App, queue: &StartupNoticeQueue) {
+    let text = queue.text().map(str::to_owned);
+    if app.startup_notice != text {
+        app.startup_notice = text;
     }
 }
 
