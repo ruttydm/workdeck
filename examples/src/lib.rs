@@ -32,12 +32,24 @@ pub mod pager_tour_after;
 #[path = "../5-pager-tour/before.rs"]
 pub mod pager_tour_before;
 
+#[path = "../6-readme-screenshot/after/src/index.rs"]
+pub mod readme_screenshot_after;
+#[path = "../6-readme-screenshot/before/src/index.rs"]
+pub mod readme_screenshot_before;
+
 #[cfg(test)]
 #[path = "../3-agent-review-demo/after/test/search_demo.rs"]
 mod agent_review_after_demo;
 #[cfg(test)]
 #[path = "../3-agent-review-demo/before/test/search_demo.rs"]
 mod agent_review_before_demo;
+
+#[cfg(test)]
+#[path = "../6-readme-screenshot/after/test/review_summary_card_demo.rs"]
+mod readme_screenshot_after_demo;
+#[cfg(test)]
+#[path = "../6-readme-screenshot/before/test/review_summary_card_demo.rs"]
+mod readme_screenshot_before_demo;
 
 #[cfg(test)]
 mod patch_tests {
@@ -140,6 +152,52 @@ mod patch_tests {
             5
         );
         assert!(!patch.contains("bun:test"));
+        assert!(!patch.contains(".ts"));
+    }
+
+    #[test]
+    fn readme_screenshot_patch_and_sidecar_form_a_three_file_rust_review() {
+        let patch = include_str!("../6-readme-screenshot/change.patch");
+        let mut changeset = parse_patch(
+            patch,
+            "readme-screenshot",
+            "README screenshot",
+            ChangesetSource::Patch {
+                label: "readme-screenshot".into(),
+            },
+        )
+        .expect("translated screenshot patch parses");
+        assert_eq!(
+            changeset
+                .files
+                .iter()
+                .map(|file| file.path.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "src/components/review_summary_card.rs",
+                "src/lib/review_copy.rs",
+                "test/review_summary_card_demo.rs",
+            ]
+        );
+        let context = workdeck_core::AgentContext::from_json(include_str!(
+            "../6-readme-screenshot/agent-context.json"
+        ))
+        .expect("translated screenshot agent context validates");
+        context.apply_to(&mut changeset);
+
+        assert_eq!(changeset.files.len(), 3);
+        assert!(changeset.files.iter().all(|file| file.agent.is_some()));
+        assert_eq!(
+            changeset
+                .files
+                .iter()
+                .filter_map(|file| file.agent.as_ref())
+                .flat_map(|context| &context.annotations)
+                .count(),
+            3
+        );
+        assert!(!patch.contains("bun:test"));
+        assert!(!patch.contains(".tsx"));
         assert!(!patch.contains(".ts"));
     }
 }
