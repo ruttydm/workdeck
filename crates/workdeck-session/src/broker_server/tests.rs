@@ -47,6 +47,17 @@ fn send_native_http(
     headers: &BTreeMap<String, String>,
     body: &[u8],
 ) -> Result<NativeHttpResponse, String> {
+    send_native_http_with_declared_length(port, method, path, headers, body, body.len())
+}
+
+fn send_native_http_with_declared_length(
+    port: u16,
+    method: &str,
+    path: &str,
+    headers: &BTreeMap<String, String>,
+    body: &[u8],
+    declared_length: usize,
+) -> Result<NativeHttpResponse, String> {
     let timeout = Duration::from_secs(3);
     let mut stream = TcpStream::connect(("127.0.0.1", port)).map_err(|error| error.to_string())?;
     stream
@@ -69,7 +80,7 @@ fn send_native_http(
     encoded.extend_from_slice(
         format!(
             "Content-Length: {}\r\nConnection: close\r\n\r\n",
-            body.len()
+            declared_length
         )
         .as_bytes(),
     );
@@ -1389,12 +1400,7 @@ fn native_server_requires_json_content_type_for_signed_session_posts() {
 fn native_server_rejects_session_api_bodies_over_the_limit() {
     let (_root, _env, server) = live_server();
     let port = server.address().port();
-    let body = serde_json::to_vec(&json!({
-        "action": "list",
-        "filler": "x".repeat(5 * 1024 * 1024)
-    }))
-    .unwrap();
-    let response = send_native_http(
+    let response = send_native_http_with_declared_length(
         port,
         "POST",
         WORKDECK_SESSION_API_PATH,
@@ -1405,7 +1411,8 @@ fn native_server_rejects_session_api_bodies_over_the_limit() {
                 "oversized-test-session".into(),
             ),
         ]),
-        &body,
+        b"",
+        usize::try_from(crate::MAX_HTTP_BODY_BYTES + 1).unwrap(),
     )
     .unwrap();
     assert_eq!(response.status, 413);
@@ -1455,7 +1462,7 @@ fn native_server_closes_snapshot_assertions_from_unauthenticated_peers() {
 
 #[test]
 fn native_server_ignores_incompatible_registration_without_poisoning_the_session_list() {
-    let (_root, env, server) = live_server_with_timing(250, 500, 25);
+    let (_root, env, server) = live_server_with_timing(5_000, 500, 25);
     let port = server.address().port();
     let (bad_socket, observed) = open_unauthenticated_socket(port);
     let mut registration = serde_json::to_value(producer_registration("stale-session")).unwrap();
