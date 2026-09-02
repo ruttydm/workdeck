@@ -8,6 +8,8 @@ Command invocations, keyboard-mode lifecycle/key requests, and dialog continuati
 
 Each command invocation also carries a frozen provider-neutral `selection`: the selected extension file, a hunk index clamped to that file's actual hunks, and an optional one-based source line. Missing, filtered-out, binary, and stale selections resolve to explicit null fields. Rust ownership replaces JavaScript object freezing, so retained handlers cannot mutate the review through the snapshot.
 
+Review navigation is guarded again when a declarative action reaches the host. Targets resolve from the files visible at that moment, hunk indexes clamp to the live file, invalid addresses are refused, and an absent source line produces an attributed warning. Navigation returned by a command from a retired review generation is discarded with the reload warning; a line hidden inside a collapsed region may still land quietly on its containing hunk.
+
 ## Clickable pane rows
 
 An extension wraps a declarative `ViewNode` in `ViewNode::Action { id, child }`. Ratatui renders the child, records its visible cell rectangle, and sends `workdeck/pane/action` with the pane ID, action ID, current review snapshot, semantic saved-note snapshot, working directory, and open panes. The extension answers with ordinary validated host actions. Action IDs are local opaque values, limited to 1,024 bytes; they cannot carry executable callbacks across the process boundary.

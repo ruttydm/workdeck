@@ -13,6 +13,7 @@ mod current_review_refresh;
 mod cursor_highlight;
 mod extension_command_controls;
 mod extension_dialogs;
+mod extension_navigation;
 mod extension_notifications;
 mod extension_panes;
 mod extension_trust_controller;
@@ -69,6 +70,7 @@ pub use command_keys::*;
 pub use current_review_controller::*;
 pub use current_review_refresh::*;
 pub use cursor_highlight::*;
+pub use extension_navigation::*;
 pub use extension_notifications::*;
 pub use extension_panes::*;
 pub use extension_trust_controller::*;
@@ -1796,6 +1798,20 @@ impl ReviewApp {
         let current_generation = self.extension_command_epoch;
         let mut live_actions = Vec::with_capacity(actions.len());
         for action in actions {
+            if current_generation != pending.review_generation {
+                let stale_method = match &action {
+                    ExtensionHostAction::SelectReviewFile { .. } => Some("selectFile"),
+                    ExtensionHostAction::SelectReviewHunk { .. } => Some("selectHunk"),
+                    ExtensionHostAction::RevealReviewLine { .. } => Some("revealLine"),
+                    _ => None,
+                };
+                if let Some(method) = stale_method {
+                    self.status = Some(
+                        extension_navigation_reloaded_warning(&pending.extension_id, method).0,
+                    );
+                    continue;
+                }
+            }
             if current_generation != pending.review_generation
                 && let ExtensionHostAction::RequestWorkspaceWrite { request_id, .. } = action
             {
@@ -3147,31 +3163,34 @@ impl ReviewApp {
         true
     }
 
-    fn extension_review_file_index(&self, file_id: &str) -> Option<usize> {
-        self.with_state(|state| {
-            state
+    fn select_extension_review_file(&mut self, extension_id: &str, file_id: &str) {
+        let target = self.with_state(|state| {
+            let files = state
                 .changeset()
                 .files
                 .iter()
-                .position(|file| file.runtime_id == file_id)
-        })
-    }
-
-    fn select_extension_review_file(&mut self, extension_id: &str, file_id: &str) {
-        let Some(file_index) = self.extension_review_file_index(file_id) else {
-            self.status = Some(format!(
-                "extension {extension_id}: warning: review file is no longer available"
-            ));
-            return;
+                .map(|file| NavigableFile {
+                    id: &file.runtime_id,
+                    hunk_count: file.hunks.len(),
+                })
+                .collect::<Vec<_>>();
+            guard_extension_select_file(extension_id, &files, true, file_id)
+        });
+        let target = match target {
+            Ok(target) => target,
+            Err(warning) => {
+                self.status = Some(warning.0);
+                return;
+            }
         };
-        if self
-            .with_state(|state| state.select_file(file_index))
-            .is_ok()
-        {
-            self.reconcile_active_file_view_mode();
-            self.scroll_to_selection();
-            self.publish_extension_selection_events();
+        if let Err(error) = self.with_state(|state| state.select_file(target.file_index)) {
+            self.status =
+                Some(extension_navigation_callback_warning(extension_id, "selectFile", error).0);
+            return;
         }
+        self.reconcile_active_file_view_mode();
+        self.scroll_to_selection();
+        self.publish_extension_selection_events();
     }
 
     fn toggle_extension_file_view(
@@ -3657,16 +3676,36 @@ impl ReviewApp {
         file_id: &str,
         hunk_index: usize,
     ) {
-        let Some(file_index) = self.extension_review_file_index(file_id) else {
-            self.status = Some(format!(
-                "extension {extension_id}: warning: review file is no longer available"
-            ));
-            return;
+        let target = self.with_state(|state| {
+            let files = state
+                .changeset()
+                .files
+                .iter()
+                .map(|file| NavigableFile {
+                    id: &file.runtime_id,
+                    hunk_count: file.hunks.len(),
+                })
+                .collect::<Vec<_>>();
+            guard_extension_select_hunk(
+                extension_id,
+                &files,
+                true,
+                file_id,
+                Some(hunk_index as f64),
+            )
+        });
+        let target = match target {
+            Ok(target) => target,
+            Err(warning) => {
+                self.status = Some(warning.0);
+                return;
+            }
         };
-        if let Err(error) = self.with_state(|state| state.select_hunk(file_index, hunk_index)) {
-            self.status = Some(format!(
-                "extension {extension_id}: warning: review target is unavailable: {error}"
-            ));
+        if let Err(error) =
+            self.with_state(|state| state.select_hunk(target.file_index, target.hunk_index))
+        {
+            self.status =
+                Some(extension_navigation_callback_warning(extension_id, "selectHunk", error).0);
             return;
         }
         self.scroll_to_selection();
@@ -3680,16 +3719,48 @@ impl ReviewApp {
         side: ReviewSide,
         line: u32,
     ) {
-        let Some(file_index) = self.extension_review_file_index(file_id) else {
-            self.status = Some(format!(
-                "extension {extension_id}: warning: review file is no longer available"
-            ));
-            return;
+        let target = self.with_state(|state| {
+            let files = state
+                .changeset()
+                .files
+                .iter()
+                .map(|file| NavigableFile {
+                    id: &file.runtime_id,
+                    hunk_count: file.hunks.len(),
+                })
+                .collect::<Vec<_>>();
+            guard_extension_reveal_line(
+                extension_id,
+                &files,
+                true,
+                file_id,
+                match side {
+                    ReviewSide::Old => "old",
+                    ReviewSide::New => "new",
+                },
+                Some(f64::from(line)),
+            )
+        });
+        let target = match target {
+            Ok(target) => target,
+            Err(warning) => {
+                self.status = Some(warning.0);
+                return;
+            }
         };
-        if let Err(error) = self.with_state(|state| state.reveal_line(file_index, side, line)) {
-            self.status = Some(format!(
-                "extension {extension_id}: warning: review line is unavailable: {error}"
-            ));
+        if self
+            .with_state(|state| state.reveal_line(target.file_index, target.side, target.line))
+            .is_err()
+        {
+            self.status = Some(
+                extension_reveal_line_missing_warning(
+                    extension_id,
+                    file_id,
+                    target.side,
+                    target.line,
+                )
+                .0,
+            );
             return;
         }
         self.scroll_to_selection();
@@ -7932,6 +8003,16 @@ mod tests {
         .unwrap()
     }
 
+    fn two_hunk_changeset() -> Changeset {
+        parse_patch(
+            "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n@@ -10 +10 @@\n-before\n+after\n",
+            "two-hunks",
+            "Two hunks",
+            ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap()
+    }
+
     fn writable_input() -> CliInput {
         CliInput::Vcs(VcsDiffCommandInput {
             range: None,
@@ -9429,6 +9510,63 @@ mod tests {
         let commands = app.extension_command_availability();
         assert!(!commands.is_enabled("workdeck.review.alignCurrentLineCenter"));
         assert!(!commands.is_enabled("workdeck.review.align-current-line-center"));
+    }
+
+    #[test]
+    fn native_navigation_actions_use_the_live_guard_and_clamped_hunk_target() {
+        let mut app = ReviewApp::new(two_hunk_changeset(), ReviewOptions::default());
+        let file_id = app.with_state(|state| state.changeset().files[0].runtime_id.clone());
+
+        app.select_extension_review_hunk("triage", &file_id, 99);
+        assert_eq!(
+            app.with_state(|state| state.selection().hunk_index),
+            Some(1)
+        );
+
+        app.reveal_extension_review_line("triage", &file_id, ReviewSide::New, 10);
+        assert_eq!(app.with_state(|state| state.selection().line), Some(10));
+
+        app.reveal_extension_review_line("triage", &file_id, ReviewSide::New, 9_001);
+        assert_eq!(
+            app.status.as_deref(),
+            Some(
+                format!("Extension triage revealLine found no new line 9001 in \"{file_id}\"")
+                    .as_str()
+            )
+        );
+
+        app.select_extension_review_file("triage", "hidden");
+        assert_eq!(
+            app.status.as_deref(),
+            Some("Extension triage selectFile targeted unknown file id \"hidden\"")
+        );
+    }
+
+    #[test]
+    fn async_navigation_from_a_retired_review_generation_is_discarded() {
+        let mut app = ReviewApp::new(two_file_changeset(), ReviewOptions::default());
+        let second_file_id = app.with_state(|state| state.changeset().files[1].runtime_id.clone());
+        let pending = PendingExtensionCommand {
+            extension_index: 0,
+            extension_id: "triage".into(),
+            command_id: "jump".into(),
+            title: "Jump".into(),
+            review_generation: app.extension_command_epoch,
+        };
+        app.extension_command_epoch = app.extension_command_epoch.saturating_add(1);
+
+        app.apply_extension_command_actions(
+            pending,
+            vec![ExtensionHostAction::SelectReviewFile {
+                file_id: second_file_id,
+            }],
+        );
+
+        assert_eq!(app.with_state(|state| state.selection().file_index), 0);
+        assert_eq!(
+            app.status.as_deref(),
+            Some("Extension triage selectFile ignored — the review session was reloaded")
+        );
     }
 
     #[test]

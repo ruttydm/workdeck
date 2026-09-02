@@ -1,0 +1,37 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "stablePresence": "identical",
+  "sources": [
+    {
+      "path": "src/ui/lib/extensionNavigation.ts",
+      "blob": "3a3232571c939bd86eec884c6e796a70c10ba1e1"
+    }
+  ],
+  "tests": [
+    {
+      "path": "src/ui/lib/extensionNavigation.test.ts",
+      "blob": "7321fc2384b78f0a662e812236ccfa329f62fe3a",
+      "cases": 13
+    }
+  ],
+  "executedOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 13,
+    "failed": 0,
+    "expectations": 22
+  },
+  "invariants": [
+    "every call validates its file id against the currently visible review files",
+    "finite hunk indexes floor and clamp to the selected file's actual hunk range",
+    "dynamic non-numeric hunk values and invalid line addresses are refused",
+    "host callback failures become attributed warnings rather than escaping",
+    "navigation retained across a hard review reload refuses every call",
+    "a containing-hunk line fallback stays quiet while an absent source line warns"
+  ],
+  "nativeProtocolAdaptation": {
+    "dynamicInputs": "the compatibility guard accepts optional floating-point values before native JSON-RPC narrows actions to integer fields",
+    "lifecycle": "the command generation lease rejects navigation actions returned by a retired review handler",
+    "execution": "validated declarative actions are applied against the live Ratatui review state"
+  }
+}
