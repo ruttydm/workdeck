@@ -5,6 +5,7 @@ mod agent_note_geometry;
 mod agent_popover;
 mod color;
 mod command_keys;
+mod current_review_controller;
 mod current_review_refresh;
 mod cursor_highlight;
 mod extension_notifications;
@@ -27,12 +28,14 @@ mod text;
 mod theme_detection;
 mod timed_notice;
 mod ui_geometry;
+mod watched_input;
 
 pub use agent_annotations::*;
 pub use agent_note_geometry::*;
 pub use agent_popover::*;
 pub use color::*;
 pub use command_keys::*;
+pub use current_review_controller::*;
 pub use current_review_refresh::*;
 pub use cursor_highlight::*;
 pub use extension_notifications::*;
@@ -55,6 +58,7 @@ pub use text::*;
 pub use theme_detection::*;
 pub use timed_notice::*;
 pub use ui_geometry::*;
+pub use watched_input::*;
 
 use anyhow::Result;
 use crossterm::event::{
