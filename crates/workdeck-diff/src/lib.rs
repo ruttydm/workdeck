@@ -9,6 +9,7 @@ mod code_columns;
 mod geometry;
 mod git_format;
 mod git_log;
+mod highlighted_diff_cache;
 mod language;
 mod row_windowing;
 mod syntax;
@@ -26,14 +27,18 @@ pub use code_columns::{
 pub use geometry::{TextSegment, clip_segments, segments_width, wrap_segments};
 pub use git_format::{SanitizedGitPatch, SanitizedGitPatchFilePaths, sanitize_git_patch};
 pub use git_log::strip_git_log_metadata;
+pub use highlighted_diff_cache::{
+    HighlightedDiffCache, HighlightedDiffCode, MAX_HIGHLIGHTED_DIFF_CACHE_LINES,
+};
 pub use language::{LanguageMatcher, LanguageRegistration, LanguageRegistry};
 pub use row_windowing::{
     MeasuredRowBounds, VisibleBodyBounds, VisibleRowIndexWindow, VisibleRowWindow,
     resolve_visible_row_index_window, resolve_visible_row_window, unit_row_bounds,
 };
 pub use syntax::{
-    HighlightAppearance, HighlightCache, PIERRE_DARK_THEME, PIERRE_LIGHT_THEME, SyntaxColor,
-    SyntaxToken, highlight_worker_cache_key, syntax_highlight_theme_name,
+    HighlightAppearance, HighlightCache, HighlightedFile, HighlightedHunk, HighlightedLine,
+    PIERRE_DARK_THEME, PIERRE_LIGHT_THEME, SyntaxColor, SyntaxToken, highlight_worker_cache_key,
+    syntax_highlight_theme_name,
 };
 pub use terminal::{
     SanitizeOptions, TerminalSpan, format_terminal_path, sanitize_terminal_line,

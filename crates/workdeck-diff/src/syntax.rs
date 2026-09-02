@@ -5,7 +5,9 @@
 //! source packages and complete licenses are recorded in `THIRD_PARTY_NOTICES` and
 //! `third_party/themes`.
 
-use crate::bundled_theme_assets::BUNDLED_THEME_ASSETS;
+use crate::{
+    HighlightedDiffCache, HighlightedDiffCode, bundled_theme_assets::BUNDLED_THEME_ASSETS,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, VecDeque};
@@ -326,14 +328,6 @@ impl HighlightWorkerCache {
         }
     }
 
-    fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
     fn clear(&mut self) {
         self.entries.clear();
         self.lru.clear();
@@ -443,7 +437,8 @@ pub struct HighlightCache {
     themes: ThemeSet,
     textmate_themes: HashMap<String, TextMateTheme>,
     theme_appearances: HashMap<String, HighlightAppearance>,
-    entries: HighlightWorkerCache,
+    entries: HighlightedDiffCache,
+    worker_entries: HighlightWorkerCache,
 }
 
 impl Default for HighlightCache {
@@ -453,7 +448,8 @@ impl Default for HighlightCache {
             themes: ThemeSet::load_defaults(),
             textmate_themes: HashMap::new(),
             theme_appearances: HashMap::new(),
-            entries: HighlightWorkerCache::new(MAX_WORKER_HIGHLIGHT_CACHE_BYTES),
+            entries: HighlightedDiffCache::default(),
+            worker_entries: HighlightWorkerCache::new(MAX_WORKER_HIGHLIGHT_CACHE_BYTES),
         }
     }
 }
@@ -561,6 +557,11 @@ impl HighlightCache {
             });
         let key = highlight_worker_cache_key(file, false, appearance, &language, theme);
         if let Some(cached) = self.entries.get(&key) {
+            return cached.highlighted;
+        }
+        if let Some(cached) = self.worker_entries.get(&key) {
+            self.entries
+                .set(key, highlighted_diff_code(file, cached.clone()));
             return cached;
         }
         let syntax = self
@@ -618,7 +619,9 @@ impl HighlightCache {
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
-        self.entries.set(key, &highlighted);
+        self.worker_entries.set(key.clone(), &highlighted);
+        self.entries
+            .set(key, highlighted_diff_code(file, highlighted.clone()));
         highlighted
     }
 
@@ -632,7 +635,23 @@ impl HighlightCache {
 
     pub fn clear(&mut self) {
         self.entries.clear();
+        self.worker_entries.clear();
     }
+}
+
+fn highlighted_diff_code(file: &DiffFile, highlighted: HighlightedFile) -> HighlightedDiffCode {
+    let (deletion_line_count, addition_line_count) =
+        file.hunks.iter().flat_map(|hunk| &hunk.lines).fold(
+            (0_usize, 0_usize),
+            |(deletions, additions), line| match line.kind {
+                workdeck_core::DiffLineKind::Context => {
+                    (deletions.saturating_add(1), additions.saturating_add(1))
+                }
+                workdeck_core::DiffLineKind::Deletion => (deletions.saturating_add(1), additions),
+                workdeck_core::DiffLineKind::Addition => (deletions, additions.saturating_add(1)),
+            },
+        );
+    HighlightedDiffCode::new(highlighted, deletion_line_count, addition_line_count)
 }
 
 #[derive(Serialize)]
@@ -954,6 +973,25 @@ mod tests {
         cache.highlight(&first.files[0], "base16-ocean.dark");
         cache.highlight(&second.files[0], "base16-ocean.dark");
         assert_eq!(cache.len(), 2);
+    }
+
+    #[test]
+    fn ui_cache_charges_context_lines_on_both_diff_sides() {
+        let file = parse_patch(
+            "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,2 +1,2 @@\n context\n-old\n+new\n",
+            "cache-cost",
+            "cache-cost",
+            ChangesetSource::Patch {
+                label: "cache-cost".into(),
+            },
+        )
+        .unwrap()
+        .files
+        .remove(0);
+        let code = highlighted_diff_code(&file, Vec::new());
+        assert_eq!(code.deletion_line_count, 2);
+        assert_eq!(code.addition_line_count, 2);
+        assert_eq!(code.retained_line_count(), 4);
     }
 
     #[test]
