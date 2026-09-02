@@ -15,6 +15,7 @@ use std::process::{Command, Output};
 mod architecture;
 mod nix;
 mod skill;
+mod term_video;
 
 const DEFAULT_BASELINE: &str = "hunk-port/main-2c00f435^{}";
 const DEFAULT_STABLE: &str = "hunk-port/stable-v0.20.1^{}";
@@ -194,6 +195,10 @@ fn run() -> Result<()> {
             _ => bail!("extension requires the stage-example command"),
         },
         Some("site") => site(args.next().as_deref()),
+        Some("media") => match args.next().as_deref() {
+            Some("plan") => term_video::plan_file(&repo_root()?, args),
+            _ => bail!("media requires the plan command"),
+        },
         Some("release") => match args.next().as_deref() {
             Some("package") => package_release(parse_package_options(args)?),
             _ => bail!("release requires the package command"),
@@ -2159,6 +2164,9 @@ fn print_help() {
         "cargo xtask extension stage-example <cli-tools|pane-layout|vim-navigation|review-snapshot-export|review-note-navigator|rendered-markdown|jsx-file-view|inline-edit|review-triage|github-pr|file-view-gallery>"
     );
     println!("cargo xtask site <build|check|serve>");
+    println!(
+        "cargo xtask media plan --storyboard FILE --output FILE [--fps N] [--caption-animation-seconds N]"
+    );
     println!("cargo xtask release package --target TRIPLE [--binary PATH] [--output DIR]");
 }
 

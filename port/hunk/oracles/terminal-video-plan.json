@@ -1,0 +1,44 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "declarations": {
+    "path": "packages/term-video/src/plan.d.mts",
+    "baselineBlob": "5fab33c0f36308676a86a2255f473500936dc0a3",
+    "stableBlob": "5fab33c0f36308676a86a2255f473500936dc0a3"
+  },
+  "source": {
+    "path": "packages/term-video/src/plan.mjs",
+    "baselineBlob": "ccdad09d878ba4ac78e2b4965afc570c08378272",
+    "stableBlob": "ccdad09d878ba4ac78e2b4965afc570c08378272"
+  },
+  "test": {
+    "path": "packages/term-video/src/plan.test.ts",
+    "baselineBlob": "da254eb7f24700060fcd9cc99c0e7eaedb9b53ce",
+    "stableBlob": "da254eb7f24700060fcd9cc99c0e7eaedb9b53ce"
+  },
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 7,
+    "failed": 0,
+    "expectations": 29
+  },
+  "stableOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 7,
+    "failed": 0,
+    "expectations": 29
+  },
+  "invariants": [
+    "caption changes expand to one frame per animation tick followed by one compressed hold",
+    "continuation shots with the same nonempty caption key carry text without reanimation",
+    "changed caption keys animate and cards reset caption carry state",
+    "enter animates the complete surface and clamps its animation window to sixty percent of shot duration",
+    "every hold lasts at least one frame and total duration never undercuts the storyboard",
+    "required terminal keyframes retain first-use order and remove duplicates"
+  ],
+  "nativeAdaptation": {
+    "types": "Rust serde models replace the handwritten JavaScript declaration file and preserve camelCase frame-plan JSON.",
+    "entrypoint": "cargo xtask media plan reads an array or a shots object and emits the deterministic compositor plan without Node, Bun, or Playwright.",
+    "coverage": "Seven Rust tests translate all seven upstream tests; an additional CLI test executes file parsing, directory creation, planning, and JSON output."
+  }
+}
