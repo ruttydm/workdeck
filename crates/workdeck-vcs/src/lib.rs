@@ -5,6 +5,9 @@ mod large_file;
 mod platform;
 mod source_text;
 mod untracked;
+mod watch_plan;
+mod watch_runtime;
+mod watch_signature;
 
 pub use catalog::*;
 pub use large_file::{
@@ -18,6 +21,9 @@ pub use source_text::{
     terminate_source_subprocess,
 };
 pub use untracked::build_filesystem_untracked_diff_file;
+pub use watch_plan::*;
+pub use watch_runtime::*;
+pub use watch_signature::*;
 
 use std::fs;
 use std::path::{Path, PathBuf};
