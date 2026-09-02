@@ -169,8 +169,9 @@ use workdeck_extension_api::{
 use workdeck_extension_host::{
     ActiveSessionKeyboardMode, ExtensionEventContextProviderInstallation,
     ExtensionEventContextProviderSlot, ExtensionRequestCancellation, FileViewSelectionState,
-    HostError, LineHighlightRefreshResult, LineHighlightsController, LoadedExtension,
-    RegisteredFileView, RegisteredKeyboardMode, RegisteredLineHighlighter, create_file_view_input,
+    HostError, KeyboardModeActionAuthority, KeyboardModeControllerState,
+    LineHighlightRefreshResult, LineHighlightsController, LoadedExtension, RegisteredFileView,
+    RegisteredKeyboardMode, RegisteredLineHighlighter, create_file_view_input,
     create_file_view_input_snapshot, format_keyboard_mode_failure, reconcile_file_view_selections,
     registered_file_view_key, select_file_view, session_keyboard_mode_display_title,
     session_keyboard_mode_status_hint, session_keyboard_mode_still_valid,
@@ -337,6 +338,7 @@ struct ActiveKeyboardMode {
     extension_index: usize,
     extension_id: String,
     mode: KeyboardModeRegistration,
+    activation_id: u64,
     session: ActiveSessionKeyboardMode,
 }
 
@@ -413,6 +415,7 @@ struct ExtensionPaneRuntime {
     file_view_component_pointer: MouseCapture<FileViewComponentPointer>,
     active_file_view_mode: Option<ActiveFileViewModeRuntime>,
     active_keyboard_mode: Option<ActiveKeyboardMode>,
+    keyboard_mode_controller: KeyboardModeControllerState,
     dialogs: ExtensionDialogQueue,
     pane_action_hits: Vec<ExtensionPaneActionHit>,
     open: BTreeSet<String>,
@@ -2013,10 +2016,7 @@ impl ReviewApp {
             return false;
         };
         if !still_valid {
-            self.extension_pane_runtime
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .active_keyboard_mode = None;
+            self.exit_active_keyboard_mode();
             return false;
         }
         if key.code == KeyCode::Esc {
@@ -2038,26 +2038,20 @@ impl ReviewApp {
             );
         match result {
             Ok(execution) => {
-                let result = execution.result;
-                self.apply_extension_actions(
+                self.apply_extension_actions_with_keyboard_authority(
                     active.extension_index,
                     &active.extension_id,
                     execution.actions,
+                    KeyboardModeActionAuthority::ActiveKey(active.activation_id),
                 );
+                let result = self
+                    .extension_pane_runtime
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .keyboard_mode_controller
+                    .normalize_key_result(active.activation_id, execution.result);
                 if result == KeyRoutingResult::Exit {
-                    let activation_unchanged = self
-                        .extension_pane_runtime
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .active_keyboard_mode
-                        .as_ref()
-                        .is_some_and(|current| {
-                            current.extension_index == active.extension_index
-                                && current.mode.id == active.mode.id
-                        });
-                    if activation_unchanged {
-                        self.exit_active_keyboard_mode();
-                    }
+                    self.exit_active_keyboard_mode();
                 }
                 result != KeyRoutingResult::Pass
             }
@@ -2078,6 +2072,21 @@ impl ReviewApp {
         extension_index: usize,
         extension_id: &str,
         actions: Vec<ExtensionHostAction>,
+    ) {
+        self.apply_extension_actions_with_keyboard_authority(
+            extension_index,
+            extension_id,
+            actions,
+            KeyboardModeActionAuthority::Unscoped,
+        );
+    }
+
+    fn apply_extension_actions_with_keyboard_authority(
+        &mut self,
+        extension_index: usize,
+        extension_id: &str,
+        actions: Vec<ExtensionHostAction>,
+        keyboard_authority: KeyboardModeActionAuthority,
     ) {
         for action in actions {
             match action {
@@ -2132,10 +2141,26 @@ impl ReviewApp {
                     runtime.cached_renders.remove(&pane_key);
                 }
                 ExtensionHostAction::EnterKeyboardMode { id } => {
-                    self.enter_keyboard_mode(extension_index, extension_id, &id);
+                    let allowed = self
+                        .extension_pane_runtime
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .keyboard_mode_controller
+                        .ownership_change_allowed(keyboard_authority);
+                    if allowed {
+                        self.enter_keyboard_mode(extension_index, extension_id, &id);
+                    }
                 }
                 ExtensionHostAction::ExitKeyboardMode => {
-                    self.exit_keyboard_mode_for_extension(extension_index);
+                    let allowed = self
+                        .extension_pane_runtime
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .keyboard_mode_controller
+                        .ownership_change_allowed(keyboard_authority);
+                    if allowed {
+                        self.exit_keyboard_mode_for_extension(extension_index);
+                    }
                 }
                 ExtensionHostAction::ExecuteReviewCommand { id, count } => {
                     self.execute_extension_review_command(&id, count.unwrap_or(1));
@@ -2458,6 +2483,12 @@ impl ReviewApp {
 
     fn enter_keyboard_mode(&mut self, extension_index: usize, extension_id: &str, id: &str) {
         let local_id = id.strip_prefix(&format!("{extension_id}:")).unwrap_or(id);
+        if local_id.trim().is_empty() {
+            self.status = Some(format!(
+                "Extension {extension_id} targeted an invalid keyboard mode id"
+            ));
+            return;
+        }
         let registration = self
             .extension_pane_runtime
             .lock()
@@ -2472,28 +2503,26 @@ impl ReviewApp {
             .cloned();
         let Some(registration) = registration else {
             self.status = Some(format!(
-                "extension {extension_id} requested an unknown mode"
+                "Extension {extension_id} targeted unknown keyboard mode {local_id:?}"
             ));
             return;
         };
-        if self
+        self.exit_active_keyboard_mode();
+        self.exit_active_file_view_mode();
+        let activation_id = self
             .extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .active_keyboard_mode
-            .as_ref()
-            .is_some_and(|active| {
-                active.extension_index == extension_index && active.mode.id == local_id
-            })
-        {
+            .keyboard_mode_controller
+            .activate();
+        let Some(activation_id) = activation_id else {
             return;
-        }
-        self.exit_active_keyboard_mode();
-        self.exit_active_file_view_mode();
+        };
         let active = ActiveKeyboardMode {
             extension_index,
             extension_id: extension_id.into(),
             mode: registration.mode,
+            activation_id,
             session: ActiveSessionKeyboardMode {
                 extension_id: registration.extension_id,
                 mode_id: registration.registered.mode.id.clone(),
@@ -2521,13 +2550,15 @@ impl ReviewApp {
         match execution {
             Ok(execution) => {
                 self.status = Some(session_keyboard_mode_status_hint(&active.session));
-                self.apply_extension_actions(extension_index, extension_id, execution.actions);
+                self.apply_extension_actions_with_keyboard_authority(
+                    extension_index,
+                    extension_id,
+                    execution.actions,
+                    KeyboardModeActionAuthority::Lifecycle,
+                );
             }
             Err(error) => {
-                self.extension_pane_runtime
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .active_keyboard_mode = None;
+                self.exit_active_keyboard_mode();
                 self.status = Some(format_keyboard_mode_failure(
                     &active.session,
                     "onEnter",
@@ -2544,6 +2575,11 @@ impl ReviewApp {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             let active = runtime.active_keyboard_mode.take();
+            if let Some(active) = active.as_ref() {
+                runtime
+                    .keyboard_mode_controller
+                    .retire(active.activation_id);
+            }
             let dialog = active.as_ref().and_then(|active| {
                 runtime
                     .dialogs
@@ -2559,19 +2595,24 @@ impl ReviewApp {
         };
         let snapshot = self.with_state(|state| state.snapshot());
         let commands = self.extension_command_availability();
-        let execution = self
-            .extension_pane_runtime
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .extensions[active.extension_index]
-            .exit_keyboard_mode_with_commands(&active.mode.id, snapshot, commands);
+        let execution = {
+            let mut runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let Some(extension) = runtime.extensions.get_mut(active.extension_index) else {
+                return;
+            };
+            extension.exit_keyboard_mode_with_commands(&active.mode.id, snapshot, commands)
+        };
         match execution {
             Ok(execution) => {
                 self.status = Some(format!("{} exited", active.mode.title));
-                self.apply_extension_actions(
+                self.apply_extension_actions_with_keyboard_authority(
                     active.extension_index,
                     &active.extension_id,
                     execution.actions,
+                    KeyboardModeActionAuthority::Lifecycle,
                 );
             }
             Err(error) => {
@@ -4612,6 +4653,13 @@ impl ReviewApp {
 
 impl Drop for ReviewApp {
     fn drop(&mut self) {
+        self.exit_active_keyboard_mode();
+        self.exit_active_file_view_mode();
+        self.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .keyboard_mode_controller
+            .shutdown();
         let _settlements = self
             .extension_pane_runtime
             .lock()
@@ -8357,6 +8405,39 @@ mod tests {
     }
 
     #[test]
+    fn keyboard_mode_lifecycle_and_stale_key_actions_cannot_change_ownership() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        let status = app.status.clone();
+        for authority in [
+            KeyboardModeActionAuthority::Lifecycle,
+            KeyboardModeActionAuthority::ActiveKey(99),
+        ] {
+            app.apply_extension_actions_with_keyboard_authority(
+                0,
+                "probe",
+                vec![ExtensionHostAction::EnterKeyboardMode {
+                    id: "normal".into(),
+                }],
+                authority,
+            );
+            assert!(app.active_keyboard_mode_title().is_none());
+            assert_eq!(app.status, status);
+        }
+
+        app.apply_extension_actions(
+            0,
+            "probe",
+            vec![ExtensionHostAction::EnterKeyboardMode {
+                id: "normal".into(),
+            }],
+        );
+        assert_eq!(
+            app.status.as_deref(),
+            Some("Extension probe targeted unknown keyboard mode \"normal\"")
+        );
+    }
+
+    #[test]
     fn extension_workspace_write_rechecks_the_captured_target_and_replaces_exact_source() {
         let root = tempfile::TempDir::new().unwrap();
         std::fs::write(root.path().join("a.rs"), "new\n").unwrap();
@@ -10392,6 +10473,7 @@ mod tests {
             extension_index: 0,
             extension_id: "vim".into(),
             mode: registered.mode.clone(),
+            activation_id: 1,
             session: ActiveSessionKeyboardMode {
                 extension_id: "vim".into(),
                 mode_id: "normal".into(),

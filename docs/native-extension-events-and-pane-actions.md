@@ -37,6 +37,15 @@ contained at the subprocess boundary and reported with the same extension, mode,
 attribution as the pinned Hunk behavior. Native JSON-RPC deadlines replace JavaScript promise
 detection; the pure Rust callback adapter also rejects deferred results explicitly for parity tests.
 
+Keyboard ownership has a monotonic activation identity independent of the extension and mode IDs.
+Normal extension commands may enter a mode, while actions returned from `onEnter` or `onExit` cannot
+change ownership. Actions returned from a key request are scoped to the activation that received the
+key: if that response installs a replacement, a later exit action or exit result from the predecessor
+cannot retire it. Failed entry runs teardown once, host exit clears ownership before invoking exit,
+and dropping or reloading the review tears the mode down exactly once. The native subprocess protocol
+cannot retain JavaScript control closures; activation-scoped response batches provide the equivalent
+old-context isolation.
+
 ## Clickable pane rows
 
 An extension wraps a declarative `ViewNode` in `ViewNode::Action { id, child }`. Ratatui renders the child, records its visible cell rectangle, and sends `workdeck/pane/action` with the pane ID, action ID, current review snapshot, semantic saved-note snapshot, working directory, and open panes. The extension answers with ordinary validated host actions. Action IDs are local opaque values, limited to 1,024 bytes; they cannot carry executable callbacks across the process boundary.
