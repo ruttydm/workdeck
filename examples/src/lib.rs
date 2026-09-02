@@ -22,6 +22,11 @@ pub mod agent_review_after;
 #[path = "../3-agent-review-demo/before/src/index.rs"]
 pub mod agent_review_before;
 
+#[path = "../4-ui-polish/after.rs"]
+pub mod ui_polish_after;
+#[path = "../4-ui-polish/before.rs"]
+pub mod ui_polish_before;
+
 #[cfg(test)]
 #[path = "../3-agent-review-demo/after/test/search_demo.rs"]
 mod agent_review_after_demo;
