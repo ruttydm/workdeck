@@ -1104,6 +1104,12 @@ pub enum ExtensionHostAction {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         file_id: Option<String>,
     },
+    /// Invalidate one line highlighter for every file or one current terminal file id.
+    RefreshLineHighlights {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        file_id: Option<String>,
+    },
     /// Ask the host to confirm and perform a working-tree document replacement.
     RequestWorkspaceWrite {
         request_id: String,
@@ -1657,6 +1663,30 @@ mod tests {
         assert_eq!(encoded["actions"][0]["kind"], "refresh-pane");
         assert_eq!(encoded["actions"][1]["kind"], "open-confirm-dialog");
         assert_eq!(encoded["actions"][2]["kind"], "emit-event");
+        assert_eq!(
+            serde_json::from_value::<CommandExecution>(encoded).unwrap(),
+            execution
+        );
+    }
+
+    #[test]
+    fn line_highlight_refresh_action_round_trips_optional_file_scope() {
+        let execution = CommandExecution {
+            actions: vec![
+                ExtensionHostAction::RefreshLineHighlights {
+                    id: "matches".into(),
+                    file_id: None,
+                },
+                ExtensionHostAction::RefreshLineHighlights {
+                    id: "search:matches".into(),
+                    file_id: Some("file:1".into()),
+                },
+            ],
+        };
+        let encoded = serde_json::to_value(&execution).unwrap();
+        assert_eq!(encoded["actions"][0]["kind"], "refresh-line-highlights");
+        assert!(encoded["actions"][0].get("file_id").is_none());
+        assert_eq!(encoded["actions"][1]["file_id"], "file:1");
         assert_eq!(
             serde_json::from_value::<CommandExecution>(encoded).unwrap(),
             execution

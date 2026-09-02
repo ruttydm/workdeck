@@ -1,0 +1,39 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/highlights/useLineHighlightsController.ts",
+    "baselineBlob": "588206e9f720332c7e6a961ad0683b0989d04fb8",
+    "stableBlob": "588206e9f720332c7e6a961ad0683b0989d04fb8"
+  },
+  "test": {
+    "path": "src/ui/highlights/useLineHighlightsController.test.tsx",
+    "baselineBlob": "9ad05158035f8c66741bd1fac61dd662f777340f",
+    "stableBlob": "9ad05158035f8c66741bd1fac61dd662f777340f"
+  },
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 4,
+    "failed": 0,
+    "expectations": 9
+  },
+  "stableOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 4,
+    "failed": 0,
+    "expectations": 9
+  },
+  "invariants": [
+    "whole-highlighter and file-scoped refreshes contribute independent epochs",
+    "unknown highlighter ids warn without changing an epoch",
+    "stale file ids racing a reload are silent no-ops",
+    "qualified ids may invalidate a highlighter registered by another extension",
+    "reload reconciliation removes epochs for retired file ids and registrations",
+    "unchanged registrations retain surviving epochs across runtime replacement"
+  ],
+  "nativeAdaptation": {
+    "controls": "A validated RefreshLineHighlights JSON-RPC host action replaces a frozen JavaScript callback object.",
+    "ownership": "The subprocess host checks the line-highlighter capability; the Ratatui host owns registry lookup, warnings, and epochs.",
+    "coverage": "Four controller tests translate the four upstream tests; API and TUI tests execute wire and dispatch integration."
+  }
+}

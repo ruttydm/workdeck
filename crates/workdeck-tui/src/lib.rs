@@ -168,9 +168,10 @@ use workdeck_extension_api::{
 };
 use workdeck_extension_host::{
     ExtensionEventContextProviderInstallation, ExtensionEventContextProviderSlot,
-    ExtensionRequestCancellation, FileViewSelectionState, HostError, LoadedExtension,
-    RegisteredFileView, create_file_view_input, create_file_view_input_snapshot,
-    reconcile_file_view_selections, registered_file_view_key, select_file_view,
+    ExtensionRequestCancellation, FileViewSelectionState, HostError, LineHighlightRefreshResult,
+    LineHighlightsController, LoadedExtension, RegisteredFileView, RegisteredLineHighlighter,
+    create_file_view_input, create_file_view_input_snapshot, reconcile_file_view_selections,
+    registered_file_view_key, select_file_view,
 };
 use workdeck_review::{
     ExpandedSourceError, ExpandedSourceStatus, LayoutMode, PlannedFileViewRow, ReviewComment,
@@ -400,6 +401,7 @@ struct ExtensionPaneRuntime {
     command_conflicts: Vec<ExtensionCommandConflict>,
     keyboard_modes: Vec<LiveKeyboardModeRegistration>,
     file_views: Vec<LiveFileViewRegistration>,
+    line_highlights: LineHighlightsController,
     file_view_selections: FileViewSelectionState,
     file_view_layouts: BTreeMap<String, CachedFileViewLayout>,
     file_view_component_expanded: BTreeSet<FileViewComponentStateKey>,
@@ -443,11 +445,12 @@ struct ExtensionTrustPromptHits {
 }
 
 impl ExtensionPaneRuntime {
-    fn new(extensions: Vec<LoadedExtension>) -> Self {
+    fn new(extensions: Vec<LoadedExtension>, files: &[DiffFile]) -> Self {
         let mut pane_candidates = Vec::new();
         let mut commands = Vec::new();
         let mut keyboard_modes = Vec::new();
         let mut file_views = Vec::new();
+        let mut line_highlighters = Vec::new();
         let mut open = BTreeSet::new();
         for (extension_index, extension) in extensions.iter().enumerate() {
             for registration in &extension.handshake.registrations {
@@ -490,6 +493,12 @@ impl ExtensionPaneRuntime {
                             interactive_mode: *interactive_mode,
                         }),
                     }),
+                    Registration::LineHighlighter { id } => {
+                        line_highlighters.push(RegisteredLineHighlighter {
+                            extension_id: extension.manifest.id.clone(),
+                            highlighter_id: id.clone(),
+                        });
+                    }
                     _ => {}
                 }
             }
@@ -528,6 +537,10 @@ impl ExtensionPaneRuntime {
             commands,
             keyboard_modes,
             file_views,
+            line_highlights: LineHighlightsController::new(
+                files.iter().map(|file| file.runtime_id.clone()),
+                line_highlighters,
+            ),
             open,
             ..Self::default()
         }
@@ -635,7 +648,8 @@ impl ReviewApp {
             .iter()
             .map(|comment| comment.id.clone())
             .collect();
-        let mut extension_pane_runtime = ExtensionPaneRuntime::new(extensions);
+        let mut extension_pane_runtime =
+            ExtensionPaneRuntime::new(extensions, state.changeset().files.as_slice());
         if !extension_pane_runtime
             .session_panes
             .iter()
@@ -896,6 +910,11 @@ impl ReviewApp {
                 return;
             }
         };
+        self.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .line_highlights
+            .reconcile_files(changeset.files.iter().map(|file| file.runtime_id.clone()));
         if self.with_state(|state| state.changeset() != &changeset) {
             self.with_state(|state| state.reload(changeset));
             self.status = Some("review reloaded".into());
@@ -928,7 +947,7 @@ impl ReviewApp {
         self.cancel_extension_dialogs_for_reload();
         self.exit_active_keyboard_mode();
         self.exit_active_file_view_mode();
-        let mut replacement = ExtensionPaneRuntime::new(extensions);
+        let mut replacement = ExtensionPaneRuntime::new(extensions, &changeset.files);
         let mut command_defaults = builtin_command_key_defaults();
         command_defaults.extend(extension_command_key_defaults(&replacement.commands));
         self.resolved_command_keys =
@@ -946,6 +965,9 @@ impl ReviewApp {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             self.options.sidebar = replacement.reconcile_panes_from(&runtime, self.options.sidebar);
+            replacement
+                .line_highlights
+                .retain_epochs_from(&runtime.line_highlights);
             std::mem::replace(&mut *runtime, replacement)
         };
         drop(previous);
@@ -2132,6 +2154,28 @@ impl ReviewApp {
                         &id,
                         file_id.as_deref(),
                     );
+                }
+                ExtensionHostAction::RefreshLineHighlights { id, file_id } => {
+                    let result = self
+                        .extension_pane_runtime
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .line_highlights
+                        .refresh(extension_id, &id, file_id.as_deref());
+                    match result {
+                        LineHighlightRefreshResult::InvalidHighlighterId => {
+                            self.status = Some(format!(
+                                "Extension {extension_id} targeted an invalid line highlighter id"
+                            ));
+                        }
+                        LineHighlightRefreshResult::UnknownHighlighter => {
+                            self.status = Some(format!(
+                                "Extension {extension_id} targeted unknown line highlighter {id:?}"
+                            ));
+                        }
+                        LineHighlightRefreshResult::Refreshed
+                        | LineHighlightRefreshResult::StaleFile => {}
+                    }
                 }
                 ExtensionHostAction::RequestWorkspaceWrite {
                     request_id,
@@ -9686,6 +9730,69 @@ mod tests {
         assert_eq!(
             app.status.as_deref(),
             Some("Extension triage selectFile targeted unknown file id \"hidden\"")
+        );
+    }
+
+    #[test]
+    fn native_line_highlight_refresh_actions_update_live_epochs_and_notices() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        let file_id = app.with_state(|state| state.changeset().files[0].runtime_id.clone());
+        {
+            let mut runtime = app
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            runtime.line_highlights = LineHighlightsController::new(
+                [file_id.clone()],
+                vec![RegisteredLineHighlighter {
+                    extension_id: "search".into(),
+                    highlighter_id: "matches".into(),
+                }],
+            );
+        }
+
+        app.apply_extension_actions(
+            0,
+            "other-extension",
+            vec![ExtensionHostAction::RefreshLineHighlights {
+                id: "search:matches".into(),
+                file_id: None,
+            }],
+        );
+        let epoch = app
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .line_highlights
+            .epochs()
+            .clone();
+        assert_eq!(
+            workdeck_extension_host::scoped_epoch(&epoch, "search:matches", &file_id),
+            1
+        );
+
+        app.status = None;
+        app.apply_extension_actions(
+            0,
+            "search",
+            vec![ExtensionHostAction::RefreshLineHighlights {
+                id: "matches".into(),
+                file_id: Some("gone".into()),
+            }],
+        );
+        assert_eq!(app.status, None);
+
+        app.apply_extension_actions(
+            0,
+            "search",
+            vec![ExtensionHostAction::RefreshLineHighlights {
+                id: "unknown".into(),
+                file_id: None,
+            }],
+        );
+        assert_eq!(
+            app.status.as_deref(),
+            Some("Extension search targeted unknown line highlighter \"unknown\"")
         );
     }
 

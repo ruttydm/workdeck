@@ -22,6 +22,13 @@ Extension commands share one resolved session keymap with built-ins. The native 
 
 Top-level extension CLI commands use a separate immutable ownership table. Exact command names are case-sensitive, the first registry claim wins, and every rejected claim becomes a source-attributed load issue. Unknown-command help lists only winners in sorted order, with Workdeck-owned branding and extension-supplied usage and summaries collapsed to one control-free terminal line. The native host stores an owned copy of registration metadata and retains each loaded manifest path for provenance.
 
+Line-highlighter invalidation is also an explicit host action. `RefreshLineHighlights` accepts a
+local highlighter ID or a qualified `extension:id`, plus an optional invocation-local file ID. A
+whole-highlighter refresh and a file refresh contribute independent epochs, so neither can mask the
+other. Unknown highlighters produce an attributed warning; a stale file ID racing a reload is a
+silent no-op. Reload reconciliation removes retired file and registration epochs while retaining
+surviving counters across native extension replacement.
+
 ## Clickable pane rows
 
 An extension wraps a declarative `ViewNode` in `ViewNode::Action { id, child }`. Ratatui renders the child, records its visible cell rectangle, and sends `workdeck/pane/action` with the pane ID, action ID, current review snapshot, semantic saved-note snapshot, working directory, and open panes. The extension answers with ordinary validated host actions. Action IDs are local opaque values, limited to 1,024 bytes; they cannot carry executable callbacks across the process boundary.

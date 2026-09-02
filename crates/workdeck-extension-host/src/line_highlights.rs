@@ -1,7 +1,7 @@
 //! Validation and containment for extension-provided line highlights.
 
 use serde_json::{Number, Value};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use workdeck_core::ReviewSide;
 use workdeck_extension_api::{HighlightTone, ValidatedLineHighlight};
 
@@ -12,6 +12,87 @@ pub type LineHighlightEpochState = crate::ScopedEpochState;
 pub struct RegisteredLineHighlighter {
     pub extension_id: String,
     pub highlighter_id: String,
+}
+
+/// Result of one extension-requested line-highlight invalidation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineHighlightRefreshResult {
+    Refreshed,
+    InvalidHighlighterId,
+    UnknownHighlighter,
+    StaleFile,
+}
+
+/// Host-owned invalidation state behind native extensions' highlight refresh actions.
+#[derive(Debug, Clone, Default)]
+pub struct LineHighlightsController {
+    epochs: LineHighlightEpochState,
+    file_ids: BTreeSet<String>,
+    highlighters: Vec<RegisteredLineHighlighter>,
+}
+
+impl LineHighlightsController {
+    #[must_use]
+    pub fn new(
+        file_ids: impl IntoIterator<Item = String>,
+        highlighters: Vec<RegisteredLineHighlighter>,
+    ) -> Self {
+        Self {
+            epochs: LineHighlightEpochState::default(),
+            file_ids: file_ids.into_iter().collect(),
+            highlighters,
+        }
+    }
+
+    #[must_use]
+    pub fn epochs(&self) -> &LineHighlightEpochState {
+        &self.epochs
+    }
+
+    /// Keep surviving invalidations when a fresh extension registry replaces the old one.
+    pub fn retain_epochs_from(&mut self, previous: &Self) {
+        self.epochs = previous.epochs.clone();
+        self.reconcile_epochs();
+    }
+
+    /// Drop per-file epochs whose invocation-local file id disappeared on reload.
+    pub fn reconcile_files(&mut self, file_ids: impl IntoIterator<Item = String>) {
+        self.file_ids = file_ids.into_iter().collect();
+        self.reconcile_epochs();
+    }
+
+    fn reconcile_epochs(&mut self) {
+        let file_ids = self.file_ids.iter().cloned().collect::<Vec<_>>();
+        let keys = self
+            .highlighters
+            .iter()
+            .map(registered_line_highlighter_key)
+            .collect::<BTreeSet<_>>();
+        self.epochs = crate::reconcile_scoped_epochs(&self.epochs, &file_ids, &keys);
+    }
+
+    /// Resolve and apply one whole-highlighter or file-scoped refresh request.
+    pub fn refresh(
+        &mut self,
+        extension_id: &str,
+        highlighter_id: &str,
+        file_id: Option<&str>,
+    ) -> LineHighlightRefreshResult {
+        if highlighter_id.trim().is_empty() {
+            return LineHighlightRefreshResult::InvalidHighlighterId;
+        }
+        let Some(registered) =
+            resolve_registered_line_highlighter(&self.highlighters, extension_id, highlighter_id)
+        else {
+            return LineHighlightRefreshResult::UnknownHighlighter;
+        };
+        if file_id.is_some_and(|file_id| !self.file_ids.contains(file_id)) {
+            return LineHighlightRefreshResult::StaleFile;
+        }
+        let key = registered_line_highlighter_key(registered);
+        self.epochs = crate::bump_scoped_epoch(&self.epochs, &key, file_id);
+        LineHighlightRefreshResult::Refreshed
+    }
 }
 
 /// Resolve one registration as `<extensionId>:<highlighterId>`.
@@ -236,6 +317,97 @@ mod tests {
             resolve_registered_line_highlighter(&highlighters, "acme.review", "missing"),
             None
         );
+    }
+
+    fn controller() -> LineHighlightsController {
+        LineHighlightsController::new(
+            ["reviewed".into()],
+            vec![RegisteredLineHighlighter {
+                extension_id: "search".into(),
+                highlighter_id: "matches".into(),
+            }],
+        )
+    }
+
+    #[test]
+    fn controller_refreshes_whole_and_file_scoped_epochs() {
+        let mut controller = controller();
+        let key = "search:matches";
+        assert_eq!(
+            controller.refresh("search", "matches", None),
+            LineHighlightRefreshResult::Refreshed
+        );
+        assert_eq!(crate::scoped_epoch(controller.epochs(), key, "reviewed"), 1);
+
+        assert_eq!(
+            controller.refresh("search", "matches", Some("reviewed")),
+            LineHighlightRefreshResult::Refreshed
+        );
+        assert_eq!(crate::scoped_epoch(controller.epochs(), key, "reviewed"), 2);
+        assert_eq!(
+            crate::scoped_epoch(controller.epochs(), key, "other-file"),
+            1
+        );
+    }
+
+    #[test]
+    fn controller_warns_by_result_for_bad_ids_and_ignores_stale_files() {
+        let mut controller = controller();
+        assert_eq!(
+            controller.refresh("search", " ", None),
+            LineHighlightRefreshResult::InvalidHighlighterId
+        );
+        assert_eq!(
+            controller.refresh("search", "unknown", None),
+            LineHighlightRefreshResult::UnknownHighlighter
+        );
+        assert_eq!(
+            controller.refresh("search", "matches", Some("gone")),
+            LineHighlightRefreshResult::StaleFile
+        );
+        assert_eq!(
+            crate::scoped_epoch(controller.epochs(), "search:matches", "reviewed"),
+            0
+        );
+    }
+
+    #[test]
+    fn controller_resolves_qualified_ids_across_extensions() {
+        let mut controller = controller();
+        assert_eq!(
+            controller.refresh("other-extension", "search:matches", None),
+            LineHighlightRefreshResult::Refreshed
+        );
+        assert_eq!(
+            crate::scoped_epoch(controller.epochs(), "search:matches", "reviewed"),
+            1
+        );
+    }
+
+    #[test]
+    fn controller_reconciles_dropped_files_and_replaced_registries() {
+        let mut controller = controller();
+        controller.refresh("search", "matches", Some("reviewed"));
+        controller.reconcile_files([]);
+        assert_eq!(
+            crate::scoped_epoch(controller.epochs(), "search:matches", "reviewed"),
+            0
+        );
+        controller.refresh("search", "matches", None);
+        assert_eq!(
+            crate::scoped_epoch(controller.epochs(), "search:matches", "reviewed"),
+            1
+        );
+
+        let mut replacement = LineHighlightsController::new(
+            ["reviewed".into()],
+            vec![RegisteredLineHighlighter {
+                extension_id: "other".into(),
+                highlighter_id: "matches".into(),
+            }],
+        );
+        replacement.retain_epochs_from(&controller);
+        assert!(replacement.epochs().is_empty());
     }
 
     #[test]

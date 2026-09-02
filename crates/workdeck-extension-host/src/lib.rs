@@ -1746,6 +1746,10 @@ impl LoadedExtension {
                             .as_deref()
                             .is_none_or(|file_id| !file_id.trim().is_empty())
                 }
+                ExtensionHostAction::RefreshLineHighlights { .. } => self
+                    .manifest
+                    .capabilities
+                    .contains(&workdeck_extension_api::Capability::LineHighlighters),
                 ExtensionHostAction::RequestWorkspaceWrite {
                     request_id,
                     file_id,
