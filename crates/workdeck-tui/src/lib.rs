@@ -34,6 +34,7 @@ mod review_state_helpers;
 mod shutdown;
 mod spatial;
 mod startup_notices;
+mod status_bar;
 mod synthetic_key_event;
 mod terminal_runtime;
 mod text;
@@ -80,6 +81,7 @@ pub use review_state_helpers::*;
 pub use shutdown::*;
 pub use spatial::*;
 pub use startup_notices::*;
+pub use status_bar::*;
 pub use synthetic_key_event::*;
 pub use terminal_runtime::*;
 pub use text::*;
@@ -104,7 +106,7 @@ use crossterm::terminal::{
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::buffer::Buffer;
-use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Position, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget, Wrap};
@@ -226,6 +228,7 @@ pub enum CursorLineMode {
 enum Focus {
     Review,
     Sidebar,
+    Filter,
 }
 
 #[derive(Debug, Clone)]
@@ -504,6 +507,9 @@ pub struct ReviewApp {
     show_menu_bar: bool,
     copy_decorations: bool,
     status: Option<String>,
+    filter: String,
+    filter_cursor: usize,
+    filter_scroll: Cell<usize>,
     review_width: Cell<u16>,
     review_height: Cell<u16>,
     sidebar_bounds: Cell<Option<Rect>>,
@@ -589,6 +595,9 @@ impl ReviewApp {
             show_menu_bar: true,
             copy_decorations: false,
             status: keymap_status,
+            filter: String::new(),
+            filter_cursor: 0,
+            filter_scroll: Cell::new(0),
             review_width: Cell::new(120),
             review_height: Cell::new(20),
             sidebar_bounds: Cell::new(None),
@@ -824,6 +833,39 @@ impl ReviewApp {
             })
     }
 
+    /// Cursor requested by the focused status-bar filter input.
+    #[must_use]
+    pub fn status_filter_cursor_position(&self, area: Rect) -> Option<Position> {
+        if self.focus != Focus::Filter || area.width < 10 || area.height == 0 {
+            return None;
+        }
+        let mode_width = status_bar_mode_width(
+            self.active_keyboard_mode_status_hint().as_deref(),
+            area.width,
+        )
+        .min(area.width.saturating_sub(2));
+        let input_width = usize::from(
+            area.width
+                .saturating_sub(mode_width)
+                .saturating_sub(11)
+                .max(4),
+        );
+        let view = status_bar_input_view(
+            &self.filter,
+            self.filter_cursor,
+            input_width,
+            self.filter_scroll.get(),
+        );
+        self.filter_scroll.set(view.scroll);
+        Some(Position::new(
+            area.x
+                .saturating_add(9)
+                .saturating_add(u16::try_from(view.cursor_column).unwrap_or(u16::MAX))
+                .min(area.right().saturating_sub(1)),
+            area.y,
+        ))
+    }
+
     #[must_use]
     pub const fn current_line_row(&self) -> usize {
         self.current_line_row
@@ -891,6 +933,9 @@ impl ReviewApp {
         {
             return;
         }
+        if self.handle_filter_key(&key) {
+            return;
+        }
         if self.handle_app_menu_key(&key) {
             return;
         }
@@ -930,6 +975,47 @@ impl ReviewApp {
             self.focus = Focus::Review;
             self.scroll_to_selection();
         }
+    }
+
+    fn handle_filter_key(&mut self, key: &KeyEvent) -> bool {
+        if self.focus != Focus::Filter {
+            return false;
+        }
+        match key.code {
+            KeyCode::Tab | KeyCode::BackTab | KeyCode::Enter => self.focus = Focus::Review,
+            KeyCode::Esc if self.filter.is_empty() => self.focus = Focus::Review,
+            KeyCode::Esc => {
+                self.filter.clear();
+                self.filter_cursor = 0;
+                self.filter_scroll.set(0);
+            }
+            KeyCode::Left => {
+                self.filter_cursor = self.filter_cursor.saturating_sub(1);
+            }
+            KeyCode::Right => {
+                self.filter_cursor = self
+                    .filter_cursor
+                    .saturating_add(1)
+                    .min(self.filter.chars().count());
+            }
+            KeyCode::Home => self.filter_cursor = 0,
+            KeyCode::End => self.filter_cursor = self.filter.chars().count(),
+            KeyCode::Backspace => {
+                remove_filter_character_before(&mut self.filter, &mut self.filter_cursor);
+            }
+            KeyCode::Delete => {
+                remove_filter_character_at(&mut self.filter, &mut self.filter_cursor);
+            }
+            KeyCode::Char(character)
+                if !key.modifiers.intersects(
+                    KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
+                ) =>
+            {
+                insert_filter_character(&mut self.filter, &mut self.filter_cursor, character);
+            }
+            _ => {}
+        }
+        true
     }
 
     fn builtin_command_availability(&self) -> BuiltinCommandAvailability {
@@ -1076,14 +1162,18 @@ impl ReviewApp {
                 self.status = Some("agent skill is available through `workdeck skill`".into());
             }
             AppCommandAction::ToggleFocusArea => {
-                self.focus = match self.focus {
-                    Focus::Review => Focus::Sidebar,
-                    Focus::Sidebar => Focus::Review,
-                };
+                if self.focus == Focus::Filter {
+                    self.focus = Focus::Review;
+                } else {
+                    self.focus = Focus::Filter;
+                    self.filter_cursor = self.filter.chars().count();
+                    self.filter_scroll.set(0);
+                }
             }
             AppCommandAction::FocusFilter => {
-                self.focus = Focus::Sidebar;
-                self.status = Some("file filter focused".into());
+                self.focus = Focus::Filter;
+                self.filter_cursor = self.filter.chars().count();
+                self.filter_scroll.set(0);
             }
             AppCommandAction::StartUserNote => {
                 self.status = Some("review note composer is not active".into());
@@ -3876,7 +3966,19 @@ fn run_loop(
     let mut next_reload = Instant::now() + Duration::from_millis(250);
     while !app.should_quit && !session_stop.is_some_and(|stop| stop.load(Ordering::Relaxed)) {
         app.tick_extension_notifications(Instant::now());
-        terminal.draw(|frame| render(frame.area(), frame.buffer_mut(), app))?;
+        terminal.draw(|frame| {
+            let area = frame.area();
+            render(area, frame.buffer_mut(), app);
+            let footer = Rect::new(
+                area.x,
+                area.bottom().saturating_sub(1),
+                area.width,
+                u16::from(area.height > 0),
+            );
+            if let Some(position) = app.status_filter_cursor_position(footer) {
+                frame.set_cursor_position(position);
+            }
+        })?;
         if event::poll(Duration::from_millis(100))? {
             match event::read()? {
                 Event::Key(key) => {
@@ -4220,20 +4322,25 @@ pub fn render_active_keyboard_mode_badge(area: Rect, buffer: &mut Buffer, app: &
         runtime.mode_badge_bounds = None;
         return;
     }
-    let maximum = (area.width / 2).max(6).min(area.width);
-    let width = u16::try_from(hint.width().saturating_add(2))
-        .unwrap_or(u16::MAX)
-        .min(maximum);
-    let bounds = Rect::new(area.right().saturating_sub(width), area.y, width, 1);
+    let width = status_bar_mode_width(Some(&hint), area.width).min(area.width.saturating_sub(2));
+    let bounds = Rect::new(
+        area.right().saturating_sub(width.saturating_add(1)),
+        area.y,
+        width,
+        1,
+    );
     runtime.mode_badge_bounds = Some(bounds);
     drop(runtime);
+    Block::default()
+        .style(Style::default().bg(ratatui_theme_color(&app.options.theme.badge_neutral)))
+        .render(bounds, buffer);
     Paragraph::new(Line::styled(
         format!(" {hint} "),
         Style::default()
             .fg(ratatui_theme_color(&app.options.theme.panel_alt))
-            .bg(ratatui_theme_color(&app.options.theme.badge_neutral))
-            .add_modifier(Modifier::BOLD),
+            .bg(ratatui_theme_color(&app.options.theme.badge_neutral)),
     ))
+    .wrap(Wrap { trim: false })
     .render(bounds, buffer);
 }
 
@@ -6606,25 +6713,78 @@ fn render_footer(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         render_active_keyboard_mode_badge(area, buffer, app);
         return;
     }
-    let focus = match app.focus {
-        Focus::Review => "review",
-        Focus::Sidebar => "files",
-    };
-    let mut spans = vec![Span::styled(
-        format!(" {focus} "),
-        Style::default().fg(ratatui_theme_color(&app.options.theme.accent)),
-    )];
-    if let Some(status) = &app.status {
-        spans.push(Span::styled(
-            format!("  {status}"),
-            Style::default().fg(ratatui_theme_color(&app.options.theme.file_modified)),
-        ));
+    let background = ratatui_theme_color(&app.options.theme.panel_alt);
+    Block::default()
+        .style(
+            Style::default()
+                .fg(Color::Rgb(255, 255, 255))
+                .bg(background),
+        )
+        .render(area, buffer);
+    let mode_width = status_bar_mode_width(
+        app.active_keyboard_mode_status_hint().as_deref(),
+        area.width,
+    )
+    .min(area.width.saturating_sub(2));
+    let content = Rect::new(
+        area.x.saturating_add(1),
+        area.y,
+        area.width.saturating_sub(2).saturating_sub(mode_width),
+        area.height.min(1),
+    );
+    if content.width > 0 && content.height > 0 {
+        let line = if app.focus == Focus::Filter {
+            let input_width = usize::from(
+                area.width
+                    .saturating_sub(mode_width)
+                    .saturating_sub(11)
+                    .max(4),
+            );
+            let (input, input_color) = if app.filter.is_empty() {
+                (
+                    fit_text("type to filter files", input_width, None),
+                    Color::Rgb(102, 102, 102),
+                )
+            } else {
+                let view = status_bar_input_view(
+                    &app.filter,
+                    app.filter_cursor,
+                    input_width,
+                    app.filter_scroll.get(),
+                );
+                app.filter_scroll.set(view.scroll);
+                (view.text, Color::Rgb(255, 255, 255))
+            };
+            Line::from(vec![
+                Span::styled(
+                    "filter:",
+                    Style::default()
+                        .fg(ratatui_theme_color(&app.options.theme.badge_neutral))
+                        .bg(background),
+                ),
+                Span::styled(
+                    " ",
+                    Style::default()
+                        .fg(ratatui_theme_color(&app.options.theme.muted))
+                        .bg(background),
+                ),
+                Span::styled(input, Style::default().fg(input_color).bg(background)),
+            ])
+        } else {
+            let text = if app.filter.is_empty() {
+                app.status.as_deref().unwrap_or_default().to_owned()
+            } else {
+                format!("filter={}", app.filter)
+            };
+            Line::styled(
+                sanitize_terminal_line(&text),
+                Style::default()
+                    .fg(ratatui_theme_color(&app.options.theme.muted))
+                    .bg(background),
+            )
+        };
+        Paragraph::new(line).render(content, buffer);
     }
-    spans.push(Span::styled(
-        "  j/k scroll  n/p hunk  [/ ] file  e source  r reload  s/u/a layout  ? help  q quit",
-        Style::default().fg(ratatui_theme_color(&app.options.theme.muted)),
-    ));
-    Paragraph::new(Line::from(spans)).render(area, buffer);
     render_active_keyboard_mode_badge(area, buffer, app);
 }
 
@@ -6833,7 +6993,7 @@ mod tests {
         assert_eq!(new[0].bg, ratatui_theme_color(&theme.added_content_bg));
         assert_eq!(
             buffer.cell((99, 19)).unwrap().bg,
-            ratatui_theme_color(&theme.background)
+            ratatui_theme_color(&theme.panel_alt)
         );
         let workdeck = cells_matching_text(buffer, "Workdeck");
         assert_eq!(workdeck.len(), 1);
@@ -8001,6 +8161,188 @@ mod tests {
         assert_eq!(buffer.cell((0, 0)).unwrap().fg, Color::Rgb(255, 255, 255));
         assert_eq!(buffer.cell((19, 0)).unwrap().symbol(), " ");
         assert_eq!(buffer.cell((19, 0)).unwrap().fg, Color::Rgb(255, 255, 255));
+    }
+
+    #[test]
+    fn status_bar_matches_notice_filter_and_mode_precedence_frames() {
+        fn footer(app: &ReviewApp) -> Buffer {
+            let area = Rect::new(0, 0, 40, 1);
+            let mut buffer = Buffer::empty(area);
+            render_footer(area, &mut buffer, app);
+            buffer
+        }
+        fn text(buffer: &Buffer) -> String {
+            buffer.content().iter().map(|cell| cell.symbol()).collect()
+        }
+
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        app.set_status("Update available");
+        let notice = footer(&app);
+        assert_eq!(text(&notice), " Update available                       ");
+        assert!(
+            notice
+                .content()
+                .iter()
+                .all(|cell| cell.bg == Color::Rgb(39, 43, 49))
+        );
+        for x in 1..=16 {
+            assert_eq!(notice.cell((x, 0)).unwrap().fg, Color::Rgb(173, 174, 177));
+        }
+
+        app.filter = "beta".into();
+        app.filter_cursor = 4;
+        app.focus = Focus::Filter;
+        let focused = footer(&app);
+        assert_eq!(text(&focused), " filter: beta                           ");
+        for x in 1..=8 {
+            assert_eq!(focused.cell((x, 0)).unwrap().fg, Color::Rgb(173, 174, 177));
+        }
+        for x in 9..=12 {
+            assert_eq!(focused.cell((x, 0)).unwrap().fg, Color::Rgb(255, 255, 255));
+        }
+
+        app.filter = "0123456789abcdefghijklmnopqrstuvwxyz".into();
+        app.filter_cursor = app.filter.chars().count();
+        app.filter_scroll.set(0);
+        let long_focused = footer(&app);
+        assert_eq!(
+            text(&long_focused),
+            " filter: defghijklmnopqrstuvwxyz        "
+        );
+        assert_eq!(app.filter_scroll.get(), 13);
+        assert_eq!(
+            app.status_filter_cursor_position(Rect::new(0, 0, 40, 1)),
+            Some(Position::new(32, 0))
+        );
+
+        app.filter.clear();
+        app.filter_cursor = 0;
+        app.filter_scroll.set(0);
+        let empty_focused = footer(&app);
+        assert_eq!(
+            text(&empty_focused),
+            " filter: type to filter files           "
+        );
+        for x in 9..=28 {
+            assert_eq!(
+                empty_focused.cell((x, 0)).unwrap().fg,
+                Color::Rgb(102, 102, 102)
+            );
+        }
+
+        app.filter = "beta".into();
+        app.focus = Focus::Review;
+        let summary = footer(&app);
+        assert_eq!(text(&summary), " filter=beta                            ");
+        assert!(!text(&summary).contains("Update available"));
+
+        app.filter.clear();
+        app.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .active_keyboard_mode = Some(ActiveKeyboardMode {
+            extension_index: 0,
+            extension_id: "vim".into(),
+            mode: KeyboardModeRegistration {
+                id: "normal".into(),
+                title: "Vim navigation".into(),
+            },
+        });
+        let mode = footer(&app);
+        assert_eq!(text(&mode), " Update available   Vim navigation —    ");
+        let bounds = app
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .mode_badge_bounds
+            .expect("mode badge bounds");
+        assert_eq!(bounds, Rect::new(19, 0, 20, 1));
+        for x in bounds.x..bounds.right() {
+            assert_eq!(mode.cell((x, 0)).unwrap().bg, Color::Rgb(173, 174, 177));
+        }
+
+        let mut light = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                theme: resolve_theme(Some("github-light-default"), None, &[]),
+                ..ReviewOptions::default()
+            },
+        );
+        light.filter = "beta".into();
+        light.filter_cursor = 4;
+        light.focus = Focus::Filter;
+        let light_frame = footer(&light);
+        assert_eq!(
+            text(&light_frame),
+            " filter: beta                           "
+        );
+        assert_eq!(
+            light_frame.cell((0, 0)).unwrap().bg,
+            Color::Rgb(237, 237, 238)
+        );
+        assert_eq!(light_frame.cell((1, 0)).unwrap().fg, Color::Rgb(90, 90, 90));
+        assert_eq!(
+            light_frame.cell((9, 0)).unwrap().fg,
+            Color::Rgb(255, 255, 255)
+        );
+    }
+
+    #[test]
+    fn focused_status_filter_owns_editing_and_escape_clears_before_exit() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        app.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+        assert_eq!(app.focus, Focus::Filter);
+        for character in ['b', '界'] {
+            app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+        assert_eq!(app.filter, "ba界");
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE));
+        assert_eq!(app.filter, "b");
+
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.filter.is_empty());
+        assert_eq!(app.focus, Focus::Filter);
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(app.focus, Focus::Review);
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.filter, "z");
+        assert_eq!(app.focus, Focus::Review);
+    }
+
+    #[test]
+    fn status_bar_mouse_up_closes_an_open_application_menu() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        app.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE));
+        let menus = app.app_menus();
+        assert!(
+            app.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .menu
+                .active_menu_id(&menus)
+                .is_some()
+        );
+
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 39,
+            row: 19,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert_eq!(
+            app.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .menu
+                .active_menu_id(&menus),
+            None
+        );
     }
 
     #[test]

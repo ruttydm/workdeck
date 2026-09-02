@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 1,
+  "capture": {
+    "runtime": "Bun 1.3.5 and @opentui/react testRender",
+    "method": "rendered StatusBar directly in each disposable pinned source archive at 40x1, captured OpenTUI character frames and spans, invoked the real filter key handler for clear-before-submit behavior, and invoked the outer and keyboard-mode mouse handlers",
+    "baselineResult": "3 pass, 0 fail, 14 expectations",
+    "stableResult": "3 pass, 0 fail, 14 expectations",
+    "upstreamNamedTests": "six StatusBar tests in src/ui/components/ui-components.test.tsx; 6 pass, 0 fail, 15 expectations on each pinned revision"
+  },
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "blob": "f05fa32dd79726ce01c2365b2bf9d0a3a89dbe2d",
+  "sourceIdentical": true,
+  "input": {
+    "width": 40,
+    "height": 1,
+    "theme": "github-dark-default",
+    "panelAlt": "#272b31",
+    "badgeNeutral": "#adaeb1"
+  },
+  "cases": {
+    "notice": {
+      "frame": " Update available                       \n",
+      "spans": [
+        { "text": " ", "width": 1, "fg": "#ffffff", "bg": "#272b31" },
+        { "text": "Update available", "width": 16, "fg": "#adaeb1", "bg": "#272b31" },
+        { "text": "                       ", "width": 23, "fg": "#ffffff", "bg": "#272b31" }
+      ]
+    },
+    "filterFocused": {
+      "frame": " filter: beta                           \n",
+      "oneBasedCursor": [14, 1],
+      "spans": [
+        { "text": " ", "width": 1, "fg": "#ffffff", "bg": "#272b31" },
+        { "text": "filter: ", "width": 8, "fg": "#adaeb1", "bg": "#272b31" },
+        { "text": "beta                           ", "width": 31, "fg": "#ffffff", "bg": "#272b31" }
+      ]
+    },
+    "emptyFilterFocused": {
+      "frame": " filter: type to filter files           \n",
+      "oneBasedCursor": [10, 1],
+      "spans": [
+        { "text": " ", "width": 1, "fg": "#ffffff", "bg": "#272b31" },
+        { "text": "filter: ", "width": 8, "fg": "#adaeb1", "bg": "#272b31" },
+        { "text": "type to filter files", "width": 20, "fg": "#666666", "bg": "#272b31" },
+        { "text": "           ", "width": 11, "fg": "#ffffff", "bg": "#272b31" }
+      ]
+    },
+    "filterSummary": {
+      "frame": " filter=beta                            \n",
+      "hiddenNotice": "hidden notice",
+      "spans": [
+        { "text": " ", "width": 1, "fg": "#ffffff", "bg": "#272b31" },
+        { "text": "filter=beta", "width": 11, "fg": "#adaeb1", "bg": "#272b31" },
+        { "text": "                            ", "width": 28, "fg": "#ffffff", "bg": "#272b31" }
+      ]
+    },
+    "cappedMode": {
+      "inputText": "Vim navigation — ext vim:normal — Esc exits",
+      "modeWidth": 20,
+      "modeBounds": { "x": 19, "y": 0, "width": 20, "height": 1 },
+      "frame": " Update available   Vim navigation —    \n",
+      "spans": [
+        { "text": " ", "width": 1, "fg": "#ffffff", "bg": "#272b31" },
+        { "text": "Update available", "width": 16, "fg": "#adaeb1", "bg": "#272b31" },
+        { "text": "  ", "width": 2, "fg": "#ffffff", "bg": "#272b31" },
+        { "text": " Vim navigation — ", "width": 18, "fg": "#272b31", "bg": "#adaeb1" },
+        { "text": "  ", "width": 2, "fg": "#ffffff", "bg": "#adaeb1" },
+        { "text": " ", "width": 1, "fg": "#ffffff", "bg": "#272b31" }
+      ]
+    },
+    "lightFilterFocused": {
+      "frame": " filter: beta                           \n",
+      "oneBasedCursor": [14, 1],
+      "spans": [
+        { "text": " ", "width": 1, "fg": "#ffffff", "bg": "#ededee" },
+        { "text": "filter: ", "width": 8, "fg": "#5a5a5a", "bg": "#ededee" },
+        { "text": "beta                           ", "width": 31, "fg": "#ffffff", "bg": "#ededee" }
+      ]
+    },
+    "longFilterFocused": {
+      "input": "0123456789abcdefghijklmnopqrstuvwxyz",
+      "inputWidth": 29,
+      "scrollMarginRatio": 0.2,
+      "visibleScroll": 13,
+      "frame": " filter: defghijklmnopqrstuvwxyz        \n",
+      "oneBasedCursor": [33, 1],
+      "spans": [
+        { "text": " ", "width": 1, "fg": "#ffffff", "bg": "#272b31" },
+        { "text": "filter: ", "width": 8, "fg": "#adaeb1", "bg": "#272b31" },
+        { "text": "defghijklmnopqrstuvwxyz        ", "width": 31, "fg": "#ffffff", "bg": "#272b31" }
+      ]
+    }
+  },
+  "interaction": {
+    "escapeWithNonemptyFilter": { "filterInputCalls": [""], "submitCalls": 0 },
+    "escapeWithEmptyFilter": { "filterInputCalls": [], "submitCalls": 1 },
+    "escapeOwnership": { "preventDefaultCalls": 2, "stopPropagationCalls": 2 },
+    "nonEscapeOwnership": { "preventDefaultCalls": 0, "stopPropagationCalls": 0 },
+    "outerMouseUp": { "closeMenuCalls": 1 },
+    "modeMouseUp": { "exitModeCalls": 1, "stopPropagationCalls": 1 }
+  },
+  "rustParityTests": [
+    "workdeck_tui::status_bar::tests::mode_width_adds_padding_caps_at_half_and_keeps_the_six_cell_floor",
+    "workdeck_tui::status_bar::tests::filter_edits_by_unicode_scalar_without_splitting_utf8",
+    "workdeck_tui::status_bar::tests::filter_editing_clamps_stale_cursors_and_boundaries",
+    "workdeck_tui::status_bar::tests::input_view_matches_the_pinned_scroll_margin_and_cursor_frames",
+    "workdeck_tui::status_bar::tests::input_view_slices_wide_text_without_emitting_partial_glyphs",
+    "workdeck_tui::tests::status_bar_matches_notice_filter_and_mode_precedence_frames",
+    "workdeck_tui::tests::focused_status_filter_owns_editing_and_escape_clears_before_exit",
+    "workdeck_tui::tests::status_bar_mouse_up_closes_an_open_application_menu"
+  ],
+  "semanticBoundary": "This record ports the StatusBar renderer and callback/input contract. Projection of the filter into the displayed changeset remains owned by the separately unmapped useTerminalReview source interval.",
+  "normalization": "Workdeck naming and Ratatui cursor ownership only; row geometry, text, theme roles, precedence, width capping, input transitions, and mouse propagation are not normalized"
+}
