@@ -19,6 +19,7 @@ mod line_highlights;
 mod list_geometry;
 mod menu;
 mod mouse_scroll;
+mod public_review;
 mod shutdown;
 mod spatial;
 mod startup_notices;
@@ -49,6 +50,7 @@ pub use line_highlights::*;
 pub use list_geometry::*;
 pub use menu::*;
 pub use mouse_scroll::*;
+pub use public_review::*;
 pub use shutdown::*;
 pub use spatial::*;
 pub use startup_notices::*;
@@ -106,6 +108,11 @@ pub struct ReviewOptions {
     pub cursor_line: CursorLineMode,
     pub hunk_headers: bool,
     pub wrap_lines: bool,
+    /// Horizontal code-column offset. Wrapped rows deliberately ignore it.
+    pub horizontal_offset: usize,
+    /// Optional explicit line-number width for embedded/public review surfaces.
+    pub line_number_digits: Option<usize>,
+    pub highlight: bool,
     pub file_gap: u16,
     pub hunk_gap: u16,
     pub transparent_background: bool,
@@ -128,6 +135,9 @@ impl Default for ReviewOptions {
             cursor_line: CursorLineMode::Row,
             hunk_headers: true,
             wrap_lines: false,
+            horizontal_offset: 0,
+            line_number_digits: None,
+            highlight: true,
             file_gap: 1,
             hunk_gap: 0,
             transparent_background: false,
@@ -1049,6 +1059,19 @@ struct ReviewRows {
     hunk_tops: std::collections::HashMap<(usize, usize), usize>,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ReviewStreamChrome {
+    show_file_headers: bool,
+}
+
+impl Default for ReviewStreamChrome {
+    fn default() -> Self {
+        Self {
+            show_file_headers: true,
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn build_review_rows(
     changeset: &Changeset,
@@ -1060,6 +1083,31 @@ fn build_review_rows(
     highlight_cache: &mut HighlightCache,
     expanded_gaps: &BTreeSet<(String, usize)>,
 ) -> ReviewRows {
+    build_review_rows_with_chrome(
+        changeset,
+        comments,
+        selection,
+        layout,
+        options,
+        width,
+        highlight_cache,
+        expanded_gaps,
+        ReviewStreamChrome::default(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_review_rows_with_chrome(
+    changeset: &Changeset,
+    comments: &[ReviewComment],
+    selection: ReviewSelection,
+    layout: LayoutMode,
+    options: &ReviewOptions,
+    width: u16,
+    highlight_cache: &mut HighlightCache,
+    expanded_gaps: &BTreeSet<(String, usize)>,
+    chrome: ReviewStreamChrome,
+) -> ReviewRows {
     let mut rows = Vec::new();
     let mut file_tops = Vec::with_capacity(changeset.files.len());
     let mut hunk_tops = std::collections::HashMap::new();
@@ -1069,18 +1117,24 @@ fn build_review_rows(
             rows.extend((0..options.file_gap).map(|_| Line::default()));
         }
         file_tops.push(rows.len());
-        rows.push(file_header(
-            file,
-            selection.file_index == file_index,
-            usize::from(width),
-            header_stats_width,
-        ));
+        if chrome.show_file_headers {
+            rows.push(file_header(
+                file,
+                selection.file_index == file_index,
+                usize::from(width),
+                header_stats_width,
+            ));
+        }
         let file_selection = if selection.file_index == file_index {
             selection
         } else {
             ReviewSelection::default()
         };
-        let highlighted = highlight_cache.highlight(file, &options.syntax_theme);
+        let highlighted = if options.highlight {
+            highlight_cache.highlight(file, &options.syntax_theme)
+        } else {
+            Vec::new()
+        };
         if options.agent_notes {
             rows.extend(agent_rows(file, layout, usize::from(width)));
         }
@@ -1125,12 +1179,12 @@ fn build_review_rows(
                 rows.extend((0..options.hunk_gap).map(|_| Line::default()));
             }
             hunk_tops.insert((file_index, hunk_index), rows.len());
+            let selected_hunk = selection.file_index == file_index
+                && selection.hunk_index == Some(hunk_index)
+                && selection.line.is_none();
             if options.hunk_headers {
-                let selected_hunk = selection.file_index == file_index
-                    && selection.hunk_index == Some(hunk_index)
-                    && selection.line.is_none();
                 rows.push(Line::styled(
-                    format!("  {}", hunk.formatted_header()),
+                    format!("▌{}", hunk.formatted_header()),
                     if selected_hunk {
                         Style::default()
                             .fg(Color::Cyan)
@@ -1149,6 +1203,7 @@ fn build_review_rows(
                     highlighted.get(hunk_index),
                     comments,
                     file_selection,
+                    selected_hunk,
                 )),
                 LayoutMode::Stack | LayoutMode::Auto => rows.extend(stack_hunk_rows(
                     file,
@@ -1158,6 +1213,7 @@ fn build_review_rows(
                     comments,
                     width,
                     file_selection,
+                    selected_hunk,
                 )),
             }
             previous_old_end = hunk.old_start.saturating_add(hunk.old_count);
@@ -1428,6 +1484,7 @@ fn file_header(
     ])
 }
 
+#[allow(clippy::too_many_arguments)]
 fn stack_hunk_rows(
     file: &DiffFile,
     hunk: &workdeck_core::DiffHunk,
@@ -1436,6 +1493,7 @@ fn stack_hunk_rows(
     comments: &[ReviewComment],
     width: u16,
     selection: ReviewSelection,
+    hunk_selected: bool,
 ) -> Vec<Line<'static>> {
     let mut rows = Vec::new();
     let mut emphasis = vec![Vec::new(); hunk.lines.len()];
@@ -1459,7 +1517,7 @@ fn stack_hunk_rows(
             options,
             highlighted.and_then(|lines| lines.get(index)),
             &emphasis[index],
-            line_is_selected(line, selection),
+            hunk_selected || line_is_selected(line, selection),
             width,
         ));
         rows.extend(comment_rows(file, line, comments, width));
@@ -1482,14 +1540,16 @@ fn stack_line_rows(
     } else {
         bg
     };
-    let number = if options.line_numbers {
+    let gutter = if options.line_numbers {
+        let digits = options.line_number_digits.unwrap_or(4).max(1);
         format!(
-            "{:>4} {:>4} ",
+            "{:>digits$} {:>digits$} {marker}  ",
             line.old_line.map_or(String::new(), |line| line.to_string()),
-            line.new_line.map_or(String::new(), |line| line.to_string())
+            line.new_line.map_or(String::new(), |line| line.to_string()),
+            digits = digits,
         )
     } else {
-        String::new()
+        format!("{marker} ")
     };
     let number_style = Style::default()
         .fg(
@@ -1533,12 +1593,15 @@ fn stack_line_rows(
         ));
     }
     code = emphasize_spans(code, emphasis, emphasis_background(line.kind));
-    let prefix_width = number.width() + 1;
+    let prefix_width = gutter.width() + 1;
     let content_width = usize::from(width).saturating_sub(prefix_width);
     let wrapped = if options.wrap_lines {
         wrap_styled_spans(code, content_width)
     } else {
-        vec![clip_styled_spans(code, content_width)]
+        vec![clip_styled_spans(
+            skip_styled_spans(code, options.horizontal_offset),
+            content_width,
+        )]
     };
     wrapped
         .into_iter()
@@ -1546,14 +1609,17 @@ fn stack_line_rows(
         .map(|(index, mut code)| {
             let mut spans = if index == 0 {
                 vec![
-                    Span::styled(number.clone(), number_style),
-                    Span::styled(marker.to_string(), marker_style),
+                    Span::styled("▌", marker_style),
+                    Span::styled(gutter.clone(), number_style),
                 ]
             } else {
-                vec![Span::styled(
-                    " ".repeat(prefix_width),
-                    Style::default().bg(row_bg),
-                )]
+                vec![
+                    Span::styled("▌", marker_style),
+                    Span::styled(
+                        " ".repeat(prefix_width.saturating_sub(1)),
+                        Style::default().bg(row_bg),
+                    ),
+                ]
             };
             spans.append(&mut code);
             spans = clip_styled_spans(spans, usize::from(width));
@@ -1563,6 +1629,7 @@ fn stack_line_rows(
         .collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn split_hunk_rows(
     file: &DiffFile,
     hunk: &workdeck_core::DiffHunk,
@@ -1571,11 +1638,12 @@ fn split_hunk_rows(
     highlighted: Option<&Vec<Vec<SyntaxToken>>>,
     comments: &[ReviewComment],
     selection: ReviewSelection,
+    hunk_selected: bool,
 ) -> Vec<Line<'static>> {
     let mut rows = Vec::new();
-    let available = usize::from(width.saturating_sub(1));
-    let left_width = available / 2;
-    let right_width = available.saturating_sub(left_width);
+    let usable = usize::from(width.saturating_sub(2));
+    let left_width = 1_usize.saturating_add(usable / 2);
+    let right_width = 1_usize.saturating_add(usable.saturating_sub(usable / 2));
     for pair in plan_split_line_pairs(&hunk.lines) {
         let old = pair.old_index.and_then(|index| hunk.lines.get(index));
         let new = pair.new_index.and_then(|index| hunk.lines.get(index));
@@ -1606,7 +1674,8 @@ fn split_hunk_rows(
             options,
             left_width,
             right_width,
-            old.is_some_and(|line| line_is_selected(line, selection))
+            hunk_selected
+                || old.is_some_and(|line| line_is_selected(line, selection))
                 || new.is_some_and(|line| line_is_selected(line, selection)),
         ));
         if let Some(line) = old {
@@ -1736,7 +1805,6 @@ fn split_pair_rows(
         .into_iter()
         .zip(new_lines)
         .map(|(mut old, mut new)| {
-            old.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
             old.append(&mut new);
             Line::from(old)
         })
@@ -1753,7 +1821,10 @@ fn split_cell_lines(
     selected: bool,
 ) -> Vec<Vec<Span<'static>>> {
     let Some(line) = line else {
-        return vec![vec![Span::raw(" ".repeat(width))]];
+        return vec![vec![
+            Span::styled("▌", Style::default().fg(Color::DarkGray)),
+            Span::raw(" ".repeat(width.saturating_sub(1))),
+        ]];
     };
     let (marker, fg, default_bg) = line_style(line.kind);
     let bg = moved_line_background(line).unwrap_or(default_bg);
@@ -1762,14 +1833,16 @@ fn split_cell_lines(
     } else {
         bg
     };
-    let number = if options.line_numbers {
+    let gutter = if options.line_numbers {
+        let digits = options.line_number_digits.unwrap_or(4).max(1);
         let number = if old { line.old_line } else { line.new_line };
         format!(
-            "{:>4} ",
-            number.map_or(String::new(), |line| line.to_string())
+            "{:>digits$} {marker} ",
+            number.map_or(String::new(), |line| line.to_string()),
+            digits = digits,
         )
     } else {
-        String::new()
+        format!("{marker} ")
     };
     let number_style = Style::default()
         .fg(
@@ -1813,12 +1886,15 @@ fn split_cell_lines(
         ));
     }
     code = emphasize_spans(code, emphasis, emphasis_background(line.kind));
-    let prefix_width = number.width() + 1;
+    let prefix_width = gutter.width() + 1;
     let content_width = width.saturating_sub(prefix_width);
     let wrapped = if options.wrap_lines {
         wrap_styled_spans(code, content_width)
     } else {
-        vec![clip_styled_spans(code, content_width)]
+        vec![clip_styled_spans(
+            skip_styled_spans(code, options.horizontal_offset),
+            content_width,
+        )]
     };
     wrapped
         .into_iter()
@@ -1826,14 +1902,17 @@ fn split_cell_lines(
         .map(|(index, mut code)| {
             let mut spans = if index == 0 {
                 vec![
-                    Span::styled(number.clone(), number_style),
-                    Span::styled(marker.to_string(), marker_style),
+                    Span::styled("▌", marker_style),
+                    Span::styled(gutter.clone(), number_style),
                 ]
             } else {
-                vec![Span::styled(
-                    " ".repeat(prefix_width),
-                    Style::default().bg(row_bg),
-                )]
+                vec![
+                    Span::styled("▌", marker_style),
+                    Span::styled(
+                        " ".repeat(prefix_width.saturating_sub(1)),
+                        Style::default().bg(row_bg),
+                    ),
+                ]
             };
             spans.append(&mut code);
             spans = clip_styled_spans(spans, width);
@@ -1914,6 +1993,31 @@ fn wrap_styled_spans(spans: Vec<Span<'static>>, width: usize) -> Vec<Vec<Span<'s
 
 fn clip_styled_spans(spans: Vec<Span<'static>>, width: usize) -> Vec<Span<'static>> {
     segments_to_spans(clip_segments(spans_to_segments(spans), width))
+}
+
+/// Drop complete display cells from the left while preserving span styles.
+/// A wide glyph intersected by the boundary is omitted rather than split.
+fn skip_styled_spans(spans: Vec<Span<'static>>, offset: usize) -> Vec<Span<'static>> {
+    if offset == 0 {
+        return spans;
+    }
+    let mut skipped = 0_usize;
+    let mut visible: Vec<Span<'static>> = Vec::new();
+    for span in spans {
+        for character in span.content.chars() {
+            let width = character.width().unwrap_or_default();
+            if skipped < offset {
+                skipped = skipped.saturating_add(width);
+                continue;
+            }
+            if let Some(last) = visible.last_mut().filter(|last| last.style == span.style) {
+                last.content.to_mut().push(character);
+            } else {
+                visible.push(Span::styled(character.to_string(), span.style));
+            }
+        }
+    }
+    visible
 }
 
 fn spans_to_segments(spans: Vec<Span<'static>>) -> Vec<TextSegment<Style>> {
@@ -2162,7 +2266,7 @@ mod tests {
         );
 
         assert_eq!(nowrap.lines.len(), 4);
-        assert_eq!(wrapped.lines.len(), 6);
+        assert_eq!(wrapped.lines.len(), 8);
         assert_eq!(wrapped.hunk_tops.get(&(0, 0)), Some(&1));
         assert!(wrapped.lines[2..].iter().all(|line| line.width() <= 12));
     }
@@ -2194,9 +2298,9 @@ mod tests {
             assert_eq!(
                 row.spans
                     .iter()
-                    .filter(|span| span.content.as_ref() == "│")
+                    .filter(|span| span.content.as_ref() == "▌")
                     .count(),
-                1
+                2
             );
         }
     }

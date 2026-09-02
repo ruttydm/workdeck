@@ -32,6 +32,24 @@ use workdeck_core::{
     FileFlags, FileStats,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FileSnapshot<'a> {
+    pub cache_key: &'a str,
+    pub contents: &'a str,
+    pub name: &'a str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FileComparisonOptions {
+    pub context_radius: usize,
+}
+
+impl Default for FileComparisonOptions {
+    fn default() -> Self {
+        Self { context_radius: 3 }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct DiffLineMoveKinds {
     addition_lines: Vec<bool>,
@@ -89,6 +107,55 @@ pub fn parse_patch(
     };
     changeset.refresh_review_identities();
     Ok(changeset)
+}
+
+/// Compare two text snapshots and project the result through Workdeck's canonical patch parser.
+/// Snapshot cache keys participate in the source identity but never alter displayed paths.
+pub fn diff_from_file_snapshots(
+    before: FileSnapshot<'_>,
+    after: FileSnapshot<'_>,
+    options: FileComparisonOptions,
+) -> Result<DiffFile, PatchError> {
+    let diff = similar::TextDiff::from_lines(before.contents, after.contents);
+    let unified = diff
+        .unified_diff()
+        .context_radius(options.context_radius)
+        .header(before.name, after.name)
+        .to_string();
+    let source_id = format!("{}:{}", before.cache_key, after.cache_key);
+    let patch = format!(
+        "diff --git a/{before_name} b/{after_name}\n{unified}",
+        before_name = before.name,
+        after_name = after.name,
+    );
+    let mut changeset = parse_patch(
+        &patch,
+        &source_id,
+        after.name,
+        ChangesetSource::Files {
+            left: before.name.to_owned(),
+            right: after.name.to_owned(),
+        },
+    )?;
+    let mut file = changeset.files.remove(0);
+    for hunk in &mut file.hunks {
+        hunk.header = format!(
+            "@@ -{},{} +{},{} @@{}",
+            hunk.old_start,
+            hunk.old_count,
+            hunk.new_start,
+            hunk.new_count,
+            hunk.context
+                .as_deref()
+                .filter(|context| !context.is_empty())
+                .map_or_else(String::new, |context| format!(" {context}")),
+        );
+    }
+    file.previous_path = (before.name != after.name).then(|| before.name.to_owned());
+    file.path = after.name.to_owned();
+    file.refresh_identity();
+    file.refresh_address(&source_id, 0);
+    Ok(file)
 }
 
 pub fn sanitize_patch(patch: &str) -> String {
@@ -869,5 +936,52 @@ mod tests {
         assert!(lines[2].moved);
         assert!(!lines[3].moved);
         assert!(!changeset.files[0].patch.contains('\x1b'));
+    }
+
+    #[test]
+    fn compares_text_snapshots_with_pierre_compatible_explicit_hunk_counts() {
+        let file = diff_from_file_snapshots(
+            FileSnapshot {
+                cache_key: "old-cache",
+                contents: "one\ntwo\n",
+                name: "old name.txt",
+            },
+            FileSnapshot {
+                cache_key: "new-cache",
+                contents: "one\nthree\nadded\n",
+                name: "new name.txt",
+            },
+            FileComparisonOptions { context_radius: 3 },
+        )
+        .unwrap();
+
+        assert_eq!(file.path, "new name.txt");
+        assert_eq!(file.previous_path.as_deref(), Some("old name.txt"));
+        assert_eq!(file.stats.additions, 2);
+        assert_eq!(file.stats.deletions, 1);
+        assert_eq!(file.hunks[0].formatted_header(), "@@ -1,2 +1,3 @@");
+        assert!(file.runtime_id.starts_with("old-cache:new-cache:"));
+    }
+
+    #[test]
+    fn identical_text_snapshots_remain_an_addressable_empty_file() {
+        let file = diff_from_file_snapshots(
+            FileSnapshot {
+                cache_key: "same-before",
+                contents: "same\n",
+                name: "same.txt",
+            },
+            FileSnapshot {
+                cache_key: "same-after",
+                contents: "same\n",
+                name: "same.txt",
+            },
+            FileComparisonOptions::default(),
+        )
+        .unwrap();
+
+        assert_eq!(file.path, "same.txt");
+        assert!(file.hunks.is_empty());
+        assert_eq!(file.stats, FileStats::default());
     }
 }
