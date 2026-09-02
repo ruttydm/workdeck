@@ -12,6 +12,7 @@ mod current_review_controller;
 mod current_review_refresh;
 mod cursor_highlight;
 mod extension_command_controls;
+mod extension_commands;
 mod extension_current_line;
 mod extension_dialogs;
 mod extension_navigation;
@@ -73,6 +74,7 @@ pub use command_keys::*;
 pub use current_review_controller::*;
 pub use current_review_refresh::*;
 pub use cursor_highlight::*;
+pub use extension_commands::*;
 pub use extension_current_line::*;
 pub use extension_navigation::*;
 pub use extension_notifications::*;
@@ -154,15 +156,15 @@ use workdeck_diff::{
     sanitize_terminal_line, slice_segments_window, word_diff_ranges, wrap_segments,
 };
 use workdeck_extension_api::{
-    CommandRegistration, ExtensionCommandAvailability, ExtensionFileViewSpan,
-    ExtensionFileViewTone, ExtensionHostAction, ExtensionKeyEvent, ExtensionNotification,
-    ExtensionNotificationHub, ExtensionNotificationSubscription, ExtensionNotifyType,
-    ExtensionPaintTheme, ExtensionPaneView, ExtensionTextAttribute,
-    ExtensionWorkspaceWriteCompletion, ExtensionWorkspaceWriteResult, FileLanguageGlobTarget,
-    FileLanguageMatcher, FileViewModeKeyRequest, FileViewModeLifecycleRequest, KeyRoutingResult,
-    KeyboardModeRegistration, PaneActionInvocation, PanePlacement, PaneRegistration,
-    PaneRenderRequest, Registration, ReviewEvent, ValidatedFileViewLayout, ViewNode, ViewStyle,
-    WORKDECK_FILES_PANE_KEY, bundled_files_pane, extension_pane_size,
+    ExtensionCommandAvailability, ExtensionFileViewSpan, ExtensionFileViewTone,
+    ExtensionHostAction, ExtensionKeyEvent, ExtensionNotification, ExtensionNotificationHub,
+    ExtensionNotificationSubscription, ExtensionNotifyType, ExtensionPaintTheme, ExtensionPaneView,
+    ExtensionTextAttribute, ExtensionWorkspaceWriteCompletion, ExtensionWorkspaceWriteResult,
+    FileLanguageGlobTarget, FileLanguageMatcher, FileViewModeKeyRequest,
+    FileViewModeLifecycleRequest, KeyRoutingResult, KeyboardModeRegistration, PaneActionInvocation,
+    PanePlacement, PaneRegistration, PaneRenderRequest, Registration, ReviewEvent,
+    ValidatedFileViewLayout, ViewNode, ViewStyle, WORKDECK_FILES_PANE_KEY, bundled_files_pane,
+    extension_pane_size,
 };
 use workdeck_extension_host::{
     ExtensionEventContextProviderInstallation, ExtensionEventContextProviderSlot,
@@ -281,13 +283,6 @@ struct LivePaneRegistration {
 }
 
 #[derive(Debug, Clone)]
-struct LiveCommandRegistration {
-    extension_index: usize,
-    extension_id: String,
-    command: CommandRegistration,
-}
-
-#[derive(Debug, Clone)]
 struct LiveKeyboardModeRegistration {
     extension_index: usize,
     extension_id: String,
@@ -400,7 +395,9 @@ struct ExtensionPaneRuntime {
     deferred_events: BTreeMap<usize, VecDeque<ReviewEvent>>,
     panes: Vec<LivePaneRegistration>,
     session_panes: Vec<SessionPane>,
-    commands: Vec<LiveCommandRegistration>,
+    commands: Vec<RegisteredExtensionCommand>,
+    app_commands: Vec<ExtensionAppCommand>,
+    command_conflicts: Vec<ExtensionCommandConflict>,
     keyboard_modes: Vec<LiveKeyboardModeRegistration>,
     file_views: Vec<LiveFileViewRegistration>,
     file_view_selections: FileViewSelectionState,
@@ -464,7 +461,7 @@ impl ExtensionPaneRuntime {
                             ),
                         ));
                     }
-                    Registration::Command(command) => commands.push(LiveCommandRegistration {
+                    Registration::Command(command) => commands.push(RegisteredExtensionCommand {
                         extension_index,
                         extension_id: extension.manifest.id.clone(),
                         command: command.clone(),
@@ -638,7 +635,7 @@ impl ReviewApp {
             .iter()
             .map(|comment| comment.id.clone())
             .collect();
-        let extension_pane_runtime = ExtensionPaneRuntime::new(extensions);
+        let mut extension_pane_runtime = ExtensionPaneRuntime::new(extensions);
         if !extension_pane_runtime
             .session_panes
             .iter()
@@ -653,14 +650,17 @@ impl ReviewApp {
             options.pending_extension_trust_repo_root.as_deref(),
         );
         let mut command_defaults = builtin_command_key_defaults();
-        command_defaults.extend(extension_pane_runtime.commands.iter().map(|registration| {
-            CommandKeyDefaults {
-                id: format!("{}.{}", registration.extension_id, registration.command.id),
-                aliases: Vec::new(),
-                default_keys: registration.command.default_keys.clone(),
-            }
-        }));
+        command_defaults.extend(extension_command_key_defaults(
+            &extension_pane_runtime.commands,
+        ));
         let resolved_command_keys = resolve_command_keys(&command_defaults, &options.keybindings);
+        let extension_command_table = build_extension_app_commands(
+            &extension_pane_runtime.commands,
+            &builtin_command_match_probes(Some(&resolved_command_keys)),
+            Some(&resolved_command_keys),
+        );
+        extension_pane_runtime.app_commands = extension_command_table.commands;
+        extension_pane_runtime.command_conflicts = extension_command_table.conflicts;
         let keymap_status = {
             let mut notices = options.keybinding_notices.clone();
             notices.extend(
@@ -668,6 +668,12 @@ impl ReviewApp {
                     .issues
                     .iter()
                     .map(|issue| issue.message.clone()),
+            );
+            notices.extend(
+                extension_pane_runtime
+                    .command_conflicts
+                    .iter()
+                    .map(ExtensionCommandConflict::warning),
             );
             (!notices.is_empty()).then(|| notices.join(" • "))
         };
@@ -924,15 +930,16 @@ impl ReviewApp {
         self.exit_active_file_view_mode();
         let mut replacement = ExtensionPaneRuntime::new(extensions);
         let mut command_defaults = builtin_command_key_defaults();
-        command_defaults.extend(replacement.commands.iter().map(|registration| {
-            CommandKeyDefaults {
-                id: format!("{}.{}", registration.extension_id, registration.command.id),
-                aliases: Vec::new(),
-                default_keys: registration.command.default_keys.clone(),
-            }
-        }));
+        command_defaults.extend(extension_command_key_defaults(&replacement.commands));
         self.resolved_command_keys =
             resolve_command_keys(&command_defaults, &self.options.keybindings);
+        let extension_command_table = build_extension_app_commands(
+            &replacement.commands,
+            &builtin_command_match_probes(Some(&self.resolved_command_keys)),
+            Some(&self.resolved_command_keys),
+        );
+        replacement.app_commands = extension_command_table.commands;
+        replacement.command_conflicts = extension_command_table.conflicts;
         let previous = {
             let mut runtime = self
                 .extension_pane_runtime
@@ -1371,22 +1378,13 @@ impl ReviewApp {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             let extension_commands = runtime
-                .commands
+                .app_commands
                 .iter()
-                .map(|registration| {
-                    let id = format!("{}.{}", registration.extension_id, registration.command.id);
-                    let keys = self
-                        .resolved_command_keys
-                        .keys
-                        .get(&id)
-                        .cloned()
-                        .unwrap_or_else(|| registration.command.default_keys.clone());
-                    AppMenuCommand {
-                        id,
-                        title: sanitize_terminal_line(&registration.command.title),
-                        key_labels: keys.iter().map(|key| format_key_chord(key)).collect(),
-                        enabled: true,
-                    }
+                .map(|command| AppMenuCommand {
+                    id: command.id.clone(),
+                    title: sanitize_terminal_line(&command.title),
+                    key_labels: command.key_labels.clone(),
+                    enabled: true,
                 })
                 .collect::<Vec<_>>();
             let keyboard_mode_exit_entry = runtime
@@ -1699,17 +1697,7 @@ impl ReviewApp {
                 .extension_pane_runtime
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            runtime
-                .commands
-                .iter()
-                .find(|registration| {
-                    let id = format!("{}.{}", registration.extension_id, registration.command.id);
-                    self.resolved_command_keys
-                        .keys
-                        .get(&id)
-                        .is_some_and(|keys| matches_any_key_chord(keys).matches(&key))
-                })
-                .cloned()
+            dispatch_extension_app_command(&runtime.app_commands, &key).cloned()
         };
         let Some(command) = command else {
             return false;
@@ -1718,7 +1706,7 @@ impl ReviewApp {
         true
     }
 
-    fn invoke_registered_extension_command(&mut self, command: LiveCommandRegistration) {
+    fn invoke_registered_extension_command(&mut self, command: RegisteredExtensionCommand) {
         let command_epoch = self.extension_command_epoch;
         let (snapshot, review, workspace) = self.with_state(|state| {
             let workspace = self
@@ -4026,12 +4014,10 @@ impl ReviewApp {
             .extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .commands
+            .app_commands
             .iter()
-            .find(|registration| {
-                format!("{}.{}", registration.extension_id, registration.command.id) == command_id
-            })
-            .cloned();
+            .find(|command| command.id == command_id)
+            .map(|command| command.registration.clone());
         if let Some(command) = command {
             self.invoke_registered_extension_command(command);
         }
@@ -9561,6 +9547,62 @@ mod tests {
                 .unwrap()
                 .key_labels,
             ["x"]
+        );
+    }
+
+    #[test]
+    fn extension_command_conflicts_are_absent_from_live_dispatch_and_menu_hints() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        let registrations = vec![
+            RegisteredExtensionCommand {
+                extension_index: 0,
+                extension_id: "meta".into(),
+                command: workdeck_extension_api::CommandRegistration {
+                    id: "steal-s".into(),
+                    title: "Steal S".into(),
+                    description: None,
+                    default_keys: vec!["s".into()],
+                },
+            },
+            RegisteredExtensionCommand {
+                extension_index: 0,
+                extension_id: "meta".into(),
+                command: workdeck_extension_api::CommandRegistration {
+                    id: "ok".into(),
+                    title: "Safe command".into(),
+                    description: None,
+                    default_keys: vec!["y".into()],
+                },
+            },
+        ];
+        let table = build_extension_app_commands(
+            &registrations,
+            &builtin_command_match_probes(Some(&app.resolved_command_keys)),
+            Some(&app.resolved_command_keys),
+        );
+        {
+            let mut runtime = app
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            runtime.commands = registrations;
+            runtime.app_commands = table.commands;
+            runtime.command_conflicts = table.conflicts;
+        }
+
+        let menus = app.app_menus();
+        let extension_items = menus.get(&MenuId::Extensions).unwrap();
+        assert!(extension_items.iter().any(|entry| matches!(
+            entry,
+            MenuEntry::Item { label, hint: None, .. } if label == "Steal S"
+        )));
+        assert!(extension_items.iter().any(|entry| matches!(
+            entry,
+            MenuEntry::Item { label, hint: Some(hint), .. }
+                if label == "Safe command" && hint == "y"
+        )));
+        assert!(
+            !app.invoke_extension_command(&KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE,))
         );
     }
 

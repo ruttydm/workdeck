@@ -18,6 +18,8 @@ Pane registration now carries Hunk's replacement, current-line, and availability
 
 The committed pane controller owns that evaluator and all state transitions that must not occur during paint. An `available = true` registration receives `workdeck/pane/available` with the public files, selection, placement, and opted-in current-line address; the host enforces the normal request deadline and accepts only a boolean response. Callback and render failures quarantine the exact registration, warn once, cancel its drag, and restore the built-in Files role when a replacement fails. Size overrides retain their width/height axis so a same-key reload cannot reinterpret columns as rows.
 
+Extension commands share one resolved session keymap with built-ins. The native command table probes built-in matchers first and then prior extension registrations in load order, removes only each conflicting chord, and derives dispatch plus menu labels from the accepted set. Commands with no remaining chord stay available in the Extensions menu. A user remap replaces the extension's declared defaults, and moving a built-in releases its former chord for an extension to claim.
+
 ## Clickable pane rows
 
 An extension wraps a declarative `ViewNode` in `ViewNode::Action { id, child }`. Ratatui renders the child, records its visible cell rectangle, and sends `workdeck/pane/action` with the pane ID, action ID, current review snapshot, semantic saved-note snapshot, working directory, and open panes. The extension answers with ordinary validated host actions. Action IDs are local opaque values, limited to 1,024 bytes; they cannot carry executable callbacks across the process boundary.
