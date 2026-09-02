@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "baselineBlobs": {
+    ".dependency-cruiser.cjs": "c20aae747e76d2527cb3c6472407b84abdb69bee",
+    ".dependency-cruiser-known-violations.json": "fe51488c7066f6687ef680d6bfaa4f7768ef205c"
+  },
+  "stableBlobs": {
+    ".dependency-cruiser.cjs": "c20aae747e76d2527cb3c6472407b84abdb69bee",
+    ".dependency-cruiser-known-violations.json": "fe51488c7066f6687ef680d6bfaa4f7768ef205c"
+  },
+  "capture": "read both complete pinned Git blobs; the baseline and stable contracts are byte-identical",
+  "knownViolationBaseline": {
+    "bytes": "[]\\n",
+    "count": 0,
+    "native": "KNOWN_ARCHITECTURE_VIOLATIONS is an explicit empty slice and both unexpected and retired entries fail"
+  },
+  "ruleProjection": {
+    "no-circular": "independent DFS over live production Cargo edges",
+    "extension-api-is-import-free": "native protocol crate may import only provider-neutral workdeck-core values",
+    "lib-is-a-leaf": "core, markup, migration, and store have empty internal dependency ceilings",
+    "core-stays-domain": "workdeck-core has no Workdeck dependencies",
+    "extensions-host-stays-below-surfaces": "host may reach core, diff, extension API, and review, never TUI, session, or CLI",
+    "bundled-ui-extensions-render-only": "native extension implementation sources may not reference workdeck_cli, workdeck_session, or workdeck_tui",
+    "session-stays-below-app-and-ui": "session may reach core, diff, review, and VCS, never extension host, TUI, or CLI",
+    "app-composes-without-ui": "adapted to the declared Rust composition root: only workdeck-cli owns the complete product graph and no lower crate may depend on it",
+    "ui-couples-to-session-via-adapters": "exact four-file workdeck-tui allowlist",
+    "no-dead-modules": "static Rust module-tree reachability from every product lib/bin root with separate cfg(test) tracking",
+    "core-leaves-stay-below-bootstrap": "core has no upper Workdeck dependency; acquisition and launch composition remain outside it",
+    "review-reducer-is-module-internal": "semantic reducer function and re-export are pub(crate), with a source gate preventing public exposure",
+    "changeset-internals-stay-in-module": "workdeck-diff implementation modules are private and only deliberate facade items are re-exported",
+    "packages-stay-standalone": "each crate dependency is constrained by the ownership ceiling and only the CLI is the production composition root"
+  },
+  "executableEvidence": [
+    "cargo xtask architecture check",
+    "architecture::tests::pinned_empty_violation_baseline_remains_shrink_only",
+    "architecture::tests::graph_gate_rejects_cycles_boundary_inversions_and_extra_binaries",
+    "architecture::tests::module_scan_distinguishes_production_tests_and_orphans",
+    "architecture::tests::live_workspace_has_no_hidden_graph_or_source_exceptions"
+  ]
+}

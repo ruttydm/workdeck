@@ -83,11 +83,14 @@ cargo test --locked --workspace --all-targets
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo build --locked --release --package workdeck-cli --bin workdeck
 cargo xtask verify
+cargo xtask architecture check
 cargo xtask site check
 ```
 
 ## Hunk semantic rebase
 
 The pinned Hunk tree is being ported through a byte-exact ledger rather than merged as unrelated Git ancestry. `cargo xtask port fetch` recreates the namespaced upstream refs and source anchors; `cargo xtask port status` reports the honest remaining queue; strict `cargo xtask port audit` is the release gate. See [the semantic-port ledger](port/hunk/README.md).
+
+The live Cargo and Rust module graph is checked against the product ownership boundaries by `cargo xtask architecture check`; the same check runs inside `cargo xtask verify`. See [Architecture](docs/ARCHITECTURE.md).
 
 Workdeck is MIT licensed. Hunk-derived and other third-party portions retain their required notices in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).

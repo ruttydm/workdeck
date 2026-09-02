@@ -8,7 +8,7 @@ use crate::{
 
 /// Apply one action, returning `None` when the action is a semantic no-op.
 #[must_use]
-pub fn reduce_semantic_review_state(
+pub(crate) fn reduce_semantic_review_state(
     state: &SemanticReviewState,
     action: SemanticReviewAction,
 ) -> Option<SemanticReviewState> {

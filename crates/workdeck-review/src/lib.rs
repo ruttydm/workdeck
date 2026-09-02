@@ -45,7 +45,7 @@ pub use responsive::*;
 pub use semantic_actions::*;
 pub use semantic_intents::*;
 pub use semantic_navigation::*;
-pub use semantic_reducer::*;
+pub(crate) use semantic_reducer::*;
 pub use semantic_selectors::*;
 pub use semantic_state::*;
 pub use semantic_store::*;

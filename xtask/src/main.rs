@@ -12,6 +12,8 @@ use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+mod architecture;
+
 const DEFAULT_BASELINE: &str = "hunk-port/main-2c00f435^{}";
 const DEFAULT_STABLE: &str = "hunk-port/stable-v0.20.1^{}";
 const DEFAULT_LEDGER: &str = "port/hunk/ledger.jsonl";
@@ -144,6 +146,15 @@ fn run() -> Result<()> {
             _ => bail!("themes requires the vendor or verify command"),
         },
         Some("verify") => verify(),
+        Some("architecture") => match args.next().as_deref() {
+            Some("check") => {
+                if args.next().is_some() {
+                    bail!("architecture check accepts no options");
+                }
+                architecture::check(&repo_root()?)
+            }
+            _ => bail!("architecture requires the check command"),
+        },
         Some("extension") => match args.next().as_deref() {
             Some("stage-example") => {
                 let name = args
@@ -1290,6 +1301,7 @@ fn sha256_file(path: &Path) -> Result<String> {
 fn verify() -> Result<()> {
     let repo = repo_root()?;
     verify_vendored_themes()?;
+    architecture::check(&repo)?;
     run_checked(&repo, "cargo", &["fmt", "--all", "--check"])?;
     run_checked(
         &repo,
@@ -2113,6 +2125,7 @@ fn print_help() {
     );
     println!("cargo xtask licenses [--output PATH]");
     println!("cargo xtask verify");
+    println!("cargo xtask architecture check");
     println!(
         "cargo xtask extension stage-example <cli-tools|pane-layout|vim-navigation|review-snapshot-export|review-note-navigator|rendered-markdown|jsx-file-view|inline-edit|review-triage|github-pr|file-view-gallery>"
     );
