@@ -533,6 +533,7 @@ fn workdeck_diff_body_rows(
         ReviewStreamChrome {
             show_file_headers: false,
         },
+        false,
     );
     let map = WorkdeckDiffRenderMap {
         hunk_rows: rows

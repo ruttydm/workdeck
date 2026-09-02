@@ -2,7 +2,7 @@
 
 use std::ops::Range;
 
-const MAX_LINE_DIFF_LENGTH_UTF16: usize = 1000;
+use crate::HIGHLIGHT_WORD_DIFF_MAX_LINE_LENGTH_UTF16;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WordDiffRanges {
@@ -32,10 +32,11 @@ struct Token<'a> {
 ///
 /// Each word, punctuation mark, newline, or non-newline whitespace run is one comparison token.
 /// A one-character neutral gap between changes joins the surrounding emphasis, matching Pierre's
-/// default `word-alt` presentation. Lines above Pierre's 1000 UTF-16-unit cap are left undecorated.
+/// default `word-alt` presentation. Lines above Pierre's 10,000 UTF-16-unit cap are left
+/// undecorated.
 pub fn word_diff_ranges(old: &str, new: &str) -> WordDiffRanges {
-    if old.encode_utf16().count() > MAX_LINE_DIFF_LENGTH_UTF16
-        || new.encode_utf16().count() > MAX_LINE_DIFF_LENGTH_UTF16
+    if old.encode_utf16().count() > HIGHLIGHT_WORD_DIFF_MAX_LINE_LENGTH_UTF16
+        || new.encode_utf16().count() > HIGHLIGHT_WORD_DIFF_MAX_LINE_LENGTH_UTF16
     {
         return WordDiffRanges {
             old: Vec::new(),
@@ -214,13 +215,26 @@ mod tests {
 
     #[test]
     fn skips_pathological_long_lines() {
-        let old = "a".repeat(1001);
-        let new = "b".repeat(1001);
+        let old = "a".repeat(10_001);
+        let new = "b".repeat(10_001);
         assert_eq!(
             word_diff_ranges(&old, &new),
             WordDiffRanges {
                 old: Vec::new(),
                 new: Vec::new()
+            }
+        );
+    }
+
+    #[test]
+    fn retains_word_emphasis_at_the_worker_length_boundary() {
+        let old = "a".repeat(HIGHLIGHT_WORD_DIFF_MAX_LINE_LENGTH_UTF16);
+        let new = "b".repeat(HIGHLIGHT_WORD_DIFF_MAX_LINE_LENGTH_UTF16);
+        assert_eq!(
+            word_diff_ranges(&old, &new),
+            WordDiffRanges {
+                old: std::iter::once(0..old.len()).collect(),
+                new: std::iter::once(0..new.len()).collect()
             }
         );
     }

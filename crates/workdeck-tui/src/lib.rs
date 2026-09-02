@@ -382,7 +382,7 @@ impl ReviewApp {
             .highlights
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let rows = build_review_rows(
+        let rows = build_live_review_rows(
             state.changeset(),
             state.comments(),
             selected,
@@ -1021,7 +1021,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .highlights
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let rows = build_review_rows(
+    let rows = build_live_review_rows(
         state.changeset(),
         state.comments(),
         state.selection(),
@@ -1080,6 +1080,7 @@ impl Default for ReviewStreamChrome {
     }
 }
 
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 fn build_review_rows(
     changeset: &Changeset,
@@ -1101,6 +1102,32 @@ fn build_review_rows(
         highlight_cache,
         expanded_gaps,
         ReviewStreamChrome::default(),
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_live_review_rows(
+    changeset: &Changeset,
+    comments: &[ReviewComment],
+    selection: ReviewSelection,
+    layout: LayoutMode,
+    options: &ReviewOptions,
+    width: u16,
+    highlight_cache: &mut HighlightCache,
+    expanded_gaps: &BTreeSet<(String, usize)>,
+) -> ReviewRows {
+    build_review_rows_with_chrome(
+        changeset,
+        comments,
+        selection,
+        layout,
+        options,
+        width,
+        highlight_cache,
+        expanded_gaps,
+        ReviewStreamChrome::default(),
+        true,
     )
 }
 
@@ -1115,6 +1142,7 @@ fn build_review_rows_with_chrome(
     highlight_cache: &mut HighlightCache,
     expanded_gaps: &BTreeSet<(String, usize)>,
     chrome: ReviewStreamChrome,
+    live: bool,
 ) -> ReviewRows {
     let mut rows = Vec::new();
     let mut file_tops = Vec::with_capacity(changeset.files.len());
@@ -1140,15 +1168,27 @@ fn build_review_rows_with_chrome(
             ReviewSelection::default()
         };
         let highlighted = if options.highlight {
-            highlight_cache.highlight_with_syntax_theme(
-                file,
-                match options.theme.appearance {
-                    ThemeAppearance::Light => workdeck_diff::HighlightAppearance::Light,
-                    ThemeAppearance::Dark => workdeck_diff::HighlightAppearance::Dark,
-                },
-                options.theme.syntax_theme.as_deref(),
-                &options.theme.syntax_scope_overrides,
-            )
+            let appearance = match options.theme.appearance {
+                ThemeAppearance::Light => workdeck_diff::HighlightAppearance::Light,
+                ThemeAppearance::Dark => workdeck_diff::HighlightAppearance::Dark,
+            };
+            if live {
+                highlight_cache
+                    .highlight_with_syntax_theme_live(
+                        file,
+                        appearance,
+                        options.theme.syntax_theme.as_deref(),
+                        &options.theme.syntax_scope_overrides,
+                    )
+                    .unwrap_or_default()
+            } else {
+                highlight_cache.highlight_with_syntax_theme(
+                    file,
+                    appearance,
+                    options.theme.syntax_theme.as_deref(),
+                    &options.theme.syntax_scope_overrides,
+                )
+            }
         } else {
             Vec::new()
         };

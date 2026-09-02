@@ -5,19 +5,24 @@
 //! source packages and complete licenses are recorded in `THIRD_PARTY_NOTICES` and
 //! `third_party/themes`.
 
-use crate::compact_highlight::{decode_compact_syntax_lines, encode_compact_syntax_lines};
+use crate::compact_highlight::{
+    compact_line_lengths, decode_compact_syntax_lines, encode_compact_syntax_lines,
+};
 use crate::{
-    CompactHighlightedDiff, HIGHLIGHT_WORKER_PROTOCOL_VERSION, HighlightLineArrays,
-    HighlightWorkerClient, HighlightWorkerInput, HighlightWorkerResponse, HighlightedDiffCache,
-    HighlightedDiffCode, alias_context_highlight_lines, bundled_theme_assets::BUNDLED_THEME_ASSETS,
+    CompactHighlightedDiff, HIGHLIGHT_TOKENIZE_MAX_LINE_LENGTH_UTF16,
+    HIGHLIGHT_WORKER_PROTOCOL_VERSION, HighlightLineArrays, HighlightWorkerClient,
+    HighlightWorkerInput, HighlightWorkerResponse, HighlightedDiffCache, HighlightedDiffCode,
+    alias_context_highlight_lines, bundled_theme_assets::BUNDLED_THEME_ASSETS,
     compact_highlighted_diff_byte_length, create_source_backed_highlight_plan,
     remap_source_backed_highlight,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 use std::str::FromStr;
+use std::sync::Arc;
+use std::sync::mpsc::{self, Receiver, TryRecvError};
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{
     Color as SyntectColor, FontStyle, ScopeSelectors, StyleModifier, Theme, ThemeItem, ThemeSet,
@@ -29,6 +34,8 @@ use workdeck_core::{
 };
 
 const HIGHLIGHT_WORKER_CACHE_REVISION: u32 = 2;
+const HIGHLIGHT_WORKER_MIN_LINES: usize = 40;
+const MAX_HIGHLIGHTED_DIFF_LINES: usize = 10_000;
 pub const PIERRE_LIGHT_THEME: &str = "pierre-light";
 pub const PIERRE_DARK_THEME: &str = "pierre-dark";
 
@@ -293,6 +300,24 @@ struct HighlightWorkerCache {
     cached_bytes: usize,
 }
 
+#[derive(Debug)]
+struct QueuedNativeHighlight {
+    key: String,
+    original_metadata: SemanticReviewFile,
+    highlight_metadata: SemanticReviewFile,
+    source_plan: Option<crate::SourceBackedHighlightPlan>,
+    syntaxes: Arc<SyntaxSet>,
+    theme: Theme,
+}
+
+#[derive(Debug)]
+struct ActiveNativeHighlight {
+    request_id: u64,
+    key: String,
+    original_metadata: SemanticReviewFile,
+    receiver: Receiver<Result<CompactHighlightedDiff, String>>,
+}
+
 impl HighlightWorkerCache {
     fn new(max_bytes: usize) -> Self {
         Self {
@@ -441,25 +466,33 @@ pub fn highlight_worker_cache_key(
 /// spans.
 #[derive(Debug)]
 pub struct HighlightCache {
-    syntaxes: SyntaxSet,
+    syntaxes: Arc<SyntaxSet>,
     themes: ThemeSet,
     textmate_themes: HashMap<String, TextMateTheme>,
     theme_appearances: HashMap<String, HighlightAppearance>,
     entries: HighlightedDiffCache,
     worker_entries: HighlightWorkerCache,
     worker_client: HighlightWorkerClient,
+    queued_worker_jobs: HashMap<u64, QueuedNativeHighlight>,
+    active_worker_job: Option<ActiveNativeHighlight>,
+    pending_worker_keys: HashSet<String>,
+    ready_worker_results: HashMap<String, CompactHighlightedDiff>,
 }
 
 impl Default for HighlightCache {
     fn default() -> Self {
         Self {
-            syntaxes: SyntaxSet::load_defaults_newlines(),
+            syntaxes: Arc::new(SyntaxSet::load_defaults_newlines()),
             themes: ThemeSet::load_defaults(),
             textmate_themes: HashMap::new(),
             theme_appearances: HashMap::new(),
             entries: HighlightedDiffCache::default(),
             worker_entries: HighlightWorkerCache::new(MAX_WORKER_HIGHLIGHT_CACHE_BYTES),
             worker_client: HighlightWorkerClient::new(),
+            queued_worker_jobs: HashMap::new(),
+            active_worker_job: None,
+            pending_worker_keys: HashSet::new(),
+            ready_worker_results: HashMap::new(),
         }
     }
 }
@@ -548,6 +581,257 @@ impl HighlightCache {
         self.highlight(file, &theme_name)
     }
 
+    /// Render small/custom-theme diffs immediately and queue eligible bundled-theme work on the
+    /// native worker thread. A pending result returns `None`, allowing the TUI's regular redraw
+    /// tick to paint plain rows without blocking its input loop.
+    pub fn highlight_with_syntax_theme_live(
+        &mut self,
+        file: &DiffFile,
+        appearance: HighlightAppearance,
+        base_theme: Option<&str>,
+        scope_overrides: &[(String, String)],
+    ) -> Option<HighlightedFile> {
+        let line_count =
+            file.hunks
+                .iter()
+                .flat_map(|hunk| &hunk.lines)
+                .fold(0_usize, |count, line| {
+                    count
+                        .saturating_add(usize::from(line.old_line.is_some()))
+                        .saturating_add(usize::from(line.new_line.is_some()))
+                });
+        let theme_name =
+            self.ensure_syntax_highlight_theme_registered(appearance, base_theme, scope_overrides);
+        if line_count > MAX_HIGHLIGHTED_DIFF_LINES {
+            return Some(plain_file(file));
+        }
+        if !scope_overrides.is_empty() || line_count < HIGHLIGHT_WORKER_MIN_LINES {
+            return Some(self.highlight(file, &theme_name));
+        }
+        self.highlight_nonblocking(file, &theme_name)
+    }
+
+    fn highlight_nonblocking(&mut self, file: &DiffFile, theme: &str) -> Option<HighlightedFile> {
+        let theme = resolve_legacy_theme_id(Some(theme)).unwrap_or(theme);
+        self.ensure_bundled_theme_loaded(theme);
+        let language = file.language.clone().unwrap_or_default();
+        let appearance = self
+            .theme_appearances
+            .get(theme)
+            .copied()
+            .unwrap_or_else(|| {
+                if bundled_shiki_theme_is_light(Some(theme))
+                    .unwrap_or_else(|| theme.to_ascii_lowercase().contains("light"))
+                {
+                    HighlightAppearance::Light
+                } else {
+                    HighlightAppearance::Dark
+                }
+            });
+        let metadata = project_review_file(file, &file.key, 0);
+        let source_plan = create_source_backed_highlight_plan(
+            &metadata,
+            file.sources
+                .old
+                .as_ref()
+                .map(|source| source.content.as_str()),
+            file.sources
+                .new
+                .as_ref()
+                .map(|source| source.content.as_str()),
+        )
+        .filter(|plan| {
+            plan.metadata
+                .deletion_lines
+                .len()
+                .saturating_add(plan.metadata.addition_lines.len())
+                <= MAX_HIGHLIGHTED_DIFF_LINES
+        });
+        let alias_context = source_plan.is_none();
+        let key = highlight_worker_cache_key(file, alias_context, appearance, &language, theme);
+
+        self.poll_native_highlight_worker();
+        if let Some(cached) = self.entries.get(&key) {
+            return Some(cached.highlighted);
+        }
+        if let Some(ready) = self.ready_worker_results.remove(&key)
+            && let Ok(sides) = decode_compact_syntax_lines(
+                &ready,
+                &metadata.deletion_lines,
+                &metadata.addition_lines,
+            )
+        {
+            let highlighted = assemble_highlighted_file(file, &metadata, &sides);
+            self.entries.set(
+                key.clone(),
+                highlighted_diff_code(file, highlighted.clone()),
+            );
+            return Some(highlighted);
+        }
+        if let Some(cached) = self.worker_entries.get(&key)
+            && let Ok(sides) = decode_compact_syntax_lines(
+                &cached,
+                &metadata.deletion_lines,
+                &metadata.addition_lines,
+            )
+        {
+            let highlighted = assemble_highlighted_file(file, &metadata, &sides);
+            self.entries.set(
+                key.clone(),
+                highlighted_diff_code(file, highlighted.clone()),
+            );
+            return Some(highlighted);
+        }
+        if self.pending_worker_keys.contains(&key) {
+            return None;
+        }
+
+        let syntax_theme = self
+            .themes
+            .themes
+            .get(theme)
+            .or_else(|| match appearance {
+                HighlightAppearance::Light => self.themes.themes.get("InspiredGitHub"),
+                HighlightAppearance::Dark => self.themes.themes.get("base16-ocean.dark"),
+            })
+            .or_else(|| self.themes.themes.values().next())?
+            .clone();
+        let highlight_metadata = source_plan
+            .as_ref()
+            .map_or_else(|| metadata.clone(), |plan| plan.metadata.clone());
+        self.worker_client.ensure_builtin_backend();
+        let request_id = self.worker_client.enqueue(HighlightWorkerInput {
+            alias_context,
+            metadata: highlight_metadata.clone(),
+            appearance,
+            language,
+            theme: theme.to_owned(),
+        });
+        self.pending_worker_keys.insert(key.clone());
+        self.queued_worker_jobs.insert(
+            request_id,
+            QueuedNativeHighlight {
+                key,
+                original_metadata: metadata,
+                highlight_metadata,
+                source_plan,
+                syntaxes: self.syntaxes.clone(),
+                theme: syntax_theme,
+            },
+        );
+        if self.active_worker_job.is_none()
+            && let Some(request) = self.worker_client.dispatch_next()
+        {
+            self.start_native_highlight_worker(request);
+        }
+        None
+    }
+
+    fn start_native_highlight_worker(&mut self, request: crate::HighlightWorkerRequest) {
+        let Some(job) = self.queued_worker_jobs.remove(&request.id) else {
+            self.worker_client
+                .fail("The native highlight job was lost.");
+            self.pending_worker_keys.clear();
+            self.queued_worker_jobs.clear();
+            return;
+        };
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let key = job.key.clone();
+        let original_metadata = job.original_metadata.clone();
+        let request_id = request.id;
+        let spawn = std::thread::Builder::new()
+            .name("workdeck-highlight".into())
+            .spawn(move || {
+                let syntax = job
+                    .syntaxes
+                    .find_syntax_by_token(&request.language)
+                    .or_else(|| {
+                        Path::new(&request.metadata.path)
+                            .extension()
+                            .and_then(|extension| extension.to_str())
+                            .and_then(|extension| job.syntaxes.find_syntax_by_extension(extension))
+                    })
+                    .unwrap_or_else(|| job.syntaxes.find_syntax_plain_text());
+                let highlighted = highlight_metadata_sides(
+                    &job.highlight_metadata,
+                    syntax,
+                    &job.theme,
+                    &job.syntaxes,
+                );
+                let visible = if let Some(plan) = &job.source_plan {
+                    remap_source_backed_highlight(plan, &highlighted)
+                } else {
+                    let mut visible = highlighted;
+                    alias_context_highlight_lines(&job.original_metadata, &mut visible);
+                    visible
+                };
+                let result =
+                    encode_compact_syntax_lines(&visible).map_err(|error| error.to_string());
+                let _ = sender.send(result);
+            });
+        if let Err(error) = spawn {
+            self.worker_client.fail(error.to_string());
+            self.pending_worker_keys.clear();
+            self.queued_worker_jobs.clear();
+            return;
+        }
+        self.active_worker_job = Some(ActiveNativeHighlight {
+            request_id,
+            key,
+            original_metadata,
+            receiver,
+        });
+    }
+
+    fn poll_native_highlight_worker(&mut self) {
+        let Some(active) = self.active_worker_job.take() else {
+            return;
+        };
+        let result = match active.receiver.try_recv() {
+            Ok(result) => result,
+            Err(TryRecvError::Empty) => {
+                self.active_worker_job = Some(active);
+                return;
+            }
+            Err(TryRecvError::Disconnected) => {
+                self.worker_client
+                    .fail("The syntax highlighting worker failed.");
+                self.pending_worker_keys.clear();
+                self.queued_worker_jobs.clear();
+                return;
+            }
+        };
+        self.pending_worker_keys.remove(&active.key);
+        let response = match result {
+            Ok(code) => HighlightWorkerResponse::Success {
+                version: HIGHLIGHT_WORKER_PROTOCOL_VERSION,
+                id: active.request_id,
+                code: Box::new(code),
+            },
+            Err(message) => HighlightWorkerResponse::Failure {
+                version: HIGHLIGHT_WORKER_PROTOCOL_VERSION,
+                id: active.request_id,
+                message,
+            },
+        };
+        let Some(outcome) = self.worker_client.handle_response(response) else {
+            return;
+        };
+        if let Ok(payload) = outcome.settlement.result {
+            let lengths = compact_line_lengths(
+                &active.original_metadata.deletion_lines,
+                &active.original_metadata.addition_lines,
+            );
+            if crate::validate_compact_highlighted_diff(&payload, Some(&lengths)).is_ok() {
+                self.worker_entries.set(active.key.clone(), &payload);
+                self.ready_worker_results.insert(active.key, payload);
+            }
+        }
+        if let Some(next_request) = outcome.next_request {
+            self.start_native_highlight_worker(next_request);
+        }
+    }
+
     pub fn highlight(&mut self, file: &DiffFile, theme: &str) -> HighlightedFile {
         let theme = resolve_legacy_theme_id(Some(theme)).unwrap_or(theme);
         self.ensure_bundled_theme_loaded(theme);
@@ -582,41 +866,17 @@ impl HighlightCache {
         if let Some(cached) = self.entries.get(&key) {
             return cached.highlighted;
         }
-        self.worker_client.ensure_builtin_backend();
-        let request_id = self.worker_client.enqueue(HighlightWorkerInput {
-            alias_context,
-            metadata: metadata.clone(),
-            appearance,
-            language: language.clone(),
-            theme: theme.to_owned(),
-        });
-        let dispatched = self.worker_client.dispatch_next();
-        debug_assert_eq!(
-            dispatched.as_ref().map(|request| request.id),
-            Some(request_id)
-        );
-
-        if let Some(cached) = self.worker_entries.get(&key) {
-            let response = self
-                .worker_client
-                .handle_response(HighlightWorkerResponse::Success {
-                    version: HIGHLIGHT_WORKER_PROTOCOL_VERSION,
-                    id: request_id,
-                    code: Box::new(cached),
-                });
-            let cached = response
-                .and_then(|outcome| outcome.settlement.result.ok())
-                .expect("native highlight worker accepts its own protocol response");
-            if let Ok(sides) = decode_compact_syntax_lines(
+        if let Some(cached) = self.worker_entries.get(&key)
+            && let Ok(sides) = decode_compact_syntax_lines(
                 &cached,
                 &metadata.deletion_lines,
                 &metadata.addition_lines,
-            ) {
-                let highlighted = assemble_highlighted_file(file, &metadata, &sides);
-                self.entries
-                    .set(key, highlighted_diff_code(file, highlighted.clone()));
-                return highlighted;
-            }
+            )
+        {
+            let highlighted = assemble_highlighted_file(file, &metadata, &sides);
+            self.entries
+                .set(key, highlighted_diff_code(file, highlighted.clone()));
+            return highlighted;
         }
         let syntax = self
             .syntaxes
@@ -638,12 +898,6 @@ impl HighlightCache {
             })
             .or_else(|| self.themes.themes.values().next())
         else {
-            self.worker_client
-                .handle_response(HighlightWorkerResponse::Failure {
-                    version: HIGHLIGHT_WORKER_PROTOCOL_VERSION,
-                    id: request_id,
-                    message: "No native syntax theme is available.".into(),
-                });
             return plain_file(file);
         };
         let highlight_metadata = source_plan
@@ -658,24 +912,7 @@ impl HighlightCache {
             alias_context_highlight_lines(&metadata, &mut visible);
             visible
         };
-        let compact_result =
-            encode_compact_syntax_lines(&visible_sides).map_err(|error| error.to_string());
-        let response = match compact_result {
-            Ok(compact) => HighlightWorkerResponse::Success {
-                version: HIGHLIGHT_WORKER_PROTOCOL_VERSION,
-                id: request_id,
-                code: Box::new(compact),
-            },
-            Err(message) => HighlightWorkerResponse::Failure {
-                version: HIGHLIGHT_WORKER_PROTOCOL_VERSION,
-                id: request_id,
-                message,
-            },
-        };
-        let compact = self
-            .worker_client
-            .handle_response(response)
-            .and_then(|outcome| outcome.settlement.result.ok());
+        let compact = encode_compact_syntax_lines(&visible_sides).ok();
         let cached_sides = compact
             .as_ref()
             .and_then(|payload| {
@@ -707,11 +944,20 @@ impl HighlightCache {
     pub fn clear(&mut self) {
         self.entries.clear();
         self.worker_entries.clear();
+        self.ready_worker_results.clear();
+        self.pending_worker_keys.clear();
+        self.queued_worker_jobs.clear();
+        self.active_worker_job = None;
+        self.worker_client.dispose();
     }
 
     /// Release the logical native worker boundary and reject any outstanding jobs.
     pub fn dispose_worker(&mut self) {
         self.worker_client.dispose();
+        self.ready_worker_results.clear();
+        self.pending_worker_keys.clear();
+        self.queued_worker_jobs.clear();
+        self.active_worker_job = None;
     }
 }
 
@@ -737,6 +983,12 @@ fn highlight_source_side(
     lines
         .iter()
         .map(|source| {
+            let source_without_newline = source.trim_end_matches('\n');
+            if source_without_newline.encode_utf16().count()
+                > HIGHLIGHT_TOKENIZE_MAX_LINE_LENGTH_UTF16
+            {
+                return Some(vec![plain_token(source_without_newline)]);
+            }
             Some(
                 highlighter
                     .highlight_line(source, syntaxes)
@@ -757,7 +1009,7 @@ fn highlight_source_side(
                             .filter(|token| !token.text.is_empty())
                             .collect()
                     })
-                    .unwrap_or_else(|_| vec![plain_token(source.trim_end_matches('\n'))]),
+                    .unwrap_or_else(|_| vec![plain_token(source_without_newline)]),
             )
         })
         .collect()
@@ -1073,6 +1325,109 @@ mod tests {
             .map(|token| token.text.as_str())
             .collect::<String>();
         assert_eq!(reconstructed, "const answer = '🦀';");
+    }
+
+    #[test]
+    fn worker_render_limit_keeps_pathological_lines_plain_and_complete() {
+        let long_line = "x".repeat(HIGHLIGHT_TOKENIZE_MAX_LINE_LENGTH_UTF16 + 1);
+        let file = identity_file(&format!("{long_line}\n"), "example.ts");
+        let mut cache = HighlightCache::default();
+        let highlighted = cache.highlight(&file, PIERRE_DARK_THEME);
+        let tokens = highlighted[0][1].addition.as_ref().unwrap();
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].text, long_line);
+        assert_eq!(
+            tokens[0].foreground,
+            SyntaxColor {
+                red: 201,
+                green: 209,
+                blue: 217,
+            }
+        );
+    }
+
+    #[test]
+    fn live_highlighting_runs_eligible_files_off_the_calling_thread_and_settles_both() {
+        fn many_line_file(name: &str, suffix: &str) -> DiffFile {
+            let mut patch = format!(
+                "diff --git a/{name} b/{name}\n--- a/{name}\n+++ b/{name}\n@@ -1,40 +1,40 @@\n"
+            );
+            for index in 0..40 {
+                patch.push_str(&format!("-const value{index} = 0;\n"));
+            }
+            for index in 0..40 {
+                patch.push_str(&format!("+const value{index} = {suffix};\n"));
+            }
+            parse_patch(
+                &patch,
+                name,
+                name,
+                ChangesetSource::Patch { label: name.into() },
+            )
+            .unwrap()
+            .files
+            .remove(0)
+        }
+
+        let first = many_line_file("first.ts", "1");
+        let second = many_line_file("second.ts", "2");
+        let mut cache = HighlightCache::default();
+        assert!(
+            cache
+                .highlight_with_syntax_theme_live(
+                    &first,
+                    HighlightAppearance::Dark,
+                    Some(PIERRE_DARK_THEME),
+                    &[],
+                )
+                .is_none()
+        );
+        assert!(
+            cache
+                .highlight_with_syntax_theme_live(
+                    &second,
+                    HighlightAppearance::Dark,
+                    Some(PIERRE_DARK_THEME),
+                    &[],
+                )
+                .is_none()
+        );
+        assert!(cache.active_worker_job.is_some());
+        assert!(cache.queued_worker_jobs.len() <= 1);
+
+        let mut first_result = None;
+        let mut second_result = None;
+        for _ in 0..10_000 {
+            first_result = first_result.or_else(|| {
+                cache.highlight_with_syntax_theme_live(
+                    &first,
+                    HighlightAppearance::Dark,
+                    Some(PIERRE_DARK_THEME),
+                    &[],
+                )
+            });
+            second_result = second_result.or_else(|| {
+                cache.highlight_with_syntax_theme_live(
+                    &second,
+                    HighlightAppearance::Dark,
+                    Some(PIERRE_DARK_THEME),
+                    &[],
+                )
+            });
+            if first_result.is_some() && second_result.is_some() {
+                break;
+            }
+            std::thread::yield_now();
+        }
+        assert!(
+            first_result.is_some(),
+            "first native highlight did not settle"
+        );
+        assert!(
+            second_result.is_some(),
+            "queued native highlight did not settle"
+        );
+        assert!(cache.pending_worker_keys.is_empty());
     }
 
     #[test]

@@ -11,7 +11,28 @@ use workdeck_core::SemanticReviewFile;
 use crate::{CompactHighlightedDiff, HighlightAppearance};
 
 pub const HIGHLIGHT_WORKER_PROTOCOL_VERSION: u8 = 3;
+pub const HIGHLIGHT_TOKENIZE_MAX_LINE_LENGTH_UTF16: usize = 1_000;
+pub const HIGHLIGHT_WORD_DIFF_MAX_LINE_LENGTH_UTF16: usize = 10_000;
 const BUILTIN_NATIVE_BACKEND_ID: u64 = 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HighlightWorkerRenderOptions {
+    pub use_token_transformer: bool,
+    pub tokenize_max_line_length_utf16: usize,
+    pub line_diff_type: &'static str,
+    pub max_line_diff_length_utf16: usize,
+}
+
+/// Fixed render behavior shared by Hunk's main-thread and worker highlighters.
+#[must_use]
+pub const fn highlight_worker_render_options() -> HighlightWorkerRenderOptions {
+    HighlightWorkerRenderOptions {
+        use_token_transformer: false,
+        tokenize_max_line_length_utf16: HIGHLIGHT_TOKENIZE_MAX_LINE_LENGTH_UTF16,
+        line_diff_type: "word-alt",
+        max_line_diff_length_utf16: HIGHLIGHT_WORD_DIFF_MAX_LINE_LENGTH_UTF16,
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HighlightWorkerInput {
@@ -31,6 +52,23 @@ pub struct HighlightWorkerRequest {
     pub appearance: HighlightAppearance,
     pub language: String,
     pub theme: String,
+}
+
+impl HighlightWorkerRequest {
+    /// Build the endpoint's structured rejection for an unsupported request version.
+    #[must_use]
+    pub fn unsupported_version_response(&self) -> Option<HighlightWorkerResponse> {
+        (self.version != HIGHLIGHT_WORKER_PROTOCOL_VERSION).then(|| {
+            HighlightWorkerResponse::Failure {
+                version: HIGHLIGHT_WORKER_PROTOCOL_VERSION,
+                id: self.id,
+                message: format!(
+                    "Unsupported highlight worker protocol version: {}",
+                    self.version
+                ),
+            }
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -255,6 +293,31 @@ mod tests {
     }
 
     #[test]
+    fn endpoint_uses_fixed_pierre_limits_and_rejects_old_protocol_requests() {
+        assert_eq!(
+            highlight_worker_render_options(),
+            HighlightWorkerRenderOptions {
+                use_token_transformer: false,
+                tokenize_max_line_length_utf16: 1_000,
+                line_diff_type: "word-alt",
+                max_line_diff_length_utf16: 10_000,
+            }
+        );
+        let mut client = HighlightWorkerClient::new();
+        let id = client.enqueue(input(false));
+        let mut request = client.dispatch_next().unwrap();
+        request.version = 2;
+        assert_eq!(
+            request.unsupported_version_response(),
+            Some(HighlightWorkerResponse::Failure {
+                version: HIGHLIGHT_WORKER_PROTOCOL_VERSION,
+                id,
+                message: "Unsupported highlight worker protocol version: 2".into(),
+            })
+        );
+    }
+
+    #[test]
     fn serializes_requests_ignores_stale_replies_and_propagates_results() {
         let mut client = HighlightWorkerClient::new();
         client.register_backend(7);
@@ -270,6 +333,16 @@ mod tests {
                 .handle_response(HighlightWorkerResponse::Success {
                     version: 2,
                     id: first,
+                    code: Box::new(empty_compact_response()),
+                })
+                .is_none()
+        );
+        assert_eq!(client.active_id(), Some(first));
+        assert!(
+            client
+                .handle_response(HighlightWorkerResponse::Success {
+                    version: HIGHLIGHT_WORKER_PROTOCOL_VERSION,
+                    id: second,
                     code: Box::new(empty_compact_response()),
                 })
                 .is_none()

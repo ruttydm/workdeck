@@ -41,9 +41,11 @@ pub use geometry::{
 pub use git_format::{SanitizedGitPatch, SanitizedGitPatchFilePaths, sanitize_git_patch};
 pub use git_log::strip_git_log_metadata;
 pub use highlight_worker::{
+    HIGHLIGHT_TOKENIZE_MAX_LINE_LENGTH_UTF16, HIGHLIGHT_WORD_DIFF_MAX_LINE_LENGTH_UTF16,
     HIGHLIGHT_WORKER_PROTOCOL_VERSION, HighlightWorkerClient, HighlightWorkerInput,
-    HighlightWorkerMessageOutcome, HighlightWorkerRequest, HighlightWorkerReset,
-    HighlightWorkerResponse, HighlightWorkerSettlement,
+    HighlightWorkerMessageOutcome, HighlightWorkerRenderOptions, HighlightWorkerRequest,
+    HighlightWorkerReset, HighlightWorkerResponse, HighlightWorkerSettlement,
+    highlight_worker_render_options,
 };
 pub use highlighted_diff_cache::{
     HighlightedDiffCache, HighlightedDiffCode, MAX_HIGHLIGHTED_DIFF_CACHE_LINES,
