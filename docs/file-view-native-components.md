@@ -1,0 +1,23 @@
+# Fixed-height native file-view rows
+
+Workdeck preserves Hunk's constrained custom-row escape hatch without embedding React, OpenTUI, JavaScript, or a second renderer. A validated row may include an atomic `component` descriptor with a fixed height, collapsed and optional expanded declarative `ViewNode` trees, an optional selection prefix, and a cooperative left-mouse-up toggle. Ratatui's cell buffer remains authoritative, and native extensions remain trusted subprocesses rather than sandboxes.
+
+## Contract
+
+- Layout still happens before paint and supplies stable row IDs plus one inclusive row range for every parsed hunk.
+- Every custom row retains symbolic `spans`. Workdeck renders them when component content is empty, clipped to the same declared fixed height. Invalid component declarations reject the layout to the raw diff; symbolic-only layouts use the same renderer unchanged.
+- A component row declares `height` and `content` atomically. Each declarative tree must pass the extension view limits, one row is limited to 256 terminal lines, and all symbolic and component rows together are limited to 100,000 terminal lines. Existing row, span, and text limits still apply. An invalid layout falls back to the raw diff.
+- The host supplies current width, fixed height, selection, row index, and semantic theme through deterministic declarative fields and paint state. Theme changes repaint mounted rows without relayout or geometry changes. No opaque renderer payload crosses the JSON-RPC boundary.
+- Ratatui paints component content inside exactly the declared height, clips overflow, and never feeds post-paint measurement back into geometry. Stable IDs, hunk bounds, selection, scrolling, and row windowing remain host-owned.
+
+## Deliberate limits
+
+- **Component state is ephemeral paint state.** It survives selected-hunk and theme updates while a row remains visible. State resets when windowing unmounts the row, the file view switches, the extension or review reloads, width forces relayout, or a replacement layout generation arrives. Durable review actions belong in registered commands.
+- **Component resizing is ignored.** Content is clipped or padded to the declared height. There is no resize callback or measurement pass.
+- **Custom rows are non-focusable paint surfaces.** They do not own review keyboard input; registered commands and menus preserve the keyboard path. A row may cooperatively consume an un-dragged left-button mouse-up. Wheel, drag, and unhandled input remain host-owned for scrolling and copy selection. File views receive no focus, portal, renderer, or input-delivery guarantee.
+- **Inline notes require exact bindings.** Rows may expose non-overlapping source ranges. Workdeck inserts note cards before the uniquely bound row using the same plan for measurement and rendering. If a visible note lacks a bound preferred-side anchor, the whole file temporarily uses the raw diff instead of hiding or guessing review data. Draft editing remains raw-only.
+- **Error containment has no renderer callback seam.** Hunk caught synchronous React render and lifecycle errors per row. Workdeck validates the declarative tree before accepting the layout, then paints it entirely inside the host, so no extension callback or lifecycle runs during row paint. An empty accepted tree uses symbolic spans; an invalid layout or subprocess failure uses the raw diff and remains contained by host deadlines and lifecycle policy.
+- **Clipping is not a security boundary.** Native extensions are trusted programs. The contract preserves geometry for cooperative components; it does not claim to sandbox arbitrary native code.
+- Custom rows cannot replace the file section, control outer layout, request post-paint geometry changes, or bypass raw fallback and resource validation.
+
+See [`examples/extensions/jsx-file-view/`](../examples/extensions/jsx-file-view/) for the smallest stateful example. Hunk's companion gallery contract adds real-diff demos for a responsive source-change atlas, exact-source CSS color swatches, and semantic `package.json` version highlights; that gallery has its own ledger records and executable evidence.

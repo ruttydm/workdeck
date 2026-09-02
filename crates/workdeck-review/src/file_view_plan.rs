@@ -18,7 +18,7 @@ pub enum PlannedFileViewRow {
         key: String,
         stable_key: String,
         stable_alias_keys: Vec<String>,
-        row: ExtensionFileViewRow,
+        row: Box<ExtensionFileViewRow>,
         row_index: usize,
     },
     InlineNote {
@@ -103,7 +103,7 @@ pub fn build_file_view_render_plan(
             key: key.clone(),
             stable_key: key,
             stable_alias_keys,
-            row: row.clone(),
+            row: Box::new(row.clone()),
             row_index,
         });
 

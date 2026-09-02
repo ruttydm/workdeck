@@ -119,9 +119,26 @@ pub struct ExtensionFileViewSpan {
 /// native subprocess protocol carries the same fixed-height fallback contract
 /// as a declarative view tree which the host validates and paints.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExtensionFileViewRowComponent {
     pub height: usize,
     pub content: ViewNode,
+    /// Alternate declarative paint tree selected by ephemeral host-owned row state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expanded_content: Option<ViewNode>,
+    /// Cooperatively consume an un-dragged left-button mouse-up inside this row.
+    #[serde(default)]
+    pub toggle_expanded_on_left_mouse_up: bool,
+    /// Optional prefixes applied to the first painted line from current hunk selection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection_prefix: Option<ExtensionFileViewSelectionPrefix>,
+}
+
+/// Paint-only selection marker for a fixed-height declarative component row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionFileViewSelectionPrefix {
+    pub selected: String,
+    pub unselected: String,
 }
 
 /// A row in a host-owned, terminal-safe file-view layout.

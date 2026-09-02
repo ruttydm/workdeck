@@ -6,9 +6,9 @@ use unicode_width::UnicodeWidthStr;
 use workdeck_diff::sanitize_terminal_line;
 use workdeck_extension_api::{
     ExtensionFileSide, ExtensionFileViewHunkRows, ExtensionFileViewLayout, ExtensionFileViewRow,
-    ExtensionFileViewRowComponent, ExtensionFileViewSourceRange, ExtensionFileViewSpan,
-    ExtensionFileViewTone, ExtensionTextAttribute, ValidatedFileViewLayout, ViewNode,
-    validate_view,
+    ExtensionFileViewRowComponent, ExtensionFileViewSelectionPrefix, ExtensionFileViewSourceRange,
+    ExtensionFileViewSpan, ExtensionFileViewTone, ExtensionTextAttribute, ValidatedFileViewLayout,
+    ViewNode, validate_view,
 };
 
 pub const FILE_VIEW_MAX_ROWS: usize = 10_000;
@@ -200,7 +200,58 @@ fn parse_component(
         .map_err(|_| format!("rows[{row_index}].component.content is not a declarative view"))?;
     validate_view(&content)
         .map_err(|issue| format!("rows[{row_index}].component.content {issue}"))?;
-    Ok(Some(ExtensionFileViewRowComponent { height, content }))
+    let expanded_content = component
+        .get("expandedContent")
+        .cloned()
+        .map(|content| {
+            let content = serde_json::from_value::<ViewNode>(content).map_err(|_| {
+                format!("rows[{row_index}].component.expandedContent is not a declarative view")
+            })?;
+            validate_view(&content)
+                .map_err(|issue| format!("rows[{row_index}].component.expandedContent {issue}"))?;
+            Ok::<_, String>(content)
+        })
+        .transpose()?;
+    let toggle_expanded_on_left_mouse_up =
+        component
+            .get("toggleExpandedOnLeftMouseUp")
+            .map_or(Ok(false), |value| {
+                value.as_bool().ok_or_else(|| {
+                    format!(
+                        "rows[{row_index}].component.toggleExpandedOnLeftMouseUp is not a boolean"
+                    )
+                })
+            })?;
+    if toggle_expanded_on_left_mouse_up && expanded_content.is_none() {
+        return Err(format!(
+            "rows[{row_index}].component toggles without expandedContent"
+        ));
+    }
+    let selection_prefix = component
+        .get("selectionPrefix")
+        .cloned()
+        .map(|prefix| {
+            let prefix = serde_json::from_value::<ExtensionFileViewSelectionPrefix>(prefix)
+                .map_err(|_| format!("rows[{row_index}].component.selectionPrefix is invalid"))?;
+            if sanitize_terminal_line(&prefix.selected) != prefix.selected
+                || sanitize_terminal_line(&prefix.unselected) != prefix.unselected
+                || prefix.selected.encode_utf16().count() > 32
+                || prefix.unselected.encode_utf16().count() > 32
+            {
+                return Err(format!(
+                    "rows[{row_index}].component.selectionPrefix is invalid"
+                ));
+            }
+            Ok::<_, String>(prefix)
+        })
+        .transpose()?;
+    Ok(Some(ExtensionFileViewRowComponent {
+        height,
+        content,
+        expanded_content,
+        toggle_expanded_on_left_mouse_up,
+        selection_prefix,
+    }))
 }
 
 fn parse_tone(
@@ -547,13 +598,22 @@ mod tests {
         let value = json!({
             "rows": [{
                 "id": "custom", "spans": [{"text": "fallback"}],
-                "component": {"height": 4, "content": {"type": "text", "text": "custom"}}
+                "component": {
+                    "height": 4,
+                    "content": {"type": "text", "text": "custom"},
+                    "expandedContent": {"type": "text", "text": "expanded"},
+                    "toggleExpandedOnLeftMouseUp": true,
+                    "selectionPrefix": {"selected": "▶ ", "unselected": "  "}
+                }
             }],
             "hunkRows": [{"startRow": 0, "endRow": 0}]
         });
         let validated = validate_file_view_layout(&value, 1, 80).unwrap();
         assert_eq!(validated.row_heights, [4]);
-        assert!(validated.layout.rows[0].component.is_some());
+        let component = validated.layout.rows[0].component.as_ref().unwrap();
+        assert!(component.expanded_content.is_some());
+        assert!(component.toggle_expanded_on_left_mouse_up);
+        assert_eq!(component.selection_prefix.as_ref().unwrap().selected, "▶ ");
     }
 
     #[test]
@@ -571,6 +631,18 @@ mod tests {
         assert_eq!(
             validate_file_view_layout(&missing_content, 0, 80).unwrap_err(),
             "rows[0].component.content is not a declarative view"
+        );
+        let missing_expanded = json!({
+            "rows": [{"id": "invalid", "spans": [], "component": {
+                "height": 2,
+                "content": {"type": "empty"},
+                "toggleExpandedOnLeftMouseUp": true
+            }}],
+            "hunkRows": []
+        });
+        assert_eq!(
+            validate_file_view_layout(&missing_expanded, 0, 80).unwrap_err(),
+            "rows[0].component toggles without expandedContent"
         );
         let tall = json!({
             "rows": [{"id": "tall", "spans": [], "component": {"height": 257, "content": {"type": "empty"}}}],

@@ -32,6 +32,10 @@ path = "extensions/review-note-navigator/main.rs"
 name = "workdeck-example-rendered-markdown-extension"
 path = "extensions/rendered-markdown/main.rs"
 
+[[bin]]
+name = "workdeck-example-jsx-file-view-extension"
+path = "extensions/jsx-file-view/main.rs"
+
 [dependencies]
 pulldown-cmark = "=0.13.4"
 ratatui = "0.29"

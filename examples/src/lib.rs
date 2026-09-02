@@ -74,6 +74,9 @@ pub mod review_note_navigator_extension;
 #[path = "../extensions/rendered-markdown/extension.rs"]
 pub mod rendered_markdown_extension;
 
+#[path = "../extensions/jsx-file-view/extension.rs"]
+pub mod jsx_file_view_extension;
+
 #[cfg(test)]
 #[path = "../3-agent-review-demo/after/test/search_demo.rs"]
 mod agent_review_after_demo;

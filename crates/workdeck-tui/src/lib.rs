@@ -227,6 +227,31 @@ struct CachedFileViewLayout {
     layout: ValidatedFileViewLayout,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct FileViewComponentStateKey {
+    file_id: String,
+    row_id: String,
+}
+
+#[derive(Debug, Clone)]
+struct FileViewComponentHit {
+    state_key: FileViewComponentStateKey,
+    bounds: Rect,
+}
+
+#[derive(Debug, Clone)]
+struct FileViewComponentPointer {
+    state_key: FileViewComponentStateKey,
+    dragged: bool,
+}
+
+#[derive(Debug, Clone)]
+struct FileViewComponentLogicalHit {
+    state_key: FileViewComponentStateKey,
+    top: usize,
+    height: usize,
+}
+
 #[derive(Debug, Clone)]
 struct ActiveKeyboardMode {
     extension_index: usize,
@@ -288,6 +313,9 @@ struct ExtensionPaneRuntime {
     file_views: Vec<LiveFileViewRegistration>,
     file_view_selections: FileViewSelectionState,
     file_view_layouts: BTreeMap<String, CachedFileViewLayout>,
+    file_view_component_expanded: BTreeSet<FileViewComponentStateKey>,
+    file_view_component_hits: Vec<FileViewComponentHit>,
+    file_view_component_pointer: Option<FileViewComponentPointer>,
     active_keyboard_mode: Option<ActiveKeyboardMode>,
     input_dialog: Option<ExtensionInputDialog>,
     select_dialog: Option<ExtensionSelectDialog>,
@@ -483,6 +511,9 @@ impl ReviewApp {
                 &view_keys,
             );
             runtime.file_view_layouts.clear();
+            runtime.file_view_component_expanded.clear();
+            runtime.file_view_component_hits.clear();
+            runtime.file_view_component_pointer = None;
         }
         let changeset = match self.apply_extension_transforms(changeset) {
             Ok(changeset) => changeset,
@@ -1403,6 +1434,7 @@ impl ReviewApp {
             runtime.file_view_selections =
                 select_file_view(&runtime.file_view_selections, &file.runtime_id, None);
             runtime.file_view_layouts.remove(&file.runtime_id);
+            clear_file_view_component_state(&mut runtime, &file.runtime_id);
             self.status = Some("file presentation: raw diff".into());
             return;
         }
@@ -1417,6 +1449,7 @@ impl ReviewApp {
                     Some(&view_key),
                 );
                 runtime.file_view_layouts.remove(&file.runtime_id);
+                clear_file_view_component_state(&mut runtime, &file.runtime_id);
                 self.status = Some(format!("file presentation: {view_key}"));
             }
             Ok(false) => {
@@ -1468,6 +1501,7 @@ impl ReviewApp {
                 prepared.insert(file.runtime_id.clone(), cached.layout.clone());
                 continue;
             }
+            clear_file_view_component_state(&mut runtime, &file.runtime_id);
             let Some(registration) = registrations
                 .iter()
                 .find(|registration| registered_file_view_key(&registration.view) == *view_key)
@@ -1497,6 +1531,43 @@ impl ReviewApp {
             }
         }
         prepared
+    }
+
+    /// Expose ephemeral component paint state for executable extension parity tests.
+    #[must_use]
+    pub fn extension_file_view_component_expanded(&self, file_id: &str, row_id: &str) -> bool {
+        self.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .file_view_component_expanded
+            .contains(&FileViewComponentStateKey {
+                file_id: file_id.into(),
+                row_id: row_id.into(),
+            })
+    }
+
+    /// Return the currently mounted component rectangle for terminal-level parity tests.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn extension_file_view_component_bounds(
+        &self,
+        file_id: &str,
+        row_id: &str,
+    ) -> Option<(u16, u16, u16, u16)> {
+        self.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .file_view_component_hits
+            .iter()
+            .find(|hit| hit.state_key.file_id == file_id && hit.state_key.row_id == row_id)
+            .map(|hit| {
+                (
+                    hit.bounds.x,
+                    hit.bounds.y,
+                    hit.bounds.width,
+                    hit.bounds.height,
+                )
+            })
     }
 
     fn select_extension_review_hunk(
@@ -1567,6 +1638,12 @@ impl ReviewApp {
         let width = self.review_width.get();
         let layout = state.resolved_layout(width);
         let file_view_layouts = self.prepare_extension_file_view_layouts(state.changeset(), width);
+        let component_expanded = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .file_view_component_expanded
+            .clone();
         let mut highlights = self
             .highlights
             .lock()
@@ -1581,6 +1658,7 @@ impl ReviewApp {
             &mut highlights,
             &self.expanded_gaps,
             &file_view_layouts,
+            &component_expanded,
         )
     }
 
@@ -1659,6 +1737,12 @@ impl ReviewApp {
         let width = self.review_width.get();
         let layout = state.resolved_layout(width);
         let file_view_layouts = self.prepare_extension_file_view_layouts(state.changeset(), width);
+        let component_expanded = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .file_view_component_expanded
+            .clone();
         let mut highlights = self
             .highlights
             .lock()
@@ -1673,6 +1757,7 @@ impl ReviewApp {
             &mut highlights,
             &self.expanded_gaps,
             &file_view_layouts,
+            &component_expanded,
         );
         self.scroll = selected
             .hunk_index
@@ -1738,6 +1823,7 @@ impl ReviewApp {
         if self.handle_extension_mode_badge_mouse(&event)
             || self.handle_extension_menu_mouse(&event)
             || self.handle_extension_pane_mouse(&event)
+            || self.handle_extension_file_view_mouse(&event)
         {
             return;
         }
@@ -1892,6 +1978,59 @@ impl ReviewApp {
         }
     }
 
+    fn handle_extension_file_view_mouse(&mut self, event: &MouseEvent) -> bool {
+        let mut runtime = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                runtime.file_view_component_pointer = runtime
+                    .file_view_component_hits
+                    .iter()
+                    .find(|hit| rect_contains(hit.bounds, event.column, event.row))
+                    .map(|hit| FileViewComponentPointer {
+                        state_key: hit.state_key.clone(),
+                        dragged: false,
+                    });
+                false
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                if let Some(pointer) = &mut runtime.file_view_component_pointer {
+                    pointer.dragged = true;
+                }
+                false
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                let Some(pointer) = runtime.file_view_component_pointer.take() else {
+                    return false;
+                };
+                if pointer.dragged
+                    || !runtime.file_view_component_hits.iter().any(|hit| {
+                        hit.state_key == pointer.state_key
+                            && rect_contains(hit.bounds, event.column, event.row)
+                    })
+                {
+                    return false;
+                }
+                if !runtime
+                    .file_view_component_expanded
+                    .remove(&pointer.state_key)
+                {
+                    runtime
+                        .file_view_component_expanded
+                        .insert(pointer.state_key);
+                }
+                true
+            }
+            MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
+                runtime.file_view_component_pointer = None;
+                false
+            }
+            _ => false,
+        }
+    }
+
     fn handle_mouse_at(&mut self, kind: MouseEventKind, now: Instant) {
         let direction = match kind {
             MouseEventKind::ScrollDown => 1.0,
@@ -1911,6 +2050,22 @@ impl ReviewApp {
 
 fn rect_contains(area: Rect, column: u16, row: u16) -> bool {
     column >= area.x && column < area.right() && row >= area.y && row < area.bottom()
+}
+
+fn clear_file_view_component_state(runtime: &mut ExtensionPaneRuntime, file_id: &str) {
+    runtime
+        .file_view_component_expanded
+        .retain(|key| key.file_id != file_id);
+    runtime
+        .file_view_component_hits
+        .retain(|hit| hit.state_key.file_id != file_id);
+    if runtime
+        .file_view_component_pointer
+        .as_ref()
+        .is_some_and(|pointer| pointer.state_key.file_id == file_id)
+    {
+        runtime.file_view_component_pointer = None;
+    }
 }
 
 fn to_live_extension_key_event(key: &KeyEvent) -> ExtensionKeyEvent {
@@ -2703,6 +2858,13 @@ fn render_builtin_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     if state.changeset().is_empty() {
+        let mut runtime = app
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        runtime.file_view_component_hits.clear();
+        runtime.file_view_component_pointer = None;
+        drop(runtime);
         Paragraph::new("No changes to review")
             .style(Style::default().fg(ratatui_theme_color(&app.options.theme.muted)))
             .block(Block::default().borders(Borders::TOP))
@@ -2811,6 +2973,121 @@ fn flatten_view(node: &ViewNode, indent: usize, lines: &mut Vec<Line<'static>>) 
     }
 }
 
+fn flatten_file_view_component(
+    node: &ViewNode,
+    indent: usize,
+    theme: &AppTheme,
+    lines: &mut Vec<Line<'static>>,
+) {
+    match node {
+        ViewNode::Text { text, style } => lines.push(Line::from(vec![
+            Span::raw(" ".repeat(indent)),
+            Span::styled(text.clone(), extension_file_view_style(style, theme)),
+        ])),
+        ViewNode::Row { children, gap } => {
+            let mut spans = vec![Span::raw(" ".repeat(indent))];
+            for (index, child) in children.iter().enumerate() {
+                if index > 0 {
+                    spans.push(Span::raw(" ".repeat(usize::from(*gap))));
+                }
+                match child {
+                    ViewNode::Text { text, style } => spans.push(Span::styled(
+                        text.clone(),
+                        extension_file_view_style(style, theme),
+                    )),
+                    _ => spans.push(Span::raw("…")),
+                }
+            }
+            lines.push(Line::from(spans));
+        }
+        ViewNode::Column { children, gap } => {
+            for (index, child) in children.iter().enumerate() {
+                if index > 0 {
+                    lines.extend((0..*gap).map(|_| Line::default()));
+                }
+                flatten_file_view_component(child, indent, theme, lines);
+            }
+        }
+        ViewNode::List { items, selected } => {
+            for (index, item) in items.iter().enumerate() {
+                let marker = if *selected == Some(index) {
+                    "› "
+                } else {
+                    "  "
+                };
+                lines.push(Line::styled(
+                    format!("{}{}", " ".repeat(indent), marker),
+                    Style::default().fg(ratatui_theme_color(&theme.accent)),
+                ));
+                flatten_file_view_component(item, indent + 2, theme, lines);
+            }
+        }
+        ViewNode::Divider => lines.push(Line::styled(
+            format!("{}────────", " ".repeat(indent)),
+            Style::default().fg(ratatui_theme_color(&theme.border)),
+        )),
+        ViewNode::Empty => {}
+    }
+}
+
+fn extension_file_view_style(style: &ViewStyle, theme: &AppTheme) -> Style {
+    let mut result = Style::default();
+    if let Some(color) = style
+        .foreground
+        .as_deref()
+        .and_then(|value| extension_file_view_color(value, theme))
+    {
+        result = result.fg(color);
+    }
+    if let Some(color) = style
+        .background
+        .as_deref()
+        .and_then(|value| extension_file_view_color(value, theme))
+    {
+        result = result.bg(color);
+    }
+    if style.bold {
+        result = result.add_modifier(Modifier::BOLD);
+    }
+    if style.italic {
+        result = result.add_modifier(Modifier::ITALIC);
+    }
+    if style.underline {
+        result = result.add_modifier(Modifier::UNDERLINED);
+    }
+    if style.dim {
+        result = result.add_modifier(Modifier::DIM);
+    }
+    result
+}
+
+fn extension_file_view_color(value: &str, theme: &AppTheme) -> Option<Color> {
+    let themed = match value {
+        "background" => Some(&theme.background),
+        "panel" => Some(&theme.panel),
+        "panel-alt" => Some(&theme.panel_alt),
+        "border" => Some(&theme.border),
+        "accent" | "info" => Some(&theme.accent),
+        "accent-muted" => Some(&theme.accent_muted),
+        "text" | "heading" => Some(&theme.text),
+        "muted" | "subtle" => Some(&theme.muted),
+        "selected-hunk" => Some(&theme.selected_hunk),
+        "badge-added" | "success" => Some(&theme.badge_added),
+        "badge-removed" | "danger" | "error" => Some(&theme.badge_removed),
+        "badge-neutral" => Some(&theme.badge_neutral),
+        "file-new" => Some(&theme.file_new),
+        "file-deleted" => Some(&theme.file_deleted),
+        "file-renamed" => Some(&theme.file_renamed),
+        "file-modified" | "warning" => Some(&theme.file_modified),
+        "file-untracked" => Some(&theme.file_untracked),
+        "note-border" => Some(&theme.note_border),
+        _ => None,
+    };
+    themed
+        .map(|value| ratatui_theme_color(value))
+        .or_else(|| parse_extension_color(value))
+}
+
 fn extension_style(style: &ViewStyle) -> Style {
     let mut result = Style::default();
     if let Some(color) = style.foreground.as_deref().and_then(parse_extension_color) {
@@ -2913,6 +3190,12 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let layout = state.resolved_layout(area.width);
     let file_view_layouts = app.prepare_extension_file_view_layouts(state.changeset(), area.width);
+    let component_expanded = app
+        .extension_pane_runtime
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .file_view_component_expanded
+        .clone();
     let mut highlights = app
         .highlights
         .lock()
@@ -2927,6 +3210,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         &mut highlights,
         &app.expanded_gaps,
         &file_view_layouts,
+        &component_expanded,
     );
     drop(state);
     let cursor_row = app.current_line_row.min(rows.lines.len().saturating_sub(1));
@@ -2952,6 +3236,47 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .skip(scroll)
         .take(viewport)
         .collect::<Vec<_>>();
+    let viewport_bottom = scroll.saturating_add(viewport);
+    let component_hits = rows
+        .file_view_component_hits
+        .into_iter()
+        .filter_map(|hit| {
+            let top = hit.top.max(scroll);
+            let bottom = hit.top.saturating_add(hit.height).min(viewport_bottom);
+            (top < bottom).then(|| FileViewComponentHit {
+                state_key: hit.state_key,
+                bounds: Rect::new(
+                    area.x,
+                    area.y.saturating_add(1).saturating_add(
+                        u16::try_from(top.saturating_sub(scroll)).unwrap_or(u16::MAX),
+                    ),
+                    area.width,
+                    u16::try_from(bottom.saturating_sub(top)).unwrap_or(u16::MAX),
+                ),
+            })
+        })
+        .collect::<Vec<_>>();
+    {
+        let mut runtime = app
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let visible_state_keys = component_hits
+            .iter()
+            .map(|hit| hit.state_key.clone())
+            .collect::<BTreeSet<_>>();
+        runtime
+            .file_view_component_expanded
+            .retain(|key| visible_state_keys.contains(key));
+        runtime.file_view_component_hits = component_hits;
+        if runtime
+            .file_view_component_pointer
+            .as_ref()
+            .is_some_and(|pointer| !visible_state_keys.contains(&pointer.state_key))
+        {
+            runtime.file_view_component_pointer = None;
+        }
+    }
     let border_style = if app.focus == Focus::Review {
         Style::default().fg(ratatui_theme_color(&app.options.theme.accent))
     } else {
@@ -2972,6 +3297,7 @@ struct ReviewRows {
     lines: Vec<Line<'static>>,
     file_tops: Vec<usize>,
     hunk_tops: std::collections::HashMap<(usize, usize), usize>,
+    file_view_component_hits: Vec<FileViewComponentLogicalHit>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -3011,6 +3337,7 @@ fn build_review_rows(
         ReviewStreamChrome::default(),
         false,
         &BTreeMap::new(),
+        &BTreeSet::new(),
     )
 }
 
@@ -3025,6 +3352,7 @@ fn build_live_review_rows(
     highlight_cache: &mut HighlightCache,
     expanded_gaps: &BTreeSet<(String, usize)>,
     file_view_layouts: &BTreeMap<String, ValidatedFileViewLayout>,
+    component_expanded: &BTreeSet<FileViewComponentStateKey>,
 ) -> ReviewRows {
     build_review_rows_with_chrome(
         changeset,
@@ -3038,6 +3366,7 @@ fn build_live_review_rows(
         ReviewStreamChrome::default(),
         true,
         file_view_layouts,
+        component_expanded,
     )
 }
 
@@ -3054,10 +3383,12 @@ fn build_review_rows_with_chrome(
     chrome: ReviewStreamChrome,
     live: bool,
     file_view_layouts: &BTreeMap<String, ValidatedFileViewLayout>,
+    component_expanded: &BTreeSet<FileViewComponentStateKey>,
 ) -> ReviewRows {
     let mut rows = Vec::new();
     let mut file_tops = Vec::with_capacity(changeset.files.len());
     let mut hunk_tops = std::collections::HashMap::new();
+    let mut file_view_component_hits = Vec::new();
     let header_stats_width = max_file_header_stats_width(&changeset.files);
     for (file_index, file) in changeset.files.iter().enumerate() {
         if file_index > 0 {
@@ -3092,6 +3423,8 @@ fn build_review_rows_with_chrome(
                 resolved,
                 options,
                 usize::from(width),
+                component_expanded,
+                &mut file_view_component_hits,
             )
         {
             continue;
@@ -3259,6 +3592,7 @@ fn build_review_rows_with_chrome(
         lines: rows,
         file_tops,
         hunk_tops,
+        file_view_component_hits,
     }
 }
 
@@ -3273,6 +3607,8 @@ fn append_extension_file_view_rows(
     resolved: &ValidatedFileViewLayout,
     options: &ReviewOptions,
     width: usize,
+    component_expanded: &BTreeSet<FileViewComponentStateKey>,
+    component_hits: &mut Vec<FileViewComponentLogicalHit>,
 ) -> bool {
     let notes = comments
         .iter()
@@ -3351,12 +3687,28 @@ fn append_extension_file_view_rows(
                                 *row_index >= bounds.start_row && *row_index <= bounds.end_row
                             })
                     });
+                let state_key = FileViewComponentStateKey {
+                    file_id: file.runtime_id.clone(),
+                    row_id: row.id.clone(),
+                };
+                if row
+                    .component
+                    .as_ref()
+                    .is_some_and(|component| component.toggle_expanded_on_left_mouse_up)
+                {
+                    component_hits.push(FileViewComponentLogicalHit {
+                        state_key: state_key.clone(),
+                        top: rows.len(),
+                        height: resolved.row_heights[*row_index],
+                    });
+                }
                 rows.extend(extension_file_view_row_lines(
                     row,
                     resolved.row_heights[*row_index],
                     &options.theme,
                     width,
                     selected,
+                    component_expanded.contains(&state_key),
                 ));
             }
             PlannedFileViewRow::InlineNote { note, .. } => {
@@ -3390,13 +3742,42 @@ fn extension_file_view_row_lines(
     theme: &AppTheme,
     width: usize,
     selected: bool,
+    expanded: bool,
 ) -> Vec<Line<'static>> {
     let mut lines = if let Some(component) = &row.component {
         let mut lines = Vec::new();
-        flatten_view(&component.content, 0, &mut lines);
+        let content = if expanded {
+            component
+                .expanded_content
+                .as_ref()
+                .unwrap_or(&component.content)
+        } else {
+            &component.content
+        };
+        flatten_file_view_component(content, 0, theme, &mut lines);
         if lines.is_empty() {
             extension_file_view_symbolic_lines(&row.spans, theme, width)
         } else {
+            if let Some(prefix) = &component.selection_prefix
+                && let Some(line) = lines.first_mut()
+            {
+                let style = line
+                    .spans
+                    .iter()
+                    .find(|span| !span.content.is_empty())
+                    .map_or_else(Style::default, |span| span.style);
+                line.spans.insert(
+                    0,
+                    Span::styled(
+                        if selected {
+                            prefix.selected.clone()
+                        } else {
+                            prefix.unselected.clone()
+                        },
+                        style,
+                    ),
+                );
+            }
             lines
         }
     } else {
