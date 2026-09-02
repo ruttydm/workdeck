@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "capture": {
+    "runtime": "Bun 1.3.5",
+    "method": "executed each pinned tree from a disposable git archive",
+    "paths": [
+      "src/ui/lib/fileRenderWindow.ts",
+      "src/ui/lib/fileSectionLayout.ts"
+    ]
+  },
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "sharedProjection": {
+    "sectionBottoms": [10, 22, 34, 46, 58, 70],
+    "sparse": {
+      "items": [
+        { "kind": "file", "fileId": "file-0", "sectionIndex": 0 },
+        {
+          "kind": "spacer",
+          "key": "file-spacer:1:1",
+          "height": 12,
+          "startIndex": 1,
+          "endIndex": 1
+        },
+        { "kind": "file", "fileId": "file-2", "sectionIndex": 2 },
+        {
+          "kind": "spacer",
+          "key": "file-spacer:3:4",
+          "height": 24,
+          "startIndex": 3,
+          "endIndex": 4
+        },
+        { "kind": "file", "fileId": "file-5", "sectionIndex": 5 }
+      ],
+      "mountedFileIndices": [0, 2, 5],
+      "visibleStartIndex": 2,
+      "visibleEndIndex": 2,
+      "topSpacerHeight": 0,
+      "bottomSpacerHeight": 0
+    },
+    "offsets": ["file-0", "file-1", "file-2", "file-5"],
+    "intersecting": ["file-0", "file-1", "file-2"],
+    "headerOwners": ["file-0", "file-1", "file-1", "file-1", "file-2", "file-2"]
+  },
+  "gap3Projection": {
+    "baseline": {
+      "second": {
+        "sectionTop": 5,
+        "headerTop": 8,
+        "bodyTop": 9,
+        "sectionBottom": 13
+      }
+    },
+    "stable": {
+      "second": {
+        "sectionTop": 5,
+        "headerTop": 6,
+        "bodyTop": 7,
+        "sectionBottom": 11
+      },
+      "explanation": "stable fixed the separator at one row and ignored the later fourth argument"
+    }
+  }
+}
