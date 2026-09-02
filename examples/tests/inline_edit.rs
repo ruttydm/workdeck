@@ -105,6 +105,7 @@ fn invocation(changeset: &Changeset) -> CommandInvocation {
         active_keyboard_mode: None,
         workspace: None,
         commands: Default::default(),
+        selection: Default::default(),
     }
 }
 

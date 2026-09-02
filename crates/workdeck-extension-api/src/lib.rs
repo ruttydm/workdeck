@@ -956,6 +956,9 @@ pub struct PaneActionInvocation {
 pub struct CommandInvocation {
     pub command_id: String,
     pub snapshot: ReviewSnapshot,
+    /// Frozen selection projected through the same read-only file model as native file views.
+    #[serde(default)]
+    pub selection: ExtensionReviewSelection,
     #[serde(default)]
     pub cwd: PathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1716,6 +1719,7 @@ mod tests {
                     "workdeck.review.next-hunk".into(),
                 ],
             },
+            selection: ExtensionReviewSelection::default(),
         };
         live_selection.file_index = 9;
 
@@ -1729,6 +1733,7 @@ mod tests {
         assert_eq!(encoded["open_panes"], serde_json::json!(["probe:summary"]));
         assert_eq!(encoded["active_keyboard_mode"], "probe:normal");
         assert_eq!(encoded["workspace"]["reviewGeneration"], 11);
+        assert_eq!(encoded["selection"], serde_json::json!({}));
         assert_eq!(
             encoded["commands"]["enabled"],
             serde_json::json!(["workdeck.review.nextHunk", "workdeck.review.next-hunk"])
@@ -1770,6 +1775,14 @@ mod tests {
         assert_eq!(
             serde_json::from_value::<CommandInvocation>(encoded).unwrap(),
             invocation
+        );
+        let mut legacy = serde_json::to_value(&invocation).unwrap();
+        legacy.as_object_mut().unwrap().remove("selection");
+        assert_eq!(
+            serde_json::from_value::<CommandInvocation>(legacy)
+                .unwrap()
+                .selection,
+            ExtensionReviewSelection::default()
         );
     }
 

@@ -3,13 +3,13 @@
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, BufRead, Write};
-use workdeck_core::{Changeset, DiffFile, ReviewSnapshot};
+use workdeck_core::Changeset;
 use workdeck_extension_api::{
     API_VERSION, Capability, CommandExecution, CommandInvocation, CommandRegistration,
-    ConfirmDialogSubmission, ExtensionHostAction, ExtensionNotifyType, HandshakeResponse,
-    InputDialogSubmission, JsonRpcError, JsonRpcRequest, JsonRpcResponse, PaneActionInvocation,
-    PanePlacement, PaneRegistration, PaneRenderRequest, PaneRenderResponse, Registration,
-    ReviewEvent, SelectDialogSubmission, ViewNode, ViewStyle,
+    ConfirmDialogSubmission, ExtensionDiffFile, ExtensionHostAction, ExtensionNotifyType,
+    HandshakeResponse, InputDialogSubmission, JsonRpcError, JsonRpcRequest, JsonRpcResponse,
+    PaneActionInvocation, PanePlacement, PaneRegistration, PaneRenderRequest, PaneRenderResponse,
+    Registration, ReviewEvent, SelectDialogSubmission, ViewNode, ViewStyle,
 };
 
 const PANE_ID: &str = "triage";
@@ -188,12 +188,9 @@ fn notify(
     }
 }
 
-fn selected_hunk(snapshot: &ReviewSnapshot) -> Option<(&DiffFile, usize)> {
-    let hunk_index = snapshot.selection.hunk_index?;
-    let file = snapshot
-        .changeset
-        .files
-        .get(snapshot.selection.file_index)?;
+fn selected_hunk(invocation: &CommandInvocation) -> Option<(&ExtensionDiffFile, usize)> {
+    let hunk_index = invocation.selection.hunk_index?;
+    let file = invocation.selection.file.as_ref()?;
     file.hunks.get(hunk_index)?;
     Some((file, hunk_index))
 }
@@ -227,7 +224,7 @@ pub fn invoke_command(
                 }),
         ],
         "mark" => {
-            let Some((file, hunk_index)) = selected_hunk(&invocation.snapshot) else {
+            let Some((file, hunk_index)) = selected_hunk(invocation) else {
                 return Ok(CommandExecution {
                     actions: vec![notify(
                         "Select a hunk before triaging it",
@@ -236,7 +233,7 @@ pub fn invoke_command(
                 });
             };
             state.pending_decision = Some(PendingDecision {
-                file_id: file.runtime_id.clone(),
+                file_id: file.id.clone(),
                 path: file.path.clone(),
                 hunk_index,
                 status: None,

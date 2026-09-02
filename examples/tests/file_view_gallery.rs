@@ -268,6 +268,7 @@ fn invocation(file: workdeck_core::DiffFile, command_id: &str) -> CommandInvocat
         active_keyboard_mode: None,
         workspace: None,
         commands: Default::default(),
+        selection: Default::default(),
     }
 }
 

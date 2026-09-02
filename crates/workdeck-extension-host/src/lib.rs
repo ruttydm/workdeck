@@ -1,6 +1,7 @@
 //! Subprocess host for trusted native Workdeck extensions.
 
 mod extension_document_reader;
+mod extension_selection;
 mod extension_trust;
 mod file_view_host;
 mod file_view_mode;
@@ -10,6 +11,7 @@ mod line_highlights;
 mod synchronous_callbacks;
 
 pub use extension_document_reader::*;
+pub use extension_selection::*;
 pub use extension_trust::*;
 pub use file_view_host::*;
 pub use file_view_mode::*;
@@ -1171,11 +1173,13 @@ impl LoadedExtension {
                 message: format!("command {command_id:?} is not registered"),
             });
         }
+        let selection = build_extension_review_selection_from_snapshot(&snapshot);
         let value = self.request(
             "workdeck/command/invoke",
             CommandInvocation {
                 command_id: command_id.to_owned(),
                 snapshot,
+                selection,
                 cwd,
                 review,
                 open_panes,
@@ -1223,11 +1227,13 @@ impl LoadedExtension {
                 message: format!("command {command_id:?} is not registered"),
             });
         }
+        let selection = build_extension_review_selection_from_snapshot(&snapshot);
         let id = self.send_request(
             "workdeck/command/invoke",
             CommandInvocation {
                 command_id: command_id.to_owned(),
                 snapshot,
+                selection,
                 cwd,
                 review,
                 open_panes,

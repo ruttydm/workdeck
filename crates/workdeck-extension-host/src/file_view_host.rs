@@ -147,7 +147,7 @@ pub fn file_view_hunk_count(file: &DiffFile) -> usize {
     file.hunks.len()
 }
 
-fn to_extension_diff_file(file: &DiffFile) -> ExtensionDiffFile {
+pub(crate) fn to_extension_diff_file(file: &DiffFile) -> ExtensionDiffFile {
     ExtensionDiffFile {
         id: file.runtime_id.clone(),
         path: file.path.clone(),

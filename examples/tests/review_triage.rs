@@ -17,7 +17,7 @@ use workdeck_extension_api::{
     PaneActionInvocation, PanePlacement, PaneRenderRequest, Registration, ReviewEvent,
     SelectDialogSubmission, ViewNode,
 };
-use workdeck_extension_host::LoadedExtension;
+use workdeck_extension_host::{LoadedExtension, build_extension_review_selection_from_snapshot};
 use workdeck_review::{CommentAnchor, ReviewComment, ReviewNoteResolution, ReviewState};
 use workdeck_tui::{ReviewApp, ReviewOptions, render, to_extension_paint_theme};
 
@@ -84,9 +84,11 @@ fn snapshot() -> workdeck_core::ReviewSnapshot {
 }
 
 fn command_invocation(command_id: &str) -> CommandInvocation {
+    let snapshot = snapshot();
+    let selection = build_extension_review_selection_from_snapshot(&snapshot);
     CommandInvocation {
         command_id: command_id.into(),
-        snapshot: snapshot(),
+        snapshot,
         cwd: PathBuf::from("/repo"),
         review: None,
         open_panes: Vec::new(),
@@ -95,6 +97,7 @@ fn command_invocation(command_id: &str) -> CommandInvocation {
         commands: ExtensionCommandAvailability {
             enabled: vec!["workdeck.review.align-current-line-center".into()],
         },
+        selection,
     }
 }
 

@@ -57,6 +57,25 @@ pub enum ExtensionFileSide {
     New,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionReviewSelectionLine {
+    pub side: ExtensionFileSide,
+    pub line: u32,
+}
+
+/// Immutable provider-neutral selection captured for one native command invocation.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionReviewSelection {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<ExtensionDiffFile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hunk_index: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_line: Option<ExtensionReviewSelectionLine>,
+}
+
 /// One added or removed source-line range, inclusive on both ends.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
