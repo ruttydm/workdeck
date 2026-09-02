@@ -4,6 +4,7 @@ mod agent_annotations;
 mod agent_note_geometry;
 mod agent_popover;
 mod app_commands;
+mod app_menus;
 mod color;
 mod command_keymap;
 mod command_keys;
@@ -49,6 +50,7 @@ pub use agent_annotations::*;
 pub use agent_note_geometry::*;
 pub use agent_popover::*;
 pub use app_commands::*;
+pub use app_menus::*;
 pub use color::*;
 pub use command_keymap::*;
 pub use command_keys::*;
@@ -102,10 +104,10 @@ use crossterm::terminal::{
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::buffer::Buffer;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Widget, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget, Wrap};
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, IsTerminal, Stdout};
@@ -399,9 +401,8 @@ struct ExtensionPaneRuntime {
     cached_renders: BTreeMap<String, CachedPaneRender>,
     layout: ExtensionPaneLayoutPlan,
     resize: MouseCapture<(String, PaneResizeState)>,
-    menu_open: bool,
-    menu_selected: usize,
-    menu_trigger: Option<Rect>,
+    menu: MenuController,
+    menu_triggers: Vec<(MenuId, Rect)>,
     menu_bounds: Option<Rect>,
     mode_badge_bounds: Option<Rect>,
 }
@@ -827,6 +828,11 @@ impl ReviewApp {
     }
 
     #[must_use]
+    pub const fn show_menu_bar(&self) -> bool {
+        self.show_menu_bar
+    }
+
+    #[must_use]
     pub fn has_extension_input_dialog(&self) -> bool {
         self.extension_pane_runtime
             .lock()
@@ -878,7 +884,7 @@ impl ReviewApp {
         {
             return;
         }
-        if self.handle_extension_menu_key(&key) {
+        if self.handle_app_menu_key(&key) {
             return;
         }
         if self.show_help {
@@ -903,10 +909,14 @@ impl ReviewApp {
             self.mouse_scroll_accumulator = 0.0;
         }
         if let Some(dispatch) = dispatch_app_command(&commands, &live_key) {
+            if dispatch.closes_menu {
+                self.close_app_menu();
+            }
             self.apply_builtin_command_action(dispatch.action);
             return;
         }
         if self.invoke_extension_command(&key) {
+            self.close_app_menu();
             return;
         }
         if key.code == KeyCode::Enter && self.focus == Focus::Sidebar {
@@ -957,6 +967,86 @@ impl ReviewApp {
             Some(&self.resolved_command_keys),
             self.builtin_command_availability(),
         )
+    }
+
+    fn app_menus(&self) -> AppMenus {
+        let builtins = self.builtin_commands();
+        let mut commands = builtins
+            .iter()
+            .map(AppMenuCommand::from)
+            .collect::<Vec<_>>();
+        let (extension_commands, keyboard_mode_exit_entry) = {
+            let runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let extension_commands = runtime
+                .commands
+                .iter()
+                .map(|registration| {
+                    let id = format!("{}.{}", registration.extension_id, registration.command.id);
+                    let keys = self
+                        .resolved_command_keys
+                        .keys
+                        .get(&id)
+                        .cloned()
+                        .unwrap_or_else(|| registration.command.default_keys.clone());
+                    AppMenuCommand {
+                        id,
+                        title: sanitize_terminal_line(&registration.command.title),
+                        key_labels: keys.iter().map(|key| format_key_chord(key)).collect(),
+                        enabled: true,
+                    }
+                })
+                .collect::<Vec<_>>();
+            let keyboard_mode_exit_entry = runtime
+                .active_keyboard_mode
+                .as_ref()
+                .map(|active| active.mode.title.as_str())
+                .or_else(|| {
+                    runtime
+                        .active_file_view_mode
+                        .as_ref()
+                        .map(|active| active.view_id.as_str())
+                })
+                .map(|title| MenuEntry::Item {
+                    label: format!("Exit {title}"),
+                    command_id: Some("workdeck.extensions.exitKeyboardMode".into()),
+                    hint: None,
+                    checked: None,
+                });
+            (extension_commands, keyboard_mode_exit_entry)
+        };
+        commands.extend(extension_commands.iter().cloned());
+        build_app_menus(BuildAppMenusOptions {
+            commands,
+            extension_commands,
+            file_view_entries: Vec::new(),
+            keyboard_mode_exit_entry,
+            file_view_apply_all_label: None,
+            copy_decorations: self.copy_decorations,
+            cursor_line: match self.options.cursor_line {
+                CursorLineMode::Row => CommandCursorLine::Row,
+                CursorLineMode::Number => CommandCursorLine::Number,
+                CursorLineMode::Off => CommandCursorLine::Off,
+            },
+            layout_mode: self.layout(),
+            files_pane_visible: self.options.sidebar,
+            show_agent_notes: self.options.agent_notes,
+            show_help: self.show_help,
+            show_hunk_headers: self.options.hunk_headers,
+            show_line_numbers: self.options.line_numbers,
+            show_menu_bar: self.show_menu_bar,
+            wrap_lines: self.options.wrap_lines,
+        })
+    }
+
+    fn close_app_menu(&self) {
+        self.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .menu
+            .close();
     }
 
     fn help_commands(&self) -> Vec<HelpCommand> {
@@ -1472,7 +1562,7 @@ impl ReviewApp {
                         .extension_pane_runtime
                         .lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    runtime.menu_open = false;
+                    runtime.menu.close();
                     runtime.select_dialog = None;
                     runtime.confirm_dialog = None;
                     runtime.input_dialog = Some(ExtensionInputDialog {
@@ -1502,7 +1592,7 @@ impl ReviewApp {
                         .extension_pane_runtime
                         .lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    runtime.menu_open = false;
+                    runtime.menu.close();
                     runtime.input_dialog = None;
                     runtime.confirm_dialog = None;
                     runtime.select_dialog = Some(ExtensionSelectDialog {
@@ -1524,7 +1614,7 @@ impl ReviewApp {
                         .extension_pane_runtime
                         .lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    runtime.menu_open = false;
+                    runtime.menu.close();
                     runtime.input_dialog = None;
                     runtime.select_dialog = None;
                     runtime.confirm_dialog = Some(ExtensionConfirmDialog {
@@ -1863,7 +1953,7 @@ impl ReviewApp {
             .extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        runtime.menu_open = false;
+        runtime.menu.close();
         runtime.input_dialog = None;
         runtime.select_dialog = None;
         runtime.confirm_dialog = None;
@@ -2934,62 +3024,102 @@ impl ReviewApp {
             .unwrap_or_default()
     }
 
-    fn handle_extension_menu_key(&mut self, key: &KeyEvent) -> bool {
+    fn handle_app_menu_key(&mut self, key: &KeyEvent) -> bool {
+        let menus = self.app_menus();
+        let shortcut_target = if key.code == KeyCode::F(10) {
+            Some(MenuId::File)
+        } else if key.code == KeyCode::Menu
+            || (key.code == KeyCode::Char('e') && key.modifiers == KeyModifiers::ALT)
+        {
+            Some(if menus.contains_key(&MenuId::Extensions) {
+                MenuId::Extensions
+            } else {
+                MenuId::File
+            })
+        } else {
+            None
+        };
         let mut runtime = self
             .extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let menu_shortcut = key.code == KeyCode::Menu
-            || (key.code == KeyCode::Char('e') && key.modifiers == KeyModifiers::ALT);
-        let has_exit =
-            runtime.active_keyboard_mode.is_some() || runtime.active_file_view_mode.is_some();
-        let entry_count = runtime.commands.len() + usize::from(has_exit);
-        if menu_shortcut && entry_count > 0 {
-            runtime.menu_open = !runtime.menu_open;
-            runtime.menu_selected = 0;
+        if let Some(target) = shortcut_target {
+            runtime.menu.toggle(&menus, target);
             return true;
         }
-        if !runtime.menu_open {
+        if runtime.menu.active_menu_id(&menus).is_none() {
             return false;
         }
         match key.code {
             KeyCode::Esc => {
-                runtime.menu_open = false;
-                true
+                runtime.menu.close();
+                return true;
             }
-            KeyCode::Down | KeyCode::Char('j') => {
-                runtime.menu_selected = (runtime.menu_selected + 1) % entry_count.max(1);
-                true
+            KeyCode::Left => {
+                runtime.menu.switch(&menus, -1);
+                return true;
             }
-            KeyCode::Up | KeyCode::Char('k') => {
-                runtime.menu_selected = runtime
-                    .menu_selected
-                    .checked_sub(1)
-                    .unwrap_or_else(|| entry_count.saturating_sub(1));
-                true
+            KeyCode::Right | KeyCode::Tab => {
+                runtime.menu.switch(&menus, 1);
+                return true;
             }
             KeyCode::Enter => {
-                let has_exit = runtime.active_keyboard_mode.is_some()
-                    || runtime.active_file_view_mode.is_some();
-                let exit_mode = has_exit && runtime.menu_selected == 0;
-                let command = (!exit_mode)
-                    .then(|| {
-                        runtime
-                            .commands
-                            .get(runtime.menu_selected.saturating_sub(usize::from(has_exit)))
-                    })
-                    .flatten()
-                    .cloned();
-                runtime.menu_open = false;
+                let command_id = runtime.menu.activate(&menus);
                 drop(runtime);
-                if exit_mode {
-                    self.exit_active_extension_mode();
-                } else if let Some(command) = command {
-                    self.invoke_registered_extension_command(command);
+                if let Some(command_id) = command_id {
+                    self.execute_app_menu_command(&command_id);
                 }
-                true
+                return true;
             }
-            _ => true,
+            _ => {}
+        }
+        drop(runtime);
+
+        let direction =
+            vertical_command_direction(&self.builtin_commands(), &to_live_extension_key_event(key))
+                .map(|direction| direction.delta())
+                .or(match key.code {
+                    KeyCode::Up => Some(-1),
+                    KeyCode::Down => Some(1),
+                    _ => None,
+                });
+        if let Some(direction) = direction {
+            self.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .menu
+                .move_item(&menus, direction);
+            return true;
+        }
+
+        // An advertised single-key accelerator continues to the ordinary
+        // command dispatcher, which closes the menu after a successful effect.
+        false
+    }
+
+    fn execute_app_menu_command(&mut self, command_id: &str) {
+        if command_id == "workdeck.extensions.exitKeyboardMode" {
+            self.exit_active_extension_mode();
+            return;
+        }
+        if let Some(dispatch) =
+            execute_app_command_with_count(&self.builtin_commands(), command_id, 1)
+        {
+            self.apply_builtin_command_action(dispatch.action);
+            return;
+        }
+        let command = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .commands
+            .iter()
+            .find(|registration| {
+                format!("{}.{}", registration.extension_id, registration.command.id) == command_id
+            })
+            .cloned();
+        if let Some(command) = command {
+            self.invoke_registered_extension_command(command);
         }
     }
 
@@ -3107,7 +3237,7 @@ impl ReviewApp {
             return;
         }
         if self.handle_extension_mode_badge_mouse(&event)
-            || self.handle_extension_menu_mouse(&event)
+            || self.handle_app_menu_mouse(&event)
             || self.handle_extension_pane_mouse(&event)
             || self.handle_extension_file_view_mouse(&event)
             || self.handle_sidebar_mouse(&event)
@@ -3176,26 +3306,31 @@ impl ReviewApp {
         hit
     }
 
-    fn handle_extension_menu_mouse(&mut self, event: &MouseEvent) -> bool {
-        if event.kind != MouseEventKind::Down(MouseButton::Left) {
-            return false;
-        }
+    fn handle_app_menu_mouse(&mut self, event: &MouseEvent) -> bool {
+        let menus = self.app_menus();
         let mut runtime = self
             .extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if runtime
-            .menu_trigger
-            .is_some_and(|area| rect_contains(area, event.column, event.row))
-        {
-            runtime.menu_open = !runtime.menu_open;
-            runtime.menu_selected = 0;
+        let trigger = runtime
+            .menu_triggers
+            .iter()
+            .find(|(_, bounds)| rect_contains(*bounds, event.column, event.row))
+            .map(|(id, _)| *id);
+        if let Some(id) = trigger {
+            match event.kind {
+                MouseEventKind::Up(MouseButton::Left) => runtime.menu.toggle(&menus, id),
+                MouseEventKind::Moved if runtime.menu.active_menu_id(&menus).is_some() => {
+                    runtime.menu.open(&menus, id);
+                }
+                _ => return false,
+            }
             return true;
         }
-        if !runtime.menu_open {
+        if runtime.menu.active_menu_id(&menus).is_none() {
             return false;
         }
-        let selection = runtime.menu_bounds.and_then(|area| {
+        let row = runtime.menu_bounds.and_then(|area| {
             if !rect_contains(area, event.column, event.row)
                 || event.row == area.y
                 || event.row + 1 == area.bottom()
@@ -3204,25 +3339,30 @@ impl ReviewApp {
             }
             Some(usize::from(event.row.saturating_sub(area.y + 1)))
         });
-        let has_exit =
-            runtime.active_keyboard_mode.is_some() || runtime.active_file_view_mode.is_some();
-        let exit_mode = selection.is_some_and(|selection| has_exit && selection == 0);
-        let command = selection
-            .filter(|_| !exit_mode)
-            .and_then(|selection| {
-                runtime
-                    .commands
-                    .get(selection.saturating_sub(usize::from(has_exit)))
-            })
-            .cloned();
-        runtime.menu_open = false;
-        drop(runtime);
-        if exit_mode {
-            self.exit_active_extension_mode();
-        } else if let Some(command) = command {
-            self.invoke_registered_extension_command(command);
+        if let Some(row) = row {
+            let selectable = matches!(
+                runtime.menu.active_entries(&menus).get(row),
+                Some(MenuEntry::Item { .. })
+            );
+            if selectable && matches!(event.kind, MouseEventKind::Moved) {
+                runtime.menu.set_selected_index(&menus, row);
+                return true;
+            }
+            if selectable && event.kind == MouseEventKind::Up(MouseButton::Left) {
+                runtime.menu.set_selected_index(&menus, row);
+                let command_id = runtime.menu.activate(&menus);
+                drop(runtime);
+                if let Some(command_id) = command_id {
+                    self.execute_app_menu_command(&command_id);
+                }
+                return true;
+            }
+            return true;
         }
-        true
+        if event.kind == MouseEventKind::Up(MouseButton::Left) {
+            runtime.menu.close();
+        }
+        false
     }
 
     fn exit_active_extension_mode(&mut self) {
@@ -3781,15 +3921,15 @@ pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(2),
+            Constraint::Length(u16::from(app.show_menu_bar)),
             Constraint::Min(1),
             Constraint::Length(1),
         ])
         .split(area);
-    render_header(outer[0], buffer, app);
+    render_app_menu_bar(outer[0], buffer, app);
     render_body(outer[1], buffer, app);
     render_footer(outer[2], buffer, app);
-    render_extension_command_menu(area, buffer, app);
+    render_app_menu_dropdown(area, buffer, app);
     if app.show_help {
         let commands = app.help_commands();
         render_help(area, buffer, &commands);
@@ -3815,164 +3955,219 @@ pub fn render_embedded(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     }
 }
 
-fn render_header(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
-    let state = app
-        .state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let stats = state.changeset().stats();
-    let layout = state.resolved_layout(area.width);
-    let theme = &app.options.theme;
-    let title = Line::from(vec![
-        Span::styled(
-            " Workdeck ",
-            Style::default()
-                .fg(ratatui_theme_color(&theme.background))
-                .bg(ratatui_theme_color(&theme.accent))
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            format!(" {} ", state.changeset().title),
-            Style::default()
-                .fg(ratatui_theme_color(&theme.text))
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            format!("{} files", state.changeset().files.len()),
-            Style::default().fg(ratatui_theme_color(&theme.muted)),
-        ),
-        Span::styled(
-            format!("  +{}", stats.additions),
-            Style::default().fg(ratatui_theme_color(&theme.badge_added)),
-        ),
-        Span::styled(
-            format!(" -{}", stats.deletions),
-            Style::default().fg(ratatui_theme_color(&theme.badge_removed)),
-        ),
-        Span::styled(
-            format!("  {:?}", layout).to_lowercase(),
-            Style::default().fg(ratatui_theme_color(&theme.muted)),
-        ),
-    ]);
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Length(1)])
-        .split(area);
-    Paragraph::new(title).render(rows[0], buffer);
-    render_extension_menu_button(rows[1], buffer, app);
-}
-
-/// Render the Extensions menu trigger and publish its hit rectangle to input routing.
-pub fn render_extension_menu_button(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+/// Render Hunk's desktop-style top menu bar with a one-cell outer gutter.
+pub fn render_app_menu_bar(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+    let menus = app.app_menus();
+    let specs = build_menu_specs(&menus);
     let mut runtime = app
         .extension_pane_runtime
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if (runtime.commands.is_empty()
-        && runtime.active_keyboard_mode.is_none()
-        && runtime.active_file_view_mode.is_none())
-        || area.width == 0
-        || area.height == 0
-    {
-        runtime.menu_trigger = None;
-        runtime.menu_open = false;
+    if area.width == 0 || area.height == 0 {
+        runtime.menu_triggers.clear();
         return;
     }
-    let width = 12.min(area.width);
-    let trigger = Rect::new(area.right().saturating_sub(width), area.y, width, 1);
-    runtime.menu_trigger = Some(trigger);
-    let style = if runtime.menu_open {
-        Style::default()
-            .fg(ratatui_theme_color(&app.options.theme.background))
-            .bg(ratatui_theme_color(&app.options.theme.accent))
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(ratatui_theme_color(&app.options.theme.muted))
-    };
-    drop(runtime);
-    Paragraph::new(Line::styled(" Extensions ", style)).render(trigger, buffer);
-}
-
-/// Draw the active command dropdown above the finished host surface.
-pub fn render_extension_command_menu(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
-    let mut runtime = app
-        .extension_pane_runtime
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if !runtime.menu_open
-        || (runtime.commands.is_empty()
-            && runtime.active_keyboard_mode.is_none()
-            && runtime.active_file_view_mode.is_none())
-    {
-        runtime.menu_bounds = None;
-        return;
-    }
-    let Some(trigger) = runtime.menu_trigger else {
-        runtime.menu_open = false;
-        runtime.menu_bounds = None;
-        return;
-    };
-    let mut labels = runtime
-        .commands
+    let active = runtime.menu.active_menu_id(&menus);
+    runtime.menu_triggers = specs
         .iter()
-        .map(|registration| {
-            let title = sanitize_terminal_line(&registration.command.title);
-            let keys = registration.command.default_keys.join(", ");
-            if keys.is_empty() {
-                title
-            } else {
-                format!("{title}  {keys}")
-            }
+        .filter_map(|spec| {
+            let left = u16::try_from(spec.left).ok()?;
+            let width = u16::try_from(spec.width).ok()?;
+            (left < area.width).then_some((
+                spec.id,
+                Rect::new(
+                    area.x.saturating_add(left),
+                    area.y,
+                    width.min(area.width.saturating_sub(left)),
+                    1,
+                ),
+            ))
         })
-        .collect::<Vec<_>>();
-    if let Some(active) = &runtime.active_keyboard_mode {
-        labels.insert(0, format!("Exit {}", active.mode.title));
-    } else if let Some(active) = &runtime.active_file_view_mode {
-        labels.insert(0, format!("Exit {}", active.view_id));
+        .collect();
+    let triggers = runtime.menu_triggers.clone();
+    drop(runtime);
+
+    let theme = &app.options.theme;
+    if area.width > 2 {
+        Block::default()
+            .style(Style::default().bg(ratatui_theme_color(&theme.panel_alt)))
+            .render(Rect::new(area.x + 1, area.y, area.width - 2, 1), buffer);
     }
-    let desired_width = labels
-        .iter()
-        .map(|label| label.width())
-        .max()
-        .unwrap_or(1)
-        .saturating_add(2);
-    let width = u16::try_from(desired_width)
-        .unwrap_or(u16::MAX)
-        .max(20)
-        .min(area.width.max(1));
-    let height = u16::try_from(labels.len().saturating_add(2))
-        .unwrap_or(u16::MAX)
-        .min(area.height.max(1));
-    let x = trigger.x.min(area.right().saturating_sub(width));
-    let y = if trigger.bottom().saturating_add(height) <= area.bottom() {
-        trigger.bottom()
-    } else {
-        trigger.y.saturating_sub(height)
+    for (id, trigger) in triggers {
+        let is_active = active == Some(id);
+        let style = Style::default()
+            .fg(ratatui_theme_color(if is_active {
+                &theme.text
+            } else {
+                &theme.muted
+            }))
+            .bg(ratatui_theme_color(if is_active {
+                &theme.accent_muted
+            } else {
+                &theme.panel_alt
+            }));
+        Paragraph::new(Line::styled(format!(" {} ", id.label()), style)).render(trigger, buffer);
+    }
+
+    let title_width = menu_bar_title_width(&specs, usize::from(area.width));
+    if title_width > 0 {
+        let title = app
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .changeset()
+            .title
+            .clone();
+        let width = u16::try_from(title_width)
+            .unwrap_or(u16::MAX)
+            .min(area.width.saturating_sub(1));
+        let title_area = Rect::new(
+            area.right().saturating_sub(width.saturating_add(1)),
+            area.y,
+            width,
+            1,
+        );
+        let badge = " Workdeck ";
+        let context_width = title_width.saturating_sub(badge.width() + 1);
+        Paragraph::new(Line::from(vec![
+            Span::styled(
+                badge,
+                Style::default()
+                    .fg(ratatui_theme_color(&theme.background))
+                    .bg(ratatui_theme_color(&theme.accent))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!(" {}", fit_text(&title, context_width, None)),
+                Style::default()
+                    .fg(ratatui_theme_color(&theme.muted))
+                    .bg(ratatui_theme_color(&theme.panel_alt)),
+            ),
+        ]))
+        .alignment(Alignment::Right)
+        .render(title_area, buffer);
+    }
+}
+
+/// Compatibility entrypoint retained for the unified shell while it migrates
+/// from the extension-only button to the complete application menu bar.
+pub fn render_extension_menu_button(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+    render_app_menu_bar(area, buffer, app);
+}
+
+/// Draw the dropdown belonging to the currently active top-level menu.
+pub fn render_app_menu_dropdown(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+    let menus = app.app_menus();
+    let specs = build_menu_specs(&menus);
+    let mut runtime = app
+        .extension_pane_runtime
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let Some(active_id) = runtime.menu.active_menu_id(&menus) else {
+        runtime.menu_bounds = None;
+        return;
     };
-    let bounds = Rect::new(x, y, width, height);
+    let Some(spec) = specs.iter().find(|spec| spec.id == active_id) else {
+        runtime.menu.close();
+        runtime.menu_bounds = None;
+        return;
+    };
+    let entries = runtime.menu.active_entries(&menus).to_vec();
+    if entries.is_empty() || area.width == 0 || area.height == 0 {
+        runtime.menu.close();
+        runtime.menu_bounds = None;
+        return;
+    }
+    let desired_width = menu_width(&entries).saturating_add(2);
+    let maximum_width = usize::from(area.width.saturating_sub(2)).max(22);
+    let width = u16::try_from(desired_width.min(maximum_width))
+        .unwrap_or(u16::MAX)
+        .min(area.width.max(1));
+    let top = area.y.saturating_add(u16::from(app.show_menu_bar));
+    let available_height = area.bottom().saturating_sub(top);
+    let height = u16::try_from(menu_box_height(&entries))
+        .unwrap_or(u16::MAX)
+        .min(available_height.max(1));
+    let desired_left = u16::try_from(spec.left).unwrap_or(u16::MAX);
+    let maximum_left = area.width.saturating_sub(width).saturating_sub(1);
+    let minimum_left = if area.width > 1 { 1 } else { 0 };
+    let x = area
+        .x
+        .saturating_add(desired_left.min(maximum_left).max(minimum_left));
+    let bounds = Rect::new(x, top, width, height);
     runtime.menu_bounds = Some(bounds);
-    let selected = runtime.menu_selected;
+    let selected = runtime.menu.selected_index(&menus);
     drop(runtime);
 
     Clear.render(bounds, buffer);
     let block = Block::default()
-        .title(" Extensions ")
+        .title(format!(" {} ", active_id.label()))
         .borders(Borders::ALL)
         .style(Style::default().bg(ratatui_theme_color(&app.options.theme.panel)))
         .border_style(Style::default().fg(ratatui_theme_color(&app.options.theme.border)));
     let inner = block.inner(bounds);
     block.render(bounds, buffer);
-    let items = labels.into_iter().enumerate().map(|(index, label)| {
+    for (index, entry) in entries.iter().enumerate().take(usize::from(inner.height)) {
+        let row = Rect::new(inner.x, inner.y + index as u16, inner.width, 1);
         let style = if index == selected {
             Style::default()
-                .fg(ratatui_theme_color(&app.options.theme.background))
-                .bg(ratatui_theme_color(&app.options.theme.accent))
+                .fg(ratatui_theme_color(&app.options.theme.text))
+                .bg(ratatui_theme_color(&app.options.theme.accent_muted))
         } else {
-            Style::default().fg(ratatui_theme_color(&app.options.theme.text))
+            Style::default()
+                .fg(ratatui_theme_color(&app.options.theme.text))
+                .bg(ratatui_theme_color(&app.options.theme.panel))
         };
-        ListItem::new(Line::styled(label, style))
-    });
-    List::new(items).render(inner, buffer);
+        match entry {
+            MenuEntry::Separator => {
+                Paragraph::new(Line::styled(
+                    pad_text(
+                        &"─".repeat(usize::from(inner.width.saturating_sub(2))),
+                        usize::from(inner.width),
+                    ),
+                    Style::default()
+                        .fg(ratatui_theme_color(&app.options.theme.border))
+                        .bg(ratatui_theme_color(&app.options.theme.panel)),
+                ))
+                .render(row, buffer);
+            }
+            MenuEntry::Item {
+                label,
+                hint,
+                checked,
+                ..
+            } => {
+                let prefix = match checked {
+                    None => format!("  {label}"),
+                    Some(true) => format!("[x] {label}"),
+                    Some(false) => format!("[ ] {label}"),
+                };
+                let hint = hint.as_deref().unwrap_or("");
+                let hint_width = hint.width();
+                let gap = usize::from(hint_width > 0);
+                let left_width = usize::from(inner.width).saturating_sub(hint_width + gap);
+                let left = pad_text(&fit_text(&prefix, left_width, None), left_width);
+                let mut spans = vec![Span::styled(left, style)];
+                if gap > 0 {
+                    spans.push(Span::styled(" ", style));
+                    spans.push(Span::styled(
+                        hint.to_owned(),
+                        if index == selected {
+                            style
+                        } else {
+                            style.fg(ratatui_theme_color(&app.options.theme.muted))
+                        },
+                    ));
+                }
+                Paragraph::new(Line::from(spans)).render(row, buffer);
+            }
+        }
+    }
+}
+
+/// Legacy name retained for callers compiled against the extension-only menu.
+pub fn render_extension_command_menu(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+    render_app_menu_dropdown(area, buffer, app);
 }
 
 /// Draw the clickable host-owned escape hatch for an active extension mode.
@@ -7075,6 +7270,152 @@ mod tests {
         assert!(!app.options.sidebar);
         app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
         assert!(app.show_help);
+    }
+
+    #[test]
+    fn desktop_menu_bar_renders_and_dispatches_through_the_shared_command_table() {
+        let backend = TestBackend::new(100, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        for label in ["File", "View", "Navigate", "Agent", "Help", "Workdeck"] {
+            assert!(rendered.contains(label), "missing menu label {label:?}");
+        }
+
+        app.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE));
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(rendered.contains("Toggle files/filter focus"));
+        assert!(rendered.contains("Open file in editor"));
+        assert!(rendered.contains("Reload"));
+
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.layout(), LayoutMode::Split);
+        let menus = app.app_menus();
+        assert_eq!(
+            app.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .menu
+                .active_menu_id(&menus),
+            None
+        );
+
+        let sidebar = app.options.sidebar;
+        app.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        assert_eq!(app.options.sidebar, !sidebar);
+        let menus = app.app_menus();
+        assert_eq!(
+            app.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .menu
+                .active_menu_id(&menus),
+            None
+        );
+    }
+
+    #[test]
+    fn menu_mouse_hits_switch_highlight_and_activate_the_exact_row() {
+        let backend = TestBackend::new(100, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 2,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        });
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let bounds = app
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .menu_bounds
+            .expect("open file menu bounds");
+        let focus = app.focus;
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: bounds.x + 1,
+            row: bounds.y + 1,
+            modifiers: KeyModifiers::NONE,
+        });
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: bounds.x + 1,
+            row: bounds.y + 1,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert_ne!(app.focus, focus);
+    }
+
+    #[test]
+    fn menu_dropdown_renders_checks_hints_and_repositions_inside_a_narrow_terminal() {
+        let backend = TestBackend::new(34, 22);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        app.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(rendered.contains("[x] Automatic layout"));
+        assert!(rendered.contains("[x] Files pane"));
+        assert!(rendered.contains("[x] Line numbers"));
+        assert!(rendered.contains("[ ] Line wrapping"));
+
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let bounds = app
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .menu_bounds
+            .expect("agent menu bounds");
+        assert!(bounds.right() <= 34);
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(rendered.contains("Next annotated file"));
+        assert!(rendered.contains("Previous annotated file"));
     }
 
     #[test]

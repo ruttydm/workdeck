@@ -39,7 +39,7 @@ pub fn render(app: &App, highlighter: &SyntaxHighlighter, frame: &mut Frame) {
     if app.active_tab == Tab::Review
         && let Some(review) = &app.review
     {
-        workdeck_tui::render_extension_command_menu(area, frame.buffer_mut(), review);
+        workdeck_tui::render_app_menu_dropdown(chunks[1], frame.buffer_mut(), review);
     }
 
     if app.help_visible {
@@ -88,17 +88,20 @@ fn render_header(app: &App, area: Rect, frame: &mut Frame) {
     }
 
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
-    if app.active_tab == Tab::Review
-        && let Some(review) = &app.review
-    {
-        workdeck_tui::render_extension_menu_button(area, frame.buffer_mut(), review);
-    }
 }
 
 fn render_body(app: &App, highlighter: &SyntaxHighlighter, area: Rect, frame: &mut Frame) {
     if app.active_tab == Tab::Review {
         if let Some(review) = &app.review {
-            workdeck_tui::render_embedded(area, frame.buffer_mut(), review);
+            let rows = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(u16::from(review.show_menu_bar())),
+                    Constraint::Min(1),
+                ])
+                .split(area);
+            workdeck_tui::render_app_menu_bar(rows[0], frame.buffer_mut(), review);
+            workdeck_tui::render_embedded(rows[1], frame.buffer_mut(), review);
         } else {
             frame.render_widget(
                 Paragraph::new("No review is open").style(Style::default().fg(Color::DarkGray)),

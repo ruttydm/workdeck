@@ -156,6 +156,115 @@ pub const fn menu_box_height(entries: &[MenuEntry]) -> usize {
     entries.len() + 2
 }
 
+/// Stateful controller for the menu bar. The menu contents remain a fresh,
+/// caller-owned value so live hints, checks, and extension registrations never
+/// become stale inside the controller.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MenuController {
+    active_menu_id: Option<MenuId>,
+    active_menu_item_index: usize,
+}
+
+impl MenuController {
+    #[must_use]
+    pub fn active_menu_id(&mut self, menus: &AppMenus) -> Option<MenuId> {
+        if self
+            .active_menu_id
+            .is_some_and(|id| build_menu_specs(menus).iter().all(|spec| spec.id != id))
+        {
+            self.active_menu_id = None;
+        }
+        self.active_menu_id
+    }
+
+    pub fn close(&mut self) {
+        self.active_menu_id = None;
+    }
+
+    pub fn open(&mut self, menus: &AppMenus, id: MenuId) {
+        if menu_entries(menus, id).is_empty() {
+            self.close();
+            return;
+        }
+        self.active_menu_id = Some(id);
+        self.active_menu_item_index = next_menu_item_index(menu_entries(menus, id), -1, 1);
+    }
+
+    pub fn toggle(&mut self, menus: &AppMenus, id: MenuId) {
+        if self.active_menu_id(menus) == Some(id) {
+            self.close();
+        } else {
+            self.open(menus, id);
+        }
+    }
+
+    pub fn switch(&mut self, menus: &AppMenus, delta: isize) {
+        let specs = build_menu_specs(menus);
+        if specs.is_empty() {
+            return;
+        }
+        let current = self
+            .active_menu_id(menus)
+            .and_then(|id| specs.iter().position(|spec| spec.id == id))
+            .unwrap_or(0);
+        let next = (isize::try_from(current).unwrap_or(isize::MAX) + delta)
+            .rem_euclid(isize::try_from(specs.len()).unwrap_or(isize::MAX));
+        self.open(menus, specs[next as usize].id);
+    }
+
+    #[must_use]
+    pub fn active_entries<'a>(&mut self, menus: &'a AppMenus) -> &'a [MenuEntry] {
+        self.active_menu_id(menus)
+            .map_or(&[], |id| menu_entries(menus, id))
+    }
+
+    #[must_use]
+    pub fn selected_index(&mut self, menus: &AppMenus) -> usize {
+        let entries = self.active_entries(menus);
+        let current = self.active_menu_item_index;
+        let resolved = if matches!(entries.get(current), Some(MenuEntry::Item { .. })) {
+            current
+        } else {
+            next_menu_item_index(
+                entries,
+                isize::try_from(current.min(entries.len()))
+                    .unwrap_or(isize::MAX)
+                    .saturating_sub(1),
+                1,
+            )
+        };
+        self.active_menu_item_index = resolved;
+        resolved
+    }
+
+    pub fn set_selected_index(&mut self, menus: &AppMenus, index: usize) {
+        self.active_menu_item_index = index;
+        let _ = self.selected_index(menus);
+    }
+
+    pub fn move_item(&mut self, menus: &AppMenus, delta: isize) {
+        let current = self.selected_index(menus);
+        self.active_menu_item_index = next_menu_item_index(
+            self.active_entries(menus),
+            isize::try_from(current).unwrap_or(isize::MAX),
+            delta,
+        );
+    }
+
+    /// Select the highlighted row and close the dropdown. Command execution is
+    /// deliberately left to the shared dispatcher.
+    #[must_use]
+    pub fn activate(&mut self, menus: &AppMenus) -> Option<String> {
+        let index = self.selected_index(menus);
+        let command_id = match self.active_entries(menus).get(index) {
+            Some(MenuEntry::Item { command_id, .. }) => command_id.clone(),
+            _ => None,
+        };
+        self.close();
+        command_id
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,5 +358,79 @@ mod tests {
         assert_eq!(menu_bar_title_width(&without_extensions, 80), 39);
         assert_eq!(menu_bar_title_width(&with_extensions, 80), 27);
         assert_eq!(menu_bar_title_width(&with_extensions, 40), 0);
+    }
+
+    #[test]
+    fn controller_closes_a_vanished_menu_without_reopening_on_return() {
+        let mut controller = MenuController::default();
+        let mut menus = base_menus();
+        menus.insert(MenuId::Extensions, vec![item()]);
+        controller.open(&menus, MenuId::Extensions);
+        assert_eq!(controller.active_menu_id(&menus), Some(MenuId::Extensions));
+
+        let base = base_menus();
+        assert_eq!(controller.active_menu_id(&base), None);
+        controller.toggle(&base, MenuId::File);
+        assert_eq!(controller.active_menu_id(&base), Some(MenuId::File));
+        controller.close();
+
+        assert_eq!(controller.active_menu_id(&menus), None);
+    }
+
+    #[test]
+    fn controller_reanchors_selection_when_entries_change() {
+        let mut controller = MenuController::default();
+        let long = BTreeMap::from([(
+            MenuId::File,
+            vec![
+                MenuEntry::item("Focus"),
+                MenuEntry::item("Reload"),
+                MenuEntry::item("Quit"),
+            ],
+        )]);
+        controller.open(&long, MenuId::File);
+        controller.move_item(&long, 1);
+        assert_eq!(controller.selected_index(&long), 1);
+
+        let shrunk = BTreeMap::from([(
+            MenuId::File,
+            vec![
+                MenuEntry::item("Focus"),
+                MenuEntry::Separator,
+                MenuEntry::Item {
+                    label: "Quit".into(),
+                    command_id: Some("quit".into()),
+                    hint: None,
+                    checked: None,
+                },
+            ],
+        )]);
+        assert_eq!(controller.selected_index(&shrunk), 2);
+        assert_eq!(controller.activate(&shrunk).as_deref(), Some("quit"));
+
+        controller.open(&shrunk, MenuId::File);
+        controller.move_item(&shrunk, 1);
+        let shortest = BTreeMap::from([(
+            MenuId::File,
+            vec![MenuEntry::Item {
+                label: "Focus".into(),
+                command_id: Some("focus".into()),
+                hint: None,
+                checked: None,
+            }],
+        )]);
+        assert_eq!(controller.selected_index(&shortest), 0);
+        assert_eq!(controller.activate(&shortest).as_deref(), Some("focus"));
+    }
+
+    #[test]
+    fn controller_cycles_only_visible_menus_and_wraps() {
+        let menus = BTreeMap::from([(MenuId::File, vec![item()]), (MenuId::View, vec![item()])]);
+        let mut controller = MenuController::default();
+        controller.open(&menus, MenuId::File);
+        controller.switch(&menus, 1);
+        assert_eq!(controller.active_menu_id(&menus), Some(MenuId::View));
+        controller.switch(&menus, 1);
+        assert_eq!(controller.active_menu_id(&menus), Some(MenuId::File));
     }
 }
