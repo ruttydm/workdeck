@@ -510,6 +510,7 @@ pub struct ReviewApp {
     sidebar_scroll_top: Cell<usize>,
     sidebar_reveal_key: Mutex<Option<SidebarRevealKey>>,
     sidebar_file_hits: Mutex<Vec<SidebarFileHit>>,
+    review_file_header_hits: Mutex<Vec<SidebarFileHit>>,
     current_line_row: usize,
     expanded_gaps: BTreeSet<(String, usize)>,
     highlights: Mutex<HighlightCache>,
@@ -594,6 +595,7 @@ impl ReviewApp {
             sidebar_scroll_top: Cell::new(0),
             sidebar_reveal_key: Mutex::new(None),
             sidebar_file_hits: Mutex::new(Vec::new()),
+            review_file_header_hits: Mutex::new(Vec::new()),
             current_line_row: 0,
             expanded_gaps: BTreeSet::new(),
             highlights: Mutex::new(HighlightCache::default()),
@@ -3246,6 +3248,7 @@ impl ReviewApp {
             || self.handle_extension_pane_mouse(&event)
             || self.handle_extension_file_view_mouse(&event)
             || self.handle_sidebar_mouse(&event)
+            || self.handle_review_file_header_mouse(&event)
         {
             return;
         }
@@ -3293,6 +3296,31 @@ impl ReviewApp {
             }
             _ => false,
         }
+    }
+
+    fn handle_review_file_header_mouse(&mut self, event: &MouseEvent) -> bool {
+        if event.kind != MouseEventKind::Up(MouseButton::Left) {
+            return false;
+        }
+        let target = self
+            .review_file_header_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .rev()
+            .find(|hit| rect_contains(hit.bounds, event.column, event.row))
+            .map(|hit| hit.file_index);
+        let Some(file_index) = target else {
+            return false;
+        };
+        if self
+            .with_state(|state| state.select_file(file_index))
+            .is_ok()
+        {
+            self.reconcile_active_file_view_mode();
+            self.publish_extension_selection_events();
+        }
+        true
     }
 
     fn handle_extension_mode_badge_mouse(&mut self, event: &MouseEvent) -> bool {
@@ -5052,6 +5080,33 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         &component_expanded,
     );
     drop(state);
+    let viewport = area.height.saturating_sub(1) as usize;
+    let max_scroll = rows.lines.len().saturating_sub(viewport);
+    let scroll = if app.scroll == usize::MAX {
+        max_scroll
+    } else {
+        app.scroll.min(max_scroll)
+    };
+    let viewport_bottom = scroll.saturating_add(viewport);
+    *app.review_file_header_hits
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = rows
+        .file_header_rows
+        .iter()
+        .filter_map(|(file_index, top)| {
+            (*top >= scroll && *top < viewport_bottom).then_some(SidebarFileHit {
+                bounds: Rect::new(
+                    area.x,
+                    area.y.saturating_add(1).saturating_add(
+                        u16::try_from(top.saturating_sub(scroll)).unwrap_or(u16::MAX),
+                    ),
+                    area.width,
+                    1,
+                ),
+                file_index: *file_index,
+            })
+        })
+        .collect();
     let cursor_row = app.current_line_row.min(rows.lines.len().saturating_sub(1));
     if app.active_keyboard_mode_title().is_some()
         && let Some(line) = rows.lines.get_mut(cursor_row)
@@ -5062,20 +5117,12 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             span.style = span.style.bg(background);
         }
     }
-    let viewport = area.height.saturating_sub(1) as usize;
-    let max_scroll = rows.lines.len().saturating_sub(viewport);
-    let scroll = if app.scroll == usize::MAX {
-        max_scroll
-    } else {
-        app.scroll.min(max_scroll)
-    };
     let visible = rows
         .lines
         .into_iter()
         .skip(scroll)
         .take(viewport)
         .collect::<Vec<_>>();
-    let viewport_bottom = scroll.saturating_add(viewport);
     let component_hits = rows
         .file_view_component_hits
         .into_iter()
@@ -5128,6 +5175,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
 struct ReviewRows {
     lines: Vec<Line<'static>>,
     file_tops: Vec<usize>,
+    file_header_rows: Vec<(usize, usize)>,
     hunk_tops: std::collections::HashMap<(usize, usize), usize>,
     file_view_component_hits: Vec<FileViewComponentLogicalHit>,
 }
@@ -5219,6 +5267,7 @@ fn build_review_rows_with_chrome(
 ) -> ReviewRows {
     let mut rows = Vec::new();
     let mut file_tops = Vec::with_capacity(changeset.files.len());
+    let mut file_header_rows = Vec::with_capacity(changeset.files.len());
     let mut hunk_tops = std::collections::HashMap::new();
     let mut file_view_component_hits = Vec::new();
     let header_stats_width = max_file_header_stats_width(&changeset.files);
@@ -5228,9 +5277,9 @@ fn build_review_rows_with_chrome(
         }
         file_tops.push(rows.len());
         if chrome.show_file_headers {
+            file_header_rows.push((file_index, rows.len()));
             rows.push(file_header(
                 file,
-                selection.file_index == file_index,
                 usize::from(width),
                 header_stats_width,
                 &options.theme,
@@ -5423,6 +5472,7 @@ fn build_review_rows_with_chrome(
     ReviewRows {
         lines: rows,
         file_tops,
+        file_header_rows,
         hunk_tops,
         file_view_component_hits,
     }
@@ -5888,7 +5938,6 @@ fn agent_rows(file: &DiffFile, layout: LayoutMode, width: usize) -> Vec<Line<'st
 
 fn file_header(
     file: &DiffFile,
-    selected: bool,
     width: usize,
     header_stats_width: usize,
     theme: &AppTheme,
@@ -5907,13 +5956,7 @@ fn file_header(
         Span::raw(" "),
         Span::styled(
             label.filename,
-            Style::default()
-                .fg(ratatui_theme_color(if selected {
-                    &theme.accent
-                } else {
-                    &theme.text
-                }))
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(ratatui_theme_color(&theme.text)),
         ),
         Span::styled(
             label.state_label.unwrap_or_default(),
@@ -5924,13 +5967,19 @@ fn file_header(
             stats.additions_text,
             Style::default().fg(ratatui_theme_color(&theme.badge_added)),
         ),
-        Span::raw(" "),
+        Span::styled(" ", Style::default().fg(ratatui_theme_color(&theme.muted))),
         Span::styled(
             stats.deletions_text,
             Style::default().fg(ratatui_theme_color(&theme.badge_removed)),
         ),
-        Span::raw("  "),
+        Span::styled(" ", Style::default().fg(ratatui_theme_color(&theme.muted))),
+        Span::raw(" "),
     ])
+    .style(
+        Style::default()
+            .fg(Color::Rgb(255, 255, 255))
+            .bg(ratatui_theme_color(&theme.panel)),
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -6669,6 +6718,16 @@ mod tests {
             "diff --git a/long.rs b/long.rs\n--- a/long.rs\n+++ b/long.rs\n@@ -1 +1 @@\n-abcdefghijabcdefghij\n+界界界界界界界界界界\n",
             "long",
             "Long rows",
+            ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap()
+    }
+
+    fn two_file_changeset() -> Changeset {
+        parse_patch(
+            "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\ndiff --git a/b.rs b/b.rs\n--- a/b.rs\n+++ b/b.rs\n@@ -1 +1 @@\n-before\n+after\n",
+            "two-files",
+            "Two files",
             ChangesetSource::WorkingTree { staged: false },
         )
         .unwrap()
@@ -7599,6 +7658,47 @@ mod tests {
                 .file_index,
             1
         );
+    }
+
+    #[test]
+    fn review_file_header_mouse_up_selects_without_moving_the_visible_stream() {
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = ReviewApp::new(
+            two_file_changeset(),
+            ReviewOptions {
+                sidebar: false,
+                ..ReviewOptions::default()
+            },
+        );
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let second = app
+            .review_file_header_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .find(|hit| hit.file_index == 1)
+            .copied()
+            .expect("second review file header hit");
+
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: second.bounds.x + 5,
+            row: second.bounds.y,
+            modifiers: KeyModifiers::NONE,
+        });
+
+        assert_eq!(
+            app.shared_state()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .selection()
+                .file_index,
+            1
+        );
+        assert_eq!(app.scroll, 0);
     }
 
     #[test]

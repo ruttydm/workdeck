@@ -711,6 +711,75 @@ fn renders_reusable_file_header_and_multi_file_review_stream_primitives() {
 }
 
 #[test]
+fn file_header_matches_the_pinned_one_row_cell_contract() {
+    let file = create_workdeck_diff_files_from_patch(
+        "diff --git a/stats-align.ts b/stats-align.ts\n--- a/stats-align.ts\n+++ b/stats-align.ts\n@@ -1 +1,2 @@\n-export const value = 1;\n+export const value = 2;\n+export const next = 3;\n",
+        "header",
+    )
+    .unwrap()
+    .remove(0);
+    let area = Rect::new(0, 0, 40, 1);
+    let mut buffer = Buffer::empty(area);
+    let hit = render_workdeck_diff_file_header(
+        area,
+        &mut buffer,
+        &file,
+        &WorkdeckDiffFileHeaderOptions::default(),
+    );
+
+    let text = buffer
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert_eq!(text, " stats-align.ts                  +2 -1  ");
+    assert_eq!(hit, area);
+    assert!(
+        buffer
+            .content()
+            .iter()
+            .all(|cell| cell.bg == Color::Rgb(30, 35, 41))
+    );
+    for x in 1..=14 {
+        let cell = buffer.cell((x, 0)).unwrap();
+        assert_eq!(cell.fg, Color::Rgb(230, 237, 243));
+        assert!(!cell.modifier.contains(Modifier::BOLD));
+    }
+    for x in [0, 15, 32, 39] {
+        assert_eq!(buffer.cell((x, 0)).unwrap().fg, Color::Rgb(255, 255, 255));
+    }
+    for x in [33, 34] {
+        assert_eq!(buffer.cell((x, 0)).unwrap().fg, Color::Rgb(119, 193, 133));
+    }
+    for x in [35, 38] {
+        assert_eq!(buffer.cell((x, 0)).unwrap().fg, Color::Rgb(173, 174, 177));
+    }
+    for x in [36, 37] {
+        assert_eq!(buffer.cell((x, 0)).unwrap().fg, Color::Rgb(250, 142, 137));
+    }
+}
+
+#[test]
+fn public_selected_header_retains_workdecks_legacy_emphasis() {
+    let file = create_example_diff();
+    let area = Rect::new(0, 0, 40, 1);
+    let mut buffer = Buffer::empty(area);
+    render_workdeck_diff_file_header(
+        area,
+        &mut buffer,
+        &file,
+        &WorkdeckDiffFileHeaderOptions {
+            selected: true,
+            ..WorkdeckDiffFileHeaderOptions::default()
+        },
+    );
+    let filename = buffer.cell((1, 0)).unwrap();
+    let theme = crate::resolve_theme(Some("github-dark-default"), None, &[]);
+    assert_eq!(filename.fg, crate::ratatui_theme_color(&theme.accent));
+    assert!(filename.modifier.contains(Modifier::BOLD));
+}
+
+#[test]
 fn renders_filename_tabs_as_fixed_width_escapes_in_headers_and_navigation() {
     let diff = with_identity(create_example_diff(), "tabbed-path", "src/tab\tname.ts");
     let frame = capture(WIDTH, 8, |area, buffer| {
@@ -1152,7 +1221,7 @@ fn public_theme_option_reaches_native_header_and_code_palettes() {
         .find(|cell| cell.symbol() == "e")
         .expect("header path cell");
     assert_eq!(header_text.fg, Color::Rgb(31, 35, 40));
-    assert_eq!(header_text.bg, Color::Rgb(255, 255, 255));
+    assert_eq!(header_text.bg, Color::Rgb(246, 246, 246));
     assert!(
         buffer
             .content()

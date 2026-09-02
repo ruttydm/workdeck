@@ -10,7 +10,7 @@ use super::{
 };
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget};
 use std::collections::{BTreeMap, BTreeSet};
@@ -335,12 +335,13 @@ pub fn render_workdeck_diff_file_header(
 ) -> Rect {
     let mut line = file_header(
         file,
-        options.selected,
         usize::from(area.width),
         max_file_header_stats_width(std::slice::from_ref(file)),
         &resolve_theme(Some(&options.theme), None, &[]),
     );
-    apply_public_theme(std::slice::from_mut(&mut line), &options.theme);
+    if options.selected {
+        emphasize_selected_file_header(&mut line, &options.theme);
+    }
     Paragraph::new(line).render(area, buffer);
     Rect { height: 1, ..area }
 }
@@ -377,14 +378,16 @@ pub fn render_workdeck_review_stream(
             });
             let mut header = file_header(
                 file,
-                active
-                    .as_ref()
-                    .is_some_and(|selection| selection.file_id == public_file_id(file)),
                 usize::from(area.width),
                 max_file_header_stats_width(std::slice::from_ref(file)),
                 &resolve_theme(Some(&options.body.theme), None, &[]),
             );
-            apply_public_theme(std::slice::from_mut(&mut header), &options.body.theme);
+            if active
+                .as_ref()
+                .is_some_and(|selection| selection.file_id == public_file_id(file))
+            {
+                emphasize_selected_file_header(&mut header, &options.body.theme);
+            }
             lines.push(header);
         }
 
@@ -1157,6 +1160,17 @@ fn apply_public_theme(lines: &mut [Line<'static>], theme: &str) {
                 other => other,
             });
         }
+    }
+}
+
+/// Retain Workdeck's pre-port public selected-header emphasis without changing
+/// the Hunk-compatible row used by the primary review canvas.
+fn emphasize_selected_file_header(line: &mut Line<'static>, theme: &str) {
+    if let Some(filename) = line.spans.get_mut(1) {
+        filename.style = filename
+            .style
+            .fg(public_palette(theme).accent)
+            .add_modifier(Modifier::BOLD);
     }
 }
 
