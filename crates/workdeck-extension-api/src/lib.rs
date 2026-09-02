@@ -632,6 +632,10 @@ pub struct PaneRegistration {
     pub id: String,
     pub title: String,
     pub placement: PanePlacement,
+    /// Whether this pane is open when first registered. User choices made
+    /// after registration take precedence for the remainder of the review.
+    #[serde(default)]
+    pub default_open: bool,
     /// Legacy Workdeck fixed-cell declaration. Native v1 extensions should use
     /// the placement-specific `width` or `height` contract.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -792,11 +796,40 @@ pub struct TransformResponse {
 pub struct PaneRenderRequest {
     pub pane_id: String,
     pub snapshot: ReviewSnapshot,
+    pub placement: PanePlacement,
+    pub width: u16,
+    pub height: u16,
+    pub theme: ExtensionPaintTheme,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaneRenderResponse {
     pub content: ViewNode,
+}
+
+/// One invocation of a registered in-review command.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandInvocation {
+    pub command_id: String,
+    pub snapshot: ReviewSnapshot,
+    /// Fully qualified `extension-id:pane-id` keys currently open in the host.
+    #[serde(default)]
+    pub open_panes: Vec<String>,
+}
+
+/// Declarative host mutation requested by an in-review command.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum ExtensionHostAction {
+    OpenPane { id: String },
+    ClosePane { id: String },
+}
+
+/// Atomic result of one in-review command invocation.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandExecution {
+    #[serde(default)]
+    pub actions: Vec<ExtensionHostAction>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -169,30 +169,23 @@ fn run() -> Result<()> {
 }
 
 fn stage_extension_example(name: &str) -> Result<()> {
-    if name != "cli-tools" {
-        bail!("unknown native extension example {name:?}");
-    }
+    let binary_target = match name {
+        "cli-tools" => "workdeck-example-cli-tools-extension",
+        "pane-layout" => "workdeck-example-pane-layout-extension",
+        _ => bail!("unknown native extension example {name:?}"),
+    };
     let repo = repo_root()?;
     run_checked(
         &repo,
         "cargo",
-        &[
-            "build",
-            "-p",
-            "workdeck-examples",
-            "--bin",
-            "workdeck-example-cli-tools-extension",
-        ],
+        &["build", "-p", "workdeck-examples", "--bin", binary_target],
     )?;
     let metadata = MetadataCommand::new()
         .current_dir(&repo)
         .no_deps()
         .exec()
         .context("resolve Cargo target directory")?;
-    let binary_name = format!(
-        "workdeck-example-cli-tools-extension{}",
-        env::consts::EXE_SUFFIX
-    );
+    let binary_name = format!("{binary_target}{}", env::consts::EXE_SUFFIX);
     let binary = metadata.target_directory.join("debug").join(&binary_name);
     if !binary.is_file() {
         bail!("built extension executable is missing: {binary}");
@@ -206,7 +199,9 @@ fn stage_extension_example(name: &str) -> Result<()> {
     fs::copy(&binary, &staged_binary)
         .with_context(|| format!("stage extension executable {} -> {}", binary, staged_binary))?;
     fs::copy(
-        repo.join("examples/extensions/cli-tools/workdeck-extension.toml"),
+        repo.join(format!(
+            "examples/extensions/{name}/workdeck-extension.toml"
+        )),
         staged.join("workdeck-extension.toml"),
     )?;
     println!("staged {}", relative_to(&repo, staged.as_std_path()));
@@ -2109,7 +2104,7 @@ fn print_help() {
     );
     println!("cargo xtask licenses [--output PATH]");
     println!("cargo xtask verify");
-    println!("cargo xtask extension stage-example cli-tools");
+    println!("cargo xtask extension stage-example <cli-tools|pane-layout>");
     println!("cargo xtask site <build|check|serve>");
     println!("cargo xtask release package --target TRIPLE [--binary PATH] [--output DIR]");
 }

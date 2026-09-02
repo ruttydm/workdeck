@@ -136,7 +136,6 @@ pub struct App {
     pub store: WorkdeckStore,
     pub active_tab: Tab,
     pub review: Option<ReviewApp>,
-    pub extensions: Vec<LoadedExtension>,
     pub preview_visible: bool,
     pub focus: FocusPane,
     pub preview_scroll: usize,
@@ -247,7 +246,6 @@ impl App {
             store,
             active_tab: Tab::Changes,
             review: None,
-            extensions: Vec::new(),
             preview_visible,
             focus: FocusPane::Tree,
             preview_scroll: 0,
@@ -297,8 +295,9 @@ impl App {
     ) -> Result<Self> {
         let mut app = Self::new(cwd)?;
         options.repo = Some(app.repo_root.clone());
-        app.review = Some(ReviewApp::new(changeset, options));
-        app.extensions = extensions;
+        app.review = Some(ReviewApp::new_with_extensions(
+            changeset, options, extensions,
+        ));
         app.active_tab = Tab::Review;
         Ok(app)
     }
@@ -2748,7 +2747,6 @@ mod tests {
             store: WorkdeckStore::new("/tmp/workdeck/.agents/workdeck"),
             active_tab: Tab::Changes,
             review: None,
-            extensions: Vec::new(),
             preview_visible: true,
             focus: FocusPane::Tree,
             preview_scroll: 0,

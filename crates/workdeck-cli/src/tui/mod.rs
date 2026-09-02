@@ -194,7 +194,7 @@ fn run_loop(
             }
             Event::Mouse(mouse) if app.active_tab == Tab::Review => {
                 if let Some(review) = &mut app.review {
-                    review.handle_mouse(mouse.kind);
+                    review.handle_mouse_event(mouse);
                 }
             }
             Event::Mouse(_)

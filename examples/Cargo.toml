@@ -12,6 +12,10 @@ path = "src/lib.rs"
 name = "workdeck-example-cli-tools-extension"
 path = "extensions/cli-tools/main.rs"
 
+[[bin]]
+name = "workdeck-example-pane-layout-extension"
+path = "extensions/pane-layout/main.rs"
+
 [dependencies]
 ratatui = "0.29"
 serde = { version = "1.0", features = ["derive"] }
@@ -20,6 +24,7 @@ workdeck-extension-api = { path = "../crates/workdeck-extension-api" }
 workdeck-tui = { path = "../crates/workdeck-tui" }
 
 [dev-dependencies]
+crossterm = "0.28"
 workdeck-core = { path = "../crates/workdeck-core" }
 workdeck-diff = { path = "../crates/workdeck-diff" }
 workdeck-markup = { path = "../crates/workdeck-markup" }

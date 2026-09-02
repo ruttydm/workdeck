@@ -2777,6 +2777,7 @@ dependencies = [
 name = "workdeck-examples"
 version = "0.1.0"
 dependencies = [
+ "crossterm",
  "ratatui",
  "serde",
  "serde_json",
@@ -2892,6 +2893,7 @@ dependencies = [
  "workdeck-core",
  "workdeck-diff",
  "workdeck-extension-api",
+ "workdeck-extension-host",
  "workdeck-markup",
  "workdeck-review",
  "workdeck-session",

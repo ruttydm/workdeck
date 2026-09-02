@@ -160,6 +160,10 @@ impl ReviewState {
         self.selection
     }
 
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
     pub fn selected_file(&self) -> Option<&workdeck_core::DiffFile> {
         self.changeset.files.get(self.selection.file_index)
     }

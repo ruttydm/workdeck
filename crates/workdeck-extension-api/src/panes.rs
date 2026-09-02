@@ -87,6 +87,7 @@ mod tests {
             id: "probe".into(),
             title: "Probe".into(),
             placement,
+            default_open: false,
             preferred_size: None,
             width: None,
             height: None,

@@ -15,6 +15,7 @@ unicode-segmentation = "1.12"
 workdeck-core = { path = "../workdeck-core" }
 workdeck-diff = { path = "../workdeck-diff" }
 workdeck-extension-api = { path = "../workdeck-extension-api" }
+workdeck-extension-host = { path = "../workdeck-extension-host" }
 workdeck-markup = { path = "../workdeck-markup" }
 workdeck-review = { path = "../workdeck-review" }
 workdeck-session = { path = "../workdeck-session" }

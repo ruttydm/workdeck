@@ -30,6 +30,12 @@ pub fn render(app: &App, highlighter: &SyntaxHighlighter, frame: &mut Frame) {
     render_body(app, highlighter, chunks[1], frame);
     render_status(app, chunks[2], frame);
 
+    if app.active_tab == Tab::Review
+        && let Some(review) = &app.review
+    {
+        workdeck_tui::render_extension_command_menu(area, frame.buffer_mut(), review);
+    }
+
     if app.help_visible {
         render_help(area, frame);
     }
@@ -68,6 +74,11 @@ fn render_header(app: &App, area: Rect, frame: &mut Frame) {
     }
 
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
+    if app.active_tab == Tab::Review
+        && let Some(review) = &app.review
+    {
+        workdeck_tui::render_extension_menu_button(area, frame.buffer_mut(), review);
+    }
 }
 
 fn render_body(app: &App, highlighter: &SyntaxHighlighter, area: Rect, frame: &mut Frame) {
@@ -1719,7 +1730,6 @@ mod tests {
             store: WorkdeckStore::new("/tmp/workdeck/.agents/workdeck"),
             active_tab: Tab::Changes,
             review: None,
-            extensions: Vec::new(),
             preview_visible: false,
             focus: FocusPane::Tree,
             preview_scroll: 0,

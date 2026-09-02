@@ -31,13 +31,13 @@ use workdeck_diff::{
     sanitize_terminal_text,
 };
 use workdeck_extension_api::{
-    CliCommandResult, ExtensionManifest, ExtensionNotificationHub, ExtensionPaneView,
-    FileLanguageGlobTarget, FileLanguageMatcher, Registration,
+    CliCommandResult, ExtensionManifest, ExtensionNotificationHub, FileLanguageGlobTarget,
+    FileLanguageMatcher, Registration,
 };
 use workdeck_extension_host::{LoadedExtension, TrustDecision, TrustStore, discover_manifests};
 use workdeck_review::{
-    CommentTargetInput, LayoutMode, ReviewComment, ReviewState, build_live_comment,
-    find_diff_file_by_path, resolve_comment_target,
+    CommentTargetInput, LayoutMode, ReviewComment, build_live_comment, find_diff_file_by_path,
+    resolve_comment_target,
 };
 use workdeck_session::{
     SelectableSession, SessionAction, SessionClient, SessionDescriptor, SessionSelector,
@@ -1618,9 +1618,8 @@ fn run(mut args: Args) -> Result<()> {
         review.extension = args.extension;
         review.no_extensions = args.no_extensions && !args.extensions;
         let (mut extensions, notifications) = load_review_extensions(&repo_root, &review)?;
-        let (changeset, panes) = apply_review_extensions(changeset, &mut extensions)?;
+        let changeset = apply_review_extensions(changeset, &mut extensions)?;
         let mut options = review.tui_options();
-        options.extension_panes = panes;
         options.extension_notifications = Some(notifications);
         let app = App::with_review(&args.cwd, changeset, options, extensions)?;
         workdeck_cli::tui::run(app)
@@ -1958,10 +1957,8 @@ fn run_review_with_options(
     }
     apply_agent_context(cwd, review.agent_context.as_deref(), &mut changeset)?;
     let (mut extensions, notifications) = load_review_extensions(cwd, &review)?;
-    let prepared = apply_review_extensions(changeset, &mut extensions)?;
-    changeset = prepared.0;
+    changeset = apply_review_extensions(changeset, &mut extensions)?;
     let mut options = review.tui_options();
-    options.extension_panes = prepared.1;
     options.extension_notifications = Some(notifications);
     options.repo = AnyProvider::discover(cwd, review.preference())
         .ok()
@@ -1972,33 +1969,34 @@ fn run_review_with_options(
         let mut decorated_reload = || {
             let mut changeset = reloader()?;
             apply_agent_context(cwd, agent_context.as_deref(), &mut changeset)?;
-            for extension in &mut extensions {
-                changeset = extension
-                    .apply_changeset_transforms(changeset)
-                    .map_err(anyhow::Error::from)?;
-            }
             Ok(changeset)
         };
         if let Some(input) = input {
-            workdeck_tui::run_review_with_input_reload(
+            workdeck_tui::run_review_with_extensions_input_reload(
                 changeset,
                 options,
+                extensions,
                 input,
                 cwd.to_owned(),
                 &mut decorated_reload,
             )
         } else {
-            workdeck_tui::run_review_with_reload(changeset, options, &mut decorated_reload)
+            workdeck_tui::run_review_with_extensions_reload(
+                changeset,
+                options,
+                extensions,
+                &mut decorated_reload,
+            )
         }
     } else {
-        workdeck_tui::run_review(changeset, options)
+        workdeck_tui::run_review_with_extensions(changeset, options, extensions)
     }
 }
 
 fn apply_review_extensions(
     mut changeset: Changeset,
     extensions: &mut [LoadedExtension],
-) -> Result<(Changeset, Vec<ExtensionPaneView>)> {
+) -> Result<Changeset> {
     let file_languages = extensions
         .iter()
         .flat_map(|extension| &extension.handshake.registrations)
@@ -2039,17 +2037,7 @@ fn apply_review_extensions(
             })?;
     }
     changeset.refresh_review_identities();
-    let snapshot = ReviewState::new(changeset.clone()).snapshot();
-    let mut panes = Vec::new();
-    for extension in extensions.iter_mut() {
-        panes.extend(extension.render_panes(&snapshot).with_context(|| {
-            format!(
-                "native extension {} failed to render a pane",
-                extension.manifest.id
-            )
-        })?);
-    }
-    Ok((changeset, panes))
+    Ok(changeset)
 }
 
 fn apply_agent_context(cwd: &Path, path: Option<&Path>, changeset: &mut Changeset) -> Result<()> {

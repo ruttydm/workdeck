@@ -9,6 +9,7 @@ mod current_review_controller;
 mod current_review_refresh;
 mod cursor_highlight;
 mod extension_notifications;
+mod extension_panes;
 mod file_header;
 mod file_view_geometry;
 mod hunk_scroll;
@@ -41,6 +42,7 @@ pub use current_review_controller::*;
 pub use current_review_refresh::*;
 pub use cursor_highlight::*;
 pub use extension_notifications::*;
+pub use extension_panes::*;
 pub use file_header::*;
 pub use file_view_geometry::*;
 pub use hunk_scroll::*;
@@ -67,7 +69,7 @@ pub use watched_input::*;
 use anyhow::Result;
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
-    MouseEventKind,
+    MouseButton, MouseEvent, MouseEventKind,
 };
 use crossterm::execute;
 use crossterm::terminal::{
@@ -81,7 +83,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Widget, Wrap};
 use std::cell::Cell;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, IsTerminal};
 use std::ops::Range;
 use std::path::PathBuf;
@@ -97,9 +99,12 @@ use workdeck_diff::{
     sanitize_terminal_line, slice_segments_window, word_diff_ranges, wrap_segments,
 };
 use workdeck_extension_api::{
-    ExtensionNotification, ExtensionNotificationHub, ExtensionNotificationSubscription,
-    ExtensionPaneView, PanePlacement, ViewNode, ViewStyle, extension_pane_size,
+    CommandRegistration, ExtensionHostAction, ExtensionKeyEvent, ExtensionNotification,
+    ExtensionNotificationHub, ExtensionNotificationSubscription, ExtensionPaintTheme,
+    ExtensionPaneView, PanePlacement, PaneRegistration, PaneRenderRequest, Registration, ViewNode,
+    ViewStyle, extension_pane_size,
 };
+use workdeck_extension_host::LoadedExtension;
 use workdeck_review::{
     ExpandedSourceError, ExpandedSourceStatus, LayoutMode, ReviewComment, ReviewGapAddress,
     ReviewState, plan_expanded_gap, review_expansion_side, review_gap_source_for_file,
@@ -174,6 +179,101 @@ enum Focus {
     Sidebar,
 }
 
+#[derive(Debug, Clone)]
+struct LivePaneRegistration {
+    key: String,
+    extension_index: usize,
+    extension_id: String,
+    pane: PaneRegistration,
+}
+
+#[derive(Debug, Clone)]
+struct LiveCommandRegistration {
+    extension_index: usize,
+    extension_id: String,
+    command: CommandRegistration,
+}
+
+#[derive(Debug, Clone)]
+struct CachedPaneRender {
+    signature: PaneRenderSignature,
+    view: ExtensionPaneView,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PaneRenderSignature {
+    generation: u64,
+    selection: ReviewSelection,
+    placement: PanePlacement,
+    width: u16,
+    height: u16,
+    theme: ExtensionPaintTheme,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PaneResizeState {
+    placement: PanePlacement,
+    origin: u16,
+    start_size: u16,
+    min_size: u16,
+    max_size: u16,
+}
+
+#[derive(Debug, Default)]
+struct ExtensionPaneRuntime {
+    extensions: Vec<LoadedExtension>,
+    panes: Vec<LivePaneRegistration>,
+    commands: Vec<LiveCommandRegistration>,
+    open: BTreeSet<String>,
+    size_overrides: BTreeMap<String, u16>,
+    cached_renders: BTreeMap<String, CachedPaneRender>,
+    layout: ExtensionPaneLayoutPlan,
+    resize: Option<(String, PaneResizeState)>,
+    menu_open: bool,
+    menu_selected: usize,
+    menu_trigger: Option<Rect>,
+    menu_bounds: Option<Rect>,
+}
+
+impl ExtensionPaneRuntime {
+    fn new(extensions: Vec<LoadedExtension>) -> Self {
+        let mut panes = Vec::new();
+        let mut commands = Vec::new();
+        let mut open = BTreeSet::new();
+        for (extension_index, extension) in extensions.iter().enumerate() {
+            for registration in &extension.handshake.registrations {
+                match registration {
+                    Registration::Pane(pane) => {
+                        let key = format!("{}:{}", extension.manifest.id, pane.id);
+                        if pane.default_open {
+                            open.insert(key.clone());
+                        }
+                        panes.push(LivePaneRegistration {
+                            key,
+                            extension_index,
+                            extension_id: extension.manifest.id.clone(),
+                            pane: pane.clone(),
+                        });
+                    }
+                    Registration::Command(command) => commands.push(LiveCommandRegistration {
+                        extension_index,
+                        extension_id: extension.manifest.id.clone(),
+                        command: command.clone(),
+                    }),
+                    _ => {}
+                }
+            }
+        }
+        Self {
+            extensions,
+            panes,
+            commands,
+            open,
+            ..Self::default()
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct ReviewApp {
     state: Arc<Mutex<ReviewState>>,
@@ -192,10 +292,19 @@ pub struct ReviewApp {
     extension_notification_subscription: Option<ExtensionNotificationSubscription>,
     mouse_scroll_acceleration: ReviewMouseWheelScrollAcceleration,
     mouse_scroll_accumulator: f64,
+    extension_pane_runtime: Mutex<ExtensionPaneRuntime>,
 }
 
 impl ReviewApp {
     pub fn new(changeset: Changeset, options: ReviewOptions) -> Self {
+        Self::new_with_extensions(changeset, options, Vec::new())
+    }
+
+    pub fn new_with_extensions(
+        changeset: Changeset,
+        options: ReviewOptions,
+        extensions: Vec<LoadedExtension>,
+    ) -> Self {
         let mut state = ReviewState::new(changeset);
         state.set_layout(options.layout);
         let themes = ThemeController::new(options.theme.id.clone());
@@ -230,6 +339,7 @@ impl ReviewApp {
             extension_notification_subscription,
             mouse_scroll_acceleration: ReviewMouseWheelScrollAcceleration::default(),
             mouse_scroll_accumulator: 0.0,
+            extension_pane_runtime: Mutex::new(ExtensionPaneRuntime::new(extensions)),
         }
     }
 
@@ -249,6 +359,13 @@ impl ReviewApp {
     }
 
     pub fn reload(&mut self, changeset: Changeset) {
+        let changeset = match self.apply_extension_transforms(changeset) {
+            Ok(changeset) => changeset,
+            Err(error) => {
+                self.status = Some(format!("extension reload failed: {error}"));
+                return;
+            }
+        };
         if self.with_state(|state| state.changeset() != &changeset) {
             self.with_state(|state| state.reload(changeset));
             self.status = Some("review reloaded".into());
@@ -256,7 +373,24 @@ impl ReviewApp {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .clear();
+            self.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .cached_renders
+                .clear();
         }
+    }
+
+    fn apply_extension_transforms(&self, mut changeset: Changeset) -> Result<Changeset> {
+        let mut runtime = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        for extension in &mut runtime.extensions {
+            changeset = extension.apply_changeset_transforms(changeset)?;
+        }
+        changeset.refresh_review_identities();
+        Ok(changeset)
     }
 
     pub fn set_status(&mut self, status: impl Into<String>) {
@@ -289,6 +423,9 @@ impl ReviewApp {
             self.should_quit = true;
             return;
         }
+        if self.handle_extension_menu_key(&key) {
+            return;
+        }
         if self.show_help {
             if matches!(
                 key.code,
@@ -296,6 +433,9 @@ impl ReviewApp {
             ) {
                 self.show_help = false;
             }
+            return;
+        }
+        if self.invoke_extension_command(&key) {
             return;
         }
         if matches!(
@@ -371,6 +511,114 @@ impl ReviewApp {
                 self.scroll_to_selection();
             }
             _ => {}
+        }
+    }
+
+    fn invoke_extension_command(&mut self, key: &KeyEvent) -> bool {
+        let key = to_live_extension_key_event(key);
+        let command = {
+            let runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            runtime
+                .commands
+                .iter()
+                .find(|registration| {
+                    matches_any_key_chord(&registration.command.default_keys).matches(&key)
+                })
+                .cloned()
+        };
+        let Some(command) = command else {
+            return false;
+        };
+        self.invoke_registered_extension_command(command);
+        true
+    }
+
+    fn invoke_registered_extension_command(&mut self, command: LiveCommandRegistration) {
+        let snapshot = self.with_state(|state| state.snapshot());
+        let mut runtime = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let open_panes = runtime.open.iter().cloned().collect();
+        let execution = runtime.extensions[command.extension_index].invoke_command(
+            &command.command.id,
+            snapshot,
+            open_panes,
+        );
+        match execution {
+            Ok(execution) => {
+                for action in execution.actions {
+                    let (id, opening) = match action {
+                        ExtensionHostAction::OpenPane { id } => (id, true),
+                        ExtensionHostAction::ClosePane { id } => (id, false),
+                    };
+                    let pane_key = if id.contains(':') {
+                        id
+                    } else {
+                        format!("{}:{id}", command.extension_id)
+                    };
+                    if opening {
+                        runtime.open.insert(pane_key.clone());
+                    } else {
+                        runtime.open.remove(&pane_key);
+                    }
+                    runtime.cached_renders.remove(&pane_key);
+                }
+                self.status = Some(command.command.title);
+            }
+            Err(error) => {
+                self.status = Some(format!(
+                    "extension {} command failed: {error}",
+                    command.extension_id
+                ))
+            }
+        }
+    }
+
+    fn handle_extension_menu_key(&mut self, key: &KeyEvent) -> bool {
+        let mut runtime = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let menu_shortcut = key.code == KeyCode::Menu
+            || (key.code == KeyCode::Char('e') && key.modifiers == KeyModifiers::ALT);
+        if menu_shortcut && !runtime.commands.is_empty() {
+            runtime.menu_open = !runtime.menu_open;
+            runtime.menu_selected = 0;
+            return true;
+        }
+        if !runtime.menu_open {
+            return false;
+        }
+        match key.code {
+            KeyCode::Esc => {
+                runtime.menu_open = false;
+                true
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                runtime.menu_selected = (runtime.menu_selected + 1) % runtime.commands.len().max(1);
+                true
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                runtime.menu_selected = runtime
+                    .menu_selected
+                    .checked_sub(1)
+                    .unwrap_or_else(|| runtime.commands.len().saturating_sub(1));
+                true
+            }
+            KeyCode::Enter => {
+                let command = runtime.commands.get(runtime.menu_selected).cloned();
+                runtime.menu_open = false;
+                drop(runtime);
+                if let Some(command) = command {
+                    self.invoke_registered_extension_command(command);
+                }
+                true
+            }
+            _ => true,
         }
     }
 
@@ -453,6 +701,136 @@ impl ReviewApp {
         self.handle_mouse_at(kind, Instant::now());
     }
 
+    pub fn handle_mouse_event(&mut self, event: MouseEvent) {
+        if self.handle_extension_menu_mouse(&event) || self.handle_extension_pane_mouse(&event) {
+            return;
+        }
+        self.handle_mouse_at(event.kind, Instant::now());
+    }
+
+    fn handle_extension_menu_mouse(&mut self, event: &MouseEvent) -> bool {
+        if event.kind != MouseEventKind::Down(MouseButton::Left) {
+            return false;
+        }
+        let mut runtime = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if runtime
+            .menu_trigger
+            .is_some_and(|area| rect_contains(area, event.column, event.row))
+        {
+            runtime.menu_open = !runtime.menu_open;
+            runtime.menu_selected = 0;
+            return true;
+        }
+        if !runtime.menu_open {
+            return false;
+        }
+        let command = runtime.menu_bounds.and_then(|area| {
+            if !rect_contains(area, event.column, event.row)
+                || event.row == area.y
+                || event.row + 1 == area.bottom()
+            {
+                return None;
+            }
+            runtime
+                .commands
+                .get(usize::from(event.row.saturating_sub(area.y + 1)))
+                .cloned()
+        });
+        runtime.menu_open = false;
+        drop(runtime);
+        if let Some(command) = command {
+            self.invoke_registered_extension_command(command);
+        }
+        true
+    }
+
+    fn handle_extension_pane_mouse(&mut self, event: &MouseEvent) -> bool {
+        let mut runtime = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                let Some(planned) = runtime.layout.panes.iter().find(|planned| {
+                    planned.divider.is_some_and(|divider| {
+                        event.column >= divider.x
+                            && event.column < divider.right()
+                            && event.row >= divider.y
+                            && event.row < divider.bottom()
+                    })
+                }) else {
+                    return false;
+                };
+                let vertical = matches!(
+                    planned.pane.placement,
+                    PanePlacement::Left | PanePlacement::Right
+                );
+                let requested = extension_pane_size(&planned.pane, None);
+                let current_size = if vertical {
+                    planned.bounds.width
+                } else {
+                    planned.bounds.height
+                };
+                let review_size = if vertical {
+                    runtime.layout.review_bounds.width
+                } else {
+                    runtime.layout.review_bounds.height
+                };
+                let review_minimum = if vertical {
+                    20
+                } else {
+                    MIN_EXTENSION_REVIEW_HEIGHT
+                };
+                let max_size = current_size
+                    .saturating_add(review_size.saturating_sub(review_minimum))
+                    .min(requested.max.unwrap_or(u16::MAX));
+                let resize = PaneResizeState {
+                    placement: planned.pane.placement,
+                    origin: if vertical { event.column } else { event.row },
+                    start_size: current_size,
+                    min_size: requested.min.unwrap_or(1),
+                    max_size,
+                };
+                let key = planned.key.clone();
+                runtime.resize = Some((key, resize));
+                true
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                let Some((key, resize)) = runtime.resize.clone() else {
+                    return false;
+                };
+                let position =
+                    if matches!(resize.placement, PanePlacement::Left | PanePlacement::Right) {
+                        event.column
+                    } else {
+                        event.row
+                    };
+                let delta = if matches!(
+                    resize.placement,
+                    PanePlacement::Right | PanePlacement::Bottom
+                ) {
+                    i32::from(resize.origin) - i32::from(position)
+                } else {
+                    i32::from(position) - i32::from(resize.origin)
+                };
+                let next = (i32::from(resize.start_size) + delta)
+                    .clamp(i32::from(resize.min_size), i32::from(resize.max_size))
+                    as u16;
+                runtime.size_overrides.insert(key.clone(), next);
+                runtime.cached_renders.remove(&key);
+                true
+            }
+            MouseEventKind::Up(MouseButton::Left) if runtime.resize.is_some() => {
+                runtime.resize = None;
+                true
+            }
+            _ => false,
+        }
+    }
+
     fn handle_mouse_at(&mut self, kind: MouseEventKind, now: Instant) {
         let direction = match kind {
             MouseEventKind::ScrollDown => 1.0,
@@ -467,6 +845,53 @@ impl ReviewApp {
             self.scroll = self.scroll.saturating_sub(integer_scroll.unsigned_abs());
         }
         self.mouse_scroll_accumulator -= integer_scroll as f64;
+    }
+}
+
+fn rect_contains(area: Rect, column: u16, row: u16) -> bool {
+    column >= area.x && column < area.right() && row >= area.y && row < area.bottom()
+}
+
+fn to_live_extension_key_event(key: &KeyEvent) -> ExtensionKeyEvent {
+    let (name, sequence) = match key.code {
+        KeyCode::Char(character) => (
+            character.to_ascii_lowercase().to_string(),
+            character.to_string(),
+        ),
+        KeyCode::Enter => ("return".into(), "\r".into()),
+        KeyCode::Tab => ("tab".into(), "\t".into()),
+        KeyCode::BackTab => ("tab".into(), "\t".into()),
+        KeyCode::Backspace => ("backspace".into(), String::new()),
+        KeyCode::Esc => ("escape".into(), String::new()),
+        KeyCode::Left => ("left".into(), String::new()),
+        KeyCode::Right => ("right".into(), String::new()),
+        KeyCode::Up => ("up".into(), String::new()),
+        KeyCode::Down => ("down".into(), String::new()),
+        KeyCode::Home => ("home".into(), String::new()),
+        KeyCode::End => ("end".into(), String::new()),
+        KeyCode::PageUp => ("pageup".into(), String::new()),
+        KeyCode::PageDown => ("pagedown".into(), String::new()),
+        KeyCode::Delete => ("delete".into(), String::new()),
+        KeyCode::Insert => ("insert".into(), String::new()),
+        KeyCode::F(number) => (format!("f{number}"), String::new()),
+        KeyCode::Null
+        | KeyCode::CapsLock
+        | KeyCode::ScrollLock
+        | KeyCode::NumLock
+        | KeyCode::PrintScreen
+        | KeyCode::Pause
+        | KeyCode::Menu
+        | KeyCode::KeypadBegin
+        | KeyCode::Media(_)
+        | KeyCode::Modifier(_) => (String::new(), String::new()),
+    };
+    ExtensionKeyEvent {
+        name,
+        sequence,
+        ctrl: key.modifiers.contains(KeyModifiers::CONTROL),
+        meta: key.modifiers.contains(KeyModifiers::SUPER),
+        option: key.modifiers.contains(KeyModifiers::ALT),
+        shift: key.modifiers.contains(KeyModifiers::SHIFT),
     }
 }
 
@@ -530,7 +955,15 @@ impl ThemeController {
 }
 
 pub fn run_review(changeset: Changeset, options: ReviewOptions) -> Result<()> {
-    run_review_inner(changeset, options, None, None)
+    run_review_inner(changeset, options, Vec::new(), None, None)
+}
+
+pub fn run_review_with_extensions(
+    changeset: Changeset,
+    options: ReviewOptions,
+    extensions: Vec<LoadedExtension>,
+) -> Result<()> {
+    run_review_inner(changeset, options, extensions, None, None)
 }
 
 pub fn run_review_with_reload<F>(
@@ -541,7 +974,19 @@ pub fn run_review_with_reload<F>(
 where
     F: FnMut() -> Result<Changeset>,
 {
-    run_review_inner(changeset, options, None, Some(reload))
+    run_review_inner(changeset, options, Vec::new(), None, Some(reload))
+}
+
+pub fn run_review_with_extensions_reload<F>(
+    changeset: Changeset,
+    options: ReviewOptions,
+    extensions: Vec<LoadedExtension>,
+    reload: &mut F,
+) -> Result<()>
+where
+    F: FnMut() -> Result<Changeset>,
+{
+    run_review_inner(changeset, options, extensions, None, Some(reload))
 }
 
 /// Run a reloadable review while retaining the provider-neutral input needed
@@ -556,12 +1001,39 @@ pub fn run_review_with_input_reload<F>(
 where
     F: FnMut() -> Result<Changeset>,
 {
-    run_review_inner(changeset, options, Some((input, input_cwd)), Some(reload))
+    run_review_inner(
+        changeset,
+        options,
+        Vec::new(),
+        Some((input, input_cwd)),
+        Some(reload),
+    )
+}
+
+pub fn run_review_with_extensions_input_reload<F>(
+    changeset: Changeset,
+    options: ReviewOptions,
+    extensions: Vec<LoadedExtension>,
+    input: workdeck_core::CliInput,
+    input_cwd: PathBuf,
+    reload: &mut F,
+) -> Result<()>
+where
+    F: FnMut() -> Result<Changeset>,
+{
+    run_review_inner(
+        changeset,
+        options,
+        extensions,
+        Some((input, input_cwd)),
+        Some(reload),
+    )
 }
 
 fn run_review_inner(
     changeset: Changeset,
     options: ReviewOptions,
+    extensions: Vec<LoadedExtension>,
     watch_input: Option<(workdeck_core::CliInput, PathBuf)>,
     mut reloader: Option<&mut dyn FnMut() -> Result<Changeset>>,
 ) -> Result<()> {
@@ -580,7 +1052,7 @@ fn run_review_inner(
         .clone()
         .map(Ok)
         .unwrap_or_else(std::env::current_dir)?;
-    let mut app = ReviewApp::new(changeset, options);
+    let mut app = ReviewApp::new_with_extensions(changeset, options, extensions);
     let mut watched_input = watch_input
         .filter(|_| app.options.watch)
         .and_then(|(input, cwd)| {
@@ -641,7 +1113,7 @@ fn run_loop<B: Backend>(
         if event::poll(Duration::from_millis(100))? {
             match event::read()? {
                 Event::Key(key) => app.handle_key(key),
-                Event::Mouse(mouse) => app.handle_mouse(mouse.kind),
+                Event::Mouse(mouse) => app.handle_mouse_event(mouse),
                 Event::Resize(_, _) | Event::FocusGained | Event::FocusLost | Event::Paste(_) => {}
             }
         }
@@ -694,14 +1166,7 @@ fn reload_current_review(
 }
 
 fn apply_reloaded_changeset(app: &mut ReviewApp, changeset: Changeset) {
-    let mut state = app
-        .state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if state.changeset() != &changeset {
-        state.reload(changeset);
-        app.status = Some("review reloaded".into());
-    }
+    app.reload(changeset);
 }
 
 pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
@@ -724,6 +1189,7 @@ pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     render_header(outer[0], buffer, app);
     render_body(outer[1], buffer, app);
     render_footer(outer[2], buffer, app);
+    render_extension_command_menu(area, buffer, app);
     if app.show_help {
         render_help(area, buffer);
     }
@@ -783,53 +1249,227 @@ fn render_header(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             Style::default().fg(ratatui_theme_color(&theme.muted)),
         ),
     ]);
-    Paragraph::new(title).render(area, buffer);
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Length(1)])
+        .split(area);
+    Paragraph::new(title).render(rows[0], buffer);
+    render_extension_menu_button(rows[1], buffer, app);
+}
+
+/// Render the Extensions menu trigger and publish its hit rectangle to input routing.
+pub fn render_extension_menu_button(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+    let mut runtime = app
+        .extension_pane_runtime
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if runtime.commands.is_empty() || area.width == 0 || area.height == 0 {
+        runtime.menu_trigger = None;
+        runtime.menu_open = false;
+        return;
+    }
+    let width = 12.min(area.width);
+    let trigger = Rect::new(area.right().saturating_sub(width), area.y, width, 1);
+    runtime.menu_trigger = Some(trigger);
+    let style = if runtime.menu_open {
+        Style::default()
+            .fg(ratatui_theme_color(&app.options.theme.background))
+            .bg(ratatui_theme_color(&app.options.theme.accent))
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(ratatui_theme_color(&app.options.theme.muted))
+    };
+    drop(runtime);
+    Paragraph::new(Line::styled(" Extensions ", style)).render(trigger, buffer);
+}
+
+/// Draw the active command dropdown above the finished host surface.
+pub fn render_extension_command_menu(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+    let mut runtime = app
+        .extension_pane_runtime
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if !runtime.menu_open || runtime.commands.is_empty() {
+        runtime.menu_bounds = None;
+        return;
+    }
+    let Some(trigger) = runtime.menu_trigger else {
+        runtime.menu_open = false;
+        runtime.menu_bounds = None;
+        return;
+    };
+    let labels = runtime
+        .commands
+        .iter()
+        .map(|registration| {
+            let title = sanitize_terminal_line(&registration.command.title);
+            let keys = registration.command.default_keys.join(", ");
+            if keys.is_empty() {
+                title
+            } else {
+                format!("{title}  {keys}")
+            }
+        })
+        .collect::<Vec<_>>();
+    let desired_width = labels
+        .iter()
+        .map(|label| label.width())
+        .max()
+        .unwrap_or(1)
+        .saturating_add(2);
+    let width = u16::try_from(desired_width)
+        .unwrap_or(u16::MAX)
+        .max(20)
+        .min(area.width.max(1));
+    let height = u16::try_from(labels.len().saturating_add(2))
+        .unwrap_or(u16::MAX)
+        .min(area.height.max(1));
+    let x = trigger.x.min(area.right().saturating_sub(width));
+    let y = if trigger.bottom().saturating_add(height) <= area.bottom() {
+        trigger.bottom()
+    } else {
+        trigger.y.saturating_sub(height)
+    };
+    let bounds = Rect::new(x, y, width, height);
+    runtime.menu_bounds = Some(bounds);
+    let selected = runtime.menu_selected;
+    drop(runtime);
+
+    Clear.render(bounds, buffer);
+    let block = Block::default()
+        .title(" Extensions ")
+        .borders(Borders::ALL)
+        .style(Style::default().bg(ratatui_theme_color(&app.options.theme.panel)))
+        .border_style(Style::default().fg(ratatui_theme_color(&app.options.theme.border)));
+    let inner = block.inner(bounds);
+    block.render(bounds, buffer);
+    let items = labels.into_iter().enumerate().map(|(index, label)| {
+        let style = if index == selected {
+            Style::default()
+                .fg(ratatui_theme_color(&app.options.theme.background))
+                .bg(ratatui_theme_color(&app.options.theme.accent))
+        } else {
+            Style::default().fg(ratatui_theme_color(&app.options.theme.text))
+        };
+        ListItem::new(Line::styled(label, style))
+    });
+    List::new(items).render(inner, buffer);
 }
 
 fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
-    let mut review_area = area;
-    let mut panes = Vec::new();
-    for pane in &app.options.extension_panes {
-        if review_area.width < 20 || review_area.height < 6 {
-            break;
+    let static_specs = app
+        .options
+        .extension_panes
+        .iter()
+        .enumerate()
+        .map(|(index, view)| ExtensionPaneSpec {
+            key: format!("static:{index}:{}", view.pane.id),
+            pane: view.pane.clone(),
+        })
+        .collect::<Vec<_>>();
+    let theme = to_extension_paint_theme(&app.options.theme);
+    let (generation, selection) = app.with_state(|state| (state.generation(), state.selection()));
+    let mut runtime = app
+        .extension_pane_runtime
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut specs = static_specs.clone();
+    specs.extend(runtime.panes.iter().map(|registration| ExtensionPaneSpec {
+        key: registration.key.clone(),
+        pane: registration.pane.clone(),
+    }));
+    let mut open = runtime.open.clone();
+    open.extend(static_specs.iter().map(|spec| spec.key.clone()));
+    let plan = plan_extension_panes(
+        &specs,
+        &open,
+        &runtime.size_overrides,
+        area,
+        20,
+        MIN_EXTENSION_REVIEW_HEIGHT,
+    );
+    runtime.layout = plan.clone();
+
+    let mut rendered_panes = Vec::new();
+    let mut snapshot = None;
+    for planned in &plan.panes {
+        if let Some((index, _)) = static_specs
+            .iter()
+            .enumerate()
+            .find(|(_, spec)| spec.key == planned.key)
+        {
+            rendered_panes.push((
+                app.options.extension_panes[index].clone(),
+                planned.bounds,
+                planned.divider,
+            ));
+            continue;
         }
-        let requested = extension_pane_size(&pane.pane, None).preferred;
-        let (direction, constraints, pane_index, review_index) = match pane.pane.placement {
-            PanePlacement::Left => (
-                Direction::Horizontal,
-                [Constraint::Length(requested), Constraint::Min(20)],
-                0,
-                1,
-            ),
-            PanePlacement::Right => (
-                Direction::Horizontal,
-                [Constraint::Min(20), Constraint::Length(requested)],
-                1,
-                0,
-            ),
-            PanePlacement::Top => (
-                Direction::Vertical,
-                [Constraint::Length(requested), Constraint::Min(4)],
-                0,
-                1,
-            ),
-            PanePlacement::Bottom => (
-                Direction::Vertical,
-                [Constraint::Min(4), Constraint::Length(requested)],
-                1,
-                0,
-            ),
+        let Some(registration) = runtime
+            .panes
+            .iter()
+            .find(|registration| registration.key == planned.key)
+            .cloned()
+        else {
+            continue;
         };
-        let split = Layout::default()
-            .direction(direction)
-            .constraints(constraints)
-            .split(review_area);
-        panes.push((pane, split[pane_index]));
-        review_area = split[review_index];
+        let signature = PaneRenderSignature {
+            generation,
+            selection,
+            placement: registration.pane.placement,
+            width: planned.bounds.width,
+            height: planned.bounds.height,
+            theme: theme.clone(),
+        };
+        let cached = runtime
+            .cached_renders
+            .get(&planned.key)
+            .filter(|cached| cached.signature == signature)
+            .map(|cached| cached.view.clone());
+        let view = cached.unwrap_or_else(|| {
+            let current_snapshot = snapshot
+                .get_or_insert_with(|| app.with_state(|state| state.snapshot()))
+                .clone();
+            let request = PaneRenderRequest {
+                pane_id: registration.pane.id.clone(),
+                snapshot: current_snapshot,
+                placement: signature.placement,
+                width: signature.width,
+                height: signature.height,
+                theme: signature.theme.clone(),
+            };
+            let result = runtime.extensions[registration.extension_index]
+                .render_pane(request)
+                .unwrap_or_else(|error| ExtensionPaneView {
+                    extension_id: registration.extension_id.clone(),
+                    pane: registration.pane.clone(),
+                    content: ViewNode::Text {
+                        text: format!("Pane unavailable: {error}"),
+                        style: ViewStyle {
+                            foreground: Some("danger".into()),
+                            ..ViewStyle::default()
+                        },
+                    },
+                });
+            runtime.cached_renders.insert(
+                planned.key.clone(),
+                CachedPaneRender {
+                    signature,
+                    view: result.clone(),
+                },
+            );
+            result
+        });
+        rendered_panes.push((view, planned.bounds, planned.divider));
     }
-    render_builtin_body(review_area, buffer, app);
-    for (pane, pane_area) in panes {
-        render_extension_pane(pane_area, buffer, pane);
+    drop(runtime);
+
+    render_builtin_body(plan.review_bounds, buffer, app);
+    for (pane, pane_area, divider) in rendered_panes {
+        if let Some(divider) = divider {
+            render_extension_pane_divider(divider, buffer, pane.pane.placement, app);
+        }
+        render_extension_pane(pane_area, buffer, &pane, app);
     }
 }
 
@@ -864,18 +1504,36 @@ fn render_builtin_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     render_review(chunks[1], buffer, app);
 }
 
-fn render_extension_pane(area: Rect, buffer: &mut Buffer, pane: &ExtensionPaneView) {
+fn render_extension_pane(
+    area: Rect,
+    buffer: &mut Buffer,
+    pane: &ExtensionPaneView,
+    app: &ReviewApp,
+) {
     let mut lines = Vec::new();
     flatten_view(&pane.content, 0, &mut lines);
+    Block::default()
+        .style(Style::default().bg(ratatui_theme_color(&app.options.theme.panel)))
+        .render(area, buffer);
     Paragraph::new(lines)
-        .block(
-            Block::default()
-                .title(format!(" {} ", pane.pane.title))
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Magenta)),
-        )
         .wrap(Wrap { trim: false })
         .render(area, buffer);
+}
+
+fn render_extension_pane_divider(
+    area: Rect,
+    buffer: &mut Buffer,
+    placement: PanePlacement,
+    app: &ReviewApp,
+) {
+    let style = Style::default().fg(ratatui_theme_color(&app.options.theme.border));
+    if matches!(placement, PanePlacement::Left | PanePlacement::Right) {
+        Paragraph::new(vec![Line::styled("│", style); usize::from(area.height)])
+            .render(area, buffer);
+    } else {
+        Paragraph::new(Line::styled("─".repeat(usize::from(area.width)), style))
+            .render(area, buffer);
+    }
 }
 
 fn flatten_view(node: &ViewNode, indent: usize, lines: &mut Vec<Line<'static>>) {
@@ -2866,6 +3524,7 @@ mod tests {
                         id: "summary".into(),
                         title: "Extension summary".into(),
                         placement: PanePlacement::Right,
+                        default_open: true,
                         preferred_size: Some(28),
                         width: None,
                         height: None,
@@ -2895,7 +3554,6 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect::<String>();
-        assert!(rendered.contains("Extension summary"));
         assert!(rendered.contains("native pane content"));
     }
 

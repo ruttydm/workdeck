@@ -1,0 +1,7 @@
+id = "example.pane-layout"
+name = "Pane layout example"
+version = "0.1.0"
+api_version = 1
+executable = "bin/workdeck-example-pane-layout-extension"
+capabilities = ["commands", "panes"]
+description = "Resizable side pane and fixed top and bottom review panes"

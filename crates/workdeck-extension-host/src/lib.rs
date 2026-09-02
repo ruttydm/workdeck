@@ -32,11 +32,12 @@ use workdeck_core::{Changeset, ReviewSnapshot};
 use workdeck_diff::{SanitizeOptions, sanitize_terminal_text};
 use workdeck_extension_api::{
     API_VERSION, CliCommandExecution, CliCommandInvocation, CliCommandResult,
-    CliOutputNotification, CliOutputStream, DEFAULT_REQUEST_TIMEOUT_MS, ExtensionManifest,
-    ExtensionNotificationHub, ExtensionNotifyType, ExtensionPaneView, HandshakeRequest,
-    HandshakeResponse, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, MAX_MESSAGE_BYTES,
-    ManifestError, PaneRenderRequest, PaneRenderResponse, Registration, TransformRequest,
-    TransformResponse, validate_view,
+    CliOutputNotification, CliOutputStream, CommandExecution, CommandInvocation,
+    DEFAULT_REQUEST_TIMEOUT_MS, ExtensionHostAction, ExtensionManifest, ExtensionNotificationHub,
+    ExtensionNotifyType, ExtensionPaneView, HandshakeRequest, HandshakeResponse,
+    JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, MAX_MESSAGE_BYTES, ManifestError,
+    PaneRenderRequest, PaneRenderResponse, Registration, TransformRequest, TransformResponse,
+    extension_pane_size, is_vertical_pane_placement, parse_key_chord, validate_view,
 };
 
 #[derive(Debug, Error)]
@@ -740,48 +741,115 @@ impl LoadedExtension {
         Ok(changeset)
     }
 
-    pub fn render_panes(
+    /// Render one registered pane inside the exact rectangle allocated by the host.
+    pub fn render_pane(
         &mut self,
-        snapshot: &ReviewSnapshot,
-    ) -> Result<Vec<ExtensionPaneView>, HostError> {
-        let panes = self
+        request: PaneRenderRequest,
+    ) -> Result<ExtensionPaneView, HostError> {
+        let pane = self
             .handshake
             .registrations
             .iter()
-            .filter_map(|registration| match registration {
-                Registration::Pane(pane) => Some(pane.clone()),
+            .find_map(|registration| match registration {
+                Registration::Pane(pane) if pane.id == request.pane_id => Some(pane.clone()),
                 _ => None,
             })
-            .collect::<Vec<_>>();
-        panes
-            .into_iter()
-            .map(|pane| {
-                let value = self.request(
-                    "workdeck/pane/render",
-                    PaneRenderRequest {
-                        pane_id: pane.id.clone(),
-                        snapshot: snapshot.clone(),
-                    },
-                    Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
-                )?;
-                let response: PaneRenderResponse =
-                    serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
-                        id: self.manifest.id.clone(),
-                        kind: "pane",
-                        message: error.to_string(),
-                    })?;
-                validate_view(&response.content).map_err(|message| HostError::InvalidPayload {
-                    id: self.manifest.id.clone(),
-                    kind: "pane",
-                    message,
-                })?;
-                Ok(ExtensionPaneView {
-                    extension_id: self.manifest.id.clone(),
-                    pane,
-                    content: response.content,
+            .ok_or_else(|| HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "pane",
+                message: format!("pane {:?} is not registered", request.pane_id),
+            })?;
+        if request.placement != pane.placement {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "pane",
+                message: format!(
+                    "pane {:?} requested placement {:?}, registered as {:?}",
+                    pane.id, request.placement, pane.placement
+                ),
+            });
+        }
+        if request.width == 0 || request.height == 0 {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "pane",
+                message: "pane render rectangles must be non-empty".into(),
+            });
+        }
+        let value = self.request(
+            "workdeck/pane/render",
+            request,
+            Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+        )?;
+        let response: PaneRenderResponse =
+            serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "pane",
+                message: error.to_string(),
+            })?;
+        validate_view(&response.content).map_err(|message| HostError::InvalidPayload {
+            id: self.manifest.id.clone(),
+            kind: "pane",
+            message,
+        })?;
+        Ok(ExtensionPaneView {
+            extension_id: self.manifest.id.clone(),
+            pane,
+            content: response.content,
+        })
+    }
+
+    /// Invoke one registered in-review command and validate all requested host mutations.
+    pub fn invoke_command(
+        &mut self,
+        command_id: &str,
+        snapshot: ReviewSnapshot,
+        open_panes: Vec<String>,
+    ) -> Result<CommandExecution, HostError> {
+        if !self.handshake.registrations.iter().any(|registration| {
+            matches!(registration, Registration::Command(command) if command.id == command_id)
+        }) {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "command",
+                message: format!("command {command_id:?} is not registered"),
+            });
+        }
+        let value = self.request(
+            "workdeck/command/invoke",
+            CommandInvocation {
+                command_id: command_id.to_owned(),
+                snapshot,
+                open_panes,
+            },
+            Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+        )?;
+        let execution: CommandExecution =
+            serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "command",
+                message: error.to_string(),
+            })?;
+        for action in &execution.actions {
+            let id = match action {
+                ExtensionHostAction::OpenPane { id } | ExtensionHostAction::ClosePane { id } => id,
+            };
+            let local_id = id
+                .strip_prefix(&format!("{}:", self.manifest.id))
+                .unwrap_or(id);
+            if (id.contains(':') && local_id == id)
+                || !self.handshake.registrations.iter().any(|registration| {
+                    matches!(registration, Registration::Pane(pane) if pane.id == local_id)
                 })
-            })
-            .collect()
+            {
+                return Err(HostError::InvalidPayload {
+                    id: self.manifest.id.clone(),
+                    kind: "command",
+                    message: format!("command targeted unknown pane {id:?}"),
+                });
+            }
+        }
+        Ok(execution)
     }
 }
 
@@ -917,6 +985,67 @@ fn validate_registrations(
                     message: format!(
                         "CLI command {:?} usage must be non-empty when provided",
                         command.name
+                    ),
+                });
+            }
+        }
+        if let Registration::Command(command) = registration {
+            if command.id.trim().is_empty() || command.title.trim().is_empty() {
+                return Err(HostError::Handshake {
+                    id: manifest.id.clone(),
+                    message: "commands require non-empty ids and titles".into(),
+                });
+            }
+            for chord in &command.default_keys {
+                parse_key_chord(chord).map_err(|error| HostError::Handshake {
+                    id: manifest.id.clone(),
+                    message: format!("command {:?} has invalid key chord: {error}", command.id),
+                })?;
+            }
+        }
+        if let Registration::Pane(pane) = registration {
+            if pane.id.trim().is_empty() || pane.title.trim().is_empty() || pane.id.contains(':') {
+                return Err(HostError::Handshake {
+                    id: manifest.id.clone(),
+                    message: "panes require non-empty local ids and titles".into(),
+                });
+            }
+            let vertical = is_vertical_pane_placement(pane.placement);
+            if vertical && pane.height.is_some() || !vertical && pane.width.is_some() {
+                return Err(HostError::Handshake {
+                    id: manifest.id.clone(),
+                    message: format!(
+                        "pane {:?} uses the dimension opposite its {:?} placement",
+                        pane.id, pane.placement
+                    ),
+                });
+            }
+            let size = extension_pane_size(pane, None);
+            let min = size.min.unwrap_or(1);
+            let max = size.max.unwrap_or(u16::MAX);
+            if size.preferred == 0
+                || min == 0
+                || max == 0
+                || min > size.preferred
+                || size.preferred > max
+            {
+                return Err(HostError::Handshake {
+                    id: manifest.id.clone(),
+                    message: format!(
+                        "pane {:?} size must satisfy 0 < min <= preferred <= max",
+                        pane.id
+                    ),
+                });
+            }
+            if size
+                .fraction
+                .is_some_and(|fraction| !fraction.is_finite() || fraction <= 0.0 || fraction > 1.0)
+            {
+                return Err(HostError::Handshake {
+                    id: manifest.id.clone(),
+                    message: format!(
+                        "pane {:?} fraction must be greater than 0 and at most 1",
+                        pane.id
                     ),
                 });
             }
@@ -1159,6 +1288,62 @@ mod tests {
                 .to_string()
                 .contains("undeclared capability")
         );
+    }
+
+    #[test]
+    fn handshake_validates_pane_geometry_and_command_keys() {
+        use workdeck_extension_api::{
+            Capability, CommandRegistration, ExtensionPaneSize, PanePlacement, PaneRegistration,
+        };
+
+        let manifest = ExtensionManifest {
+            id: "demo".into(),
+            name: "Demo".into(),
+            version: "1.0.0".into(),
+            api_version: API_VERSION,
+            executable: "demo".into(),
+            capabilities: vec![Capability::Commands, Capability::Panes],
+            description: None,
+        };
+        let valid_pane = PaneRegistration {
+            id: "side".into(),
+            title: "Side".into(),
+            placement: PanePlacement::Right,
+            default_open: false,
+            preferred_size: None,
+            width: Some(ExtensionPaneSize {
+                preferred: 28,
+                min: Some(18),
+                max: Some(44),
+                fraction: Some(0.25),
+            }),
+            height: None,
+        };
+        let response = |pane: PaneRegistration, chord: &str| HandshakeResponse {
+            extension_api_version: API_VERSION,
+            extension_version: "1.0.0".into(),
+            registrations: vec![
+                Registration::Pane(pane),
+                Registration::Command(CommandRegistration {
+                    id: "toggle".into(),
+                    title: "Toggle".into(),
+                    description: None,
+                    default_keys: vec![chord.into()],
+                }),
+            ],
+        };
+        assert!(validate_registrations(&manifest, &response(valid_pane.clone(), "ctrl+p")).is_ok());
+
+        let mut wrong_axis = valid_pane.clone();
+        wrong_axis.height = Some(ExtensionPaneSize::fixed(2));
+        assert!(validate_registrations(&manifest, &response(wrong_axis, "ctrl+p")).is_err());
+        let mut invalid_bounds = valid_pane.clone();
+        invalid_bounds.width.as_mut().unwrap().min = Some(29);
+        assert!(validate_registrations(&manifest, &response(invalid_bounds, "ctrl+p")).is_err());
+        let mut invalid_fraction = valid_pane.clone();
+        invalid_fraction.width.as_mut().unwrap().fraction = Some(1.1);
+        assert!(validate_registrations(&manifest, &response(invalid_fraction, "ctrl+p")).is_err());
+        assert!(validate_registrations(&manifest, &response(valid_pane, "ctlr+p")).is_err());
     }
 
     #[test]
