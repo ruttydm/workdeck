@@ -4,7 +4,7 @@ use flate2::Compression;
 use flate2::write::GzEncoder;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::env;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
@@ -16,6 +16,15 @@ const DEFAULT_STABLE: &str = "hunk-port/stable-v0.20.1^{}";
 const DEFAULT_LEDGER: &str = "port/hunk/ledger.jsonl";
 const DEFAULT_METADATA: &str = "port/hunk/baseline.json";
 const DEFAULT_STABLE_FIXES: &str = "port/hunk/stable-fixes.jsonl";
+const SOURCE_EXTENSIONS: &[&str] = &[
+    ".ts", ".tsx", ".mts", ".js", ".jsx", ".mjs", ".cjs", ".astro", ".css", ".scss", ".sass",
+    ".less", ".html", ".htm", ".rs", ".py", ".rb", ".go", ".java", ".kt", ".swift", ".c", ".h",
+    ".cc", ".cpp", ".hpp", ".cs", ".sh", ".bash", ".zsh", ".fish", ".ps1",
+];
+const ASSET_EXTENSIONS: &[&str] = &[
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".ico", ".svg", ".woff", ".woff2", ".otf",
+    ".ttf", ".mp4", ".webm", ".wav", ".mp3", ".pdf",
+];
 
 #[derive(Debug, Clone)]
 struct TreeEntry {
@@ -81,10 +90,18 @@ fn run() -> Result<()> {
         Some("port") => {
             let command = args
                 .next()
-                .context("port requires fetch, inventory, map, audit, or status")?;
+                .context(
+                    "port requires fetch, inventory, reclassify, map, materialize-assets, audit, or status",
+                )?;
             if !matches!(
                 command.as_str(),
-                "fetch" | "inventory" | "map" | "materialize-assets" | "audit" | "status"
+                "fetch"
+                    | "inventory"
+                    | "reclassify"
+                    | "map"
+                    | "materialize-assets"
+                    | "audit"
+                    | "status"
             ) {
                 bail!("unknown port command {command:?}");
             }
@@ -103,6 +120,7 @@ fn run() -> Result<()> {
             let options = parse_options(args)?;
             match command.as_str() {
                 "inventory" => inventory(options),
+                "reclassify" => reclassify(options),
                 "audit" => audit(options, true),
                 "status" => audit(options, false),
                 _ => unreachable!(),
@@ -274,6 +292,7 @@ fn map_records(options: MapOptions) -> Result<()> {
             }
         }
         validate_disposition(&repo, record)?;
+        validate_test_evidence(&repo, record)?;
         changed += 1;
     }
     if changed == 0 {
@@ -912,6 +931,66 @@ fn inventory(options: Options) -> Result<()> {
     Ok(())
 }
 
+/// Recompute classifications from the pinned blobs without changing port dispositions.
+///
+/// This is intentionally separate from `inventory`: the inventory is immutable after creation,
+/// while classification rules can become stricter as ambiguous upstream path shapes are found.
+fn reclassify(options: Options) -> Result<()> {
+    let repo = repo_root()?;
+    let ledger_path = repo.join(options.ledger.unwrap_or_else(|| DEFAULT_LEDGER.into()));
+    let mut records = read_ledger(&ledger_path)?;
+    if records.is_empty() {
+        bail!("ledger is empty: {}", ledger_path.display());
+    }
+    let baseline = options
+        .baseline
+        .as_deref()
+        .map(|value| resolve_commit(&repo, value))
+        .transpose()?
+        .unwrap_or_else(|| records[0].baseline.clone());
+    let entries = read_tree(&repo, &baseline)?;
+    let expected = entries
+        .iter()
+        .map(|entry| (entry.path.as_str(), entry))
+        .collect::<BTreeMap<_, _>>();
+    let binary_by_blob = binary_blob_flags(&repo, entries.iter().map(|entry| entry.blob.as_str()))?;
+    let mut changed = 0;
+
+    for record in &mut records {
+        if record.baseline != baseline {
+            bail!(
+                "record {} uses baseline {}, expected {}",
+                record.id,
+                record.baseline,
+                baseline
+            );
+        }
+        let entry = expected
+            .get(record.path.as_str())
+            .with_context(|| format!("ledger path absent from baseline: {}", record.path))?;
+        if record.blob != entry.blob {
+            bail!(
+                "{} has blob {}, expected {}",
+                record.id,
+                record.blob,
+                entry.blob
+            );
+        }
+        let binary = *binary_by_blob
+            .get(&entry.blob)
+            .with_context(|| format!("missing binary metadata for blob {}", entry.blob))?;
+        let classification = classify(&record.path, binary);
+        if record.classification != classification {
+            record.classification = classification.to_owned();
+            changed += 1;
+        }
+    }
+
+    write_ledger_atomic(&ledger_path, &records)?;
+    println!("reclassified {changed} ledger records from pinned baseline blobs");
+    Ok(())
+}
+
 fn audit(options: Options, strict: bool) -> Result<()> {
     let repo = repo_root()?;
     let ledger_path = repo.join(options.ledger.unwrap_or_else(|| DEFAULT_LEDGER.into()));
@@ -933,6 +1012,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
         .collect::<BTreeMap<_, _>>();
     let mut by_path = BTreeMap::<&str, Vec<&LedgerRecord>>::new();
     let mut disposition_counts = BTreeMap::<&str, usize>::new();
+    let binary_by_blob = binary_blob_flags(&repo, entries.iter().map(|entry| entry.blob.as_str()))?;
 
     for record in &records {
         if record.baseline != baseline {
@@ -948,12 +1028,24 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     }
 
     for (path, entry) in &expected {
+        let binary = binary_by_blob
+            .get(&entry.blob)
+            .with_context(|| format!("missing binary metadata for blob {}", entry.blob))?;
+        let expected_classification = classify(path, *binary);
         let mut path_records = by_path
             .remove(path)
             .with_context(|| format!("missing ledger coverage for {path}"))?;
         path_records.sort_by_key(|record| record.byte_start);
         let mut cursor = 0;
         for record in path_records {
+            if record.classification != expected_classification {
+                bail!(
+                    "{} is classified as {}, expected {}",
+                    record.id,
+                    record.classification,
+                    expected_classification
+                );
+            }
             if record.blob != entry.blob {
                 bail!(
                     "{} has blob {}, expected {}",
@@ -974,6 +1066,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
                 bail!("{} has invalid byte bounds", record.id);
             }
             validate_disposition(&repo, record)?;
+            validate_test_evidence(&repo, record)?;
             cursor = record.byte_end;
         }
         if cursor != entry.bytes {
@@ -1100,6 +1193,41 @@ fn validate_disposition(repo: &Path, record: &LedgerRecord) -> Result<()> {
     if record.destinations.is_empty() || record.evidence.is_empty() {
         bail!("{} is mapped without destinations and evidence", record.id);
     }
+    let compatible = match record.classification.as_str() {
+        "license" => matches!(record.disposition.as_str(), "license-retained"),
+        "asset" => matches!(
+            record.disposition.as_str(),
+            "retained-asset" | "rust-generated-replacement"
+        ),
+        "documentation" => matches!(
+            record.disposition.as_str(),
+            "migrated-content" | "rust-generated-replacement"
+        ),
+        "test" => {
+            matches!(
+                record.disposition.as_str(),
+                "translated-test" | "rust-generated-replacement"
+            ) || (record.disposition == "retained-asset"
+                && !has_extension(&record.path, SOURCE_EXTENSIONS))
+        }
+        "source" | "tooling" => matches!(
+            record.disposition.as_str(),
+            "rust-reimplementation" | "rust-generated-replacement"
+        ),
+        "configuration" => matches!(
+            record.disposition.as_str(),
+            "rust-reimplementation" | "rust-generated-replacement" | "migrated-content"
+        ),
+        other => bail!("{} has unknown classification {other}", record.id),
+    };
+    if !compatible {
+        bail!(
+            "{} classification {} is incompatible with disposition {}",
+            record.id,
+            record.classification,
+            record.disposition
+        );
+    }
     for item in record.destinations.iter().chain(&record.evidence) {
         let path = item.split_once('#').map_or(item.as_str(), |(path, _)| path);
         if !repo.join(path).exists() {
@@ -1107,6 +1235,34 @@ fn validate_disposition(repo: &Path, record: &LedgerRecord) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn validate_test_evidence(repo: &Path, record: &LedgerRecord) -> Result<()> {
+    if record.classification != "test" || record.disposition == "unmapped" {
+        return Ok(());
+    }
+    for item in &record.evidence {
+        let path = item.split_once('#').map_or(item.as_str(), |(path, _)| path);
+        if !path.ends_with(".rs") {
+            continue;
+        }
+        let source = fs::read_to_string(repo.join(path))
+            .with_context(|| format!("read test evidence {path}"))?;
+        if source.lines().any(|line| {
+            let line = line.trim_start();
+            line.starts_with("#[test]")
+                || line.starts_with("#[test(")
+                || line.starts_with("#[rstest")
+                || (line.starts_with("#[") && line.contains("::test"))
+                || line.starts_with("proptest!")
+        }) {
+            return Ok(());
+        }
+    }
+    bail!(
+        "{} is a mapped Hunk test without executable Rust test evidence",
+        record.id
+    )
 }
 
 fn read_ledger(path: &Path) -> Result<Vec<LedgerRecord>> {
@@ -1122,6 +1278,87 @@ fn read_ledger(path: &Path) -> Result<Vec<LedgerRecord>> {
                 .with_context(|| format!("parse {} line {}", path.display(), index + 1))
         })
         .collect()
+}
+
+fn write_ledger_atomic(path: &Path, records: &[LedgerRecord]) -> Result<()> {
+    let temporary = path.with_extension("jsonl.tmp");
+    let mut writer = BufWriter::new(
+        File::create(&temporary).with_context(|| format!("create {}", temporary.display()))?,
+    );
+    for record in records {
+        serde_json::to_writer(&mut writer, record).context("serialize ledger record")?;
+        writer.write_all(b"\n").context("write ledger record")?;
+    }
+    writer.flush().context("flush ledger")?;
+    fs::rename(&temporary, path).with_context(|| format!("replace {}", path.display()))
+}
+
+fn binary_blob_flags<'a>(
+    repo: &Path,
+    blobs: impl IntoIterator<Item = &'a str>,
+) -> Result<HashMap<String, bool>> {
+    let blobs = blobs
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>();
+    let mut child = Command::new("git")
+        .args(["cat-file", "--batch"])
+        .current_dir(repo)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .context("start git cat-file --batch")?;
+    let mut stdin = BufWriter::new(child.stdin.take().context("open git cat-file stdin")?);
+    let mut stdout = BufReader::new(child.stdout.take().context("open git cat-file stdout")?);
+    let mut flags = HashMap::with_capacity(blobs.len());
+
+    for blob in blobs {
+        writeln!(stdin, "{blob}").context("query git cat-file batch")?;
+        stdin.flush().context("flush git cat-file query")?;
+
+        let mut header = String::new();
+        stdout
+            .read_line(&mut header)
+            .context("read git cat-file header")?;
+        let mut fields = header.split_whitespace();
+        let actual = fields.next().context("missing git cat-file object id")?;
+        let kind = fields.next().context("missing git cat-file object type")?;
+        let size = fields
+            .next()
+            .context("missing git cat-file object size")?
+            .parse::<usize>()
+            .context("invalid git cat-file object size")?;
+        if actual != blob || kind != "blob" {
+            bail!("git cat-file returned {actual} {kind} for blob {blob}");
+        }
+
+        let mut binary = false;
+        let mut remaining = size;
+        let mut buffer = [0_u8; 8192];
+        while remaining > 0 {
+            let length = remaining.min(buffer.len());
+            stdout
+                .read_exact(&mut buffer[..length])
+                .context("read git cat-file blob")?;
+            binary |= buffer[..length].contains(&0);
+            remaining -= length;
+        }
+        let mut delimiter = [0_u8; 1];
+        stdout
+            .read_exact(&mut delimiter)
+            .context("read git cat-file blob delimiter")?;
+        if delimiter[0] != b'\n' {
+            bail!("git cat-file returned an invalid blob delimiter");
+        }
+        flags.insert(blob, binary);
+    }
+
+    drop(stdin);
+    let status = child.wait().context("wait for git cat-file --batch")?;
+    if !status.success() {
+        bail!("git cat-file --batch failed with {status}");
+    }
+    Ok(flags)
 }
 
 fn read_tree(repo: &Path, commit: &str) -> Result<Vec<TreeEntry>> {
@@ -1210,33 +1447,63 @@ fn source_line_count(contents: &[u8]) -> u64 {
 
 fn classify(path: &str, binary: bool) -> &'static str {
     let lower = path.to_ascii_lowercase();
-    if lower == "license" || lower.contains("license") || lower.contains("notice") {
-        "license"
-    } else if binary
-        || [
-            ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".woff", ".woff2", ".mp4",
-        ]
-        .iter()
-        .any(|extension| lower.ends_with(extension))
-    {
-        "asset"
-    } else if lower.contains("test") || lower.contains("fixture") || lower.contains("snapshot") {
-        "test"
-    } else if lower.starts_with("docs/") || lower.ends_with(".md") || lower.ends_with(".mdx") {
-        "documentation"
-    } else if lower.starts_with("scripts/")
+    let components = lower.split('/').collect::<Vec<_>>();
+    let file_name = components.last().copied().unwrap_or_default();
+    let license_stem = file_name
+        .strip_suffix(".md")
+        .or_else(|| file_name.strip_suffix(".txt"))
+        .unwrap_or(file_name);
+    let is_license = matches!(
+        license_stem,
+        "license" | "copying" | "copyright" | "notice" | "third_party_notices"
+    ) || license_stem.starts_with("license-");
+    let is_explicit_test = file_name.contains(".test.")
+        || file_name.contains(".spec.")
+        || file_name.ends_with(".test")
+        || file_name.ends_with(".spec")
+        || file_name.ends_with(".snap")
+        || components.iter().any(|component| {
+            matches!(
+                *component,
+                "test"
+                    | "tests"
+                    | "__tests__"
+                    | "fixture"
+                    | "fixtures"
+                    | "__fixtures__"
+                    | "snapshot"
+                    | "snapshots"
+                    | "__snapshots__"
+            )
+        });
+    let is_documentation =
+        lower.starts_with("docs/") || lower.ends_with(".md") || lower.ends_with(".mdx");
+    let is_tooling = lower.starts_with("scripts/")
         || lower.starts_with("benchmarks/")
         || lower.starts_with(".github/")
-    {
+        || lower.starts_with("bin/");
+    let is_source = has_extension(&lower, SOURCE_EXTENSIONS);
+    let is_asset = has_extension(&lower, ASSET_EXTENSIONS);
+
+    if is_license {
+        "license"
+    } else if is_explicit_test {
+        "test"
+    } else if is_documentation {
+        "documentation"
+    } else if is_tooling {
         "tooling"
-    } else if [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".astro"]
-        .iter()
-        .any(|extension| lower.ends_with(extension))
-    {
+    } else if is_source {
         "source"
+    } else if is_asset || binary {
+        "asset"
     } else {
         "configuration"
     }
+}
+
+fn has_extension(path: &str, extensions: &[&str]) -> bool {
+    extensions.iter().any(|extension| path.ends_with(extension))
 }
 
 fn short_commit(commit: &str) -> &str {
@@ -1251,7 +1518,9 @@ fn relative_to(repo: &Path, path: &Path) -> String {
 }
 
 fn print_help() {
-    println!("cargo xtask port <fetch|inventory|map|audit|status> [port options]");
+    println!(
+        "cargo xtask port <fetch|inventory|reclassify|map|materialize-assets|audit|status> [port options]"
+    );
     println!("cargo xtask licenses [--output PATH]");
     println!("cargo xtask verify");
     println!("cargo xtask site <build|check|serve>");
@@ -1260,7 +1529,10 @@ fn print_help() {
 
 #[cfg(test)]
 mod tests {
-    use super::{classify, parse_map_options, source_line_count};
+    use super::{
+        LedgerRecord, classify, parse_map_options, source_line_count, validate_test_evidence,
+    };
+    use std::fs;
 
     #[test]
     fn counts_source_lines_without_inventing_an_empty_line() {
@@ -1275,6 +1547,36 @@ mod tests {
         assert_eq!(classify("src/ui/App.test.tsx", false), "test");
         assert_eq!(classify("docs/extensions.md", false), "documentation");
         assert_eq!(classify("website/public/demo.webp", true), "asset");
+        assert_eq!(classify("LICENSE", false), "license");
+        assert_eq!(classify("third_party/LICENSE-MIT", false), "license");
+        assert_eq!(
+            classify("src/core/process/startupNotice.ts", false),
+            "source"
+        );
+        assert_eq!(
+            classify("src/core/install/latestRelease.ts", false),
+            "source"
+        );
+        assert_eq!(
+            classify("src/extensions/reviewSnapshot.ts", false),
+            "source"
+        );
+        assert_eq!(classify("src/ui/lib/stml/layout.ts", true), "source");
+        assert_eq!(
+            classify(".changeset/fix-prerelease-version-test.md", false),
+            "documentation"
+        );
+        assert_eq!(
+            classify("examples/gallery/fixtures/after/README.md", false),
+            "test"
+        );
+        assert_eq!(classify("scripts/build-bin.test.ts", false), "test");
+        assert_eq!(
+            classify("scripts/test-session-broker-node.ts", false),
+            "tooling"
+        );
+        assert_eq!(classify("benchmarks/lib/fixtures.ts", false), "tooling");
+        assert_eq!(classify("website/src/styles/site.css", false), "source");
     }
 
     #[test]
@@ -1315,5 +1617,40 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("--id, --path, or --prefix"));
+    }
+
+    #[test]
+    fn mapped_hunk_tests_require_executable_rust_test_evidence() {
+        let directory = tempfile::tempdir().unwrap();
+        let evidence = directory.path().join("parity.rs");
+        let mut record = LedgerRecord {
+            id: "baseline:source.test.ts:0-1".into(),
+            baseline: "baseline".into(),
+            path: "source.test.ts".into(),
+            blob: "blob".into(),
+            byte_start: 0,
+            byte_end: 1,
+            line_start: 1,
+            line_end: 1,
+            classification: "test".into(),
+            disposition: "translated-test".into(),
+            destinations: vec!["parity.rs".into()],
+            evidence: vec!["parity.rs".into()],
+            provenance: vec!["baseline".into()],
+        };
+
+        fs::write(&evidence, "// #[test] is not executable evidence\n").unwrap();
+        assert!(validate_test_evidence(directory.path(), &record).is_err());
+
+        fs::write(
+            &evidence,
+            "#[test]\nfn preserves_the_upstream_behavior() {}\n",
+        )
+        .unwrap();
+        assert!(validate_test_evidence(directory.path(), &record).is_ok());
+
+        record.disposition = "unmapped".into();
+        record.evidence.clear();
+        assert!(validate_test_evidence(directory.path(), &record).is_ok());
     }
 }
