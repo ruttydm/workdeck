@@ -155,6 +155,11 @@ if let Some(next_file_id) = workdeck_file_nav_selection_at(&map, clicked_row) {
 }
 ```
 
+For a host-owned scroll viewport, call `render_workdeck_file_nav_window` with a fixed-row
+`scroll_top`. The returned hit rows are translated into viewport coordinates. The shipped shell
+uses the same renderer behind the process-cached `workdeck:files` bundled pane: its responsive
+width is preferred 34, minimum 22, maximum 56, and 16% of the available terminal width.
+
 ## Building file inputs
 
 The public model is the provider-neutral `workdeck_core::DiffFile`. It carries:

@@ -2,7 +2,7 @@
 
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use workdeck_core::{DiffFile, FileChangeKind};
-use workdeck_diff::format_terminal_path;
+use workdeck_diff::{format_terminal_path, normalize_diff_path};
 
 pub const FILE_HEADER_OVERFLOW_MARKER: &str = "...";
 
@@ -52,11 +52,21 @@ pub fn max_file_header_stats_width(files: &[DiffFile]) -> usize {
 /// Split the terminal-safe path/rename identity from its semantic state suffix.
 #[must_use]
 pub fn file_header_label_parts(file: &DiffFile) -> (String, Option<&'static str>) {
-    let path = format_terminal_path(&file.path);
+    let path = format_terminal_path(
+        normalize_diff_path(Some(&file.path))
+            .as_deref()
+            .unwrap_or(&file.path),
+    );
     let filename = file
         .previous_path
         .as_ref()
-        .map(|previous| format_terminal_path(previous))
+        .map(|previous| {
+            format_terminal_path(
+                normalize_diff_path(Some(previous))
+                    .as_deref()
+                    .unwrap_or(previous),
+            )
+        })
         .filter(|previous| previous != &path)
         .map_or_else(|| path.clone(), |previous| format!("{previous} -> {path}"));
     let state_label = if file.flags.untracked || file.change_kind == FileChangeKind::Untracked {

@@ -43,6 +43,518 @@ fn with_identity(mut file: DiffFile, id: &str, path: &str) -> DiffFile {
     file
 }
 
+fn sidebar_file(id: &str, path: &str) -> DiffFile {
+    with_identity(create_example_diff(), id, path)
+}
+
+fn annotation(summary: &str) -> AgentAnnotation {
+    AgentAnnotation {
+        id: None,
+        old_range: None,
+        new_range: None,
+        summary: summary.into(),
+        rationale: None,
+        markup: None,
+        tags: Vec::new(),
+        confidence: None,
+        source: None,
+        title: None,
+        author: None,
+        created_at: None,
+        updated_at: None,
+        editable: false,
+    }
+}
+
+fn entry_label(entry: &FileSidebarEntry) -> String {
+    match entry {
+        FileSidebarEntry::Group { label, .. } | FileSidebarEntry::Directory { label, .. } => {
+            label.clone()
+        }
+        FileSidebarEntry::File(file) => format!("{}{}", "  ".repeat(file.depth), file.name),
+    }
+}
+
+fn sidebar_entry_json(entry: &FileSidebarEntry) -> serde_json::Value {
+    match entry {
+        FileSidebarEntry::Group { id, label } => serde_json::json!({
+            "kind": "group",
+            "id": id,
+            "label": label,
+        }),
+        FileSidebarEntry::Directory { id, label, depth } => serde_json::json!({
+            "kind": "directory",
+            "id": id,
+            "label": label,
+            "depth": depth,
+        }),
+        FileSidebarEntry::File(file) => serde_json::json!({
+            "kind": "file",
+            "id": file.id,
+            "name": file.name,
+            "depth": file.depth,
+            "agentCommentsText": file.agent_comments_text,
+            "additionsText": file.additions_text,
+            "deletionsText": file.deletions_text,
+            "changeType": match file.change_type {
+                SidebarFileChangeType::Change => "change",
+                SidebarFileChangeType::New => "new",
+                SidebarFileChangeType::Deleted => "deleted",
+                SidebarFileChangeType::RenamePure => "rename-pure",
+                SidebarFileChangeType::RenameChanged => "rename-changed",
+            },
+            "isUntracked": file.is_untracked,
+        }),
+    }
+}
+
+#[test]
+fn native_sidebar_matches_the_executed_pinned_hunk_oracle() {
+    let oracle: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../port/hunk/oracles/default-sidebar.json"
+    ))
+    .unwrap();
+    let baseline = &oracle["baseline"];
+
+    let mut alpha = sidebar_file("alpha", "src/ui/a.ts");
+    alpha.stats.additions = 5;
+    alpha.stats.deletions = 0;
+    alpha.stats.truncated = true;
+    alpha.change_kind = FileChangeKind::Added;
+    alpha.agent = Some(AgentFileContext {
+        path: alpha.path.clone(),
+        summary: None,
+        annotations: vec![annotation("one"), annotation("two")],
+    });
+    let mut renamed = sidebar_file("renamed", "src/new/name.ts");
+    renamed.previous_path = Some("legacy/old.ts\n".into());
+    renamed.stats.additions = 0;
+    renamed.stats.deletions = 3;
+    renamed.change_kind = FileChangeKind::Renamed;
+    let mut root = sidebar_file("root", "README\tguide.md");
+    root.stats.additions = 0;
+    root.stats.deletions = 0;
+    root.flags.untracked = true;
+    let mut absolute = sidebar_file("absolute", "/tmp/project/a.ts");
+    absolute.stats.additions = 1;
+    absolute.stats.deletions = 1;
+    let mut unc = sidebar_file("unc", "//server/share/b.ts");
+    unc.stats.additions = 1;
+    unc.stats.deletions = 1;
+    let files = [alpha, renamed, root, absolute, unc];
+
+    assert_eq!(
+        serde_json::json!({
+            "width31": match resolve_file_sidebar_mode(31) { FileSidebarMode::Flat => "flat", FileSidebarMode::Tree => "tree" },
+            "width32": match resolve_file_sidebar_mode(32) { FileSidebarMode::Flat => "flat", FileSidebarMode::Tree => "tree" },
+        }),
+        baseline["modes"]
+    );
+    assert_eq!(
+        serde_json::Value::Array(
+            build_flat_sidebar_entries(&files)
+                .iter()
+                .map(sidebar_entry_json)
+                .collect()
+        ),
+        baseline["flat"]
+    );
+    assert_eq!(
+        serde_json::Value::Array(
+            build_tree_sidebar_entries(&files)
+                .iter()
+                .map(sidebar_entry_json)
+                .collect()
+        ),
+        baseline["tree"]
+    );
+    let FileSidebarEntry::File(first) = &build_flat_sidebar_entries(&files)[1] else {
+        panic!("first file row");
+    };
+    let stats = sidebar_entry_stats(first)
+        .into_iter()
+        .map(|stat| {
+            serde_json::json!({
+                "kind": match stat.kind {
+                    SidebarStatKind::AgentComment => "agent-comment",
+                    SidebarStatKind::Addition => "addition",
+                    SidebarStatKind::Deletion => "deletion",
+                },
+                "text": stat.text,
+            })
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(serde_json::Value::Array(stats), baseline["firstFileStats"]);
+    assert_eq!(
+        serde_json::json!(sidebar_entry_stats_width(first)),
+        baseline["firstFileStatsWidth"]
+    );
+    assert_eq!(
+        serde_json::json!({
+            "filename": crate::file_header_label_parts(&{
+                let mut file = sidebar_file("label", "agents/pi/extensions/notify.ts");
+                file.previous_path = Some("pi/extensions/loop.ts\n".into());
+                file.change_kind = FileChangeKind::Renamed;
+                file
+            }).0,
+            "stateLabel": serde_json::Value::Null,
+        }),
+        baseline["renameLabel"]
+    );
+    assert_eq!(oracle["stable"]["status"], "absent");
+}
+
+#[test]
+fn file_row_cells_keep_selection_state_icon_and_individual_badge_colors() {
+    let mut file = sidebar_file("selected", "src/a.rs");
+    file.change_kind = FileChangeKind::Added;
+    file.stats.additions = 2;
+    file.stats.deletions = 1;
+    file.agent = Some(AgentFileContext {
+        path: file.path.clone(),
+        summary: None,
+        annotations: vec![annotation("note")],
+    });
+    let area = Rect::new(0, 0, 32, 4);
+    let mut buffer = Buffer::empty(area);
+    render_workdeck_file_nav(
+        area,
+        &mut buffer,
+        &[file],
+        &WorkdeckFileNavOptions {
+            selected_file_id: Some("selected".into()),
+            ..WorkdeckFileNavOptions::default()
+        },
+    );
+    let theme = resolve_theme(Some("github-dark-default"), None, &[]);
+    let row = buffer
+        .content()
+        .chunks(usize::from(area.width))
+        .nth(1)
+        .unwrap();
+    let text = row.iter().map(|cell| cell.symbol()).collect::<String>();
+    assert!(text.contains("A a.rs"), "{text}");
+    assert!(text.contains("*1 +2 -1"), "{text}");
+    assert_eq!(row[0].bg, crate::ratatui_theme_color(&theme.accent));
+    assert!(
+        row.iter()
+            .any(|cell| cell.symbol() == "A"
+                && cell.fg == crate::ratatui_theme_color(&theme.file_new))
+    );
+    assert!(row.iter().any(|cell| {
+        cell.symbol() == "*" && cell.fg == crate::ratatui_theme_color(&theme.note_border)
+    }));
+    assert!(row.iter().any(|cell| {
+        cell.symbol() == "+" && cell.fg == crate::ratatui_theme_color(&theme.badge_added)
+    }));
+    assert!(row.iter().any(|cell| {
+        cell.symbol() == "-" && cell.fg == crate::ratatui_theme_color(&theme.badge_removed)
+    }));
+    assert!(
+        row.iter()
+            .skip(1)
+            .all(|cell| cell.bg == crate::ratatui_theme_color(&theme.panel_alt))
+    );
+}
+
+#[test]
+fn file_nav_window_culls_rows_and_translates_mouse_hits() {
+    let files = (0..8)
+        .map(|index| sidebar_file(&format!("file-{index}"), &format!("src/file-{index}.rs")))
+        .collect::<Vec<_>>();
+    let area = Rect::new(0, 0, 32, 3);
+    let mut buffer = Buffer::empty(area);
+    let map = render_workdeck_file_nav_window(
+        area,
+        &mut buffer,
+        &files,
+        &WorkdeckFileNavOptions::default(),
+        4,
+    );
+    let rendered = buffer
+        .content()
+        .chunks(usize::from(area.width))
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(rendered.contains("file-3.rs"), "{rendered}");
+    assert!(rendered.contains("file-5.rs"), "{rendered}");
+    assert!(!rendered.contains("file-0.rs"));
+    assert_eq!(workdeck_file_nav_selection_at(&map, 0), Some("file-3"));
+    assert_eq!(workdeck_file_nav_selection_at(&map, 2), Some("file-5"));
+}
+
+#[test]
+fn flat_sidebar_hides_zero_value_stats_and_keeps_rename_names() {
+    let mut only_add = sidebar_file("only-add", "src/ui/only-add.ts");
+    only_add.stats.additions = 5;
+    only_add.stats.deletions = 0;
+    let mut only_remove = sidebar_file("only-remove", "src/ui/only-remove.ts");
+    only_remove.stats.additions = 0;
+    only_remove.stats.deletions = 3;
+    let mut renamed = sidebar_file("rename-only", "src/ui/Renamed.tsx");
+    renamed.previous_path = Some("src/ui/Legacy.tsx".into());
+    renamed.change_kind = FileChangeKind::Renamed;
+    renamed.stats.additions = 0;
+    renamed.stats.deletions = 0;
+
+    let files = build_flat_sidebar_entries(&[only_add, only_remove, renamed])
+        .into_iter()
+        .filter_map(|entry| match entry {
+            FileSidebarEntry::File(file) => Some(file),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(files.len(), 3);
+    assert_eq!(files[0].name, "only-add.ts");
+    assert_eq!(files[0].additions_text.as_deref(), Some("+5"));
+    assert_eq!(files[0].deletions_text, None);
+    assert_eq!(files[1].additions_text, None);
+    assert_eq!(files[1].deletions_text.as_deref(), Some("-3"));
+    assert_eq!(files[2].name, "Legacy.tsx -> Renamed.tsx");
+    assert_eq!(files[2].additions_text, None);
+    assert_eq!(files[2].deletions_text, None);
+}
+
+#[test]
+fn flat_sidebar_counts_all_file_comments_before_diff_stats() {
+    let mut file = sidebar_file("all-comments", "src/ui/commented.ts");
+    file.stats.additions = 2;
+    file.stats.deletions = 2;
+    file.agent = Some(AgentFileContext {
+        path: file.path.clone(),
+        summary: None,
+        annotations: vec![
+            annotation("first hunk"),
+            annotation("another first hunk"),
+            annotation("off-range note"),
+        ],
+    });
+    let FileSidebarEntry::File(entry) = &build_flat_sidebar_entries(&[file])[1] else {
+        panic!("file row");
+    };
+    assert_eq!(entry.agent_comments_text.as_deref(), Some("*3"));
+    assert_eq!(entry.additions_text.as_deref(), Some("+2"));
+    assert_eq!(entry.deletions_text.as_deref(), Some("-2"));
+    assert_eq!(
+        sidebar_entry_stats(entry),
+        vec![
+            SidebarEntryStat {
+                kind: SidebarStatKind::AgentComment,
+                text: "*3".into(),
+            },
+            SidebarEntryStat {
+                kind: SidebarStatKind::Addition,
+                text: "+2".into(),
+            },
+            SidebarEntryStat {
+                kind: SidebarStatKind::Deletion,
+                text: "-2".into(),
+            },
+        ]
+    );
+    assert_eq!(sidebar_entry_stats_width(entry), 8);
+}
+
+#[test]
+fn flat_sidebar_marks_each_root_file_run_in_place() {
+    let entries = build_flat_sidebar_entries(&[
+        sidebar_file("nested-a", "src/a.ts"),
+        sidebar_file("root-a", "README.md"),
+        sidebar_file("root-b", "package.json"),
+        sidebar_file("nested-b", "test/b.ts"),
+        sidebar_file("root-c", "LICENSE"),
+    ]);
+    assert_eq!(
+        entries.iter().map(entry_label).collect::<Vec<_>>(),
+        [
+            "src/",
+            "a.ts",
+            "./",
+            "README.md",
+            "package.json",
+            "test/",
+            "b.ts",
+            "./",
+            "LICENSE",
+        ]
+    );
+}
+
+#[test]
+fn sidebar_mode_switches_at_the_exact_content_width() {
+    assert_eq!(resolve_file_sidebar_mode(31), FileSidebarMode::Flat);
+    assert_eq!(resolve_file_sidebar_mode(32), FileSidebarMode::Tree);
+}
+
+#[test]
+fn tree_sidebar_expands_paths_without_changing_file_order() {
+    let files = vec![
+        sidebar_file("ui-a", "src/ui/a.ts"),
+        sidebar_file("ui-b", "src/ui/b.ts"),
+        sidebar_file("root", "README.md"),
+        sidebar_file("core", "src/core/c.ts"),
+        sidebar_file("test", "test/d.ts"),
+        sidebar_file("src-root", "src/e.ts"),
+    ];
+    let entries = build_tree_sidebar_entries(&files);
+    assert_eq!(
+        entries.iter().map(entry_label).collect::<Vec<_>>(),
+        [
+            "src/",
+            "ui/",
+            "    a.ts",
+            "    b.ts",
+            "README.md",
+            "src/",
+            "core/",
+            "    c.ts",
+            "test/",
+            "  d.ts",
+            "src/",
+            "  e.ts",
+        ]
+    );
+    let ids = entries
+        .iter()
+        .filter_map(|entry| match entry {
+            FileSidebarEntry::File(file) => Some(file.id.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(ids, files.iter().map(public_file_id).collect::<Vec<_>>());
+}
+
+#[test]
+fn repeated_tree_directory_branches_have_unique_ids() {
+    let directories = build_tree_sidebar_entries(&[
+        sidebar_file("src-a", "src/a.ts"),
+        sidebar_file("root", "README.md"),
+        sidebar_file("src-b", "src/b.ts"),
+    ])
+    .into_iter()
+    .filter_map(|entry| match entry {
+        FileSidebarEntry::Directory { id, label, .. } => Some((id, label)),
+        _ => None,
+    })
+    .collect::<Vec<_>>();
+    assert_eq!(
+        directories
+            .iter()
+            .map(|(_, label)| label.as_str())
+            .collect::<Vec<_>>(),
+        ["src/", "src/"]
+    );
+    assert_ne!(directories[0].0, directories[1].0);
+}
+
+#[test]
+fn tree_sidebar_uses_current_rename_path_and_rename_filename() {
+    let mut renamed = sidebar_file("renamed", "src/new/name.ts");
+    renamed.previous_path = Some("legacy/old.ts".into());
+    renamed.change_kind = FileChangeKind::Renamed;
+    let entries = build_tree_sidebar_entries(&[renamed]);
+    assert!(
+        matches!(&entries[0], FileSidebarEntry::Directory { label, depth: 0, .. } if label == "src/")
+    );
+    assert!(
+        matches!(&entries[1], FileSidebarEntry::Directory { label, depth: 1, .. } if label == "new/")
+    );
+    assert!(
+        matches!(&entries[2], FileSidebarEntry::File(file) if file.name == "old.ts -> name.ts" && file.depth == 2)
+    );
+}
+
+#[test]
+fn tree_sidebar_preserves_absolute_and_unc_roots() {
+    let entries = build_tree_sidebar_entries(&[
+        sidebar_file("absolute", "/tmp/project/a.ts"),
+        sidebar_file("unc", "//server/share/b.ts"),
+    ]);
+    assert_eq!(
+        entries.iter().map(entry_label).collect::<Vec<_>>(),
+        [
+            "/",
+            "tmp/",
+            "project/",
+            "      a.ts",
+            "//",
+            "server/",
+            "share/",
+            "      b.ts",
+        ]
+    );
+}
+
+#[test]
+fn file_labels_and_sidebar_paths_escape_tabs_and_strip_rename_line_endings() {
+    let tabbed = sidebar_file("tabbed", "src/tab\tname.ts");
+    assert_eq!(
+        crate::file_header_label_parts(&tabbed),
+        ("src/tab\\tname.ts".into(), None)
+    );
+    assert!(matches!(
+        &build_flat_sidebar_entries(&[tabbed])[1],
+        FileSidebarEntry::File(file) if file.name == "tab\\tname.ts"
+    ));
+
+    let mut renamed = sidebar_file("rename", "agents/pi/extensions/notify.ts");
+    renamed.previous_path = Some("pi/extensions/loop.ts\n".into());
+    renamed.change_kind = FileChangeKind::Renamed;
+    assert_eq!(
+        crate::file_header_label_parts(&renamed),
+        (
+            "pi/extensions/loop.ts -> agents/pi/extensions/notify.ts".into(),
+            None
+        )
+    );
+}
+
+#[test]
+fn file_labels_keep_semantic_state_suffixes() {
+    let mut untracked = sidebar_file("untracked", "draft.rs");
+    untracked.flags.untracked = true;
+    assert_eq!(
+        crate::file_header_label_parts(&untracked).1,
+        Some(" (untracked)")
+    );
+    let mut added = sidebar_file("added", "new.rs");
+    added.change_kind = FileChangeKind::Added;
+    assert_eq!(crate::file_header_label_parts(&added).1, Some(" (new)"));
+    let mut deleted = sidebar_file("deleted", "old.rs");
+    deleted.change_kind = FileChangeKind::Deleted;
+    assert_eq!(
+        crate::file_header_label_parts(&deleted).1,
+        Some(" (deleted)")
+    );
+}
+
+#[test]
+fn annotation_merge_preserves_existing_summary_and_annotations() {
+    let mut file = sidebar_file("annotated", "src/a.rs");
+    file.agent = Some(AgentFileContext {
+        path: file.path.clone(),
+        summary: Some("existing summary".into()),
+        annotations: vec![annotation("existing")],
+    });
+    let untouched = sidebar_file("untouched", "src/b.rs");
+    let merged = merge_file_annotations_by_file_id(
+        &[file, untouched.clone()],
+        &BTreeMap::from([("annotated".into(), vec![annotation("new")])]),
+    );
+    let agent = merged[0].agent.as_ref().unwrap();
+    assert_eq!(agent.summary.as_deref(), Some("existing summary"));
+    assert_eq!(
+        agent
+            .annotations
+            .iter()
+            .map(|annotation| annotation.summary.as_str())
+            .collect::<Vec<_>>(),
+        ["existing", "new"]
+    );
+    assert_eq!(merged[1], untouched);
+}
+
 #[test]
 fn renders_a_diff_through_the_public_ratatui_entrypoint() {
     let diff = create_example_diff();

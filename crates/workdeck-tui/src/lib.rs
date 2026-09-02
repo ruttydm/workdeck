@@ -91,7 +91,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_width::UnicodeWidthStr;
 use workdeck_core::{
     AgentAnnotation, Changeset, ChangesetSource, DiffFile, DiffLine, DiffLineKind, ReviewSelection,
     ReviewSide, SourceOrigin,
@@ -110,7 +110,7 @@ use workdeck_extension_api::{
     FileViewModeKeyRequest, FileViewModeLifecycleRequest, KeyRoutingResult,
     KeyboardModeRegistration, PaneActionInvocation, PanePlacement, PaneRegistration,
     PaneRenderRequest, Registration, ReviewEvent, ValidatedFileViewLayout, ViewNode, ViewStyle,
-    extension_pane_size,
+    bundled_files_pane, extension_pane_size,
 };
 use workdeck_extension_host::{
     ExtensionRequestCancellation, FileViewSelectionState, LoadedExtension, RegisteredFileView,
@@ -377,6 +377,19 @@ struct ExtensionPaneRuntime {
     mode_badge_bounds: Option<Rect>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SidebarFileHit {
+    bounds: Rect,
+    file_index: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SidebarRevealKey {
+    generation: u64,
+    selected_file_id: String,
+    mode: FileSidebarMode,
+}
+
 impl ExtensionPaneRuntime {
     fn new(extensions: Vec<LoadedExtension>) -> Self {
         let mut panes = Vec::new();
@@ -456,6 +469,10 @@ pub struct ReviewApp {
     status: Option<String>,
     review_width: Cell<u16>,
     review_height: Cell<u16>,
+    sidebar_bounds: Cell<Option<Rect>>,
+    sidebar_scroll_top: Cell<usize>,
+    sidebar_reveal_key: Mutex<Option<SidebarRevealKey>>,
+    sidebar_file_hits: Mutex<Vec<SidebarFileHit>>,
     current_line_row: usize,
     expanded_gaps: BTreeSet<(String, usize)>,
     highlights: Mutex<HighlightCache>,
@@ -512,6 +529,10 @@ impl ReviewApp {
             status: None,
             review_width: Cell::new(120),
             review_height: Cell::new(20),
+            sidebar_bounds: Cell::new(None),
+            sidebar_scroll_top: Cell::new(0),
+            sidebar_reveal_key: Mutex::new(None),
+            sidebar_file_hits: Mutex::new(Vec::new()),
             current_line_row: 0,
             expanded_gaps: BTreeSet::new(),
             highlights: Mutex::new(HighlightCache::default()),
@@ -2838,10 +2859,54 @@ impl ReviewApp {
             || self.handle_extension_menu_mouse(&event)
             || self.handle_extension_pane_mouse(&event)
             || self.handle_extension_file_view_mouse(&event)
+            || self.handle_sidebar_mouse(&event)
         {
             return;
         }
         self.handle_mouse_at(event.kind, Instant::now());
+    }
+
+    fn handle_sidebar_mouse(&mut self, event: &MouseEvent) -> bool {
+        if !self
+            .sidebar_bounds
+            .get()
+            .is_some_and(|area| rect_contains(area, event.column, event.row))
+        {
+            return false;
+        }
+        match event.kind {
+            MouseEventKind::ScrollDown => {
+                self.sidebar_scroll_top
+                    .set(self.sidebar_scroll_top.get().saturating_add(1));
+                true
+            }
+            MouseEventKind::ScrollUp => {
+                self.sidebar_scroll_top
+                    .set(self.sidebar_scroll_top.get().saturating_sub(1));
+                true
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                let target = self
+                    .sidebar_file_hits
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .iter()
+                    .rev()
+                    .find(|hit| rect_contains(hit.bounds, event.column, event.row))
+                    .map(|hit| hit.file_index);
+                if let Some(file_index) = target
+                    && self
+                        .with_state(|state| state.select_file(file_index))
+                        .is_ok()
+                {
+                    self.reconcile_active_file_view_mode();
+                    self.scroll_to_selection();
+                    self.publish_extension_selection_events();
+                }
+                true
+            }
+            _ => false,
+        }
     }
 
     fn handle_extension_mode_badge_mouse(&mut self, event: &MouseEvent) -> bool {
@@ -4023,6 +4088,11 @@ fn render_builtin_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     if state.changeset().is_empty() {
+        app.sidebar_bounds.set(None);
+        app.sidebar_file_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
         let mut runtime = app
             .extension_pane_runtime
             .lock()
@@ -4038,10 +4108,15 @@ fn render_builtin_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     }
     let responsive = state.responsive_layout(area.width);
     drop(state);
+    let sidebar_width = if app.options.sidebar && responsive.show_sidebar {
+        bundled_sidebar_width(area.width, 30)
+    } else {
+        0
+    };
     let chunks = if app.options.sidebar && responsive.show_sidebar {
         Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(30), Constraint::Min(30)])
+            .constraints([Constraint::Length(sidebar_width), Constraint::Min(30)])
             .split(area)
     } else {
         Layout::default()
@@ -4051,8 +4126,31 @@ fn render_builtin_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     };
     if chunks[0].width > 0 {
         render_sidebar(chunks[0], buffer, app);
+    } else {
+        app.sidebar_bounds.set(None);
+        app.sidebar_file_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
     }
     render_review(chunks[1], buffer, app);
+}
+
+fn bundled_sidebar_width(total_width: u16, minimum_review_width: u16) -> u16 {
+    let requested = extension_pane_size(bundled_files_pane(), None);
+    let automatic = requested.fraction.map_or(requested.preferred, |fraction| {
+        (f64::from(total_width) * fraction)
+            .round()
+            .clamp(0.0, f64::from(u16::MAX)) as u16
+    });
+    let minimum = requested.min.unwrap_or(1);
+    let maximum = requested.max.unwrap_or(u16::MAX);
+    let available = total_width.saturating_sub(minimum_review_width);
+    if available < minimum {
+        0
+    } else {
+        automatic.max(minimum).min(maximum).min(available)
+    }
 }
 
 fn render_extension_pane(
@@ -4361,50 +4459,87 @@ fn render_sidebar(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let selected = state.selection().file_index;
-    let visible_rows = usize::from(area.height.saturating_sub(1).max(1));
-    let start = list_window_start(selected, state.changeset().files.len(), visible_rows);
-    let items = state
-        .changeset()
-        .files
-        .iter()
-        .enumerate()
-        .skip(start)
-        .take(visible_rows)
-        .map(|(index, file)| {
-            let marker = if index == selected { "›" } else { " " };
-            ListItem::new(Line::from(vec![
-                Span::styled(
-                    format!("{marker} "),
-                    Style::default().fg(ratatui_theme_color(&app.options.theme.accent)),
-                ),
-                Span::styled(
-                    truncate_start(&file.path, area.width.saturating_sub(10) as usize),
-                    Style::default().fg(ratatui_theme_color(&app.options.theme.text)),
-                ),
-                Span::styled(
-                    format!(" +{}", file.stats.additions),
-                    Style::default().fg(ratatui_theme_color(&app.options.theme.badge_added)),
-                ),
-                Span::styled(
-                    format!(" -{}", file.stats.deletions),
-                    Style::default().fg(ratatui_theme_color(&app.options.theme.badge_removed)),
-                ),
-            ]))
-        })
-        .collect::<Vec<_>>();
+    let files = &state.changeset().files;
+    let generation = state.generation();
+    let selected_file_id = files.get(selected).map(public_file_id).map(str::to_owned);
     let border_style = if app.focus == Focus::Sidebar {
         Style::default().fg(ratatui_theme_color(&app.options.theme.accent))
     } else {
         Style::default().fg(ratatui_theme_color(&app.options.theme.border))
     };
-    List::new(items)
-        .block(
-            Block::default()
-                .title(" Files ")
-                .borders(Borders::TOP | Borders::RIGHT)
-                .border_style(border_style),
+    let block = Block::default()
+        .title(format!(" {} ", bundled_files_pane().title))
+        .borders(Borders::TOP | Borders::RIGHT)
+        .border_style(border_style);
+    let inner = block.inner(area);
+    block.render(area, buffer);
+    app.sidebar_bounds.set(Some(inner));
+
+    let mode = resolve_file_sidebar_mode(inner.width.saturating_sub(1));
+    let entries = match mode {
+        FileSidebarMode::Flat => build_flat_sidebar_entries(files),
+        FileSidebarMode::Tree => build_tree_sidebar_entries(files),
+    };
+    let selected_entry = selected_file_id.as_deref().and_then(|selected_id| {
+        entries.iter().position(
+            |entry| matches!(entry, FileSidebarEntry::File(file) if file.id == selected_id),
         )
-        .render(area, buffer);
+    });
+    let max_scroll = entries.len().saturating_sub(usize::from(inner.height));
+    let reveal_key = selected_file_id
+        .as_ref()
+        .map(|selected_file_id| SidebarRevealKey {
+            generation,
+            selected_file_id: selected_file_id.clone(),
+            mode,
+        });
+    let mut previous_reveal_key = app
+        .sidebar_reveal_key
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let reveal_changed = *previous_reveal_key != reveal_key;
+    *previous_reveal_key = reveal_key;
+    drop(previous_reveal_key);
+
+    let mut scroll_top = app.sidebar_scroll_top.get().min(max_scroll);
+    if reveal_changed && let Some(selected_entry) = selected_entry {
+        if selected_entry < scroll_top {
+            scroll_top = selected_entry;
+        } else if selected_entry >= scroll_top.saturating_add(usize::from(inner.height)) {
+            scroll_top = selected_entry
+                .saturating_add(1)
+                .saturating_sub(usize::from(inner.height));
+        }
+    }
+    scroll_top = scroll_top.min(max_scroll);
+    app.sidebar_scroll_top.set(scroll_top);
+
+    let map = render_workdeck_file_nav_window(
+        inner,
+        buffer,
+        files,
+        &WorkdeckFileNavOptions {
+            selected_file_id,
+            theme: app.options.theme.id.clone(),
+        },
+        scroll_top,
+    );
+    let hits = map
+        .file_rows
+        .into_iter()
+        .filter_map(|hit| {
+            let file_index = files
+                .iter()
+                .position(|file| public_file_id(file) == hit.file_id)?;
+            Some(SidebarFileHit {
+                bounds: Rect::new(inner.x, inner.y.saturating_add(hit.row), inner.width, 1),
+                file_index,
+            })
+        })
+        .collect();
+    *app.sidebar_file_hits
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = hits;
 }
 
 fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
@@ -5923,27 +6058,6 @@ fn expand_tabs(value: &str, tab_width: u16, column: &mut usize) -> String {
     output
 }
 
-fn truncate_start(value: &str, width: usize) -> String {
-    if value.width() <= width {
-        return value.to_owned();
-    }
-    if width <= 1 {
-        return "…".to_owned();
-    }
-    let mut result = String::new();
-    let mut used = 1;
-    for character in value.chars().rev() {
-        let character_width = character.width().unwrap_or(0);
-        if used + character_width > width {
-            break;
-        }
-        result.insert(0, character);
-        used += character_width;
-    }
-    result.insert(0, '…');
-    result
-}
-
 fn render_footer(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     if app.active_extension_notification().is_some() {
         render_extension_toast(area, buffer, app);
@@ -6684,6 +6798,97 @@ mod tests {
         assert!(!app.options.sidebar);
         app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
         assert!(app.show_help);
+    }
+
+    #[test]
+    fn built_in_files_pane_uses_registered_responsive_widths() {
+        assert_eq!(bundled_sidebar_width(40, 30), 0);
+        assert_eq!(bundled_sidebar_width(100, 30), 22);
+        assert_eq!(bundled_sidebar_width(220, 30), 35);
+        assert_eq!(bundled_sidebar_width(500, 30), 56);
+    }
+
+    #[test]
+    fn built_in_sidebar_mouse_up_selects_the_rendered_file_row() {
+        let mut changes = changeset();
+        changes.files[0].runtime_id = "first".into();
+        let mut second = changes.files[0].clone();
+        second.key = "second-key".into();
+        second.runtime_id = "second".into();
+        second.path = "b.rs".into();
+        changes.files.push(second);
+        let backend = TestBackend::new(220, 16);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = ReviewApp::new(changes, ReviewOptions::default());
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let second = app
+            .sidebar_file_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .find(|hit| hit.file_index == 1)
+            .copied()
+            .expect("second file hit");
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: second.bounds.x,
+            row: second.bounds.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert_eq!(
+            app.shared_state()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .selection()
+                .file_index,
+            1
+        );
+    }
+
+    #[test]
+    fn built_in_sidebar_scroll_is_independent_and_selection_reveals_once() {
+        let mut changes = changeset();
+        changes.files[0].runtime_id = "file-0".into();
+        for index in 1..20 {
+            let mut file = changes.files[0].clone();
+            file.key = format!("file-key-{index}");
+            file.runtime_id = format!("file-{index}");
+            file.path = format!("src/file-{index}.rs");
+            changes.files.push(file);
+        }
+        let backend = TestBackend::new(220, 10);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = ReviewApp::new(changes, ReviewOptions::default());
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let bounds = app.sidebar_bounds.get().expect("sidebar bounds");
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: bounds.x,
+            row: bounds.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        assert_eq!(app.sidebar_scroll_top.get(), 1);
+        assert_eq!(app.review_scroll(), 0);
+
+        app.with_state(|state| state.select_file(19).unwrap());
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        assert!(app.sidebar_scroll_top.get() > 1);
+        assert!(
+            app.sidebar_file_hits
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .iter()
+                .any(|hit| hit.file_index == 19)
+        );
     }
 
     #[test]

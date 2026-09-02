@@ -1,0 +1,266 @@
+{
+  "schemaVersion": 1,
+  "capture": {
+    "runtime": "Bun 1.3.5",
+    "method": "executed pinned sources from a disposable git archive",
+    "paths": [
+      "src/ui/lib/files.ts",
+      "src/extensions/default/ui/index.ts",
+      "src/extensions/default/ui/sidebar/index.tsx"
+    ]
+  },
+  "baseline": {
+    "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "modes": {
+      "width31": "flat",
+      "width32": "tree"
+    },
+    "flat": [
+      {
+        "kind": "group",
+        "id": "group:src/ui:0",
+        "label": "src/ui/"
+      },
+      {
+        "kind": "file",
+        "id": "alpha",
+        "name": "a.ts",
+        "depth": 0,
+        "agentCommentsText": "*2",
+        "additionsText": "+5+",
+        "deletionsText": null,
+        "changeType": "new",
+        "isUntracked": false
+      },
+      {
+        "kind": "group",
+        "id": "group:src/new:1",
+        "label": "src/new/"
+      },
+      {
+        "kind": "file",
+        "id": "renamed",
+        "name": "old.ts -> name.ts",
+        "depth": 0,
+        "agentCommentsText": null,
+        "additionsText": null,
+        "deletionsText": "-3",
+        "changeType": "rename-changed",
+        "isUntracked": false
+      },
+      {
+        "kind": "group",
+        "id": "group:.:2",
+        "label": "./"
+      },
+      {
+        "kind": "file",
+        "id": "root",
+        "name": "README\\tguide.md",
+        "depth": 0,
+        "agentCommentsText": null,
+        "additionsText": null,
+        "deletionsText": null,
+        "changeType": "change",
+        "isUntracked": true
+      },
+      {
+        "kind": "group",
+        "id": "group:/tmp/project:3",
+        "label": "/tmp/project/"
+      },
+      {
+        "kind": "file",
+        "id": "absolute",
+        "name": "a.ts",
+        "depth": 0,
+        "agentCommentsText": null,
+        "additionsText": "+1",
+        "deletionsText": "-1",
+        "changeType": "change",
+        "isUntracked": false
+      },
+      {
+        "kind": "group",
+        "id": "group://server/share:4",
+        "label": "//server/share/"
+      },
+      {
+        "kind": "file",
+        "id": "unc",
+        "name": "b.ts",
+        "depth": 0,
+        "agentCommentsText": null,
+        "additionsText": "+1",
+        "deletionsText": "-1",
+        "changeType": "change",
+        "isUntracked": false
+      }
+    ],
+    "tree": [
+      {
+        "kind": "directory",
+        "id": "directory:0:0:src",
+        "label": "src/",
+        "depth": 0
+      },
+      {
+        "kind": "directory",
+        "id": "directory:0:1:src/ui",
+        "label": "ui/",
+        "depth": 1
+      },
+      {
+        "kind": "file",
+        "id": "alpha",
+        "name": "a.ts",
+        "depth": 2,
+        "agentCommentsText": "*2",
+        "additionsText": "+5+",
+        "deletionsText": null,
+        "changeType": "new",
+        "isUntracked": false
+      },
+      {
+        "kind": "directory",
+        "id": "directory:1:1:src/new",
+        "label": "new/",
+        "depth": 1
+      },
+      {
+        "kind": "file",
+        "id": "renamed",
+        "name": "old.ts -> name.ts",
+        "depth": 2,
+        "agentCommentsText": null,
+        "additionsText": null,
+        "deletionsText": "-3",
+        "changeType": "rename-changed",
+        "isUntracked": false
+      },
+      {
+        "kind": "file",
+        "id": "root",
+        "name": "README\\tguide.md",
+        "depth": 0,
+        "agentCommentsText": null,
+        "additionsText": null,
+        "deletionsText": null,
+        "changeType": "change",
+        "isUntracked": true
+      },
+      {
+        "kind": "directory",
+        "id": "directory:3:0:/",
+        "label": "/",
+        "depth": 0
+      },
+      {
+        "kind": "directory",
+        "id": "directory:3:1:/tmp",
+        "label": "tmp/",
+        "depth": 1
+      },
+      {
+        "kind": "directory",
+        "id": "directory:3:2:/tmp/project",
+        "label": "project/",
+        "depth": 2
+      },
+      {
+        "kind": "file",
+        "id": "absolute",
+        "name": "a.ts",
+        "depth": 3,
+        "agentCommentsText": null,
+        "additionsText": "+1",
+        "deletionsText": "-1",
+        "changeType": "change",
+        "isUntracked": false
+      },
+      {
+        "kind": "directory",
+        "id": "directory:4:0://",
+        "label": "//",
+        "depth": 0
+      },
+      {
+        "kind": "directory",
+        "id": "directory:4:1://server",
+        "label": "server/",
+        "depth": 1
+      },
+      {
+        "kind": "directory",
+        "id": "directory:4:2://server/share",
+        "label": "share/",
+        "depth": 2
+      },
+      {
+        "kind": "file",
+        "id": "unc",
+        "name": "b.ts",
+        "depth": 3,
+        "agentCommentsText": null,
+        "additionsText": "+1",
+        "deletionsText": "-1",
+        "changeType": "change",
+        "isUntracked": false
+      }
+    ],
+    "firstFileStats": [
+      {
+        "kind": "agent-comment",
+        "text": "*2"
+      },
+      {
+        "kind": "addition",
+        "text": "+5+"
+      }
+    ],
+    "firstFileStatsWidth": 6,
+    "renameLabel": {
+      "filename": "pi/extensions/loop.ts -> agents/pi/extensions/notify.ts",
+      "stateLabel": null
+    },
+    "registration": {
+      "count": 1,
+      "extensionId": "hunk",
+      "key": "hunk:files",
+      "pane": {
+        "id": "files",
+        "title": "Files",
+        "placement": "left",
+        "width": {
+          "preferred": 34,
+          "min": 22,
+          "max": 56,
+          "fraction": 0.16
+        },
+        "defaultOpen": true,
+        "componentName": "FlexFileSidebar"
+      }
+    },
+    "registryCached": true
+  },
+  "stable": {
+    "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+    "status": "absent",
+    "verifiedMissingPaths": [
+      "src/ui/lib/files.ts",
+      "src/extensions/default/ui/index.ts",
+      "src/extensions/default/ui/sidebar/index.tsx"
+    ]
+  },
+  "allowedBrandingNormalization": {
+    "extensionId": {
+      "hunk": "workdeck"
+    },
+    "paneKey": {
+      "hunk:files": "workdeck:files"
+    },
+    "component": {
+      "FlexFileSidebar": "Ratatui render_workdeck_file_nav_window"
+    }
+  }
+}

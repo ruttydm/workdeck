@@ -4,11 +4,13 @@
 //! The host retains terminal ownership: extensions return declarative views and actions rather
 //! than terminal escape sequences or Ratatui widgets.
 
+mod bundled_ui;
 mod extension_ids;
 mod file_views;
 mod keys;
 mod panes;
 
+pub use bundled_ui::*;
 pub use extension_ids::*;
 pub use file_views::*;
 pub use keys::*;

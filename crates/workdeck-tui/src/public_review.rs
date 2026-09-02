@@ -12,16 +12,16 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Paragraph, Widget};
-use std::collections::BTreeSet;
+use ratatui::widgets::{Block, Paragraph, Widget};
+use std::collections::{BTreeMap, BTreeSet};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use workdeck_core::{
-    BUNDLED_SHIKI_THEME_IDS, Changeset, ChangesetSource, DiffFile, FileChangeKind, FileStats,
-    ReviewSelection,
+    AgentAnnotation, AgentFileContext, BUNDLED_SHIKI_THEME_IDS, Changeset, ChangesetSource,
+    DiffFile, FileChangeKind, FileStats, ReviewSelection,
 };
 use workdeck_diff::{
     HighlightCache, PatchError, VisibleBodyBounds, find_max_line_number, format_terminal_path,
-    parse_patch, resolve_visible_row_index_window, unit_row_bounds,
+    normalize_diff_path, parse_patch, resolve_visible_row_index_window, unit_row_bounds,
 };
 use workdeck_review::LayoutMode;
 
@@ -134,6 +134,62 @@ impl Default for WorkdeckReviewStreamOptions {
 pub struct WorkdeckFileNavOptions {
     pub selected_file_id: Option<String>,
     pub theme: String,
+}
+
+pub const TREE_FILE_SIDEBAR_MIN_CONTENT_WIDTH: u16 = 32;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileSidebarMode {
+    Flat,
+    Tree,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarStatKind {
+    AgentComment,
+    Addition,
+    Deletion,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarFileChangeType {
+    Change,
+    New,
+    Deleted,
+    RenamePure,
+    RenameChanged,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarEntryStat {
+    pub kind: SidebarStatKind,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FileSidebarEntry {
+    Group {
+        id: String,
+        label: String,
+    },
+    Directory {
+        id: String,
+        label: String,
+        depth: usize,
+    },
+    File(FileSidebarFileEntry),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileSidebarFileEntry {
+    pub id: String,
+    pub name: String,
+    pub depth: usize,
+    pub agent_comments_text: Option<String>,
+    pub additions_text: Option<String>,
+    pub deletions_text: Option<String>,
+    pub change_type: SidebarFileChangeType,
+    pub is_untracked: bool,
 }
 
 impl Default for WorkdeckFileNavOptions {
@@ -398,17 +454,30 @@ pub fn render_workdeck_file_nav(
     files: &[WorkdeckDiffFileInput],
     options: &WorkdeckFileNavOptions,
 ) -> WorkdeckFileNavRenderMap {
+    render_workdeck_file_nav_window(area, buffer, files, options, 0)
+}
+
+/// Render one viewport of the adaptive file navigator. `scroll_top` is measured in fixed-height
+/// sidebar rows and the returned hit rows are viewport-relative.
+pub fn render_workdeck_file_nav_window(
+    area: Rect,
+    buffer: &mut Buffer,
+    files: &[WorkdeckDiffFileInput],
+    options: &WorkdeckFileNavOptions,
+    scroll_top: usize,
+) -> WorkdeckFileNavRenderMap {
     let palette = public_palette(&options.theme);
-    let entries = if area.width.saturating_sub(1) >= 32 {
-        tree_sidebar_entries(files)
-    } else {
-        flat_sidebar_entries(files)
-    };
+    let entries =
+        if resolve_file_sidebar_mode(area.width.saturating_sub(1)) == FileSidebarMode::Tree {
+            build_tree_sidebar_entries(files)
+        } else {
+            build_flat_sidebar_entries(files)
+        };
     let stats_width = entries
         .iter()
         .filter_map(|entry| match entry {
-            SidebarEntry::File(file) => Some(file.stats.width()),
-            SidebarEntry::Group(_) | SidebarEntry::Directory { .. } => None,
+            FileSidebarEntry::File(file) => Some(sidebar_entry_stats_width(file)),
+            FileSidebarEntry::Group { .. } | FileSidebarEntry::Directory { .. } => None,
         })
         .max()
         .unwrap_or_default();
@@ -416,11 +485,11 @@ pub fn render_workdeck_file_nav(
     let mut map = WorkdeckFileNavRenderMap::default();
     for entry in entries {
         match entry {
-            SidebarEntry::Group(label) => lines.push(Line::styled(
+            FileSidebarEntry::Group { label, .. } => lines.push(Line::styled(
                 fit_nav_text(&label, usize::from(area.width).max(1)),
                 Style::default().fg(palette.muted).bg(palette.panel),
             )),
-            SidebarEntry::Directory { label, depth } => {
+            FileSidebarEntry::Directory { label, depth, .. } => {
                 lines.push(directory_line(
                     &label,
                     depth,
@@ -429,7 +498,7 @@ pub fn render_workdeck_file_nav(
                     palette,
                 ));
             }
-            SidebarEntry::File(file) => {
+            FileSidebarEntry::File(file) => {
                 map.file_rows.push(WorkdeckFileNavHit {
                     file_id: file.id.clone(),
                     row: u16::try_from(lines.len()).unwrap_or(u16::MAX),
@@ -444,7 +513,22 @@ pub fn render_workdeck_file_nav(
             }
         }
     }
-    Paragraph::new(lines).render(area, buffer);
+    let start = scroll_top.min(lines.len());
+    let end = start
+        .saturating_add(usize::from(area.height))
+        .min(lines.len());
+    map.file_rows.retain_mut(|hit| {
+        let source_row = usize::from(hit.row);
+        if !(start..end).contains(&source_row) {
+            return false;
+        }
+        hit.row = u16::try_from(source_row - start).unwrap_or(u16::MAX);
+        true
+    });
+    Block::default()
+        .style(Style::default().bg(palette.panel))
+        .render(area, buffer);
+    Paragraph::new(lines.drain(start..end).collect::<Vec<_>>()).render(area, buffer);
     map
 }
 
@@ -591,7 +675,8 @@ fn resolve_selection(
         })
 }
 
-fn public_file_id(file: &DiffFile) -> &str {
+#[must_use]
+pub fn public_file_id(file: &DiffFile) -> &str {
     if file.runtime_id.is_empty() {
         &file.key
     } else {
@@ -610,47 +695,105 @@ fn separator_line(width: u16, theme: &str) -> Line<'static> {
     )
 }
 
-#[derive(Debug)]
-enum SidebarEntry {
-    Group(String),
-    Directory { label: String, depth: usize },
-    File(SidebarFileEntry),
+#[must_use]
+pub const fn resolve_file_sidebar_mode(content_width: u16) -> FileSidebarMode {
+    if content_width >= TREE_FILE_SIDEBAR_MIN_CONTENT_WIDTH {
+        FileSidebarMode::Tree
+    } else {
+        FileSidebarMode::Flat
+    }
 }
 
-#[derive(Debug)]
-struct SidebarFileEntry {
-    id: String,
-    name: String,
-    depth: usize,
-    stats: String,
-    icon: &'static str,
-    icon_color: Color,
+#[must_use]
+pub fn sidebar_entry_stats(entry: &FileSidebarFileEntry) -> Vec<SidebarEntryStat> {
+    let mut stats = Vec::with_capacity(3);
+    if let Some(text) = &entry.agent_comments_text {
+        stats.push(SidebarEntryStat {
+            kind: SidebarStatKind::AgentComment,
+            text: text.clone(),
+        });
+    }
+    if let Some(text) = &entry.additions_text {
+        stats.push(SidebarEntryStat {
+            kind: SidebarStatKind::Addition,
+            text: text.clone(),
+        });
+    }
+    if let Some(text) = &entry.deletions_text {
+        stats.push(SidebarEntryStat {
+            kind: SidebarStatKind::Deletion,
+            text: text.clone(),
+        });
+    }
+    stats
 }
 
-fn flat_sidebar_entries(files: &[DiffFile]) -> Vec<SidebarEntry> {
+#[must_use]
+pub fn sidebar_entry_stats_width(entry: &FileSidebarFileEntry) -> usize {
+    sidebar_entry_stats(entry)
+        .iter()
+        .enumerate()
+        .map(|(index, stat)| stat.text.encode_utf16().count() + usize::from(index > 0))
+        .sum()
+}
+
+/// Merge file-id keyed annotations without discarding an existing summary or annotation.
+#[must_use]
+pub fn merge_file_annotations_by_file_id(
+    files: &[DiffFile],
+    annotations_by_file_id: &BTreeMap<String, Vec<AgentAnnotation>>,
+) -> Vec<DiffFile> {
+    files
+        .iter()
+        .map(|file| {
+            let Some(annotations) = annotations_by_file_id
+                .get(public_file_id(file))
+                .filter(|annotations| !annotations.is_empty())
+            else {
+                return file.clone();
+            };
+            let mut merged = file.clone();
+            let mut agent = merged.agent.take().unwrap_or_else(|| AgentFileContext {
+                path: merged.path.clone(),
+                summary: None,
+                annotations: Vec::new(),
+            });
+            agent.annotations.extend(annotations.iter().cloned());
+            merged.agent = Some(agent);
+            merged
+        })
+        .collect()
+}
+
+#[must_use]
+pub fn build_flat_sidebar_entries(files: &[DiffFile]) -> Vec<FileSidebarEntry> {
     let mut entries = Vec::new();
     let mut active_group = None::<String>;
-    for file in files {
-        let path = format_terminal_path(&file.path);
+    for (index, file) in files.iter().enumerate() {
+        let path = sidebar_path(&file.path);
         let group = posix_dirname(&path).to_owned();
         if active_group.as_deref() != Some(group.as_str()) {
             active_group = Some(group.clone());
-            entries.push(SidebarEntry::Group(if group == "." {
-                "./".into()
-            } else {
-                format!("{group}/")
-            }));
+            entries.push(FileSidebarEntry::Group {
+                id: format!("group:{group}:{index}"),
+                label: if group == "." {
+                    "./".into()
+                } else {
+                    format!("{group}/")
+                },
+            });
         }
-        entries.push(SidebarEntry::File(sidebar_file_entry(file, 0)));
+        entries.push(FileSidebarEntry::File(sidebar_file_entry(file, 0)));
     }
     entries
 }
 
-fn tree_sidebar_entries(files: &[DiffFile]) -> Vec<SidebarEntry> {
+#[must_use]
+pub fn build_tree_sidebar_entries(files: &[DiffFile]) -> Vec<FileSidebarEntry> {
     let mut entries = Vec::new();
     let mut active_directories = Vec::<String>::new();
-    for file in files {
-        let path = format_terminal_path(&file.path);
+    for (file_index, file) in files.iter().enumerate() {
+        let path = sidebar_path(&file.path);
         let directories = sidebar_directory_segments(posix_dirname(&path));
         let shared = active_directories
             .iter()
@@ -658,7 +801,9 @@ fn tree_sidebar_entries(files: &[DiffFile]) -> Vec<SidebarEntry> {
             .take_while(|(left, right)| left == right)
             .count();
         for (depth, segment) in directories.iter().enumerate().skip(shared) {
-            entries.push(SidebarEntry::Directory {
+            let directory_path = sidebar_directory_path(&directories[..=depth]);
+            entries.push(FileSidebarEntry::Directory {
+                id: format!("directory:{file_index}:{depth}:{directory_path}"),
                 label: if segment.starts_with('/') {
                     segment.clone()
                 } else {
@@ -667,7 +812,7 @@ fn tree_sidebar_entries(files: &[DiffFile]) -> Vec<SidebarEntry> {
                 depth,
             });
         }
-        entries.push(SidebarEntry::File(sidebar_file_entry(
+        entries.push(FileSidebarEntry::File(sidebar_file_entry(
             file,
             directories.len(),
         )));
@@ -676,9 +821,9 @@ fn tree_sidebar_entries(files: &[DiffFile]) -> Vec<SidebarEntry> {
     entries
 }
 
-fn sidebar_file_entry(file: &DiffFile, depth: usize) -> SidebarFileEntry {
-    let path = format_terminal_path(&file.path);
-    let previous = file.previous_path.as_deref().map(format_terminal_path);
+fn sidebar_file_entry(file: &DiffFile, depth: usize) -> FileSidebarFileEntry {
+    let path = sidebar_path(&file.path);
+    let previous = file.previous_path.as_deref().map(sidebar_path);
     let name = match previous {
         Some(previous) if previous != path => {
             let previous_name = posix_basename(&previous);
@@ -691,42 +836,53 @@ fn sidebar_file_entry(file: &DiffFile, depth: usize) -> SidebarFileEntry {
         }
         _ => posix_basename(&path).to_owned(),
     };
-    let mut stats = Vec::new();
-    if let Some(agent) = &file.agent
-        && !agent.annotations.is_empty()
-    {
-        stats.push(format!("*{}", agent.annotations.len()));
-    }
-    if file.stats.additions > 0 {
-        stats.push(format!(
+    let agent_comments_text = file
+        .agent
+        .as_ref()
+        .filter(|agent| !agent.annotations.is_empty())
+        .map(|agent| format!("*{}", agent.annotations.len()));
+    let additions_text = (file.stats.additions > 0).then(|| {
+        format!(
             "+{}{}",
             file.stats.additions,
             if file.stats.truncated { "+" } else { "" }
-        ));
-    }
-    if file.stats.deletions > 0 {
-        stats.push(format!("-{}", file.stats.deletions));
-    }
-    let (icon, icon_color) =
-        if file.flags.untracked || file.change_kind == FileChangeKind::Untracked {
-            ("?", Color::Yellow)
-        } else {
-            match file.change_kind {
-                FileChangeKind::Added => ("A", Color::Green),
-                FileChangeKind::Deleted => ("D", Color::Red),
-                FileChangeKind::Renamed | FileChangeKind::Copied => ("R", Color::Cyan),
-                FileChangeKind::Modified | FileChangeKind::TypeChanged => ("M", Color::Yellow),
-                FileChangeKind::Untracked => ("?", Color::Yellow),
-                FileChangeKind::Conflicted => ("", Color::White),
-            }
-        };
-    SidebarFileEntry {
+        )
+    });
+    let deletions_text = (file.stats.deletions > 0).then(|| format!("-{}", file.stats.deletions));
+    FileSidebarFileEntry {
         id: public_file_id(file).to_owned(),
         name,
         depth,
-        stats: stats.join(" "),
-        icon,
-        icon_color,
+        agent_comments_text,
+        additions_text,
+        deletions_text,
+        change_type: match file.change_kind {
+            FileChangeKind::Added => SidebarFileChangeType::New,
+            FileChangeKind::Deleted => SidebarFileChangeType::Deleted,
+            FileChangeKind::Renamed if file.hunks.is_empty() => SidebarFileChangeType::RenamePure,
+            FileChangeKind::Renamed => SidebarFileChangeType::RenameChanged,
+            FileChangeKind::Modified
+            | FileChangeKind::Copied
+            | FileChangeKind::TypeChanged
+            | FileChangeKind::Untracked
+            | FileChangeKind::Conflicted => SidebarFileChangeType::Change,
+        },
+        is_untracked: file.flags.untracked || file.change_kind == FileChangeKind::Untracked,
+    }
+}
+
+fn sidebar_path(path: &str) -> String {
+    format_terminal_path(normalize_diff_path(Some(path)).as_deref().unwrap_or(path))
+}
+
+fn sidebar_directory_path(segments: &[String]) -> String {
+    let Some((root, rest)) = segments.split_first() else {
+        return String::new();
+    };
+    if root.starts_with('/') {
+        format!("{root}{}", rest.join("/"))
+    } else {
+        segments.join("/")
     }
 }
 
@@ -754,7 +910,7 @@ fn directory_line(
 }
 
 fn sidebar_file_line(
-    file: &SidebarFileEntry,
+    file: &FileSidebarFileEntry,
     selected: bool,
     width: u16,
     stats_width: usize,
@@ -766,7 +922,8 @@ fn sidebar_file_line(
         palette.panel
     };
     let text_width = usize::from(width.saturating_sub(1)).max(1);
-    let icon_width = usize::from(!file.icon.is_empty()) * 2;
+    let (icon, icon_color) = sidebar_file_icon(file, palette);
+    let icon_width = usize::from(!icon.is_empty()) * 2;
     let stats_section_width = usize::from(stats_width > 0) * (stats_width + 1);
     let indent = sidebar_indent(file.depth, text_width, icon_width + stats_section_width + 1);
     let name_width = text_width
@@ -786,15 +943,9 @@ fn sidebar_file_line(
             Style::default().bg(row_bg),
         ));
     }
-    if !file.icon.is_empty() {
-        let icon_color = match file.icon_color {
-            Color::Green => palette.added,
-            Color::Red => palette.removed,
-            Color::Cyan => palette.accent,
-            other => other,
-        };
+    if !icon.is_empty() {
         spans.push(Span::styled(
-            format!("{} ", file.icon),
+            format!("{icon} "),
             Style::default().fg(icon_color).bg(row_bg),
         ));
     }
@@ -805,8 +956,13 @@ fn sidebar_file_line(
         Style::default().fg(palette.text).bg(row_bg),
     ));
     if stats_section_width > 0 {
+        let stats = sidebar_entry_stats(file);
+        let rendered_width = sidebar_entry_stats_width(file);
         spans.push(Span::styled(
-            format!(" {:>stats_width$}", file.stats),
+            format!(
+                " {}",
+                " ".repeat(stats_width.saturating_sub(rendered_width))
+            ),
             Style::default()
                 .fg(if selected {
                     palette.text
@@ -815,8 +971,52 @@ fn sidebar_file_line(
                 })
                 .bg(row_bg),
         ));
+        for (index, stat) in stats.into_iter().enumerate() {
+            if index > 0 {
+                spans.push(Span::styled(
+                    " ",
+                    Style::default()
+                        .fg(if selected {
+                            palette.text
+                        } else {
+                            palette.muted
+                        })
+                        .bg(row_bg),
+                ));
+            }
+            let color = match stat.kind {
+                SidebarStatKind::AgentComment => palette.note,
+                SidebarStatKind::Addition => palette.badge_added,
+                SidebarStatKind::Deletion => palette.badge_removed,
+            };
+            spans.push(Span::styled(
+                stat.text,
+                Style::default().fg(color).bg(row_bg),
+            ));
+        }
+    }
+    let used = spans.iter().map(|span| span.content.width()).sum::<usize>();
+    if used < usize::from(width) {
+        spans.push(Span::styled(
+            " ".repeat(usize::from(width) - used),
+            Style::default().bg(row_bg),
+        ));
     }
     Line::from(spans)
+}
+
+fn sidebar_file_icon(file: &FileSidebarFileEntry, palette: PublicPalette) -> (&'static str, Color) {
+    if file.is_untracked {
+        return ("?", palette.file_untracked);
+    }
+    match file.change_type {
+        SidebarFileChangeType::New => ("A", palette.file_new),
+        SidebarFileChangeType::Deleted => ("D", palette.file_deleted),
+        SidebarFileChangeType::RenamePure | SidebarFileChangeType::RenameChanged => {
+            ("R", palette.file_renamed)
+        }
+        SidebarFileChangeType::Change => ("M", palette.file_modified),
+    }
 }
 
 fn sidebar_indent(depth: usize, text_width: usize, reserved_width: usize) -> usize {
@@ -893,6 +1093,14 @@ struct PublicPalette {
     added_bg: Color,
     removed_bg: Color,
     selected_bg: Color,
+    badge_added: Color,
+    badge_removed: Color,
+    file_new: Color,
+    file_deleted: Color,
+    file_renamed: Color,
+    file_modified: Color,
+    file_untracked: Color,
+    note: Color,
 }
 
 fn public_palette(theme: &str) -> PublicPalette {
@@ -908,6 +1116,14 @@ fn public_palette(theme: &str) -> PublicPalette {
         added_bg: color_from_hex(&theme.added_bg).unwrap_or(Color::Reset),
         removed_bg: color_from_hex(&theme.removed_bg).unwrap_or(Color::Reset),
         selected_bg: color_from_hex(&theme.selected_hunk).unwrap_or(Color::Reset),
+        badge_added: color_from_hex(&theme.badge_added).unwrap_or(Color::Green),
+        badge_removed: color_from_hex(&theme.badge_removed).unwrap_or(Color::Red),
+        file_new: color_from_hex(&theme.file_new).unwrap_or(Color::Green),
+        file_deleted: color_from_hex(&theme.file_deleted).unwrap_or(Color::Red),
+        file_renamed: color_from_hex(&theme.file_renamed).unwrap_or(Color::Cyan),
+        file_modified: color_from_hex(&theme.file_modified).unwrap_or(Color::Yellow),
+        file_untracked: color_from_hex(&theme.file_untracked).unwrap_or(Color::Yellow),
+        note: color_from_hex(&theme.note_border).unwrap_or(Color::Cyan),
     }
 }
 
