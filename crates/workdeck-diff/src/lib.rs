@@ -12,6 +12,7 @@ mod git_log;
 mod highlighted_diff_cache;
 mod language;
 mod row_windowing;
+mod source_backed_highlight;
 mod syntax;
 mod terminal;
 mod word_diff;
@@ -35,10 +36,14 @@ pub use row_windowing::{
     MeasuredRowBounds, VisibleBodyBounds, VisibleRowIndexWindow, VisibleRowWindow,
     resolve_visible_row_index_window, resolve_visible_row_window, unit_row_bounds,
 };
+pub use source_backed_highlight::{
+    HighlightLineArrays, SourceBackedHighlightPlan, alias_context_highlight_lines,
+    create_source_backed_highlight_plan, remap_source_backed_highlight,
+};
 pub use syntax::{
-    HighlightAppearance, HighlightCache, HighlightedFile, HighlightedHunk, HighlightedLine,
-    PIERRE_DARK_THEME, PIERRE_LIGHT_THEME, SyntaxColor, SyntaxToken, highlight_worker_cache_key,
-    syntax_highlight_theme_name,
+    HighlightAppearance, HighlightCache, HighlightedDiffLine, HighlightedFile, HighlightedHunk,
+    HighlightedLine, PIERRE_DARK_THEME, PIERRE_LIGHT_THEME, SyntaxColor, SyntaxToken,
+    highlight_worker_cache_key, syntax_highlight_theme_name,
 };
 pub use terminal::{
     SanitizeOptions, TerminalSpan, format_terminal_path, sanitize_terminal_line,

@@ -142,9 +142,21 @@ impl HighlightedDiffCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::HighlightedDiffLine;
 
     fn highlighted(lines: usize) -> HighlightedDiffCode {
-        HighlightedDiffCode::new(vec![vec![Vec::new(); lines]], lines, 0)
+        HighlightedDiffCode::new(
+            vec![
+                (0..lines)
+                    .map(|_| HighlightedDiffLine {
+                        deletion: Some(Vec::new()),
+                        addition: None,
+                    })
+                    .collect(),
+            ],
+            lines,
+            0,
+        )
     }
 
     #[test]

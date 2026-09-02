@@ -126,6 +126,60 @@ pub struct SemanticReviewHunk {
     pub no_eofcr_deletions: bool,
 }
 
+/// One semantic hunk laid out against new zero-based old/new source origins.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RebasedSemanticReviewHunk {
+    pub hunk: SemanticReviewHunk,
+    pub deletion_end_index: usize,
+    pub addition_end_index: usize,
+}
+
+/// Lay a semantic hunk's blocks out contiguously from new source-array origins.
+#[must_use]
+pub fn rebase_semantic_review_hunk(
+    hunk: &SemanticReviewHunk,
+    deletion_origin: usize,
+    addition_origin: usize,
+) -> RebasedSemanticReviewHunk {
+    let mut rebased = hunk.clone();
+    rebased.deletion_line_index = deletion_origin;
+    rebased.addition_line_index = addition_origin;
+    let mut deletion_line_index = deletion_origin;
+    let mut addition_line_index = addition_origin;
+
+    for block in &mut rebased.hunk_content {
+        match block {
+            SemanticReviewHunkBlock::Context {
+                lines,
+                addition_line_index: block_addition_index,
+                deletion_line_index: block_deletion_index,
+            } => {
+                *block_deletion_index = deletion_line_index;
+                *block_addition_index = addition_line_index;
+                deletion_line_index = deletion_line_index.saturating_add(*lines);
+                addition_line_index = addition_line_index.saturating_add(*lines);
+            }
+            SemanticReviewHunkBlock::Change {
+                additions,
+                deletions,
+                addition_line_index: block_addition_index,
+                deletion_line_index: block_deletion_index,
+            } => {
+                *block_deletion_index = deletion_line_index;
+                *block_addition_index = addition_line_index;
+                deletion_line_index = deletion_line_index.saturating_add(*deletions);
+                addition_line_index = addition_line_index.saturating_add(*additions);
+            }
+        }
+    }
+
+    RebasedSemanticReviewHunk {
+        hunk: rebased,
+        deletion_end_index: deletion_line_index,
+        addition_end_index: addition_line_index,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ReviewLineMoveKind {
@@ -242,7 +296,7 @@ pub fn project_review_document(
     }
 }
 
-fn project_review_file(
+pub fn project_review_file(
     file: &DiffFile,
     source_label: &str,
     duplicate_index: usize,

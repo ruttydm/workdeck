@@ -91,8 +91,8 @@ use std::time::{Duration, Instant};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use workdeck_core::{Changeset, DiffFile, DiffLine, DiffLineKind, ReviewSelection, ReviewSide};
 use workdeck_diff::{
-    DIFF_RAIL_PREFIX_WIDTH, HighlightCache, SyntaxToken, TextSegment, clip_segments,
-    expand_diff_tabs, plan_split_line_pairs, resolve_split_cell_geometry,
+    DIFF_RAIL_PREFIX_WIDTH, HighlightCache, HighlightedDiffLine, SyntaxToken, TextSegment,
+    clip_segments, expand_diff_tabs, plan_split_line_pairs, resolve_split_cell_geometry,
     resolve_split_pane_widths as resolve_diff_split_pane_widths, resolve_stack_cell_geometry,
     word_diff_ranges, wrap_segments,
 };
@@ -1517,7 +1517,7 @@ fn stack_hunk_rows(
     file: &DiffFile,
     hunk: &workdeck_core::DiffHunk,
     options: &ReviewOptions,
-    highlighted: Option<&Vec<Vec<SyntaxToken>>>,
+    highlighted: Option<&Vec<HighlightedDiffLine>>,
     comments: &[ReviewComment],
     width: u16,
     selection: ReviewSelection,
@@ -1543,7 +1543,9 @@ fn stack_hunk_rows(
         rows.extend(stack_line_rows(
             line,
             options,
-            highlighted.and_then(|lines| lines.get(index)),
+            highlighted
+                .and_then(|lines| lines.get(index))
+                .and_then(|line_highlight| line_highlight.for_stack(line.kind)),
             &emphasis[index],
             hunk_selected || line_is_selected(line, selection),
             width,
@@ -1674,7 +1676,7 @@ fn split_hunk_rows(
     hunk: &workdeck_core::DiffHunk,
     options: &ReviewOptions,
     width: u16,
-    highlighted: Option<&Vec<Vec<SyntaxToken>>>,
+    highlighted: Option<&Vec<HighlightedDiffLine>>,
     comments: &[ReviewComment],
     selection: ReviewSelection,
     hunk_selected: bool,
@@ -1700,14 +1702,16 @@ fn split_hunk_rows(
                 line: old,
                 highlighted: pair
                     .old_index
-                    .and_then(|index| highlighted.and_then(|lines| lines.get(index))),
+                    .and_then(|index| highlighted.and_then(|lines| lines.get(index)))
+                    .and_then(|line| line.deletion.as_ref()),
                 emphasis: emphasis.as_ref().map_or(&[], |ranges| &ranges.old),
             },
             SplitCellInput {
                 line: new,
                 highlighted: pair
                     .new_index
-                    .and_then(|index| highlighted.and_then(|lines| lines.get(index))),
+                    .and_then(|index| highlighted.and_then(|lines| lines.get(index)))
+                    .and_then(|line| line.addition.as_ref()),
                 emphasis: emphasis.as_ref().map_or(&[], |ranges| &ranges.new),
             },
             options,

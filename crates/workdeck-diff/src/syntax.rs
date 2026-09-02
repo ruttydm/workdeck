@@ -6,7 +6,9 @@
 //! `third_party/themes`.
 
 use crate::{
-    HighlightedDiffCache, HighlightedDiffCode, bundled_theme_assets::BUNDLED_THEME_ASSETS,
+    HighlightLineArrays, HighlightedDiffCache, HighlightedDiffCode, alias_context_highlight_lines,
+    bundled_theme_assets::BUNDLED_THEME_ASSETS, create_source_backed_highlight_plan,
+    remap_source_backed_highlight,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -20,11 +22,11 @@ use syntect::highlighting::{
 };
 use syntect::parsing::SyntaxSet;
 use workdeck_core::{
-    DiffFile, DiffHunk, FileChangeKind, FileFlags, FileSourceSnapshots, FileStats,
-    bundled_shiki_theme_is_light, resolve_legacy_theme_id,
+    DiffFile, DiffHunk, DiffLineKind, FileChangeKind, FileFlags, FileSourceSnapshots, FileStats,
+    SemanticReviewFile, bundled_shiki_theme_is_light, project_review_file, resolve_legacy_theme_id,
 };
 
-const HIGHLIGHT_WORKER_CACHE_REVISION: u32 = 1;
+const HIGHLIGHT_WORKER_CACHE_REVISION: u32 = 2;
 pub const PIERRE_LIGHT_THEME: &str = "pierre-light";
 pub const PIERRE_DARK_THEME: &str = "pierre-dark";
 
@@ -248,7 +250,27 @@ pub struct SyntaxToken {
 }
 
 pub type HighlightedLine = Vec<SyntaxToken>;
-pub type HighlightedHunk = Vec<HighlightedLine>;
+
+/// Syntax output for both source sides represented by one visible diff row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HighlightedDiffLine {
+    pub deletion: Option<HighlightedLine>,
+    pub addition: Option<HighlightedLine>,
+}
+
+impl HighlightedDiffLine {
+    #[must_use]
+    pub fn for_stack(&self, kind: DiffLineKind) -> Option<&HighlightedLine> {
+        match kind {
+            DiffLineKind::Deletion => self.deletion.as_ref(),
+            DiffLineKind::Addition | DiffLineKind::Context => {
+                self.addition.as_ref().or(self.deletion.as_ref())
+            }
+        }
+    }
+}
+
+pub type HighlightedHunk = Vec<HighlightedDiffLine>;
 pub type HighlightedFile = Vec<HighlightedHunk>;
 
 /// Bounds highlighter payload bytes retained between renderer frames.
@@ -347,13 +369,28 @@ fn highlighted_file_byte_length(payload: &HighlightedFile) -> usize {
         let hunk_bytes = size_of::<HighlightedHunk>()
             .saturating_add(hunk.len().saturating_mul(size_of::<HighlightedLine>()));
         file_bytes.saturating_add(hunk.iter().fold(hunk_bytes, |line_bytes, line| {
-            line_bytes.saturating_add(line.iter().fold(0, |token_bytes, token| {
-                token_bytes
-                    .saturating_add(size_of::<SyntaxToken>())
-                    .saturating_add(token.text.len())
-            }))
+            line_bytes
+                .saturating_add(size_of::<HighlightedDiffLine>())
+                .saturating_add(
+                    line.deletion
+                        .as_ref()
+                        .map_or(0, highlighted_line_byte_length),
+                )
+                .saturating_add(
+                    line.addition
+                        .as_ref()
+                        .map_or(0, highlighted_line_byte_length),
+                )
         }))
     })
+}
+
+fn highlighted_line_byte_length(line: &HighlightedLine) -> usize {
+    size_of::<HighlightedLine>().saturating_add(line.iter().fold(0, |bytes, token| {
+        bytes
+            .saturating_add(size_of::<SyntaxToken>())
+            .saturating_add(token.text.len())
+    }))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -555,7 +592,20 @@ impl HighlightCache {
                     HighlightAppearance::Dark
                 }
             });
-        let key = highlight_worker_cache_key(file, false, appearance, &language, theme);
+        let metadata = project_review_file(file, &file.key, 0);
+        let source_plan = create_source_backed_highlight_plan(
+            &metadata,
+            file.sources
+                .old
+                .as_ref()
+                .map(|source| source.content.as_str()),
+            file.sources
+                .new
+                .as_ref()
+                .map(|source| source.content.as_str()),
+        );
+        let alias_context = source_plan.is_none();
+        let key = highlight_worker_cache_key(file, alias_context, appearance, &language, theme);
         if let Some(cached) = self.entries.get(&key) {
             return cached.highlighted;
         }
@@ -586,39 +636,19 @@ impl HighlightCache {
         else {
             return plain_file(file);
         };
-        let mut highlighter = HighlightLines::new(syntax, theme);
-        let highlighted = file
-            .hunks
-            .iter()
-            .map(|hunk| {
-                hunk.lines
-                    .iter()
-                    .map(|line| {
-                        let source = format!("{}\n", line.content);
-                        highlighter
-                            .highlight_line(&source, &self.syntaxes)
-                            .map(|ranges| {
-                                ranges
-                                    .into_iter()
-                                    .map(|(style, text)| SyntaxToken {
-                                        text: text.trim_end_matches('\n').to_owned(),
-                                        foreground: SyntaxColor {
-                                            red: style.foreground.r,
-                                            green: style.foreground.g,
-                                            blue: style.foreground.b,
-                                        },
-                                        bold: style.font_style.contains(FontStyle::BOLD),
-                                        italic: style.font_style.contains(FontStyle::ITALIC),
-                                        underline: style.font_style.contains(FontStyle::UNDERLINE),
-                                    })
-                                    .filter(|token| !token.text.is_empty())
-                                    .collect::<Vec<_>>()
-                            })
-                            .unwrap_or_else(|_| vec![plain_token(&line.content)])
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
+        let highlight_metadata = source_plan
+            .as_ref()
+            .map_or(&metadata, |plan| &plan.metadata);
+        let highlighted_sides =
+            highlight_metadata_sides(highlight_metadata, syntax, theme, &self.syntaxes);
+        let visible_sides = if let Some(plan) = &source_plan {
+            remap_source_backed_highlight(plan, &highlighted_sides)
+        } else {
+            let mut visible = highlighted_sides;
+            alias_context_highlight_lines(&metadata, &mut visible);
+            visible
+        };
+        let highlighted = assemble_highlighted_file(file, &metadata, &visible_sides);
         self.worker_entries.set(key.clone(), &highlighted);
         self.entries
             .set(key, highlighted_diff_code(file, highlighted.clone()));
@@ -637,6 +667,103 @@ impl HighlightCache {
         self.entries.clear();
         self.worker_entries.clear();
     }
+}
+
+fn highlight_metadata_sides(
+    metadata: &SemanticReviewFile,
+    syntax: &syntect::parsing::SyntaxReference,
+    theme: &Theme,
+    syntaxes: &SyntaxSet,
+) -> HighlightLineArrays<HighlightedLine> {
+    HighlightLineArrays {
+        deletion_lines: highlight_source_side(&metadata.deletion_lines, syntax, theme, syntaxes),
+        addition_lines: highlight_source_side(&metadata.addition_lines, syntax, theme, syntaxes),
+    }
+}
+
+fn highlight_source_side(
+    lines: &[String],
+    syntax: &syntect::parsing::SyntaxReference,
+    theme: &Theme,
+    syntaxes: &SyntaxSet,
+) -> Vec<Option<HighlightedLine>> {
+    let mut highlighter = HighlightLines::new(syntax, theme);
+    lines
+        .iter()
+        .map(|source| {
+            Some(
+                highlighter
+                    .highlight_line(source, syntaxes)
+                    .map(|ranges| {
+                        ranges
+                            .into_iter()
+                            .map(|(style, text)| SyntaxToken {
+                                text: text.trim_end_matches('\n').to_owned(),
+                                foreground: SyntaxColor {
+                                    red: style.foreground.r,
+                                    green: style.foreground.g,
+                                    blue: style.foreground.b,
+                                },
+                                bold: style.font_style.contains(FontStyle::BOLD),
+                                italic: style.font_style.contains(FontStyle::ITALIC),
+                                underline: style.font_style.contains(FontStyle::UNDERLINE),
+                            })
+                            .filter(|token| !token.text.is_empty())
+                            .collect()
+                    })
+                    .unwrap_or_else(|_| vec![plain_token(source.trim_end_matches('\n'))]),
+            )
+        })
+        .collect()
+}
+
+fn assemble_highlighted_file(
+    file: &DiffFile,
+    metadata: &SemanticReviewFile,
+    sides: &HighlightLineArrays<HighlightedLine>,
+) -> HighlightedFile {
+    file.hunks
+        .iter()
+        .enumerate()
+        .map(|(hunk_index, hunk)| {
+            let mut deletion_line_index = metadata
+                .hunks
+                .get(hunk_index)
+                .map_or(0, |hunk| hunk.deletion_line_index);
+            let mut addition_line_index = metadata
+                .hunks
+                .get(hunk_index)
+                .map_or(0, |hunk| hunk.addition_line_index);
+            hunk.lines
+                .iter()
+                .map(|line| {
+                    let deletion = if line.old_line.is_some() {
+                        let highlighted = sides
+                            .deletion_lines
+                            .get(deletion_line_index)
+                            .cloned()
+                            .flatten();
+                        deletion_line_index = deletion_line_index.saturating_add(1);
+                        highlighted
+                    } else {
+                        None
+                    };
+                    let addition = if line.new_line.is_some() {
+                        let highlighted = sides
+                            .addition_lines
+                            .get(addition_line_index)
+                            .cloned()
+                            .flatten();
+                        addition_line_index = addition_line_index.saturating_add(1);
+                        highlighted
+                    } else {
+                        None
+                    };
+                    HighlightedDiffLine { deletion, addition }
+                })
+                .collect()
+        })
+        .collect()
 }
 
 fn highlighted_diff_code(file: &DiffFile, highlighted: HighlightedFile) -> HighlightedDiffCode {
@@ -729,13 +856,19 @@ fn syntect_color_from_hex(value: &str) -> Option<SyntectColor> {
     Some(SyntectColor { r, g, b, a })
 }
 
-fn plain_file(file: &DiffFile) -> Vec<Vec<Vec<SyntaxToken>>> {
+fn plain_file(file: &DiffFile) -> HighlightedFile {
     file.hunks
         .iter()
         .map(|hunk| {
             hunk.lines
                 .iter()
-                .map(|line| vec![plain_token(&line.content)])
+                .map(|line| {
+                    let highlighted = vec![plain_token(&line.content)];
+                    HighlightedDiffLine {
+                        deletion: line.old_line.is_some().then(|| highlighted.clone()),
+                        addition: line.new_line.is_some().then_some(highlighted),
+                    }
+                })
                 .collect()
         })
         .collect()
@@ -759,7 +892,7 @@ fn plain_token(text: &str) -> SyntaxToken {
 mod tests {
     use super::*;
     use crate::parse_patch;
-    use workdeck_core::ChangesetSource;
+    use workdeck_core::{ChangesetSource, FileSourceSnapshots, SourceOrigin, SourceSnapshot};
 
     fn identity_file(after: &str, name: &str) -> DiffFile {
         parse_patch(
@@ -780,8 +913,9 @@ mod tests {
     fn test_highlight_payload(line_count: usize) -> HighlightedFile {
         vec![
             (0..line_count)
-                .map(|index| {
-                    vec![SyntaxToken {
+                .map(|index| HighlightedDiffLine {
+                    deletion: None,
+                    addition: Some(vec![SyntaxToken {
                         text: format!("line-{index}"),
                         foreground: SyntaxColor {
                             red: 1,
@@ -791,7 +925,7 @@ mod tests {
                         bold: false,
                         italic: false,
                         underline: false,
-                    }]
+                    }]),
                 })
                 .collect(),
         ]
@@ -805,11 +939,14 @@ mod tests {
 
         let mut first_response = cache.get("first").unwrap();
         assert!(!std::ptr::eq(
-            first_response[0][0].as_ptr(),
-            payload[0][0].as_ptr()
+            first_response[0][0].addition.as_ref().unwrap().as_ptr(),
+            payload[0][0].addition.as_ref().unwrap().as_ptr()
         ));
-        first_response[0][0][0].text = "transferred-away".into();
-        assert_eq!(cache.get("first").unwrap()[0][0][0].text, "line-0");
+        first_response[0][0].addition.as_mut().unwrap()[0].text = "transferred-away".into();
+        assert_eq!(
+            cache.get("first").unwrap()[0][0].addition.as_ref().unwrap()[0].text,
+            "line-0"
+        );
     }
 
     #[test]
@@ -1156,7 +1293,7 @@ mod tests {
         let file = identity_file("const answer = true;\n", "example.rs");
         let mut cache = HighlightCache::default();
         let github = cache.highlight(&file, "github-dark-default");
-        let github_added = &github[0][1];
+        let github_added = github[0][1].addition.as_ref().unwrap();
         assert_eq!(
             github_added
                 .iter()
@@ -1179,6 +1316,9 @@ mod tests {
 
         let pierre = cache.highlight(&file, PIERRE_DARK_THEME);
         let pierre_keyword = pierre[0][1]
+            .addition
+            .as_ref()
+            .unwrap()
             .iter()
             .find(|token| token.text == "const")
             .unwrap();
@@ -1198,6 +1338,9 @@ mod tests {
             &[("storage.type".into(), "#123456".into())],
         );
         let custom_keyword = custom[0][1]
+            .addition
+            .as_ref()
+            .unwrap()
             .iter()
             .find(|token| token.text == "const")
             .unwrap();
@@ -1209,5 +1352,103 @@ mod tests {
                 blue: 0x56,
             }
         );
+    }
+
+    #[test]
+    fn source_backed_highlight_preserves_independent_context_grammar_states() {
+        let mut file = parse_patch(
+            "diff --git a/state.rs b/state.rs\n--- a/state.rs\n+++ b/state.rs\n@@ -2,2 +2,2 @@\n same\n-old\n+new\n",
+            "source-state",
+            "source-state",
+            ChangesetSource::Patch {
+                label: "source-state".into(),
+            },
+        )
+        .unwrap()
+        .files
+        .remove(0);
+        file.set_sources(FileSourceSnapshots {
+            old: Some(SourceSnapshot::new(
+                "/*\nsame\nold\n".into(),
+                SourceOrigin::Revision {
+                    revision: "HEAD".into(),
+                },
+                true,
+            )),
+            new: Some(SourceSnapshot::new(
+                "let prefix = 1;\nsame\nnew\n".into(),
+                SourceOrigin::WorkingTree,
+                true,
+            )),
+        });
+
+        let mut cache = HighlightCache::default();
+        let source_backed = cache.highlight(&file, "base16-ocean.dark");
+        let context = &source_backed[0][0];
+        assert_ne!(context.deletion, context.addition);
+        assert_eq!(
+            context
+                .deletion
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|token| token.text.as_str())
+                .collect::<String>(),
+            "same"
+        );
+        assert_eq!(
+            context
+                .addition
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|token| token.text.as_str())
+                .collect::<String>(),
+            "same"
+        );
+
+        file.set_sources(FileSourceSnapshots::default());
+        let fragment = cache.highlight(&file, "base16-ocean.dark");
+        assert_eq!(fragment[0][0].deletion, fragment[0][0].addition);
+    }
+
+    #[test]
+    fn complete_source_metadata_uses_absolute_hunk_line_indexes() {
+        let mut file = parse_patch(
+            "diff --git a/complete.rs b/complete.rs\n--- a/complete.rs\n+++ b/complete.rs\n@@ -2,2 +2,2 @@\n same\n-old\n+new\n",
+            "complete-source",
+            "complete-source",
+            ChangesetSource::Patch {
+                label: "complete-source".into(),
+            },
+        )
+        .unwrap()
+        .files
+        .remove(0);
+        file.flags.partial = false;
+        file.set_sources(FileSourceSnapshots {
+            old: Some(SourceSnapshot::new(
+                "prefix\nsame\nold\n".into(),
+                SourceOrigin::Revision {
+                    revision: "HEAD".into(),
+                },
+                true,
+            )),
+            new: Some(SourceSnapshot::new(
+                "prefix\nsame\nnew\n".into(),
+                SourceOrigin::WorkingTree,
+                true,
+            )),
+        });
+
+        let highlighted = HighlightCache::default().highlight(&file, "base16-ocean.dark");
+        let text = |line: &HighlightedLine| {
+            line.iter()
+                .map(|token| token.text.as_str())
+                .collect::<String>()
+        };
+        assert_eq!(text(highlighted[0][0].deletion.as_ref().unwrap()), "same");
+        assert_eq!(text(highlighted[0][1].deletion.as_ref().unwrap()), "old");
+        assert_eq!(text(highlighted[0][2].addition.as_ref().unwrap()), "new");
     }
 }
