@@ -15,7 +15,7 @@ pub enum ExtensionVcsOperationKind {
 
 /// Callback set declared for one operation. `load` is implied by registration.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct ExtensionVcsOperationRegistration {
     pub watch_signature: bool,
     pub watch_plan: bool,

@@ -548,6 +548,25 @@ pub struct HandshakeResponse {
     pub registrations: Vec<Registration>,
 }
 
+/// Lifecycle event names exposed by Hunk's public `on(event, handler)` contract.
+pub const LIFECYCLE_EVENT_NAMES: &[&str] = &[
+    "startup",
+    "changeset_loaded",
+    "command_executed",
+    "selection_changed",
+    "file_viewed",
+    "hunk_viewed",
+    "filter_changed",
+    "theme_changed",
+    "layout_changed",
+    "watch_reload_pending",
+    "note_created",
+    "note_edited",
+    "note_changed",
+    "session_reload",
+    "shutdown",
+];
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Registration {
@@ -575,6 +594,10 @@ pub enum Registration {
     EventSubscription {
         names: Vec<String>,
     },
+    /// Open-name extension-to-extension event-bus subscriptions.
+    CustomEventSubscription {
+        names: Vec<String>,
+    },
     /// Custom event emitted while the extension factory was producing its handshake.
     PendingCustomEvent {
         name: String,
@@ -598,6 +621,9 @@ impl Registration {
             Self::KeyboardMode(value) => format!("keyboard-mode:{}", value.id),
             Self::LineHighlighter { id } => format!("line-highlighter:{id}"),
             Self::EventSubscription { names } => format!("event-subscription:{}", names.join(",")),
+            Self::CustomEventSubscription { names } => {
+                format!("custom-event-subscription:{}", names.join(","))
+            }
             Self::PendingCustomEvent { name, .. } => format!("pending-custom-event:{name}"),
         }
     }
@@ -616,6 +642,7 @@ impl Registration {
             Self::KeyboardMode(_) => Capability::KeyboardModes,
             Self::LineHighlighter { .. } => Capability::LineHighlighters,
             Self::EventSubscription { .. } => Capability::Events,
+            Self::CustomEventSubscription { .. } => Capability::Events,
             Self::PendingCustomEvent { .. } => Capability::Events,
         }
     }

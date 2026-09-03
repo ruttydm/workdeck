@@ -12,6 +12,10 @@ runtime architecture into Rust:
 - `workdeck-tui` owns the committed pane/command/mode/file-view/highlighter registries and dispatches
   lifecycle and custom events only after the review context exists.
 
+Lifecycle and extension-bus subscriptions are separate declarations. The lifecycle namespace is
+the exact closed set published by pinned Hunk; custom subscriptions retain Hunk's open nonblank
+string contract, including spaces and Unicode names.
+
 Native manifests replace inferred source-file identity for execution. The legacy
 `derive_extension_id` helper remains for migration and inventory: `foo.ts` and `foo/index.ts` map to
 `foo`, including Node path's observable bare `index.ts` result. A loaded process retains its

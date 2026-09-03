@@ -62,7 +62,15 @@ A soft reload cancels the visible request and the complete queue before replacem
 
 ## Events
 
-Extensions declare every subscribed event in one `EventSubscription` registration. The host queues `workdeck/event` in extension load order with immutable review snapshots and a committed event-context snapshot, then returns to Ratatui without waiting for a subprocess. Each extension has one chronological request queue shared by events and commands; slow handlers cannot stall input, rendering, or other extensions, while events and commands observed by one extension retain their original order. That context carries the review working directory and the owning extension's currently open local pane IDs; `sidebars` is the exact state alias for `panes`. Native callbacks request notifications, pane changes, navigation, dialogs, and further events by returning their corresponding declarative host actions.
+Extensions declare closed-set Hunk lifecycle names in `EventSubscription` and open nonblank
+extension-bus names in `CustomEventSubscription`. The host queues `workdeck/event` in extension
+load order with immutable review snapshots and a committed event-context snapshot, then returns to
+Ratatui without waiting for a subprocess. Each extension has one chronological request queue shared
+by events and commands; slow handlers cannot stall input, rendering, or other extensions, while
+events and commands observed by one extension retain their original order. That context carries the
+review working directory and the owning extension's currently open local pane IDs; `sidebars` is the
+exact state alias for `panes`. Native callbacks request notifications, pane changes, navigation,
+dialogs, and further events by returning their corresponding declarative host actions.
 
 The provider is installed only after the review app has committed, before startup events are published. Runtime replacement installs the successor before retiring the predecessor, and cleanup is identity checked so stale teardown cannot detach the newer provider. Retirement atomically changes the registry from ready to closing before any shutdown work, making retained pane, navigation, dialog, and event capabilities inert immediately. Every process subscribed to `shutdown` receives at most one best-effort retirement notification, all retiring processes share one 250 ms deadline, and uncooperative children are terminated. Dropping the review app removes the active provider.
 

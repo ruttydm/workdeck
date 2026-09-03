@@ -1,6 +1,9 @@
 use globset::{Glob, GlobMatcher};
 use std::path::Path;
 
+/// Extensions whose syntax ownership is reserved by the built-in Hunk compatibility layer.
+pub const BUILT_IN_FILE_LANGUAGE_EXTENSIONS: &[&str] = &["mts", "cts"];
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LanguageMatcher {
     Extension(String),
@@ -38,8 +41,9 @@ impl Default for LanguageRegistry {
 
 impl LanguageRegistry {
     pub fn replace_extensions(&mut self, extensions: Vec<LanguageRegistration>) {
-        let built_in = ["mts", "cts"]
-            .into_iter()
+        let built_in = BUILT_IN_FILE_LANGUAGE_EXTENSIONS
+            .iter()
+            .copied()
             .map(|extension| LanguageRegistration {
                 matcher: LanguageMatcher::Extension(extension.into()),
                 language: "typescript".into(),

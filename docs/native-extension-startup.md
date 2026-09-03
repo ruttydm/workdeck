@@ -38,6 +38,11 @@ stripped of terminal control sequences, reduced to its first physical line, trim
 failed, `merge_startup_notices` borrows the original slice so an unchanged reload preserves its
 allocation and identity.
 
+Syntactically valid declarations can still collide while joining the shared session. Those
+application issues use stable `extension:apply:<extension-id>:<index>` keys on first launch and the
+same attributed warning text after an in-session trust reload. The accepted declaration set is the
+single authority for both the VCS catalog and Ratatui registries.
+
 Ratatui presents startup notices on its ordinary footer row before buffered runtime extension
 notifications. Each notice has a complete timed presentation window and never changes review
 geometry.

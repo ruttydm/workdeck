@@ -1,5 +1,6 @@
 //! Subprocess host for trusted native Workdeck extensions.
 
+mod extension_application;
 mod extension_discovery;
 mod extension_document_reader;
 mod extension_loading;
@@ -18,6 +19,7 @@ mod runtime_boundary;
 mod startup;
 mod synchronous_callbacks;
 
+pub use extension_application::*;
 pub use extension_discovery::*;
 pub use extension_document_reader::*;
 pub use extension_loading::*;
@@ -544,6 +546,72 @@ impl Drop for ExtensionConnection {
             self.registry.set_phase(ExtensionEventBusPhase::Closed);
         }
     }
+}
+
+/// Validate the identity invariants that Serde's typed transform response cannot express.
+///
+/// All renderer-critical object/array/number fields are required by the Rust model itself. The
+/// invocation-local file id remains semantic: empty or duplicate values would corrupt selection,
+/// note targeting, and keyed extension state just as duplicate `DiffFile.id` values do in Hunk.
+pub fn validate_transformed_changeset(changeset: &Changeset) -> Result<(), String> {
+    let mut claimed_ids = BTreeSet::new();
+    for (index, file) in changeset.files.iter().enumerate() {
+        if file.runtime_id.is_empty() {
+            return Err(format!("files[{index}].id is not a non-empty string"));
+        }
+        if !claimed_ids.insert(file.runtime_id.as_str()) {
+            return Err(format!("duplicate file id {:?}", file.runtime_id));
+        }
+    }
+    Ok(())
+}
+
+fn decode_transform_response(value: Value) -> Result<Changeset, String> {
+    let response: TransformResponse =
+        serde_json::from_value(value).map_err(|error| error.to_string())?;
+    validate_transformed_changeset(&response.changeset)?;
+    Ok(response.changeset)
+}
+
+fn settle_transform_attempt(
+    extension_id: &str,
+    notifications: &ExtensionNotificationHub,
+    previous: Changeset,
+    attempt: Result<Value, String>,
+) -> Changeset {
+    let value = match attempt {
+        Ok(value) => value,
+        Err(error) => {
+            notifications.notify(
+                format!("Extension {extension_id} failed transforming the changeset • {error}"),
+                ExtensionNotifyType::Warning,
+            );
+            return previous;
+        }
+    };
+    match decode_transform_response(value) {
+        Ok(changeset) => changeset,
+        Err(error) => {
+            notifications.notify(
+                format!(
+                    "Extension {extension_id} returned an invalid changeset ({error}) • keeping the previous one"
+                ),
+                ExtensionNotifyType::Warning,
+            );
+            previous
+        }
+    }
+}
+
+fn changeset_transform_ids(handshake: &HandshakeResponse) -> Vec<String> {
+    handshake
+        .registrations
+        .iter()
+        .filter_map(|registration| match registration {
+            Registration::ChangesetTransform { id } => Some(id.clone()),
+            _ => None,
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1504,37 +1572,27 @@ impl LoadedExtension {
         Ok(execution)
     }
 
-    pub fn apply_changeset_transforms(
-        &mut self,
-        mut changeset: Changeset,
-    ) -> Result<Changeset, HostError> {
-        let transforms = self
-            .handshake
-            .registrations
-            .iter()
-            .filter_map(|registration| match registration {
-                Registration::ChangesetTransform { id } => Some(id.clone()),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
+    pub fn apply_changeset_transforms(&mut self, mut changeset: Changeset) -> Changeset {
+        let transforms = changeset_transform_ids(&self.handshake);
         for transform_id in transforms {
-            let value = self.request(
-                "workdeck/changeset/transform",
-                TransformRequest {
-                    transform_id,
-                    changeset,
-                },
-                Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
-            )?;
-            let response: TransformResponse =
-                serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
-                    id: self.manifest.id.clone(),
-                    kind: "changeset transform",
-                    message: error.to_string(),
-                })?;
-            changeset = response.changeset;
+            let attempt = self
+                .request(
+                    "workdeck/changeset/transform",
+                    TransformRequest {
+                        transform_id,
+                        changeset: changeset.clone(),
+                    },
+                    Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+                )
+                .map_err(|error| error.to_string());
+            changeset = settle_transform_attempt(
+                &self.manifest.id,
+                &self.notifications,
+                changeset,
+                attempt,
+            );
         }
-        Ok(changeset)
+        changeset
     }
 
     /// Ask one registered native file view whether it accepts this immutable file snapshot.
@@ -1828,7 +1886,12 @@ impl LoadedExtension {
     #[must_use]
     pub fn subscribes_to_event(&self, name: &str) -> bool {
         self.handshake.registrations.iter().any(|registration| {
-            matches!(registration, Registration::EventSubscription { names } if names.iter().any(|candidate| candidate == name))
+            matches!(
+                registration,
+                Registration::EventSubscription { names }
+                    | Registration::CustomEventSubscription { names }
+                    if names.iter().any(|candidate| candidate == name)
+            )
         })
     }
 
@@ -2896,6 +2959,24 @@ mod tests {
         }))
         .unwrap_err();
         assert!(legacy_markers.to_string().contains("markers"));
+
+        for operations in [
+            serde_json::json!("not-an-object"),
+            serde_json::json!([]),
+            serde_json::json!({ "working-tree-diff": { "load": "not-a-boolean" } }),
+        ] {
+            let malformed = serde_json::from_value::<HandshakeResponse>(serde_json::json!({
+                "extension_api_version": API_VERSION,
+                "extension_version": "1.0.0",
+                "registrations": [{
+                    "kind": "vcs-adapter",
+                    "id": "fossil",
+                    "name": "Fossil",
+                    "operations": operations
+                }]
+            }));
+            assert!(malformed.is_err());
+        }
     }
 
     #[test]
@@ -3350,7 +3431,7 @@ mod tests {
             capabilities: vec![workdeck_extension_api::Capability::Events],
             description: None,
         };
-        let response = |names: &[&str]| HandshakeResponse {
+        let lifecycle_response = |names: &[&str]| HandshakeResponse {
             extension_api_version: API_VERSION,
             extension_version: "1.0.0".into(),
             registrations: vec![Registration::EventSubscription {
@@ -3360,13 +3441,174 @@ mod tests {
         assert!(
             validate_registrations(
                 &manifest,
-                &response(&["selection_changed", "review-triage:open"])
+                &lifecycle_response(&["selection_changed", "shutdown"])
             )
             .is_ok()
         );
-        assert!(validate_registrations(&manifest, &response(&[])).is_err());
-        assert!(validate_registrations(&manifest, &response(&["same", "same"])).is_ok());
-        assert!(validate_registrations(&manifest, &response(&["bad name"])).is_ok());
-        assert!(validate_registrations(&manifest, &response(&[" "])).is_err());
+        assert!(validate_registrations(&manifest, &lifecycle_response(&[])).is_err());
+        for unknown in ["Startup", "changesetLoaded", "review-triage:open", "", " "] {
+            assert!(
+                validate_registrations(&manifest, &lifecycle_response(&[unknown])).is_err(),
+                "{unknown:?}"
+            );
+        }
+
+        let custom_response = |names: &[&str]| HandshakeResponse {
+            extension_api_version: API_VERSION,
+            extension_version: "1.0.0".into(),
+            registrations: vec![Registration::CustomEventSubscription {
+                names: names.iter().map(|name| (*name).into()).collect(),
+            }],
+        };
+        assert!(
+            validate_registrations(
+                &manifest,
+                &custom_response(&["selection_changed", "review-triage:open", "bad name"])
+            )
+            .is_ok()
+        );
+        assert!(validate_registrations(&manifest, &custom_response(&[])).is_err());
+        assert!(validate_registrations(&manifest, &custom_response(&["same", "same"])).is_ok());
+        assert!(validate_registrations(&manifest, &custom_response(&[" "])).is_err());
+    }
+
+    fn transform_fixture() -> Changeset {
+        workdeck_diff::parse_patch(
+            concat!(
+                "diff --git a/a.rs b/a.rs\n",
+                "--- a/a.rs\n",
+                "+++ b/a.rs\n",
+                "@@ -1 +1 @@\n",
+                "-old a\n",
+                "+new a\n",
+                "diff --git a/b.rs b/b.rs\n",
+                "--- a/b.rs\n",
+                "+++ b/b.rs\n",
+                "@@ -1 +1 @@\n",
+                "-old b\n",
+                "+new b\n",
+            ),
+            "transform-fixture",
+            "Transform fixture",
+            workdeck_core::ChangesetSource::Patch {
+                label: "fixture".into(),
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn transform_response_validation_rejects_every_renderer_critical_near_miss() {
+        let original = transform_fixture();
+        let mut duplicate = original.clone();
+        duplicate.files[1].runtime_id = duplicate.files[0].runtime_id.clone();
+        let mut empty = original.clone();
+        empty.files[0].runtime_id.clear();
+
+        for value in [
+            Value::Null,
+            serde_json::json!({}),
+            serde_json::json!({ "changeset": null }),
+            serde_json::json!({ "changeset": { "files": null } }),
+            serde_json::json!({ "changeset": { "files": [null] } }),
+            serde_json::to_value(TransformResponse {
+                changeset: duplicate,
+            })
+            .unwrap(),
+            serde_json::to_value(TransformResponse { changeset: empty }).unwrap(),
+        ] {
+            assert!(decode_transform_response(value).is_err());
+        }
+
+        let mut malformed = serde_json::to_value(TransformResponse {
+            changeset: original,
+        })
+        .unwrap();
+        malformed["changeset"]["files"][0]["stats"] = Value::Null;
+        assert!(decode_transform_response(malformed).is_err());
+    }
+
+    #[test]
+    fn valid_transform_responses_can_filter_reorder_and_compose() {
+        let mut first = transform_fixture();
+        first.files.reverse();
+        first.title = "reordered".into();
+        let first = decode_transform_response(
+            serde_json::to_value(TransformResponse { changeset: first }).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(first.files[0].path, "b.rs");
+
+        let mut second = first;
+        second.files.truncate(1);
+        second.title = "filtered".into();
+        let second = decode_transform_response(
+            serde_json::to_value(TransformResponse { changeset: second }).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(second.title, "filtered");
+        assert_eq!(second.files.len(), 1);
+        assert_eq!(second.files[0].path, "b.rs");
+    }
+
+    #[test]
+    fn failed_and_invalid_transform_attempts_keep_the_previous_value_and_warn() {
+        let original = transform_fixture();
+        let hub = ExtensionNotificationHub::new();
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let capture = Arc::clone(&received);
+        let _subscription = hub.subscribe(move |notice| capture.lock().unwrap().push(notice));
+
+        let after_failure = settle_transform_attempt(
+            "broken",
+            &hub,
+            original.clone(),
+            Err("sync or async failure".into()),
+        );
+        assert_eq!(after_failure, original);
+        let after_invalid = settle_transform_attempt(
+            "near-miss",
+            &hub,
+            after_failure,
+            Ok(serde_json::json!({ "changeset": { "files": null } })),
+        );
+        assert_eq!(after_invalid, original);
+
+        let messages = received.lock().unwrap();
+        assert_eq!(messages.len(), 2);
+        assert!(messages[0].message.contains("Extension broken failed"));
+        assert!(
+            messages[1]
+                .message
+                .contains("Extension near-miss returned an invalid changeset")
+        );
+        assert!(
+            messages
+                .iter()
+                .all(|notice| notice.notification_type == ExtensionNotifyType::Warning)
+        );
+    }
+
+    #[test]
+    fn absent_transforms_leave_the_input_untouched_and_declared_order_is_stable() {
+        let mut handshake = HandshakeResponse {
+            extension_api_version: API_VERSION,
+            extension_version: "1.0.0".into(),
+            registrations: Vec::new(),
+        };
+        assert!(changeset_transform_ids(&handshake).is_empty());
+
+        handshake.registrations.extend([
+            Registration::ChangesetTransform { id: "first".into() },
+            Registration::Theme(workdeck_extension_api::ThemeRegistration {
+                id: "ignored".into(),
+                base: None,
+                colors: BTreeMap::new(),
+            }),
+            Registration::ChangesetTransform {
+                id: "second".into(),
+            },
+        ]);
+        assert_eq!(changeset_transform_ids(&handshake), ["first", "second"]);
     }
 }

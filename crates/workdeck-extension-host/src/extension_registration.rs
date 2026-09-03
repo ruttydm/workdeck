@@ -2,9 +2,9 @@
 
 use workdeck_diff::validate_language_glob;
 use workdeck_extension_api::{
-    ExtensionManifest, FileLanguageMatcher, HandshakeResponse, Registration, extension_pane_size,
-    is_reserved_extension_cli_command_name, is_valid_extension_cli_command_name,
-    is_vertical_pane_placement, parse_key_chord,
+    ExtensionManifest, FileLanguageMatcher, HandshakeResponse, LIFECYCLE_EVENT_NAMES, Registration,
+    extension_pane_size, is_reserved_extension_cli_command_name,
+    is_valid_extension_cli_command_name, is_vertical_pane_placement, parse_key_chord,
 };
 
 /// Validated provider detection returned across the native process boundary.
@@ -237,8 +237,21 @@ pub fn normalize_and_validate_registrations(
                 }
             }
             Registration::EventSubscription { names } => {
+                if names.is_empty() {
+                    return Err("event subscriptions require at least one event name".into());
+                }
+                if let Some(name) = names
+                    .iter()
+                    .find(|name| !LIFECYCLE_EVENT_NAMES.contains(&name.as_str()))
+                {
+                    return Err(format!(
+                        "unknown Workdeck extension lifecycle event: {name}"
+                    ));
+                }
+            }
+            Registration::CustomEventSubscription { names } => {
                 if names.is_empty() || names.iter().any(|name| name.trim().is_empty()) {
-                    return Err("event subscriptions require non-empty event names".into());
+                    return Err("custom event subscriptions require non-empty event names".into());
                 }
             }
             Registration::PendingCustomEvent { name, .. } => {
@@ -581,7 +594,10 @@ mod tests {
                 id: "matches".into(),
             },
             Registration::EventSubscription {
-                names: vec!["selection_changed".into(), "summary ready 🧭".into()],
+                names: vec!["selection_changed".into()],
+            },
+            Registration::CustomEventSubscription {
+                names: vec!["summary ready 🧭".into()],
             },
             Registration::PendingCustomEvent {
                 name: "summary ready 🧭".into(),

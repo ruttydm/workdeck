@@ -38,8 +38,8 @@ use workdeck_extension_api::{
 };
 use workdeck_extension_host::{
     LoadStartupExtensionsOptions, LoadedExtension, TrustDecision, TrustStore,
-    create_extension_load_notices, discover_manifests_with_config, load_startup_extensions,
-    native_vcs_adapters,
+    create_extension_apply_notices, create_extension_load_notices, discover_manifests_with_config,
+    load_startup_extensions, resolve_loaded_extension_registrations, resolved_native_vcs_adapters,
 };
 use workdeck_review::{
     CommentTargetInput, LayoutMode, ReviewComment, build_live_comment, find_diff_file_by_path,
@@ -2013,7 +2013,9 @@ fn prepare_review_extensions(
 }
 
 fn compose_review_vcs_catalog(extensions: &[LoadedExtension]) -> VcsCatalog {
-    extend_vcs_catalog(bundled_vcs_catalog(), native_vcs_adapters(extensions))
+    let base = bundled_vcs_catalog();
+    let resolution = resolve_loaded_extension_registrations(extensions, base);
+    extend_vcs_catalog(base, resolved_native_vcs_adapters(extensions, &resolution))
 }
 
 fn select_review_vcs_adapter(
@@ -2514,9 +2516,23 @@ fn apply_review_extensions(
     mut changeset: Changeset,
     extensions: &mut [LoadedExtension],
 ) -> Result<Changeset> {
+    let resolution = resolve_loaded_extension_registrations(extensions, bundled_vcs_catalog());
     let file_languages = extensions
         .iter()
-        .flat_map(|extension| &extension.handshake.registrations)
+        .enumerate()
+        .flat_map(|(extension_index, extension)| {
+            let resolution = &resolution;
+            extension
+                .handshake
+                .registrations
+                .iter()
+                .enumerate()
+                .filter_map(move |(registration_index, registration)| {
+                    resolution
+                        .accepts(extension_index, registration_index)
+                        .then_some(registration)
+                })
+        })
         .filter_map(|registration| match registration {
             Registration::FileLanguage(registration) => Some(LanguageRegistration {
                 matcher: match &registration.matcher {
@@ -2544,14 +2560,7 @@ fn apply_review_extensions(
         file.language = (language != "text").then_some(language);
     }
     for extension in extensions.iter_mut() {
-        changeset = extension
-            .apply_changeset_transforms(changeset)
-            .with_context(|| {
-                format!(
-                    "native extension {} failed to transform the review",
-                    extension.manifest.id
-                )
-            })?;
+        changeset = extension.apply_changeset_transforms(changeset);
     }
     changeset.refresh_review_identities();
     Ok(changeset)
@@ -2625,7 +2634,10 @@ fn load_review_extensions_with_notifications(
         notifications: Some(notifications.clone()),
         previous_load: None,
     })?;
-    let startup_notices = create_extension_load_notices(&result.issues);
+    let mut startup_notices = create_extension_load_notices(&result.issues);
+    let resolution =
+        resolve_loaded_extension_registrations(&result.extensions, bundled_vcs_catalog());
+    startup_notices.extend(create_extension_apply_notices(&resolution.issues));
     Ok((
         result.extensions,
         result.pending_trust_repo_root,

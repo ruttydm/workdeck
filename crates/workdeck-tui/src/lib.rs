@@ -173,9 +173,9 @@ use workdeck_extension_host::{
     KeyboardModeControllerState, LineHighlightRefreshResult, LineHighlightsController,
     LoadedExtension, RegisteredFileView, RegisteredKeyboardMode, RegisteredLineHighlighter,
     create_file_view_input, create_file_view_input_snapshot, format_keyboard_mode_failure,
-    reconcile_file_view_selections, registered_file_view_key, select_file_view,
-    session_keyboard_mode_display_title, session_keyboard_mode_status_hint,
-    session_keyboard_mode_still_valid,
+    reconcile_file_view_selections, registered_file_view_key,
+    resolve_loaded_extension_registrations, select_file_view, session_keyboard_mode_display_title,
+    session_keyboard_mode_status_hint, session_keyboard_mode_still_valid,
 };
 use workdeck_review::{
     CommentAnchor, ExpandedSourceError, ExpandedSourceStatus, LayoutMode, PlannedFileViewRow,
@@ -188,6 +188,7 @@ use workdeck_review::{
     review_gap_source_for_file, review_leading_gap, review_line_anchor, review_trailing_gap,
 };
 use workdeck_session::{ReviewSessionServer, default_discovery_directory};
+use workdeck_vcs::bundled_vcs_catalog;
 
 #[derive(Debug, Clone)]
 pub struct ReviewOptions {
@@ -447,6 +448,7 @@ struct ExtensionPaneRuntime {
     keyboard_modes: Vec<LiveKeyboardModeRegistration>,
     file_views: Vec<LiveFileViewRegistration>,
     line_highlights: LineHighlightsController,
+    file_languages: Vec<LanguageRegistration>,
     file_view_selections: FileViewSelectionState,
     file_view_layouts: BTreeMap<String, CachedFileViewLayout>,
     file_view_component_expanded: BTreeSet<FileViewComponentStateKey>,
@@ -492,14 +494,21 @@ struct ExtensionTrustPromptHits {
 
 impl ExtensionPaneRuntime {
     fn new(extensions: Vec<LoadedExtension>, files: &[DiffFile]) -> Self {
+        let resolution = resolve_loaded_extension_registrations(&extensions, bundled_vcs_catalog());
         let mut pane_candidates = Vec::new();
         let mut commands = Vec::new();
         let mut keyboard_modes = Vec::new();
         let mut file_views = Vec::new();
         let mut line_highlighters = Vec::new();
+        let mut file_languages = Vec::new();
         let mut open = BTreeSet::new();
         for (extension_index, extension) in extensions.iter().enumerate() {
-            for registration in &extension.handshake.registrations {
+            for (registration_index, registration) in
+                extension.handshake.registrations.iter().enumerate()
+            {
+                if !resolution.accepts(extension_index, registration_index) {
+                    continue;
+                }
                 match registration {
                     Registration::Pane(pane) => {
                         pane_candidates.push((
@@ -550,6 +559,26 @@ impl ExtensionPaneRuntime {
                             highlighter_id: id.clone(),
                         });
                     }
+                    Registration::FileLanguage(registration) => {
+                        file_languages.push(LanguageRegistration {
+                            matcher: match &registration.matcher {
+                                FileLanguageMatcher::Extension { value } => {
+                                    LanguageMatcher::Extension(value.clone())
+                                }
+                                FileLanguageMatcher::Filename { value } => {
+                                    LanguageMatcher::Filename(value.clone())
+                                }
+                                FileLanguageMatcher::Glob { value, target } => {
+                                    LanguageMatcher::Glob {
+                                        value: value.clone(),
+                                        target_path: *target == FileLanguageGlobTarget::Path,
+                                    }
+                                }
+                            },
+                            language: registration.language.clone(),
+                            reserved: false,
+                        });
+                    }
                     _ => {}
                 }
             }
@@ -592,6 +621,7 @@ impl ExtensionPaneRuntime {
                 files.iter().map(|file| file.runtime_id.clone()),
                 line_highlighters,
             ),
+            file_languages,
             open,
             ..Self::default()
         }
@@ -1010,13 +1040,7 @@ impl ReviewApp {
         }
         let mut changeset = changeset;
         self.apply_extension_file_languages(&mut changeset);
-        let changeset = match self.apply_extension_transforms(changeset) {
-            Ok(changeset) => changeset,
-            Err(error) => {
-                self.status = Some(format!("extension reload failed: {error}"));
-                return;
-            }
-        };
+        let changeset = self.apply_extension_transforms(changeset);
         self.extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -1083,30 +1107,7 @@ impl ReviewApp {
             .extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let file_languages = runtime
-            .extensions
-            .iter()
-            .flat_map(|extension| &extension.handshake.registrations)
-            .filter_map(|registration| match registration {
-                Registration::FileLanguage(registration) => Some(LanguageRegistration {
-                    matcher: match &registration.matcher {
-                        FileLanguageMatcher::Extension { value } => {
-                            LanguageMatcher::Extension(value.clone())
-                        }
-                        FileLanguageMatcher::Filename { value } => {
-                            LanguageMatcher::Filename(value.clone())
-                        }
-                        FileLanguageMatcher::Glob { value, target } => LanguageMatcher::Glob {
-                            value: value.clone(),
-                            target_path: *target == FileLanguageGlobTarget::Path,
-                        },
-                    },
-                    language: registration.language.clone(),
-                    reserved: false,
-                }),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
+        let file_languages = runtime.file_languages.clone();
         drop(runtime);
         let mut language_registry = LanguageRegistry::default();
         language_registry.replace_extensions(file_languages);
@@ -1116,16 +1117,16 @@ impl ReviewApp {
         }
     }
 
-    fn apply_extension_transforms(&self, mut changeset: Changeset) -> Result<Changeset> {
+    fn apply_extension_transforms(&self, mut changeset: Changeset) -> Changeset {
         let mut runtime = self
             .extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         for extension in &mut runtime.extensions {
-            changeset = extension.apply_changeset_transforms(changeset)?;
+            changeset = extension.apply_changeset_transforms(changeset);
         }
         changeset.refresh_review_identities();
-        Ok(changeset)
+        changeset
     }
 
     pub fn set_status(&mut self, status: impl Into<String>) {

@@ -329,9 +329,12 @@ fn registration_and_manifest_capabilities_cover_the_complete_public_surface() {
     assert!(commands.contains(&("toggle", vec!["y".into()])));
     assert!(commands.contains(&("mark", vec!["x".into()])));
     let Registration::EventSubscription { names } = &registrations[6] else {
-        panic!("event subscription is registered last");
+        panic!("lifecycle event subscription is registered before custom events");
     };
-    assert_eq!(names.len(), 9);
+    assert_eq!(names.len(), 7);
+    let Registration::CustomEventSubscription { names } = &registrations[7] else {
+        panic!("custom event subscription is registered last");
+    };
     assert!(names.contains(&"review-triage:open".into()));
     assert!(names.contains(&"review triage ready 🧭".into()));
     assert_eq!(

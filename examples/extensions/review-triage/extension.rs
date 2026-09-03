@@ -163,9 +163,10 @@ pub fn registrations() -> Vec<Registration> {
                 "note_created".into(),
                 "filter_changed".into(),
                 "watch_reload_pending".into(),
-                "review-triage:open".into(),
-                FACTORY_EVENT.into(),
             ],
+        },
+        Registration::CustomEventSubscription {
+            names: vec!["review-triage:open".into(), FACTORY_EVENT.into()],
         },
     ]
 }

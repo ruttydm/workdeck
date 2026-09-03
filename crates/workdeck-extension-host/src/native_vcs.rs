@@ -1,6 +1,8 @@
 //! Adapt native extension registrations into the provider-neutral VCS catalog.
 
-use crate::{HostError, LoadedExtension, NativeVcsDetectionNormalizer};
+use crate::{
+    ExtensionRegistrationResolution, HostError, LoadedExtension, NativeVcsDetectionNormalizer,
+};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -30,22 +32,38 @@ const NATIVE_VCS_TIMEOUT: Duration = Duration::from_millis(DEFAULT_REQUEST_TIMEO
 /// Convert every VCS declaration from successfully loaded native extensions in registration order.
 #[must_use]
 pub fn native_vcs_adapters(extensions: &[LoadedExtension]) -> Vec<VcsAdapter> {
-    extensions
-        .iter()
-        .flat_map(|extension| {
-            extension
-                .handshake
-                .registrations
-                .iter()
-                .filter_map(|registration| match registration {
-                    Registration::VcsAdapter(adapter) => {
-                        Some(native_vcs_adapter(extension.clone(), adapter.clone()))
-                    }
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect()
+    native_vcs_adapters_filtered(extensions, |_, _| true)
+}
+
+/// Convert only the VCS declarations accepted by the shared application resolver.
+#[must_use]
+pub fn resolved_native_vcs_adapters(
+    extensions: &[LoadedExtension],
+    resolution: &ExtensionRegistrationResolution,
+) -> Vec<VcsAdapter> {
+    native_vcs_adapters_filtered(extensions, |extension_index, registration_index| {
+        resolution.accepts(extension_index, registration_index)
+    })
+}
+
+fn native_vcs_adapters_filtered(
+    extensions: &[LoadedExtension],
+    mut accepts: impl FnMut(usize, usize) -> bool,
+) -> Vec<VcsAdapter> {
+    let mut adapters = Vec::new();
+    for (extension_index, extension) in extensions.iter().enumerate() {
+        for (registration_index, registration) in
+            extension.handshake.registrations.iter().enumerate()
+        {
+            if !accepts(extension_index, registration_index) {
+                continue;
+            }
+            if let Registration::VcsAdapter(adapter) = registration {
+                adapters.push(native_vcs_adapter(extension.clone(), adapter.clone()));
+            }
+        }
+    }
+    adapters
 }
 
 fn native_vcs_adapter(
