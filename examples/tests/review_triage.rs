@@ -331,8 +331,9 @@ fn registration_and_manifest_capabilities_cover_the_complete_public_surface() {
     let Registration::EventSubscription { names } = &registrations[6] else {
         panic!("event subscription is registered last");
     };
-    assert_eq!(names.len(), 8);
+    assert_eq!(names.len(), 9);
     assert!(names.contains(&"review-triage:open".into()));
+    assert!(names.contains(&"review triage ready 🧭".into()));
     assert_eq!(
         required_capabilities(),
         [
@@ -368,6 +369,7 @@ fn native_loader_isolates_a_failed_process_and_keeps_loading_in_candidate_order(
     ];
     let mut result = load_extensions(LoadExtensionsOptions {
         candidates: &candidates,
+        cwd: broken_directory.path(),
         all_candidates: None,
         previous_load: None,
         host_version: "test",
@@ -419,6 +421,7 @@ fn invalid_handshake_discards_its_valid_prefix_and_keeps_loading_other_extension
     ];
     let mut result = load_extensions(LoadExtensionsOptions {
         candidates: &candidates,
+        cwd: broken_directory.path(),
         all_candidates: None,
         previous_load: None,
         host_version: "test",
@@ -456,6 +459,7 @@ fn native_loader_awaits_handshake_and_rejects_a_late_success_after_retirement() 
     }];
     let prepared = prepare_extension_load(LoadExtensionsOptions {
         candidates: &candidates,
+        cwd: directory.path(),
         all_candidates: None,
         previous_load: None,
         host_version: "test",
@@ -861,6 +865,22 @@ fn subprocess_protocol_preserves_state_across_every_callback_boundary() {
         &closed.actions[..],
         [ExtensionHostAction::ClosePane { .. }]
     ));
+}
+
+#[test]
+fn ratatui_replays_factory_events_after_every_native_subscription_is_registered() {
+    let (_directory, manifest) = staged_extension();
+    let extension = LoadedExtension::spawn(&manifest, "test-host").unwrap();
+    let mut app =
+        ReviewApp::new_with_extensions(changeset(), ReviewOptions::default(), vec![extension]);
+    assert!(app.has_pending_extension_events());
+    settle_extension_commands(&mut app);
+
+    let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+    terminal
+        .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+        .unwrap();
+    assert!(rendered_text(&terminal).contains("factory event replayed: 7"));
 }
 
 #[test]

@@ -11,10 +11,58 @@ const MANIFEST_NAME: &str = "workdeck-extension.toml";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ManifestOrigin {
+    Bundled,
     Explicit,
     UserConfig,
     Global,
     Repository,
+}
+
+impl ManifestOrigin {
+    /// Public Hunk-compatible provenance label for diagnostics and registrations.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Bundled => "bundled",
+            Self::Explicit => "flag",
+            Self::UserConfig => "config",
+            Self::Global => "global",
+            Self::Repository => "repo",
+        }
+    }
+}
+
+/// Identity of one loaded native extension and the source that won its namespace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtensionMetadata {
+    pub id: String,
+    pub source_path: PathBuf,
+    pub origin: ManifestOrigin,
+}
+
+/// Derive the stable legacy id used when inventorying a Hunk entry file.
+///
+/// `foo.ts` and `foo/index.ts` both resolve to `foo`; native execution still requires an
+/// explicit manifest id and never executes the legacy source.
+#[must_use]
+pub fn derive_extension_id(entry_path: &Path) -> String {
+    let stem = entry_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    if stem != "index" {
+        return stem.to_owned();
+    }
+    let parent = entry_path.parent();
+    if parent.is_some_and(|parent| parent.as_os_str().is_empty() || parent == Path::new(".")) {
+        return ".".into();
+    }
+    parent
+        .and_then(Path::file_name)
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or(stem)
+        .to_owned()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -274,6 +322,27 @@ fn normalize_path(path: &Path) -> PathBuf {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn derives_stable_legacy_ids_for_single_files_and_index_folders() {
+        assert_eq!(derive_extension_id(Path::new("foo.ts")), "foo");
+        assert_eq!(
+            derive_extension_id(Path::new("nested/foo.test.ts")),
+            "foo.test"
+        );
+        assert_eq!(derive_extension_id(Path::new("foo/index.ts")), "foo");
+        assert_eq!(derive_extension_id(Path::new("index.ts")), ".");
+        assert_eq!(derive_extension_id(Path::new("/index.ts")), "index");
+    }
+
+    #[test]
+    fn origin_labels_cover_the_complete_public_provenance_contract() {
+        assert_eq!(ManifestOrigin::Bundled.label(), "bundled");
+        assert_eq!(ManifestOrigin::Explicit.label(), "flag");
+        assert_eq!(ManifestOrigin::UserConfig.label(), "config");
+        assert_eq!(ManifestOrigin::Global.label(), "global");
+        assert_eq!(ManifestOrigin::Repository.label(), "repo");
+    }
 
     fn manifest(path: &Path, id: &str) -> PathBuf {
         fs::create_dir_all(path).unwrap();

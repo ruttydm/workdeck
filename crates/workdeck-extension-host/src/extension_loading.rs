@@ -8,7 +8,7 @@
 
 use crate::{
     EXTENSION_SHUTDOWN_TIMEOUT, ExtensionEventBusPhase, ExtensionRuntimeRegistry, HostError,
-    LoadedExtension, ManifestCandidate, ManifestOrigin,
+    LoadedExtension, ManifestCandidate, ManifestOrigin, PrevalidatedExtensionSpawn,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -109,6 +109,7 @@ pub struct ExtensionLoadResult {
     pub extensions: Vec<LoadedExtension>,
     pub issues: Vec<ExtensionLoadIssue>,
     pub notifications: ExtensionNotificationHub,
+    pub logs: crate::ExtensionLogHub,
     pub pending_trust_repo_root: Option<PathBuf>,
     pub load_state: ExtensionLoadState,
     pub control: ExtensionLoadControl,
@@ -147,6 +148,8 @@ impl PreparedExtensionLoad {
 /// Inputs for a fresh or incremental native extension load.
 pub struct LoadExtensionsOptions<'a> {
     pub candidates: &'a [ManifestCandidate],
+    /// Session working directory exposed to every extension factory.
+    pub cwd: &'a std::path::Path,
     /// Complete order represented after this pass; defaults to `candidates`.
     pub all_candidates: Option<&'a [ManifestCandidate]>,
     /// Completed prefix extended by `candidates`.
@@ -173,6 +176,7 @@ pub fn prepare_extension_load(options: LoadExtensionsOptions<'_>) -> PreparedExt
             extensions: Vec::new(),
             issues: Vec::new(),
             notifications: options.notifications.unwrap_or_default(),
+            logs: crate::ExtensionLogHub::default(),
             pending_trust_repo_root: None,
             load_state: ExtensionLoadState::default(),
             control: ExtensionLoadControl::new(),
@@ -183,6 +187,7 @@ pub fn prepare_extension_load(options: LoadExtensionsOptions<'_>) -> PreparedExt
         .all_candidates
         .unwrap_or(options.candidates)
         .to_vec();
+    result.load_state.cwd = options.cwd.to_owned();
     result.load_state.extension_configs = options.extension_configs.clone();
     result.pending_trust_repo_root = options.pending_trust_repo_root;
 
@@ -247,6 +252,7 @@ pub fn prepare_extension_load(options: LoadExtensionsOptions<'_>) -> PreparedExt
 /// Start every accepted process in order, containing all manifest, spawn, and handshake failures.
 #[must_use]
 pub fn execute_extension_load(mut prepared: PreparedExtensionLoad) -> ExtensionLoadResult {
+    let cwd = prepared.result.load_state.cwd.clone();
     for candidate in prepared.accepted {
         if prepared.result.control.phase() != ExtensionEventBusPhase::Loading {
             break;
@@ -258,13 +264,16 @@ pub fn execute_extension_load(mut prepared: PreparedExtensionLoad) -> ExtensionL
             .get(&candidate.manifest.id)
             .cloned()
             .unwrap_or_else(|| Value::Object(Default::default()));
-        match LoadedExtension::spawn_prevalidated(
-            &candidate.manifest_path,
-            &candidate.manifest,
-            &prepared.host_version,
-            prepared.result.notifications.clone(),
+        match LoadedExtension::spawn_prevalidated(PrevalidatedExtensionSpawn {
+            manifest_path: &candidate.manifest_path,
+            expected_manifest: &candidate.manifest,
+            origin: candidate.origin,
+            host_version: &prepared.host_version,
+            cwd: &cwd,
+            notifications: prepared.result.notifications.clone(),
             config,
-        ) {
+            logs: prepared.result.logs.clone(),
+        }) {
             Ok(mut extension) => {
                 if prepared.result.control.phase() == ExtensionEventBusPhase::Loading {
                     prepared.result.extensions.push(extension);
@@ -342,6 +351,7 @@ mod tests {
     ) -> LoadExtensionsOptions<'a> {
         LoadExtensionsOptions {
             candidates,
+            cwd: std::path::Path::new("."),
             all_candidates: None,
             previous_load: None,
             host_version: "test",
@@ -529,6 +539,7 @@ mod tests {
         let full = [first[0].clone(), suffix[0].clone()];
         let prepared = prepare_extension_load(LoadExtensionsOptions {
             candidates: &suffix,
+            cwd: root.path(),
             all_candidates: Some(&full),
             previous_load: Some(previous),
             host_version: "test",
@@ -558,6 +569,7 @@ mod tests {
         let notifications = ExtensionNotificationHub::new();
         let prepared = prepare_extension_load(LoadExtensionsOptions {
             candidates: &candidates,
+            cwd: root.path(),
             all_candidates: None,
             previous_load: None,
             host_version: "test",
@@ -646,6 +658,7 @@ mod tests {
         let pending = root.path().join("repo");
         let prepared = prepare_extension_load(LoadExtensionsOptions {
             candidates: &candidates,
+            cwd: root.path(),
             all_candidates: Some(&candidates),
             previous_load: None,
             host_version: "test",

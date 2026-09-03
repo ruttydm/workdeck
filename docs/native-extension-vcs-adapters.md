@@ -9,9 +9,12 @@ name, detection priority, and an explicit map of `working-tree-diff`, `revision-
 The host translates registrations into `workdeck-vcs::VcsAdapter` values and extends the bundled
 Jujutsu, Sapling, and Git catalog in declaration order. Bundled IDs remain reserved. Extension IDs
 are first-wins, use Hunk's default priority of `-100` when unspecified, and can be selected with
-`workdeck diff --vcs ID`. Automatic selection asks adapters in priority order and still chooses the
-nearest detected checkout. A detection without a usable `repoRoot` is a miss. A returned ID that
-does not match the registration is repaired to the registered ID and reported once.
+`workdeck diff --vcs ID` or `review.vcs` in TOML. Config accepts every non-empty ID before
+extensions load. Once the complete catalog exists, an unowned ID falls back to detection/default
+and produces a terminal-safe startup notice naming both IDs. Automatic selection asks adapters in
+priority order and still chooses the nearest detected checkout. A detection without a usable
+`repoRoot` is a miss. A returned ID that does not match the registration is repaired to the
+registered ID and reported once.
 
 ## Protocol
 
@@ -42,6 +45,11 @@ not cached, so a later expansion can retry. Binary and skipped-large files never
 callback. Extra one-file patches retain declared paths, former paths, untracked flags, order, and
 source capability; skipped entries retain change type, statistics, truncation, and no source
 capability.
+
+The returned `repoRoot` is authoritative for the live review and loopback session descriptor. It is
+not discarded in favor of Git/Jujutsu/Sapling rediscovery, so a custom provider can review a
+checkout whose root or metadata is invisible to the bundled adapters. Reloads keep using the
+selected native adapter while retaining the initial authoritative session root.
 
 ## Runtime ownership
 

@@ -41,23 +41,29 @@ The checker also validates invariants that a crate graph alone cannot express:
   state adapter may import `workdeck-session`;
 - native extension implementation files consume declarative extension API data and actions and may
   not import the CLI, session broker, or TUI renderer;
+- native extension declarations, loaded metadata, context cwd, notification/log hubs, provisional
+  factory events, and runtime authority cross one explicit native type boundary (see
+  [Native extension type boundary](native-extension-type-boundary.md));
 - native extension startup resolves only a canonical `workdeck-extension.toml` boundary and its
   named compiled executable; adjacent JavaScript package metadata and source modules are never
   runtime inputs; candidate namespaces are settled before startup and each failed process is
   isolated from the remaining load pass (see
   [Native extension runtime boundary](native-extension-runtime-boundary.md));
 - startup passes reuse only an unchanged cwd, candidate/config prefix, retire incompatible passes
-  before replacement startup, and surface bounded terminal-safe failures through the Ratatui
+  before replacement startup, send the exact session cwd to each factory, capture attributed stderr
+  logs, and surface bounded terminal-safe failures through the Ratatui
   footer (see [Native extension startup](native-extension-startup.md));
 - extension CLI commands use lazy stdin and ordered output leases over the host-owned JSON-RPC
   channel, and cannot retain terminal or signal authority after settlement (see
   [Native extension CLI runtime](native-extension-cli-runtime.md));
 - extension lifecycle and custom events use owned snapshots, chronological per-process queues,
-  nonblocking Ratatui polling, atomic revocation, and one bounded retirement window (see
+  factory-event replay after all registrations, nonblocking Ratatui polling, atomic revocation, and
+  one bounded retirement window (see
   [Native extension events and pane actions](native-extension-events-and-pane-actions.md));
 - extension VCS adapters are declared in the atomic handshake, translated by the host into the
   provider-neutral catalog, and share one serialized native process across initial load, exact
-  source reads, watch callbacks, reloads, and the TUI (see
+  source reads, watch callbacks, reloads, and the TUI; adapter-returned roots remain authoritative
+  for the review session (see
   [Native extension VCS adapters](native-extension-vcs-adapters.md));
 - the semantic review reducer is crate-internal and is reached through intents and
   `SemanticReviewStore` dispatch;

@@ -362,8 +362,10 @@ impl Config {
         if !matches!(self.review.mode.as_str(), "auto" | "split" | "stack") {
             bail!("review.mode must be auto, split, or stack");
         }
-        if !matches!(self.review.vcs.as_str(), "auto" | "git" | "jj" | "sl") {
-            bail!("review.vcs must be auto, git, jj, or sl");
+        // Extension-owned backends are not known until after configuration has loaded. Preserve
+        // any non-empty id here and reconcile it against the composed session catalog later.
+        if self.review.vcs.trim().is_empty() {
+            bail!("review.vcs cannot be empty");
         }
         if !matches!(self.review.cursor_line.as_str(), "row" | "number" | "off") {
             bail!("review.cursor_line must be row, number, or off");
@@ -932,6 +934,28 @@ mod tests {
     #[test]
     fn validates_default_config() {
         Config::default().validate().unwrap();
+    }
+
+    #[test]
+    fn preserves_a_non_empty_extension_owned_vcs_id() {
+        let mut config = Config::default();
+        config.review.vcs = "fossil-tools".into();
+        config.validate().unwrap();
+
+        config.review.vcs = " \t".into();
+        let error = config.validate().unwrap_err().to_string();
+        assert!(error.contains("review.vcs cannot be empty"));
+    }
+
+    #[test]
+    fn loads_an_extension_owned_vcs_id_before_the_extension_catalog_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let user_config = dir.path().join("user-config.toml");
+        let repo_config = dir.path().join("missing-repo-config.toml");
+        fs::write(&user_config, "[review]\nvcs = 'mercurial-native'\n").unwrap();
+
+        let config = Config::load_from_paths(&repo_config, Some(&user_config)).unwrap();
+        assert_eq!(config.review.vcs, "mercurial-native");
     }
 
     #[test]

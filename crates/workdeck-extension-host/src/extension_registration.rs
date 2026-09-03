@@ -241,6 +241,11 @@ pub fn normalize_and_validate_registrations(
                     return Err("event subscriptions require non-empty event names".into());
                 }
             }
+            Registration::PendingCustomEvent { name, .. } => {
+                if name.trim().is_empty() {
+                    return Err("pending custom events require non-empty event names".into());
+                }
+            }
         }
     }
     Ok(())
@@ -576,7 +581,11 @@ mod tests {
                 id: "matches".into(),
             },
             Registration::EventSubscription {
-                names: vec!["selection_changed".into(), "summary:ready".into()],
+                names: vec!["selection_changed".into(), "summary ready 🧭".into()],
+            },
+            Registration::PendingCustomEvent {
+                name: "summary ready 🧭".into(),
+                payload: serde_json::json!({ "sequence": 1 }),
             },
         ];
         let mut response = handshake(registrations);

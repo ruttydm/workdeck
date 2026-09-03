@@ -47,6 +47,7 @@ pub fn create_empty_extension_load_result(
         extensions: Vec::new(),
         issues: Vec::new(),
         notifications,
+        logs: crate::ExtensionLogHub::default(),
         pending_trust_repo_root: None,
         load_state: ExtensionLoadState {
             cwd: cwd.into(),
@@ -149,8 +150,9 @@ pub fn load_startup_extensions(
         .as_ref()
         .map_or(0, |previous| previous.load_state.candidates.len());
     let candidates_to_load = &discovery.candidates[completed_prefix..];
-    let mut result = load_extensions(LoadExtensionsOptions {
+    let result = load_extensions(LoadExtensionsOptions {
         candidates: candidates_to_load,
+        cwd: options.cwd,
         all_candidates: Some(&discovery.candidates),
         previous_load,
         host_version: options.host_version,
@@ -158,7 +160,6 @@ pub fn load_startup_extensions(
         notifications: Some(notifications),
         pending_trust_repo_root: discovery.pending_trust_repo_root,
     });
-    result.load_state.cwd = options.cwd.to_owned();
     Ok(result)
 }
 
@@ -262,8 +263,10 @@ mod tests {
         let result = load_startup_extensions(input).unwrap();
         assert!(result.extensions.is_empty());
         assert!(result.issues.is_empty());
+        assert!(result.logs.snapshot().is_empty());
         assert!(result.load_state.candidates.is_empty());
         assert_eq!(result.load_state.cwd, root.path());
+        assert_eq!(result.control.phase(), ExtensionEventBusPhase::Loading);
     }
 
     #[test]
@@ -408,5 +411,55 @@ mod tests {
                             .is_some_and(|tests| !tests.is_empty())
                 })
         );
+    }
+
+    #[test]
+    fn frozen_hunk_extension_types_oracle_covers_both_pins_and_native_contracts() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../port/hunk/oracles/extension-types.json");
+        let oracle: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let baselines = oracle["baselines"].as_array().unwrap();
+        assert_eq!(baselines.len(), 2);
+        assert_eq!(
+            baselines[0]["source_blob"],
+            "1a399b57f2081ee8a7d06b8ad6cd4ae1a9bd6610"
+        );
+        assert_eq!(baselines[0]["source_bytes"], 10_899);
+        assert_eq!(
+            baselines[1]["source_blob"],
+            "1d676159d629f4903bef686ceb7db8187bd1d8f9"
+        );
+        assert_eq!(baselines[1]["source_bytes"], 10_393);
+        assert!(
+            baselines[0]["registry_keys"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|key| key == "cliCommands")
+        );
+        assert!(
+            !baselines[1]["registry_keys"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|key| key == "cliCommands")
+        );
+
+        for vector in oracle["runtime"]["derived_ids"].as_array().unwrap() {
+            let path = vector[0].as_str().unwrap();
+            let expected = vector[1].as_str().unwrap();
+            assert_eq!(crate::derive_extension_id(Path::new(path)), expected);
+        }
+        let result = create_empty_extension_load_result(
+            oracle["runtime"]["empty_result_cwd"].as_str().unwrap(),
+            ExtensionNotificationHub::new(),
+        );
+        assert!(result.extensions.is_empty());
+        assert!(result.issues.is_empty());
+        assert!(result.logs.snapshot().is_empty());
+        assert!(result.load_state.candidates.is_empty());
+        assert!(result.load_state.extension_configs.is_empty());
+        assert_eq!(result.control.phase(), ExtensionEventBusPhase::Loading);
     }
 }

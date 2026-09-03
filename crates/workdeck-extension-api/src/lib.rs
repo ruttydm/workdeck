@@ -532,6 +532,8 @@ pub struct HandshakeRequest {
     pub host_api_version: u32,
     pub host_version: String,
     pub extension_id: String,
+    /// Session working directory supplied by the host extension context.
+    pub cwd: PathBuf,
     pub granted_capabilities: Vec<Capability>,
     /// Merged `[extension.<id>]` settings when the manifest requested `configuration`.
     #[serde(default)]
@@ -573,6 +575,12 @@ pub enum Registration {
     EventSubscription {
         names: Vec<String>,
     },
+    /// Custom event emitted while the extension factory was producing its handshake.
+    PendingCustomEvent {
+        name: String,
+        #[serde(default)]
+        payload: Value,
+    },
 }
 
 impl Registration {
@@ -590,6 +598,7 @@ impl Registration {
             Self::KeyboardMode(value) => format!("keyboard-mode:{}", value.id),
             Self::LineHighlighter { id } => format!("line-highlighter:{id}"),
             Self::EventSubscription { names } => format!("event-subscription:{}", names.join(",")),
+            Self::PendingCustomEvent { name, .. } => format!("pending-custom-event:{name}"),
         }
     }
 
@@ -607,6 +616,7 @@ impl Registration {
             Self::KeyboardMode(_) => Capability::KeyboardModes,
             Self::LineHighlighter { .. } => Capability::LineHighlighters,
             Self::EventSubscription { .. } => Capability::Events,
+            Self::PendingCustomEvent { .. } => Capability::Events,
         }
     }
 }
@@ -1729,6 +1739,7 @@ mod tests {
                 host_api_version: API_VERSION,
                 host_version: "0.1.0".into(),
                 extension_id: "example.review".into(),
+                cwd: PathBuf::from("/workspace"),
                 granted_capabilities: vec![Capability::Commands],
                 config: serde_json::json!({ "threshold": 3 }),
             },
@@ -1741,6 +1752,7 @@ mod tests {
             request
         );
         assert_eq!(request.params["config"]["threshold"], 3);
+        assert_eq!(request.params["cwd"], "/workspace");
     }
 
     #[test]

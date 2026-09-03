@@ -71,6 +71,7 @@ IDs remain refused before process startup.
 `port/hunk/oracles/extension-run-factory.json` records the 38 baseline and 36 stable
 `runExtension` tests. Rust tests cover atomic failure containment with a real compiled child,
 registration normalization and validation, downstream duplicate resolution, transient session
-policy, command-name reservation, and VCS detection-ID repair. Its source ledger record remains
-open until the native extension VCS operation requests and their startup/catalog consumers are
-implemented; the translated test record is complete independently.
+policy, command-name reservation, and VCS detection-ID repair. Its source ledger record is complete
+together with native VCS operation requests, startup/catalog consumers, factory-time
+custom-event replay, and attributed stderr logging; the translated test record is independently
+executable.

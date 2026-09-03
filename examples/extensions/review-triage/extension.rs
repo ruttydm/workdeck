@@ -13,6 +13,7 @@ use workdeck_extension_api::{
 };
 
 const PANE_ID: &str = "triage";
+const FACTORY_EVENT: &str = "review triage ready 🧭";
 const STATUS_DIALOG_ID: &str = "triage-status";
 const RATIONALE_DIALOG_ID: &str = "triage-rationale";
 const FOCUS_DIALOG_ID: &str = "triage-focus";
@@ -163,6 +164,7 @@ pub fn registrations() -> Vec<Registration> {
                 "filter_changed".into(),
                 "watch_reload_pending".into(),
                 "review-triage:open".into(),
+                FACTORY_EVENT.into(),
             ],
         },
     ]
@@ -416,6 +418,21 @@ pub fn handle_event(event: &ReviewEvent, state: &mut ReviewTriageState) -> Comma
                 } else {
                     ExtensionHostAction::OpenPane { id: PANE_ID.into() }
                 }],
+            };
+        }
+        FACTORY_EVENT => {
+            return CommandExecution {
+                actions: vec![notify(
+                    format!(
+                        "factory event replayed: {}",
+                        event
+                            .payload
+                            .get("sequence")
+                            .and_then(Value::as_u64)
+                            .unwrap_or_default()
+                    ),
+                    ExtensionNotifyType::Info,
+                )],
             };
         }
         _ => false,
@@ -724,6 +741,10 @@ fn loader_fixture_registrations() -> Result<Vec<Registration>, String> {
         .map_err(|error| error.to_string())?
         .join(".workdeck-test-invalid-registration");
     let mut values = registrations();
+    values.push(Registration::PendingCustomEvent {
+        name: FACTORY_EVENT.into(),
+        payload: serde_json::json!({ "sequence": 7 }),
+    });
     if path.exists() {
         values.push(Registration::Command(CommandRegistration {
             id: "invalid-tail".into(),

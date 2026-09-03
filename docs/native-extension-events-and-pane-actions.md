@@ -77,7 +77,16 @@ Lifecycle events currently include:
 - `watch_reload_pending`
 - `shutdown` (delivered through the retirement notification after authority is revoked)
 
-An extension may emit a custom event through `EmitEvent`. Custom names require a nonempty namespace and event separated by `:`; the `workdeck:` namespace is reserved. The host appends broadcasts to each current subscriber's chronological queue, validates every returned action, and carries causal depth across asynchronous responses so recursive event chains still stop at depth 16. Timed-out request IDs are revoked and late replies are discarded before a later request is decoded. A crashed, timed-out, unsubscribed, or malformed extension cannot inject an unchecked action or retain terminal ownership.
+An extension may emit a custom event through `EmitEvent`. As in pinned Hunk, any non-blank string
+is accepted; namespacing remains recommended but spaces, Unicode, lifecycle-shaped names, and the
+product prefix are not silently rejected. Events emitted while a native factory constructs its
+handshake are returned as `PendingCustomEvent` declarations. Ratatui removes those provisional
+declarations, waits until every extension subscription is registered, and replays them in original
+extension/declaration order. The host appends broadcasts to each current subscriber's chronological
+queue, validates every returned action, and carries causal depth across asynchronous responses so
+recursive event chains still stop at depth 16. Timed-out request IDs are revoked and late replies are
+discarded before a later request is decoded. A crashed, timed-out, unsubscribed, or malformed
+extension cannot inject an unchecked action or retain terminal ownership.
 
 Hunk freezes JavaScript envelopes, file arrays, files, metadata, stats, agent annotations, and hunk summaries before invoking in-process handlers. Native Workdeck crosses an NDJSON subprocess boundary instead: `ReviewEvent`, `ReviewSnapshot`, `ExtensionDiffFile`, and nested JSON payloads are owned Rust values serialized separately for each process. A child may mutate its local deserialized copy, but it cannot reach another handler's value or live review state. File projections always derive change type and hunk summaries from the current parsed `DiffFile`; binary or skipped files carry an empty hunk vector. `Arc`-backed preparation snapshots preserve reuse inside the host without exposing reference identity as public API.
 

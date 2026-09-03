@@ -126,6 +126,39 @@ pub enum ExtensionEventBusPhase {
     Closed = 3,
 }
 
+/// One line written by an extension to its reserved stderr log stream.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtensionLogEntry {
+    pub extension_id: String,
+    pub message: String,
+}
+
+/// Shared ordered log collection for every process in one load result.
+#[derive(Debug, Clone, Default)]
+pub struct ExtensionLogHub {
+    entries: Arc<Mutex<Vec<ExtensionLogEntry>>>,
+}
+
+impl ExtensionLogHub {
+    fn record(&self, extension_id: &str, message: String) {
+        self.entries
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(ExtensionLogEntry {
+                extension_id: extension_id.to_owned(),
+                message,
+            });
+    }
+
+    #[must_use]
+    pub fn snapshot(&self) -> Vec<ExtensionLogEntry> {
+        self.entries
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+}
+
 /// Maximum time a retiring native runtime may delay application teardown.
 pub const EXTENSION_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(250);
 
@@ -463,10 +496,32 @@ pub fn reconcile_scoped_epochs(
 pub struct LoadedExtension {
     pub manifest: ExtensionManifest,
     pub manifest_path: PathBuf,
+    pub origin: ManifestOrigin,
     pub handshake: HandshakeResponse,
     connection: Arc<Mutex<ExtensionConnection>>,
     registry: Arc<ExtensionRuntimeRegistry>,
     notifications: ExtensionNotificationHub,
+    logs: ExtensionLogHub,
+}
+
+pub(crate) struct PrevalidatedExtensionSpawn<'a> {
+    pub manifest_path: &'a Path,
+    pub expected_manifest: &'a ExtensionManifest,
+    pub origin: ManifestOrigin,
+    pub host_version: &'a str,
+    pub cwd: &'a Path,
+    pub notifications: ExtensionNotificationHub,
+    pub config: Value,
+    pub logs: ExtensionLogHub,
+}
+
+struct ExtensionSpawnContext {
+    host_version: String,
+    cwd: PathBuf,
+    notifications: ExtensionNotificationHub,
+    config: Value,
+    logs: ExtensionLogHub,
+    origin: ManifestOrigin,
 }
 
 #[derive(Debug)]
@@ -545,32 +600,51 @@ impl LoadedExtension {
         notifications: ExtensionNotificationHub,
         config: Value,
     ) -> Result<Self, HostError> {
-        Self::spawn_with_expected_manifest(manifest_path, host_version, notifications, config, None)
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        Self::spawn_with_expected_manifest(
+            manifest_path,
+            ExtensionSpawnContext {
+                host_version: host_version.to_owned(),
+                cwd,
+                notifications,
+                config,
+                logs: ExtensionLogHub::default(),
+                origin: ManifestOrigin::Explicit,
+            },
+            None,
+        )
     }
 
     pub(crate) fn spawn_prevalidated(
-        manifest_path: &Path,
-        expected_manifest: &ExtensionManifest,
-        host_version: &str,
-        notifications: ExtensionNotificationHub,
-        config: Value,
+        options: PrevalidatedExtensionSpawn<'_>,
     ) -> Result<Self, HostError> {
         Self::spawn_with_expected_manifest(
-            manifest_path,
-            host_version,
-            notifications,
-            config,
-            Some(expected_manifest),
+            options.manifest_path,
+            ExtensionSpawnContext {
+                host_version: options.host_version.to_owned(),
+                cwd: options.cwd.to_owned(),
+                notifications: options.notifications,
+                config: options.config,
+                logs: options.logs,
+                origin: options.origin,
+            },
+            Some(options.expected_manifest),
         )
     }
 
     fn spawn_with_expected_manifest(
         manifest_path: &Path,
-        host_version: &str,
-        notifications: ExtensionNotificationHub,
-        config: Value,
+        context: ExtensionSpawnContext,
         expected_manifest: Option<&ExtensionManifest>,
     ) -> Result<Self, HostError> {
+        let ExtensionSpawnContext {
+            host_version,
+            cwd,
+            notifications,
+            config,
+            logs,
+            origin,
+        } = context;
         let entrypoint = resolve_native_extension_entrypoint(manifest_path)?;
         if expected_manifest.is_some_and(|expected| expected != &entrypoint.manifest) {
             return Err(HostError::ManifestChanged(entrypoint.manifest_path));
@@ -586,7 +660,7 @@ impl LoadedExtension {
             .env("WORKDECK_EXTENSION_API_VERSION", API_VERSION.to_string())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
+            .stderr(Stdio::piped())
             .spawn()
             .map_err(|source| HostError::Spawn {
                 id: manifest.id.clone(),
@@ -600,6 +674,34 @@ impl LoadedExtension {
             .stdout
             .take()
             .ok_or_else(|| HostError::MissingPipe(manifest.id.clone()))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| HostError::MissingPipe(manifest.id.clone()))?;
+        let log_extension_id = manifest.id.clone();
+        let extension_logs = logs.clone();
+        thread::spawn(move || {
+            let mut reader = BufReader::new(stderr);
+            loop {
+                let mut bytes = Vec::new();
+                match reader.read_until(b'\n', &mut bytes) {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        if bytes.last() == Some(&b'\n') {
+                            bytes.pop();
+                        }
+                        if bytes.last() == Some(&b'\r') {
+                            bytes.pop();
+                        }
+                        extension_logs.record(
+                            &log_extension_id,
+                            String::from_utf8_lossy(&bytes).into_owned(),
+                        );
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
         let (sender, responses) = mpsc::channel();
         let output_notifications = notifications.clone();
         thread::spawn(move || {
@@ -629,6 +731,7 @@ impl LoadedExtension {
         let mut loaded = Self {
             manifest,
             manifest_path: resolved_manifest_path,
+            origin,
             handshake: HandshakeResponse {
                 extension_api_version: 0,
                 extension_version: String::new(),
@@ -644,13 +747,15 @@ impl LoadedExtension {
             })),
             registry,
             notifications,
+            logs,
         };
         let result = loaded.request(
             "workdeck/handshake",
             HandshakeRequest {
                 host_api_version: API_VERSION,
-                host_version: host_version.to_owned(),
+                host_version,
                 extension_id: loaded.manifest.id.clone(),
+                cwd,
                 granted_capabilities: loaded.manifest.capabilities.clone(),
                 config: granted_extension_config(&loaded.manifest, config),
             },
@@ -689,6 +794,20 @@ impl LoadedExtension {
     #[must_use]
     pub fn notifications(&self) -> ExtensionNotificationHub {
         self.notifications.clone()
+    }
+
+    #[must_use]
+    pub fn logs(&self) -> Vec<ExtensionLogEntry> {
+        self.logs.snapshot()
+    }
+
+    #[must_use]
+    pub fn metadata(&self) -> ExtensionMetadata {
+        ExtensionMetadata {
+            id: self.manifest.id.clone(),
+            source_path: self.manifest_path.clone(),
+            origin: self.origin,
+        }
     }
 
     fn try_connection(&self) -> Result<MutexGuard<'_, ExtensionConnection>, HostError> {
@@ -2537,16 +2656,7 @@ fn is_public_review_command(id: &str) -> bool {
 }
 
 fn valid_custom_event_name(name: &str) -> bool {
-    let Some((namespace, event)) = name.split_once(':') else {
-        return false;
-    };
-    !namespace.is_empty()
-        && !event.is_empty()
-        && name.len() <= 256
-        && !name.starts_with("workdeck:")
-        && name
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
+    !name.trim().is_empty()
 }
 
 #[derive(Debug, Deserialize)]
@@ -3215,21 +3325,19 @@ mod tests {
     }
 
     #[test]
-    fn event_names_distinguish_host_lifecycle_subscriptions_from_extension_emissions() {
+    fn custom_event_names_match_hunks_open_non_empty_contract() {
         for valid in [
             "review-triage:decision",
             "vendor.feature:opened",
             "a:b_c-1.2",
+            "selection_changed",
+            "workdeck:selection_changed",
+            "missing space:event 🧭",
+            ":",
         ] {
             assert!(valid_custom_event_name(valid), "{valid}");
         }
-        for invalid in [
-            "selection_changed",
-            "workdeck:selection_changed",
-            "missing space:event",
-            ":",
-            "",
-        ] {
+        for invalid in ["", " \t"] {
             assert!(!valid_custom_event_name(invalid), "{invalid}");
         }
 

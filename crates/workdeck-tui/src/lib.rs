@@ -707,8 +707,22 @@ impl ReviewApp {
     pub fn new_with_extensions(
         changeset: Changeset,
         mut options: ReviewOptions,
-        extensions: Vec<LoadedExtension>,
+        mut extensions: Vec<LoadedExtension>,
     ) -> Self {
+        // Native factories encode events emitted during handshake as provisional declarations.
+        // Drain them only after every extension has registered, matching Hunk's bind-and-replay
+        // boundary and preventing a second ReviewApp from replaying the same factory event.
+        let mut pending_custom_events = Vec::new();
+        for extension in &mut extensions {
+            extension.handshake.registrations.retain(|registration| {
+                if let Registration::PendingCustomEvent { name, payload } = registration {
+                    pending_custom_events.push((name.clone(), payload.clone()));
+                    false
+                } else {
+                    true
+                }
+            });
+        }
         let mut state = ReviewState::new(changeset);
         state.set_layout(options.layout);
         let themes = ThemeController::new(options.theme.id.clone());
@@ -824,6 +838,9 @@ impl ReviewApp {
             extension_trust_prompt_hits: Cell::new(None),
         };
         app.install_extension_event_context_provider();
+        for (name, payload) in pending_custom_events {
+            app.publish_extension_event(&name, payload);
+        }
         app.publish_extension_event("changeset_loaded", serde_json::json!({}));
         app.publish_extension_selection_events();
         app

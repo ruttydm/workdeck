@@ -46,6 +46,22 @@ pub fn serve<R: BufRead, W: Write>(mut input: R, mut output: W) -> io::Result<()
             .unwrap_or_else(|| "null".into());
         if let Some(path) = log_path.as_deref() {
             append_log(path, &format!("factory:{}:{value}", handshake.extension_id))?;
+            if handshake
+                .config
+                .get("logCwd")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                append_log(path, &format!("cwd:{}", handshake.cwd.display()))?;
+            }
+        }
+        if handshake
+            .config
+            .get("logStderr")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            eprintln!("factory log 🧭");
         }
         let theme_id = handshake
             .config

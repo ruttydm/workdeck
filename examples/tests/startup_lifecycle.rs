@@ -65,15 +65,49 @@ fn discovers_global_extensions_and_delivers_their_configuration() {
     let global = root.path().join("global");
     install_extension(&global, "themed");
     let trust = TrustStore::default();
-    let configs = BTreeMap::from([("themed".into(), json!({"themeId": "midnight"}))]);
+    let log = root.path().join("context.log");
+    let configs = BTreeMap::from([(
+        "themed".into(),
+        json!({
+            "themeId": "midnight",
+            "logPath": log,
+            "logCwd": true,
+            "logStderr": true
+        }),
+    )]);
     let mut result =
         load_startup_extensions(options(root.path(), Some(&global), None, &trust, &configs))
             .unwrap();
     assert!(result.issues.is_empty());
     assert_eq!(result.extensions.len(), 1);
+    assert_eq!(
+        result.extensions[0].metadata(),
+        workdeck_extension_host::ExtensionMetadata {
+            id: "themed".into(),
+            source_path: fs::canonicalize(global.join("themed/workdeck-extension.toml")).unwrap(),
+            origin: workdeck_extension_host::ManifestOrigin::Global,
+        }
+    );
     assert!(result.extensions[0].handshake.registrations.iter().any(
         |registration| matches!(registration, Registration::Theme(theme) if theme.id == "midnight")
     ));
+    assert_eq!(
+        fs::read_to_string(&log).unwrap(),
+        format!("factory:themed:null\ncwd:{}\n", root.path().display())
+    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+    while result.logs.snapshot().is_empty() {
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    assert_eq!(
+        result.logs.snapshot(),
+        [workdeck_extension_host::ExtensionLogEntry {
+            extension_id: "themed".into(),
+            message: "factory log 🧭".into(),
+        }]
+    );
+    assert_eq!(result.extensions[0].logs(), result.logs.snapshot());
     result.retire();
 }
 

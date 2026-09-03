@@ -29,7 +29,9 @@ use workdeck_core::{
     SidebarVisibility, StartupNotice, VcsDiffCommandInput, VcsRangeEndpoints, VcsShowCommandInput,
     VcsStashShowCommandInput, resolve_app_state_path,
 };
-use workdeck_diff::{LanguageMatcher, LanguageRegistration, LanguageRegistry};
+use workdeck_diff::{
+    LanguageMatcher, LanguageRegistration, LanguageRegistry, sanitize_terminal_line,
+};
 use workdeck_extension_api::{
     CliCommandResult, ExtensionManifest, ExtensionNotificationHub, ExtensionNotifyType,
     FileLanguageGlobTarget, FileLanguageMatcher, Registration,
@@ -882,6 +884,33 @@ mod review_cli_option_tests {
     }
 
     #[test]
+    fn unknown_vcs_ids_fall_back_with_a_sanitized_startup_notice() {
+        let root = tempfile::tempdir().unwrap();
+        let selection = select_review_vcs_adapter(
+            root.path(),
+            Some("fossil\u{1b}[31m-tools"),
+            bundled_vcs_catalog(),
+        )
+        .unwrap();
+        assert_eq!(selection.adapter.id, "git");
+        let notice = selection.unknown_id_notice.unwrap();
+        assert_eq!(notice.key, "vcs:unknown:fossil\u{1b}[31m-tools");
+        assert!(notice.message.contains("Unknown vcs \"fossil-tools\""));
+        assert!(notice.message.contains("falling back to git"));
+        assert!(!notice.message.contains('\u{1b}'));
+    }
+
+    #[test]
+    fn adapter_patch_repo_root_overrides_built_in_discovery_for_the_session() {
+        let cwd = Path::new("/checkout/nested");
+        let adapter_root = Path::new("/extension/repository");
+        assert_eq!(
+            resolve_review_repo_root(cwd, ProviderPreference::Auto, Some(adapter_root)),
+            adapter_root
+        );
+    }
+
+    #[test]
     fn user_command_bindings_flow_from_config_into_review_options() {
         let config = Config {
             keybindings: vec![UserKeyBindingEntry::new(
@@ -988,6 +1017,7 @@ mod extension_cli_tests {
         let prepared = workdeck_extension_host::prepare_extension_load(
             workdeck_extension_host::LoadExtensionsOptions {
                 candidates: &candidates,
+                cwd: root.path(),
                 all_candidates: None,
                 previous_load: None,
                 host_version: "test",
@@ -1773,18 +1803,26 @@ fn run(mut args: Args) -> Result<()> {
             options
         },
     });
-    let adapter = select_review_vcs_adapter(&args.cwd, review.configured_vcs_id(), &catalog)?;
+    let selection = select_review_vcs_adapter(&args.cwd, review.configured_vcs_id(), &catalog)?;
+    if let Some(notice) = selection.unknown_id_notice {
+        prepared_extensions.startup_notices.push(notice);
+    }
+    let adapter = selection.adapter;
     vcs_input_options_mut(&mut vcs_input).vcs = Some(adapter.id.clone());
-    let changeset = load_selected_vcs_changeset(&args.cwd, &adapter, &catalog, &vcs_input)?;
-    if !changeset.is_empty() {
+    let loaded = load_selected_vcs_changeset(&args.cwd, &adapter, &catalog, &vcs_input)?;
+    if !loaded.changeset.is_empty() {
         let session_input = match &vcs_input {
             VcsReviewInput::Diff(input) => CliInput::Vcs(input.clone()),
             _ => unreachable!(),
         };
-        let mut reload = || load_selected_vcs_changeset(&args.cwd, &adapter, &catalog, &vcs_input);
+        let mut reload = || {
+            load_selected_vcs_changeset(&args.cwd, &adapter, &catalog, &vcs_input)
+                .map(|loaded| loaded.changeset)
+        };
         run_review_with_preloaded_extensions(
             &args.cwd,
-            changeset,
+            Some(loaded.repo_root),
+            loaded.changeset,
             review,
             Some(session_input),
             Some(&mut reload),
@@ -1957,6 +1995,16 @@ struct PreparedReviewExtensions {
     vcs_catalog: Option<VcsCatalog>,
 }
 
+struct SelectedVcsAdapter {
+    adapter: VcsAdapter,
+    unknown_id_notice: Option<StartupNotice>,
+}
+
+struct LoadedVcsChangeset {
+    changeset: Changeset,
+    repo_root: PathBuf,
+}
+
 fn prepare_review_extensions(
     cwd: &Path,
     review: &ReviewCliOptions,
@@ -1972,20 +2020,37 @@ fn select_review_vcs_adapter(
     cwd: &Path,
     configured_id: Option<&str>,
     catalog: &VcsCatalog,
-) -> Result<VcsAdapter> {
+) -> Result<SelectedVcsAdapter> {
     if let Some(id) = configured_id {
-        return get_vcs_adapter(id, catalog)
-            .cloned()
-            .map_err(anyhow::Error::from);
+        if let Ok(adapter) = get_vcs_adapter(id, catalog) {
+            return Ok(SelectedVcsAdapter {
+                adapter: adapter.clone(),
+                unknown_id_notice: None,
+            });
+        }
+        let adapter = detect_vcs(cwd, catalog)
+            .and_then(|detection| get_vcs_adapter(&detection.id, catalog).ok())
+            .map_or_else(|| get_default_vcs_adapter(catalog), Ok)?
+            .clone();
+        let message = sanitize_terminal_line(&format!(
+            "Unknown vcs \"{id}\" • falling back to {}. Install an extension that registers it, or fix the id in Workdeck config.",
+            adapter.id
+        ));
+        return Ok(SelectedVcsAdapter {
+            adapter,
+            unknown_id_notice: Some(StartupNotice::new(format!("vcs:unknown:{id}"), message)),
+        });
     }
     if let Some(detection) = detect_vcs(cwd, catalog) {
-        return get_vcs_adapter(&detection.id, catalog)
-            .cloned()
-            .map_err(anyhow::Error::from);
+        return Ok(SelectedVcsAdapter {
+            adapter: get_vcs_adapter(&detection.id, catalog)?.clone(),
+            unknown_id_notice: None,
+        });
     }
-    get_default_vcs_adapter(catalog)
-        .cloned()
-        .map_err(anyhow::Error::from)
+    Ok(SelectedVcsAdapter {
+        adapter: get_default_vcs_adapter(catalog)?.clone(),
+        unknown_id_notice: None,
+    })
 }
 
 fn vcs_input_options_mut(input: &mut VcsReviewInput) -> &mut CommonOptions {
@@ -2001,7 +2066,7 @@ fn load_selected_vcs_changeset(
     adapter: &VcsAdapter,
     catalog: &VcsCatalog,
     input: &VcsReviewInput,
-) -> Result<Changeset> {
+) -> Result<LoadedVcsChangeset> {
     let operation = operation_from_input(input.clone());
     let result = load_vcs_review(
         adapter,
@@ -2050,8 +2115,14 @@ fn load_selected_vcs_changeset(
             )
         }
     };
-    materialize_vcs_patch_result(result, format!("{}:{suffix}", adapter.id), source)
-        .map_err(anyhow::Error::from)
+    let repo_root = result.repo_root.clone();
+    let changeset =
+        materialize_vcs_patch_result(result, format!("{}:{suffix}", adapter.id), source)
+            .map_err(anyhow::Error::from)?;
+    Ok(LoadedVcsChangeset {
+        changeset,
+        repo_root,
+    })
 }
 
 fn prepare_piped_review_input(command: Option<&Command>) -> Result<Option<PreparedPipedInput>> {
@@ -2116,17 +2187,25 @@ fn handle_review_command(
                 pathspecs: pathspec,
                 options: input_options,
             });
-            let adapter = select_review_vcs_adapter(cwd, review.configured_vcs_id(), &catalog)?;
+            let selection = select_review_vcs_adapter(cwd, review.configured_vcs_id(), &catalog)?;
+            if let Some(notice) = selection.unknown_id_notice {
+                prepared_extensions.startup_notices.push(notice);
+            }
+            let adapter = selection.adapter;
             vcs_input_options_mut(&mut vcs_input).vcs = Some(adapter.id.clone());
-            let changeset = load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)?;
+            let loaded = load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)?;
             let session_input = match &vcs_input {
                 VcsReviewInput::Diff(input) => CliInput::Vcs(input.clone()),
                 _ => unreachable!(),
             };
-            let mut reload = || load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input);
+            let mut reload = || {
+                load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)
+                    .map(|loaded| loaded.changeset)
+            };
             run_review_with_preloaded_extensions(
                 cwd,
-                changeset,
+                Some(loaded.repo_root),
+                loaded.changeset,
                 review,
                 Some(session_input),
                 Some(&mut reload),
@@ -2146,17 +2225,25 @@ fn handle_review_command(
                 pathspecs: pathspec.clone(),
                 options: review.common_options(),
             });
-            let adapter = select_review_vcs_adapter(cwd, review.configured_vcs_id(), &catalog)?;
+            let selection = select_review_vcs_adapter(cwd, review.configured_vcs_id(), &catalog)?;
+            if let Some(notice) = selection.unknown_id_notice {
+                prepared_extensions.startup_notices.push(notice);
+            }
+            let adapter = selection.adapter;
             vcs_input_options_mut(&mut vcs_input).vcs = Some(adapter.id.clone());
-            let changeset = load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)?;
+            let loaded = load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)?;
             let session_input = match &vcs_input {
                 VcsReviewInput::Show(input) => CliInput::Show(input.clone()),
                 _ => unreachable!(),
             };
-            let mut reload = || load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input);
+            let mut reload = || {
+                load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)
+                    .map(|loaded| loaded.changeset)
+            };
             run_review_with_preloaded_extensions(
                 cwd,
-                changeset,
+                Some(loaded.repo_root),
+                loaded.changeset,
                 review,
                 Some(session_input),
                 Some(&mut reload),
@@ -2174,17 +2261,25 @@ fn handle_review_command(
                 reference: reference.clone(),
                 options: review.common_options(),
             });
-            let adapter = select_review_vcs_adapter(cwd, configured_id, &catalog)?;
+            let selection = select_review_vcs_adapter(cwd, configured_id, &catalog)?;
+            if let Some(notice) = selection.unknown_id_notice {
+                prepared_extensions.startup_notices.push(notice);
+            }
+            let adapter = selection.adapter;
             vcs_input_options_mut(&mut vcs_input).vcs = Some(adapter.id.clone());
-            let changeset = load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)?;
+            let loaded = load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)?;
             let session_input = match &vcs_input {
                 VcsReviewInput::StashShow(input) => CliInput::StashShow(input.clone()),
                 _ => unreachable!(),
             };
-            let mut reload = || load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input);
+            let mut reload = || {
+                load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)
+                    .map(|loaded| loaded.changeset)
+            };
             run_review_with_preloaded_extensions(
                 cwd,
-                changeset,
+                Some(loaded.repo_root),
+                loaded.changeset,
                 review,
                 Some(session_input),
                 Some(&mut reload),
@@ -2317,6 +2412,7 @@ fn run_review_with_options(
     let prepared_extensions = prepare_review_extensions(cwd, &review)?;
     run_review_with_preloaded_extensions(
         cwd,
+        None,
         changeset,
         review,
         input,
@@ -2327,6 +2423,7 @@ fn run_review_with_options(
 
 fn run_review_with_preloaded_extensions(
     cwd: &Path,
+    vcs_repo_root: Option<PathBuf>,
     mut changeset: Changeset,
     review: ReviewCliOptions,
     input: Option<CliInput>,
@@ -2352,10 +2449,11 @@ fn run_review_with_preloaded_extensions(
     options.extension_trust_handler =
         Some(review_extension_trust_handler(cwd, &review, &notifications));
     options.command_cwd = Some(cwd.to_owned());
-    options.repo = AnyProvider::discover(cwd, review.preference())
-        .ok()
-        .map(|provider| provider.root().to_owned())
-        .or_else(|| Some(cwd.to_owned()));
+    options.repo = Some(resolve_review_repo_root(
+        cwd,
+        review.preference(),
+        vcs_repo_root.as_deref(),
+    ));
     if let Some(reloader) = reloader {
         let agent_context = review.agent_context.clone();
         let mut reload_extensions = extensions.clone();
@@ -2395,6 +2493,21 @@ fn run_review_with_preloaded_extensions(
     } else {
         workdeck_tui::run_review_with_extensions(changeset, options, extensions)
     }
+}
+
+fn resolve_review_repo_root(
+    cwd: &Path,
+    preference: ProviderPreference,
+    vcs_repo_root: Option<&Path>,
+) -> PathBuf {
+    vcs_repo_root.map_or_else(
+        || {
+            AnyProvider::discover(cwd, preference)
+                .ok()
+                .map_or_else(|| cwd.to_owned(), |provider| provider.root().to_owned())
+        },
+        Path::to_owned,
+    )
 }
 
 fn apply_review_extensions(
@@ -2595,35 +2708,11 @@ fn load_cli_extensions(
 
 fn registered_extension_cli_commands(
     extensions: &[LoadedExtension],
-    explicit: &[PathBuf],
 ) -> Vec<RegisteredExtensionCliCommand> {
-    let explicit = explicit
-        .iter()
-        .map(|path| {
-            let manifest = if path.is_dir() {
-                path.join("workdeck-extension.toml")
-            } else {
-                path.clone()
-            };
-            std::fs::canonicalize(&manifest).unwrap_or(manifest)
-        })
-        .collect::<BTreeSet<_>>();
     extensions
         .iter()
         .enumerate()
         .flat_map(|(extension_index, extension)| {
-            let origin = if explicit.contains(&extension.manifest_path) {
-                "explicit"
-            } else if extension
-                .manifest_path
-                .to_string_lossy()
-                .replace('\\', "/")
-                .contains("/.agents/workdeck/extensions/")
-            {
-                "project"
-            } else {
-                "config"
-            };
             extension
                 .handshake
                 .registrations
@@ -2636,7 +2725,7 @@ fn registered_extension_cli_commands(
                         extension_index,
                         extension_id: extension.manifest.id.clone(),
                         source_path: extension.manifest_path.clone(),
-                        origin: origin.into(),
+                        origin: extension.origin.label().into(),
                         command: extension_cli_commands::copy_extension_cli_command(command),
                     })
                 })
@@ -2684,7 +2773,7 @@ fn handle_extension_cli_command(
     command_args: &[String],
 ) -> Result<()> {
     let mut extensions = load_cli_extensions(cwd, extension_paths, extensions_disabled)?;
-    let registered = registered_extension_cli_commands(&extensions, extension_paths);
+    let registered = registered_extension_cli_commands(&extensions);
     let resolved = resolve_extension_cli_commands(&registered);
     for issue in create_extension_cli_collision_issues(&registered, &resolved.collisions) {
         eprintln!("workdeck: warning: {}", issue.message);
