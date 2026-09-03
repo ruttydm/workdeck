@@ -612,7 +612,13 @@ pub fn serve<R: BufRead, W: Write>(mut input: R, mut output: W) -> io::Result<()
         if input.read_line(&mut line)? == 0 {
             return Ok(());
         }
-        let request: JsonRpcRequest = serde_json::from_str(&line).map_err(io::Error::other)?;
+        let value: Value = serde_json::from_str(&line).map_err(io::Error::other)?;
+        if value.get("id").is_none() {
+            // Notifications have no response. The host may revoke this process with a shutdown
+            // notification even when a deliberately uncooperative test runtime does not exit.
+            continue;
+        }
+        let request: JsonRpcRequest = serde_json::from_value(value).map_err(io::Error::other)?;
         let result = dispatch_request(&request.method, request.params, &mut state);
         let response = match result {
             Ok(result) => JsonRpcResponse {

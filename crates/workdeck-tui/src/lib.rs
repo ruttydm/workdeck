@@ -167,14 +167,15 @@ use workdeck_extension_api::{
     WORKDECK_FILES_PANE_KEY, bundled_files_pane, extension_pane_size,
 };
 use workdeck_extension_host::{
-    ActiveSessionKeyboardMode, ExtensionEventContextProviderInstallation,
-    ExtensionEventContextProviderSlot, ExtensionRequestCancellation, FileViewSelectionState,
-    HostError, KeyboardModeActionAuthority, KeyboardModeControllerState,
-    LineHighlightRefreshResult, LineHighlightsController, LoadedExtension, RegisteredFileView,
-    RegisteredKeyboardMode, RegisteredLineHighlighter, create_file_view_input,
-    create_file_view_input_snapshot, format_keyboard_mode_failure, reconcile_file_view_selections,
-    registered_file_view_key, select_file_view, session_keyboard_mode_display_title,
-    session_keyboard_mode_status_hint, session_keyboard_mode_still_valid,
+    ActiveSessionKeyboardMode, EXTENSION_SHUTDOWN_TIMEOUT,
+    ExtensionEventContextProviderInstallation, ExtensionEventContextProviderSlot,
+    ExtensionRequestCancellation, FileViewSelectionState, HostError, KeyboardModeActionAuthority,
+    KeyboardModeControllerState, LineHighlightRefreshResult, LineHighlightsController,
+    LoadedExtension, RegisteredFileView, RegisteredKeyboardMode, RegisteredLineHighlighter,
+    create_file_view_input, create_file_view_input_snapshot, format_keyboard_mode_failure,
+    reconcile_file_view_selections, registered_file_view_key, select_file_view,
+    session_keyboard_mode_display_title, session_keyboard_mode_status_hint,
+    session_keyboard_mode_still_valid,
 };
 use workdeck_review::{
     CommentAnchor, ExpandedSourceError, ExpandedSourceStatus, LayoutMode, PlannedFileViewRow,
@@ -364,6 +365,38 @@ struct PendingExtensionCommand {
 }
 
 #[derive(Debug, Clone)]
+struct QueuedExtensionEvent {
+    event: ReviewEvent,
+    dispatch_depth: usize,
+}
+
+#[derive(Debug, Clone)]
+struct QueuedExtensionCommand {
+    pending: PendingExtensionCommand,
+    snapshot: workdeck_core::ReviewSnapshot,
+    open_panes: Vec<String>,
+    active_keyboard_mode: Option<String>,
+    cwd: PathBuf,
+    review: workdeck_extension_api::ExtensionReviewSnapshot,
+    commands: ExtensionCommandAvailability,
+    workspace: Option<workdeck_extension_api::ExtensionWorkspaceSnapshot>,
+}
+
+#[derive(Debug, Clone)]
+enum QueuedExtensionRequest {
+    Command(QueuedExtensionCommand),
+    Event(QueuedExtensionEvent),
+}
+
+#[derive(Debug, Clone)]
+struct PendingExtensionEvent {
+    extension_index: usize,
+    extension_id: String,
+    event_name: String,
+    dispatch_depth: usize,
+}
+
+#[derive(Debug, Clone)]
 struct ExtensionPaneActionHit {
     bounds: Rect,
     extension_index: usize,
@@ -401,7 +434,8 @@ struct PaneResizeState {
 struct ExtensionPaneRuntime {
     extensions: Vec<LoadedExtension>,
     pending_commands: BTreeMap<usize, PendingExtensionCommand>,
-    deferred_events: BTreeMap<usize, VecDeque<ReviewEvent>>,
+    pending_events: BTreeMap<usize, PendingExtensionEvent>,
+    request_queues: BTreeMap<usize, VecDeque<QueuedExtensionRequest>>,
     panes: Vec<LivePaneRegistration>,
     session_panes: Vec<SessionPane>,
     commands: Vec<RegisteredExtensionCommand>,
@@ -584,6 +618,19 @@ impl ExtensionPaneRuntime {
             .open
             .iter()
             .any(|key| key == WORKDECK_FILES_PANE_KEY)
+    }
+
+    fn retire_extensions(&mut self) {
+        self.pending_commands.clear();
+        self.pending_events.clear();
+        self.request_queues.clear();
+        for extension in &mut self.extensions {
+            let _ = extension.begin_retirement();
+        }
+        let deadline = Instant::now() + EXTENSION_SHUTDOWN_TIMEOUT;
+        for extension in &mut self.extensions {
+            extension.finish_retirement(deadline);
+        }
     }
 }
 
@@ -985,7 +1032,7 @@ impl ReviewApp {
         );
         replacement.app_commands = extension_command_table.commands;
         replacement.command_conflicts = extension_command_table.conflicts;
-        let previous = {
+        let mut previous = {
             let mut runtime = self
                 .extension_pane_runtime
                 .lock()
@@ -996,6 +1043,7 @@ impl ReviewApp {
                 .retain_epochs_from(&runtime.line_highlights);
             std::mem::replace(&mut *runtime, replacement)
         };
+        previous.retire_extensions();
         drop(previous);
         self.install_extension_event_context_provider();
         self.reload(changeset);
@@ -1985,7 +2033,7 @@ impl ReviewApp {
         });
         let cwd = self.extension_command_cwd();
         let commands = self.extension_command_availability();
-        let started = {
+        {
             let mut runtime = self
                 .extension_pane_runtime
                 .lock()
@@ -2001,65 +2049,65 @@ impl ReviewApp {
                         .as_ref()
                         .map(|active| format!("{}:{}", active.extension_id, active.view_id))
                 });
-            let result = runtime.extensions[command.extension_index]
-                .begin_command_with_workspace_context(
-                    &command.command.id,
-                    snapshot,
-                    open_panes,
-                    active_keyboard_mode,
-                    cwd,
-                    Some(review),
-                    commands,
-                    workspace,
-                );
-            if result.is_ok() {
-                runtime.pending_commands.insert(
-                    command.extension_index,
-                    PendingExtensionCommand {
+            runtime
+                .request_queues
+                .entry(command.extension_index)
+                .or_default()
+                .push_back(QueuedExtensionRequest::Command(QueuedExtensionCommand {
+                    pending: PendingExtensionCommand {
                         extension_index: command.extension_index,
                         extension_id: command.extension_id.clone(),
                         command_id: command.command.id.clone(),
                         title: command.command.title.clone(),
                         review_generation: command_epoch,
                     },
-                );
-            }
-            result
-        };
-        match started {
-            Ok(()) => self.status = Some(command.command.title),
-            Err(error) => {
-                self.report_extension_command_failure(
-                    &command.extension_id,
-                    &command.command.id,
-                    &error.to_string(),
-                );
-            }
+                    snapshot,
+                    open_panes,
+                    active_keyboard_mode,
+                    cwd,
+                    review,
+                    commands,
+                    workspace,
+                }));
         }
+        self.status = Some(command.command.title);
+        self.start_queued_extension_requests(Some(command.extension_index));
     }
 
-    /// Apply every ready native command result without blocking the Ratatui event loop.
+    /// Apply every ready native command/event result without blocking the Ratatui event loop.
     pub fn poll_extension_commands(&mut self) {
-        let completions = {
+        let (command_completions, event_completions) = {
             let mut runtime = self
                 .extension_pane_runtime
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             let pending_indices = runtime.pending_commands.keys().copied().collect::<Vec<_>>();
-            let mut completions = Vec::new();
+            let mut command_completions = Vec::new();
             for extension_index in pending_indices {
                 let Some(outcome) = runtime.extensions[extension_index].poll_command() else {
                     continue;
                 };
                 if let Some(pending) = runtime.pending_commands.remove(&extension_index) {
-                    completions.push((pending, outcome));
+                    command_completions.push((pending, outcome));
                 }
             }
-            completions
+            let pending_indices = runtime.pending_events.keys().copied().collect::<Vec<_>>();
+            let mut event_completions = Vec::new();
+            for extension_index in pending_indices {
+                let Some(outcome) = runtime.extensions[extension_index].poll_event() else {
+                    continue;
+                };
+                if let Some(pending) = runtime.pending_events.remove(&extension_index) {
+                    event_completions.push((pending, outcome));
+                }
+            }
+            (command_completions, event_completions)
         };
 
-        for (pending, outcome) in completions {
-            self.flush_deferred_extension_events(pending.extension_index, &pending.extension_id);
+        for (pending, outcome) in command_completions {
+            // Requests observed during a command retain their order and begin before any custom
+            // event returned by that command is appended.
+            self.start_queued_extension_requests(Some(pending.extension_index));
             match outcome {
                 Ok(execution) => {
                     self.status = Some(pending.title.clone());
@@ -2075,52 +2123,157 @@ impl ReviewApp {
                 }
             }
         }
-    }
-
-    fn flush_deferred_extension_events(&mut self, extension_index: usize, extension_id: &str) {
-        loop {
-            let event = self
-                .extension_pane_runtime
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .deferred_events
-                .get_mut(&extension_index)
-                .and_then(VecDeque::pop_front);
-            let Some(event) = event else {
-                self.extension_pane_runtime
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .deferred_events
-                    .remove(&extension_index);
-                return;
-            };
-            let outcome = self
-                .extension_pane_runtime
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .extensions[extension_index]
-                .deliver_event(event);
+        for (pending, outcome) in event_completions {
             match outcome {
                 Ok(execution) => {
-                    self.apply_extension_actions(extension_index, extension_id, execution.actions)
+                    let previous_depth = self.extension_event_dispatch_depth;
+                    self.extension_event_dispatch_depth = pending.dispatch_depth.saturating_add(1);
+                    self.apply_extension_actions(
+                        pending.extension_index,
+                        &pending.extension_id,
+                        execution.actions,
+                    );
+                    self.extension_event_dispatch_depth = previous_depth;
                 }
                 Err(error) => {
                     self.status = Some(format!(
-                        "extension {extension_id} deferred event failed: {error}"
+                        "extension {} event {} failed: {error}",
+                        pending.extension_id, pending.event_name
                     ));
                 }
             }
+            self.start_queued_extension_requests(Some(pending.extension_index));
+        }
+    }
+
+    fn start_queued_extension_requests(&mut self, only_extension: Option<usize>) {
+        let (command_failures, event_failures) = {
+            let mut runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let extension_indices = only_extension.map_or_else(
+                || runtime.request_queues.keys().copied().collect::<Vec<_>>(),
+                |extension_index| vec![extension_index],
+            );
+            let mut command_failures = Vec::new();
+            let mut event_failures = Vec::new();
+            for extension_index in extension_indices {
+                if runtime.pending_commands.contains_key(&extension_index)
+                    || runtime.pending_events.contains_key(&extension_index)
+                    || runtime.extensions[extension_index].request_pending()
+                {
+                    continue;
+                }
+                let queued = runtime
+                    .request_queues
+                    .get_mut(&extension_index)
+                    .and_then(VecDeque::pop_front);
+                let Some(queued) = queued else {
+                    runtime.request_queues.remove(&extension_index);
+                    continue;
+                };
+                if runtime
+                    .request_queues
+                    .get(&extension_index)
+                    .is_some_and(VecDeque::is_empty)
+                {
+                    runtime.request_queues.remove(&extension_index);
+                }
+                match queued {
+                    QueuedExtensionRequest::Command(queued) => {
+                        let started = runtime.extensions[extension_index]
+                            .begin_command_with_workspace_context(
+                                &queued.pending.command_id,
+                                queued.snapshot,
+                                queued.open_panes,
+                                queued.active_keyboard_mode,
+                                queued.cwd,
+                                Some(queued.review),
+                                queued.commands,
+                                queued.workspace,
+                            );
+                        match started {
+                            Ok(()) => {
+                                runtime
+                                    .pending_commands
+                                    .insert(extension_index, queued.pending);
+                            }
+                            Err(error) => {
+                                runtime.request_queues.remove(&extension_index);
+                                command_failures.push((queued.pending, error.to_string()));
+                            }
+                        }
+                    }
+                    QueuedExtensionRequest::Event(queued) => {
+                        let extension_id = runtime.extensions[extension_index].manifest.id.clone();
+                        let event_name = queued.event.name.clone();
+                        match runtime.extensions[extension_index].begin_event(queued.event) {
+                            Ok(()) => {
+                                if runtime.extensions[extension_index].event_pending() {
+                                    runtime.pending_events.insert(
+                                        extension_index,
+                                        PendingExtensionEvent {
+                                            extension_index,
+                                            extension_id,
+                                            event_name,
+                                            dispatch_depth: queued.dispatch_depth,
+                                        },
+                                    );
+                                } else {
+                                    runtime.request_queues.remove(&extension_index);
+                                }
+                            }
+                            Err(error) => {
+                                runtime.request_queues.remove(&extension_index);
+                                event_failures.push((extension_id, event_name, error.to_string()))
+                            }
+                        }
+                    }
+                }
+            }
+            (command_failures, event_failures)
+        };
+        for (pending, error) in command_failures {
+            self.report_extension_command_failure(
+                &pending.extension_id,
+                &pending.command_id,
+                &error,
+            );
+        }
+        if let Some((extension_id, event_name, error)) = event_failures.into_iter().last() {
+            self.status = Some(format!(
+                "extension {extension_id} event {event_name} failed: {error}"
+            ));
         }
     }
 
     #[must_use]
     pub fn has_pending_extension_commands(&self) -> bool {
-        !self
+        let runtime = self
             .extension_pane_runtime
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .pending_commands
-            .is_empty()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        !runtime.pending_commands.is_empty()
+            || runtime.request_queues.values().any(|queue| {
+                queue
+                    .iter()
+                    .any(|request| matches!(request, QueuedExtensionRequest::Command(_)))
+            })
+    }
+
+    #[must_use]
+    pub fn has_pending_extension_events(&self) -> bool {
+        let runtime = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        !runtime.pending_events.is_empty()
+            || runtime.request_queues.values().any(|queue| {
+                queue
+                    .iter()
+                    .any(|request| matches!(request, QueuedExtensionRequest::Event(_)))
+            })
     }
 
     fn apply_extension_command_actions(
@@ -2607,8 +2760,7 @@ impl ReviewApp {
         }
         let (snapshot, review) =
             self.with_state(|state| (state.snapshot(), build_extension_review_snapshot(state)));
-        self.extension_event_dispatch_depth += 1;
-        for (extension_index, extension_id, context) in targets {
+        for (extension_index, _extension_id, context) in targets {
             let event = ReviewEvent {
                 name: name.into(),
                 snapshot: snapshot.clone(),
@@ -2616,33 +2768,18 @@ impl ReviewApp {
                 review: Some(review.clone()),
                 context,
             };
-            let execution = {
-                let mut runtime = self
-                    .extension_pane_runtime
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                if runtime.pending_commands.contains_key(&extension_index) {
-                    runtime
-                        .deferred_events
-                        .entry(extension_index)
-                        .or_default()
-                        .push_back(event);
-                    None
-                } else {
-                    Some(runtime.extensions[extension_index].deliver_event(event))
-                }
-            };
-            match execution {
-                None => {}
-                Some(Ok(execution)) => {
-                    self.apply_extension_actions(extension_index, &extension_id, execution.actions)
-                }
-                Some(Err(error)) => {
-                    self.status = Some(format!("extension {extension_id} event failed: {error}"));
-                }
-            }
+            self.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .request_queues
+                .entry(extension_index)
+                .or_default()
+                .push_back(QueuedExtensionRequest::Event(QueuedExtensionEvent {
+                    event,
+                    dispatch_depth: self.extension_event_dispatch_depth,
+                }));
         }
-        self.extension_event_dispatch_depth -= 1;
+        self.start_queued_extension_requests(None);
     }
 
     fn publish_extension_selection_events(&mut self) {
@@ -4061,7 +4198,7 @@ impl ReviewApp {
             else {
                 continue;
             };
-            if runtime.extensions[registration.extension_index].command_pending() {
+            if runtime.extensions[registration.extension_index].request_pending() {
                 continue;
             }
             clear_file_view_component_state(&mut runtime, &file.runtime_id);
@@ -4893,17 +5030,13 @@ impl Drop for ReviewApp {
     fn drop(&mut self) {
         self.exit_active_keyboard_mode();
         self.exit_active_file_view_mode();
-        self.extension_pane_runtime
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .keyboard_mode_controller
-            .shutdown();
-        let _settlements = self
+        let mut runtime = self
             .extension_pane_runtime
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .dialogs
-            .shutdown();
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        runtime.keyboard_mode_controller.shutdown();
+        let _settlements = runtime.dialogs.shutdown();
+        runtime.retire_extensions();
     }
 }
 
@@ -6080,12 +6213,17 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             .map(|cached| cached.view.clone());
         let view = if let Some(cached) = cached {
             cached
-        } else if runtime.extensions[registration.extension_index].command_pending() {
+        } else if runtime.extensions[registration.extension_index].request_pending() {
+            let message = if runtime.extensions[registration.extension_index].command_pending() {
+                "Command running…"
+            } else {
+                "Event handler running…"
+            };
             ExtensionPaneView {
                 extension_id: registration.extension_id.clone(),
                 pane: registration.pane.clone(),
                 content: ViewNode::Text {
-                    text: "Command running…".into(),
+                    text: message.into(),
                     style: ViewStyle {
                         foreground: Some("muted".into()),
                         ..ViewStyle::default()
@@ -8795,6 +8933,22 @@ mod tests {
         assert_eq!(
             slot.context(Vec::new()).unwrap().cwd,
             PathBuf::from("/repo/second")
+        );
+    }
+
+    #[test]
+    fn extension_event_publication_is_a_noop_without_subscribers_and_bounds_recursion() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        let initial_status = app.status.clone();
+        app.publish_extension_event("selection_changed", serde_json::json!({ "fileId": null }));
+        assert_eq!(app.status, initial_status);
+        assert!(!app.has_pending_extension_events());
+
+        app.extension_event_dispatch_depth = 16;
+        app.publish_extension_event("review-triage:loop", serde_json::json!({}));
+        assert_eq!(
+            app.status.as_deref(),
+            Some("extension event review-triage:loop exceeded the 16-event recursion limit")
         );
     }
 

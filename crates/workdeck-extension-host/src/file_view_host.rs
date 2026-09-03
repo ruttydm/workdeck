@@ -258,6 +258,37 @@ mod tests {
     }
 
     #[test]
+    fn public_file_projection_owns_stats_agent_and_authoritative_hunk_summaries() {
+        let mut source = file();
+        source.agent = Some(workdeck_core::AgentFileContext {
+            path: source.path.clone(),
+            summary: Some("original".into()),
+            annotations: Vec::new(),
+        });
+        let mut public = to_extension_diff_file(&source);
+        assert_eq!(public.change_type, "change");
+        assert_eq!(public.hunks.len(), 1);
+        assert_eq!(public.hunks[0].index, 0);
+        assert_eq!(public.hunks[0].header, "@@ -1,3 +1,3 @@");
+        assert_eq!(public.hunks[0].old_range, Some([1, 3]));
+        assert_eq!(public.hunks[0].new_range, Some([1, 3]));
+
+        public.stats.additions = 99;
+        public.hunks[0].header = "@@ forged @@".into();
+        public.agent.as_mut().unwrap().summary = Some("forged".into());
+        assert_eq!(source.stats.additions, 2);
+        assert_eq!(source.hunks[0].header, "@@ -1,3 +1,3 @@");
+        assert_eq!(
+            source.agent.as_ref().unwrap().summary.as_deref(),
+            Some("original")
+        );
+
+        source.hunks.clear();
+        let without_hunks = to_extension_diff_file(&source);
+        assert!(without_hunks.hunks.is_empty());
+    }
+
+    #[test]
     fn exposes_exact_document_text_and_hunk_count() {
         let file = file();
         let input =

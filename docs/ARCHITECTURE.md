@@ -47,6 +47,9 @@ The checker also validates invariants that a crate graph alone cannot express:
 - extension CLI commands use lazy stdin and ordered output leases over the host-owned JSON-RPC
   channel, and cannot retain terminal or signal authority after settlement (see
   [Native extension CLI runtime](native-extension-cli-runtime.md));
+- extension lifecycle and custom events use owned snapshots, chronological per-process queues,
+  nonblocking Ratatui polling, atomic revocation, and one bounded retirement window (see
+  [Native extension events and pane actions](native-extension-events-and-pane-actions.md));
 - the semantic review reducer is crate-internal and is reached through intents and
   `SemanticReviewStore` dispatch;
 - semantic notes cross into terminal-local file ids, line coordinates, draft shapes, and thread

@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "captured_with": "bun 1.3.5 executing the untouched pinned src/extensions/events.test.ts",
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "source_blob": "4d3bfa63688ddf7fc7c8eb00a4985e53dfab18c4",
+      "test_blob": "f0ae2bad4991df679cdd3cfee34a7066315391f1",
+      "tests": 26,
+      "passed": 26,
+      "failed": 0,
+      "expect_calls": 72
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "source_blob": "4d3bfa63688ddf7fc7c8eb00a4985e53dfab18c4",
+      "test_blob": "f0ae2bad4991df679cdd3cfee34a7066315391f1",
+      "tests": 26,
+      "passed": 26,
+      "failed": 0,
+      "expect_calls": 72
+    }
+  ],
+  "native_adaptation": {
+    "dispatch": "Ratatui enqueues ordered per-extension requests and never waits for an event subprocess",
+    "ownership": "serialized owned Rust snapshots replace JavaScript frozen objects and deep read-only proxies",
+    "identity": "host-internal Arc snapshots retain preparation identity; reference identity does not cross NDJSON",
+    "shutdown": "ready-to-closing revocation is atomic and every application runtime shares one 250 ms deadline",
+    "late_results": "settled response ids are discarded before decoding the next command or event",
+    "payload_domain": "serde_json::Value makes the public native event payload explicitly JSON-shaped"
+  },
+  "test_mapping": [
+    {"source_test":"invokes every handler for one event with the shared context","rust_tests":["review_app_queues_startup_events_and_commands_without_blocking_input","ratatui_routes_clicks_dialogs_lifecycle_and_note_events_end_to_end"]},
+    {"source_test":"reports named command execution with an immutable payload","rust_tests":["native_event_snapshots_are_owned_and_isolate_handler_mutation"]},
+    {"source_test":"isolates a throwing handler and keeps dispatching the rest","rust_tests":["synchronous_callbacks::tests::distinguishes_returns_thenables_failures_and_panics","subprocess_protocol_preserves_state_across_every_callback_boundary"]},
+    {"source_test":"reports a rejected async handler without surfacing the rejection","rust_tests":["synchronous_callbacks::tests::distinguishes_returns_thenables_failures_and_panics","compiled_event_delivery_is_pollable_and_serialized_per_extension"]},
+    {"source_test":"does not wait on async handlers when emitting fire-and-forget","rust_tests":["compiled_event_delivery_is_pollable_and_serialized_per_extension","review_app_queues_startup_events_and_commands_without_blocking_input"]},
+    {"source_test":"gives up on a hanging shutdown handler after the bound","rust_tests":["retirement_revokes_once_and_bounds_an_uncooperative_native_runtime"]},
+    {"source_test":"gives lifecycle handlers live pane controls and one deprecated alias","rust_tests":["event_context_keeps_sidebars_as_the_exact_pane_state_alias","committed_event_context_provider_installs_observably_and_cleans_up","ratatui_routes_clicks_dialogs_lifecycle_and_note_events_end_to_end"]},
+    {"source_test":"is a no-op when the session has no extensions","rust_tests":["extension_event_publication_is_a_noop_without_subscribers_and_bounds_recursion"]},
+    {"source_test":"revokes retained contexts before an asynchronous shutdown settles","rust_tests":["capability_lease_follows_app_runtime_and_review_generation_ownership","retirement_revokes_once_and_bounds_an_uncooperative_native_runtime"]},
+    {"source_test":"shares one retirement completion while shutdown is still pending","rust_tests":["retirement_revokes_once_and_bounds_an_uncooperative_native_runtime"]},
+    {"source_test":"drops ordinary lifecycle events after revocation and runs shutdown once","rust_tests":["retirement_revokes_once_and_bounds_an_uncooperative_native_runtime","capability_lease_can_hold_runtime_authority_without_review_generation"]},
+    {"source_test":"delivers a namespaced event to every listener and isolates failures","rust_tests":["command_dialog_flow_records_trimmed_decision_and_emits_the_public_event","event_names_distinguish_host_lifecycle_subscriptions_from_extension_emissions","ratatui_routes_clicks_dialogs_lifecycle_and_note_events_end_to_end"]},
+    {"source_test":"a handler that pushes onto files fails without touching the live changeset","rust_tests":["native_event_snapshots_are_owned_and_isolate_handler_mutation","returned_file_is_an_owned_copy_of_the_visible_view"]},
+    {"source_test":"a handler cannot reassign changeset fields or replace files","rust_tests":["native_event_snapshots_are_owned_and_isolate_handler_mutation"]},
+    {"source_test":"handlers still read the changeset's real contents","rust_tests":["compiled_event_delivery_is_pollable_and_serialized_per_extension","public_file_projection_owns_stats_agent_and_authoritative_hunk_summaries"]},
+    {"source_test":"payloads without a changeset are copied and frozen, not passed by reference","rust_tests":["native_event_snapshots_are_owned_and_isolate_handler_mutation"]},
+    {"source_test":"one handler cannot change the payload a later handler sees","rust_tests":["native_event_snapshots_are_owned_and_isolate_handler_mutation"]},
+    {"source_test":"reads reach the shared metadata, writes into it are refused","rust_tests":["public_file_projection_owns_stats_agent_and_authoritative_hunk_summaries"]},
+    {"source_test":"reflection cannot expose or alter the live model","rust_tests":["returns_an_owned_snapshot_detached_from_extension_mutation","native_event_snapshots_are_owned_and_isolate_handler_mutation"]},
+    {"source_test":"stats and agent annotations are guarded the same way","rust_tests":["public_file_projection_owns_stats_agent_and_authoritative_hunk_summaries"]},
+    {"source_test":"converting the same file again hands out the identical guarded objects","rust_tests":["reuses_one_immutable_file_and_change_snapshot_for_matching_and_layout"]},
+    {"source_test":"exotic objects inside metadata read through unwrapped","rust_tests":["native_event_snapshots_are_owned_and_isolate_handler_mutation"]},
+    {"source_test":"fills hunk summaries from the parsed metadata","rust_tests":["public_file_projection_owns_stats_agent_and_authoritative_hunk_summaries"]},
+    {"source_test":"hunk summaries are frozen and identical across conversions","rust_tests":["public_file_projection_owns_stats_agent_and_authoritative_hunk_summaries","reuses_one_immutable_file_and_change_snapshot_for_matching_and_layout"]},
+    {"source_test":"hunk summaries always come from metadata, not from a stale field on the file","rust_tests":["public_file_projection_owns_stats_agent_and_authoritative_hunk_summaries"]},
+    {"source_test":"files with no parsable hunks share one empty summary list","rust_tests":["public_file_projection_owns_stats_agent_and_authoritative_hunk_summaries","a_file_without_hunks_has_no_hunk_selection"]}
+  ],
+  "rust_commands": [
+    "cargo test -p workdeck-extension-api --lib",
+    "cargo test -p workdeck-extension-host --lib",
+    "cargo test -p workdeck-tui --lib",
+    "cargo test -p workdeck-examples --test review_triage"
+  ]
+}

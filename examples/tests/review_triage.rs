@@ -17,7 +17,9 @@ use workdeck_extension_api::{
     PaneActionInvocation, PanePlacement, PaneRenderRequest, Registration, ReviewEvent,
     SelectDialogSubmission, ViewNode,
 };
-use workdeck_extension_host::{LoadedExtension, build_extension_review_selection_from_snapshot};
+use workdeck_extension_host::{
+    ExtensionEventBusPhase, LoadedExtension, build_extension_review_selection_from_snapshot,
+};
 use workdeck_review::{CommentAnchor, ReviewComment, ReviewNoteResolution, ReviewState};
 use workdeck_tui::{ReviewApp, ReviewOptions, render, to_extension_paint_theme};
 
@@ -197,11 +199,110 @@ fn press(app: &mut ReviewApp, code: KeyCode) {
 
 fn settle_extension_commands(app: &mut ReviewApp) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-    while app.has_pending_extension_commands() {
+    while app.has_pending_extension_commands() || app.has_pending_extension_events() {
         app.poll_extension_commands();
         assert!(std::time::Instant::now() < deadline);
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
+}
+
+#[test]
+fn compiled_event_delivery_is_pollable_and_serialized_per_extension() {
+    let (_directory, manifest) = staged_extension();
+    let mut extension = LoadedExtension::spawn(&manifest, "test-host").unwrap();
+    let started = std::time::Instant::now();
+    extension
+        .begin_event(event(
+            "selection_changed",
+            json!({ "fileId": snapshot().changeset.files[0].runtime_id, "hunkIndex": 1 }),
+        ))
+        .unwrap();
+    assert!(started.elapsed() < std::time::Duration::from_millis(100));
+    assert!(extension.event_pending());
+    assert!(
+        extension
+            .begin_event(event("filter_changed", json!({ "filter": "*.rs" })))
+            .unwrap_err()
+            .to_string()
+            .contains("already handling")
+    );
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+    let execution = loop {
+        if let Some(execution) = extension.poll_event() {
+            break execution.unwrap();
+        }
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::yield_now();
+    };
+    assert!(matches!(
+        &execution.actions[..],
+        [ExtensionHostAction::RefreshPane { id }] if id == "triage"
+    ));
+    assert!(!extension.request_pending());
+}
+
+#[test]
+fn native_event_snapshots_are_owned_and_isolate_handler_mutation() {
+    let original = event(
+        "selection_changed",
+        json!({ "fileId": "file:0", "nested": { "count": 1 } }),
+    );
+    let mut first_handler = original.clone();
+    let second_handler = original.clone();
+    first_handler.payload["fileId"] = json!("forged");
+    first_handler.payload["nested"]["count"] = json!(99);
+    first_handler.snapshot.changeset.files[0].path = "forged.rs".into();
+
+    assert_eq!(second_handler.payload["fileId"], "file:0");
+    assert_eq!(second_handler.payload["nested"]["count"], 1);
+    assert_eq!(
+        second_handler.snapshot.changeset.files[0].path,
+        "src/lib.rs"
+    );
+    assert_eq!(original.payload, second_handler.payload);
+    assert_eq!(original.snapshot, second_handler.snapshot);
+}
+
+#[test]
+fn review_app_queues_startup_events_and_commands_without_blocking_input() {
+    let (_directory, manifest) = staged_extension();
+    let extension = LoadedExtension::spawn(&manifest, "test-host").unwrap();
+    let started = std::time::Instant::now();
+    let mut app =
+        ReviewApp::new_with_extensions(changeset(), ReviewOptions::default(), vec![extension]);
+    assert!(started.elapsed() < std::time::Duration::from_millis(100));
+    assert!(app.has_pending_extension_events());
+
+    app.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+    assert!(app.has_pending_extension_commands());
+    settle_extension_commands(&mut app);
+    assert!(!app.has_pending_extension_commands());
+    assert!(!app.has_pending_extension_events());
+}
+
+#[test]
+fn retirement_revokes_once_and_bounds_an_uncooperative_native_runtime() {
+    let (_directory, manifest) = staged_extension();
+    let mut extension = LoadedExtension::spawn(&manifest, "test-host").unwrap();
+    extension
+        .handshake
+        .registrations
+        .push(Registration::EventSubscription {
+            names: vec!["shutdown".into()],
+        });
+    let registry = extension.registry();
+    assert_eq!(registry.phase(), ExtensionEventBusPhase::Ready);
+    assert!(extension.begin_retirement());
+    assert!(!extension.begin_retirement());
+    assert_eq!(registry.phase(), ExtensionEventBusPhase::Closing);
+
+    let started = std::time::Instant::now();
+    extension.finish_retirement(
+        std::time::Instant::now() + workdeck_extension_host::EXTENSION_SHUTDOWN_TIMEOUT,
+    );
+    assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    assert_eq!(registry.phase(), ExtensionEventBusPhase::Closed);
 }
 
 #[test]
@@ -733,6 +834,7 @@ fn ratatui_routes_clicks_dialogs_lifecycle_and_note_events_end_to_end() {
         .unwrap();
     app.tick_extension_notifications(std::time::Instant::now());
     app.notify_watch_reload_pending();
+    settle_extension_commands(&mut app);
     terminal
         .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
         .unwrap();

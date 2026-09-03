@@ -113,6 +113,9 @@ pub enum ExtensionEventBusPhase {
     Closed = 3,
 }
 
+/// Maximum time a retiring native runtime may delay application teardown.
+pub const EXTENSION_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(250);
+
 #[derive(Debug)]
 pub struct ExtensionRuntimeRegistry {
     phase: AtomicU8,
@@ -138,6 +141,29 @@ impl ExtensionRuntimeRegistry {
 
     pub fn set_phase(&self, phase: ExtensionEventBusPhase) {
         self.phase.store(phase as u8, Ordering::Release);
+    }
+
+    /// Revoke ordinary runtime authority exactly once before shutdown begins.
+    #[must_use]
+    pub fn begin_closing(&self) -> bool {
+        loop {
+            let current = self.phase.load(Ordering::Acquire);
+            if current >= ExtensionEventBusPhase::Closing as u8 {
+                return false;
+            }
+            if self
+                .phase
+                .compare_exchange(
+                    current,
+                    ExtensionEventBusPhase::Closing as u8,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+            {
+                return true;
+            }
+        }
     }
 }
 
@@ -172,7 +198,7 @@ impl ExtensionCapabilityLease {
             return false;
         };
         (self.is_app_alive)()
-            && owning_registry.phase() != ExtensionEventBusPhase::Closed
+            && owning_registry.phase() == ExtensionEventBusPhase::Ready
             && (self.get_active_registry)()
                 .as_ref()
                 .is_some_and(|active| Arc::ptr_eq(active, owning_registry))
@@ -390,15 +416,22 @@ pub struct LoadedExtension {
     stdin: ChildStdin,
     responses: mpsc::Receiver<Result<String, std::io::Error>>,
     next_id: u64,
-    pending_command: Option<PendingCommandRequest>,
+    pending_request: Option<PendingExecutionRequest>,
     registry: Arc<ExtensionRuntimeRegistry>,
     notifications: ExtensionNotificationHub,
 }
 
 #[derive(Debug, Clone, Copy)]
-struct PendingCommandRequest {
+struct PendingExecutionRequest {
     id: u64,
     deadline: Instant,
+    kind: PendingExecutionKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PendingExecutionKind {
+    Command,
+    Event,
 }
 
 impl LoadedExtension {
@@ -504,7 +537,7 @@ impl LoadedExtension {
             stdin,
             responses,
             next_id: 1,
-            pending_command: None,
+            pending_request: None,
             registry: Arc::new(ExtensionRuntimeRegistry::new()),
             notifications,
         };
@@ -549,17 +582,59 @@ impl LoadedExtension {
         self.notifications.clone()
     }
 
+    /// Revoke all retained authority and start best-effort native shutdown exactly once.
+    ///
+    /// This half is deliberately nonblocking so a collection of extensions can all receive the
+    /// retirement signal before sharing one global deadline.
+    #[must_use]
+    pub fn begin_retirement(&mut self) -> bool {
+        if !self.registry.begin_closing() {
+            return false;
+        }
+        if self.subscribes_to_event("shutdown") {
+            let _ = self.send_notification("workdeck/shutdown", serde_json::json!({}));
+        }
+        true
+    }
+
+    /// Finish a previously started retirement no later than `deadline`.
+    pub fn finish_retirement(&mut self, deadline: Instant) {
+        if self.registry.phase() == ExtensionEventBusPhase::Closed {
+            return;
+        }
+        if self.subscribes_to_event("shutdown") {
+            while Instant::now() < deadline {
+                if self.child.try_wait().ok().flatten().is_some() {
+                    self.pending_request = None;
+                    self.registry.set_phase(ExtensionEventBusPhase::Closed);
+                    return;
+                }
+                thread::sleep(Duration::from_millis(2));
+            }
+        }
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        self.pending_request = None;
+        self.registry.set_phase(ExtensionEventBusPhase::Closed);
+    }
+
+    /// Revoke and retire one runtime within Hunk's pinned 250 ms shutdown bound.
+    pub fn retire(&mut self) {
+        let _ = self.begin_retirement();
+        self.finish_retirement(Instant::now() + EXTENSION_SHUTDOWN_TIMEOUT);
+    }
+
     pub fn request(
         &mut self,
         method: &str,
         params: impl Serialize,
         timeout: Duration,
     ) -> Result<Value, HostError> {
-        if self.pending_command.is_some() {
+        if self.pending_request.is_some() {
             return Err(HostError::Busy(self.manifest.id.clone()));
         }
         let id = self.send_request(method, params)?;
-        let line = self.receive_protocol_line(Instant::now() + timeout)?;
+        let line = self.receive_protocol_line(id, Instant::now() + timeout)?;
         self.decode_response(id, &line)
     }
 
@@ -626,7 +701,11 @@ impl LoadedExtension {
         })
     }
 
-    fn receive_protocol_line(&self, deadline: Instant) -> Result<String, HostError> {
+    fn receive_protocol_line(
+        &self,
+        expected_id: u64,
+        deadline: Instant,
+    ) -> Result<String, HostError> {
         loop {
             let timeout = deadline.saturating_duration_since(Instant::now());
             let line = self
@@ -648,6 +727,9 @@ impl LoadedExtension {
             if parse_cli_output_notification(&line).is_some()
                 || parse_cli_stdin_read_notification(&line).is_some()
             {
+                continue;
+            }
+            if json_rpc_response_id(&line).is_some_and(|id| id < expected_id) {
                 continue;
             }
             return Ok(line);
@@ -926,6 +1008,9 @@ impl LoadedExtension {
                         error,
                     },
                 )?;
+                continue;
+            }
+            if json_rpc_response_id(&line).is_some_and(|response_id| response_id < id) {
                 continue;
             }
             break self.decode_response(id, &line)?;
@@ -1287,6 +1372,9 @@ impl LoadedExtension {
 
     /// Deliver one host lifecycle or namespaced extension event to a declared subscriber.
     pub fn deliver_event(&mut self, event: ReviewEvent) -> Result<CommandExecution, HostError> {
+        if self.registry.phase() != ExtensionEventBusPhase::Ready && event.name != "shutdown" {
+            return Ok(CommandExecution::default());
+        }
         if !self.subscribes_to_event(&event.name) {
             return Err(HostError::InvalidPayload {
                 id: self.manifest.id.clone(),
@@ -1307,6 +1395,34 @@ impl LoadedExtension {
             })?;
         self.validate_host_actions(&execution.actions, "event")?;
         Ok(execution)
+    }
+
+    /// Start one lifecycle/custom event without waiting on extension code.
+    ///
+    /// A native process owns one ordered request stream, so event delivery is serialized with
+    /// commands for that extension while remaining independent of every other extension and the
+    /// Ratatui event loop.
+    pub fn begin_event(&mut self, event: ReviewEvent) -> Result<(), HostError> {
+        if self.registry.phase() != ExtensionEventBusPhase::Ready {
+            return Ok(());
+        }
+        if self.pending_request.is_some() {
+            return Err(HostError::Busy(self.manifest.id.clone()));
+        }
+        if !self.subscribes_to_event(&event.name) {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "event",
+                message: format!("event {:?} is not subscribed", event.name),
+            });
+        }
+        let id = self.send_request("workdeck/event", event)?;
+        self.pending_request = Some(PendingExecutionRequest {
+            id,
+            deadline: Instant::now() + Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+            kind: PendingExecutionKind::Event,
+        });
+        Ok(())
     }
 
     /// Invoke one registered in-review command and validate all requested host mutations.
@@ -1420,7 +1536,10 @@ impl LoadedExtension {
         commands: ExtensionCommandAvailability,
         workspace: Option<ExtensionWorkspaceSnapshot>,
     ) -> Result<(), HostError> {
-        if self.pending_command.is_some() {
+        if self.registry.phase() != ExtensionEventBusPhase::Ready {
+            return Err(HostError::Closed(self.manifest.id.clone()));
+        }
+        if self.pending_request.is_some() {
             return Err(HostError::Busy(self.manifest.id.clone()));
         }
         if !self.handshake.registrations.iter().any(|registration| {
@@ -1447,49 +1566,106 @@ impl LoadedExtension {
                 commands,
             },
         )?;
-        self.pending_command = Some(PendingCommandRequest {
+        self.pending_request = Some(PendingExecutionRequest {
             id,
             deadline: Instant::now() + Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+            kind: PendingExecutionKind::Command,
         });
         Ok(())
     }
 
     #[must_use]
     pub const fn command_pending(&self) -> bool {
-        self.pending_command.is_some()
+        matches!(
+            self.pending_request,
+            Some(PendingExecutionRequest {
+                kind: PendingExecutionKind::Command,
+                ..
+            })
+        )
+    }
+
+    #[must_use]
+    pub const fn event_pending(&self) -> bool {
+        matches!(
+            self.pending_request,
+            Some(PendingExecutionRequest {
+                kind: PendingExecutionKind::Event,
+                ..
+            })
+        )
+    }
+
+    #[must_use]
+    pub const fn request_pending(&self) -> bool {
+        self.pending_request.is_some()
     }
 
     /// Poll the in-flight command once without blocking the host event loop.
     pub fn poll_command(&mut self) -> Option<Result<CommandExecution, HostError>> {
-        let pending = self.pending_command?;
-        let line = match self.responses.try_recv() {
-            Ok(Ok(line)) => line,
-            Ok(Err(source)) => {
-                self.pending_command = None;
-                return Some(Err(HostError::Io {
-                    id: self.manifest.id.clone(),
-                    source,
-                }));
+        self.poll_execution(PendingExecutionKind::Command, "command")
+    }
+
+    /// Poll one fire-and-forget event handler without blocking the host event loop.
+    pub fn poll_event(&mut self) -> Option<Result<CommandExecution, HostError>> {
+        self.poll_execution(PendingExecutionKind::Event, "event")
+    }
+
+    fn poll_execution(
+        &mut self,
+        expected: PendingExecutionKind,
+        payload_kind: &'static str,
+    ) -> Option<Result<CommandExecution, HostError>> {
+        let pending = self.pending_request?;
+        if pending.kind != expected {
+            return None;
+        }
+        let line = loop {
+            match self.responses.try_recv() {
+                Ok(Ok(line)) => {
+                    if parse_cli_output_notification(&line).is_some()
+                        || parse_cli_stdin_read_notification(&line).is_some()
+                    {
+                        continue;
+                    }
+                    if json_rpc_response_id(&line)
+                        .is_some_and(|response_id| response_id < pending.id)
+                    {
+                        continue;
+                    }
+                    break line;
+                }
+                Ok(Err(source)) => {
+                    self.pending_request = None;
+                    return Some(Err(HostError::Io {
+                        id: self.manifest.id.clone(),
+                        source,
+                    }));
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.pending_request = None;
+                    return Some(Err(HostError::Closed(self.manifest.id.clone())));
+                }
+                Err(mpsc::TryRecvError::Empty) if Instant::now() >= pending.deadline => {
+                    let _ = self.send_notification(
+                        "$/cancelRequest",
+                        serde_json::json!({ "id": pending.id }),
+                    );
+                    self.pending_request = None;
+                    return Some(Err(HostError::Timeout(self.manifest.id.clone())));
+                }
+                Err(mpsc::TryRecvError::Empty) => return None,
             }
-            Err(mpsc::TryRecvError::Disconnected) => {
-                self.pending_command = None;
-                return Some(Err(HostError::Closed(self.manifest.id.clone())));
-            }
-            Err(mpsc::TryRecvError::Empty) if Instant::now() >= pending.deadline => {
-                self.pending_command = None;
-                return Some(Err(HostError::Timeout(self.manifest.id.clone())));
-            }
-            Err(mpsc::TryRecvError::Empty) => return None,
         };
-        self.pending_command = None;
+        self.pending_request = None;
         let result = self.decode_response(pending.id, &line).and_then(|value| {
             let execution: CommandExecution =
                 serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
                     id: self.manifest.id.clone(),
-                    kind: "command",
+                    kind: payload_kind,
                     message: error.to_string(),
                 })?;
-            self.validate_host_actions(&execution.actions, "command")?;
+            self.validate_host_actions(&execution.actions, payload_kind)?;
             Ok(execution)
         });
         Some(result)
@@ -2029,6 +2205,15 @@ struct ParsedExtensionNotification {
     notification_type: ExtensionNotifyType,
 }
 
+fn json_rpc_response_id(line: &str) -> Option<u64> {
+    let value = serde_json::from_str::<Value>(line).ok()?;
+    let object = value.as_object()?;
+    if object.get("jsonrpc")?.as_str()? != "2.0" || object.contains_key("method") {
+        return None;
+    }
+    object.get("id")?.as_u64()
+}
+
 fn parse_extension_notification(line: &str) -> Option<ParsedExtensionNotification> {
     let value = serde_json::from_str::<Value>(line).ok()?;
     let object = value.as_object()?;
@@ -2266,30 +2451,7 @@ fn validate_registrations(
 
 impl Drop for LoadedExtension {
     fn drop(&mut self) {
-        self.registry.set_phase(ExtensionEventBusPhase::Closing);
-        if self.subscribes_to_event("shutdown") {
-            let notification = serde_json::json!({
-                "jsonrpc": "2.0",
-                "method": "workdeck/shutdown",
-                "params": {},
-            });
-            if serde_json::to_writer(&mut self.stdin, &notification).is_ok()
-                && self.stdin.write_all(b"\n").is_ok()
-                && self.stdin.flush().is_ok()
-            {
-                let deadline = Instant::now() + Duration::from_millis(100);
-                while Instant::now() < deadline {
-                    if self.child.try_wait().ok().flatten().is_some() {
-                        self.registry.set_phase(ExtensionEventBusPhase::Closed);
-                        return;
-                    }
-                    thread::sleep(Duration::from_millis(2));
-                }
-            }
-        }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-        self.registry.set_phase(ExtensionEventBusPhase::Closed);
+        self.retire();
     }
 }
 
@@ -2467,6 +2629,8 @@ mod tests {
         *active.lock().unwrap() = Some(Arc::new(ExtensionRuntimeRegistry::new()));
         assert!(!lease.is_live());
         *active.lock().unwrap() = Some(Arc::clone(&owning));
+        owning.set_phase(ExtensionEventBusPhase::Closing);
+        assert!(!lease.is_live());
         owning.set_phase(ExtensionEventBusPhase::Closed);
         assert!(!lease.is_live());
         owning.set_phase(ExtensionEventBusPhase::Ready);
@@ -2616,6 +2780,19 @@ mod tests {
     }
 
     #[test]
+    fn response_identity_distinguishes_settled_replies_from_notifications() {
+        assert_eq!(
+            json_rpc_response_id(r#"{"jsonrpc":"2.0","id":7,"result":{}}"#),
+            Some(7)
+        );
+        assert_eq!(
+            json_rpc_response_id(r#"{"jsonrpc":"2.0","method":"workdeck/notify","params":{}}"#),
+            None
+        );
+        assert_eq!(json_rpc_response_id("not-json"), None);
+    }
+
+    #[test]
     fn parses_byte_exact_cli_output_and_rejects_response_shaped_messages() {
         let parsed = parse_cli_output_notification(
             r#"{"jsonrpc":"2.0","method":"workdeck/cli/output","params":{"request_id":7,"stream":"stderr","bytes":[0,10,255]}}"#,
@@ -2662,6 +2839,30 @@ mod tests {
         assert_eq!(oracle["baselines"][1]["status"], "absent");
         let mappings = oracle["test_mapping"].as_array().unwrap();
         assert_eq!(mappings.len(), 9);
+        assert!(mappings.iter().all(|mapping| {
+            mapping["source_test"]
+                .as_str()
+                .is_some_and(|name| !name.is_empty())
+                && mapping["rust_tests"]
+                    .as_array()
+                    .is_some_and(|tests| !tests.is_empty())
+        }));
+    }
+
+    #[test]
+    fn frozen_hunk_event_oracle_maps_every_source_test_at_both_pins() {
+        let oracle: Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/extension-events.json"
+        ))
+        .unwrap();
+        for baseline in oracle["baselines"].as_array().unwrap() {
+            assert_eq!(baseline["tests"], 26);
+            assert_eq!(baseline["passed"], 26);
+            assert_eq!(baseline["failed"], 0);
+            assert_eq!(baseline["expect_calls"], 72);
+        }
+        let mappings = oracle["test_mapping"].as_array().unwrap();
+        assert_eq!(mappings.len(), 26);
         assert!(mappings.iter().all(|mapping| {
             mapping["source_test"]
                 .as_str()

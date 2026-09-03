@@ -62,9 +62,9 @@ A soft reload cancels the visible request and the complete queue before replacem
 
 ## Events
 
-Extensions declare every subscribed event in one `EventSubscription` registration. The host sends `workdeck/event` in extension load order with immutable review snapshots and a committed event-context snapshot. That context carries the review working directory and the owning extension's currently open local pane IDs; `sidebars` is the exact state alias for `panes`. Native callbacks request notifications, pane changes, navigation, dialogs, and further events by returning their corresponding declarative host actions.
+Extensions declare every subscribed event in one `EventSubscription` registration. The host queues `workdeck/event` in extension load order with immutable review snapshots and a committed event-context snapshot, then returns to Ratatui without waiting for a subprocess. Each extension has one chronological request queue shared by events and commands; slow handlers cannot stall input, rendering, or other extensions, while events and commands observed by one extension retain their original order. That context carries the review working directory and the owning extension's currently open local pane IDs; `sidebars` is the exact state alias for `panes`. Native callbacks request notifications, pane changes, navigation, dialogs, and further events by returning their corresponding declarative host actions.
 
-The provider is installed only after the review app has committed, before startup events are published. Runtime replacement installs the successor before retiring the predecessor, and cleanup is identity checked so stale teardown cannot detach the newer provider. Dropping the review app removes the active provider.
+The provider is installed only after the review app has committed, before startup events are published. Runtime replacement installs the successor before retiring the predecessor, and cleanup is identity checked so stale teardown cannot detach the newer provider. Retirement atomically changes the registry from ready to closing before any shutdown work, making retained pane, navigation, dialog, and event capabilities inert immediately. Every process subscribed to `shutdown` receives at most one best-effort retirement notification, all retiring processes share one 250 ms deadline, and uncooperative children are terminated. Dropping the review app removes the active provider.
 
 Lifecycle events currently include:
 
@@ -75,7 +75,10 @@ Lifecycle events currently include:
 - `note_created`
 - `filter_changed`
 - `watch_reload_pending`
+- `shutdown` (delivered through the retirement notification after authority is revoked)
 
-An extension may emit a custom event through `EmitEvent`. Custom names require a nonempty namespace and event separated by `:`; the `workdeck:` namespace is reserved. The host broadcasts synchronously to current subscribers, validates every returned action, and stops recursive event chains at depth 16. A crashed, timed-out, unsubscribed, or malformed extension cannot inject an unchecked action or retain terminal ownership.
+An extension may emit a custom event through `EmitEvent`. Custom names require a nonempty namespace and event separated by `:`; the `workdeck:` namespace is reserved. The host appends broadcasts to each current subscriber's chronological queue, validates every returned action, and carries causal depth across asynchronous responses so recursive event chains still stop at depth 16. Timed-out request IDs are revoked and late replies are discarded before a later request is decoded. A crashed, timed-out, unsubscribed, or malformed extension cannot inject an unchecked action or retain terminal ownership.
+
+Hunk freezes JavaScript envelopes, file arrays, files, metadata, stats, agent annotations, and hunk summaries before invoking in-process handlers. Native Workdeck crosses an NDJSON subprocess boundary instead: `ReviewEvent`, `ReviewSnapshot`, `ExtensionDiffFile`, and nested JSON payloads are owned Rust values serialized separately for each process. A child may mutate its local deserialized copy, but it cannot reach another handler's value or live review state. File projections always derive change type and hunk summaries from the current parsed `DiffFile`; binary or skipped files carry an empty hunk vector. `Arc`-backed preparation snapshots preserve reuse inside the host without exposing reference identity as public API.
 
 The review-triage example demonstrates reconciliation: decisions, viewed marks, note counts, and current selection are session-local and retained only while their file/hunk address still exists after a load or reload.
