@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "captured_with": "bun 1.3.5 executing the untouched pinned src/extensions/hostRuntimeModules.test.ts",
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "source_blob": "cc175bd07194941385d53e822199829af7abfe56",
+      "test_blob": "985a5e4610d1ed99ed4a186070a858faac480cdd",
+      "tests": 8,
+      "passed": 8,
+      "failed": 0,
+      "expect_calls": 11
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "source_blob": "e7f2ac343dff3ab10146f2dc3c50ea2263ca88d0",
+      "test_blob": "eba523dd6ea2bdf87d846f6596576589cee0cf65",
+      "tests": 7,
+      "passed": 6,
+      "failed": 1,
+      "expect_calls": 9,
+      "observed_failure": "serves the host React instance to a file outside the app bundle",
+      "failure_reason": "the stable source registers the authored /var root while Bun loads through its canonical /private/var spelling; main canonicalizes both roots"
+    }
+  ],
+  "native_adaptation": {
+    "runtime": "one compiled executable selected by workdeck-extension.toml",
+    "host_api": "versioned JSON-RPC values from workdeck-extension-api replace shared JavaScript module identity",
+    "rendering": "extensions return declarative rows and ViewNode trees; Ratatui owns every terminal cell",
+    "source_policy": "JavaScript, TypeScript, JSX, package.json, node_modules, React, and OpenTUI are not runtime inputs",
+    "aliases": "canonical manifest and working-directory identities preserve the main-baseline alias fix",
+    "scope": "only discovered and trusted native manifests can start processes"
+  },
+  "rust_commands": [
+    "cargo test -p workdeck-extension-host runtime_boundary --lib",
+    "cargo test -p workdeck-examples --test jsx_file_view",
+    "cargo test -p workdeck-examples compiled_extension_exposes_mode_lifecycle_navigation_and_dialog_protocol --test vim_navigation",
+    "cargo test -p workdeck-core recognizes_and_defensively_normalizes_the_structural_wire_shape --lib"
+  ],
+  "test_mapping": [
+    {
+      "source_test": "serves the host React instance to a file outside the app bundle",
+      "rust_tests": [
+        "compiled_process_boundary_ignores_ambient_source_runtimes",
+        "runtime_boundary::tests::manifest_owned_native_entrypoint_ignores_adjacent_javascript_runtime_files"
+      ]
+    },
+    {
+      "source_test": "wins over a conflicting react adjacent to the extension file",
+      "rust_tests": [
+        "compiled_process_boundary_ignores_ambient_source_runtimes",
+        "runtime_boundary::tests::manifest_owned_native_entrypoint_ignores_adjacent_javascript_runtime_files"
+      ]
+    },
+    {
+      "source_test": "transpiled JSX lands on the host jsx runtime",
+      "rust_tests": [
+        "native_layout_matches_the_frozen_hunk_tsx_projection",
+        "native_components_preserve_fixed_geometry_state_and_fallbacks"
+      ]
+    },
+    {
+      "source_test": "loads a hook-using OpenTUI file-row component through host runtime modules",
+      "rust_tests": [
+        "native_components_preserve_fixed_geometry_state_and_fallbacks",
+        "ratatui_rows_toggle_only_on_an_undragged_left_mouse_up"
+      ]
+    },
+    {
+      "source_test": "serves hunkdiff/extension runtime values",
+      "rust_tests": [
+        "run_errors::tests::recognizes_and_defensively_normalizes_the_structural_wire_shape",
+        "manifest_declares_the_exact_native_capabilities",
+        "compiled_protocol_matches_layouts_and_toggles_the_view"
+      ]
+    },
+    {
+      "source_test": "serves host modules when the extension root uses an aliased path",
+      "rust_tests": [
+        "runtime_boundary::tests::aliased_extension_root_resolves_to_one_canonical_native_boundary"
+      ]
+    },
+    {
+      "source_test": "reaches helper modules imported by the entry file",
+      "rust_tests": [
+        "compiled_extension_exposes_mode_lifecycle_navigation_and_dialog_protocol",
+        "compiled_process_boundary_ignores_ambient_source_runtimes"
+      ]
+    },
+    {
+      "source_test": "does not claim bare specifiers outside registered extension directories",
+      "rust_tests": [
+        "extension_discovery::tests::javascript_sources_and_package_manifests_are_never_discovered",
+        "extension_discovery::tests::native_manifest_is_the_only_entrypoint_authority"
+      ]
+    }
+  ]
+}

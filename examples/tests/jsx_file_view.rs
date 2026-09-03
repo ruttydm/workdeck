@@ -158,6 +158,37 @@ fn compiled_protocol_matches_layouts_and_toggles_the_view() {
     );
 }
 
+#[test]
+fn compiled_process_boundary_ignores_ambient_source_runtimes() {
+    let (directory, manifest) = staged_extension();
+    fs::create_dir_all(directory.path().join("node_modules/react")).unwrap();
+    fs::write(
+        directory.path().join("node_modules/react/index.js"),
+        "module.exports = { useState() { throw Error('wrong runtime') } };\n",
+    )
+    .unwrap();
+    fs::write(
+        directory.path().join("package.json"),
+        r#"{"main":"index.tsx","dependencies":{"react":"0.0.1"}}"#,
+    )
+    .unwrap();
+    fs::write(
+        directory.path().join("index.tsx"),
+        "import React from 'react'; export default <text />;\n",
+    )
+    .unwrap();
+    fs::write(
+        directory.path().join("helper.ts"),
+        "export const helper = 'source-only';\n",
+    )
+    .unwrap();
+
+    let mut loaded = LoadedExtension::spawn(&manifest, "test").unwrap();
+    assert_eq!(loaded.manifest.id, "example.jsx-file-view");
+    assert_eq!(loaded.handshake.extension_api_version, 1);
+    assert!(loaded.file_view_matches(VIEW_ID, oracle_file()).unwrap());
+}
+
 fn multi_hunk_changeset() -> workdeck_core::Changeset {
     let mut changeset = parse_patch(
         "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old one\n+new one\n@@ -4 +4 @@\n-old four\n+new four\n",

@@ -11,6 +11,7 @@ mod file_views;
 mod keyboard_mode;
 mod keyboard_mode_controller;
 mod line_highlights;
+mod runtime_boundary;
 mod synchronous_callbacks;
 
 pub use extension_discovery::*;
@@ -24,12 +25,12 @@ pub use file_views::*;
 pub use keyboard_mode::*;
 pub use keyboard_mode_controller::*;
 pub use line_highlights::*;
+pub use runtime_boundary::*;
 pub use synchronous_callbacks::*;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -440,20 +441,12 @@ impl LoadedExtension {
         notifications: ExtensionNotificationHub,
         config: Value,
     ) -> Result<Self, HostError> {
-        let manifest = ExtensionManifest::load(manifest_path)?;
-        let resolved_manifest_path =
-            fs::canonicalize(manifest_path).unwrap_or_else(|_| manifest_path.to_owned());
-        let directory = manifest_path.parent().unwrap_or_else(|| Path::new("."));
-        let directory = fs::canonicalize(directory).unwrap_or_else(|_| directory.to_owned());
-        let mut executable = directory.join(&manifest.executable);
-        if !executable.is_file() && !std::env::consts::EXE_SUFFIX.is_empty() {
-            let mut name = executable.as_os_str().to_owned();
-            name.push(std::env::consts::EXE_SUFFIX);
-            executable = PathBuf::from(name);
-        }
-        if !executable.is_file() {
-            return Err(HostError::MissingExecutable(executable));
-        }
+        let NativeExtensionEntrypoint {
+            manifest,
+            manifest_path: resolved_manifest_path,
+            directory,
+            executable,
+        } = resolve_native_extension_entrypoint(manifest_path)?;
         let mut child = Command::new(&executable)
             .current_dir(&directory)
             .env("WORKDECK_EXTENSION_API_VERSION", API_VERSION.to_string())

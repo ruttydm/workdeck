@@ -41,6 +41,9 @@ The checker also validates invariants that a crate graph alone cannot express:
   state adapter may import `workdeck-session`;
 - native extension implementation files consume declarative extension API data and actions and may
   not import the CLI, session broker, or TUI renderer;
+- native extension startup resolves only a canonical `workdeck-extension.toml` boundary and its
+  named compiled executable; adjacent JavaScript package metadata and source modules are never
+  runtime inputs (see [Native extension runtime boundary](native-extension-runtime-boundary.md));
 - the semantic review reducer is crate-internal and is reached through intents and
   `SemanticReviewStore` dispatch;
 - semantic notes cross into terminal-local file ids, line coordinates, draft shapes, and thread
