@@ -53,16 +53,17 @@ pub use semantic_state::*;
 pub use semantic_store::*;
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use thiserror::Error;
 use workdeck_core::{
     Changeset, LineRange, ReviewNoteSource, ReviewSelection, ReviewSide, ReviewSnapshot,
-    project_review_document,
+    review_file_change_kind,
 };
 use workdeck_extension_api::{
-    ExtensionReviewNoteResolution, ExtensionReviewSnapshot, ExtensionReviewSnapshotFile,
-    ExtensionReviewSnapshotFileFlags, ExtensionReviewSnapshotFileStats,
-    ExtensionReviewSnapshotLineAddress, ExtensionReviewSnapshotNote,
-    ExtensionReviewSnapshotNoteAnchor,
+    ExtensionReviewNoteChange, ExtensionReviewNoteChangeKind, ExtensionReviewNoteResolution,
+    ExtensionReviewSnapshot, ExtensionReviewSnapshotFile, ExtensionReviewSnapshotFileFlags,
+    ExtensionReviewSnapshotFileStats, ExtensionReviewSnapshotLineAddress,
+    ExtensionReviewSnapshotNote, ExtensionReviewSnapshotNoteAnchor,
 };
 
 pub const MAX_REVIEW_NOTE_BYTES: usize = 256 * 1024;
@@ -441,36 +442,10 @@ impl ReviewState {
     }
 }
 
-/// Project the current authoritative review and saved notes into extension API v1.
+/// Project every saved note in authoritative arrival/creation order into extension API v1.
 #[must_use]
-pub fn build_extension_review_snapshot(state: &ReviewState) -> ExtensionReviewSnapshot {
-    let document = project_review_document(state.changeset(), Some(&state.changeset().id));
-    let files = document
-        .files
-        .iter()
-        .map(|file| ExtensionReviewSnapshotFile {
-            file_key: file.key.clone(),
-            runtime_id: file.runtime_id.clone(),
-            path: file.path.clone(),
-            previous_path: file.previous_path.clone(),
-            change_kind: file.change_kind,
-            stats: ExtensionReviewSnapshotFileStats {
-                additions: file.stats.additions,
-                deletions: file.stats.deletions,
-                truncated: file.stats.truncated,
-            },
-            flags: ExtensionReviewSnapshotFileFlags {
-                untracked: file.flags.untracked,
-                binary: file.flags.binary,
-                too_large: file.flags.too_large,
-                partial: file.flags.partial,
-            },
-            content_identity: file.content_identity.clone(),
-            source_identity: file.source_identity.clone(),
-            source_attested: file.source_attested,
-        })
-        .collect();
-    let notes = state
+pub fn project_extension_review_notes(state: &ReviewState) -> Vec<ExtensionReviewSnapshotNote> {
+    state
         .comments()
         .iter()
         .map(|comment| {
@@ -523,13 +498,95 @@ pub fn build_extension_review_snapshot(state: &ReviewState) -> ExtensionReviewSn
                 resolution,
             }
         })
+        .collect()
+}
+
+/// Diff saved-note snapshots with removals first, then next-list updates and creates.
+#[must_use]
+pub fn diff_extension_review_notes(
+    previous: &[ExtensionReviewSnapshotNote],
+    next: &[ExtensionReviewSnapshotNote],
+) -> Vec<ExtensionReviewNoteChange> {
+    let previous_by_id = previous
+        .iter()
+        .map(|note| (note.id.as_str(), note))
+        .collect::<BTreeMap<_, _>>();
+    let next_by_id = next
+        .iter()
+        .map(|note| (note.id.as_str(), note))
+        .collect::<BTreeMap<_, _>>();
+    let mut changes = previous
+        .iter()
+        .filter(|note| !next_by_id.contains_key(note.id.as_str()))
+        .cloned()
+        .map(|note| ExtensionReviewNoteChange {
+            kind: ExtensionReviewNoteChangeKind::Removed,
+            note,
+        })
+        .collect::<Vec<_>>();
+    for note in next {
+        match previous_by_id.get(note.id.as_str()) {
+            None => changes.push(ExtensionReviewNoteChange {
+                kind: ExtensionReviewNoteChangeKind::Created,
+                note: note.clone(),
+            }),
+            Some(previous) if *previous != note => changes.push(ExtensionReviewNoteChange {
+                kind: ExtensionReviewNoteChangeKind::Updated,
+                note: note.clone(),
+            }),
+            Some(_) => {}
+        }
+    }
+    changes
+}
+
+/// Project the current authoritative review and saved notes into extension API v1.
+#[must_use]
+pub fn build_extension_review_snapshot_with_generation(
+    generation: impl Into<String>,
+    state: &ReviewState,
+) -> ExtensionReviewSnapshot {
+    let files = state
+        .changeset()
+        .files
+        .iter()
+        .map(|file| ExtensionReviewSnapshotFile {
+            file_key: file.key.clone(),
+            runtime_id: file.runtime_id.clone(),
+            path: file.path.clone(),
+            previous_path: file.previous_path.clone(),
+            change_kind: review_file_change_kind(file),
+            stats: ExtensionReviewSnapshotFileStats {
+                additions: file.stats.additions,
+                deletions: file.stats.deletions,
+                truncated: file.stats.truncated,
+            },
+            flags: ExtensionReviewSnapshotFileFlags {
+                untracked: file.flags.untracked,
+                binary: file.flags.binary,
+                too_large: file.flags.too_large,
+                partial: file.flags.partial,
+            },
+            content_identity: file.content_identity.clone(),
+            source_identity: file.source_identity.clone(),
+            source_attested: file.source_identity.as_ref().map(|_| file.source_attested),
+        })
         .collect();
     ExtensionReviewSnapshot {
-        generation: format!("generation:workdeck-tui:{}", state.generation()),
+        generation: generation.into(),
         state_revision: state.state_revision(),
         files,
-        notes,
+        notes: project_extension_review_notes(state),
     }
+}
+
+/// Project the current authoritative review and saved notes into extension API v1.
+#[must_use]
+pub fn build_extension_review_snapshot(state: &ReviewState) -> ExtensionReviewSnapshot {
+    build_extension_review_snapshot_with_generation(
+        format!("generation:workdeck-tui:{}", state.generation()),
+        state,
+    )
 }
 
 fn first_selection(changeset: &Changeset) -> ReviewSelection {
@@ -548,6 +605,7 @@ fn first_selection(changeset: &Changeset) -> ReviewSelection {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
     use workdeck_core::{
         ChangesetSource, DiffFile, DiffHunk, FileChangeKind, FileFlags, FileStats,
     };
@@ -596,6 +654,249 @@ mod tests {
             source: ChangesetSource::WorkingTree { staged: false },
             files,
         }
+    }
+
+    fn comment(id: &str, file_key: &str, summary: &str) -> ReviewComment {
+        ReviewComment {
+            id: id.into(),
+            parent_id: None,
+            source: "agent".into(),
+            author: None,
+            created_at: None,
+            file_path: None,
+            hunk_index: None,
+            side: None,
+            line: None,
+            summary: summary.into(),
+            rationale: None,
+            markup: None,
+            title: None,
+            tags: Vec::new(),
+            confidence: None,
+            updated_at: None,
+            resolution: ReviewNoteResolution::Active,
+            anchor: CommentAnchor {
+                file_key: file_key.into(),
+                old_range: None,
+                new_range: None,
+                preferred_side: None,
+                preferred_line: None,
+                intersecting_hunk_indices: Vec::new(),
+                owner_hunk_index: None,
+            },
+            editable: false,
+        }
+    }
+
+    #[test]
+    fn extension_review_snapshot_copies_complete_saved_notes_and_authoritative_file_identity() {
+        let mut alpha = file("src/alpha.ts", "alpha", 1);
+        alpha.runtime_id = "alpha".into();
+        alpha.previous_path = Some("src/old-alpha.ts".into());
+        alpha.change_kind = FileChangeKind::Renamed;
+        alpha.stats = FileStats {
+            additions: 2,
+            deletions: 2,
+            truncated: false,
+        };
+        alpha.content_identity = "sha256:alpha".into();
+        alpha.source_identity = Some("git:alpha".into());
+        alpha.source_attested = true;
+        let mut state = ReviewState::new(changeset(vec![alpha]));
+
+        let mut live = comment("live:1", "alpha", "Check this edge case.");
+        live.source = "mcp".into();
+        live.rationale = Some("The fallback changes behavior.".into());
+        live.tags = vec!["correctness".into()];
+        live.confidence = Some(workdeck_core::AgentAnnotationConfidence::High);
+        live.created_at = Some("2026-08-19T12:00:00.000Z".into());
+        live.resolution = ReviewNoteResolution::Stale;
+        live.anchor.new_range = Some(LineRange { start: 2, end: 2 });
+        live.anchor.preferred_side = Some(ReviewSide::New);
+        live.anchor.preferred_line = Some(2);
+        live.anchor.intersecting_hunk_indices = vec![0];
+        live.anchor.owner_hunk_index = Some(0);
+        state.add_comment(live).unwrap();
+
+        let mut user = comment(
+            "user:1",
+            "retired-file",
+            "Keep this even when its file disappears.",
+        );
+        user.source = "user".into();
+        user.markup = Some("<b>Keep this</b>".into());
+        user.title = Some("Retired finding".into());
+        user.author = Some("reviewer".into());
+        user.updated_at = Some("2026-08-19T13:00:00.000Z".into());
+        user.resolution = ReviewNoteResolution::Orphaned;
+        user.anchor.old_range = Some(LineRange { start: 4, end: 4 });
+        user.anchor.preferred_side = Some(ReviewSide::Old);
+        user.anchor.preferred_line = Some(4);
+        user.anchor.owner_hunk_index = Some(0);
+        user.editable = true;
+        state.add_comment(user).unwrap();
+        state.state_revision = 7;
+
+        let unsaved_draft = comment("draft:1", "alpha", "unfinished");
+        let snapshot = build_extension_review_snapshot_with_generation("producer:4", &state);
+        assert_eq!(
+            serde_json::to_value(&snapshot).unwrap(),
+            serde_json::json!({
+                "generation": "producer:4",
+                "stateRevision": 7,
+                "files": [{
+                    "fileKey": "alpha",
+                    "runtimeId": "alpha",
+                    "path": "src/alpha.ts",
+                    "previousPath": "src/old-alpha.ts",
+                    "changeKind": "rename-changed",
+                    "stats": { "additions": 2, "deletions": 2, "truncated": false },
+                    "flags": { "untracked": false, "binary": false, "tooLarge": false, "partial": false },
+                    "contentIdentity": "sha256:alpha",
+                    "sourceIdentity": "git:alpha",
+                    "sourceAttested": true
+                }],
+                "notes": [
+                    {
+                        "id": "live:1",
+                        "source": "agent",
+                        "originalSource": "mcp",
+                        "fileKey": "alpha",
+                        "anchor": {
+                            "newRange": [2, 2],
+                            "preferred": { "side": "new", "line": 2 },
+                            "intersectingHunkIndices": [0],
+                            "ownerHunkIndex": 0
+                        },
+                        "summary": "Check this edge case.",
+                        "rationale": "The fallback changes behavior.",
+                        "createdAt": "2026-08-19T12:00:00.000Z",
+                        "editable": false,
+                        "tags": ["correctness"],
+                        "confidence": "high",
+                        "resolution": "stale"
+                    },
+                    {
+                        "id": "user:1",
+                        "source": "user",
+                        "fileKey": "retired-file",
+                        "anchor": {
+                            "oldRange": [4, 4],
+                            "preferred": { "side": "old", "line": 4 },
+                            "intersectingHunkIndices": [],
+                            "ownerHunkIndex": 0
+                        },
+                        "summary": "Keep this even when its file disappears.",
+                        "markup": "<b>Keep this</b>",
+                        "title": "Retired finding",
+                        "author": "reviewer",
+                        "updatedAt": "2026-08-19T13:00:00.000Z",
+                        "editable": true,
+                        "resolution": "orphaned"
+                    }
+                ]
+            })
+        );
+        assert!(
+            snapshot
+                .notes
+                .iter()
+                .all(|note| note.id != unsaved_draft.id)
+        );
+    }
+
+    #[test]
+    fn extension_review_snapshot_owns_deep_data_without_mutating_review_state() {
+        let mut state = ReviewState::new(changeset(vec![file("a", "alpha", 1)]));
+        let mut entry = comment("live:1", "alpha", "before");
+        entry.parent_id = Some("parent:1".into());
+        entry.tags = vec!["one".into()];
+        entry.anchor.new_range = Some(LineRange { start: 2, end: 2 });
+        entry.anchor.preferred_side = Some(ReviewSide::New);
+        entry.anchor.preferred_line = Some(2);
+        entry.anchor.intersecting_hunk_indices = vec![0];
+        state.add_comment(entry).unwrap();
+
+        let mut snapshot = build_extension_review_snapshot(&state);
+        snapshot.notes[0].tags.push("two".into());
+        snapshot.notes[0].anchor.intersecting_hunk_indices.push(9);
+        snapshot.files[0].path = "mutated".into();
+        assert_eq!(snapshot.notes[0].parent_id.as_deref(), Some("parent:1"));
+        assert_eq!(state.comments()[0].tags, ["one"]);
+        assert_eq!(state.comments()[0].anchor.intersecting_hunk_indices, [0]);
+        assert_eq!(state.changeset().files[0].path, "a");
+    }
+
+    #[test]
+    fn extension_review_note_diff_reports_removed_updated_and_created_in_stable_order() {
+        let mut previous = ReviewState::new(changeset(vec![file("a", "alpha", 1)]));
+        for entry in [
+            comment("keep", "alpha", "unchanged"),
+            comment("edit", "alpha", "before"),
+            comment("gone", "alpha", "leave"),
+        ] {
+            previous.add_comment(entry).unwrap();
+        }
+        let mut next = ReviewState::new(changeset(vec![file("a", "alpha", 1)]));
+        for entry in [
+            comment("keep", "alpha", "unchanged"),
+            comment("edit", "alpha", "after"),
+            comment("new", "alpha", "arrive"),
+        ] {
+            next.add_comment(entry).unwrap();
+        }
+        let previous = project_extension_review_notes(&previous);
+        let next = project_extension_review_notes(&next);
+
+        let changes = diff_extension_review_notes(&previous, &next);
+        assert_eq!(
+            changes,
+            [
+                ExtensionReviewNoteChange {
+                    kind: ExtensionReviewNoteChangeKind::Removed,
+                    note: previous[2].clone(),
+                },
+                ExtensionReviewNoteChange {
+                    kind: ExtensionReviewNoteChangeKind::Updated,
+                    note: next[1].clone(),
+                },
+                ExtensionReviewNoteChange {
+                    kind: ExtensionReviewNoteChangeKind::Created,
+                    note: next[2].clone(),
+                }
+            ]
+        );
+        assert_eq!(
+            serde_json::to_value(&changes).unwrap(),
+            serde_json::json!([
+                { "kind": "removed", "note": previous[2] },
+                { "kind": "updated", "note": next[1] },
+                { "kind": "created", "note": next[2] }
+            ])
+        );
+    }
+
+    #[test]
+    fn frozen_hunk_extension_review_snapshot_oracle_records_both_pinned_trees() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../port/hunk/oracles/extension-review-snapshot.json");
+        let oracle: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let baselines = oracle["baselines"].as_array().unwrap();
+        assert_eq!(baselines.len(), 2);
+        assert_eq!(
+            baselines[0]["commit"],
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2"
+        );
+        assert_eq!(baselines[0]["passed"], 3);
+        assert_eq!(baselines[0]["failed"], 0);
+        assert_eq!(
+            baselines[1]["commit"],
+            "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+        );
+        assert_eq!(baselines[1]["passed"], 2);
+        assert_eq!(baselines[1]["failed"], 0);
+        assert_eq!(oracle["test_mapping"].as_array().unwrap().len(), 3);
     }
 
     #[test]

@@ -379,7 +379,7 @@ pub fn project_review_file(
         new_end = hunk.new_start.saturating_add(hunk.new_count);
     }
 
-    let change_kind = semantic_change_kind(file);
+    let change_kind = review_file_change_kind(file);
     let any_moved = addition_moves
         .iter()
         .chain(&deletion_moves)
@@ -435,7 +435,9 @@ fn rendered_source_lines(source: &str) -> Vec<String> {
         .collect()
 }
 
-fn semantic_change_kind(file: &DiffFile) -> ReviewFileChangeKind {
+/// Project a provider change kind into the stable public review vocabulary.
+#[must_use]
+pub fn review_file_change_kind(file: &DiffFile) -> ReviewFileChangeKind {
     match file.change_kind {
         FileChangeKind::Renamed if file.stats.additions == 0 && file.stats.deletions == 0 => {
             ReviewFileChangeKind::RenamePure

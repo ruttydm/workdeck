@@ -1375,6 +1375,21 @@ pub struct ExtensionReviewSnapshotNote {
     pub resolution: ExtensionReviewNoteResolution,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ExtensionReviewNoteChangeKind {
+    Created,
+    Updated,
+    Removed,
+}
+
+/// One saved-note change emitted only within a single review generation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionReviewNoteChange {
+    pub kind: ExtensionReviewNoteChangeKind,
+    pub note: ExtensionReviewSnapshotNote,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtensionReviewSnapshot {

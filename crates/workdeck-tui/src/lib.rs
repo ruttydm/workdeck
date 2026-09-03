@@ -159,12 +159,12 @@ use workdeck_extension_api::{
     ExtensionCommandAvailability, ExtensionFileViewSpan, ExtensionFileViewTone,
     ExtensionHostAction, ExtensionKeyEvent, ExtensionNotification, ExtensionNotificationHub,
     ExtensionNotificationSubscription, ExtensionNotifyType, ExtensionPaintTheme, ExtensionPaneView,
-    ExtensionTextAttribute, ExtensionWorkspaceWriteCompletion, ExtensionWorkspaceWriteResult,
-    FileLanguageGlobTarget, FileLanguageMatcher, FileViewModeKeyRequest,
-    FileViewModeLifecycleRequest, KeyRoutingResult, KeyboardModeRegistration, PaneActionInvocation,
-    PanePlacement, PaneRegistration, PaneRenderRequest, Registration, ReviewEvent,
-    ValidatedFileViewLayout, ViewNode, ViewStyle, WORKDECK_FILES_PANE_KEY, bundled_files_pane,
-    extension_pane_size,
+    ExtensionReviewNoteChangeKind, ExtensionReviewSnapshotNote, ExtensionTextAttribute,
+    ExtensionWorkspaceWriteCompletion, ExtensionWorkspaceWriteResult, FileLanguageGlobTarget,
+    FileLanguageMatcher, FileViewModeKeyRequest, FileViewModeLifecycleRequest, KeyRoutingResult,
+    KeyboardModeRegistration, PaneActionInvocation, PanePlacement, PaneRegistration,
+    PaneRenderRequest, Registration, ReviewEvent, ValidatedFileViewLayout, ViewNode, ViewStyle,
+    WORKDECK_FILES_PANE_KEY, bundled_files_pane, extension_pane_size,
 };
 use workdeck_extension_host::{
     ActiveSessionKeyboardMode, ExtensionEventContextProviderInstallation,
@@ -181,10 +181,10 @@ use workdeck_review::{
     ReviewComment, ReviewGapAddress, ReviewLineTarget, ReviewNavigationFile, ReviewNavigationModel,
     ReviewNoteResolution, ReviewSelectionMove, ReviewSelectionScope, ReviewState,
     SemanticReviewAnnotationIndex, SemanticReviewSelection, VisibleFileViewNote,
-    build_extension_review_snapshot, build_file_view_render_plan, plan_expanded_gap,
-    plan_review_selection_move, review_annotated_hunk_indices, review_default_hunk_line_target,
-    review_expansion_side, review_gap_source_for_file, review_leading_gap, review_line_anchor,
-    review_trailing_gap,
+    build_extension_review_snapshot, build_file_view_render_plan, diff_extension_review_notes,
+    plan_expanded_gap, plan_review_selection_move, project_extension_review_notes,
+    review_annotated_hunk_indices, review_default_hunk_line_target, review_expansion_side,
+    review_gap_source_for_file, review_leading_gap, review_line_anchor, review_trailing_gap,
 };
 use workdeck_session::{ReviewSessionServer, default_discovery_directory};
 
@@ -627,10 +627,25 @@ pub struct ReviewApp {
     extension_event_context_provider: ExtensionEventContextProviderSlot,
     extension_event_context_installation: Option<ExtensionEventContextProviderInstallation>,
     extension_event_dispatch_depth: usize,
-    extension_known_note_ids: BTreeSet<String>,
+    extension_reported_review: ExtensionReportedReviewNotes,
     extension_trust_controller: ExtensionTrustController,
     extension_trust_request: Option<ExtensionTrustRequest>,
     extension_trust_prompt_hits: Cell<Option<ExtensionTrustPromptHits>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ExtensionReportedReviewNotes {
+    generation: String,
+    state_revision: u64,
+    notes: Vec<ExtensionReviewSnapshotNote>,
+}
+
+fn extension_reported_review_notes(state: &ReviewState) -> ExtensionReportedReviewNotes {
+    ExtensionReportedReviewNotes {
+        generation: format!("generation:workdeck-tui:{}", state.generation()),
+        state_revision: state.state_revision(),
+        notes: project_extension_review_notes(state),
+    }
 }
 
 impl ReviewApp {
@@ -660,11 +675,7 @@ impl ReviewApp {
                             .enqueue(notification);
                     })
                 });
-        let extension_known_note_ids = state
-            .comments()
-            .iter()
-            .map(|comment| comment.id.clone())
-            .collect();
+        let extension_reported_review = extension_reported_review_notes(&state);
         let mut extension_pane_runtime =
             ExtensionPaneRuntime::new(extensions, state.changeset().files.as_slice());
         if !extension_pane_runtime
@@ -748,7 +759,7 @@ impl ReviewApp {
             extension_event_context_provider,
             extension_event_context_installation: None,
             extension_event_dispatch_depth: 0,
-            extension_known_note_ids,
+            extension_reported_review,
             extension_trust_controller,
             extension_trust_request: None,
             extension_trust_prompt_hits: Cell::new(None),
@@ -948,13 +959,8 @@ impl ReviewApp {
                 .cached_renders
                 .clear();
         }
-        self.extension_known_note_ids = self.with_state(|state| {
-            state
-                .comments()
-                .iter()
-                .map(|comment| comment.id.clone())
-                .collect()
-        });
+        self.extension_reported_review =
+            self.with_state(|state| extension_reported_review_notes(state));
         self.publish_extension_event("session_reload", serde_json::json!({}));
         self.publish_extension_selection_events();
     }
@@ -2664,35 +2670,47 @@ impl ReviewApp {
     }
 
     fn sync_extension_note_events(&mut self) {
-        let (current_ids, created) = self.with_state(|state| {
-            let current_ids = state
-                .comments()
-                .iter()
-                .map(|comment| comment.id.clone())
-                .collect::<BTreeSet<_>>();
-            let created = state
-                .comments()
-                .iter()
-                .filter(|comment| !self.extension_known_note_ids.contains(&comment.id))
-                .map(|comment| {
-                    let file_id = state
+        let (generation, state_revision) = self.with_state(|state| {
+            (
+                format!("generation:workdeck-tui:{}", state.generation()),
+                state.state_revision(),
+            )
+        });
+        if generation == self.extension_reported_review.generation
+            && state_revision == self.extension_reported_review.state_revision
+        {
+            return;
+        }
+        let current = self.with_state(|state| extension_reported_review_notes(state));
+        let changes = if current.generation == self.extension_reported_review.generation {
+            diff_extension_review_notes(&self.extension_reported_review.notes, &current.notes)
+        } else {
+            Vec::new()
+        };
+        self.extension_reported_review = current;
+        for change in changes {
+            if change.kind == ExtensionReviewNoteChangeKind::Created {
+                let file_id = self.with_state(|state| {
+                    state
                         .changeset()
                         .files
                         .iter()
-                        .find(|file| file.key == comment.anchor.file_key)
-                        .map(|file| file.runtime_id.clone());
+                        .find(|file| file.key == change.note.file_key)
+                        .map(|file| file.runtime_id.clone())
+                });
+                self.publish_extension_event(
+                    "note_created",
                     serde_json::json!({
-                        "noteId": comment.id,
+                        "noteId": change.note.id,
                         "fileId": file_id,
-                        "hunkIndex": comment.anchor.owner_hunk_index,
-                    })
-                })
-                .collect::<Vec<_>>();
-            (current_ids, created)
-        });
-        self.extension_known_note_ids = current_ids;
-        for payload in created {
-            self.publish_extension_event("note_created", payload);
+                        "hunkIndex": change.note.anchor.owner_hunk_index,
+                    }),
+                );
+            }
+            self.publish_extension_event(
+                "note_changed",
+                serde_json::to_value(change).expect("extension note changes are serializable"),
+            );
         }
     }
 
@@ -8597,6 +8615,91 @@ mod tests {
             ChangesetSource::WorkingTree { staged: false },
         )
         .unwrap()
+    }
+
+    fn saved_comment(file_key: &str, id: &str, summary: &str) -> ReviewComment {
+        ReviewComment {
+            id: id.into(),
+            parent_id: None,
+            source: "agent".into(),
+            author: None,
+            created_at: None,
+            file_path: None,
+            hunk_index: Some(0),
+            side: Some(ReviewSide::New),
+            line: Some(1),
+            summary: summary.into(),
+            rationale: None,
+            markup: None,
+            title: None,
+            tags: Vec::new(),
+            confidence: None,
+            updated_at: None,
+            resolution: workdeck_review::ReviewNoteResolution::Active,
+            anchor: CommentAnchor {
+                file_key: file_key.into(),
+                old_range: None,
+                new_range: Some(LineRange { start: 1, end: 1 }),
+                preferred_side: Some(ReviewSide::New),
+                preferred_line: Some(1),
+                intersecting_hunk_indices: vec![0],
+                owner_hunk_index: Some(0),
+            },
+            editable: false,
+        }
+    }
+
+    #[test]
+    fn extension_note_sync_tracks_complete_values_and_reseeds_review_generations() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        let state = app.shared_state();
+        let file_key = state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .changeset()
+            .files[0]
+            .key
+            .clone();
+        state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .add_comment(saved_comment(&file_key, "note:1", "before"))
+            .unwrap();
+        app.sync_extension_note_events();
+        assert_eq!(app.extension_reported_review.notes[0].summary, "before");
+
+        {
+            let mut state = state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            state.remove_comment("note:1").unwrap();
+            state
+                .add_comment(saved_comment(&file_key, "note:1", "after"))
+                .unwrap();
+        }
+        app.sync_extension_note_events();
+        assert_eq!(app.extension_reported_review.notes[0].summary, "after");
+
+        {
+            let mut state = state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            state.reload(changeset());
+            state
+                .add_comment(saved_comment(&file_key, "note:2", "new generation"))
+                .unwrap();
+        }
+        app.sync_extension_note_events();
+        assert_eq!(app.extension_reported_review.notes.len(), 2);
+        assert!(app.extension_reported_review.generation.ends_with(":2"));
+
+        state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove_comment("note:1")
+            .unwrap();
+        app.sync_extension_note_events();
+        assert_eq!(app.extension_reported_review.notes[0].id, "note:2");
     }
 
     fn long_changeset() -> Changeset {
