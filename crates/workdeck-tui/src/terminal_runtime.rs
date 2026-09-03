@@ -111,7 +111,7 @@ impl<T> ControllingTerminal<T> {
 
 #[must_use]
 pub fn open_controlling_terminal() -> Option<ControllingTerminal<File>> {
-    open_controlling_terminal_with(|path| OpenOptions::new().read(true).open(path))
+    open_controlling_terminal_with(|path| OpenOptions::new().read(true).write(true).open(path))
 }
 
 #[must_use]

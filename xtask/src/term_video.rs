@@ -9,9 +9,11 @@ use serde::{Deserialize, Serialize};
 
 mod capture;
 mod compose;
+mod launch;
 
 pub use capture::capture_file;
 pub use compose::compose_file;
+pub use launch::launch_file;
 
 const DEFAULT_FPS: f64 = 30.0;
 const DEFAULT_CAPTION_ANIMATION_SECONDS: f64 = 0.45;

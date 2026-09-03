@@ -107,3 +107,22 @@ paint synchronization, screenshot decoding, progress reporting, and ffconcat ser
 external browser is used only as a renderer. No Node, Bun, Playwright, JavaScript application, or
 embedded JavaScript engine is part of the repository tooling or shipped product. FFmpeg encoding
 consumes the generated `concat.txt`.
+
+## Canonical Workdeck launch video
+
+The repository's real product-video scenes and 41-shot, 63.57-second reference storyboard are under
+`media/launch/`. The workflow is a Rust port of Hunk's former `scripts/launch-video` consumer:
+
+```console
+cargo xtask media launch capture --font /path/to/mono-font.ttf
+cargo xtask media launch compose --font /path/to/mono-font.ttf --webdriver chromedriver
+cargo xtask media launch encode --ffmpeg ffmpeg
+```
+
+Capture builds the current `workdeck` executable unless `--binary` names one, creates fresh Git
+working-tree fixtures, isolates configuration, stages the native review-triage and file-view-gallery
+extensions only when requested, and drives the `review`, `stml`, `cli`, `pager`, `triage`, and
+`fileview` groups. `--scenes` and `SCENES` retain exact comma-separated filtering. Compose always
+uses the canonical storyboard and rejects attempts to substitute it through this convenience
+command; the generic `media compose` command remains available for custom videos. Encode retains
+the pinned MP4 and WebM FFmpeg settings.

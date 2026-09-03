@@ -1509,6 +1509,10 @@ fn run(mut args: Args) -> Result<()> {
         review.no_extensions = args.no_extensions && !args.extensions;
     }
 
+    // Spool piped review input and attach the controlling terminal before config, theme, or
+    // extension initialization can create Crossterm's process-global event reader.
+    let prepared_piped_input = prepare_piped_review_input(args.command.as_ref())?;
+
     if matches!(args.command, Some(Command::External(_))) {
         let Command::External(tokens) = args.command.take().expect("external command was present")
         else {
@@ -1557,7 +1561,7 @@ fn run(mut args: Args) -> Result<()> {
         {
             *exclude_untracked = config.review.exclude_untracked;
         }
-        return handle_review_command(&args.cwd, command);
+        return handle_review_command(&args.cwd, command, prepared_piped_input);
     }
 
     if !args.init
@@ -1821,7 +1825,43 @@ impl SkillCommand {
     }
 }
 
-fn handle_review_command(cwd: &Path, command: Command) -> Result<()> {
+struct PreparedPipedInput {
+    text: String,
+    _terminal: Option<workdeck_tui::ControllingTerminal<File>>,
+}
+
+fn prepare_piped_review_input(command: Option<&Command>) -> Result<Option<PreparedPipedInput>> {
+    let reads_stdin = match command {
+        Some(Command::Pager { .. }) => true,
+        Some(Command::Patch { file, .. }) => {
+            file.as_deref().is_none_or(|path| path == Path::new("-"))
+        }
+        _ => false,
+    };
+    if !reads_stdin || std::io::stdin().is_terminal() {
+        return Ok(None);
+    }
+    let mut text = String::new();
+    std::io::stdin()
+        .read_to_string(&mut text)
+        .context("failed to read piped review input")?;
+    let needs_terminal = matches!(command, Some(Command::Patch { .. }))
+        || matches!(command, Some(Command::Pager { .. }))
+            && workdeck_cli::pager::looks_like_patch_input(&text);
+    let terminal = needs_terminal
+        .then(attach_controlling_terminal_input)
+        .transpose()?;
+    Ok(Some(PreparedPipedInput {
+        text,
+        _terminal: terminal,
+    }))
+}
+
+fn handle_review_command(
+    cwd: &Path,
+    command: Command,
+    mut prepared_piped_input: Option<PreparedPipedInput>,
+) -> Result<()> {
     match command {
         Command::Diff {
             revisions,
@@ -1926,10 +1966,15 @@ fn handle_review_command(cwd: &Path, command: Command) -> Result<()> {
                     (patch, path.display().to_string())
                 }
                 _ => {
-                    let mut patch = String::new();
-                    std::io::stdin()
-                        .read_to_string(&mut patch)
-                        .context("failed to read patch from stdin")?;
+                    let patch = if let Some(prepared) = prepared_piped_input.as_mut() {
+                        std::mem::take(&mut prepared.text)
+                    } else {
+                        let mut patch = String::new();
+                        std::io::stdin()
+                            .read_to_string(&mut patch)
+                            .context("failed to read patch from stdin")?;
+                        patch
+                    };
                     (patch, "stdin patch".to_owned())
                 }
             };
@@ -1978,10 +2023,15 @@ fn handle_review_command(cwd: &Path, command: Command) -> Result<()> {
             run_review_with_options(cwd, changeset, review, Some(input), Some(&mut reload))
         }
         Command::Pager { review } => {
-            let mut input = String::new();
-            std::io::stdin()
-                .read_to_string(&mut input)
-                .context("failed to read pager input")?;
+            let input = if let Some(prepared) = prepared_piped_input.as_mut() {
+                std::mem::take(&mut prepared.text)
+            } else {
+                let mut input = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut input)
+                    .context("failed to read pager input")?;
+                input
+            };
             if workdeck_cli::pager::looks_like_patch_input(&input) {
                 let changeset = parse_patch_input(&input, "pager").map_err(anyhow::Error::from)?;
                 run_review_with_options(cwd, changeset, review, None, None)
@@ -1992,6 +2042,28 @@ fn handle_review_command(cwd: &Path, command: Command) -> Result<()> {
         }
         _ => unreachable!("non-review command passed to review handler"),
     }
+}
+
+fn attach_controlling_terminal_input() -> Result<workdeck_tui::ControllingTerminal<File>> {
+    let terminal = workdeck_tui::open_controlling_terminal().context(
+        "piped interactive review requires an attached controlling terminal for keyboard input",
+    )?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Foundation::HANDLE;
+        use windows_sys::Win32::System::Console::{STD_INPUT_HANDLE, SetStdHandle};
+
+        // SAFETY: the File owns a valid CONIN$ handle and remains alive in the returned guard until
+        // the interactive review has completed.
+        let attached =
+            unsafe { SetStdHandle(STD_INPUT_HANDLE, terminal.input.as_raw_handle() as HANDLE) };
+        if attached == 0 {
+            return Err(std::io::Error::last_os_error())
+                .context("attach Windows console to piped review stdin");
+        }
+    }
+    Ok(terminal)
 }
 
 fn run_review_with_options(

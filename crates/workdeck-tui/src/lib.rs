@@ -177,12 +177,14 @@ use workdeck_extension_host::{
     session_keyboard_mode_status_hint, session_keyboard_mode_still_valid,
 };
 use workdeck_review::{
-    ExpandedSourceError, ExpandedSourceStatus, LayoutMode, PlannedFileViewRow, ReviewComment,
-    ReviewGapAddress, ReviewNavigationFile, ReviewNavigationModel, ReviewSelectionMove,
-    ReviewSelectionScope, ReviewState, SemanticReviewAnnotationIndex, SemanticReviewSelection,
-    VisibleFileViewNote, build_extension_review_snapshot, build_file_view_render_plan,
-    plan_expanded_gap, plan_review_selection_move, review_annotated_hunk_indices,
-    review_expansion_side, review_gap_source_for_file, review_leading_gap, review_trailing_gap,
+    CommentAnchor, ExpandedSourceError, ExpandedSourceStatus, LayoutMode, PlannedFileViewRow,
+    ReviewComment, ReviewGapAddress, ReviewLineTarget, ReviewNavigationFile, ReviewNavigationModel,
+    ReviewNoteResolution, ReviewSelectionMove, ReviewSelectionScope, ReviewState,
+    SemanticReviewAnnotationIndex, SemanticReviewSelection, VisibleFileViewNote,
+    build_extension_review_snapshot, build_file_view_render_plan, plan_expanded_gap,
+    plan_review_selection_move, review_annotated_hunk_indices, review_default_hunk_line_target,
+    review_expansion_side, review_gap_source_for_file, review_leading_gap, review_line_anchor,
+    review_trailing_gap,
 };
 use workdeck_session::{ReviewSessionServer, default_discovery_directory};
 
@@ -600,6 +602,9 @@ pub struct ReviewApp {
     show_menu_bar: bool,
     copy_decorations: bool,
     status: Option<String>,
+    note_composer: Option<ReviewNoteComposer>,
+    note_composer_bounds: Cell<Option<Rect>>,
+    note_sequence: u64,
     filter: String,
     filter_cursor: usize,
     filter_scroll: Cell<usize>,
@@ -718,6 +723,9 @@ impl ReviewApp {
             show_menu_bar: true,
             copy_decorations: false,
             status: keymap_status,
+            note_composer: None,
+            note_composer_bounds: Cell::new(None),
+            note_sequence: 0,
             filter: String::new(),
             filter_cursor: 0,
             filter_scroll: Cell::new(0),
@@ -1104,6 +1112,30 @@ impl ReviewApp {
     /// Cursor requested by the focused status-bar filter input.
     #[must_use]
     pub fn status_filter_cursor_position(&self, area: Rect) -> Option<Position> {
+        if let (Some(composer), Some(bounds)) =
+            (self.note_composer.as_ref(), self.note_composer_bounds.get())
+        {
+            let input_width = usize::from(bounds.width.saturating_sub(2).max(1));
+            let input_height = usize::from(bounds.height.saturating_sub(2).max(1));
+            let (row, column) = note_composer_cursor_cell(
+                &composer.body,
+                composer.cursor,
+                input_width,
+                input_height,
+            );
+            return Some(Position::new(
+                bounds
+                    .x
+                    .saturating_add(1)
+                    .saturating_add(u16::try_from(column).unwrap_or(u16::MAX))
+                    .min(bounds.right().saturating_sub(2)),
+                bounds
+                    .y
+                    .saturating_add(1)
+                    .saturating_add(u16::try_from(row).unwrap_or(u16::MAX))
+                    .min(bounds.bottom().saturating_sub(2)),
+            ));
+        }
         if self.focus != Focus::Filter || area.width < 10 || area.height == 0 {
             return None;
         }
@@ -1199,6 +1231,9 @@ impl ReviewApp {
         if self.handle_extension_trust_prompt_key(&key) {
             return;
         }
+        if self.handle_note_composer_key(&key) {
+            return;
+        }
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             self.should_quit = true;
             return;
@@ -1251,6 +1286,191 @@ impl ReviewApp {
         if key.code == KeyCode::Enter && self.focus == Focus::Sidebar {
             self.focus = Focus::Review;
             self.scroll_to_selection();
+        }
+    }
+
+    fn handle_note_composer_key(&mut self, key: &KeyEvent) -> bool {
+        if self.note_composer.is_none() {
+            return false;
+        }
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
+            self.save_note_composer();
+            return true;
+        }
+        if key.code == KeyCode::Esc {
+            self.note_composer = None;
+            self.note_composer_bounds.set(None);
+            self.status = Some("review note cancelled".into());
+            return true;
+        }
+        let composer = self.note_composer.as_mut().expect("composer was checked");
+        match key.code {
+            KeyCode::Left => composer.cursor = composer.cursor.saturating_sub(1),
+            KeyCode::Right => {
+                composer.cursor = composer
+                    .cursor
+                    .saturating_add(1)
+                    .min(composer.body.chars().count());
+            }
+            KeyCode::Home => composer.cursor = 0,
+            KeyCode::End => composer.cursor = composer.body.chars().count(),
+            KeyCode::Backspace => {
+                remove_filter_character_before(&mut composer.body, &mut composer.cursor);
+            }
+            KeyCode::Delete => {
+                remove_filter_character_at(&mut composer.body, &mut composer.cursor);
+            }
+            KeyCode::Enter => {
+                insert_filter_character(&mut composer.body, &mut composer.cursor, '\n');
+            }
+            KeyCode::Tab => {
+                for _ in 0..4 {
+                    insert_filter_character(&mut composer.body, &mut composer.cursor, ' ');
+                }
+            }
+            KeyCode::Char(character)
+                if !key.modifiers.intersects(
+                    KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
+                ) =>
+            {
+                insert_filter_character(&mut composer.body, &mut composer.cursor, character);
+            }
+            _ => {}
+        }
+        if composer.body.len() > workdeck_review::MAX_REVIEW_NOTE_BYTES {
+            let mut end = workdeck_review::MAX_REVIEW_NOTE_BYTES;
+            while !composer.body.is_char_boundary(end) {
+                end = end.saturating_sub(1);
+            }
+            composer.body.truncate(end);
+            composer.cursor = composer.body.chars().count();
+            self.status = Some("review note reached the size limit".into());
+        }
+        true
+    }
+
+    fn handle_paste(&mut self, text: &str) {
+        let Some(composer) = self.note_composer.as_mut() else {
+            return;
+        };
+        let available = workdeck_review::MAX_REVIEW_NOTE_BYTES.saturating_sub(composer.body.len());
+        let end = text
+            .char_indices()
+            .map(|(index, _)| index)
+            .chain(std::iter::once(text.len()))
+            .take_while(|index| *index <= available)
+            .last()
+            .unwrap_or_default();
+        let pasted = &text[..end];
+        for character in pasted.chars() {
+            insert_filter_character(&mut composer.body, &mut composer.cursor, character);
+        }
+    }
+
+    fn open_note_composer(&mut self) {
+        let Some(target) = self.current_note_target() else {
+            self.status = Some("select a changed review line before adding a note".into());
+            return;
+        };
+        self.note_composer = Some(ReviewNoteComposer {
+            target,
+            body: String::new(),
+            cursor: 0,
+        });
+        self.status = None;
+    }
+
+    fn current_note_target(&self) -> Option<ReviewNoteTarget> {
+        let rows = self.current_review_rows();
+        rows.note_targets
+            .get(&self.current_line_row)
+            .copied()
+            .or_else(|| {
+                self.with_state(|state| {
+                    let selection = state.selection();
+                    let file = state.changeset().files.get(selection.file_index)?;
+                    let hunk_index = selection.hunk_index?;
+                    let hunk = file.hunks.get(hunk_index)?;
+                    let (side, line) = selection.side.zip(selection.line).unwrap_or_else(|| {
+                        let target = review_default_hunk_line_target(hunk);
+                        (target.side, target.line)
+                    });
+                    Some(ReviewNoteTarget {
+                        file_index: selection.file_index,
+                        hunk_index,
+                        side,
+                        line,
+                    })
+                })
+            })
+    }
+
+    fn save_note_composer(&mut self) {
+        let Some(composer) = self.note_composer.take() else {
+            return;
+        };
+        let body = composer.body.trim();
+        if body.is_empty() {
+            self.note_composer_bounds.set(None);
+            self.status = Some("empty review note discarded".into());
+            return;
+        }
+        self.note_sequence = self.note_sequence.saturating_add(1);
+        let id = format!("user-note-{}", self.note_sequence);
+        let result = self.with_state(|state| {
+            let file = state
+                .changeset()
+                .files
+                .get(composer.target.file_index)
+                .ok_or(workdeck_review::ReviewError::FileOutOfRange(
+                    composer.target.file_index,
+                ))?;
+            let anchor = review_line_anchor(
+                &file.hunks,
+                ReviewLineTarget {
+                    hunk_index: composer.target.hunk_index,
+                    side: composer.target.side,
+                    line: composer.target.line,
+                },
+            );
+            let comment = ReviewComment {
+                id,
+                parent_id: None,
+                source: "user".into(),
+                author: None,
+                created_at: None,
+                file_path: Some(file.path.clone()),
+                hunk_index: Some(composer.target.hunk_index),
+                side: Some(composer.target.side),
+                line: Some(composer.target.line),
+                summary: body.to_owned(),
+                rationale: None,
+                markup: None,
+                title: None,
+                tags: vec!["user".into()],
+                confidence: None,
+                updated_at: None,
+                resolution: ReviewNoteResolution::Active,
+                anchor: CommentAnchor {
+                    file_key: file.key.clone(),
+                    old_range: anchor.old_range,
+                    new_range: anchor.new_range,
+                    preferred_side: anchor.preferred.map(|target| target.side),
+                    preferred_line: anchor.preferred.map(|target| target.line),
+                    intersecting_hunk_indices: anchor.intersecting_hunk_indices,
+                    owner_hunk_index: anchor.owner_hunk_index,
+                },
+                editable: true,
+            };
+            state.add_comment(comment)
+        });
+        self.note_composer_bounds.set(None);
+        match result {
+            Ok(()) => {
+                self.status = Some("review note saved".into());
+                self.sync_extension_note_events();
+            }
+            Err(error) => self.status = Some(format!("failed to save review note: {error}")),
         }
     }
 
@@ -1500,7 +1720,7 @@ impl ReviewApp {
                 self.filter_scroll.set(0);
             }
             AppCommandAction::StartUserNote => {
-                self.status = Some("review note composer is not active".into());
+                self.open_note_composer();
             }
             AppCommandAction::EditActiveNote => {
                 self.status = Some("active review note editor is not active".into());
@@ -4987,7 +5207,8 @@ fn run_loop(
                     }
                 }
                 Event::Mouse(mouse) => app.handle_mouse_event(mouse),
-                Event::Resize(_, _) | Event::FocusGained | Event::FocusLost | Event::Paste(_) => {}
+                Event::Paste(text) => app.handle_paste(&text),
+                Event::Resize(_, _) | Event::FocusGained | Event::FocusLost => {}
             }
             app.process_extension_trust_request(reloader);
         }
@@ -5069,6 +5290,7 @@ pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         let commands = app.help_commands();
         render_help(area, buffer, &commands);
     }
+    render_note_composer(area, buffer, app);
     render_extension_input_dialog(area, buffer, app);
     render_extension_select_dialog(area, buffer, app);
     render_extension_confirm_dialog(area, buffer, app);
@@ -6447,13 +6669,26 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         })
         .collect();
     let cursor_row = app.current_line_row.min(rows.lines.len().saturating_sub(1));
-    if app.active_keyboard_mode_title().is_some()
+    if app.focus == Focus::Review
+        && app.options.cursor_line != CursorLineMode::Off
         && let Some(line) = rows.lines.get_mut(cursor_row)
     {
-        let background = ratatui_theme_color(&app.options.theme.accent_muted);
-        line.style = line.style.bg(background);
-        for span in &mut line.spans {
-            span.style = span.style.bg(background);
+        match app.options.cursor_line {
+            CursorLineMode::Row => {
+                let background = ratatui_theme_color(&app.options.theme.accent_muted);
+                line.style = line.style.bg(background);
+                for span in &mut line.spans {
+                    span.style = span.style.bg(background);
+                }
+            }
+            CursorLineMode::Number => {
+                if let Some(gutter) = line.spans.get_mut(1) {
+                    gutter.style = gutter
+                        .style
+                        .fg(ratatui_theme_color(&app.options.theme.accent));
+                }
+            }
+            CursorLineMode::Off => {}
         }
     }
     let visible = rows
@@ -6513,10 +6748,32 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
 #[derive(Debug)]
 struct ReviewRows {
     lines: Vec<Line<'static>>,
+    note_targets: BTreeMap<usize, ReviewNoteTarget>,
     file_tops: Vec<usize>,
     file_header_rows: Vec<(usize, usize)>,
     hunk_tops: std::collections::HashMap<(usize, usize), usize>,
     file_view_component_hits: Vec<FileViewComponentLogicalHit>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ReviewNoteTarget {
+    file_index: usize,
+    hunk_index: usize,
+    side: ReviewSide,
+    line: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ReviewNoteComposer {
+    target: ReviewNoteTarget,
+    body: String,
+    cursor: usize,
+}
+
+#[derive(Debug)]
+struct TargetedHunkRows {
+    lines: Vec<Line<'static>>,
+    targets: Vec<Option<ReviewNoteTarget>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -6609,6 +6866,7 @@ fn build_review_rows_with_chrome(
     let mut file_header_rows = Vec::with_capacity(changeset.files.len());
     let mut hunk_tops = std::collections::HashMap::new();
     let mut file_view_component_hits = Vec::new();
+    let mut note_targets = BTreeMap::new();
     let header_stats_width = max_file_header_stats_width(&changeset.files);
     for (file_index, file) in changeset.files.iter().enumerate() {
         if file_index > 0 {
@@ -6772,28 +7030,43 @@ fn build_review_rows_with_chrome(
                     },
                 ));
             }
-            match layout {
-                LayoutMode::Split => rows.extend(split_hunk_rows(
+            let rendered = match layout {
+                LayoutMode::Split => split_hunk_rows(
                     file,
+                    file_index,
                     hunk,
+                    hunk_index,
                     options,
                     width,
                     highlighted.get(hunk_index),
                     comments,
                     file_selection,
                     selected_hunk,
-                )),
-                LayoutMode::Stack | LayoutMode::Auto => rows.extend(stack_hunk_rows(
+                ),
+                LayoutMode::Stack | LayoutMode::Auto => stack_hunk_rows(
                     file,
+                    file_index,
                     hunk,
+                    hunk_index,
                     options,
                     highlighted.get(hunk_index),
                     comments,
                     width,
                     file_selection,
                     selected_hunk,
-                )),
-            }
+                ),
+            };
+            let row_start = rows.len();
+            note_targets.extend(
+                rendered
+                    .targets
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(offset, target)| {
+                        target.map(|target| (row_start + offset, target))
+                    }),
+            );
+            rows.extend(rendered.lines);
         }
         if let Some(address) = review_trailing_gap(&gap_source) {
             rows.extend(source_gap_rows(
@@ -6810,6 +7083,7 @@ fn build_review_rows_with_chrome(
     }
     ReviewRows {
         lines: rows,
+        note_targets,
         file_tops,
         file_header_rows,
         hunk_tops,
@@ -7417,15 +7691,18 @@ fn file_header(
 #[allow(clippy::too_many_arguments)]
 fn stack_hunk_rows(
     file: &DiffFile,
+    file_index: usize,
     hunk: &workdeck_core::DiffHunk,
+    hunk_index: usize,
     options: &ReviewOptions,
     highlighted: Option<&Vec<HighlightedDiffLine>>,
     comments: &[ReviewComment],
     width: u16,
     selection: ReviewSelection,
     hunk_selected: bool,
-) -> Vec<Line<'static>> {
+) -> TargetedHunkRows {
     let mut rows = Vec::new();
+    let mut targets = Vec::new();
     let mut emphasis = vec![Vec::new(); hunk.lines.len()];
     for pair in plan_split_line_pairs(&hunk.lines) {
         let (Some(old_index), Some(new_index)) = (pair.old_index, pair.new_index) else {
@@ -7442,7 +7719,7 @@ fn stack_hunk_rows(
         emphasis[new_index] = ranges.new;
     }
     for (index, line) in hunk.lines.iter().enumerate() {
-        rows.extend(stack_line_rows(
+        let line_rows = stack_line_rows(
             line,
             options,
             highlighted
@@ -7451,10 +7728,18 @@ fn stack_hunk_rows(
             &emphasis[index],
             hunk_selected || line_is_selected(line, selection),
             width,
-        ));
-        rows.extend(comment_rows(file, line, comments, &options.theme, width));
+        );
+        let target = diff_line_note_target(file_index, hunk_index, line);
+        targets.extend(std::iter::repeat_n(Some(target), line_rows.len()));
+        rows.extend(line_rows);
+        let note_rows = comment_rows(file, line, comments, &options.theme, width);
+        targets.extend(std::iter::repeat_n(Some(target), note_rows.len()));
+        rows.extend(note_rows);
     }
-    rows
+    TargetedHunkRows {
+        lines: rows,
+        targets,
+    }
 }
 
 fn stack_line_rows(
@@ -7575,15 +7860,18 @@ fn stack_line_rows(
 #[allow(clippy::too_many_arguments)]
 fn split_hunk_rows(
     file: &DiffFile,
+    file_index: usize,
     hunk: &workdeck_core::DiffHunk,
+    hunk_index: usize,
     options: &ReviewOptions,
     width: u16,
     highlighted: Option<&Vec<HighlightedDiffLine>>,
     comments: &[ReviewComment],
     selection: ReviewSelection,
     hunk_selected: bool,
-) -> Vec<Line<'static>> {
+) -> TargetedHunkRows {
     let mut rows = Vec::new();
+    let mut targets = Vec::new();
     let pane_widths = resolve_diff_split_pane_widths(usize::from(width));
     let left_width = pane_widths.left_width;
     let right_width = pane_widths.right_width;
@@ -7599,7 +7887,7 @@ fn split_hunk_rows(
                     &expanded_line_content(new, options.tab_width),
                 )
             });
-        rows.extend(split_pair_rows(
+        let pair_rows = split_pair_rows(
             SplitCellInput {
                 line: old,
                 highlighted: pair
@@ -7622,17 +7910,53 @@ fn split_hunk_rows(
             hunk_selected
                 || old.is_some_and(|line| line_is_selected(line, selection))
                 || new.is_some_and(|line| line_is_selected(line, selection)),
-        ));
+        );
+        let pair_target = new
+            .or(old)
+            .map(|line| diff_line_note_target(file_index, hunk_index, line));
+        targets.extend(std::iter::repeat_n(pair_target, pair_rows.len()));
+        rows.extend(pair_rows);
         if let Some(line) = old {
-            rows.extend(comment_rows(file, line, comments, &options.theme, width));
+            let note_rows = comment_rows(file, line, comments, &options.theme, width);
+            targets.extend(std::iter::repeat_n(
+                Some(diff_line_note_target(file_index, hunk_index, line)),
+                note_rows.len(),
+            ));
+            rows.extend(note_rows);
         }
         if pair.new_index != pair.old_index
             && let Some(line) = new
         {
-            rows.extend(comment_rows(file, line, comments, &options.theme, width));
+            let note_rows = comment_rows(file, line, comments, &options.theme, width);
+            targets.extend(std::iter::repeat_n(
+                Some(diff_line_note_target(file_index, hunk_index, line)),
+                note_rows.len(),
+            ));
+            rows.extend(note_rows);
         }
     }
-    rows
+    TargetedHunkRows {
+        lines: rows,
+        targets,
+    }
+}
+
+fn diff_line_note_target(
+    file_index: usize,
+    hunk_index: usize,
+    line: &DiffLine,
+) -> ReviewNoteTarget {
+    let (side, line) = line
+        .new_line
+        .map(|line| (ReviewSide::New, line))
+        .or_else(|| line.old_line.map(|line| (ReviewSide::Old, line)))
+        .expect("every rendered diff line has an old or new line number");
+    ReviewNoteTarget {
+        file_index,
+        hunk_index,
+        side,
+        line,
+    }
 }
 
 fn comment_rows(
@@ -7648,16 +7972,18 @@ fn comment_rows(
         .filter(|comment| comment.anchor.file_key == file.key)
         .filter(|comment| comment_matches_line(comment, line))
     {
-        let author = comment.author.as_deref().unwrap_or(&comment.source);
-        rows.push(Line::from(vec![
-            Span::styled("  │ note ", Style::default().fg(Color::Magenta)),
-            Span::styled(
-                author.to_owned(),
-                Style::default()
-                    .fg(Color::LightMagenta)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ]));
+        let title = if comment.source == "user" {
+            "Your note".to_owned()
+        } else {
+            let author = comment.author.as_deref().unwrap_or(&comment.source);
+            format!("note {author}")
+        };
+        rows.push(Line::from(Span::styled(
+            format!("  │ {title}"),
+            Style::default()
+                .fg(Color::LightMagenta)
+                .add_modifier(Modifier::BOLD),
+        )));
         for mut line in note_body_ratatui_lines(
             comment.markup.as_deref(),
             &comment.summary,
@@ -8184,6 +8510,72 @@ fn render_help(area: Rect, buffer: &mut Buffer, commands: &[HelpCommand]) {
                 .borders(Borders::ALL),
         )
         .render(popup, buffer);
+}
+
+fn render_note_composer(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+    let Some(composer) = app.note_composer.as_ref() else {
+        app.note_composer_bounds.set(None);
+        return;
+    };
+    let requested_height =
+        u16::try_from(composer.body.lines().count().saturating_add(4).clamp(7, 14)).unwrap_or(14);
+    let geometry = resolve_modal_geometry(78, requested_height, area.width, area.height);
+    let popup = Rect {
+        x: area.x.saturating_add(geometry.left),
+        y: area.y.saturating_add(geometry.top),
+        width: geometry.width,
+        height: geometry.height,
+    };
+    app.note_composer_bounds.set(Some(popup));
+    Clear.render(popup, buffer);
+    Paragraph::new(composer.body.as_str())
+        .wrap(Wrap { trim: false })
+        .style(
+            Style::default()
+                .fg(ratatui_theme_color(&app.options.theme.text))
+                .bg(ratatui_theme_color(&app.options.theme.panel)),
+        )
+        .block(
+            Block::default()
+                .title(" Draft note ")
+                .title_bottom(" Ctrl+S save · Esc cancel ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(ratatui_theme_color(&app.options.theme.accent))),
+        )
+        .render(popup, buffer);
+}
+
+fn note_composer_cursor_cell(
+    body: &str,
+    cursor: usize,
+    width: usize,
+    height: usize,
+) -> (usize, usize) {
+    let mut row: usize = 0;
+    let mut column: usize = 0;
+    for character in body.chars().take(cursor) {
+        if character == '\n' {
+            row = row.saturating_add(1);
+            column = 0;
+            continue;
+        }
+        let cell_width = unicode_width::UnicodeWidthChar::width(character)
+            .unwrap_or_default()
+            .max(1);
+        if column.saturating_add(cell_width) > width {
+            row = row.saturating_add(1);
+            column = 0;
+        }
+        column = column.saturating_add(cell_width);
+        if column >= width {
+            row = row.saturating_add(column / width);
+            column %= width;
+        }
+    }
+    (
+        row.min(height.saturating_sub(1)),
+        column.min(width.saturating_sub(1)),
+    )
 }
 
 #[cfg(test)]
@@ -9353,6 +9745,72 @@ mod tests {
         let mut column = 0;
         assert_eq!(expand_tabs("a\tb", 4, &mut column), "a   b");
         assert_eq!(column, 5);
+    }
+
+    #[test]
+    fn user_note_composer_targets_the_cursor_line_and_saves_inline() {
+        let backend = TestBackend::new(100, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                layout: LayoutMode::Stack,
+                ..ReviewOptions::default()
+            },
+        );
+        let rows = app.current_review_rows();
+        let (&cursor_row, &target) = rows.note_targets.iter().next().unwrap();
+        app.current_line_row = cursor_row;
+        app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+        assert_eq!(app.note_composer.as_ref().unwrap().target, target);
+        for character in "unicode note 😀".chars() {
+            app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+        let draft = rendered_review_text(&mut terminal, &app);
+        assert!(draft.contains("Draft note"));
+        assert!(draft.contains("unicode note 😀"));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+        assert!(app.note_composer.is_none());
+        let comment = app.with_state(|state| state.comments()[0].clone());
+        assert_eq!(comment.summary, "unicode note 😀");
+        assert_eq!(comment.side, Some(target.side));
+        assert_eq!(comment.line, Some(target.line));
+        assert_eq!(comment.hunk_index, Some(target.hunk_index));
+        assert!(comment.editable);
+        assert!(rendered_review_text(&mut terminal, &app).contains("Your note"));
+    }
+
+    #[test]
+    fn note_composer_supports_editing_paste_cancel_and_safe_cursor_geometry() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        app.open_note_composer();
+        app.handle_paste("ab😀");
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE));
+        assert_eq!(app.note_composer.as_ref().unwrap().body, "a\nz😀");
+        assert_eq!(note_composer_cursor_cell("ab\n😀", 4, 3, 4), (1, 2));
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.note_composer.is_none());
+        assert!(app.with_state(|state| state.comments().is_empty()));
+
+        app.open_note_composer();
+        let composer = app.note_composer.as_mut().unwrap();
+        composer.body = "x".repeat(workdeck_review::MAX_REVIEW_NOTE_BYTES - 1);
+        composer.cursor = composer.body.len();
+        app.handle_key(KeyEvent::new(KeyCode::Char('😀'), KeyModifiers::NONE));
+        let composer = app.note_composer.as_ref().unwrap();
+        assert_eq!(
+            composer.body.len(),
+            workdeck_review::MAX_REVIEW_NOTE_BYTES - 1
+        );
+        assert!(composer.body.is_char_boundary(composer.body.len()));
+        assert_eq!(
+            app.status.as_deref(),
+            Some("review note reached the size limit")
+        );
     }
 
     #[test]

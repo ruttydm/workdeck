@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{BufReader, Read, Write};
-use std::net::{Shutdown, TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
@@ -22,6 +22,7 @@ const DEFAULT_STAGE: &str = include_str!("../../assets/terminal-stage.html");
 const DEFAULT_WIDTH: u32 = 1920;
 const DEFAULT_HEIGHT: u32 = 1080;
 const DRIVER_START_TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_WEBDRIVER_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 struct ComposeOptions {
@@ -527,6 +528,13 @@ impl WebDriverRenderer {
                 &path,
                 Some(&json!({ "width": viewport.width, "height": viewport.height })),
             )?;
+            let metrics = format!("/session/{session_id}/goog/cdp/execute");
+            webdriver_request(
+                port,
+                "POST",
+                &metrics,
+                Some(&device_metrics_override(viewport)),
+            )?;
             Ok(session_id)
         })();
         match setup {
@@ -656,6 +664,18 @@ fn chrome_capabilities(chromium: Option<&Path>, viewport: Viewport) -> Value {
     })
 }
 
+fn device_metrics_override(viewport: Viewport) -> Value {
+    json!({
+        "cmd": "Emulation.setDeviceMetricsOverride",
+        "params": {
+            "width": viewport.width,
+            "height": viewport.height,
+            "deviceScaleFactor": 1,
+            "mobile": false
+        }
+    })
+}
+
 fn webdriver_request(port: u16, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
     let encoded = body
         .map(serde_json::to_vec)
@@ -676,14 +696,109 @@ fn webdriver_request(port: u16, method: &str, path: &str, body: Option<&Value>) 
     stream
         .write_all(&encoded)
         .context("write WebDriver request body")?;
-    stream
-        .shutdown(Shutdown::Write)
-        .context("finish WebDriver request")?;
-    let mut response = Vec::new();
-    stream
-        .read_to_end(&mut response)
-        .context("read WebDriver response")?;
+    let response = read_webdriver_response(&mut stream)?;
     parse_http_json(&response)
+}
+
+fn read_webdriver_response(stream: &mut TcpStream) -> Result<Vec<u8>> {
+    let mut response = Vec::new();
+    let mut buffer = [0_u8; 16 * 1024];
+    loop {
+        let count = stream
+            .read(&mut buffer)
+            .context("read WebDriver response")?;
+        if count == 0 {
+            break;
+        }
+        response.extend_from_slice(&buffer[..count]);
+        if response.len() > MAX_WEBDRIVER_RESPONSE_BYTES {
+            bail!(
+                "WebDriver response exceeds the {} byte limit",
+                MAX_WEBDRIVER_RESPONSE_BYTES
+            );
+        }
+        if let Some(length) = webdriver_response_length(&response)? {
+            response.truncate(length);
+            return Ok(response);
+        }
+    }
+    if response.is_empty() {
+        bail!("WebDriver closed the connection without a response");
+    }
+    Ok(response)
+}
+
+fn webdriver_response_length(response: &[u8]) -> Result<Option<usize>> {
+    let Some(separator) = response.windows(4).position(|window| window == b"\r\n\r\n") else {
+        return Ok(None);
+    };
+    let headers = std::str::from_utf8(&response[..separator]).context("WebDriver HTTP headers")?;
+    let body_start = separator + 4;
+    if headers.lines().any(|line| {
+        line.split_once(':').is_some_and(|(name, value)| {
+            name.eq_ignore_ascii_case("transfer-encoding")
+                && value
+                    .split(',')
+                    .any(|encoding| encoding.trim().eq_ignore_ascii_case("chunked"))
+        })
+    }) {
+        return chunked_message_length(&response[body_start..])
+            .map(|length| length.map(|length| body_start + length));
+    }
+    let content_length = headers.lines().find_map(|line| {
+        line.split_once(':').and_then(|(name, value)| {
+            name.eq_ignore_ascii_case("content-length")
+                .then(|| value.trim())
+        })
+    });
+    let Some(content_length) = content_length else {
+        return Ok(None);
+    };
+    let content_length = content_length
+        .parse::<usize>()
+        .context("WebDriver response has invalid Content-Length")?;
+    let total = body_start
+        .checked_add(content_length)
+        .context("WebDriver response length overflow")?;
+    Ok((response.len() >= total).then_some(total))
+}
+
+fn chunked_message_length(body: &[u8]) -> Result<Option<usize>> {
+    let mut offset = 0;
+    loop {
+        let Some(line_end) = body[offset..]
+            .windows(2)
+            .position(|window| window == b"\r\n")
+        else {
+            return Ok(None);
+        };
+        let size_text = std::str::from_utf8(&body[offset..offset + line_end])
+            .context("invalid chunk size text")?
+            .split(';')
+            .next()
+            .unwrap_or_default();
+        let size = usize::from_str_radix(size_text.trim(), 16).context("invalid chunk size")?;
+        offset += line_end + 2;
+        if size == 0 {
+            if body.get(offset..offset + 2) == Some(b"\r\n") {
+                return Ok(Some(offset + 2));
+            }
+            let trailer_end = body[offset..]
+                .windows(4)
+                .position(|window| window == b"\r\n\r\n");
+            return Ok(trailer_end.map(|end| offset + end + 4));
+        }
+        let Some(data_end) = offset.checked_add(size) else {
+            bail!("WebDriver chunk length overflow");
+        };
+        if body.len() < data_end + 2 {
+            return Ok(None);
+        }
+        if &body[data_end..data_end + 2] != b"\r\n" {
+            bail!("invalid chunked WebDriver response delimiter");
+        }
+        offset = data_end + 2;
+    }
 }
 
 fn parse_http_json(response: &[u8]) -> Result<Value> {
@@ -1053,12 +1168,27 @@ mod tests {
             .unwrap();
         assert!(args.contains(&json!("--allow-file-access-from-files")));
         assert!(args.contains(&json!("--window-size=800,600")));
+        assert_eq!(
+            device_metrics_override(Viewport {
+                width: 800,
+                height: 600,
+            }),
+            json!({
+                "cmd": "Emulation.setDeviceMetricsOverride",
+                "params": {
+                    "width": 800,
+                    "height": 600,
+                    "deviceScaleFactor": 1,
+                    "mobile": false
+                }
+            })
+        );
     }
 
     #[test]
     fn http_parser_accepts_content_length_and_chunked_webdriver_json() {
         assert_eq!(
-            parse_http_json(b"HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\n{\"value\":42}")
+            parse_http_json(b"HTTP/1.1 200 OK\r\nContent-Length: 12\r\n\r\n{\"value\":42}")
                 .unwrap()["value"],
             42
         );
@@ -1075,6 +1205,26 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert_eq!(error, "WebDriver HTTP 500: bad");
+    }
+
+    #[test]
+    fn http_framing_finishes_keep_alive_responses_without_waiting_for_eof() {
+        let fixed = b"HTTP/1.1 200 OK\r\nContent-Length: 12\r\nConnection: keep-alive\r\n\r\n{\"value\":42}";
+        assert_eq!(
+            webdriver_response_length(&fixed[..fixed.len() - 1]).unwrap(),
+            None
+        );
+        assert_eq!(webdriver_response_length(fixed).unwrap(), Some(fixed.len()));
+
+        let chunked = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\nConnection: keep-alive\r\n\r\n7\r\n{\"value\r\n5\r\n\":42}\r\n0\r\n\r\n";
+        assert_eq!(
+            webdriver_response_length(&chunked[..chunked.len() - 1]).unwrap(),
+            None
+        );
+        assert_eq!(
+            webdriver_response_length(chunked).unwrap(),
+            Some(chunked.len())
+        );
     }
 
     #[test]

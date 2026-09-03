@@ -199,7 +199,8 @@ fn run() -> Result<()> {
             Some("plan") => term_video::plan_file(&repo_root()?, args),
             Some("compose") => term_video::compose_file(&repo_root()?, args),
             Some("capture") => term_video::capture_file(&repo_root()?, args),
-            _ => bail!("media requires the plan, capture, or compose command"),
+            Some("launch") => term_video::launch_file(&repo_root()?, args),
+            _ => bail!("media requires the plan, capture, compose, or launch command"),
         },
         Some("release") => match args.next().as_deref() {
             Some("package") => package_release(parse_package_options(args)?),
@@ -213,6 +214,13 @@ fn run() -> Result<()> {
 }
 
 fn stage_extension_example(name: &str) -> Result<()> {
+    let repo = repo_root()?;
+    let staged = prepare_extension_example(&repo, name)?;
+    println!("staged {}", relative_to(&repo, &staged));
+    Ok(())
+}
+
+fn extension_example_binary_target(name: &str) -> Result<&'static str> {
     let binary_target = match name {
         "cli-tools" => "workdeck-example-cli-tools-extension",
         "pane-layout" => "workdeck-example-pane-layout-extension",
@@ -227,14 +235,18 @@ fn stage_extension_example(name: &str) -> Result<()> {
         "file-view-gallery" => "workdeck-example-file-view-gallery-extension",
         _ => bail!("unknown native extension example {name:?}"),
     };
-    let repo = repo_root()?;
+    Ok(binary_target)
+}
+
+fn prepare_extension_example(repo: &Path, name: &str) -> Result<PathBuf> {
+    let binary_target = extension_example_binary_target(name)?;
     run_checked(
-        &repo,
+        repo,
         "cargo",
         &["build", "-p", "workdeck-examples", "--bin", binary_target],
     )?;
     let metadata = MetadataCommand::new()
-        .current_dir(&repo)
+        .current_dir(repo)
         .no_deps()
         .exec()
         .context("resolve Cargo target directory")?;
@@ -257,8 +269,7 @@ fn stage_extension_example(name: &str) -> Result<()> {
         )),
         staged.join("workdeck-extension.toml"),
     )?;
-    println!("staged {}", relative_to(&repo, staged.as_std_path()));
-    Ok(())
+    Ok(staged.into_std_path_buf())
 }
 
 fn site(command: Option<&str>) -> Result<()> {
@@ -2173,6 +2184,15 @@ fn print_help() {
         "cargo xtask media compose --storyboard FILE --work-dir DIR --font FILE [--frames-dir DIR] [--stage FILE] [--webdriver FILE] [--chromium FILE]"
     );
     println!("cargo xtask media capture --script FILE [--scenes NAME,NAME]");
+    println!(
+        "cargo xtask media launch capture --font FILE [--binary FILE] [--work-dir DIR] [--scenes NAME,NAME]"
+    );
+    println!(
+        "cargo xtask media launch compose [--work-dir DIR] [--font FILE] [--webdriver FILE] [--chromium FILE]"
+    );
+    println!(
+        "cargo xtask media launch encode [--work-dir DIR] [--ffmpeg FILE] [--mp4 FILE] [--webm FILE]"
+    );
     println!("cargo xtask release package --target TRIPLE [--binary PATH] [--output DIR]");
 }
 

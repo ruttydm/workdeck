@@ -30,7 +30,7 @@ const DEFAULT_WAIT_TIMEOUT_MS: u64 = 10_000;
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct RenderOptions {
+pub(super) struct RenderOptions {
     #[serde(default = "default_font_size")]
     font_size: f32,
     #[serde(default = "default_line_height")]
@@ -77,34 +77,34 @@ const fn default_foreground() -> [u8; 3] {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CaptureScript {
-    cols: u16,
-    rows: u16,
-    frames_dir: PathBuf,
-    font: PathBuf,
+pub(super) struct CaptureScript {
+    pub(super) cols: u16,
+    pub(super) rows: u16,
+    pub(super) frames_dir: PathBuf,
+    pub(super) font: PathBuf,
     #[serde(default)]
-    render_options: RenderOptions,
+    pub(super) render_options: RenderOptions,
     #[serde(default)]
-    manifest: Option<PathBuf>,
-    scenes: Vec<CaptureScene>,
+    pub(super) manifest: Option<PathBuf>,
+    pub(super) scenes: Vec<CaptureScene>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CaptureScene {
-    name: String,
+pub(super) struct CaptureScene {
+    pub(super) name: String,
     #[serde(default)]
-    wrappers: Vec<WrapperSpec>,
-    launch: LaunchSpec,
-    actions: Vec<CaptureAction>,
+    pub(super) wrappers: Vec<WrapperSpec>,
+    pub(super) launch: LaunchSpec,
+    pub(super) actions: Vec<CaptureAction>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct WrapperSpec {
-    bin_dir: PathBuf,
-    name: String,
-    exec: Vec<String>,
+pub(super) struct WrapperSpec {
+    pub(super) bin_dir: PathBuf,
+    pub(super) name: String,
+    pub(super) exec: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -114,7 +114,7 @@ struct WrapperSpec {
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
-enum LaunchSpec {
+pub(super) enum LaunchSpec {
     App {
         command: PathBuf,
         #[serde(default)]
@@ -141,7 +141,7 @@ enum LaunchSpec {
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
-enum CaptureAction {
+pub(super) enum CaptureAction {
     Sleep {
         ms: u64,
     },
@@ -355,13 +355,13 @@ fn resolve_script_paths(repo: &Path, script: &mut CaptureScript) {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct CaptureResult {
-    frames: usize,
-    scenes: usize,
-    manifest: PathBuf,
+pub(super) struct CaptureResult {
+    pub(super) frames: usize,
+    pub(super) scenes: usize,
+    pub(super) manifest: PathBuf,
 }
 
-fn run_capture(script: &CaptureScript, wants: &SceneFilter) -> Result<CaptureResult> {
+pub(super) fn run_capture(script: &CaptureScript, wants: &SceneFilter) -> Result<CaptureResult> {
     let mut keyframer = Keyframer::new(
         script.frames_dir.clone(),
         script.font.clone(),
@@ -454,12 +454,12 @@ fn execute_actions(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct SceneFilter {
+pub(super) struct SceneFilter {
     names: Option<Vec<String>>,
 }
 
 impl SceneFilter {
-    fn new(value: Option<&str>) -> Self {
+    pub(super) fn new(value: Option<&str>) -> Self {
         Self {
             names: value.map(|value| {
                 value
@@ -470,7 +470,7 @@ impl SceneFilter {
         }
     }
 
-    fn matches(&self, name: &str) -> bool {
+    pub(super) fn matches(&self, name: &str) -> bool {
         self.names
             .as_ref()
             .is_none_or(|names| names.iter().any(|candidate| candidate == name))
