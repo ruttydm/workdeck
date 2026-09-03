@@ -2052,7 +2052,10 @@ mod tests {
                 generation: 11,
                 changeset: Changeset {
                     id: "review-11".into(),
+                    source_label: "stdin".into(),
                     title: "Review".into(),
+                    summary: None,
+                    agent_summary: None,
                     source: workdeck_core::ChangesetSource::Patch {
                         label: "stdin".into(),
                     },

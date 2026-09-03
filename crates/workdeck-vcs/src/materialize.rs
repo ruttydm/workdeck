@@ -5,7 +5,7 @@ use crate::{
     build_filesystem_untracked_diff_file,
 };
 use workdeck_core::{Changeset, ChangesetSource, FileSourceSnapshots, ReviewSide};
-use workdeck_diff::parse_patch;
+use workdeck_diff::changeset_from_patch;
 
 pub fn materialize_vcs_patch_result(
     result: VcsPatchResult,
@@ -13,22 +13,15 @@ pub fn materialize_vcs_patch_result(
     source: ChangesetSource,
 ) -> Result<Changeset, VcsCatalogError> {
     let changeset_id = changeset_id.into();
-    let mut changeset = if result.patch_text.trim().is_empty() {
-        Changeset {
-            id: changeset_id.clone(),
-            title: result.title.clone(),
-            source: source.clone(),
-            files: Vec::new(),
-        }
-    } else {
-        parse_patch(
-            &result.patch_text,
-            changeset_id.clone(),
-            result.title.clone(),
-            source,
-        )
-        .map_err(|error| VcsCatalogError::Operation(error.to_string()))?
-    };
+    let source_label = result.source_label.clone();
+    let mut changeset = changeset_from_patch(
+        &result.patch_text,
+        changeset_id.clone(),
+        result.title.clone(),
+        source_label,
+        source,
+        None,
+    );
 
     changeset.files.extend(result.extra_files);
     if let Some(reader) = &result.source_reader {
@@ -57,6 +50,7 @@ pub fn materialize_vcs_patch_result(
         }
     }
 
+    let review_source_label = changeset.effective_source_label().to_owned();
     for path in result.untracked_paths {
         let relative = if path.is_absolute() {
             path.strip_prefix(&result.repo_root).unwrap_or(&path)
@@ -67,7 +61,7 @@ pub fn materialize_vcs_patch_result(
             &result.repo_root,
             relative,
             changeset.files.len(),
-            &changeset_id,
+            &review_source_label,
         )
         .map_err(|error| VcsCatalogError::Operation(error.to_string()))?;
         changeset.files.push(file);
@@ -89,7 +83,7 @@ mod tests {
     use crate::VcsSourceReader;
     use std::sync::{Arc, Mutex};
     use tempfile::TempDir;
-    use workdeck_core::{DiffFile, FileChangeKind, SourceOrigin, SourceSnapshot};
+    use workdeck_core::{DiffFile, FileChangeKind, SourceOrigin, SourceSnapshot, review_file_key};
 
     #[test]
     fn parses_patch_hydrates_exact_sides_and_synthesizes_untracked_files() {
@@ -132,7 +126,22 @@ mod tests {
             ChangesetSource::WorkingTree { staged: false },
         )
         .unwrap();
+        assert_eq!(changeset.id, "git:working");
+        assert_eq!(changeset.source_label, repo.path().display().to_string());
         assert_eq!(changeset.files.len(), 2);
+        assert_eq!(
+            changeset.files[0].runtime_id,
+            format!("{}:0:tracked.txt", repo.path().display())
+        );
+        assert!(
+            changeset.files[1]
+                .runtime_id
+                .starts_with(&format!("{}:1:", repo.path().display()))
+        );
+        assert_eq!(
+            changeset.files[0].key,
+            review_file_key(&repo.path().display().to_string(), "tracked.txt", None, 0,)
+        );
         assert_eq!(
             changeset.files[0].sources.old.as_ref().unwrap().content,
             "old\n"
@@ -175,6 +184,31 @@ mod tests {
         .unwrap();
         assert_eq!(changeset.files.len(), 1);
         assert_eq!(changeset.files[0].sources, FileSourceSnapshots::default());
+    }
+
+    #[test]
+    fn malformed_provider_patch_is_an_empty_descriptive_review() {
+        let changeset = materialize_vcs_patch_result(
+            VcsPatchResult {
+                repo_root: "/repo".into(),
+                source_label: "/repo".into(),
+                title: "working tree".into(),
+                patch_text: "not a patch".into(),
+                untracked_paths: Vec::new(),
+                source_reader: None,
+                source_cache_key: None,
+                extra_files: Vec::new(),
+            },
+            "git:working",
+            ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap();
+
+        assert_eq!(changeset.id, "git:working");
+        assert_eq!(changeset.source_label, "/repo");
+        assert_eq!(changeset.title, "working tree");
+        assert_eq!(changeset.summary.as_deref(), Some("not a patch"));
+        assert!(changeset.files.is_empty());
     }
 
     #[test]

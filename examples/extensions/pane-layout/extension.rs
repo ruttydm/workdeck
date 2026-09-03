@@ -219,7 +219,10 @@ mod tests {
             generation: 0,
             changeset: workdeck_core::Changeset {
                 id: "test".into(),
+                source_label: "test".into(),
                 title: "test".into(),
+                summary: None,
+                agent_summary: None,
                 source: workdeck_core::ChangesetSource::Patch {
                     label: "test".into(),
                 },

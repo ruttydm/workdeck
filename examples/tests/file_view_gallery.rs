@@ -240,7 +240,10 @@ fn changeset(mut file: workdeck_core::DiffFile) -> Changeset {
     file.refresh_identity();
     Changeset {
         id: "gallery".into(),
+        source_label: "gallery".into(),
         title: "Native gallery".into(),
+        summary: None,
+        agent_summary: None,
         source: ChangesetSource::Files {
             left: "before".into(),
             right: "after".into(),

@@ -185,12 +185,10 @@ pub fn project_extension_diff_file(file: &DiffFile) -> ExtensionDiffFile {
 pub fn project_extension_changeset(changeset: &workdeck_core::Changeset) -> ExtensionChangeset {
     ExtensionChangeset {
         id: changeset.id.clone(),
-        // Workdeck's current core identity is the provider label. Keeping the explicit public
-        // field preserves Hunk's contract while the core-model port later separates the two.
-        source_label: changeset.id.clone(),
+        source_label: changeset.effective_source_label().to_owned(),
         title: changeset.title.clone(),
-        summary: None,
-        agent_summary: None,
+        summary: changeset.summary.clone(),
+        agent_summary: changeset.agent_summary.clone(),
         files: changeset
             .files
             .iter()
@@ -307,6 +305,30 @@ mod tests {
         source.hunks.clear();
         let without_hunks = project_extension_diff_file(&source);
         assert!(without_hunks.hunks.is_empty());
+    }
+
+    #[test]
+    fn public_changeset_projection_preserves_hunk_model_fields() {
+        let changeset = workdeck_core::Changeset {
+            id: "changeset:fixture".into(),
+            source_label: "repository label".into(),
+            title: "Review title".into(),
+            summary: Some("Patch metadata".into()),
+            agent_summary: Some("Agent narrative".into()),
+            source: workdeck_core::ChangesetSource::Patch {
+                label: "repository label".into(),
+            },
+            files: vec![file()],
+        };
+
+        let public = project_extension_changeset(&changeset);
+        assert_eq!(public.id, "changeset:fixture");
+        assert_eq!(public.source_label, "repository label");
+        assert_eq!(public.title, "Review title");
+        assert_eq!(public.summary.as_deref(), Some("Patch metadata"));
+        assert_eq!(public.agent_summary.as_deref(), Some("Agent narrative"));
+        assert_eq!(public.files.len(), 1);
+        assert_eq!(public.files[0].path, "example.txt");
     }
 
     #[test]

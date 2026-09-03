@@ -581,7 +581,10 @@ fn workdeck_diff_body_rows(
 
     let changeset = Changeset {
         id: "public-review".into(),
+        source_label: "public-review".into(),
         title: "Public review".into(),
+        summary: None,
+        agent_summary: None,
         source: ChangesetSource::Patch {
             label: "public-review".into(),
         },

@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "captured_with": "bun 1.3.5 importing untouched pinned src/core/changeset/fromPatch.ts",
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "source_blob": "b07a1c35440ede640768a794a56e958a61be59a9",
+      "cases": [
+        {
+          "name": "plain",
+          "sourceLabel": "S",
+          "title": "T",
+          "summary": "not really a patch\n--- separator only\n@@ section heading\nstill plain text",
+          "agentSummary": "Agent",
+          "files": []
+        },
+        {
+          "name": "valid",
+          "sourceLabel": "S",
+          "title": "T",
+          "summary": null,
+          "agentSummary": "Agent",
+          "files": ["a.txt"]
+        },
+        {
+          "name": "git-show",
+          "sourceLabel": "S",
+          "title": "T",
+          "summary": null,
+          "agentSummary": "Agent",
+          "files": ["a.txt"]
+        },
+        {
+          "name": "mbox",
+          "sourceLabel": "S",
+          "title": "T",
+          "summary": "From abcdef12 Mon Sep 17 00:00:00 2001\nFrom: A\nSubject: [PATCH 1/2] One\n\n\n\nFrom deadbeef Mon Sep 17 00:00:00 2001\nFrom: B\nSubject: [PATCH 2/2] Two\n\n",
+          "agentSummary": "Agent",
+          "files": ["a", "b"]
+        }
+      ]
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "source_blob": "b07a1c35440ede640768a794a56e958a61be59a9",
+      "cases": [
+        {
+          "name": "plain",
+          "sourceLabel": "S",
+          "title": "T",
+          "summary": "not really a patch\n--- separator only\n@@ section heading\nstill plain text",
+          "agentSummary": "Agent",
+          "files": []
+        },
+        {
+          "name": "valid",
+          "sourceLabel": "S",
+          "title": "T",
+          "summary": null,
+          "agentSummary": "Agent",
+          "files": ["a.txt"]
+        },
+        {
+          "name": "git-show",
+          "sourceLabel": "S",
+          "title": "T",
+          "summary": null,
+          "agentSummary": "Agent",
+          "files": ["a.txt"]
+        },
+        {
+          "name": "mbox",
+          "sourceLabel": "S",
+          "title": "T",
+          "summary": "From abcdef12 Mon Sep 17 00:00:00 2001\nFrom: A\nSubject: [PATCH 1/2] One\n\n\n\nFrom deadbeef Mon Sep 17 00:00:00 2001\nFrom: B\nSubject: [PATCH 2/2] Two\n\n",
+          "agentSummary": "Agent",
+          "files": ["a", "b"]
+        }
+      ]
+    }
+  ],
+  "native_adaptation": {
+    "identity": "The caller supplies Workdeck's stable changeset id while sourceLabel remains the provider-facing review address label.",
+    "errors": "The Hunk-compatible boundary returns an empty descriptive changeset; the lower-level parse_patch API remains strict for structural validation.",
+    "source_fetching": "Provider-neutral source snapshots are attached after parsing rather than stored as JavaScript fetcher closures."
+  },
+  "rust_tests": [
+    "tests::hunk_patch_boundary_returns_sanitized_empty_review_for_malformed_text",
+    "tests::hunk_patch_boundary_preserves_mbox_metadata_and_uses_source_label_for_addresses",
+    "tests::hunk_patch_boundary_discards_git_show_metadata_before_summary_projection",
+    "materialize::tests::parses_patch_hydrates_exact_sides_and_synthesizes_untracked_files",
+    "file_view_host::tests::public_changeset_projection_preserves_hunk_model_fields",
+    "tests::legacy_changesets_default_new_hunk_fields_and_keep_id_as_effective_label"
+  ]
+}

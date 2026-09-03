@@ -650,7 +650,10 @@ mod tests {
     fn changeset(files: Vec<DiffFile>) -> Changeset {
         Changeset {
             id: "test".into(),
+            source_label: "test".into(),
             title: "Test".into(),
+            summary: None,
+            agent_summary: None,
             source: ChangesetSource::WorkingTree { staged: false },
             files,
         }

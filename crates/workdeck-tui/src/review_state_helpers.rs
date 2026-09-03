@@ -360,7 +360,10 @@ mod tests {
         let parsed = file("alpha", "src/alpha.ts");
         let changeset = Changeset {
             id: "review-state".into(),
+            source_label: "review-state".into(),
             title: "Review state".into(),
+            summary: None,
+            agent_summary: None,
             source: ChangesetSource::Patch {
                 label: "review-state".into(),
             },

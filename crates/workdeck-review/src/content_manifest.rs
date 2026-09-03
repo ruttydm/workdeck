@@ -306,7 +306,10 @@ mod tests {
         project_review_document(
             &Changeset {
                 id: "HEAD".into(),
+                source_label: "HEAD".into(),
                 title: "review".into(),
+                summary: None,
+                agent_summary: None,
                 source: ChangesetSource::WorkingTree { staged: false },
                 files: vec![file],
             },

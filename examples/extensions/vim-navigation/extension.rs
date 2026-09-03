@@ -206,7 +206,10 @@ mod tests {
                 generation: 0,
                 changeset: Changeset {
                     id: "test".into(),
+                    source_label: "test".into(),
                     title: "test".into(),
+                    summary: None,
+                    agent_summary: None,
                     source: ChangesetSource::Patch {
                         label: "test".into(),
                     },

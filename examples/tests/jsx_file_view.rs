@@ -142,7 +142,10 @@ fn compiled_protocol_matches_layouts_and_toggles_the_view() {
                     generation: 1,
                     changeset: workdeck_core::Changeset {
                         id: "test".into(),
+                        source_label: "test".into(),
                         title: "test".into(),
+                        summary: None,
+                        agent_summary: None,
                         source: ChangesetSource::Patch {
                             label: "test".into(),
                         },

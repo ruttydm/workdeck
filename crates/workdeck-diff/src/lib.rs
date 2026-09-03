@@ -153,13 +153,128 @@ pub fn parse_patch(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let mut changeset = Changeset {
+        source_label: source_prefix.clone(),
         id: source_prefix,
         title: title.into(),
+        summary: None,
+        agent_summary: None,
         source,
         files,
     };
     changeset.refresh_review_identities();
     Ok(changeset)
+}
+
+/// Build the review changeset produced by Hunk's pure patch boundary.
+///
+/// Unlike [`parse_patch`], this intentionally converts malformed or non-patch input into an
+/// empty, descriptive review. That behavior is part of the public patch/stdin and VCS loader
+/// contract; callers that need structural validation should continue to use [`parse_patch`].
+#[must_use]
+pub fn changeset_from_patch(
+    patch: &str,
+    id: impl Into<String>,
+    title: impl Into<String>,
+    source_label: impl Into<String>,
+    source: ChangesetSource,
+    agent_summary: Option<String>,
+) -> Changeset {
+    let id = id.into();
+    let title = title.into();
+    let source_label = source_label.into();
+    let sanitized = sanitize_patch(patch);
+    let parsed_summary = patch_metadata_summary(&sanitized);
+
+    match parse_patch(patch, source_label.clone(), title.clone(), source.clone()) {
+        Ok(mut changeset) => {
+            changeset.id = id;
+            changeset.source_label = source_label;
+            changeset.summary = parsed_summary;
+            changeset.agent_summary = agent_summary;
+            changeset.refresh_review_identities();
+            changeset
+        }
+        Err(_) => Changeset {
+            id,
+            source_label,
+            title,
+            summary: (!sanitized.trim().is_empty()).then(|| sanitized.trim().to_owned()),
+            agent_summary,
+            source,
+            files: Vec::new(),
+        },
+    }
+}
+
+/// Reproduce Pierre's `ParsedPatch.patchMetadata` projection after Hunk sanitizes the stream.
+fn patch_metadata_summary(sanitized: &str) -> Option<String> {
+    let summary = patch_segments(sanitized)
+        .into_iter()
+        .filter_map(patch_metadata)
+        .filter(|metadata| !metadata.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    (!summary.is_empty()).then_some(summary)
+}
+
+fn patch_segments(input: &str) -> Vec<&str> {
+    let mut boundaries = input
+        .match_indices("From ")
+        .filter_map(|(index, _)| {
+            let at_line_start =
+                index == 0 || input.as_bytes().get(index.wrapping_sub(1)) == Some(&b'\n');
+            let line_end = input[index..]
+                .find('\n')
+                .map_or(input.len(), |offset| index + offset);
+            (at_line_start && is_mbox_boundary(&input[index..line_end])).then_some(index)
+        })
+        .collect::<Vec<_>>();
+    if boundaries.is_empty() {
+        boundaries.push(0);
+    } else if boundaries[0] != 0 {
+        boundaries.insert(0, 0);
+    }
+    boundaries.push(input.len());
+    boundaries
+        .windows(2)
+        .map(|range| &input[range[0]..range[1]])
+        .collect()
+}
+
+fn is_mbox_boundary(line: &str) -> bool {
+    let Some(rest) = line.strip_prefix("From ") else {
+        return false;
+    };
+    let Some((hash, suffix)) = rest.split_once(' ') else {
+        return false;
+    };
+    !hash.is_empty()
+        && hash
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+        && !suffix.is_empty()
+}
+
+fn patch_metadata(segment: &str) -> Option<&str> {
+    if segment.lines().any(|line| line.starts_with("diff --git")) {
+        return line_prefix_index(segment, "diff --git").map(|index| &segment[..index]);
+    }
+
+    let mut offset = 0;
+    let lines = segment.split_inclusive('\n').collect::<Vec<_>>();
+    for pair in lines.windows(2) {
+        if pair[0].starts_with("--- ") && pair[1].starts_with("+++ ") {
+            return Some(&segment[..offset]);
+        }
+        offset += pair[0].len();
+    }
+    None
+}
+
+fn line_prefix_index(input: &str, prefix: &str) -> Option<usize> {
+    input.match_indices(prefix).find_map(|(index, _)| {
+        (index == 0 || input.as_bytes()[index - 1] == b'\n').then_some(index)
+    })
 }
 
 /// Compare two text snapshots and project the result through Workdeck's canonical patch parser.
@@ -911,6 +1026,128 @@ mod tests {
         assert!(!sanitized.contains('\x1b'));
         assert!(!sanitized.contains('\r'));
         assert_eq!(split_patch_into_file_chunks(&sanitized).len(), 1);
+    }
+
+    #[test]
+    fn hunk_patch_boundary_returns_sanitized_empty_review_for_malformed_text() {
+        let changeset = changeset_from_patch(
+            "\x1b]0;title\x07not really a patch\n--- separator only\n@@ section heading\nstill plain text",
+            "changeset:fixture",
+            "Patch review: stdin patch",
+            "stdin patch",
+            ChangesetSource::Patch {
+                label: "stdin patch".into(),
+            },
+            Some("Agent".into()),
+        );
+
+        assert!(changeset.files.is_empty());
+        assert_eq!(changeset.id, "changeset:fixture");
+        assert_eq!(changeset.source_label, "stdin patch");
+        assert_eq!(changeset.title, "Patch review: stdin patch");
+        assert_eq!(
+            changeset.summary.as_deref(),
+            Some("not really a patch\n--- separator only\n@@ section heading\nstill plain text")
+        );
+        assert_eq!(changeset.agent_summary.as_deref(), Some("Agent"));
+    }
+
+    #[test]
+    fn hunk_patch_boundary_preserves_mbox_metadata_and_uses_source_label_for_addresses() {
+        let patch = concat!(
+            "From abcdef12 Mon Sep 17 00:00:00 2001\n",
+            "From: A\n",
+            "Subject: [PATCH 1/2] One\n\n",
+            "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n",
+            "From deadbeef Mon Sep 17 00:00:00 2001\n",
+            "From: B\n",
+            "Subject: [PATCH 2/2] Two\n\n",
+            "diff --git a/b b/b\n--- a/b\n+++ b/b\n@@ -1 +1 @@\n-c\n+d\n",
+        );
+        let changeset = changeset_from_patch(
+            patch,
+            "changeset:fixture",
+            "T",
+            "S",
+            ChangesetSource::Patch { label: "S".into() },
+            Some("Agent".into()),
+        );
+
+        assert_eq!(
+            changeset
+                .files
+                .iter()
+                .map(|file| file.path.as_str())
+                .collect::<Vec<_>>(),
+            ["a", "b"]
+        );
+        assert_eq!(
+            changeset.summary.as_deref(),
+            Some(concat!(
+                "From abcdef12 Mon Sep 17 00:00:00 2001\n",
+                "From: A\n",
+                "Subject: [PATCH 1/2] One\n\n\n\n",
+                "From deadbeef Mon Sep 17 00:00:00 2001\n",
+                "From: B\n",
+                "Subject: [PATCH 2/2] Two\n\n",
+            ))
+        );
+        assert_eq!(changeset.agent_summary.as_deref(), Some("Agent"));
+        assert_eq!(changeset.files[0].runtime_id, "S:0:a");
+        assert_eq!(
+            changeset.files[0].key,
+            workdeck_core::review_file_key("S", "a", None, 0)
+        );
+        assert_ne!(
+            changeset.files[0].key,
+            workdeck_core::review_file_key("changeset:fixture", "a", None, 0)
+        );
+    }
+
+    #[test]
+    fn hunk_patch_boundary_discards_git_show_metadata_before_summary_projection() {
+        let patch = concat!(
+            "commit abcdef12\nAuthor: A <a@example.test>\nDate: Today\n\n    Subject\n\n",
+            "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n",
+            "@@ -1 +1 @@\n-old\n+new\n",
+        );
+        let changeset = changeset_from_patch(
+            patch,
+            "changeset:fixture",
+            "T",
+            "S",
+            ChangesetSource::Patch { label: "S".into() },
+            None,
+        );
+        assert_eq!(changeset.files.len(), 1);
+        assert_eq!(changeset.summary, None);
+    }
+
+    #[test]
+    fn frozen_hunk_changeset_oracle_covers_both_pinned_baselines() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../port/hunk/oracles/changeset-from-patch.json"
+        )))
+        .unwrap();
+        let baselines = oracle["baselines"].as_array().unwrap();
+        assert_eq!(baselines.len(), 2);
+        assert_eq!(
+            baselines
+                .iter()
+                .map(|baseline| baseline["commit"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            [
+                "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+                "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+            ]
+        );
+        assert_eq!(baselines[0]["cases"], baselines[1]["cases"]);
+        assert_eq!(baselines[0]["cases"].as_array().unwrap().len(), 4);
+        assert_eq!(
+            baselines[0]["source_blob"],
+            "b07a1c35440ede640768a794a56e958a61be59a9"
+        );
     }
 
     #[test]

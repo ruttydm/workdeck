@@ -92,7 +92,10 @@ pub fn build_review_publication(
     let source_label = source_label.unwrap_or("review");
     let changeset = Changeset {
         id: source_label.to_owned(),
+        source_label: source_label.to_owned(),
         title: source_label.to_owned(),
+        summary: None,
+        agent_summary: None,
         source: ChangesetSource::Patch {
             label: source_label.to_owned(),
         },

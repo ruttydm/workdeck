@@ -457,13 +457,14 @@ impl VcsProvider for SaplingProvider {
 
 pub fn parse_patch_input(patch: &str, label: impl Into<String>) -> Result<Changeset, VcsError> {
     let label = label.into();
-    parse_patch(
+    Ok(workdeck_diff::changeset_from_patch(
         patch,
         format!("patch:{label}"),
         label.clone(),
+        label.clone(),
         ChangesetSource::Patch { label },
-    )
-    .map_err(Into::into)
+        None,
+    ))
 }
 
 pub fn validate_revision(revision: &str) -> Result<(), VcsError> {
@@ -642,6 +643,24 @@ mod tests {
         assert!(!is_probably_binary(&[
             b'a', b'b', b'c', b'd', b'e', b'f', b'g', b'h', b'i', 1,
         ]));
+    }
+
+    #[test]
+    fn patch_input_uses_hunk_empty_review_semantics_and_separate_source_label() {
+        let changeset = parse_patch_input(
+            "\x1b]0;title\x07not really a patch\n--- separator only",
+            "stdin patch",
+        )
+        .unwrap();
+
+        assert_eq!(changeset.id, "patch:stdin patch");
+        assert_eq!(changeset.source_label, "stdin patch");
+        assert_eq!(changeset.title, "stdin patch");
+        assert_eq!(
+            changeset.summary.as_deref(),
+            Some("not really a patch\n--- separator only")
+        );
+        assert!(changeset.files.is_empty());
     }
 
     #[test]

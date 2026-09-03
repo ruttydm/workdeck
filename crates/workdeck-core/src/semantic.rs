@@ -280,7 +280,7 @@ pub fn project_review_document(
     changeset: &Changeset,
     source_label: Option<&str>,
 ) -> SemanticReviewDocument {
-    let source_label = source_label.unwrap_or(&changeset.id);
+    let source_label = source_label.unwrap_or_else(|| changeset.effective_source_label());
     let mut occurrences = HashMap::<&str, usize>::new();
     SemanticReviewDocument {
         files: changeset
@@ -600,7 +600,10 @@ mod tests {
     fn changeset(files: Vec<DiffFile>) -> Changeset {
         Changeset {
             id: "HEAD".into(),
+            source_label: "HEAD".into(),
             title: "review".into(),
+            summary: None,
+            agent_summary: None,
             source: ChangesetSource::WorkingTree { staged: false },
             files,
         }

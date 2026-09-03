@@ -223,6 +223,7 @@ impl AgentContext {
     /// Attach annotations by current path first and previous path second, then order files to
     /// follow the sidecar's narrative while retaining the provider order for unmatched files.
     pub fn apply_to(&self, changeset: &mut Changeset) {
+        changeset.agent_summary.clone_from(&self.summary);
         for file in &mut changeset.files {
             file.agent = self
                 .files
@@ -481,20 +482,37 @@ pub enum SourceOrigin {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Changeset {
     pub id: String,
+    #[serde(default)]
+    pub source_label: String,
     pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_summary: Option<String>,
     pub source: ChangesetSource,
     pub files: Vec<DiffFile>,
 }
 
 impl Changeset {
+    /// Stable producer label used for review addresses and public projections.
+    #[must_use]
+    pub fn effective_source_label(&self) -> &str {
+        if self.source_label.is_empty() {
+            &self.id
+        } else {
+            &self.source_label
+        }
+    }
+
     /// Re-project content identities and stable review addresses after a provider or extension
     /// changes file facts. Duplicate paths remain separately addressable in producer order.
     pub fn refresh_review_identities(&mut self) {
+        let source_label = self.effective_source_label().to_owned();
         let mut occurrences = std::collections::HashMap::<String, usize>::new();
         for file in &mut self.files {
             file.refresh_identity();
             let occurrence = occurrences.entry(file.path.clone()).or_default();
-            file.refresh_address(&self.id, *occurrence);
+            file.refresh_address(&source_label, *occurrence);
             *occurrence += 1;
         }
     }
@@ -756,13 +774,17 @@ mod tests {
         untouched.path = "unmatched.rs".into();
         let mut changeset = Changeset {
             id: "test".into(),
+            source_label: "test".into(),
             title: "Test".into(),
+            summary: None,
+            agent_summary: None,
             source: ChangesetSource::Patch {
                 label: "test".into(),
             },
             files: vec![untouched, renamed],
         };
         context.apply_to(&mut changeset);
+        assert_eq!(changeset.agent_summary.as_deref(), Some("Agent summary"));
         assert_eq!(changeset.files[0].path, "new.rs");
         let annotation = &changeset.files[0].agent.as_ref().unwrap().annotations[0];
         assert_eq!(annotation.new_range, Some(LineRange { start: 4, end: 8 }));
@@ -777,5 +799,21 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("ordered start..end"));
+    }
+
+    #[test]
+    fn legacy_changesets_default_new_hunk_fields_and_keep_id_as_effective_label() {
+        let changeset: Changeset = serde_json::from_value(serde_json::json!({
+            "id": "legacy-id",
+            "title": "Legacy",
+            "source": { "kind": "patch", "label": "legacy" },
+            "files": []
+        }))
+        .unwrap();
+
+        assert_eq!(changeset.source_label, "");
+        assert_eq!(changeset.summary, None);
+        assert_eq!(changeset.agent_summary, None);
+        assert_eq!(changeset.effective_source_label(), "legacy-id");
     }
 }

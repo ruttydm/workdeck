@@ -316,7 +316,10 @@ mod tests {
             input_kind: WorkdeckSessionInputKind::Vcs,
             changeset: Changeset {
                 id: "changeset-1".into(),
+                source_label: "/repo".into(),
                 title: "working tree".into(),
+                summary: None,
+                agent_summary: None,
                 source: ChangesetSource::WorkingTree { staged: false },
                 files,
             },
