@@ -36,6 +36,8 @@ pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 2_000;
 pub const DEFAULT_HANDSHAKE_TIMEOUT_MS: u64 = 10_000;
 /// Network-capable extension CLI commands receive a bounded but human-scale deadline.
 pub const DEFAULT_CLI_REQUEST_TIMEOUT_MS: u64 = 30_000;
+/// Maximum raw stdin bytes transferred for one extension CLI read request.
+pub const MAX_CLI_STDIN_CHUNK_BYTES: usize = 64 * 1024;
 pub const MAX_VIEW_NODES: usize = 10_000;
 pub const MAX_VIEW_DEPTH: usize = 64;
 pub const FILE_VIEW_DRAFT_UNAVAILABLE_REASON: &str =
@@ -630,6 +632,32 @@ pub struct CliOutputNotification {
     pub request_id: u64,
     pub stream: CliOutputStream,
     pub bytes: Vec<u8>,
+}
+
+/// Lazy request from an extension CLI handler for the next host-stdin chunk.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CliStdinReadRequest {
+    pub request_id: u64,
+    pub read_id: u64,
+    #[serde(default = "default_cli_stdin_chunk_bytes")]
+    pub max_bytes: usize,
+}
+
+const fn default_cli_stdin_chunk_bytes() -> usize {
+    8 * 1024
+}
+
+/// Host response to one extension CLI stdin read request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CliStdinChunk {
+    pub request_id: u64,
+    pub read_id: u64,
+    #[serde(default)]
+    pub bytes: Vec<u8>,
+    #[serde(default)]
+    pub done: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// The validated terminal outcome returned by an extension CLI handler.
@@ -1578,6 +1606,31 @@ mod tests {
             request
         );
         assert_eq!(request.params["config"]["threshold"], 3);
+    }
+
+    #[test]
+    fn cli_stdin_lease_messages_preserve_binary_chunks_and_read_identity() {
+        let request = CliStdinReadRequest {
+            request_id: 9,
+            read_id: 3,
+            max_bytes: MAX_CLI_STDIN_CHUNK_BYTES,
+        };
+        assert_eq!(
+            serde_json::from_value::<CliStdinReadRequest>(serde_json::to_value(&request).unwrap())
+                .unwrap(),
+            request
+        );
+        let chunk = CliStdinChunk {
+            request_id: 9,
+            read_id: 3,
+            bytes: vec![0, 10, 255],
+            done: false,
+            error: None,
+        };
+        assert_eq!(
+            serde_json::from_value::<CliStdinChunk>(serde_json::to_value(&chunk).unwrap()).unwrap(),
+            chunk
+        );
     }
 
     #[test]

@@ -31,7 +31,7 @@ pub use synchronous_callbacks::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -43,19 +43,20 @@ use workdeck_core::{Changeset, ReviewSnapshot};
 use workdeck_diff::{SanitizeOptions, sanitize_terminal_text};
 use workdeck_extension_api::{
     API_VERSION, CliCommandExecution, CliCommandInvocation, CliCommandResult,
-    CliOutputNotification, CliOutputStream, CommandExecution, CommandInvocation,
-    ConfirmDialogSubmission, DEFAULT_HANDSHAKE_TIMEOUT_MS, DEFAULT_REQUEST_TIMEOUT_MS,
-    ExtensionCommandAvailability, ExtensionDiffFile, ExtensionEventContext, ExtensionFileSide,
-    ExtensionHostAction, ExtensionKeyEvent, ExtensionManifest, ExtensionNotificationHub,
-    ExtensionNotifyType, ExtensionPaneView, ExtensionWorkspaceSnapshot,
-    ExtensionWorkspaceWriteCompletion, FileViewLayoutRequest, FileViewMatchRequest,
-    FileViewModeKeyRequest, FileViewModeLifecycleRequest, HandshakeRequest, HandshakeResponse,
-    InputDialogSubmission, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
-    KeyboardModeExecution, KeyboardModeKeyRequest, KeyboardModeLifecycleRequest, MAX_MESSAGE_BYTES,
-    ManifestError, PaneActionInvocation, PaneAvailabilityRequest, PaneAvailabilityResponse,
-    PaneRenderRequest, PaneRenderResponse, Registration, ReviewEvent, SelectDialogSubmission,
-    TransformRequest, TransformResponse, ValidatedFileViewLayout, extension_pane_size,
-    is_vertical_pane_placement, parse_key_chord, validate_view,
+    CliOutputNotification, CliOutputStream, CliStdinChunk, CliStdinReadRequest, CommandExecution,
+    CommandInvocation, ConfirmDialogSubmission, DEFAULT_HANDSHAKE_TIMEOUT_MS,
+    DEFAULT_REQUEST_TIMEOUT_MS, ExtensionCommandAvailability, ExtensionDiffFile,
+    ExtensionEventContext, ExtensionFileSide, ExtensionHostAction, ExtensionKeyEvent,
+    ExtensionManifest, ExtensionNotificationHub, ExtensionNotifyType, ExtensionPaneView,
+    ExtensionWorkspaceSnapshot, ExtensionWorkspaceWriteCompletion, FileViewLayoutRequest,
+    FileViewMatchRequest, FileViewModeKeyRequest, FileViewModeLifecycleRequest, HandshakeRequest,
+    HandshakeResponse, InputDialogSubmission, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
+    KeyboardModeExecution, KeyboardModeKeyRequest, KeyboardModeLifecycleRequest,
+    MAX_CLI_STDIN_CHUNK_BYTES, MAX_MESSAGE_BYTES, ManifestError, PaneActionInvocation,
+    PaneAvailabilityRequest, PaneAvailabilityResponse, PaneRenderRequest, PaneRenderResponse,
+    Registration, ReviewEvent, SelectDialogSubmission, TransformRequest, TransformResponse,
+    ValidatedFileViewLayout, extension_pane_size, is_vertical_pane_placement, parse_key_chord,
+    validate_view,
 };
 
 #[derive(Debug, Error)]
@@ -626,17 +627,31 @@ impl LoadedExtension {
     }
 
     fn receive_protocol_line(&self, deadline: Instant) -> Result<String, HostError> {
-        let timeout = deadline.saturating_duration_since(Instant::now());
-        self.responses
-            .recv_timeout(timeout)
-            .map_err(|error| match error {
-                mpsc::RecvTimeoutError::Timeout => HostError::Timeout(self.manifest.id.clone()),
-                mpsc::RecvTimeoutError::Disconnected => HostError::Closed(self.manifest.id.clone()),
-            })?
-            .map_err(|source| HostError::Io {
-                id: self.manifest.id.clone(),
-                source,
-            })
+        loop {
+            let timeout = deadline.saturating_duration_since(Instant::now());
+            let line = self
+                .responses
+                .recv_timeout(timeout)
+                .map_err(|error| match error {
+                    mpsc::RecvTimeoutError::Timeout => HostError::Timeout(self.manifest.id.clone()),
+                    mpsc::RecvTimeoutError::Disconnected => {
+                        HostError::Closed(self.manifest.id.clone())
+                    }
+                })?
+                .map_err(|source| HostError::Io {
+                    id: self.manifest.id.clone(),
+                    source,
+                })?;
+            // A native process cannot retain a valid output or stdin capability after its CLI
+            // response. Drop a late notification here so it can never impersonate the response
+            // to a later request on the same process.
+            if parse_cli_output_notification(&line).is_some()
+                || parse_cli_stdin_read_notification(&line).is_some()
+            {
+                continue;
+            }
+            return Ok(line);
+        }
     }
 
     fn decode_response(&self, id: u64, line: &str) -> Result<Value, HostError> {
@@ -703,12 +718,13 @@ impl LoadedExtension {
         stdout: &mut dyn Write,
         stderr: &mut dyn Write,
     ) -> Result<CliCommandExecution, HostError> {
-        self.invoke_cli_command_cancellable(
+        self.invoke_cli_command_cancellable_with_input(
             command_name,
             args,
             cwd,
             timeout,
             &AtomicBool::new(false),
+            &mut std::io::empty(),
             stdout,
             stderr,
         )
@@ -723,6 +739,55 @@ impl LoadedExtension {
         cwd: &Path,
         timeout: Duration,
         cancelled: &AtomicBool,
+        stdout: &mut dyn Write,
+        stderr: &mut dyn Write,
+    ) -> Result<CliCommandExecution, HostError> {
+        self.invoke_cli_command_cancellable_with_input(
+            command_name,
+            args,
+            cwd,
+            timeout,
+            cancelled,
+            &mut std::io::empty(),
+            stdout,
+            stderr,
+        )
+    }
+
+    /// Invoke a CLI command with a lazily leased host-stdin source.
+    #[allow(clippy::too_many_arguments)]
+    pub fn invoke_cli_command_with_input(
+        &mut self,
+        command_name: &str,
+        args: Vec<String>,
+        cwd: &Path,
+        timeout: Duration,
+        stdin: &mut dyn Read,
+        stdout: &mut dyn Write,
+        stderr: &mut dyn Write,
+    ) -> Result<CliCommandExecution, HostError> {
+        self.invoke_cli_command_cancellable_with_input(
+            command_name,
+            args,
+            cwd,
+            timeout,
+            &AtomicBool::new(false),
+            stdin,
+            stdout,
+            stderr,
+        )
+    }
+
+    /// Invoke a CLI command with lazy stdin and cooperative cancellation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn invoke_cli_command_cancellable_with_input(
+        &mut self,
+        command_name: &str,
+        args: Vec<String>,
+        cwd: &Path,
+        timeout: Duration,
+        cancelled: &AtomicBool,
+        stdin: &mut dyn Read,
         stdout: &mut dyn Write,
         stderr: &mut dyn Write,
     ) -> Result<CliCommandExecution, HostError> {
@@ -747,6 +812,11 @@ impl LoadedExtension {
         let deadline = Instant::now() + timeout;
         let mut stdout_bytes = 0_usize;
         let mut cancellation_sent = false;
+        let mut stdin_read_started = false;
+        let mut stdin_consumed = false;
+        let mut stdin_done = false;
+        let mut seen_stdin_reads = BTreeSet::new();
+        let mut deferred_io_error = None;
 
         let value = loop {
             if cancelled.load(Ordering::Acquire) && !cancellation_sent {
@@ -779,53 +849,104 @@ impl LoadedExtension {
             }
             if let Some(output) = parse_cli_output_notification(&line) {
                 if output.request_id != id {
-                    return Err(HostError::InvalidPayload {
-                        id: self.manifest.id.clone(),
-                        kind: "CLI output",
-                        message: format!(
-                            "output request id {} did not match active request {id}",
-                            output.request_id
-                        ),
-                    });
+                    // Output belonging to a settled request is a revoked late write. It must not
+                    // reach the terminal or poison the response stream for this invocation.
+                    continue;
                 }
                 match output.stream {
                     CliOutputStream::Stdout => {
-                        stdout
-                            .write_all(&output.bytes)
-                            .map_err(|source| HostError::Io {
-                                id: self.manifest.id.clone(),
-                                source,
-                            })?;
-                        stdout.flush().map_err(|source| HostError::Io {
-                            id: self.manifest.id.clone(),
-                            source,
-                        })?;
                         stdout_bytes = stdout_bytes.saturating_add(output.bytes.len());
+                        if let Err(source) = stdout
+                            .write_all(&output.bytes)
+                            .and_then(|()| stdout.flush())
+                            && deferred_io_error.is_none()
+                        {
+                            deferred_io_error = Some(source);
+                        }
                     }
                     CliOutputStream::Stderr => {
-                        stderr
+                        if let Err(source) = stderr
                             .write_all(&output.bytes)
-                            .map_err(|source| HostError::Io {
-                                id: self.manifest.id.clone(),
-                                source,
-                            })?;
-                        stderr.flush().map_err(|source| HostError::Io {
-                            id: self.manifest.id.clone(),
-                            source,
-                        })?;
+                            .and_then(|()| stderr.flush())
+                            && deferred_io_error.is_none()
+                        {
+                            deferred_io_error = Some(source);
+                        }
                     }
                 }
+                continue;
+            }
+            if let Some(read) = parse_cli_stdin_read_notification(&line) {
+                if read.request_id != id {
+                    // A read requested after its handler settled owns no host-stdin lease.
+                    continue;
+                }
+                if read.max_bytes == 0 || read.max_bytes > MAX_CLI_STDIN_CHUNK_BYTES {
+                    return Err(HostError::InvalidPayload {
+                        id: self.manifest.id.clone(),
+                        kind: "CLI stdin",
+                        message: format!(
+                            "stdin max_bytes must be from 1 through {MAX_CLI_STDIN_CHUNK_BYTES}"
+                        ),
+                    });
+                }
+                if !seen_stdin_reads.insert(read.read_id) {
+                    return Err(HostError::InvalidPayload {
+                        id: self.manifest.id.clone(),
+                        kind: "CLI stdin",
+                        message: format!("stdin read id {} was reused", read.read_id),
+                    });
+                }
+                stdin_read_started = true;
+                let mut bytes = vec![0; read.max_bytes];
+                let (count, error) = if stdin_done {
+                    (0, None)
+                } else {
+                    match stdin.read(&mut bytes) {
+                        Ok(count) => (count, None),
+                        Err(source) => {
+                            let message = source.to_string();
+                            if deferred_io_error.is_none() {
+                                deferred_io_error = Some(source);
+                            }
+                            (0, Some(message))
+                        }
+                    }
+                };
+                bytes.truncate(count);
+                stdin_consumed |= count > 0;
+                stdin_done |= count == 0;
+                self.send_notification(
+                    "workdeck/cli/stdin/chunk",
+                    CliStdinChunk {
+                        request_id: id,
+                        read_id: read.read_id,
+                        bytes,
+                        done: stdin_done,
+                        error,
+                    },
+                )?;
                 continue;
             }
             break self.decode_response(id, &line)?;
         };
 
-        let execution: CliCommandExecution =
+        if let Some(source) = deferred_io_error {
+            return Err(HostError::Io {
+                id: self.manifest.id.clone(),
+                source,
+            });
+        }
+
+        let mut execution: CliCommandExecution =
             serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
                 id: self.manifest.id.clone(),
                 kind: "CLI command",
                 message: error.to_string(),
             })?;
+        // The host owns stdin and does not trust subprocess-reported lease metadata.
+        execution.stdin_read_started = stdin_read_started;
+        execution.stdin_consumed = stdin_consumed;
         validate_cli_execution(&execution, stdout_bytes).map_err(|message| {
             HostError::InvalidPayload {
                 id: self.manifest.id.clone(),
@@ -1939,6 +2060,18 @@ fn parse_cli_output_notification(line: &str) -> Option<CliOutputNotification> {
     serde_json::from_value(object.get("params")?.clone()).ok()
 }
 
+fn parse_cli_stdin_read_notification(line: &str) -> Option<CliStdinReadRequest> {
+    let value = serde_json::from_str::<Value>(line).ok()?;
+    let object = value.as_object()?;
+    if object.get("jsonrpc")?.as_str()? != "2.0"
+        || object.get("method")?.as_str()? != "workdeck/cli/stdin/read"
+        || object.contains_key("id")
+    {
+        return None;
+    }
+    serde_json::from_value(object.get("params")?.clone()).ok()
+}
+
 fn validate_cli_execution(
     execution: &CliCommandExecution,
     stdout_bytes: usize,
@@ -2498,6 +2631,45 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn parses_lazy_cli_stdin_reads_and_rejects_response_shaped_messages() {
+        let parsed = parse_cli_stdin_read_notification(
+            r#"{"jsonrpc":"2.0","method":"workdeck/cli/stdin/read","params":{"request_id":7,"read_id":2,"max_bytes":4096}}"#,
+        )
+        .unwrap();
+        assert_eq!(parsed.request_id, 7);
+        assert_eq!(parsed.read_id, 2);
+        assert_eq!(parsed.max_bytes, 4096);
+        assert!(
+            parse_cli_stdin_read_notification(
+                r#"{"jsonrpc":"2.0","id":7,"method":"workdeck/cli/stdin/read","params":{"request_id":7,"read_id":2}}"#,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn frozen_hunk_cli_runtime_oracle_maps_every_source_test() {
+        let oracle: Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/extension-cli-runtime.json"
+        ))
+        .unwrap();
+        assert_eq!(oracle["baselines"][0]["tests"], 9);
+        assert_eq!(oracle["baselines"][0]["passed"], 9);
+        assert_eq!(oracle["baselines"][0]["failed"], 0);
+        assert_eq!(oracle["baselines"][1]["status"], "absent");
+        let mappings = oracle["test_mapping"].as_array().unwrap();
+        assert_eq!(mappings.len(), 9);
+        assert!(mappings.iter().all(|mapping| {
+            mapping["source_test"]
+                .as_str()
+                .is_some_and(|name| !name.is_empty())
+                && mapping["rust_tests"]
+                    .as_array()
+                    .is_some_and(|tests| !tests.is_empty())
+        }));
     }
 
     #[test]

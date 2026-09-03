@@ -3,18 +3,18 @@
 use serde_json::{Value, json};
 use std::io::{self, BufRead, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 use workdeck_extension_api::{
     API_VERSION, Capability, CliCommandExecution, CliCommandInvocation, CliCommandRegistration,
-    CliCommandResult, CliOutputNotification, CliOutputStream, HandshakeResponse, JsonRpcError,
-    JsonRpcRequest, JsonRpcResponse, Registration,
+    CliCommandResult, CliOutputNotification, CliOutputStream, CliStdinChunk, CliStdinReadRequest,
+    HandshakeResponse, JsonRpcError, JsonRpcRequest, JsonRpcResponse, Registration,
 };
 
 const COMMAND_NAME: &str = "cli-tools";
 const SUMMARY: &str = "Demonstrate extension-provided CLI workflows";
-const USAGE: &str = "<status|review> [args...]";
+const USAGE: &str = "<status|review|stdin> [args...]";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CliToolsUserError {
@@ -45,6 +45,7 @@ pub fn execute_cli_tools(
     invocation: &CliCommandInvocation,
     cancelled: &AtomicBool,
     mut emit: impl FnMut(CliOutputStream, &[u8]) -> io::Result<()>,
+    mut read_stdin: impl FnMut(usize) -> Result<Option<Vec<u8>>, CliToolsUserError>,
 ) -> Result<CliCommandExecution, CliToolsUserError> {
     let Some((action, rest)) = invocation.args.split_first() else {
         return Err(choose_action_error());
@@ -79,6 +80,42 @@ pub fn execute_cli_tools(
                 stdin_consumed: false,
             })
         }
+        "stdin" => {
+            let mut consumed = false;
+            while let Some(bytes) = read_stdin(8 * 1024)? {
+                consumed |= !bytes.is_empty();
+                emit(CliOutputStream::Stdout, &bytes).map_err(output_error)?;
+            }
+            Ok(CliCommandExecution {
+                result: CliCommandResult::Exit { code: 7 },
+                stdin_read_started: true,
+                stdin_consumed: consumed,
+            })
+        }
+        "touch-stdin" => {
+            let consumed = read_stdin(8 * 1024)?.is_some_and(|bytes| !bytes.is_empty());
+            Ok(CliCommandExecution {
+                result: CliCommandResult::Delegate {
+                    argv: vec!["diff".into()],
+                },
+                stdin_read_started: true,
+                stdin_consumed: consumed,
+            })
+        }
+        "write-twice" => {
+            emit(CliOutputStream::Stdout, b"first").map_err(output_error)?;
+            emit(CliOutputStream::Stdout, b"second").map_err(output_error)?;
+            Ok(CliCommandExecution {
+                result: CliCommandResult::Exit { code: 0 },
+                stdin_read_started: false,
+                stdin_consumed: false,
+            })
+        }
+        "late-output" => Ok(CliCommandExecution {
+            result: CliCommandResult::Exit { code: 0 },
+            stdin_read_started: false,
+            stdin_consumed: false,
+        }),
         _ => Err(choose_action_error()),
     }
 }
@@ -98,7 +135,14 @@ fn output_error(error: io::Error) -> CliToolsUserError {
 }
 
 type SharedWriter<W> = Arc<Mutex<W>>;
-type ActiveRequest = Arc<Mutex<Option<(u64, Arc<AtomicBool>)>>>;
+#[derive(Clone)]
+struct ActiveCliRequest {
+    id: u64,
+    cancelled: Arc<AtomicBool>,
+    stdin_chunks: mpsc::Sender<CliStdinChunk>,
+}
+
+type ActiveRequest = Arc<Mutex<Option<ActiveCliRequest>>>;
 
 /// Serve the newline-delimited JSON-RPC extension protocol until the host closes stdin.
 pub fn serve<R, W>(mut input: R, output: W) -> io::Result<()>
@@ -147,16 +191,52 @@ where
                     continue;
                 }
                 let cancelled = Arc::new(AtomicBool::new(false));
+                let (stdin_chunks, stdin_responses) = mpsc::channel();
                 *active
                     .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner()) =
-                    Some((request.id, Arc::clone(&cancelled)));
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(ActiveCliRequest {
+                    id: request.id,
+                    cancelled: Arc::clone(&cancelled),
+                    stdin_chunks,
+                });
                 let output = Arc::clone(&output);
                 let active = Arc::clone(&active);
                 thread::spawn(move || {
-                    let result = execute_cli_tools(&invocation, &cancelled, |stream, bytes| {
-                        write_cli_output(&output, request.id, stream, bytes)
-                    });
+                    let emit_late_output =
+                        invocation.args.first().map(String::as_str) == Some("late-output");
+                    let mut next_read_id = 1_u64;
+                    let result = execute_cli_tools(
+                        &invocation,
+                        &cancelled,
+                        |stream, bytes| write_cli_output(&output, request.id, stream, bytes),
+                        |max_bytes| {
+                            let read_id = next_read_id;
+                            next_read_id = next_read_id.saturating_add(1);
+                            write_cli_stdin_read(&output, request.id, read_id, max_bytes)
+                                .map_err(output_error)?;
+                            let chunk = stdin_responses
+                                .recv_timeout(Duration::from_secs(30))
+                                .map_err(|error| CliToolsUserError {
+                                    message: format!("CLI stdin failed: {error}"),
+                                    suggestions: Vec::new(),
+                                })?;
+                            if chunk.request_id != request.id || chunk.read_id != read_id {
+                                return Err(CliToolsUserError {
+                                    message:
+                                        "CLI stdin response identity did not match its request."
+                                            .into(),
+                                    suggestions: Vec::new(),
+                                });
+                            }
+                            if let Some(error) = chunk.error {
+                                return Err(CliToolsUserError {
+                                    message: format!("CLI stdin failed: {error}"),
+                                    suggestions: Vec::new(),
+                                });
+                            }
+                            Ok((!chunk.done).then_some(chunk.bytes))
+                        },
+                    );
                     match result {
                         Ok(execution) => {
                             let _ = write_result(&output, request.id, &execution);
@@ -167,10 +247,22 @@ where
                             let _ = write_error(&output, request.id, -32000, error.message, data);
                         }
                     }
+                    if emit_late_output {
+                        thread::sleep(Duration::from_millis(5));
+                        let _ = write_cli_output(
+                            &output,
+                            request.id,
+                            CliOutputStream::Stdout,
+                            b"revoked late output",
+                        );
+                    }
                     let mut current = active
                         .lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    if current.as_ref().is_some_and(|(id, _)| *id == request.id) {
+                    if current
+                        .as_ref()
+                        .is_some_and(|active| active.id == request.id)
+                    {
                         *current = None;
                     }
                 });
@@ -187,9 +279,28 @@ where
 }
 
 fn handle_notification(value: &Value, active: &ActiveRequest) {
-    if value.get("jsonrpc").and_then(Value::as_str) != Some("2.0")
-        || value.get("method").and_then(Value::as_str) != Some("$/cancelRequest")
-    {
+    if value.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
+        return;
+    }
+    if value.get("method").and_then(Value::as_str) == Some("workdeck/cli/stdin/chunk") {
+        let Some(params) = value.get("params") else {
+            return;
+        };
+        let Ok(chunk) = serde_json::from_value::<CliStdinChunk>(params.clone()) else {
+            return;
+        };
+        if let Some(current) = active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+            .cloned()
+            && current.id == chunk.request_id
+        {
+            let _ = current.stdin_chunks.send(chunk);
+        }
+        return;
+    }
+    if value.get("method").and_then(Value::as_str) != Some("$/cancelRequest") {
         return;
     }
     let Some(id) = value
@@ -199,13 +310,13 @@ fn handle_notification(value: &Value, active: &ActiveRequest) {
     else {
         return;
     };
-    if let Some((active_id, cancelled)) = active
+    if let Some(current) = active
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .as_ref()
-        && *active_id == id
+        && current.id == id
     {
-        cancelled.store(true, Ordering::Release);
+        current.cancelled.store(true, Ordering::Release);
     }
 }
 
@@ -221,6 +332,22 @@ fn write_cli_output<W: Write>(
             "jsonrpc": "2.0",
             "method": "workdeck/cli/output",
             "params": CliOutputNotification { request_id, stream, bytes: bytes.to_vec() },
+        }),
+    )
+}
+
+fn write_cli_stdin_read<W: Write>(
+    output: &SharedWriter<W>,
+    request_id: u64,
+    read_id: u64,
+    max_bytes: usize,
+) -> io::Result<()> {
+    write_line(
+        output,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "workdeck/cli/stdin/read",
+            "params": CliStdinReadRequest { request_id, read_id, max_bytes },
         }),
     )
 }
@@ -299,6 +426,7 @@ mod tests {
                 output.push((stream, bytes.to_vec()));
                 Ok(())
             },
+            |_| Ok(None),
         )
         .unwrap();
         assert_eq!(
@@ -322,6 +450,7 @@ mod tests {
                 output.push((stream, bytes.to_vec()));
                 Ok(())
             },
+            |_| Ok(None),
         )
         .unwrap();
         assert!(started.elapsed() >= Duration::from_millis(95));
@@ -354,8 +483,13 @@ mod tests {
             trigger.store(true, Ordering::Release);
         });
         let started = Instant::now();
-        let error =
-            execute_cli_tools(&invocation(&["review"]), &cancelled, |_, _| Ok(())).unwrap_err();
+        let error = execute_cli_tools(
+            &invocation(&["review"]),
+            &cancelled,
+            |_, _| Ok(()),
+            |_| Ok(None),
+        )
+        .unwrap_err();
         assert!(started.elapsed() < Duration::from_millis(90));
         assert_eq!(error.message, "Extension CLI command interrupted.");
     }
@@ -366,6 +500,7 @@ mod tests {
             &invocation(&["wat"]),
             &AtomicBool::new(false),
             |_, _| Ok(()),
+            |_| Ok(None),
         )
         .unwrap_err();
         assert_eq!(error.message, "Choose a cli-tools action.");

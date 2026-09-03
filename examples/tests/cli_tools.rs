@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::{self, Cursor, Read, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -42,7 +43,7 @@ fn compiled_extension_handshakes_streams_and_preserves_raw_delegation_args() {
     assert_eq!(registration.name, "cli-tools");
     assert_eq!(
         registration.usage.as_deref(),
-        Some("<status|review> [args...]")
+        Some("<status|review|stdin> [args...]")
     );
 
     let cwd = std::path::Path::new("/tmp/work deck");
@@ -93,6 +94,138 @@ fn compiled_extension_handshakes_streams_and_preserves_raw_delegation_args() {
             ]
         }
     );
+}
+
+struct PanicRead;
+
+impl Read for PanicRead {
+    fn read(&mut self, _buffer: &mut [u8]) -> io::Result<usize> {
+        panic!("an extension that does not request stdin must not claim it")
+    }
+}
+
+#[derive(Default)]
+struct FailFirstWriter {
+    writes: Vec<Vec<u8>>,
+}
+
+impl Write for FailFirstWriter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.writes.push(bytes.to_vec());
+        if self.writes.len() == 1 {
+            Err(io::Error::other("first write failed"))
+        } else {
+            Ok(bytes.len())
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn compiled_extension_leases_stdin_lazily_and_tracks_host_owned_consumption() {
+    let (_directory, manifest) = staged_extension();
+    let mut extension = LoadedExtension::spawn(&manifest, "test-host").unwrap();
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+
+    let untouched = extension
+        .invoke_cli_command_with_input(
+            "cli-tools",
+            vec!["status".into()],
+            std::path::Path::new("/tmp/work deck"),
+            Duration::from_secs(1),
+            &mut PanicRead,
+            &mut stdout,
+            &mut stderr,
+        )
+        .unwrap();
+    assert!(!untouched.stdin_read_started);
+    assert!(!untouched.stdin_consumed);
+
+    stdout.clear();
+    let mut input = Cursor::new(vec![0, 1, 2, 0xff]);
+    let copied = extension
+        .invoke_cli_command_with_input(
+            "cli-tools",
+            vec!["stdin".into()],
+            std::path::Path::new("/tmp/work deck"),
+            Duration::from_secs(1),
+            &mut input,
+            &mut stdout,
+            &mut stderr,
+        )
+        .unwrap();
+    assert_eq!(copied.result, CliCommandResult::Exit { code: 7 });
+    assert!(copied.stdin_read_started);
+    assert!(copied.stdin_consumed);
+    assert_eq!(stdout, [0, 1, 2, 0xff]);
+
+    let touched = extension
+        .invoke_cli_command_with_input(
+            "cli-tools",
+            vec!["touch-stdin".into()],
+            std::path::Path::new("/tmp/work deck"),
+            Duration::from_secs(1),
+            &mut Cursor::new(Vec::<u8>::new()),
+            &mut Vec::new(),
+            &mut Vec::new(),
+        )
+        .unwrap_err();
+    assert!(touched.to_string().contains("read stdin before delegating"));
+}
+
+#[test]
+fn host_drains_all_accepted_output_before_reporting_the_first_failure() {
+    let (_directory, manifest) = staged_extension();
+    let mut extension = LoadedExtension::spawn(&manifest, "test-host").unwrap();
+    let mut stdout = FailFirstWriter::default();
+    let error = extension
+        .invoke_cli_command(
+            "cli-tools",
+            vec!["write-twice".into()],
+            std::path::Path::new("."),
+            Duration::from_secs(1),
+            &mut stdout,
+            &mut Vec::new(),
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("first write failed"));
+    assert_eq!(stdout.writes, [b"first".to_vec(), b"second".to_vec()]);
+}
+
+#[test]
+fn revoked_late_output_cannot_reach_the_terminal_or_poison_the_next_request() {
+    let (_directory, manifest) = staged_extension();
+    let mut extension = LoadedExtension::spawn(&manifest, "test-host").unwrap();
+    let late = extension
+        .invoke_cli_command(
+            "cli-tools",
+            vec!["late-output".into()],
+            std::path::Path::new("/tmp/work deck"),
+            Duration::from_secs(1),
+            &mut Vec::new(),
+            &mut Vec::new(),
+        )
+        .unwrap();
+    assert_eq!(late.result, CliCommandResult::Exit { code: 0 });
+    thread::sleep(Duration::from_millis(20));
+
+    let mut stdout = Vec::new();
+    let next = extension
+        .invoke_cli_command(
+            "cli-tools",
+            vec!["status".into()],
+            std::path::Path::new("/tmp/work deck"),
+            Duration::from_secs(1),
+            &mut stdout,
+            &mut Vec::new(),
+        )
+        .unwrap();
+    assert_eq!(next.result, CliCommandResult::Exit { code: 0 });
+    assert_eq!(stdout, b"cli-tools is ready in /tmp/work deck\n");
 }
 
 #[test]

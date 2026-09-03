@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use workdeck_diff::{SanitizeOptions, sanitize_terminal_text};
 use workdeck_extension_api::CliCommandRegistration;
@@ -34,6 +35,63 @@ pub struct ExtensionCliLoadIssue {
     pub path: PathBuf,
     pub origin: String,
     pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExtensionCliInterruptAction {
+    Cancel,
+    Exit,
+}
+
+/// Revocable ownership state behind the process-wide signal callback.
+///
+/// The `ctrlc` backend cannot unregister a callback, so retiring the lease restores the default
+/// observable exit behavior while guaranteeing that delegated Workdeck work can no longer mutate
+/// the extension command's cancellation flag.
+#[derive(Debug)]
+pub struct ExtensionCliSignalLease {
+    active: AtomicBool,
+    interrupts: AtomicU8,
+    cancelled: AtomicBool,
+}
+
+impl ExtensionCliSignalLease {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            active: AtomicBool::new(true),
+            interrupts: AtomicU8::new(0),
+            cancelled: AtomicBool::new(false),
+        }
+    }
+
+    #[must_use]
+    pub fn interrupt(&self) -> ExtensionCliInterruptAction {
+        if !self.active.load(Ordering::Acquire) {
+            return ExtensionCliInterruptAction::Exit;
+        }
+        if self.interrupts.fetch_add(1, Ordering::AcqRel) == 0 {
+            self.cancelled.store(true, Ordering::Release);
+            ExtensionCliInterruptAction::Cancel
+        } else {
+            ExtensionCliInterruptAction::Exit
+        }
+    }
+
+    pub fn retire(&self) {
+        self.active.store(false, Ordering::Release);
+    }
+
+    #[must_use]
+    pub const fn cancellation_flag(&self) -> &AtomicBool {
+        &self.cancelled
+    }
+}
+
+impl Default for ExtensionCliSignalLease {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Resolve exact top-level command ownership in registry order.
@@ -246,6 +304,20 @@ mod tests {
         let copied = copy_extension_cli_command(&original);
         assert_eq!(copied, original);
         assert_ne!(copied.name.as_ptr(), original.name.as_ptr());
+    }
+
+    #[test]
+    fn signal_lease_cancels_once_then_restores_default_exit_behavior() {
+        let lease = ExtensionCliSignalLease::new();
+        assert!(!lease.cancellation_flag().load(Ordering::Acquire));
+        assert_eq!(lease.interrupt(), ExtensionCliInterruptAction::Cancel);
+        assert!(lease.cancellation_flag().load(Ordering::Acquire));
+        assert_eq!(lease.interrupt(), ExtensionCliInterruptAction::Exit);
+
+        let retired = ExtensionCliSignalLease::new();
+        retired.retire();
+        assert_eq!(retired.interrupt(), ExtensionCliInterruptAction::Exit);
+        assert!(!retired.cancellation_flag().load(Ordering::Acquire));
     }
 
     #[test]

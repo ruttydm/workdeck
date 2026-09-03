@@ -11,7 +11,6 @@ use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use workdeck_cli::app::App;
 use workdeck_cli::config::Config;
@@ -57,8 +56,9 @@ use workdeck_vcs::{
 };
 
 use crate::extension_cli_commands::{
-    RegisteredExtensionCliCommand, create_extension_cli_collision_issues,
-    describe_extension_cli_commands, find_extension_cli_command, resolve_extension_cli_commands,
+    ExtensionCliInterruptAction, ExtensionCliSignalLease, RegisteredExtensionCliCommand,
+    create_extension_cli_collision_issues, describe_extension_cli_commands,
+    find_extension_cli_command, resolve_extension_cli_commands,
 };
 use crate::extension_manage::{ExtensionManager, parse_extension_install_source};
 
@@ -2562,35 +2562,35 @@ fn handle_extension_cli_command(
     };
 
     let command_cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned());
-    let cancelled = Arc::new(AtomicBool::new(false));
-    let interrupt_count = Arc::new(AtomicU8::new(0));
+    let signal_lease = Arc::new(ExtensionCliSignalLease::new());
     ctrlc::set_handler({
-        let cancelled = Arc::clone(&cancelled);
-        let interrupt_count = Arc::clone(&interrupt_count);
+        let signal_lease = Arc::clone(&signal_lease);
         move || {
-            if interrupt_count.fetch_add(1, Ordering::AcqRel) == 0 {
-                cancelled.store(true, Ordering::Release);
-            } else {
+            if signal_lease.interrupt() == ExtensionCliInterruptAction::Exit {
                 std::process::exit(130);
             }
         }
     })
     .context("failed to install extension CLI cancellation handler")?;
     let execution = {
+        let mut stdin = std::io::stdin().lock();
         let mut stdout = std::io::stdout().lock();
         let mut stderr = std::io::stderr().lock();
-        extensions[extension_index].invoke_cli_command_cancellable(
+        extensions[extension_index].invoke_cli_command_cancellable_with_input(
             command_name,
             command_args.to_vec(),
             &command_cwd,
             std::time::Duration::from_millis(
                 workdeck_extension_api::DEFAULT_CLI_REQUEST_TIMEOUT_MS,
             ),
-            &cancelled,
+            signal_lease.cancellation_flag(),
+            &mut stdin,
             &mut stdout,
             &mut stderr,
-        )?
+        )
     };
+    signal_lease.retire();
+    let execution = execution?;
 
     match execution.result {
         CliCommandResult::Exit { code: 0 } => Ok(()),
