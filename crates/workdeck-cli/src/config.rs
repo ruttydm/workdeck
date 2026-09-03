@@ -20,6 +20,9 @@ pub struct Config {
     pub review: ReviewConfig,
     #[serde(default)]
     pub keys: KeyConfig,
+    /// Merged user/repository settings exposed only to the named native extension.
+    #[serde(default)]
+    pub extension: BTreeMap<String, serde_json::Value>,
     /// Hunk-compatible command bindings from the global user layer only.
     #[serde(skip)]
     pub keybindings: Vec<UserKeyBindingEntry>,
@@ -328,6 +331,13 @@ impl Config {
         } else {
             repo_root.join(&self.paths.data_dir)
         }
+    }
+
+    pub fn extension_config(&self, id: &str) -> serde_json::Value {
+        self.extension
+            .get(id)
+            .cloned()
+            .unwrap_or_else(|| serde_json::Value::Object(Default::default()))
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -725,6 +735,46 @@ mod tests {
         assert!(config.ui.preview);
         assert_eq!(config.keys.quit, "x");
         assert_eq!(config.keys.files, "F");
+    }
+
+    #[test]
+    fn extension_configuration_deep_merges_user_and_repository_layers() {
+        let dir = tempfile::tempdir().unwrap();
+        let user_config = dir.path().join("user-config.toml");
+        let repo_config = dir.path().join("repo-config.toml");
+        fs::write(
+            &user_config,
+            r#"
+            [extension."example.review"]
+            threshold = 2
+            source = "user"
+            [extension."example.review".nested]
+            keep = true
+            replace = "user"
+            "#,
+        )
+        .unwrap();
+        fs::write(
+            &repo_config,
+            r#"
+            [extension."example.review"]
+            source = "repo"
+            [extension."example.review".nested]
+            replace = "repo"
+            "#,
+        )
+        .unwrap();
+
+        let config = Config::load_from_paths(&repo_config, Some(&user_config)).unwrap();
+        assert_eq!(
+            config.extension_config("example.review"),
+            serde_json::json!({
+                "threshold": 2,
+                "source": "repo",
+                "nested": { "keep": true, "replace": "repo" }
+            })
+        );
+        assert_eq!(config.extension_config("missing"), serde_json::json!({}));
     }
 
     #[test]

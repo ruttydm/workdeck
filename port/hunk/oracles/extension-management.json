@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "captured_with": "bun 1.3.5 executing each pinned tree's src/extensions/manage/source.ts and full manage test suite",
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "manage_tests": { "passed": 21, "failed": 0 }
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "manage_tests": { "passed": 21, "failed": 0 }
+    }
+  ],
+  "normalization": {
+    "$ORACLE_ROOT": "the real path of the disposable pinned checkout",
+    "branding": "Hunk names in source/error prose become Workdeck names"
+  },
+  "source_parse_runs": [
+    {
+      "spec": "acme/hunk-word-diff",
+      "ok": true,
+      "value": {
+        "spec": "acme/hunk-word-diff",
+        "cloneUrl": "https://github.com/acme/hunk-word-diff",
+        "name": "hunk-word-diff"
+      }
+    },
+    {
+      "spec": "acme/hunk-word-diff@v1.2.0",
+      "ok": true,
+      "value": {
+        "spec": "acme/hunk-word-diff@v1.2.0",
+        "cloneUrl": "https://github.com/acme/hunk-word-diff",
+        "ref": "v1.2.0",
+        "name": "hunk-word-diff"
+      }
+    },
+    {
+      "spec": "git:codeberg.org/acme/hunk-ext@main",
+      "ok": true,
+      "value": {
+        "spec": "git:codeberg.org/acme/hunk-ext@main",
+        "cloneUrl": "https://codeberg.org/acme/hunk-ext",
+        "ref": "main",
+        "name": "hunk-ext"
+      }
+    },
+    {
+      "spec": "https://github.com/acme/hunk-ext.git",
+      "ok": true,
+      "value": {
+        "spec": "https://github.com/acme/hunk-ext.git",
+        "cloneUrl": "https://github.com/acme/hunk-ext.git",
+        "name": "hunk-ext"
+      }
+    },
+    {
+      "spec": "git@github.com:acme/hunk-ext.git",
+      "ok": true,
+      "value": {
+        "spec": "git@github.com:acme/hunk-ext.git",
+        "cloneUrl": "git@github.com:acme/hunk-ext.git",
+        "name": "hunk-ext"
+      }
+    },
+    {
+      "spec": "git@github.com:acme/hunk-ext@v2",
+      "ok": true,
+      "value": {
+        "spec": "git@github.com:acme/hunk-ext@v2",
+        "cloneUrl": "git@github.com:acme/hunk-ext",
+        "ref": "v2",
+        "name": "hunk-ext"
+      }
+    },
+    {
+      "spec": "./fixtures/hunk-ext",
+      "ok": true,
+      "value": {
+        "spec": "./fixtures/hunk-ext",
+        "cloneUrl": "$ORACLE_ROOT/fixtures/hunk-ext",
+        "name": "hunk-ext"
+      }
+    },
+    {
+      "spec": "acme/my.weird.repo",
+      "ok": false,
+      "error": "Repository name \"my.weird.repo\" cannot be an extension id — ids must start with a letter or digit and use only letters, digits, \"-\", and \"_\". Rename the repository or install it manually."
+    },
+    {
+      "spec": "acme/hunk-ext@",
+      "ok": false,
+      "error": "Install source \"acme/hunk-ext@\" has an empty ref after \"@\"."
+    },
+    {
+      "spec": "not-a-repo",
+      "ok": false,
+      "error": "Install source \"not-a-repo\" is not a repository. Use owner/repo, git:host/path, a git URL, or a local path."
+    }
+  ],
+  "executed_behaviors": [
+    "install records and discovers a local Git repository",
+    "pinned tags remain pinned",
+    "branch-tracking installs update",
+    "invalid repositories leave no install",
+    "managed and unmanaged directory collisions are refused",
+    "remove deletes only a recorded install",
+    "list reports version and missing-directory state",
+    "install --yes and subsequent list run end to end",
+    "noninteractive install requires explicit confirmation",
+    "incidental src/index.ts is not an extension",
+    "one-level extension collections are accepted"
+  ]
+}

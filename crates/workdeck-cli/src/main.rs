@@ -1,12 +1,13 @@
 mod extension_cli_commands;
+mod extension_manage;
 
 use anyhow::{Context, Result, bail};
 use chrono::Utc;
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
 use serde_json::{Value, json};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
-use std::io::{BufRead, BufReader, IsTerminal, Read};
+use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -31,8 +32,8 @@ use workdeck_core::{
 };
 use workdeck_diff::{LanguageMatcher, LanguageRegistration, LanguageRegistry};
 use workdeck_extension_api::{
-    CliCommandResult, ExtensionManifest, ExtensionNotificationHub, FileLanguageGlobTarget,
-    FileLanguageMatcher, Registration,
+    CliCommandResult, ExtensionManifest, ExtensionNotificationHub, ExtensionNotifyType,
+    FileLanguageGlobTarget, FileLanguageMatcher, Registration,
 };
 use workdeck_extension_host::{
     LoadedExtension, TrustDecision, TrustStore, discover_manifests, discover_manifests_with_status,
@@ -58,6 +59,7 @@ use crate::extension_cli_commands::{
     RegisteredExtensionCliCommand, create_extension_cli_collision_issues,
     describe_extension_cli_commands, find_extension_cli_command, resolve_extension_cli_commands,
 };
+use crate::extension_manage::{ExtensionManager, parse_extension_install_source};
 
 #[derive(Debug, Parser)]
 #[command(name = "workdeck")]
@@ -397,8 +399,28 @@ enum LiveCommentCommand {
 
 #[derive(Debug, Subcommand)]
 enum ExtensionCommand {
-    #[command(about = "List discovered native extension manifests")]
+    #[command(about = "Install a shared native extension from a Git repository")]
+    Install {
+        source: String,
+        #[arg(long, help = "Skip the native-code trust confirmation")]
+        yes: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "List discovered and managed native extensions")]
     List {
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Re-clone managed native extensions from their recorded sources")]
+    Update {
+        name: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Remove one managed native extension")]
+    Remove {
+        name: String,
         #[arg(long)]
         json: bool,
     },
@@ -582,6 +604,8 @@ struct ReviewCliOptions {
     keybindings: Vec<UserKeyBindingEntry>,
     #[arg(skip)]
     keybinding_notices: Vec<String>,
+    #[arg(skip)]
+    extension_config: BTreeMap<String, Value>,
 }
 
 impl ReviewCliOptions {
@@ -628,6 +652,11 @@ impl ReviewCliOptions {
             color_moved: config.review.color_moved,
             keybindings: config.keybindings.clone(),
             keybinding_notices: config.keybinding_notices.clone(),
+            extension_config: config
+                .extension
+                .keys()
+                .map(|id| (id.clone(), config.extension_config(id)))
+                .collect(),
         }
     }
 
@@ -673,6 +702,7 @@ impl ReviewCliOptions {
         self.color_moved = self.color_moved.or(configured.color_moved);
         self.keybindings = configured.keybindings;
         self.keybinding_notices = configured.keybinding_notices;
+        self.extension_config = configured.extension_config;
     }
 
     fn preference(&self) -> ProviderPreference {
@@ -855,6 +885,23 @@ mod review_cli_option_tests {
         assert_eq!(tui.keybindings, config.keybindings);
         assert_eq!(tui.keybinding_notices, config.keybinding_notices);
     }
+
+    #[test]
+    fn extension_configuration_flows_from_config_into_review_startup() {
+        let config = Config {
+            extension: BTreeMap::from([(
+                "example.review".into(),
+                serde_json::json!({ "threshold": 3 }),
+            )]),
+            ..Config::default()
+        };
+
+        let review = ReviewCliOptions::from_config(&config);
+        assert_eq!(
+            review.extension_config["example.review"],
+            serde_json::json!({ "threshold": 3 })
+        );
+    }
 }
 
 #[cfg(test)]
@@ -902,6 +949,35 @@ mod extension_cli_tests {
         assert_eq!(
             review.extension,
             [PathBuf::from("./one"), PathBuf::from("./two")]
+        );
+    }
+
+    #[test]
+    fn invalid_and_duplicate_manifests_are_contained_before_process_start() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = ["first", "duplicate", "invalid"]
+            .map(|name| root.path().join(name).join("workdeck-extension.toml"));
+        for path in &paths {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        }
+        let valid = "id = 'example'\nname = 'Example'\nversion = '1.0.0'\napi_version = 1\nexecutable = 'example'\ncapabilities = []\n";
+        std::fs::write(&paths[0], valid).unwrap();
+        std::fs::write(&paths[1], valid).unwrap();
+        std::fs::write(&paths[2], "not valid = [").unwrap();
+
+        let (candidates, issues) = extension_load_candidates(&paths);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].0, paths[0]);
+        assert_eq!(issues.len(), 2);
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.contains("duplicate extension id"))
+        );
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.contains("invalid extension manifest"))
         );
     }
 
@@ -1800,7 +1876,12 @@ impl LiveCommentCommand {
 impl ExtensionCommand {
     fn wants_json(&self) -> bool {
         match self {
-            Self::List { json } | Self::Validate { json, .. } | Self::Trust { json, .. } => *json,
+            Self::Install { json, .. }
+            | Self::List { json }
+            | Self::Update { json, .. }
+            | Self::Remove { json, .. }
+            | Self::Validate { json, .. }
+            | Self::Trust { json, .. } => *json,
         }
     }
 }
@@ -2223,18 +2304,29 @@ fn load_review_extensions_with_notifications(
         &trust,
         &review.extension,
     )?;
-    let extensions = discovery
-        .manifests
-        .iter()
-        .map(|path| {
-            LoadedExtension::spawn_with_notifications(
-                path,
-                env!("CARGO_PKG_VERSION"),
-                notifications.clone(),
-            )
-            .with_context(|| format!("failed to load native extension {}", path.display()))
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let (candidates, issues) = extension_load_candidates(&discovery.manifests);
+    for issue in issues {
+        notifications.notify(issue, ExtensionNotifyType::Warning);
+    }
+    let mut extensions = Vec::new();
+    for (path, manifest) in candidates {
+        match LoadedExtension::spawn_with_notifications_and_configuration(
+            &path,
+            env!("CARGO_PKG_VERSION"),
+            notifications.clone(),
+            review
+                .extension_config
+                .get(&manifest.id)
+                .cloned()
+                .unwrap_or_else(|| Value::Object(Default::default())),
+        ) {
+            Ok(extension) => extensions.push(extension),
+            Err(error) => notifications.notify(
+                format!("Native extension {} was skipped: {error}", path.display()),
+                ExtensionNotifyType::Warning,
+            ),
+        }
+    }
     Ok((extensions, discovery.pending_trust_repo_root))
 }
 
@@ -2286,18 +2378,57 @@ fn load_cli_extensions(
     let repo = AnyProvider::discover(cwd, ProviderPreference::Auto)
         .ok()
         .map(|provider| provider.root().to_owned());
-    discover_manifests(
+    let config = Config::load(repo.as_deref().unwrap_or(cwd))?;
+    let manifests = discover_manifests(
         global_extensions.as_deref(),
         repo.as_deref(),
         &trust,
         explicit,
-    )?
-    .iter()
-    .map(|path| {
-        LoadedExtension::spawn(path, env!("CARGO_PKG_VERSION"))
-            .with_context(|| format!("failed to load native extension {}", path.display()))
-    })
-    .collect()
+    )?;
+    let (candidates, issues) = extension_load_candidates(&manifests);
+    for issue in issues {
+        eprintln!("warning: {issue}");
+    }
+    let mut extensions = Vec::new();
+    for (path, manifest) in candidates {
+        match LoadedExtension::spawn_with_configuration(
+            &path,
+            env!("CARGO_PKG_VERSION"),
+            config.extension_config(&manifest.id),
+        ) {
+            Ok(extension) => extensions.push(extension),
+            Err(error) => eprintln!(
+                "warning: Native extension {} was skipped: {error}",
+                path.display()
+            ),
+        }
+    }
+    Ok(extensions)
+}
+
+fn extension_load_candidates(
+    manifests: &[PathBuf],
+) -> (Vec<(PathBuf, ExtensionManifest)>, Vec<String>) {
+    let mut candidates = Vec::new();
+    let mut issues = Vec::new();
+    let mut ids = BTreeSet::new();
+    for path in manifests {
+        match ExtensionManifest::load(path) {
+            Ok(manifest) if ids.insert(manifest.id.clone()) => {
+                candidates.push((path.clone(), manifest));
+            }
+            Ok(manifest) => issues.push(format!(
+                "Native extension {} was skipped: duplicate extension id {:?}",
+                path.display(),
+                manifest.id
+            )),
+            Err(error) => issues.push(format!(
+                "Native extension {} was skipped: {error}",
+                path.display()
+            )),
+        }
+    }
+    (candidates, issues)
 }
 
 fn registered_extension_cli_commands(
@@ -2984,35 +3115,198 @@ fn live_comment_id() -> String {
 fn handle_extension_command(cwd: &Path, command: ExtensionCommand) -> Result<()> {
     let config_root = user_config_root().context("could not resolve the user config directory")?;
     let extensions_root = config_root.join("workdeck/extensions");
+    let manager = ExtensionManager::from_config_root(&config_root);
     match command {
+        ExtensionCommand::Install { source, yes, json } => {
+            let source = parse_extension_install_source(&source, cwd)?;
+            if !yes {
+                if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+                    bail!(
+                        "installing an extension needs confirmation and no terminal is available; re-run with --yes after reviewing {}",
+                        source.clone_url
+                    );
+                }
+                println!(
+                    "Install {}{}?\nNative extensions run with your full user permissions. Only install repositories you trust.",
+                    source.clone_url,
+                    source
+                        .reference
+                        .as_ref()
+                        .map_or_else(String::new, |reference| format!(" @ {reference}"))
+                );
+                print!("Proceed? [y/N] ");
+                std::io::stdout()
+                    .flush()
+                    .context("flush confirmation prompt")?;
+                let mut answer = String::new();
+                std::io::stdin()
+                    .read_line(&mut answer)
+                    .context("read extension install confirmation")?;
+                if !matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+                    println!("Install cancelled.");
+                    return Err(CommandExit(1).into());
+                }
+            }
+            if !json {
+                eprintln!(
+                    "cloning {}{}…",
+                    source.clone_url,
+                    source
+                        .reference
+                        .as_ref()
+                        .map_or_else(String::new, |reference| format!(" @ {reference}"))
+                );
+            }
+            let outcome = manager.install(&source)?;
+            if json {
+                json_success("extension_install", Some("install"), &outcome)?;
+            } else {
+                println!(
+                    "Installed {}{} at {} into {}.\nNew Workdeck sessions will load it automatically.",
+                    outcome.name,
+                    outcome
+                        .version
+                        .as_ref()
+                        .map_or_else(String::new, |version| format!(" v{version}")),
+                    short_commit(&outcome.commit),
+                    outcome.directory.display()
+                );
+            }
+            Ok(())
+        }
         ExtensionCommand::List { json } => {
             let trust = load_extension_trust_store();
             let manifests = discover_manifests(Some(&extensions_root), Some(cwd), &trust, &[])?;
-            let payload = manifests
+            let managed = manager.list();
+            let mut seen_managed = BTreeSet::new();
+            let mut payload = manifests
                 .iter()
                 .map(|path| {
                     let manifest = ExtensionManifest::load(path);
+                    let managed_entry = managed.iter().find(|entry| {
+                        path.strip_prefix(manager.installed_root())
+                            .ok()
+                            .and_then(|relative| relative.components().next())
+                            .is_some_and(|component| component.as_os_str() == entry.name.as_str())
+                    });
+                    if let Some(entry) = managed_entry {
+                        seen_managed.insert(entry.name.clone());
+                    }
                     json!({
                         "path": path,
                         "valid": manifest.is_ok(),
                         "id": manifest.as_ref().ok().map(|manifest| &manifest.id),
                         "version": manifest.as_ref().ok().map(|manifest| &manifest.version),
                         "error": manifest.err().map(|error| error.to_string()),
+                        "managed": managed_entry.is_some(),
+                        "managed_name": managed_entry.map(|entry| &entry.name),
+                        "source": managed_entry.map(|entry| &entry.record.clone_url),
+                        "ref": managed_entry.and_then(|entry| entry.record.reference.as_deref()),
+                        "commit": managed_entry.map(|entry| &entry.record.commit),
                     })
                 })
                 .collect::<Vec<_>>();
+            payload.extend(
+                managed
+                    .iter()
+                    .filter(|entry| !seen_managed.contains(&entry.name))
+                    .map(|entry| {
+                        json!({
+                            "path": entry.directory,
+                            "valid": false,
+                            "id": entry.name,
+                            "version": entry.version,
+                            "error": "managed extension is missing on disk",
+                            "managed": true,
+                            "managed_name": entry.name,
+                            "source": entry.record.clone_url,
+                            "ref": entry.record.reference,
+                            "commit": entry.record.commit,
+                        })
+                    }),
+            );
             if json {
                 json_success("extension_list", Some("list"), payload)?;
             } else if payload.is_empty() {
-                println!("no native Workdeck extensions discovered");
+                println!(
+                    "No native Workdeck extensions discovered.\nInstall one with `workdeck extension install <owner>/<repo>`."
+                );
             } else {
                 for extension in payload {
+                    let missing = extension["error"]
+                        .as_str()
+                        .filter(|error| *error == "managed extension is missing on disk")
+                        .map_or("", |_| "  (missing on disk — reinstall or remove)");
                     println!(
-                        "{:<24} {}",
+                        "{:<24} {}{}",
                         extension["id"].as_str().unwrap_or("invalid"),
-                        extension["path"].as_str().unwrap_or_default()
+                        extension["path"].as_str().unwrap_or_default(),
+                        missing
                     );
                 }
+            }
+            Ok(())
+        }
+        ExtensionCommand::Update { name, json } => {
+            let outcomes = if let Some(name) = name {
+                if !json {
+                    eprintln!("checking {name}…");
+                }
+                vec![manager.update(&name)?]
+            } else {
+                let entries = manager.list();
+                if entries.is_empty() {
+                    if json {
+                        json_success("extension_update", Some("update"), Vec::<Value>::new())?;
+                    } else {
+                        println!("No managed native extensions to update.");
+                    }
+                    return Ok(());
+                }
+                if !json {
+                    for entry in &entries {
+                        eprintln!("checking {}…", entry.name);
+                    }
+                }
+                manager.update_all()?
+            };
+            if json {
+                json_success("extension_update", Some("update"), &outcomes)?;
+            } else {
+                for outcome in outcomes {
+                    if outcome.changed {
+                        println!(
+                            "Updated {}{}: {} -> {}.",
+                            outcome.install.name,
+                            outcome
+                                .install
+                                .version
+                                .as_ref()
+                                .map_or_else(String::new, |version| format!(" to v{version}")),
+                            short_commit(&outcome.previous_commit),
+                            short_commit(&outcome.install.commit)
+                        );
+                    } else {
+                        println!(
+                            "{} is already up to date ({}).",
+                            outcome.install.name,
+                            short_commit(&outcome.install.commit)
+                        );
+                    }
+                }
+            }
+            Ok(())
+        }
+        ExtensionCommand::Remove { name, json } => {
+            let record = manager.remove(&name)?;
+            if json {
+                json_success(
+                    "extension_remove",
+                    Some("remove"),
+                    json!({ "name": name, "record": record }),
+                )?;
+            } else {
+                println!("Removed {name}.");
             }
             Ok(())
         }
@@ -3078,6 +3372,10 @@ fn handle_extension_command(cwd: &Path, command: ExtensionCommand) -> Result<()>
             Ok(())
         }
     }
+}
+
+fn short_commit(commit: &str) -> &str {
+    commit.get(..7).unwrap_or(commit)
 }
 
 fn handle_migrate_command(cwd: &Path, command: MigrateCommand) -> Result<()> {

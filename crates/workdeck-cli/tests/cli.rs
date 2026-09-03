@@ -139,6 +139,115 @@ fn extension_trust_uses_shared_state_preserves_siblings_and_gates_discovery() {
 }
 
 #[test]
+fn managed_extension_cli_installs_lists_updates_and_removes_native_repository() {
+    let source_root = tempdir().unwrap();
+    let source = source_root.path().join("managed-native");
+    let config = tempdir().unwrap();
+    fs::create_dir_all(source.join("bin")).unwrap();
+    git(&source, &["init"]);
+    git(&source, &["config", "user.email", "workdeck@example.test"]);
+    git(&source, &["config", "user.name", "Workdeck Test"]);
+    fs::write(
+        source.join("workdeck-extension.toml"),
+        "id = 'managed-native'\nname = 'Managed native'\nversion = '1.0.0'\napi_version = 1\nexecutable = 'bin/managed-native'\ncapabilities = []\n",
+    )
+    .unwrap();
+    fs::write(source.join("bin/managed-native"), "fixture executable\n").unwrap();
+    git(&source, &["add", "."]);
+    git(&source, &["commit", "-m", "initial"]);
+
+    let mut install = workdeck();
+    install
+        .env("XDG_CONFIG_HOME", config.path())
+        .args(["extension", "install"])
+        .arg(&source)
+        .args(["--yes", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"kind\": \"extension_install\""))
+        .stdout(predicate::str::contains("\"version\": \"1.0.0\""));
+
+    let installed = config
+        .path()
+        .join("workdeck/extensions/installed/managed-native");
+    assert!(installed.join("workdeck-extension.toml").is_file());
+    let records: Value = serde_json::from_str(
+        &fs::read_to_string(
+            config
+                .path()
+                .join("workdeck/extensions/installed/records.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        records["installs"]["managed-native"]["cloneUrl"],
+        source.to_string_lossy().as_ref()
+    );
+
+    let mut list = workdeck();
+    list.env("XDG_CONFIG_HOME", config.path())
+        .args(["extension", "list", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"id\": \"managed-native\""))
+        .stdout(predicate::str::contains("\"managed\": true"));
+
+    fs::write(
+        source.join("workdeck-extension.toml"),
+        "id = 'managed-native'\nname = 'Managed native'\nversion = '1.1.0'\napi_version = 1\nexecutable = 'bin/managed-native'\ncapabilities = []\n",
+    )
+    .unwrap();
+    git(&source, &["add", "."]);
+    git(&source, &["commit", "-m", "update"]);
+
+    let mut update = workdeck();
+    update
+        .env("XDG_CONFIG_HOME", config.path())
+        .args(["extension", "update", "managed-native", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"changed\": true"))
+        .stdout(predicate::str::contains("\"version\": \"1.1.0\""));
+
+    let mut remove = workdeck();
+    remove
+        .env("XDG_CONFIG_HOME", config.path())
+        .args(["extension", "remove", "managed-native", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"kind\": \"extension_remove\""));
+    assert!(!installed.exists());
+}
+
+#[test]
+fn managed_extension_install_requires_explicit_consent_without_a_terminal() {
+    let config = tempdir().unwrap();
+    let mut install = workdeck();
+    install
+        .env("XDG_CONFIG_HOME", config.path())
+        .args(["extension", "install", "acme/native-extension"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("re-run with --yes"));
+    assert!(!config.path().join("workdeck/extensions/installed").exists());
+}
+
+#[test]
+fn extension_help_exposes_complete_native_management_lifecycle() {
+    workdeck()
+        .args(["extension", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("install"))
+        .stdout(predicate::str::contains("list"))
+        .stdout(predicate::str::contains("update"))
+        .stdout(predicate::str::contains("remove"))
+        .stdout(predicate::str::contains("validate"))
+        .stdout(predicate::str::contains("trust"));
+}
+
+#[test]
 fn pager_plain_text_fallback_is_headless_sanitized_and_read_only() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init"]);

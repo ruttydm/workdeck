@@ -36,7 +36,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 use thiserror::Error;
-use workdeck_core::{Changeset, ReviewSnapshot};
+use workdeck_core::{Changeset, INSTALLED_EXTENSIONS_DIR_NAME, ReviewSnapshot};
 use workdeck_diff::{SanitizeOptions, sanitize_terminal_text};
 use workdeck_extension_api::{
     API_VERSION, CliCommandExecution, CliCommandInvocation, CliCommandResult,
@@ -399,13 +399,44 @@ struct PendingCommandRequest {
 
 impl LoadedExtension {
     pub fn spawn(manifest_path: &Path, host_version: &str) -> Result<Self, HostError> {
-        Self::spawn_with_notifications(manifest_path, host_version, ExtensionNotificationHub::new())
+        Self::spawn_with_configuration(
+            manifest_path,
+            host_version,
+            Value::Object(Default::default()),
+        )
+    }
+
+    pub fn spawn_with_configuration(
+        manifest_path: &Path,
+        host_version: &str,
+        config: Value,
+    ) -> Result<Self, HostError> {
+        Self::spawn_with_notifications_and_configuration(
+            manifest_path,
+            host_version,
+            ExtensionNotificationHub::new(),
+            config,
+        )
     }
 
     pub fn spawn_with_notifications(
         manifest_path: &Path,
         host_version: &str,
         notifications: ExtensionNotificationHub,
+    ) -> Result<Self, HostError> {
+        Self::spawn_with_notifications_and_configuration(
+            manifest_path,
+            host_version,
+            notifications,
+            Value::Object(Default::default()),
+        )
+    }
+
+    pub fn spawn_with_notifications_and_configuration(
+        manifest_path: &Path,
+        host_version: &str,
+        notifications: ExtensionNotificationHub,
+        config: Value,
     ) -> Result<Self, HostError> {
         let manifest = ExtensionManifest::load(manifest_path)?;
         let resolved_manifest_path =
@@ -488,6 +519,7 @@ impl LoadedExtension {
                 host_version: host_version.to_owned(),
                 extension_id: loaded.manifest.id.clone(),
                 granted_capabilities: loaded.manifest.capabilities.clone(),
+                config: granted_extension_config(&loaded.manifest, config),
             },
             Duration::from_millis(DEFAULT_HANDSHAKE_TIMEOUT_MS),
         )?;
@@ -1824,6 +1856,17 @@ impl LoadedExtension {
     }
 }
 
+fn granted_extension_config(manifest: &ExtensionManifest, config: Value) -> Value {
+    if manifest
+        .capabilities
+        .contains(&workdeck_extension_api::Capability::Configuration)
+    {
+        config
+    } else {
+        Value::Object(Default::default())
+    }
+}
+
 fn is_public_review_command(id: &str) -> bool {
     let canonical = match id {
         "workdeck.view.cursor-line-row" => "workdeck.view.cursorLineRow",
@@ -2210,6 +2253,24 @@ fn scan_manifests(directory: &Path) -> Vec<PathBuf> {
             manifests.insert(manifest);
         }
     }
+    let installed = directory.join(INSTALLED_EXTENSIONS_DIR_NAME);
+    if let Ok(repositories) = fs::read_dir(installed) {
+        for repository in repositories.flatten() {
+            let path = repository.path();
+            let direct = path.join("workdeck-extension.toml");
+            if direct.is_file() {
+                manifests.insert(direct);
+            }
+            if let Ok(entries) = fs::read_dir(path) {
+                for entry in entries.flatten() {
+                    let manifest = entry.path().join("workdeck-extension.toml");
+                    if manifest.is_file() {
+                        manifests.insert(manifest);
+                    }
+                }
+            }
+        }
+    }
     manifests.into_iter().collect()
 }
 
@@ -2275,6 +2336,25 @@ mod tests {
     }
 
     #[test]
+    fn discovery_includes_managed_repositories_and_one_level_collections() {
+        let root = TempDir::new().unwrap();
+        let global = root.path().join("extensions");
+        let installed = global.join(INSTALLED_EXTENSIONS_DIR_NAME);
+        let direct = installed.join("direct/workdeck-extension.toml");
+        let collection_a = installed.join("collection/a/workdeck-extension.toml");
+        let collection_b = installed.join("collection/b/workdeck-extension.toml");
+        for manifest in [&direct, &collection_a, &collection_b] {
+            fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+            fs::write(manifest, "id = 'placeholder'").unwrap();
+        }
+
+        assert_eq!(
+            discover_manifests(Some(&global), None, &TrustStore::default(), &[]).unwrap(),
+            [collection_a, collection_b, direct]
+        );
+    }
+
+    #[test]
     fn trust_store_round_trips_atomically() {
         let directory = TempDir::new().unwrap();
         let path = directory.path().join("legacy-trust.toml");
@@ -2328,6 +2408,28 @@ mod tests {
                 .to_string()
                 .contains("undeclared capability")
         );
+    }
+
+    #[test]
+    fn handshake_exposes_configuration_only_when_manifest_requested_it() {
+        let mut manifest = ExtensionManifest {
+            id: "demo".into(),
+            name: "Demo".into(),
+            version: "1.0.0".into(),
+            api_version: API_VERSION,
+            executable: "demo".into(),
+            capabilities: Vec::new(),
+            description: None,
+        };
+        let config = serde_json::json!({ "command": "untrusted value", "threshold": 3 });
+        assert_eq!(
+            granted_extension_config(&manifest, config.clone()),
+            serde_json::json!({})
+        );
+        manifest
+            .capabilities
+            .push(workdeck_extension_api::Capability::Configuration);
+        assert_eq!(granted_extension_config(&manifest, config.clone()), config);
     }
 
     #[test]

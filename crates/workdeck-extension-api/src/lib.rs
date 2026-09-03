@@ -312,6 +312,8 @@ pub enum ManifestError {
         "extension id {0:?} must contain only lowercase ASCII letters, digits, dots, dashes, or underscores"
     )]
     InvalidId(String),
+    #[error("extension id {0:?} is reserved by Workdeck")]
+    ReservedId(String),
     #[error("extension API {found} is incompatible with host API {expected}")]
     ApiVersion { found: u32, expected: u32 },
     #[error("extension executable path must be relative and cannot escape its manifest directory")]
@@ -354,6 +356,9 @@ impl ExtensionManifest {
             })
         {
             return Err(ManifestError::InvalidId(self.id.clone()));
+        }
+        if matches!(self.id.as_str(), "workdeck" | "git" | "jj" | "sl") {
+            return Err(ManifestError::ReservedId(self.id.clone()));
         }
         if self.api_version != API_VERSION {
             return Err(ManifestError::ApiVersion {
@@ -461,6 +466,9 @@ pub struct HandshakeRequest {
     pub host_version: String,
     pub extension_id: String,
     pub granted_capabilities: Vec<Capability>,
+    /// Merged `[extension.<id>]` settings when the manifest requested `configuration`.
+    #[serde(default)]
+    pub config: Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1516,6 +1524,25 @@ mod tests {
     }
 
     #[test]
+    fn manifest_reserves_product_and_bundled_vcs_namespaces() {
+        for id in ["workdeck", "git", "jj", "sl"] {
+            let manifest = ExtensionManifest {
+                id: id.into(),
+                name: "Reserved".into(),
+                version: "1.0.0".into(),
+                api_version: API_VERSION,
+                executable: "extension".into(),
+                capabilities: Vec::new(),
+                description: None,
+            };
+            assert!(matches!(
+                manifest.validate(),
+                Err(ManifestError::ReservedId(actual)) if actual == id
+            ));
+        }
+    }
+
+    #[test]
     fn json_rpc_request_is_one_line_safe() {
         let request = JsonRpcRequest::new(
             1,
@@ -1525,6 +1552,7 @@ mod tests {
                 host_version: "0.1.0".into(),
                 extension_id: "example.review".into(),
                 granted_capabilities: vec![Capability::Commands],
+                config: serde_json::json!({ "threshold": 3 }),
             },
         )
         .unwrap();
@@ -1534,6 +1562,7 @@ mod tests {
             serde_json::from_str::<JsonRpcRequest>(&encoded).unwrap(),
             request
         );
+        assert_eq!(request.params["config"]["threshold"], 3);
     }
 
     #[test]
