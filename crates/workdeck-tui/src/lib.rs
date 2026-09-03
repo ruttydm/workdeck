@@ -19,6 +19,7 @@ mod extension_navigation;
 mod extension_notifications;
 mod extension_pane_controller;
 mod extension_panes;
+mod extension_review_events;
 mod extension_trust_controller;
 mod extension_trust_prompt;
 mod extension_workspace;
@@ -80,6 +81,7 @@ pub use extension_navigation::*;
 pub use extension_notifications::*;
 pub use extension_pane_controller::*;
 pub use extension_panes::*;
+pub use extension_review_events::*;
 pub use extension_trust_controller::*;
 pub use extension_trust_prompt::*;
 pub use extension_workspace::*;
@@ -157,14 +159,15 @@ use workdeck_diff::{
 };
 use workdeck_extension_api::{
     ExtensionCommandAvailability, ExtensionFileViewSpan, ExtensionFileViewTone,
-    ExtensionHostAction, ExtensionKeyEvent, ExtensionNotification, ExtensionNotificationHub,
-    ExtensionNotificationSubscription, ExtensionNotifyType, ExtensionPaintTheme, ExtensionPaneView,
-    ExtensionReviewNoteChangeKind, ExtensionReviewSnapshotNote, ExtensionTextAttribute,
-    ExtensionWorkspaceWriteCompletion, ExtensionWorkspaceWriteResult, FileLanguageGlobTarget,
-    FileLanguageMatcher, FileViewModeKeyRequest, FileViewModeLifecycleRequest, KeyRoutingResult,
+    ExtensionHostAction, ExtensionKeyEvent, ExtensionLayoutMode, ExtensionLifecycleEvent,
+    ExtensionNotification, ExtensionNotificationHub, ExtensionNotificationSubscription,
+    ExtensionNotifyType, ExtensionPaintTheme, ExtensionPaneView, ExtensionResolvedLayout,
+    ExtensionReviewNote, ExtensionTextAttribute, ExtensionWorkspaceWriteCompletion,
+    ExtensionWorkspaceWriteResult, FileLanguageGlobTarget, FileLanguageMatcher,
+    FileViewModeKeyRequest, FileViewModeLifecycleRequest, KeyRoutingResult,
     KeyboardModeRegistration, PaneActionInvocation, PanePlacement, PaneRegistration,
-    PaneRenderRequest, Registration, ReviewEvent, ValidatedFileViewLayout, ViewNode, ViewStyle,
-    WORKDECK_FILES_PANE_KEY, bundled_files_pane, extension_pane_size,
+    PaneRenderRequest, Registration, ReviewEvent, SessionReloadReason, ValidatedFileViewLayout,
+    ViewNode, ViewStyle, WORKDECK_FILES_PANE_KEY, bundled_files_pane, extension_pane_size,
 };
 use workdeck_extension_host::{
     ActiveSessionKeyboardMode, EXTENSION_SHUTDOWN_TIMEOUT,
@@ -173,19 +176,20 @@ use workdeck_extension_host::{
     KeyboardModeControllerState, LineHighlightRefreshResult, LineHighlightsController,
     LoadedExtension, RegisteredFileView, RegisteredKeyboardMode, RegisteredLineHighlighter,
     create_file_view_input, create_file_view_input_snapshot, format_keyboard_mode_failure,
-    reconcile_file_view_selections, registered_file_view_key,
-    resolve_loaded_extension_registrations, select_file_view, session_keyboard_mode_display_title,
-    session_keyboard_mode_status_hint, session_keyboard_mode_still_valid,
+    project_extension_changeset, project_extension_diff_file, reconcile_file_view_selections,
+    registered_file_view_key, resolve_loaded_extension_registrations, select_file_view,
+    session_keyboard_mode_display_title, session_keyboard_mode_status_hint,
+    session_keyboard_mode_still_valid,
 };
 use workdeck_review::{
     CommentAnchor, ExpandedSourceError, ExpandedSourceStatus, LayoutMode, PlannedFileViewRow,
     ReviewComment, ReviewGapAddress, ReviewLineTarget, ReviewNavigationFile, ReviewNavigationModel,
     ReviewNoteResolution, ReviewSelectionMove, ReviewSelectionScope, ReviewState,
     SemanticReviewAnnotationIndex, SemanticReviewSelection, VisibleFileViewNote,
-    build_extension_review_snapshot, build_file_view_render_plan, diff_extension_review_notes,
-    plan_expanded_gap, plan_review_selection_move, project_extension_review_notes,
-    review_annotated_hunk_indices, review_default_hunk_line_target, review_expansion_side,
-    review_gap_source_for_file, review_leading_gap, review_line_anchor, review_trailing_gap,
+    build_extension_review_snapshot, build_file_view_render_plan, plan_expanded_gap,
+    plan_review_selection_move, project_extension_review_notes, review_annotated_hunk_indices,
+    review_default_hunk_line_target, review_expansion_side, review_gap_source_for_file,
+    review_leading_gap, review_line_anchor, review_trailing_gap,
 };
 use workdeck_session::{ReviewSessionServer, default_discovery_directory};
 use workdeck_vcs::bundled_vcs_catalog;
@@ -708,25 +712,14 @@ pub struct ReviewApp {
     extension_event_context_provider: ExtensionEventContextProviderSlot,
     extension_event_context_installation: Option<ExtensionEventContextProviderInstallation>,
     extension_event_dispatch_depth: usize,
-    extension_reported_review: ExtensionReportedReviewNotes,
+    extension_review_events: ExtensionReviewEventController,
+    extension_registry_generation: u64,
+    review_projection_generation: u64,
+    #[cfg(test)]
+    observed_extension_events: Vec<(u64, String, serde_json::Value)>,
     extension_trust_controller: ExtensionTrustController,
     extension_trust_request: Option<ExtensionTrustRequest>,
     extension_trust_prompt_hits: Cell<Option<ExtensionTrustPromptHits>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ExtensionReportedReviewNotes {
-    generation: String,
-    state_revision: u64,
-    notes: Vec<ExtensionReviewSnapshotNote>,
-}
-
-fn extension_reported_review_notes(state: &ReviewState) -> ExtensionReportedReviewNotes {
-    ExtensionReportedReviewNotes {
-        generation: format!("generation:workdeck-tui:{}", state.generation()),
-        state_revision: state.state_revision(),
-        notes: project_extension_review_notes(state),
-    }
 }
 
 impl ReviewApp {
@@ -777,7 +770,6 @@ impl ReviewApp {
                             .enqueue(notification);
                     })
                 });
-        let extension_reported_review = extension_reported_review_notes(&state);
         let mut extension_pane_runtime =
             ExtensionPaneRuntime::new(extensions, state.changeset().files.as_slice());
         if !extension_pane_runtime
@@ -862,17 +854,25 @@ impl ReviewApp {
             extension_event_context_provider,
             extension_event_context_installation: None,
             extension_event_dispatch_depth: 0,
-            extension_reported_review,
+            extension_review_events: ExtensionReviewEventController::default(),
+            extension_registry_generation: 1,
+            review_projection_generation: 1,
+            #[cfg(test)]
+            observed_extension_events: Vec::new(),
             extension_trust_controller,
             extension_trust_request: None,
             extension_trust_prompt_hits: Cell::new(None),
         };
         app.install_extension_event_context_provider();
+        let initial_events = app.update_extension_review_events(Instant::now());
+        debug_assert!(initial_events.is_empty());
         for (name, payload) in pending_custom_events {
             app.publish_extension_event(&name, payload);
         }
-        app.publish_extension_event("changeset_loaded", serde_json::json!({}));
-        app.publish_extension_selection_events();
+        app.publish_extension_lifecycle_event(ExtensionLifecycleEvent::Startup {
+            cwd: app.extension_command_cwd(),
+        });
+        app.publish_current_changeset_event(false, SessionReloadReason::Manual);
         app
     }
 
@@ -1008,7 +1008,17 @@ impl ReviewApp {
     }
 
     pub fn reload(&mut self, changeset: Changeset) {
+        self.reload_with_reason(changeset, SessionReloadReason::Manual, false);
+    }
+
+    fn reload_with_reason(
+        &mut self,
+        changeset: Changeset,
+        reason: SessionReloadReason,
+        emit_startup: bool,
+    ) {
         self.extension_command_epoch = self.extension_command_epoch.saturating_add(1);
+        self.review_projection_generation = self.review_projection_generation.saturating_add(1);
         self.cancel_extension_dialogs_for_reload();
         self.exit_active_keyboard_mode();
         self.exit_active_file_view_mode();
@@ -1059,10 +1069,14 @@ impl ReviewApp {
                 .cached_renders
                 .clear();
         }
-        self.extension_reported_review =
-            self.with_state(|state| extension_reported_review_notes(state));
-        self.publish_extension_event("session_reload", serde_json::json!({}));
-        self.publish_extension_selection_events();
+        let immediate = self.update_extension_review_events(Instant::now());
+        self.publish_extension_lifecycle_events(immediate);
+        if emit_startup {
+            self.publish_extension_lifecycle_event(ExtensionLifecycleEvent::Startup {
+                cwd: self.extension_command_cwd(),
+            });
+        }
+        self.publish_current_changeset_event(true, reason);
     }
 
     fn replace_extensions_and_reload(
@@ -1098,8 +1112,9 @@ impl ReviewApp {
         };
         previous.retire_extensions();
         drop(previous);
+        self.extension_registry_generation = self.extension_registry_generation.saturating_add(1);
         self.install_extension_event_context_provider();
-        self.reload(changeset);
+        self.reload_with_reason(changeset, SessionReloadReason::Manual, true);
     }
 
     fn apply_extension_file_languages(&self, changeset: &mut Changeset) {
@@ -1134,7 +1149,8 @@ impl ReviewApp {
     }
 
     pub fn tick_extension_notifications(&mut self, now: Instant) {
-        self.sync_extension_note_events();
+        let events = self.update_extension_review_events(now);
+        self.publish_extension_lifecycle_events(events);
         self.startup_notices.tick(now);
         self.extension_toasts
             .lock()
@@ -1366,7 +1382,11 @@ impl ReviewApp {
             if dispatch.closes_menu {
                 self.close_app_menu();
             }
+            let command_id = dispatch.command_id;
             self.apply_builtin_command_action(dispatch.action);
+            self.publish_extension_lifecycle_event(ExtensionLifecycleEvent::CommandExecuted {
+                command_id: command_id.into(),
+            });
             return;
         }
         if self.invoke_extension_command(&key) {
@@ -1393,48 +1413,60 @@ impl ReviewApp {
             self.status = Some("review note cancelled".into());
             return true;
         }
-        let composer = self.note_composer.as_mut().expect("composer was checked");
-        match key.code {
-            KeyCode::Left => composer.cursor = composer.cursor.saturating_sub(1),
-            KeyCode::Right => {
-                composer.cursor = composer
-                    .cursor
-                    .saturating_add(1)
-                    .min(composer.body.chars().count());
-            }
-            KeyCode::Home => composer.cursor = 0,
-            KeyCode::End => composer.cursor = composer.body.chars().count(),
-            KeyCode::Backspace => {
-                remove_filter_character_before(&mut composer.body, &mut composer.cursor);
-            }
-            KeyCode::Delete => {
-                remove_filter_character_at(&mut composer.body, &mut composer.cursor);
-            }
-            KeyCode::Enter => {
-                insert_filter_character(&mut composer.body, &mut composer.cursor, '\n');
-            }
-            KeyCode::Tab => {
-                for _ in 0..4 {
-                    insert_filter_character(&mut composer.body, &mut composer.cursor, ' ');
+        let previous_body = self
+            .note_composer
+            .as_ref()
+            .expect("composer was checked")
+            .body
+            .clone();
+        {
+            let composer = self.note_composer.as_mut().expect("composer was checked");
+            match key.code {
+                KeyCode::Left => composer.cursor = composer.cursor.saturating_sub(1),
+                KeyCode::Right => {
+                    composer.cursor = composer
+                        .cursor
+                        .saturating_add(1)
+                        .min(composer.body.chars().count());
                 }
+                KeyCode::Home => composer.cursor = 0,
+                KeyCode::End => composer.cursor = composer.body.chars().count(),
+                KeyCode::Backspace => {
+                    remove_filter_character_before(&mut composer.body, &mut composer.cursor);
+                }
+                KeyCode::Delete => {
+                    remove_filter_character_at(&mut composer.body, &mut composer.cursor);
+                }
+                KeyCode::Enter => {
+                    insert_filter_character(&mut composer.body, &mut composer.cursor, '\n');
+                }
+                KeyCode::Tab => {
+                    for _ in 0..4 {
+                        insert_filter_character(&mut composer.body, &mut composer.cursor, ' ');
+                    }
+                }
+                KeyCode::Char(character)
+                    if !key.modifiers.intersects(
+                        KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
+                    ) =>
+                {
+                    insert_filter_character(&mut composer.body, &mut composer.cursor, character);
+                }
+                _ => {}
             }
-            KeyCode::Char(character)
-                if !key.modifiers.intersects(
-                    KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
-                ) =>
-            {
-                insert_filter_character(&mut composer.body, &mut composer.cursor, character);
+            if composer.body.len() > workdeck_review::MAX_REVIEW_NOTE_BYTES {
+                let mut end = workdeck_review::MAX_REVIEW_NOTE_BYTES;
+                while !composer.body.is_char_boundary(end) {
+                    end = end.saturating_sub(1);
+                }
+                composer.body.truncate(end);
+                composer.cursor = composer.body.chars().count();
+                self.status = Some("review note reached the size limit".into());
             }
-            _ => {}
         }
-        if composer.body.len() > workdeck_review::MAX_REVIEW_NOTE_BYTES {
-            let mut end = workdeck_review::MAX_REVIEW_NOTE_BYTES;
-            while !composer.body.is_char_boundary(end) {
-                end = end.saturating_sub(1);
-            }
-            composer.body.truncate(end);
-            composer.cursor = composer.body.chars().count();
-            self.status = Some("review note reached the size limit".into());
+        let composer = self.note_composer.as_ref().expect("composer was checked");
+        if composer.body != previous_body {
+            self.publish_note_composer_edited(composer.clone());
         }
         true
     }
@@ -1443,6 +1475,7 @@ impl ReviewApp {
         let Some(composer) = self.note_composer.as_mut() else {
             return;
         };
+        let previous_body = composer.body.clone();
         let available = workdeck_review::MAX_REVIEW_NOTE_BYTES.saturating_sub(composer.body.len());
         let end = text
             .char_indices()
@@ -1455,6 +1488,10 @@ impl ReviewApp {
         for character in pasted.chars() {
             insert_filter_character(&mut composer.body, &mut composer.cursor, character);
         }
+        let composer = composer.clone();
+        if composer.body != previous_body {
+            self.publish_note_composer_edited(composer);
+        }
     }
 
     fn open_note_composer(&mut self) {
@@ -1462,12 +1499,50 @@ impl ReviewApp {
             self.status = Some("select a changed review line before adding a note".into());
             return;
         };
+        self.note_sequence = self.note_sequence.saturating_add(1);
         self.note_composer = Some(ReviewNoteComposer {
+            id: format!("user-note-{}", self.note_sequence),
             target,
             body: String::new(),
             cursor: 0,
         });
         self.status = None;
+    }
+
+    fn extension_note_from_composer(
+        &self,
+        composer: &ReviewNoteComposer,
+        body: String,
+        draft: bool,
+    ) -> Option<ExtensionReviewNote> {
+        self.with_state(|state| {
+            state
+                .changeset()
+                .files
+                .get(composer.target.file_index)
+                .map(|file| ExtensionReviewNote {
+                    id: composer.id.clone(),
+                    parent_id: None,
+                    file_id: file.runtime_id.clone(),
+                    file_path: file.path.clone(),
+                    hunk_index: composer.target.hunk_index,
+                    side: match composer.target.side {
+                        ReviewSide::Old => workdeck_extension_api::ExtensionFileSide::Old,
+                        ReviewSide::New => workdeck_extension_api::ExtensionFileSide::New,
+                    },
+                    line: composer.target.line,
+                    body,
+                    draft,
+                })
+        })
+    }
+
+    fn publish_note_composer_edited(&mut self, composer: ReviewNoteComposer) {
+        if let Some(note) =
+            self.extension_note_from_composer(&composer, composer.body.clone(), true)
+        {
+            self.publish_extension_lifecycle_event(ExtensionLifecycleEvent::NoteEdited { note });
+        }
     }
 
     fn current_note_target(&self) -> Option<ReviewNoteTarget> {
@@ -1505,8 +1580,8 @@ impl ReviewApp {
             self.status = Some("empty review note discarded".into());
             return;
         }
-        self.note_sequence = self.note_sequence.saturating_add(1);
-        let id = format!("user-note-{}", self.note_sequence);
+        let id = composer.id.clone();
+        let extension_note = self.extension_note_from_composer(&composer, body.to_owned(), false);
         let result = self.with_state(|state| {
             let file = state
                 .changeset()
@@ -1524,7 +1599,7 @@ impl ReviewApp {
                 },
             );
             let comment = ReviewComment {
-                id,
+                id: id.clone(),
                 parent_id: None,
                 source: "user".into(),
                 author: None,
@@ -1558,7 +1633,13 @@ impl ReviewApp {
         match result {
             Ok(()) => {
                 self.status = Some("review note saved".into());
-                self.sync_extension_note_events();
+                if let Some(note) = extension_note {
+                    self.publish_extension_lifecycle_event(ExtensionLifecycleEvent::NoteCreated {
+                        note,
+                    });
+                }
+                let events = self.update_extension_review_events(Instant::now());
+                self.publish_extension_lifecycle_events(events);
             }
             Err(error) => self.status = Some(format!("failed to save review note: {error}")),
         }
@@ -2046,6 +2127,7 @@ impl ReviewApp {
     }
 
     fn invoke_registered_extension_command(&mut self, command: RegisteredExtensionCommand) {
+        let command_id = command.full_id();
         let command_epoch = self.extension_command_epoch;
         let (snapshot, review, workspace) = self.with_state(|state| {
             let workspace = self
@@ -2108,6 +2190,9 @@ impl ReviewApp {
         }
         self.status = Some(command.command.title);
         self.start_queued_extension_requests(Some(command.extension_index));
+        self.publish_extension_lifecycle_event(ExtensionLifecycleEvent::CommandExecuted {
+            command_id,
+        });
     }
 
     /// Apply every ready native command/event result without blocking the Ratatui event loop.
@@ -2768,6 +2853,12 @@ impl ReviewApp {
             ));
             return;
         }
+        #[cfg(test)]
+        self.observed_extension_events.push((
+            self.extension_registry_generation,
+            name.to_owned(),
+            payload.clone(),
+        ));
         let targets = {
             let runtime = self
                 .extension_pane_runtime
@@ -2818,78 +2909,91 @@ impl ReviewApp {
         self.start_queued_extension_requests(None);
     }
 
-    fn publish_extension_selection_events(&mut self) {
-        let (file_id, hunk_index) = self.with_state(|state| {
+    fn publish_extension_lifecycle_event(&mut self, event: ExtensionLifecycleEvent) {
+        let (name, payload) = event.into_parts();
+        self.publish_extension_event(&name, payload);
+    }
+
+    fn publish_extension_lifecycle_events(
+        &mut self,
+        events: impl IntoIterator<Item = ExtensionLifecycleEvent>,
+    ) {
+        for event in events {
+            self.publish_extension_lifecycle_event(event);
+        }
+    }
+
+    fn publish_current_changeset_event(&mut self, reloaded: bool, reason: SessionReloadReason) {
+        let changeset = self.with_state(|state| project_extension_changeset(state.changeset()));
+        self.publish_extension_lifecycle_event(ExtensionLifecycleEvent::ChangesetLoaded {
+            changeset: changeset.clone(),
+        });
+        if reloaded {
+            self.publish_extension_lifecycle_event(ExtensionLifecycleEvent::SessionReload {
+                changeset,
+                reason,
+            });
+        }
+    }
+
+    fn extension_review_event_facts(&self) -> ExtensionReviewEventFacts {
+        let (
+            review_generation,
+            review_notes,
+            selected_file,
+            selected_hunk_index,
+            layout_mode,
+            resolved_layout,
+        ) = self.with_state(|state| {
             let selection = state.selection();
             (
+                format!(
+                    "generation:workdeck-tui:{}:{}",
+                    state.generation(),
+                    self.review_projection_generation
+                ),
+                project_extension_review_notes(state),
                 state
                     .changeset()
                     .files
                     .get(selection.file_index)
-                    .map(|file| file.runtime_id.clone()),
+                    .map(project_extension_diff_file),
                 selection.hunk_index,
+                state.layout(),
+                state.resolved_layout(self.review_width.get()),
             )
         });
-        self.publish_extension_event(
-            "selection_changed",
-            serde_json::json!({ "fileId": file_id, "hunkIndex": hunk_index }),
-        );
-        if let (Some(file_id), Some(hunk_index)) = (file_id, hunk_index) {
-            self.publish_extension_event(
-                "hunk_viewed",
-                serde_json::json!({ "fileId": file_id, "hunkIndex": hunk_index }),
-            );
+        let selected_file_id = selected_file.as_ref().map(|file| file.id.clone());
+        ExtensionReviewEventFacts {
+            registry_generation: self.extension_registry_generation,
+            review_projection_generation: self.review_projection_generation,
+            review_generation,
+            review_notes,
+            filter: self.filter.clone(),
+            layout_mode: extension_layout_mode(layout_mode),
+            resolved_layout: extension_resolved_layout(resolved_layout),
+            selected_file,
+            selected_file_id,
+            selected_hunk_index,
+            theme_id: self.options.theme.id.clone(),
         }
     }
 
-    fn sync_extension_note_events(&mut self) {
-        let (generation, state_revision) = self.with_state(|state| {
-            (
-                format!("generation:workdeck-tui:{}", state.generation()),
-                state.state_revision(),
-            )
-        });
-        if generation == self.extension_reported_review.generation
-            && state_revision == self.extension_reported_review.state_revision
-        {
-            return;
-        }
-        let current = self.with_state(|state| extension_reported_review_notes(state));
-        let changes = if current.generation == self.extension_reported_review.generation {
-            diff_extension_review_notes(&self.extension_reported_review.notes, &current.notes)
-        } else {
-            Vec::new()
-        };
-        self.extension_reported_review = current;
-        for change in changes {
-            if change.kind == ExtensionReviewNoteChangeKind::Created {
-                let file_id = self.with_state(|state| {
-                    state
-                        .changeset()
-                        .files
-                        .iter()
-                        .find(|file| file.key == change.note.file_key)
-                        .map(|file| file.runtime_id.clone())
-                });
-                self.publish_extension_event(
-                    "note_created",
-                    serde_json::json!({
-                        "noteId": change.note.id,
-                        "fileId": file_id,
-                        "hunkIndex": change.note.anchor.owner_hunk_index,
-                    }),
-                );
-            }
-            self.publish_extension_event(
-                "note_changed",
-                serde_json::to_value(change).expect("extension note changes are serializable"),
-            );
-        }
+    fn update_extension_review_events(&mut self, now: Instant) -> Vec<ExtensionLifecycleEvent> {
+        let facts = self.extension_review_event_facts();
+        let mut events = self.extension_review_events.update(&facts, now);
+        events.extend(self.extension_review_events.settle_due(now));
+        events
+    }
+
+    fn publish_extension_selection_events(&mut self) {
+        let events = self.update_extension_review_events(Instant::now());
+        self.publish_extension_lifecycle_events(events);
     }
 
     /// Inform subscribed extensions that watch mode has observed a source change.
     pub fn notify_watch_reload_pending(&mut self) {
-        self.publish_extension_event("watch_reload_pending", serde_json::json!({}));
+        self.publish_extension_lifecycle_event(ExtensionLifecycleEvent::WatchReloadPending);
     }
 
     fn enter_keyboard_mode(&mut self, extension_index: usize, extension_id: &str, id: &str) {
@@ -3789,7 +3893,11 @@ impl ReviewApp {
         let Some(dispatch) = dispatch else {
             return false;
         };
+        let command_id = dispatch.command_id;
         self.apply_builtin_command_action(dispatch.action);
+        self.publish_extension_lifecycle_event(ExtensionLifecycleEvent::CommandExecuted {
+            command_id: command_id.into(),
+        });
         true
     }
 
@@ -4542,12 +4650,19 @@ impl ReviewApp {
     fn execute_app_menu_command(&mut self, command_id: &str) {
         if command_id == "workdeck.extensions.exitKeyboardMode" {
             self.exit_active_extension_mode();
+            self.publish_extension_lifecycle_event(ExtensionLifecycleEvent::CommandExecuted {
+                command_id: command_id.into(),
+            });
             return;
         }
         if let Some(dispatch) =
             execute_app_command_with_count(&self.builtin_commands(), command_id, 1)
         {
+            let command_id = dispatch.command_id;
             self.apply_builtin_command_action(dispatch.action);
+            self.publish_extension_lifecycle_event(ExtensionLifecycleEvent::CommandExecuted {
+                command_id: command_id.into(),
+            });
             return;
         }
         let command = self
@@ -5213,6 +5328,21 @@ impl ThemeController {
     }
 }
 
+const fn extension_layout_mode(layout: LayoutMode) -> ExtensionLayoutMode {
+    match layout {
+        LayoutMode::Auto => ExtensionLayoutMode::Auto,
+        LayoutMode::Split => ExtensionLayoutMode::Split,
+        LayoutMode::Stack => ExtensionLayoutMode::Stack,
+    }
+}
+
+const fn extension_resolved_layout(layout: LayoutMode) -> ExtensionResolvedLayout {
+    match layout {
+        LayoutMode::Split => ExtensionResolvedLayout::Split,
+        LayoutMode::Stack | LayoutMode::Auto => ExtensionResolvedLayout::Stack,
+    }
+}
+
 pub fn run_review(changeset: Changeset, options: ReviewOptions) -> Result<()> {
     run_review_inner(changeset, options, Vec::new(), None, None, None)
 }
@@ -5436,7 +5566,8 @@ fn run_loop(
         if reload_requested {
             app.reload_requested = false;
             next_reload = Instant::now() + Duration::from_millis(250);
-            reload_current_review(app, reloader, manual_requested || session_requested);
+            let reason = reload_request_reason(manual_requested, session_requested);
+            reload_current_review(app, reloader, manual_requested || session_requested, reason);
         }
         if let Some(driver) = watched_input {
             let outcome = driver.poll(Instant::now(), &mut || {
@@ -5444,7 +5575,7 @@ fn run_loop(
                     anyhow::bail!("this review input cannot be reloaded");
                 };
                 let changeset = reload()?;
-                apply_reloaded_changeset(app, changeset);
+                apply_reloaded_changeset(app, changeset, SessionReloadReason::Watch);
                 Ok::<(), anyhow::Error>(())
             });
             if outcome.reload_pending {
@@ -5459,14 +5590,28 @@ fn run_loop(
     Ok(())
 }
 
+const fn reload_request_reason(
+    manual_requested: bool,
+    session_requested: bool,
+) -> SessionReloadReason {
+    if manual_requested {
+        SessionReloadReason::Manual
+    } else if session_requested {
+        SessionReloadReason::Daemon
+    } else {
+        SessionReloadReason::Watch
+    }
+}
+
 fn reload_current_review(
     app: &mut ReviewApp,
     reloader: &mut Option<&mut dyn FnMut() -> Result<Changeset>>,
     report_unavailable: bool,
+    reason: SessionReloadReason,
 ) {
     match reloader.as_deref_mut() {
         Some(reload) => match reload() {
-            Ok(changeset) => apply_reloaded_changeset(app, changeset),
+            Ok(changeset) => apply_reloaded_changeset(app, changeset, reason),
             Err(error) => app.status = Some(format!("reload failed: {error:#}")),
         },
         None if report_unavailable => {
@@ -5476,8 +5621,12 @@ fn reload_current_review(
     }
 }
 
-fn apply_reloaded_changeset(app: &mut ReviewApp, changeset: Changeset) {
-    app.reload(changeset);
+fn apply_reloaded_changeset(
+    app: &mut ReviewApp,
+    changeset: Changeset,
+    reason: SessionReloadReason,
+) {
+    app.reload_with_reason(changeset, reason, false);
 }
 
 pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
@@ -6985,6 +7134,7 @@ struct ReviewNoteTarget {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ReviewNoteComposer {
+    id: String,
     target: ReviewNoteTarget,
     body: String,
     cursor: usize,
@@ -8870,8 +9020,12 @@ mod tests {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .add_comment(saved_comment(&file_key, "note:1", "before"))
             .unwrap();
-        app.sync_extension_note_events();
-        assert_eq!(app.extension_reported_review.notes[0].summary, "before");
+        let events = app.update_extension_review_events(Instant::now());
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].clone().into_parts().1["note"]["summary"],
+            "before"
+        );
 
         {
             let mut state = state
@@ -8882,8 +9036,10 @@ mod tests {
                 .add_comment(saved_comment(&file_key, "note:1", "after"))
                 .unwrap();
         }
-        app.sync_extension_note_events();
-        assert_eq!(app.extension_reported_review.notes[0].summary, "after");
+        let events = app.update_extension_review_events(Instant::now());
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].clone().into_parts().1["kind"], "updated");
+        assert_eq!(events[0].clone().into_parts().1["note"]["summary"], "after");
 
         {
             let mut state = state
@@ -8894,17 +9050,20 @@ mod tests {
                 .add_comment(saved_comment(&file_key, "note:2", "new generation"))
                 .unwrap();
         }
-        app.sync_extension_note_events();
-        assert_eq!(app.extension_reported_review.notes.len(), 2);
-        assert!(app.extension_reported_review.generation.ends_with(":2"));
+        assert!(
+            app.update_extension_review_events(Instant::now())
+                .is_empty()
+        );
 
         state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .remove_comment("note:1")
             .unwrap();
-        app.sync_extension_note_events();
-        assert_eq!(app.extension_reported_review.notes[0].id, "note:2");
+        let events = app.update_extension_review_events(Instant::now());
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].clone().into_parts().1["kind"], "removed");
+        assert_eq!(events[0].clone().into_parts().1["note"]["id"], "note:1");
     }
 
     fn long_changeset() -> Changeset {
@@ -9000,6 +9159,99 @@ mod tests {
         assert_eq!(
             slot.context(Vec::new()).unwrap().cwd,
             PathBuf::from("/repo/second")
+        );
+    }
+
+    #[test]
+    fn review_app_publishes_imperative_lifecycle_payloads_to_the_current_registry() {
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                command_cwd: Some(PathBuf::from("/repo/first")),
+                ..ReviewOptions::default()
+            },
+        );
+        assert_eq!(
+            app.observed_extension_events
+                .iter()
+                .map(|(_, name, _)| name.as_str())
+                .collect::<Vec<_>>(),
+            ["startup", "changeset_loaded"]
+        );
+        app.observed_extension_events.clear();
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+        app.notify_watch_reload_pending();
+
+        let first = app.observed_extension_events.clone();
+        assert!(first.iter().all(|(registry, _, _)| *registry == 1));
+        assert_eq!(
+            first
+                .iter()
+                .map(|(_, name, _)| name.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "command_executed",
+                "note_edited",
+                "note_created",
+                "note_changed",
+                "watch_reload_pending",
+            ]
+        );
+        assert_eq!(
+            first[0].2,
+            serde_json::json!({ "commandId": "workdeck.review.startNote" })
+        );
+        assert_eq!(first[1].2["note"]["body"], "x");
+        assert_eq!(first[1].2["note"]["draft"], true);
+        assert_eq!(first[2].2["note"]["body"], "x");
+        assert_eq!(first[2].2["note"]["draft"], false);
+        assert_eq!(first[3].2["kind"], "created");
+
+        app.observed_extension_events.clear();
+        app.options.command_cwd = Some(PathBuf::from("/repo/second"));
+        app.replace_extensions_and_reload(changeset(), Vec::new());
+        app.notify_watch_reload_pending();
+        assert!(
+            app.observed_extension_events
+                .iter()
+                .all(|(registry, _, _)| *registry == 2)
+        );
+        assert_eq!(
+            app.observed_extension_events
+                .iter()
+                .map(|(_, name, _)| name.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "startup",
+                "changeset_loaded",
+                "session_reload",
+                "watch_reload_pending",
+            ]
+        );
+        assert_eq!(app.observed_extension_events[0].2["cwd"], "/repo/second");
+        assert_eq!(app.observed_extension_events[2].2["reason"], "manual");
+    }
+
+    #[test]
+    fn reload_request_provenance_distinguishes_user_daemon_and_watch_sources() {
+        assert_eq!(
+            reload_request_reason(true, false),
+            SessionReloadReason::Manual
+        );
+        assert_eq!(
+            reload_request_reason(true, true),
+            SessionReloadReason::Manual
+        );
+        assert_eq!(
+            reload_request_reason(false, true),
+            SessionReloadReason::Daemon
+        );
+        assert_eq!(
+            reload_request_reason(false, false),
+            SessionReloadReason::Watch
         );
     }
 

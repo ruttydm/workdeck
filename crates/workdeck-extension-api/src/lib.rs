@@ -4,6 +4,7 @@
 //! The host retains terminal ownership: extensions return declarative views and actions rather
 //! than terminal escape sequences or Ratatui widgets.
 
+mod authoring;
 mod bundled_ui;
 mod extension_ids;
 mod file_views;
@@ -11,6 +12,7 @@ mod keys;
 mod panes;
 mod vcs;
 
+pub use authoring::*;
 pub use bundled_ui::*;
 pub use extension_ids::*;
 pub use file_views::*;
@@ -25,6 +27,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
+pub use workdeck_core::{AgentAnnotation, AgentFileContext, NamedCustomThemeConfig};
 use workdeck_core::{
     AgentAnnotationConfidence, Changeset, ReviewFileChangeKind, ReviewNoteSource, ReviewSide,
     ReviewSnapshot,

@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "captured_with": "bun 1.3.5 executing the untouched pinned src/ui/hooks/useExtensionReviewEvents.test.tsx",
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "source_blob": "b3a451bb6c35b513085a991ac97352d7af17e428",
+      "test_blob": "c7f1368729a0182d7c963a948215fca7c050457f",
+      "tests": 16,
+      "passed": 16,
+      "failed": 0,
+      "expect_calls": 62,
+      "junit_capture": "/tmp/hunk-review-events-baseline.xml"
+    }
+  ],
+  "stable_presence": false,
+  "native_adaptation": {
+    "effects": "An explicit Ratatui state machine replaces React layout and passive effects.",
+    "scheduler": "The application tick settles one trailing 150 ms selection deadline.",
+    "registry_identity": "A monotonic native registry generation rejects retired selection work and reseeds projection baselines.",
+    "file_identity": "A monotonic review projection generation reproduces replacement-object attention without exposing renderer identity.",
+    "ownership": "Owned Rust payloads and per-process NDJSON serialization replace frozen JavaScript object graphs."
+  },
+  "test_mapping": [
+    {"source_test":"debounces the initial selection while suppressing initial filter, layout, and theme events","rust_tests":["debounces_initial_selection_and_suppresses_initial_projection_events"]},
+    {"source_test":"collapses rapid selection changes and ignores a replaced timer even if it fires","rust_tests":["collapses_rapid_selection_changes_and_rejects_the_replaced_token"]},
+    {"source_test":"views a replacement file object after soft reload even when its stable id is unchanged","rust_tests":["replacement_file_projection_reemits_file_viewed_but_not_the_same_hunk"]},
+    {"source_test":"emits hunk_viewed when hunkIndex changes on the same file without re-emitting file_viewed","rust_tests":["same_file_hunk_change_does_not_reemit_file_viewed"]},
+    {"source_test":"does not emit hunk_viewed when the settled selection has no hunk","rust_tests":["empty_selection_emits_no_view_attention_events"]},
+    {"source_test":"publishes only committed filter, layout, and theme identity changes","rust_tests":["publishes_only_committed_filter_layout_and_theme_changes_in_order"]},
+    {"source_test":"blocks a retired registry timer during the layout-to-passive cleanup window","rust_tests":["replacement_registry_retires_delayed_work_and_reestablishes_view_attention"]},
+    {"source_test":"establishes file-view projection again after a registry replaces one that already emitted","rust_tests":["replacement_registry_retires_delayed_work_and_reestablishes_view_attention"]},
+    {"source_test":"suppresses changed projection baselines when a replacement registry first mounts","rust_tests":["replacement_registry_seeds_changed_projection_values_before_reporting_later_changes"]},
+    {"source_test":"retires delayed work from a replaced registry and routes imperative events to the current one","rust_tests":["replacement_registry_retires_delayed_work_and_reestablishes_view_attention","review_app_publishes_imperative_lifecycle_payloads_to_the_current_registry"]},
+    {"source_test":"publishes note payloads and command ids through narrow imperative publishers","rust_tests":["lifecycle_event_names_and_payloads_cover_the_complete_hunk_contract","review_app_publishes_imperative_lifecycle_payloads_to_the_current_registry"]},
+    {"source_test":"does not emit note_changed for the initial saved-note list","rust_tests":["saved_note_changes_emit_only_within_one_registry_and_review_generation"]},
+    {"source_test":"emits note_changed for saved-note mutations within one review generation","rust_tests":["saved_note_changes_emit_only_within_one_registry_and_review_generation"]},
+    {"source_test":"does not emit note_changed when a reload replaces the note list","rust_tests":["saved_note_changes_emit_only_within_one_registry_and_review_generation"]},
+    {"source_test":"cancels and invalidates the pending selection callback on unmount","rust_tests":["unmount_invalidates_pending_selection_and_strict_replay_uses_a_new_token"]},
+    {"source_test":"retires and replaces selection timers through explicit StrictMode effect replay","rust_tests":["unmount_invalidates_pending_selection_and_strict_replay_uses_a_new_token"]}
+  ],
+  "rust_commands": [
+    "cargo test -p workdeck-extension-api --lib lifecycle_event_names_and_payloads_cover_the_complete_hunk_contract",
+    "cargo test -p workdeck-tui --lib extension_review_events::tests",
+    "cargo test -p workdeck-tui --lib review_app_publishes_imperative_lifecycle_payloads_to_the_current_registry"
+  ]
+}

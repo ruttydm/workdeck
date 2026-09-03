@@ -444,9 +444,25 @@ pub fn handle_event(event: &ReviewEvent, state: &mut ReviewTriageState) -> Comma
 }
 
 fn event_file_and_hunk(payload: &Value) -> Option<(String, Option<usize>)> {
-    let file_id = payload.get("fileId")?.as_str()?.to_owned();
+    let file_id = payload
+        .get("fileId")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            payload
+                .get("file")
+                .and_then(|file| file.get("id"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            payload
+                .get("note")
+                .and_then(|note| note.get("fileId"))
+                .and_then(Value::as_str)
+        })?
+        .to_owned();
     let hunk_index = payload
         .get("hunkIndex")
+        .or_else(|| payload.get("note").and_then(|note| note.get("hunkIndex")))
         .and_then(Value::as_u64)
         .and_then(|value| usize::try_from(value).ok());
     Some((file_id, hunk_index))

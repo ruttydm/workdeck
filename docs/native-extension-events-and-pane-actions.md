@@ -74,16 +74,34 @@ dialogs, and further events by returning their corresponding declarative host ac
 
 The provider is installed only after the review app has committed, before startup events are published. Runtime replacement installs the successor before retiring the predecessor, and cleanup is identity checked so stale teardown cannot detach the newer provider. Retirement atomically changes the registry from ready to closing before any shutdown work, making retained pane, navigation, dialog, and event capabilities inert immediately. Every process subscribed to `shutdown` receives at most one best-effort retirement notification, all retiring processes share one 250 ms deadline, and uncooperative children are terminated. Dropping the review app removes the active provider.
 
-Lifecycle events currently include:
+The complete pinned lifecycle set is:
 
+- `startup`
 - `changeset_loaded`
-- `session_reload`
+- `command_executed`
 - `selection_changed`
+- `file_viewed`
 - `hunk_viewed`
-- `note_created`
 - `filter_changed`
+- `theme_changed`
+- `layout_changed`
 - `watch_reload_pending`
+- `note_created`
+- `note_edited`
+- `note_changed`
+- `session_reload`
 - `shutdown` (delivered through the retirement notification after authority is revoked)
+
+Ratatui commits selection attention through an explicit 150 ms trailing state machine. Rapid
+navigation collapses to the last selection; a replaced registry or unmounted review invalidates
+retired work even if its old deadline is forced to fire. `file_viewed` follows file-projection
+identity, so a soft reload reports a replacement file object even when its stable ID is unchanged;
+`hunk_viewed` follows registry, file ID, and hunk index, so that same reload does not invent another
+hunk transition. Initial note, filter, layout, and theme projections seed a registry silently.
+Saved-note changes are diffed only within one review generation, while draft edits and committed
+user-note actions publish their complete public note payload immediately. Reload payloads identify
+`watch`, `daemon`, or `manual` provenance, and all command entry paths publish the canonical built-in
+or namespaced native command ID after synchronous dispatch.
 
 An extension may emit a custom event through `EmitEvent`. As in pinned Hunk, any non-blank string
 is accepted; namespacing remains recommended but spaces, Unicode, lifecycle-shaped names, and the

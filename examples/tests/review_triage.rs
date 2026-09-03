@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
-use workdeck_core::{Changeset, ChangesetSource, LineRange, ReviewSide};
+use workdeck_core::{Changeset, ChangesetSource};
 use workdeck_diff::parse_patch;
 use workdeck_examples::review_triage_extension::{
     ReviewTriageState, TriageDecision, TriageStatus, handle_event, hunk_key, invoke_command,
@@ -23,8 +23,10 @@ use workdeck_extension_host::{
     ManifestOrigin, build_extension_review_selection_from_snapshot, execute_extension_load,
     load_extensions, prepare_extension_load,
 };
-use workdeck_review::{CommentAnchor, ReviewComment, ReviewNoteResolution, ReviewState};
-use workdeck_tui::{ReviewApp, ReviewOptions, render, to_extension_paint_theme};
+use workdeck_review::ReviewState;
+use workdeck_tui::{
+    ReviewApp, ReviewOptions, SELECTION_CHANGED_DEBOUNCE, render, to_extension_paint_theme,
+};
 
 fn staged_extension() -> (TempDir, PathBuf) {
     let directory = TempDir::new().unwrap();
@@ -691,11 +693,17 @@ fn lifecycle_events_track_visits_notes_filters_pending_reload_and_external_open(
     );
     assert_eq!(state.current, Some((file_id.clone(), 1)));
     handle_event(
-        &event("hunk_viewed", json!({ "fileId": file_id, "hunkIndex": 1 })),
+        &event(
+            "hunk_viewed",
+            json!({ "file": { "id": file_id }, "hunkIndex": 1 }),
+        ),
         &mut state,
     );
     handle_event(
-        &event("note_created", json!({ "fileId": file_id, "hunkIndex": 1 })),
+        &event(
+            "note_created",
+            json!({ "note": { "fileId": file_id, "hunkIndex": 1 } }),
+        ),
         &mut state,
     );
     assert!(state.viewed.contains(&hunk_key(&file_id, 1)));
@@ -832,7 +840,10 @@ fn subprocess_protocol_preserves_state_across_every_callback_boundary() {
     extension
         .deliver_event(event(
             "hunk_viewed",
-            json!({ "fileId": snapshot().changeset.files[0].runtime_id, "hunkIndex": 0 }),
+            json!({
+                "file": { "id": snapshot().changeset.files[0].runtime_id },
+                "hunkIndex": 0
+            }),
         ))
         .unwrap();
     let view = extension.render_pane(pane_request()).unwrap();
@@ -895,6 +906,8 @@ fn ratatui_routes_clicks_dialogs_lifecycle_and_note_events_end_to_end() {
     let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
 
     press(&mut app, KeyCode::Char('y'));
+    app.tick_extension_notifications(std::time::Instant::now() + SELECTION_CHANGED_DEBOUNCE);
+    settle_extension_commands(&mut app);
     terminal
         .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
         .unwrap();
@@ -956,42 +969,11 @@ fn ratatui_routes_clicks_dialogs_lifecycle_and_note_events_end_to_end() {
         .unwrap();
     assert!(!rendered_text(&terminal).contains("ordering 🧭"));
 
-    let state = app.shared_state();
-    let file_key = state.lock().unwrap().changeset().files[0].key.clone();
-    state
-        .lock()
-        .unwrap()
-        .add_comment(ReviewComment {
-            id: "triage-note".into(),
-            parent_id: None,
-            source: "user".into(),
-            author: None,
-            created_at: None,
-            file_path: Some("src/lib.rs".into()),
-            hunk_index: Some(1),
-            side: Some(ReviewSide::New),
-            line: Some(10),
-            summary: "Inspect ordering".into(),
-            rationale: None,
-            markup: None,
-            title: None,
-            tags: Vec::new(),
-            confidence: None,
-            updated_at: None,
-            resolution: ReviewNoteResolution::Active,
-            anchor: CommentAnchor {
-                file_key,
-                old_range: Some(LineRange { start: 10, end: 10 }),
-                new_range: Some(LineRange { start: 10, end: 10 }),
-                preferred_side: Some(ReviewSide::New),
-                preferred_line: Some(10),
-                intersecting_hunk_indices: vec![1],
-                owner_hunk_index: Some(1),
-            },
-            editable: true,
-        })
-        .unwrap();
-    app.tick_extension_notifications(std::time::Instant::now());
+    press(&mut app, KeyCode::Char('c'));
+    for character in "Inspect ordering".chars() {
+        app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+    }
+    app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
     app.notify_watch_reload_pending();
     settle_extension_commands(&mut app);
     terminal

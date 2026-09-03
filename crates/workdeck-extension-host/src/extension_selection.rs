@@ -3,7 +3,7 @@ use workdeck_extension_api::{
     ExtensionDiffFile, ExtensionFileSide, ExtensionReviewSelection, ExtensionReviewSelectionLine,
 };
 
-use crate::file_view_host::to_extension_diff_file;
+use crate::file_view_host::project_extension_diff_file;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExtensionLineCursor {
@@ -49,7 +49,7 @@ pub fn build_extension_review_selection_from_snapshot(
         .changeset
         .files
         .iter()
-        .map(to_extension_diff_file)
+        .map(project_extension_diff_file)
         .collect::<Vec<_>>();
     let selected_file_id = snapshot
         .changeset

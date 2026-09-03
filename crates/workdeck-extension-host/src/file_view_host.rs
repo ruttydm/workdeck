@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use workdeck_core::{DiffFile, DiffLineKind, FileChangeKind};
 use workdeck_extension_api::{
-    ExtensionDiffFile, ExtensionDiffHunk, ExtensionDiffStats, ExtensionFileChangeKind,
-    ExtensionFileChangeRange, ExtensionFileSide,
+    ExtensionChangeset, ExtensionDiffFile, ExtensionDiffHunk, ExtensionDiffStats,
+    ExtensionFileChangeKind, ExtensionFileChangeRange, ExtensionFileSide,
 };
 
 use crate::{ExtensionDocumentReader, ExtensionRequestCancellation};
@@ -101,7 +101,7 @@ pub struct FileViewInputSnapshot {
 #[must_use]
 pub fn create_file_view_input_snapshot(file: &DiffFile) -> FileViewInputSnapshot {
     FileViewInputSnapshot {
-        file: Arc::new(to_extension_diff_file(file)),
+        file: Arc::new(project_extension_diff_file(file)),
         changes: Arc::from(file_view_changes(file)),
     }
 }
@@ -147,7 +147,9 @@ pub fn file_view_hunk_count(file: &DiffFile) -> usize {
     file.hunks.len()
 }
 
-pub(crate) fn to_extension_diff_file(file: &DiffFile) -> ExtensionDiffFile {
+/// Project one internal review file onto the immutable native extension contract.
+#[must_use]
+pub fn project_extension_diff_file(file: &DiffFile) -> ExtensionDiffFile {
     ExtensionDiffFile {
         id: file.runtime_id.clone(),
         path: file.path.clone(),
@@ -175,6 +177,25 @@ pub(crate) fn to_extension_diff_file(file: &DiffFile) -> ExtensionDiffFile {
         is_untracked: file.flags.untracked,
         is_binary: file.flags.binary,
         is_too_large: file.flags.too_large,
+    }
+}
+
+/// Project one provider-neutral changeset without exposing renderer or source-reader internals.
+#[must_use]
+pub fn project_extension_changeset(changeset: &workdeck_core::Changeset) -> ExtensionChangeset {
+    ExtensionChangeset {
+        id: changeset.id.clone(),
+        // Workdeck's current core identity is the provider label. Keeping the explicit public
+        // field preserves Hunk's contract while the core-model port later separates the two.
+        source_label: changeset.id.clone(),
+        title: changeset.title.clone(),
+        summary: None,
+        agent_summary: None,
+        files: changeset
+            .files
+            .iter()
+            .map(project_extension_diff_file)
+            .collect(),
     }
 }
 
@@ -265,7 +286,7 @@ mod tests {
             summary: Some("original".into()),
             annotations: Vec::new(),
         });
-        let mut public = to_extension_diff_file(&source);
+        let mut public = project_extension_diff_file(&source);
         assert_eq!(public.change_type, "change");
         assert_eq!(public.hunks.len(), 1);
         assert_eq!(public.hunks[0].index, 0);
@@ -284,7 +305,7 @@ mod tests {
         );
 
         source.hunks.clear();
-        let without_hunks = to_extension_diff_file(&source);
+        let without_hunks = project_extension_diff_file(&source);
         assert!(without_hunks.hunks.is_empty());
     }
 
