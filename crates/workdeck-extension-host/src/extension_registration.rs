@@ -202,9 +202,9 @@ pub fn normalize_and_validate_registrations(
                     return Err("themes require non-empty ids".into());
                 }
             }
-            Registration::VcsAdapter { id, .. } => {
-                if id.trim().is_empty() {
-                    return Err("VCS adapters require non-empty ids".into());
+            Registration::VcsAdapter(adapter) => {
+                if adapter.id.trim().is_empty() || adapter.name.trim().is_empty() {
+                    return Err("VCS adapters require non-empty ids and names".into());
                 }
             }
             Registration::ChangesetTransform { id } => {
@@ -555,10 +555,12 @@ mod tests {
                 base: None,
                 colors: BTreeMap::new(),
             }),
-            Registration::VcsAdapter {
+            Registration::VcsAdapter(workdeck_extension_api::ExtensionVcsAdapterRegistration {
                 id: "hg".into(),
-                markers: vec![".hg".into()],
-            },
+                name: "Mercurial".into(),
+                operations: BTreeMap::new(),
+                detection_priority: None,
+            }),
             Registration::ChangesetTransform { id: "clean".into() },
             Registration::FileView {
                 id: "plain".into(),

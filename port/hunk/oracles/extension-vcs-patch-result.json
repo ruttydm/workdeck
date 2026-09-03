@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "captured_with": "bun 1.3.5 executing the untouched pinned src/extensions/vcsPatchResult.test.ts",
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "source_blob": "5406973581d998188a55a8456ced7ad1ccc674fc",
+      "test_blob": "fa22cc56a0ff7930c2053d13fcbb6230373dc7e3",
+      "tests": 14,
+      "passed": 14,
+      "failed": 0,
+      "expect_calls": 39
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "source_blob": "5406973581d998188a55a8456ced7ad1ccc674fc",
+      "test_blob": "fa22cc56a0ff7930c2053d13fcbb6230373dc7e3",
+      "tests": 14,
+      "passed": 14,
+      "failed": 0,
+      "expect_calls": 39
+    }
+  ],
+  "native_adaptation": {
+    "source_reader": "the native load response returns a load token; the host converts it into an error-preserving cached provider-neutral reader on the same subprocess",
+    "binary_and_large": "materialization never invokes source callbacks for binary or structurally skipped files",
+    "retry": "failed native source requests are not cached and a later call reaches the extension again",
+    "too_large": "structural too-large answers are cached with the declared or default byte ceiling",
+    "extra_files": "one-file patches and skipped placeholders retain producer order, paths, rename metadata, flags, statistics, and exact-source capability",
+    "user_errors": "WorkdeckExtensionUserError has the same structural normalization and suggestion filtering under Workdeck branding",
+    "operation_shape": "a Rust registration map entry is the typed declaration that load exists; omission produces the same unsupported-operation path and JavaScript non-functions cannot be encoded"
+  },
+  "test_mapping": [
+    {
+      "source_test": "become a per-file fetcher that reads each side once",
+      "rust_tests": ["one_native_process_serves_detection_load_sources_watch_and_retained_tui_clone"]
+    },
+    {
+      "source_test": "are never consulted for binary files",
+      "rust_tests": ["materialize::tests::exact_sources_cover_extra_patches_but_never_binary_or_skipped_files"]
+    },
+    {
+      "source_test": "do not cache a failed read, so expansion can be retried",
+      "rust_tests": ["one_native_process_serves_detection_load_sources_watch_and_retained_tui_clone"]
+    },
+    {
+      "source_test": "translate and cache public too-large results without re-reading the adapter",
+      "rust_tests": ["one_native_process_serves_detection_load_sources_watch_and_retained_tui_clone"]
+    },
+    {
+      "source_test": "are absent when the result declares none",
+      "rust_tests": ["materialize::tests::empty_patch_retains_declarative_extra_files"]
+    },
+    {
+      "source_test": "build a diff file from a one-file patch, labeled with the declared path",
+      "rust_tests": ["native_vcs::tests::extra_patch_and_skipped_files_retain_declared_metadata", "materialize::tests::exact_sources_cover_extra_patches_but_never_binary_or_skipped_files"]
+    },
+    {
+      "source_test": "build a placeholder for a skipped file with no content to read",
+      "rust_tests": ["native_vcs::tests::extra_patch_and_skipped_files_retain_declared_metadata", "materialize::tests::exact_sources_cover_extra_patches_but_never_binary_or_skipped_files"]
+    },
+    {
+      "source_test": "defaults a skipped file to a modification with no counted lines",
+      "rust_tests": ["native_vcs::tests::extra_patch_and_skipped_files_retain_declared_metadata"]
+    },
+    {
+      "source_test": "keeps declared order and numbers ids by position",
+      "rust_tests": ["native_vcs::tests::extra_patch_and_skipped_files_retain_declared_metadata"]
+    },
+    {
+      "source_test": "normalize into Hunk's own user-facing error",
+      "rust_tests": ["run_errors::tests::published_extension_errors_use_the_same_format"]
+    },
+    {
+      "source_test": "are recognized structurally, so a plain object carries the same weight",
+      "rust_tests": ["run_errors::tests::recognizes_and_defensively_normalizes_the_structural_wire_shape"]
+    },
+    {
+      "source_test": "leave ordinary failures alone",
+      "rust_tests": ["run_errors::tests::unexpected_stacks_are_visible_only_in_debug_mode"]
+    },
+    {
+      "source_test": "reach the user through the adapter boundary",
+      "rust_tests": ["one_native_process_serves_detection_load_sources_watch_and_retained_tui_clone"]
+    },
+    {
+      "source_test": "drop an operation whose load is not callable rather than crashing mid-review",
+      "rust_tests": ["catalog::tests::stash_error_recommends_the_catalog_adapter_that_supports_it"]
+    }
+  ],
+  "rust_commands": [
+    "cargo test -p workdeck-core --lib",
+    "cargo test -p workdeck-vcs --lib",
+    "cargo test -p workdeck-extension-host --lib",
+    "cargo test -p workdeck-examples --test native_vcs_extension"
+  ]
+}

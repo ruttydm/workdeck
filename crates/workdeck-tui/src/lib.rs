@@ -5178,7 +5178,7 @@ impl ThemeController {
 }
 
 pub fn run_review(changeset: Changeset, options: ReviewOptions) -> Result<()> {
-    run_review_inner(changeset, options, Vec::new(), None, None)
+    run_review_inner(changeset, options, Vec::new(), None, None, None)
 }
 
 pub fn run_review_with_extensions(
@@ -5186,7 +5186,7 @@ pub fn run_review_with_extensions(
     options: ReviewOptions,
     extensions: Vec<LoadedExtension>,
 ) -> Result<()> {
-    run_review_inner(changeset, options, extensions, None, None)
+    run_review_inner(changeset, options, extensions, None, None, None)
 }
 
 pub fn run_review_with_reload<F>(
@@ -5197,7 +5197,7 @@ pub fn run_review_with_reload<F>(
 where
     F: FnMut() -> Result<Changeset>,
 {
-    run_review_inner(changeset, options, Vec::new(), None, Some(reload))
+    run_review_inner(changeset, options, Vec::new(), None, None, Some(reload))
 }
 
 pub fn run_review_with_extensions_reload<F>(
@@ -5209,7 +5209,7 @@ pub fn run_review_with_extensions_reload<F>(
 where
     F: FnMut() -> Result<Changeset>,
 {
-    run_review_inner(changeset, options, extensions, None, Some(reload))
+    run_review_inner(changeset, options, extensions, None, None, Some(reload))
 }
 
 /// Run a reloadable review while retaining the provider-neutral input needed
@@ -5229,6 +5229,7 @@ where
         options,
         Vec::new(),
         Some((input, input_cwd)),
+        None,
         Some(reload),
     )
 }
@@ -5249,6 +5250,30 @@ where
         options,
         extensions,
         Some((input, input_cwd)),
+        None,
+        Some(reload),
+    )
+}
+
+/// Run a native-extension-backed review with the exact catalog used for initial loading.
+pub fn run_review_with_extensions_catalog_input_reload<F>(
+    changeset: Changeset,
+    options: ReviewOptions,
+    extensions: Vec<LoadedExtension>,
+    input: workdeck_core::CliInput,
+    input_cwd: PathBuf,
+    vcs_catalog: workdeck_vcs::VcsCatalog,
+    reload: &mut F,
+) -> Result<()>
+where
+    F: FnMut() -> Result<Changeset>,
+{
+    run_review_inner(
+        changeset,
+        options,
+        extensions,
+        Some((input, input_cwd)),
+        Some(vcs_catalog),
         Some(reload),
     )
 }
@@ -5258,6 +5283,7 @@ fn run_review_inner(
     mut options: ReviewOptions,
     extensions: Vec<LoadedExtension>,
     watch_input: Option<(workdeck_core::CliInput, PathBuf)>,
+    watch_vcs_catalog: Option<workdeck_vcs::VcsCatalog>,
     mut reloader: Option<&mut dyn FnMut() -> Result<Changeset>>,
 ) -> Result<()> {
     if !io::stdout().is_terminal() {
@@ -5277,12 +5303,14 @@ fn run_review_inner(
         .unwrap_or_else(std::env::current_dir)?;
     options.review_input = watch_input.as_ref().map(|(input, _)| input.clone());
     let mut app = ReviewApp::new_with_extensions(changeset, options, extensions);
+    let watch_vcs_catalog =
+        watch_vcs_catalog.unwrap_or_else(|| workdeck_vcs::bundled_vcs_catalog().clone());
     let mut watched_input = watch_input
         .filter(|_| app.options.watch)
         .and_then(|(input, cwd)| {
             let runtime: Arc<dyn WatchedInputRuntime> = Arc::new(NativeWatchedInputRuntime::new(
                 cwd,
-                Some(workdeck_vcs::bundled_vcs_catalog().clone()),
+                Some(watch_vcs_catalog.clone()),
             ));
             match WatchedInputDriver::start(
                 true,

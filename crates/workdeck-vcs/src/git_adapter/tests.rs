@@ -111,8 +111,8 @@ fn comparable(path: &Path) -> PathBuf {
     fs::canonicalize(path).unwrap_or_else(|_| path.to_owned())
 }
 
-fn source_content(result: VcsFileSourceResult) -> Option<String> {
-    match result {
+fn source_content(result: Result<VcsFileSourceResult, VcsCatalogError>) -> Option<String> {
+    match result.unwrap() {
         VcsFileSourceResult::Source(source) => Some(source.content),
         VcsFileSourceResult::Missing | VcsFileSourceResult::TooLarge { .. } => None,
     }
@@ -226,6 +226,7 @@ fn loads_working_tree_and_untracked_paths_through_neutral_operation() {
         path: "tracked.txt".into(),
         previous_path: None,
         change_kind: FileChangeKind::Modified,
+        is_untracked: false,
         side: ReviewSide::Old,
     };
     assert_eq!(source_content(reader(&request)), Some("old\n".into()));
@@ -278,6 +279,7 @@ fn loads_two_revision_diff_with_exact_sources_and_no_untracked_paths() {
         path: "tracked.txt".into(),
         previous_path: None,
         change_kind: FileChangeKind::Modified,
+        is_untracked: false,
         side: ReviewSide::Old,
     };
     assert_eq!(
@@ -322,6 +324,7 @@ fn loads_revision_and_stash_patches_with_source_capabilities() {
         path: "file.txt".into(),
         previous_path: None,
         change_kind: FileChangeKind::Modified,
+        is_untracked: false,
         side: ReviewSide::Old,
     };
     assert_eq!(source_content(reader(&request)), Some("one\n".into()));

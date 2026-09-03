@@ -9,12 +9,14 @@ mod extension_ids;
 mod file_views;
 mod keys;
 mod panes;
+mod vcs;
 
 pub use bundled_ui::*;
 pub use extension_ids::*;
 pub use file_views::*;
 pub use keys::*;
 pub use panes::*;
+pub use vcs::*;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -552,10 +554,7 @@ pub enum Registration {
     CliCommand(CliCommandRegistration),
     Pane(PaneRegistration),
     Theme(ThemeRegistration),
-    VcsAdapter {
-        id: String,
-        markers: Vec<String>,
-    },
+    VcsAdapter(ExtensionVcsAdapterRegistration),
     ChangesetTransform {
         id: String,
     },
@@ -584,7 +583,7 @@ impl Registration {
             Self::CliCommand(value) => format!("cli-command:{}", value.name),
             Self::Pane(value) => format!("pane:{}", value.id),
             Self::Theme(value) => format!("theme:{}", value.id),
-            Self::VcsAdapter { id, .. } => format!("vcs-adapter:{id}"),
+            Self::VcsAdapter(value) => format!("vcs-adapter:{}", value.id),
             Self::ChangesetTransform { id } => format!("changeset-transform:{id}"),
             Self::FileView { id, .. } => format!("file-view:{id}"),
             Self::FileLanguage(value) => format!("file-language:{}", value.matcher.key()),
@@ -601,7 +600,7 @@ impl Registration {
             Self::CliCommand(_) => Capability::CliCommands,
             Self::Pane(_) => Capability::Panes,
             Self::Theme(_) => Capability::Themes,
-            Self::VcsAdapter { .. } => Capability::VcsAdapters,
+            Self::VcsAdapter(_) => Capability::VcsAdapters,
             Self::ChangesetTransform { .. } => Capability::ChangesetTransforms,
             Self::FileView { .. } => Capability::FileViews,
             Self::FileLanguage(_) => Capability::FileLanguages,

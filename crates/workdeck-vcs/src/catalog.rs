@@ -85,6 +85,7 @@ pub struct VcsFileSourceRequest {
     pub path: String,
     pub previous_path: Option<String>,
     pub change_kind: FileChangeKind,
+    pub is_untracked: bool,
     pub side: ReviewSide,
 }
 
@@ -95,7 +96,9 @@ pub enum VcsFileSourceResult {
     TooLarge { max_bytes: usize },
 }
 
-pub type VcsSourceReader = Arc<dyn Fn(&VcsFileSourceRequest) -> VcsFileSourceResult + Send + Sync>;
+pub type VcsSourceReader = Arc<
+    dyn Fn(&VcsFileSourceRequest) -> Result<VcsFileSourceResult, VcsCatalogError> + Send + Sync,
+>;
 
 #[derive(Clone)]
 pub struct VcsPatchResult {

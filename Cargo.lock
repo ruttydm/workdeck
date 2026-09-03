@@ -3180,6 +3180,7 @@ dependencies = [
  "workdeck-markup",
  "workdeck-review",
  "workdeck-tui",
+ "workdeck-vcs",
 ]
 
 [[package]]
@@ -3208,6 +3209,7 @@ dependencies = [
  "workdeck-diff",
  "workdeck-extension-api",
  "workdeck-review",
+ "workdeck-vcs",
 ]
 
 [[package]]

@@ -115,50 +115,52 @@ fn create_jujutsu_source_capability(
     let root = repo_root.to_owned();
     let new_commit_id = endpoints.new_commit_id.clone();
     let executable = jj_executable.to_owned();
-    let reader: VcsSourceReader = Arc::new(move |request| match request.side {
-        ReviewSide::Old => {
-            if matches!(
-                request.change_kind,
-                FileChangeKind::Added | FileChangeKind::Untracked
-            ) {
-                return VcsFileSourceResult::Missing;
+    let reader: VcsSourceReader = Arc::new(move |request| {
+        Ok(match request.side {
+            ReviewSide::Old => {
+                if matches!(
+                    request.change_kind,
+                    FileChangeKind::Added | FileChangeKind::Untracked
+                ) {
+                    return Ok(VcsFileSourceResult::Missing);
+                }
+                let Some(commit_id) = &old_commit_id else {
+                    return Ok(VcsFileSourceResult::Missing);
+                };
+                let path = request.previous_path.as_deref().unwrap_or(&request.path);
+                source_result(
+                    read_jj_file_source(
+                        &JujutsuFileSourceSpec {
+                            repo_root: root.clone(),
+                            commit_id: commit_id.clone(),
+                            path: path.into(),
+                        },
+                        &JujutsuFileSourceOptions {
+                            jj_executable: executable.clone(),
+                            ..JujutsuFileSourceOptions::default()
+                        },
+                    ),
+                    commit_id,
+                )
             }
-            let Some(commit_id) = &old_commit_id else {
-                return VcsFileSourceResult::Missing;
-            };
-            let path = request.previous_path.as_deref().unwrap_or(&request.path);
-            source_result(
+            ReviewSide::New if request.change_kind == FileChangeKind::Deleted => {
+                VcsFileSourceResult::Missing
+            }
+            ReviewSide::New => source_result(
                 read_jj_file_source(
                     &JujutsuFileSourceSpec {
                         repo_root: root.clone(),
-                        commit_id: commit_id.clone(),
-                        path: path.into(),
+                        commit_id: new_commit_id.clone(),
+                        path: request.path.clone(),
                     },
                     &JujutsuFileSourceOptions {
                         jj_executable: executable.clone(),
                         ..JujutsuFileSourceOptions::default()
                     },
                 ),
-                commit_id,
-            )
-        }
-        ReviewSide::New if request.change_kind == FileChangeKind::Deleted => {
-            VcsFileSourceResult::Missing
-        }
-        ReviewSide::New => source_result(
-            read_jj_file_source(
-                &JujutsuFileSourceSpec {
-                    repo_root: root.clone(),
-                    commit_id: new_commit_id.clone(),
-                    path: request.path.clone(),
-                },
-                &JujutsuFileSourceOptions {
-                    jj_executable: executable.clone(),
-                    ..JujutsuFileSourceOptions::default()
-                },
+                &new_commit_id,
             ),
-            &new_commit_id,
-        ),
+        })
     });
     JujutsuSourceCapability {
         read_file_source: reader,

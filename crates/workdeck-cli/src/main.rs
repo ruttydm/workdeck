@@ -24,10 +24,10 @@ use workdeck_cli::store::{
     Project, ReferenceData, StoreEvent, WorkdeckStore,
 };
 use workdeck_core::{
-    AgentContext, Changeset, CliInput, CommonOptions, DiffToolCommandInput, InputCursorLine,
-    InputLayoutMode, PatchCommandInput, ReviewSide, SelfUpdateCommandInput, SidebarVisibility,
-    VcsDiffCommandInput, VcsRangeEndpoints, VcsShowCommandInput, VcsStashShowCommandInput,
-    resolve_app_state_path,
+    AgentContext, Changeset, ChangesetSource, CliInput, CommonOptions, DiffToolCommandInput,
+    InputCursorLine, InputLayoutMode, PatchCommandInput, ReviewSide, SelfUpdateCommandInput,
+    SidebarVisibility, VcsDiffCommandInput, VcsRangeEndpoints, VcsShowCommandInput,
+    VcsStashShowCommandInput, resolve_app_state_path,
 };
 use workdeck_diff::{LanguageMatcher, LanguageRegistration, LanguageRegistry};
 use workdeck_extension_api::{
@@ -36,7 +36,7 @@ use workdeck_extension_api::{
 };
 use workdeck_extension_host::{
     LoadExtensionsOptions, LoadedExtension, TrustDecision, TrustStore,
-    discover_manifests_with_config, load_extensions,
+    discover_manifests_with_config, load_extensions, native_vcs_adapters,
 };
 use workdeck_review::{
     CommentTargetInput, LayoutMode, ReviewComment, build_live_comment, find_diff_file_by_path,
@@ -52,8 +52,10 @@ use workdeck_tui::{
     ReviewOptions, UserKeyBindingEntry,
 };
 use workdeck_vcs::{
-    AnyProvider, DiffRequest, GitProvider, ProviderPreference, VcsProvider,
-    find_project_root_candidate, parse_patch_input,
+    AnyProvider, GitProvider, ProviderPreference, VcsAdapter, VcsCatalog, VcsLoadContext,
+    VcsReviewInput, bundled_vcs_catalog, detect_vcs, extend_vcs_catalog,
+    find_project_root_candidate, get_default_vcs_adapter, get_vcs_adapter, load_vcs_review,
+    materialize_vcs_patch_result, operation_from_input, parse_patch_input,
 };
 
 use crate::extension_cli_commands::{
@@ -524,30 +526,10 @@ enum CursorLineArg {
     Off,
 }
 
-#[derive(Debug, Clone, Copy, Default, ValueEnum)]
-enum VcsArg {
-    #[default]
-    Auto,
-    Git,
-    Jj,
-    Sl,
-}
-
-impl VcsArg {
-    fn preference(self) -> ProviderPreference {
-        match self {
-            Self::Auto => ProviderPreference::Auto,
-            Self::Git => ProviderPreference::Git,
-            Self::Jj => ProviderPreference::Jujutsu,
-            Self::Sl => ProviderPreference::Sapling,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Default, ClapArgs)]
 struct ReviewCliOptions {
-    #[arg(long, value_enum)]
-    vcs: Option<VcsArg>,
+    #[arg(long, value_name = "ID")]
+    vcs: Option<String>,
     #[arg(long, value_enum)]
     mode: Option<ReviewLayoutArg>,
     #[arg(
@@ -617,12 +599,7 @@ struct ReviewCliOptions {
 impl ReviewCliOptions {
     fn from_config(config: &Config) -> Self {
         Self {
-            vcs: Some(match config.review.vcs.as_str() {
-                "git" => VcsArg::Git,
-                "jj" => VcsArg::Jj,
-                "sl" => VcsArg::Sl,
-                _ => VcsArg::Auto,
-            }),
+            vcs: Some(config.review.vcs.clone()),
             mode: Some(match config.review.mode.as_str() {
                 "split" => ReviewLayoutArg::Split,
                 "stack" => ReviewLayoutArg::Stack,
@@ -670,7 +647,9 @@ impl ReviewCliOptions {
 
     fn apply_config_defaults(&mut self, config: &Config) {
         let configured = Self::from_config(config);
-        self.vcs = self.vcs.or(configured.vcs);
+        if self.vcs.is_none() {
+            self.vcs = configured.vcs;
+        }
         self.mode = self.mode.or(configured.mode);
         self.tab_width = self.tab_width.or(configured.tab_width);
         self.cursor_line = self.cursor_line.or(configured.cursor_line);
@@ -716,7 +695,16 @@ impl ReviewCliOptions {
     }
 
     fn preference(&self) -> ProviderPreference {
-        self.vcs.unwrap_or(VcsArg::Auto).preference()
+        match self.vcs.as_deref() {
+            Some("git") => ProviderPreference::Git,
+            Some("jj") => ProviderPreference::Jujutsu,
+            Some("sl") => ProviderPreference::Sapling,
+            _ => ProviderPreference::Auto,
+        }
+    }
+
+    fn configured_vcs_id(&self) -> Option<&str> {
+        self.vcs.as_deref().filter(|id| *id != "auto")
     }
 
     fn tui_options(&self) -> ReviewOptions {
@@ -776,12 +764,11 @@ impl ReviewCliOptions {
                 CursorLineArg::Number => InputCursorLine::Number,
                 CursorLineArg::Off => InputCursorLine::Off,
             }),
-            vcs: self.vcs.and_then(|vcs| match vcs {
-                VcsArg::Auto => None,
-                VcsArg::Git => Some("git".into()),
-                VcsArg::Jj => Some("jj".into()),
-                VcsArg::Sl => Some("sl".into()),
-            }),
+            vcs: self
+                .vcs
+                .as_deref()
+                .filter(|id| *id != "auto")
+                .map(str::to_owned),
             theme: self.theme.clone(),
             agent_context: self
                 .agent_context
@@ -822,7 +809,7 @@ mod review_cli_option_tests {
     #[test]
     fn common_options_preserve_the_resolved_review_input_for_native_reload() {
         let options = ReviewCliOptions {
-            vcs: Some(VcsArg::Jj),
+            vcs: Some("jj".into()),
             mode: Some(ReviewLayoutArg::Split),
             watch: true,
             pager: true,
@@ -868,7 +855,7 @@ mod review_cli_option_tests {
     #[test]
     fn automatic_vcs_and_explicit_disable_flags_keep_provider_neutral_defaults() {
         let options = ReviewCliOptions {
-            vcs: Some(VcsArg::Auto),
+            vcs: Some("auto".into()),
             no_watch: true,
             no_extensions: true,
             ..ReviewCliOptions::default()
@@ -877,6 +864,19 @@ mod review_cli_option_tests {
         assert_eq!(common.vcs, None);
         assert_eq!(common.watch, Some(false));
         assert_eq!(common.extensions, Some(false));
+    }
+
+    #[test]
+    fn custom_native_vcs_ids_are_not_rejected_by_cli_parsing() {
+        let parsed =
+            Args::try_parse_from(["workdeck", "diff", "--vcs", "fossil-tools", "--no-watch"])
+                .unwrap();
+        let Some(Command::Diff { review, .. }) = parsed.command else {
+            panic!("expected diff command");
+        };
+        assert_eq!(review.configured_vcs_id(), Some("fossil-tools"));
+        assert_eq!(review.preference(), ProviderPreference::Auto);
+        assert_eq!(review.common_options().vcs.as_deref(), Some("fossil-tools"));
     }
 
     #[test]
@@ -1752,36 +1752,40 @@ fn run(mut args: Args) -> Result<()> {
         }
         return Ok(());
     }
-    let provider = AnyProvider::discover(
-        &args.cwd,
-        ProviderPreference::parse(&config.review.vcs).map_err(anyhow::Error::from)?,
-    )
-    .map_err(anyhow::Error::from)?;
-    let request = DiffRequest {
-        exclude_untracked: config.review.exclude_untracked,
-        color_moved: config.review.color_moved,
-        ..DiffRequest::default()
-    };
-    let changeset = provider
-        .working_tree(&request)
-        .map_err(anyhow::Error::from)?;
+    let mut review = ReviewCliOptions::from_config(&config);
+    review.extension = args.extension;
+    review.no_extensions = args.no_extensions && !args.extensions;
+    let mut prepared_extensions = prepare_review_extensions(&args.cwd, &review)?;
+    let catalog = compose_review_vcs_catalog(&prepared_extensions.extensions);
+    prepared_extensions.vcs_catalog = Some(catalog.clone());
+    let mut vcs_input = VcsReviewInput::Diff(VcsDiffCommandInput {
+        range: None,
+        range_endpoints: None,
+        staged: false,
+        pathspecs: Vec::new(),
+        options: {
+            let mut options = review.common_options();
+            options.exclude_untracked = Some(config.review.exclude_untracked);
+            options
+        },
+    });
+    let adapter = select_review_vcs_adapter(&args.cwd, review.configured_vcs_id(), &catalog)?;
+    vcs_input_options_mut(&mut vcs_input).vcs = Some(adapter.id.clone());
+    let changeset = load_selected_vcs_changeset(&args.cwd, &adapter, &catalog, &vcs_input)?;
     if !changeset.is_empty() {
-        let mut review = ReviewCliOptions::from_config(&config);
-        review.extension = args.extension;
-        review.no_extensions = args.no_extensions && !args.extensions;
-        let (mut extensions, notifications, pending_trust_repo_root) =
-            load_review_extensions(&repo_root, &review)?;
-        let changeset = apply_review_extensions(changeset, &mut extensions)?;
-        let mut options = review.tui_options();
-        options.extension_notifications = Some(notifications.clone());
-        options.pending_extension_trust_repo_root = pending_trust_repo_root;
-        options.extension_trust_handler = Some(review_extension_trust_handler(
-            &repo_root,
-            &review,
-            &notifications,
-        ));
-        let app = App::with_review(&args.cwd, changeset, options, extensions)?;
-        workdeck_cli::tui::run(app)
+        let session_input = match &vcs_input {
+            VcsReviewInput::Diff(input) => CliInput::Vcs(input.clone()),
+            _ => unreachable!(),
+        };
+        let mut reload = || load_selected_vcs_changeset(&args.cwd, &adapter, &catalog, &vcs_input);
+        run_review_with_preloaded_extensions(
+            &args.cwd,
+            changeset,
+            review,
+            Some(session_input),
+            Some(&mut reload),
+            prepared_extensions,
+        )
     } else {
         let app = App::new(&args.cwd)?;
         workdeck_cli::tui::run(app)
@@ -1941,6 +1945,116 @@ struct PreparedPipedInput {
     _terminal: Option<workdeck_tui::ControllingTerminal<File>>,
 }
 
+struct PreparedReviewExtensions {
+    extensions: Vec<LoadedExtension>,
+    notifications: ExtensionNotificationHub,
+    pending_trust_repo_root: Option<PathBuf>,
+    vcs_catalog: Option<VcsCatalog>,
+}
+
+fn prepare_review_extensions(
+    cwd: &Path,
+    review: &ReviewCliOptions,
+) -> Result<PreparedReviewExtensions> {
+    let (extensions, notifications, pending_trust_repo_root) = load_review_extensions(cwd, review)?;
+    Ok(PreparedReviewExtensions {
+        extensions,
+        notifications,
+        pending_trust_repo_root,
+        vcs_catalog: None,
+    })
+}
+
+fn compose_review_vcs_catalog(extensions: &[LoadedExtension]) -> VcsCatalog {
+    extend_vcs_catalog(bundled_vcs_catalog(), native_vcs_adapters(extensions))
+}
+
+fn select_review_vcs_adapter(
+    cwd: &Path,
+    configured_id: Option<&str>,
+    catalog: &VcsCatalog,
+) -> Result<VcsAdapter> {
+    if let Some(id) = configured_id {
+        return get_vcs_adapter(id, catalog)
+            .cloned()
+            .map_err(anyhow::Error::from);
+    }
+    if let Some(detection) = detect_vcs(cwd, catalog) {
+        return get_vcs_adapter(&detection.id, catalog)
+            .cloned()
+            .map_err(anyhow::Error::from);
+    }
+    get_default_vcs_adapter(catalog)
+        .cloned()
+        .map_err(anyhow::Error::from)
+}
+
+fn vcs_input_options_mut(input: &mut VcsReviewInput) -> &mut CommonOptions {
+    match input {
+        VcsReviewInput::Diff(input) => &mut input.options,
+        VcsReviewInput::Show(input) => &mut input.options,
+        VcsReviewInput::StashShow(input) => &mut input.options,
+    }
+}
+
+fn load_selected_vcs_changeset(
+    cwd: &Path,
+    adapter: &VcsAdapter,
+    catalog: &VcsCatalog,
+    input: &VcsReviewInput,
+) -> Result<Changeset> {
+    let operation = operation_from_input(input.clone());
+    let result = load_vcs_review(
+        adapter,
+        &operation,
+        &VcsLoadContext {
+            cwd: cwd.to_owned(),
+        },
+        catalog,
+    )?;
+    let (suffix, source) = match input {
+        VcsReviewInput::Diff(input) => {
+            let source = if let Some(endpoints) = &input.range_endpoints {
+                ChangesetSource::Revision {
+                    from: Some(endpoints.from.clone()),
+                    to: endpoints.to.clone(),
+                }
+            } else if let Some(range) = &input.range {
+                ChangesetSource::Revision {
+                    from: Some(range.clone()),
+                    to: "WORKTREE".into(),
+                }
+            } else {
+                ChangesetSource::WorkingTree {
+                    staged: input.staged,
+                }
+            };
+            ("working".to_owned(), source)
+        }
+        VcsReviewInput::Show(input) => {
+            let reference = input.reference.as_deref().unwrap_or("HEAD");
+            (
+                format!("show:{reference}"),
+                ChangesetSource::Revision {
+                    from: None,
+                    to: reference.into(),
+                },
+            )
+        }
+        VcsReviewInput::StashShow(input) => {
+            let reference = input.reference.as_deref().unwrap_or("stash@{0}");
+            (
+                format!("stash:{reference}"),
+                ChangesetSource::Stash {
+                    reference: reference.into(),
+                },
+            )
+        }
+    };
+    materialize_vcs_patch_result(result, format!("{}:{suffix}", adapter.id), source)
+        .map_err(anyhow::Error::from)
+}
+
 fn prepare_piped_review_input(command: Option<&Command>) -> Result<Option<PreparedPipedInput>> {
     let reads_stdin = match command {
         Some(Command::Pager { .. }) => true,
@@ -1988,78 +2102,95 @@ fn handle_review_command(
                 [from, to] => (Some(from.clone()), Some(to.clone())),
                 _ => unreachable!("clap limits revisions to two"),
             };
-            let provider =
-                AnyProvider::discover(cwd, review.preference()).map_err(anyhow::Error::from)?;
-            let request = DiffRequest {
-                target: target.clone(),
-                from: from.clone(),
-                staged,
-                exclude_untracked,
-                pathspec,
-                color_moved: review.color_moved,
-            };
+            let mut prepared_extensions = prepare_review_extensions(cwd, &review)?;
+            let catalog = compose_review_vcs_catalog(&prepared_extensions.extensions);
+            prepared_extensions.vcs_catalog = Some(catalog.clone());
             let mut input_options = review.common_options();
             input_options.exclude_untracked = Some(exclude_untracked);
-            input_options.vcs = Some(provider.name().into());
-            let input = CliInput::Vcs(VcsDiffCommandInput {
+            let mut vcs_input = VcsReviewInput::Diff(VcsDiffCommandInput {
                 range: from.is_none().then(|| target.clone()).flatten(),
                 range_endpoints: from
                     .clone()
                     .zip(target.clone())
                     .map(|(from, to)| VcsRangeEndpoints { from, to }),
                 staged,
-                pathspecs: request.pathspec.clone(),
+                pathspecs: pathspec,
                 options: input_options,
             });
-            let changeset = provider
-                .working_tree(&request)
-                .map_err(anyhow::Error::from)?;
-            let mut reload = || provider.working_tree(&request).map_err(anyhow::Error::from);
-            run_review_with_options(cwd, changeset, review, Some(input), Some(&mut reload))
+            let adapter = select_review_vcs_adapter(cwd, review.configured_vcs_id(), &catalog)?;
+            vcs_input_options_mut(&mut vcs_input).vcs = Some(adapter.id.clone());
+            let changeset = load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)?;
+            let session_input = match &vcs_input {
+                VcsReviewInput::Diff(input) => CliInput::Vcs(input.clone()),
+                _ => unreachable!(),
+            };
+            let mut reload = || load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input);
+            run_review_with_preloaded_extensions(
+                cwd,
+                changeset,
+                review,
+                Some(session_input),
+                Some(&mut reload),
+                prepared_extensions,
+            )
         }
         Command::Show {
             target,
             pathspec,
             review,
         } => {
-            let provider =
-                AnyProvider::discover(cwd, review.preference()).map_err(anyhow::Error::from)?;
-            let mut input_options = review.common_options();
-            input_options.vcs = Some(provider.name().into());
-            let input = CliInput::Show(VcsShowCommandInput {
+            let mut prepared_extensions = prepare_review_extensions(cwd, &review)?;
+            let catalog = compose_review_vcs_catalog(&prepared_extensions.extensions);
+            prepared_extensions.vcs_catalog = Some(catalog.clone());
+            let mut vcs_input = VcsReviewInput::Show(VcsShowCommandInput {
                 reference: target.clone(),
                 pathspecs: pathspec.clone(),
-                options: input_options,
+                options: review.common_options(),
             });
-            let changeset = provider
-                .show(target.as_deref(), &pathspec)
-                .map_err(anyhow::Error::from)?;
-            let mut reload = || {
-                provider
-                    .show(target.as_deref(), &pathspec)
-                    .map_err(anyhow::Error::from)
+            let adapter = select_review_vcs_adapter(cwd, review.configured_vcs_id(), &catalog)?;
+            vcs_input_options_mut(&mut vcs_input).vcs = Some(adapter.id.clone());
+            let changeset = load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)?;
+            let session_input = match &vcs_input {
+                VcsReviewInput::Show(input) => CliInput::Show(input.clone()),
+                _ => unreachable!(),
             };
-            run_review_with_options(cwd, changeset, review, Some(input), Some(&mut reload))
+            let mut reload = || load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input);
+            run_review_with_preloaded_extensions(
+                cwd,
+                changeset,
+                review,
+                Some(session_input),
+                Some(&mut reload),
+                prepared_extensions,
+            )
         }
         Command::Stash {
             command: StashCommand::Show { reference, review },
         } => {
-            let mut input_options = review.common_options();
-            input_options.vcs = Some("git".into());
-            let input = CliInput::StashShow(VcsStashShowCommandInput {
+            let mut prepared_extensions = prepare_review_extensions(cwd, &review)?;
+            let catalog = compose_review_vcs_catalog(&prepared_extensions.extensions);
+            prepared_extensions.vcs_catalog = Some(catalog.clone());
+            let configured_id = review.configured_vcs_id().or(Some("git"));
+            let mut vcs_input = VcsReviewInput::StashShow(VcsStashShowCommandInput {
                 reference: reference.clone(),
-                options: input_options,
+                options: review.common_options(),
             });
-            let provider = GitProvider::discover(cwd).map_err(anyhow::Error::from)?;
-            let changeset = provider
-                .stash(reference.as_deref())
-                .map_err(anyhow::Error::from)?;
-            let mut reload = || {
-                provider
-                    .stash(reference.as_deref())
-                    .map_err(anyhow::Error::from)
+            let adapter = select_review_vcs_adapter(cwd, configured_id, &catalog)?;
+            vcs_input_options_mut(&mut vcs_input).vcs = Some(adapter.id.clone());
+            let changeset = load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)?;
+            let session_input = match &vcs_input {
+                VcsReviewInput::StashShow(input) => CliInput::StashShow(input.clone()),
+                _ => unreachable!(),
             };
-            run_review_with_options(cwd, changeset, review, Some(input), Some(&mut reload))
+            let mut reload = || load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input);
+            run_review_with_preloaded_extensions(
+                cwd,
+                changeset,
+                review,
+                Some(session_input),
+                Some(&mut reload),
+                prepared_extensions,
+            )
         }
         Command::Patch { file, review } => {
             let reload_path = file.clone().filter(|path| path != Path::new("-"));
@@ -2179,17 +2310,40 @@ fn attach_controlling_terminal_input() -> Result<workdeck_tui::ControllingTermin
 
 fn run_review_with_options(
     cwd: &Path,
+    changeset: Changeset,
+    review: ReviewCliOptions,
+    input: Option<CliInput>,
+    reloader: Option<&mut dyn FnMut() -> Result<Changeset>>,
+) -> Result<()> {
+    let prepared_extensions = prepare_review_extensions(cwd, &review)?;
+    run_review_with_preloaded_extensions(
+        cwd,
+        changeset,
+        review,
+        input,
+        reloader,
+        prepared_extensions,
+    )
+}
+
+fn run_review_with_preloaded_extensions(
+    cwd: &Path,
     mut changeset: Changeset,
     review: ReviewCliOptions,
     input: Option<CliInput>,
     reloader: Option<&mut dyn FnMut() -> Result<Changeset>>,
+    prepared_extensions: PreparedReviewExtensions,
 ) -> Result<()> {
     if review.watch && !review.no_watch && reloader.is_none() {
         bail!("--watch requires a file- or VCS-backed review input");
     }
     apply_agent_context(cwd, review.agent_context.as_deref(), &mut changeset)?;
-    let (mut extensions, notifications, pending_trust_repo_root) =
-        load_review_extensions(cwd, &review)?;
+    let PreparedReviewExtensions {
+        mut extensions,
+        notifications,
+        pending_trust_repo_root,
+        vcs_catalog,
+    } = prepared_extensions;
     changeset = apply_review_extensions(changeset, &mut extensions)?;
     let mut options = review.tui_options();
     options.extension_notifications = Some(notifications.clone());
@@ -2203,20 +2357,32 @@ fn run_review_with_options(
         .or_else(|| Some(cwd.to_owned()));
     if let Some(reloader) = reloader {
         let agent_context = review.agent_context.clone();
+        let mut reload_extensions = extensions.clone();
         let mut decorated_reload = || {
             let mut changeset = reloader()?;
             apply_agent_context(cwd, agent_context.as_deref(), &mut changeset)?;
-            Ok(changeset)
+            apply_review_extensions(changeset, &mut reload_extensions)
         };
         if let Some(input) = input {
-            workdeck_tui::run_review_with_extensions_input_reload(
-                changeset,
-                options,
-                extensions,
-                input,
-                cwd.to_owned(),
-                &mut decorated_reload,
-            )
+            match vcs_catalog {
+                None => workdeck_tui::run_review_with_extensions_input_reload(
+                    changeset,
+                    options,
+                    extensions,
+                    input,
+                    cwd.to_owned(),
+                    &mut decorated_reload,
+                ),
+                Some(catalog) => workdeck_tui::run_review_with_extensions_catalog_input_reload(
+                    changeset,
+                    options,
+                    extensions,
+                    input,
+                    cwd.to_owned(),
+                    catalog,
+                    &mut decorated_reload,
+                ),
+            }
         } else {
             workdeck_tui::run_review_with_extensions_reload(
                 changeset,

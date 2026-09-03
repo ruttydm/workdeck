@@ -56,6 +56,10 @@ path = "extensions/file-view-gallery/main.rs"
 name = "workdeck-example-file-view-gallery-mixed-review"
 path = "extensions/file-view-gallery/mixed-review/run.rs"
 
+[[bin]]
+name = "workdeck-example-native-vcs-extension"
+path = "extensions/native-vcs/main.rs"
+
 [dependencies]
 pulldown-cmark = "=0.13.4"
 ratatui = "0.29"
@@ -78,3 +82,4 @@ workdeck-diff = { path = "../crates/workdeck-diff" }
 workdeck-markup = { path = "../crates/workdeck-markup" }
 workdeck-extension-host = { path = "../crates/workdeck-extension-host" }
 workdeck-review = { path = "../crates/workdeck-review" }
+workdeck-vcs = { path = "../crates/workdeck-vcs" }

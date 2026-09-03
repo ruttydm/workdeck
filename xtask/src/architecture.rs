@@ -114,6 +114,7 @@ fn allowed_dependencies() -> BTreeMap<&'static str, BTreeSet<&'static str>> {
                 "workdeck-diff",
                 "workdeck-extension-api",
                 "workdeck-review",
+                "workdeck-vcs",
             ]),
         ),
         (

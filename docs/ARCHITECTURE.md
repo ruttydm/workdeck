@@ -13,7 +13,7 @@ Rust module tree. `cargo xtask verify` runs the same check before its build and 
 | `workdeck-extension-api` | core |
 | `workdeck-review` | core, extension API |
 | `workdeck-vcs` | core, diff |
-| `workdeck-extension-host` | core, diff, extension API, review |
+| `workdeck-extension-host` | core, diff, extension API, review, VCS |
 | `workdeck-session` | core, diff, review, VCS |
 | `workdeck-markup` | none |
 | `workdeck-migration` | none |
@@ -52,6 +52,10 @@ The checker also validates invariants that a crate graph alone cannot express:
 - extension lifecycle and custom events use owned snapshots, chronological per-process queues,
   nonblocking Ratatui polling, atomic revocation, and one bounded retirement window (see
   [Native extension events and pane actions](native-extension-events-and-pane-actions.md));
+- extension VCS adapters are declared in the atomic handshake, translated by the host into the
+  provider-neutral catalog, and share one serialized native process across initial load, exact
+  source reads, watch callbacks, reloads, and the TUI (see
+  [Native extension VCS adapters](native-extension-vcs-adapters.md));
 - the semantic review reducer is crate-internal and is reached through intents and
   `SemanticReviewStore` dispatch;
 - semantic notes cross into terminal-local file ids, line coordinates, draft shapes, and thread

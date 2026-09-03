@@ -54,8 +54,8 @@ fn comparable(path: &Path) -> PathBuf {
     path.canonicalize().unwrap_or_else(|_| path.to_owned())
 }
 
-fn source_content(result: VcsFileSourceResult) -> Option<String> {
-    match result {
+fn source_content(result: Result<VcsFileSourceResult, VcsCatalogError>) -> Option<String> {
+    match result.unwrap() {
         VcsFileSourceResult::Source(source) => Some(source.content),
         VcsFileSourceResult::Missing | VcsFileSourceResult::TooLarge { .. } => None,
     }
@@ -269,6 +269,7 @@ fn loads_working_copy_and_revision_patches_with_immutable_sources() {
         path: "file.txt".into(),
         previous_path: None,
         change_kind: FileChangeKind::Modified,
+        is_untracked: false,
         side: ReviewSide::Old,
     };
     assert_eq!(
@@ -346,6 +347,7 @@ fn expands_both_explicit_revision_endpoints_and_pins_the_patch() {
         path: "file.txt".into(),
         previous_path: None,
         change_kind: FileChangeKind::Modified,
+        is_untracked: false,
         side: ReviewSide::Old,
     };
     assert_eq!(
@@ -447,6 +449,7 @@ fn reads_rename_addition_and_deletion_sides_from_exact_paths() {
         path: "new-name.txt".into(),
         previous_path: Some("old-name.txt".into()),
         change_kind: FileChangeKind::Renamed,
+        is_untracked: false,
         side: ReviewSide::Old,
     };
     assert_eq!(
@@ -479,6 +482,7 @@ fn reads_rename_addition_and_deletion_sides_from_exact_paths() {
             path: "kind.txt".into(),
             previous_path: None,
             change_kind,
+            is_untracked: false,
             side,
         });
         assert_eq!(source_content(result).as_deref(), expected);
@@ -536,6 +540,7 @@ fn merge_expands_exact_new_side_without_guessing_virtual_old_tree() {
         path: "file.txt".into(),
         previous_path: None,
         change_kind: FileChangeKind::Modified,
+        is_untracked: false,
         side: ReviewSide::Old,
     };
     assert_eq!(

@@ -13,6 +13,7 @@ mod file_views;
 mod keyboard_mode;
 mod keyboard_mode_controller;
 mod line_highlights;
+mod native_vcs;
 mod runtime_boundary;
 mod synchronous_callbacks;
 
@@ -29,6 +30,7 @@ pub use file_views::*;
 pub use keyboard_mode::*;
 pub use keyboard_mode_controller::*;
 pub use line_highlights::*;
+pub use native_vcs::*;
 pub use runtime_boundary::*;
 pub use synchronous_callbacks::*;
 
@@ -39,7 +41,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex, MutexGuard, TryLockError, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -52,14 +54,18 @@ use workdeck_extension_api::{
     DEFAULT_REQUEST_TIMEOUT_MS, ExtensionCommandAvailability, ExtensionDiffFile,
     ExtensionEventContext, ExtensionFileSide, ExtensionHostAction, ExtensionKeyEvent,
     ExtensionManifest, ExtensionNotificationHub, ExtensionNotifyType, ExtensionPaneView,
-    ExtensionWorkspaceSnapshot, ExtensionWorkspaceWriteCompletion, FileViewLayoutRequest,
-    FileViewMatchRequest, FileViewModeKeyRequest, FileViewModeLifecycleRequest, HandshakeRequest,
-    HandshakeResponse, InputDialogSubmission, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
-    KeyboardModeExecution, KeyboardModeKeyRequest, KeyboardModeLifecycleRequest,
-    MAX_CLI_STDIN_CHUNK_BYTES, MAX_MESSAGE_BYTES, ManifestError, PaneActionInvocation,
-    PaneAvailabilityRequest, PaneAvailabilityResponse, PaneRenderRequest, PaneRenderResponse,
-    Registration, ReviewEvent, SelectDialogSubmission, TransformRequest, TransformResponse,
-    ValidatedFileViewLayout, validate_view,
+    ExtensionVcsAdapterRegistration, ExtensionVcsDetectRequest, ExtensionVcsFileSourceInvocation,
+    ExtensionVcsFileSourceRequest, ExtensionVcsFileSourceResult, ExtensionVcsOperationKind,
+    ExtensionVcsOperationRequest, ExtensionVcsPatchResult, ExtensionVcsReviewInput,
+    ExtensionVcsWatchPlan, ExtensionWorkspaceSnapshot, ExtensionWorkspaceWriteCompletion,
+    FileViewLayoutRequest, FileViewMatchRequest, FileViewModeKeyRequest,
+    FileViewModeLifecycleRequest, HandshakeRequest, HandshakeResponse, InputDialogSubmission,
+    JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, KeyboardModeExecution,
+    KeyboardModeKeyRequest, KeyboardModeLifecycleRequest, MAX_CLI_STDIN_CHUNK_BYTES,
+    MAX_MESSAGE_BYTES, ManifestError, PaneActionInvocation, PaneAvailabilityRequest,
+    PaneAvailabilityResponse, PaneRenderRequest, PaneRenderResponse, Registration, ReviewEvent,
+    SelectDialogSubmission, TransformRequest, TransformResponse, ValidatedFileViewLayout,
+    validate_view,
 };
 
 #[derive(Debug, Error)]
@@ -451,18 +457,36 @@ pub fn reconcile_scoped_epochs(
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LoadedExtension {
     pub manifest: ExtensionManifest,
     pub manifest_path: PathBuf,
     pub handshake: HandshakeResponse,
+    connection: Arc<Mutex<ExtensionConnection>>,
+    registry: Arc<ExtensionRuntimeRegistry>,
+    notifications: ExtensionNotificationHub,
+}
+
+#[derive(Debug)]
+struct ExtensionConnection {
     child: Child,
     stdin: ChildStdin,
     responses: mpsc::Receiver<Result<String, std::io::Error>>,
     next_id: u64,
     pending_request: Option<PendingExecutionRequest>,
     registry: Arc<ExtensionRuntimeRegistry>,
-    notifications: ExtensionNotificationHub,
+}
+
+impl Drop for ExtensionConnection {
+    fn drop(&mut self) {
+        if self.registry.phase() != ExtensionEventBusPhase::Closed {
+            let _ = self.registry.begin_closing();
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+            self.pending_request = None;
+            self.registry.set_phase(ExtensionEventBusPhase::Closed);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -599,6 +623,7 @@ impl LoadedExtension {
                 }
             }
         });
+        let registry = Arc::new(ExtensionRuntimeRegistry::new());
         let mut loaded = Self {
             manifest,
             manifest_path: resolved_manifest_path,
@@ -607,12 +632,15 @@ impl LoadedExtension {
                 extension_version: String::new(),
                 registrations: Vec::new(),
             },
-            child,
-            stdin,
-            responses,
-            next_id: 1,
-            pending_request: None,
-            registry: Arc::new(ExtensionRuntimeRegistry::new()),
+            connection: Arc::new(Mutex::new(ExtensionConnection {
+                child,
+                stdin,
+                responses,
+                next_id: 1,
+                pending_request: None,
+                registry: Arc::clone(&registry),
+            })),
+            registry,
             notifications,
         };
         let result = loaded.request(
@@ -661,6 +689,14 @@ impl LoadedExtension {
         self.notifications.clone()
     }
 
+    fn try_connection(&self) -> Result<MutexGuard<'_, ExtensionConnection>, HostError> {
+        match self.connection.try_lock() {
+            Ok(connection) => Ok(connection),
+            Err(TryLockError::WouldBlock) => Err(HostError::Busy(self.manifest.id.clone())),
+            Err(TryLockError::Poisoned(error)) => Ok(error.into_inner()),
+        }
+    }
+
     /// Revoke all retained authority and start best-effort native shutdown exactly once.
     ///
     /// This half is deliberately nonblocking so a collection of extensions can all receive the
@@ -681,19 +717,23 @@ impl LoadedExtension {
         if self.registry.phase() == ExtensionEventBusPhase::Closed {
             return;
         }
+        let Ok(mut connection) = self.try_connection() else {
+            self.registry.set_phase(ExtensionEventBusPhase::Closed);
+            return;
+        };
         if self.subscribes_to_event("shutdown") {
             while Instant::now() < deadline {
-                if self.child.try_wait().ok().flatten().is_some() {
-                    self.pending_request = None;
+                if connection.child.try_wait().ok().flatten().is_some() {
+                    connection.pending_request = None;
                     self.registry.set_phase(ExtensionEventBusPhase::Closed);
                     return;
                 }
                 thread::sleep(Duration::from_millis(2));
             }
         }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-        self.pending_request = None;
+        let _ = connection.child.kill();
+        let _ = connection.child.wait();
+        connection.pending_request = None;
         self.registry.set_phase(ExtensionEventBusPhase::Closed);
     }
 
@@ -709,17 +749,216 @@ impl LoadedExtension {
         params: impl Serialize,
         timeout: Duration,
     ) -> Result<Value, HostError> {
-        if self.pending_request.is_some() {
+        let mut connection = self.try_connection()?;
+        if connection.pending_request.is_some() {
             return Err(HostError::Busy(self.manifest.id.clone()));
         }
-        let id = self.send_request(method, params)?;
-        let line = self.receive_protocol_line(id, Instant::now() + timeout)?;
+        let id = self.send_request_on(&mut connection, method, params)?;
+        let line = self.receive_protocol_line_on(&connection, id, Instant::now() + timeout)?;
         self.decode_response(id, &line)
     }
 
-    fn send_request(&mut self, method: &str, params: impl Serialize) -> Result<u64, HostError> {
-        let id = self.next_id;
-        self.next_id = self.next_id.saturating_add(1);
+    fn vcs_adapter_registration(
+        &self,
+        adapter_id: &str,
+    ) -> Result<ExtensionVcsAdapterRegistration, HostError> {
+        self.handshake
+            .registrations
+            .iter()
+            .find_map(|registration| match registration {
+                Registration::VcsAdapter(adapter) if adapter.id == adapter_id => {
+                    Some(adapter.clone())
+                }
+                _ => None,
+            })
+            .ok_or_else(|| HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "VCS adapter",
+                message: format!("adapter {adapter_id:?} is not registered"),
+            })
+    }
+
+    fn require_vcs_operation(
+        &self,
+        adapter_id: &str,
+        operation: ExtensionVcsOperationKind,
+    ) -> Result<workdeck_extension_api::ExtensionVcsOperationRegistration, HostError> {
+        self.vcs_adapter_registration(adapter_id)?
+            .operations
+            .get(&operation)
+            .copied()
+            .ok_or_else(|| HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "VCS operation",
+                message: format!("adapter {adapter_id:?} does not register {operation:?}"),
+            })
+    }
+
+    /// Ask one registered native adapter whether it owns `cwd`.
+    ///
+    /// Detection stays permissive at this layer so the adapter-local normalizer can reproduce
+    /// Hunk's miss and mismatched-id behavior exactly.
+    pub fn detect_vcs_adapter(
+        &mut self,
+        adapter_id: &str,
+        cwd: PathBuf,
+        timeout: Duration,
+    ) -> Result<Value, HostError> {
+        self.vcs_adapter_registration(adapter_id)?;
+        self.request(
+            "workdeck/vcs/detect",
+            ExtensionVcsDetectRequest {
+                adapter_id: adapter_id.to_owned(),
+                cwd,
+            },
+            timeout,
+        )
+    }
+
+    /// Execute one declared VCS review operation through the native process.
+    pub fn load_vcs_operation(
+        &mut self,
+        adapter_id: &str,
+        operation: ExtensionVcsOperationKind,
+        input: ExtensionVcsReviewInput,
+        cwd: PathBuf,
+        timeout: Duration,
+    ) -> Result<ExtensionVcsPatchResult, HostError> {
+        self.require_vcs_operation(adapter_id, operation)?;
+        if !vcs_input_matches_operation(&input, operation) {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "VCS operation",
+                message: format!("input kind does not match {operation:?}"),
+            });
+        }
+        if matches!(
+            &input,
+            ExtensionVcsReviewInput::Vcs {
+                range: Some(_),
+                range_endpoints: Some(_),
+                ..
+            }
+        ) {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "VCS operation",
+                message: "range and rangeEndpoints are mutually exclusive".into(),
+            });
+        }
+        let value = self.request(
+            "workdeck/vcs/load",
+            ExtensionVcsOperationRequest {
+                adapter_id: adapter_id.to_owned(),
+                operation,
+                input,
+                context: workdeck_extension_api::ExtensionVcsLoadContext { cwd },
+            },
+            timeout,
+        )?;
+        serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+            id: self.manifest.id.clone(),
+            kind: "VCS patch result",
+            message: error.to_string(),
+        })
+    }
+
+    /// Read one exact file side from the operation-owned source snapshot.
+    pub fn read_vcs_file_source(
+        &mut self,
+        adapter_id: &str,
+        load_token: &str,
+        request: ExtensionVcsFileSourceRequest,
+        timeout: Duration,
+    ) -> Result<ExtensionVcsFileSourceResult, HostError> {
+        self.vcs_adapter_registration(adapter_id)?;
+        if load_token.is_empty() {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "VCS source reader",
+                message: "load token must be non-empty".into(),
+            });
+        }
+        let value = self.request(
+            "workdeck/vcs/source/read",
+            ExtensionVcsFileSourceInvocation {
+                adapter_id: adapter_id.to_owned(),
+                load_token: load_token.to_owned(),
+                request,
+            },
+            timeout,
+        )?;
+        serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+            id: self.manifest.id.clone(),
+            kind: "VCS source reader",
+            message: error.to_string(),
+        })
+    }
+
+    pub fn vcs_watch_signature(
+        &mut self,
+        request: ExtensionVcsOperationRequest,
+        timeout: Duration,
+    ) -> Result<String, HostError> {
+        let callbacks = self.require_vcs_operation(&request.adapter_id, request.operation)?;
+        if !callbacks.watch_signature {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "VCS watch signature",
+                message: "operation does not register watchSignature".into(),
+            });
+        }
+        if !vcs_input_matches_operation(&request.input, request.operation) {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "VCS watch signature",
+                message: "input kind does not match operation".into(),
+            });
+        }
+        let value = self.request("workdeck/vcs/watch-signature", request, timeout)?;
+        serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+            id: self.manifest.id.clone(),
+            kind: "VCS watch signature",
+            message: error.to_string(),
+        })
+    }
+
+    pub fn vcs_watch_plan(
+        &mut self,
+        request: ExtensionVcsOperationRequest,
+        timeout: Duration,
+    ) -> Result<ExtensionVcsWatchPlan, HostError> {
+        let callbacks = self.require_vcs_operation(&request.adapter_id, request.operation)?;
+        if !callbacks.watch_plan {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "VCS watch plan",
+                message: "operation does not register watchPlan".into(),
+            });
+        }
+        if !vcs_input_matches_operation(&request.input, request.operation) {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "VCS watch plan",
+                message: "input kind does not match operation".into(),
+            });
+        }
+        let value = self.request("workdeck/vcs/watch-plan", request, timeout)?;
+        serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+            id: self.manifest.id.clone(),
+            kind: "VCS watch plan",
+            message: error.to_string(),
+        })
+    }
+
+    fn send_request_on(
+        &self,
+        connection: &mut ExtensionConnection,
+        method: &str,
+        params: impl Serialize,
+    ) -> Result<u64, HostError> {
+        let id = connection.next_id;
+        connection.next_id = connection.next_id.saturating_add(1);
         let request =
             JsonRpcRequest::new(id, method, params).map_err(|source| HostError::InvalidJson {
                 id: self.manifest.id.clone(),
@@ -737,20 +976,26 @@ impl LoadedExtension {
             });
         }
         encoded.push(b'\n');
-        self.stdin
+        connection
+            .stdin
             .write_all(&encoded)
             .map_err(|source| HostError::Io {
                 id: self.manifest.id.clone(),
                 source,
             })?;
-        self.stdin.flush().map_err(|source| HostError::Io {
+        connection.stdin.flush().map_err(|source| HostError::Io {
             id: self.manifest.id.clone(),
             source,
         })?;
         Ok(id)
     }
 
-    fn send_notification(&mut self, method: &str, params: impl Serialize) -> Result<(), HostError> {
+    fn send_notification_on(
+        &self,
+        connection: &mut ExtensionConnection,
+        method: &str,
+        params: impl Serialize,
+    ) -> Result<(), HostError> {
         let notification =
             JsonRpcNotification::new(method, params).map_err(|source| HostError::InvalidJson {
                 id: self.manifest.id.clone(),
@@ -768,26 +1013,33 @@ impl LoadedExtension {
             });
         }
         encoded.push(b'\n');
-        self.stdin
+        connection
+            .stdin
             .write_all(&encoded)
             .map_err(|source| HostError::Io {
                 id: self.manifest.id.clone(),
                 source,
             })?;
-        self.stdin.flush().map_err(|source| HostError::Io {
+        connection.stdin.flush().map_err(|source| HostError::Io {
             id: self.manifest.id.clone(),
             source,
         })
     }
 
-    fn receive_protocol_line(
+    fn send_notification(&mut self, method: &str, params: impl Serialize) -> Result<(), HostError> {
+        let mut connection = self.try_connection()?;
+        self.send_notification_on(&mut connection, method, params)
+    }
+
+    fn receive_protocol_line_on(
         &self,
+        connection: &ExtensionConnection,
         expected_id: u64,
         deadline: Instant,
     ) -> Result<String, HostError> {
         loop {
             let timeout = deadline.saturating_duration_since(Instant::now());
-            let line = self
+            let line = connection
                 .responses
                 .recv_timeout(timeout)
                 .map_err(|error| match error {
@@ -962,7 +1214,12 @@ impl LoadedExtension {
             });
         }
 
-        let id = self.send_request(
+        let mut connection = self.try_connection()?;
+        if connection.pending_request.is_some() {
+            return Err(HostError::Busy(self.manifest.id.clone()));
+        }
+        let id = self.send_request_on(
+            &mut connection,
             "workdeck/cli/invoke",
             CliCommandInvocation {
                 command_name: command_name.to_owned(),
@@ -981,7 +1238,11 @@ impl LoadedExtension {
 
         let value = loop {
             if cancelled.load(Ordering::Acquire) && !cancellation_sent {
-                self.send_notification("$/cancelRequest", serde_json::json!({ "id": id }))?;
+                self.send_notification_on(
+                    &mut connection,
+                    "$/cancelRequest",
+                    serde_json::json!({ "id": id }),
+                )?;
                 cancellation_sent = true;
             }
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -989,7 +1250,7 @@ impl LoadedExtension {
                 return Err(HostError::Timeout(self.manifest.id.clone()));
             }
             let wait = remaining.min(Duration::from_millis(25));
-            let line = match self.responses.recv_timeout(wait) {
+            let line = match connection.responses.recv_timeout(wait) {
                 Ok(Ok(line)) => line,
                 Ok(Err(source)) => {
                     return Err(HostError::Io {
@@ -1077,7 +1338,8 @@ impl LoadedExtension {
                 bytes.truncate(count);
                 stdin_consumed |= count > 0;
                 stdin_done |= count == 0;
-                self.send_notification(
+                self.send_notification_on(
+                    &mut connection,
                     "workdeck/cli/stdin/chunk",
                     CliStdinChunk {
                         request_id: id,
@@ -1485,7 +1747,8 @@ impl LoadedExtension {
         if self.registry.phase() != ExtensionEventBusPhase::Ready {
             return Ok(());
         }
-        if self.pending_request.is_some() {
+        let mut connection = self.try_connection()?;
+        if connection.pending_request.is_some() {
             return Err(HostError::Busy(self.manifest.id.clone()));
         }
         if !self.subscribes_to_event(&event.name) {
@@ -1495,8 +1758,8 @@ impl LoadedExtension {
                 message: format!("event {:?} is not subscribed", event.name),
             });
         }
-        let id = self.send_request("workdeck/event", event)?;
-        self.pending_request = Some(PendingExecutionRequest {
+        let id = self.send_request_on(&mut connection, "workdeck/event", event)?;
+        connection.pending_request = Some(PendingExecutionRequest {
             id,
             deadline: Instant::now() + Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
             kind: PendingExecutionKind::Event,
@@ -1618,7 +1881,8 @@ impl LoadedExtension {
         if self.registry.phase() != ExtensionEventBusPhase::Ready {
             return Err(HostError::Closed(self.manifest.id.clone()));
         }
-        if self.pending_request.is_some() {
+        let mut connection = self.try_connection()?;
+        if connection.pending_request.is_some() {
             return Err(HostError::Busy(self.manifest.id.clone()));
         }
         if !self.handshake.registrations.iter().any(|registration| {
@@ -1631,7 +1895,8 @@ impl LoadedExtension {
             });
         }
         let selection = build_extension_review_selection_from_snapshot(&snapshot);
-        let id = self.send_request(
+        let id = self.send_request_on(
+            &mut connection,
             "workdeck/command/invoke",
             CommandInvocation {
                 command_id: command_id.to_owned(),
@@ -1645,7 +1910,7 @@ impl LoadedExtension {
                 commands,
             },
         )?;
-        self.pending_request = Some(PendingExecutionRequest {
+        connection.pending_request = Some(PendingExecutionRequest {
             id,
             deadline: Instant::now() + Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
             kind: PendingExecutionKind::Command,
@@ -1654,30 +1919,36 @@ impl LoadedExtension {
     }
 
     #[must_use]
-    pub const fn command_pending(&self) -> bool {
-        matches!(
-            self.pending_request,
-            Some(PendingExecutionRequest {
-                kind: PendingExecutionKind::Command,
-                ..
-            })
-        )
+    pub fn command_pending(&self) -> bool {
+        self.connection.try_lock().is_ok_and(|connection| {
+            matches!(
+                connection.pending_request,
+                Some(PendingExecutionRequest {
+                    kind: PendingExecutionKind::Command,
+                    ..
+                })
+            )
+        })
     }
 
     #[must_use]
-    pub const fn event_pending(&self) -> bool {
-        matches!(
-            self.pending_request,
-            Some(PendingExecutionRequest {
-                kind: PendingExecutionKind::Event,
-                ..
-            })
-        )
+    pub fn event_pending(&self) -> bool {
+        self.connection.try_lock().is_ok_and(|connection| {
+            matches!(
+                connection.pending_request,
+                Some(PendingExecutionRequest {
+                    kind: PendingExecutionKind::Event,
+                    ..
+                })
+            )
+        })
     }
 
     #[must_use]
-    pub const fn request_pending(&self) -> bool {
-        self.pending_request.is_some()
+    pub fn request_pending(&self) -> bool {
+        self.connection
+            .try_lock()
+            .map_or(true, |connection| connection.pending_request.is_some())
     }
 
     /// Poll the in-flight command once without blocking the host event loop.
@@ -1695,12 +1966,16 @@ impl LoadedExtension {
         expected: PendingExecutionKind,
         payload_kind: &'static str,
     ) -> Option<Result<CommandExecution, HostError>> {
-        let pending = self.pending_request?;
+        let mut connection = match self.try_connection() {
+            Ok(connection) => connection,
+            Err(error) => return Some(Err(error)),
+        };
+        let pending = connection.pending_request?;
         if pending.kind != expected {
             return None;
         }
         let line = loop {
-            match self.responses.try_recv() {
+            match connection.responses.try_recv() {
                 Ok(Ok(line)) => {
                     if parse_cli_output_notification(&line).is_some()
                         || parse_cli_stdin_read_notification(&line).is_some()
@@ -1715,28 +1990,29 @@ impl LoadedExtension {
                     break line;
                 }
                 Ok(Err(source)) => {
-                    self.pending_request = None;
+                    connection.pending_request = None;
                     return Some(Err(HostError::Io {
                         id: self.manifest.id.clone(),
                         source,
                     }));
                 }
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    self.pending_request = None;
+                    connection.pending_request = None;
                     return Some(Err(HostError::Closed(self.manifest.id.clone())));
                 }
                 Err(mpsc::TryRecvError::Empty) if Instant::now() >= pending.deadline => {
-                    let _ = self.send_notification(
+                    let _ = self.send_notification_on(
+                        &mut connection,
                         "$/cancelRequest",
                         serde_json::json!({ "id": pending.id }),
                     );
-                    self.pending_request = None;
+                    connection.pending_request = None;
                     return Some(Err(HostError::Timeout(self.manifest.id.clone())));
                 }
                 Err(mpsc::TryRecvError::Empty) => return None,
             }
         };
-        self.pending_request = None;
+        connection.pending_request = None;
         let result = self.decode_response(pending.id, &line).and_then(|value| {
             let execution: CommandExecution =
                 serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
@@ -2369,6 +2645,25 @@ fn validate_cli_execution(
     Ok(())
 }
 
+fn vcs_input_matches_operation(
+    input: &ExtensionVcsReviewInput,
+    operation: ExtensionVcsOperationKind,
+) -> bool {
+    matches!(
+        (input, operation),
+        (
+            ExtensionVcsReviewInput::Vcs { .. },
+            ExtensionVcsOperationKind::WorkingTreeDiff
+        ) | (
+            ExtensionVcsReviewInput::Show { .. },
+            ExtensionVcsOperationKind::RevisionShow
+        ) | (
+            ExtensionVcsReviewInput::StashShow { .. },
+            ExtensionVcsOperationKind::StashShow
+        )
+    )
+}
+
 #[cfg(test)]
 fn validate_registrations(
     manifest: &ExtensionManifest,
@@ -2385,7 +2680,9 @@ fn validate_registrations(
 
 impl Drop for LoadedExtension {
     fn drop(&mut self) {
-        self.retire();
+        if Arc::strong_count(&self.connection) == 1 {
+            self.retire();
+        }
     }
 }
 
@@ -2448,7 +2745,7 @@ mod tests {
     }
 
     #[test]
-    fn native_vcs_registration_has_no_implicit_operations_and_rejects_legacy_shapes() {
+    fn native_vcs_registration_defaults_to_no_operations_and_rejects_legacy_markers() {
         let manifest = ExtensionManifest {
             id: "fossil-tools".into(),
             name: "Fossil tools".into(),
@@ -2464,24 +2761,29 @@ mod tests {
             "registrations": [{
                 "kind": "vcs-adapter",
                 "id": "fossil",
-                "markers": [".fslckout"]
+                "name": "Fossil"
             }]
         }))
         .unwrap();
         validate_registrations(&manifest, &handshake).unwrap();
 
-        let legacy_operations = serde_json::from_value::<HandshakeResponse>(serde_json::json!({
+        let Registration::VcsAdapter(adapter) = &handshake.registrations[0] else {
+            panic!("expected VCS adapter");
+        };
+        assert!(adapter.operations.is_empty());
+
+        let legacy_markers = serde_json::from_value::<HandshakeResponse>(serde_json::json!({
             "extension_api_version": API_VERSION,
             "extension_version": "1.0.0",
             "registrations": [{
                 "kind": "vcs-adapter",
                 "id": "fossil",
-                "markers": [],
-                "operations": []
+                "name": "Fossil",
+                "markers": [".fslckout"]
             }]
         }))
         .unwrap_err();
-        assert!(legacy_operations.to_string().contains("operations"));
+        assert!(legacy_markers.to_string().contains("markers"));
     }
 
     #[test]

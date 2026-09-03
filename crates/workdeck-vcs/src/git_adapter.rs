@@ -174,10 +174,10 @@ fn create_git_source_capability(
                 FileChangeKind::Added | FileChangeKind::Untracked
             )
         {
-            return VcsFileSourceResult::Missing;
+            return Ok(VcsFileSourceResult::Missing);
         }
         if request.side == ReviewSide::New && request.change_kind == FileChangeKind::Deleted {
-            return VcsFileSourceResult::Missing;
+            return Ok(VcsFileSourceResult::Missing);
         }
         let (endpoint, path) = match request.side {
             ReviewSide::Old => (
@@ -193,7 +193,7 @@ fn create_git_source_capability(
                 ..GitFileSourceOptions::default()
             },
         );
-        match result {
+        Ok(match result {
             LimitedSourceTextResult::Text(content) => {
                 let origin = match endpoint {
                     GitDiffEndpoint::GitRef(reference) => SourceOrigin::Revision {
@@ -201,7 +201,7 @@ fn create_git_source_capability(
                     },
                     GitDiffEndpoint::Index => SourceOrigin::Index,
                     GitDiffEndpoint::Worktree => SourceOrigin::WorkingTree,
-                    GitDiffEndpoint::None => return VcsFileSourceResult::Missing,
+                    GitDiffEndpoint::None => return Ok(VcsFileSourceResult::Missing),
                 };
                 VcsFileSourceResult::Source(SourceSnapshot::new(content, origin, true))
             }
@@ -209,7 +209,7 @@ fn create_git_source_capability(
             LimitedSourceTextResult::TooLarge { max_bytes } => {
                 VcsFileSourceResult::TooLarge { max_bytes }
             }
-        }
+        })
     });
     Ok(GitSourceCapability {
         read_file_source: reader,

@@ -89,6 +89,9 @@ pub mod github_pr_extension;
 #[path = "../extensions/file-view-gallery/extension.rs"]
 pub mod file_view_gallery_extension;
 
+#[path = "../extensions/native-vcs/extension.rs"]
+pub mod native_vcs_extension;
+
 #[path = "../extensions/file-view-gallery/fixtures/change-atlas/after.rs"]
 pub mod file_view_gallery_change_atlas_after;
 #[path = "../extensions/file-view-gallery/fixtures/change-atlas/before.rs"]

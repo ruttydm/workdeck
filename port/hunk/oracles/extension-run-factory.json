@@ -33,8 +33,8 @@
     "callbacks": "typed registration variants declare the corresponding protocol callbacks; the Rust SDK cannot encode JavaScript non-function values",
     "sidebar": "the deprecated sidebar helper is represented by the same left pane registration and first-wins pane resolver",
     "duplicates": "declaration duplicates survive handshake validation and are resolved downstream in declaration order",
-    "vcs": "detection values are treated as untrusted JSON, unusable roots become misses, and the registered adapter ID wins with one diagnostic",
-    "remaining_source_gate": "the source ledger record remains unmapped until native extension VCS operation dispatch is implemented and consumed"
+    "vcs": "detection values are treated as untrusted JSON, unusable roots become misses, the registered adapter ID wins with one diagnostic, and typed operations execute through the shared native process",
+    "source_gate": "the complete registration source is consumed by the native host, CLI catalog, reload path, watch runtime, and Ratatui-owned process instance"
   },
   "test_mapping": [
     {

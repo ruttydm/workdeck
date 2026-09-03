@@ -30,20 +30,26 @@ pub fn materialize_vcs_patch_result(
         .map_err(|error| VcsCatalogError::Operation(error.to_string()))?
     };
 
+    changeset.files.extend(result.extra_files);
     if let Some(reader) = &result.source_reader {
         for file in &mut changeset.files {
+            if file.flags.binary || file.flags.too_large {
+                continue;
+            }
             let old = reader(&VcsFileSourceRequest {
                 path: file.path.clone(),
                 previous_path: file.previous_path.clone(),
                 change_kind: file.change_kind,
+                is_untracked: file.flags.untracked,
                 side: ReviewSide::Old,
-            });
+            })?;
             let new = reader(&VcsFileSourceRequest {
                 path: file.path.clone(),
                 previous_path: file.previous_path.clone(),
                 change_kind: file.change_kind,
+                is_untracked: file.flags.untracked,
                 side: ReviewSide::New,
-            });
+            })?;
             file.set_sources(FileSourceSnapshots {
                 old: source_snapshot(old),
                 new: source_snapshot(new),
@@ -51,7 +57,6 @@ pub fn materialize_vcs_patch_result(
         }
     }
 
-    changeset.files.extend(result.extra_files);
     for path in result.untracked_paths {
         let relative = if path.is_absolute() {
             path.strip_prefix(&result.repo_root).unwrap_or(&path)
@@ -82,7 +87,7 @@ fn source_snapshot(result: VcsFileSourceResult) -> Option<workdeck_core::SourceS
 mod tests {
     use super::*;
     use crate::VcsSourceReader;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use tempfile::TempDir;
     use workdeck_core::{DiffFile, FileChangeKind, SourceOrigin, SourceSnapshot};
 
@@ -95,14 +100,14 @@ mod tests {
                 ReviewSide::Old => "old\n",
                 ReviewSide::New => "new\n",
             };
-            VcsFileSourceResult::Source(SourceSnapshot::new(
+            Ok(VcsFileSourceResult::Source(SourceSnapshot::new(
                 content.into(),
                 match request.side {
                     ReviewSide::Old => SourceOrigin::Index,
                     ReviewSide::New => SourceOrigin::WorkingTree,
                 },
                 true,
-            ))
+            )))
         });
         let changeset = materialize_vcs_patch_result(
             VcsPatchResult {
@@ -143,7 +148,8 @@ mod tests {
     #[test]
     fn structural_source_limits_leave_expansion_absent_without_losing_the_diff() {
         let repo = TempDir::new().unwrap();
-        let reader: VcsSourceReader = Arc::new(|_| VcsFileSourceResult::TooLarge { max_bytes: 5 });
+        let reader: VcsSourceReader =
+            Arc::new(|_| Ok(VcsFileSourceResult::TooLarge { max_bytes: 5 }));
         let changeset = materialize_vcs_patch_result(
             VcsPatchResult {
                 repo_root: repo.path().into(),
@@ -211,5 +217,67 @@ mod tests {
         .unwrap();
         assert_eq!(changeset.files.len(), 1);
         assert!(changeset.files[0].flags.too_large);
+    }
+
+    #[test]
+    fn exact_sources_cover_extra_patches_but_never_binary_or_skipped_files() {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let captured = Arc::clone(&requests);
+        let reader: VcsSourceReader = Arc::new(move |request| {
+            captured.lock().unwrap().push(request.clone());
+            Ok(VcsFileSourceResult::Source(SourceSnapshot::new(
+                format!("{:?}\n", request.side),
+                SourceOrigin::WorkingTree,
+                true,
+            )))
+        });
+        let mut extra = workdeck_diff::parse_single_file_patch(
+            concat!(
+                "diff --git a/extra.txt b/extra.txt\n",
+                "new file mode 100644\n",
+                "--- /dev/null\n",
+                "+++ b/extra.txt\n",
+                "@@ -0,0 +1 @@\n",
+                "+extra\n"
+            ),
+            "extra.txt",
+            None,
+        )
+        .unwrap();
+        extra.flags.untracked = true;
+        let mut skipped = extra.clone();
+        skipped.path = "huge.txt".into();
+        skipped.flags.too_large = true;
+        skipped.flags.untracked = false;
+        let changeset = materialize_vcs_patch_result(
+            VcsPatchResult {
+                repo_root: "/repo".into(),
+                source_label: "/repo".into(),
+                title: "review".into(),
+                patch_text: concat!(
+                    "diff --git a/logo.png b/logo.png\n",
+                    "Binary files a/logo.png and b/logo.png differ\n"
+                )
+                .into(),
+                untracked_paths: Vec::new(),
+                source_reader: Some(reader),
+                source_cache_key: None,
+                extra_files: vec![extra, skipped],
+            },
+            "review",
+            ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap();
+
+        assert_eq!(changeset.files.len(), 3);
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(
+            requests
+                .iter()
+                .all(|request| { request.path == "extra.txt" && request.is_untracked })
+        );
+        assert!(changeset.files[0].flags.binary);
+        assert!(changeset.files[2].flags.too_large);
     }
 }
