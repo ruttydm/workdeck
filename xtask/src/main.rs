@@ -234,6 +234,7 @@ fn extension_example_binary_target(name: &str) -> Result<&'static str> {
         "github-pr" => "workdeck-example-github-pr-extension",
         "file-view-gallery" => "workdeck-example-file-view-gallery-extension",
         "native-vcs" => "workdeck-example-native-vcs-extension",
+        "startup-lifecycle" => "workdeck-example-startup-lifecycle-extension",
         _ => bail!("unknown native extension example {name:?}"),
     };
     Ok(binary_target)
@@ -2175,7 +2176,7 @@ fn print_help() {
     println!("cargo xtask nix check");
     println!("cargo xtask skill <generate|check>");
     println!(
-        "cargo xtask extension stage-example <cli-tools|pane-layout|vim-navigation|review-snapshot-export|review-note-navigator|rendered-markdown|jsx-file-view|inline-edit|review-triage|github-pr|file-view-gallery|native-vcs>"
+        "cargo xtask extension stage-example <cli-tools|pane-layout|vim-navigation|review-snapshot-export|review-note-navigator|rendered-markdown|jsx-file-view|inline-edit|review-triage|github-pr|file-view-gallery|native-vcs|startup-lifecycle>"
     );
     println!("cargo xtask site <build|check|serve>");
     println!(

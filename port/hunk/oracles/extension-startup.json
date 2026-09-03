@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "captured_with": "bun 1.3.5 executing the untouched pinned src/extensions/startup.test.ts",
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "source_blob": "c46d8e19baed706a4d2591f0c60be7f8a7dc48c7",
+      "test_blob": "1e12af04c27c4157c7f83ffbacd8b170d86b8e74",
+      "tests": 7,
+      "passed": 7,
+      "failed": 0,
+      "expect_calls": 16
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "source_blob": "c46d8e19baed706a4d2591f0c60be7f8a7dc48c7",
+      "test_blob": "1e12af04c27c4157c7f83ffbacd8b170d86b8e74",
+      "tests": 7,
+      "passed": 7,
+      "failed": 0,
+      "expect_calls": 16
+    }
+  ],
+  "native_adaptation": {
+    "entrypoint": "one native startup composition boundary replaces Hunk module discovery plus factory loading",
+    "disabled": "the disabled branch precedes discovery, trust queries, manifest reads, and process startup",
+    "staging": "candidate path and origin prefixes plus cwd and already-claimed extension configs decide whether the previous native process registry can be extended",
+    "retirement": "an incompatible previous pass is synchronously revoked and boundedly shut down before any replacement process starts",
+    "notices": "load issues become single-line terminal-sanitized 120-character startup notices under stable path-derived keys",
+    "identity": "the merge helper returns a borrowed Cow when no extension issue is added, preserving the input slice allocation and pointer identity"
+  },
+  "test_mapping": [
+    {
+      "source_test": "returns an empty registry without touching disk when disabled",
+      "rust_tests": ["startup::tests::disabled_startup_returns_empty_without_reading_an_explicit_manifest"]
+    },
+    {
+      "source_test": "discovers and loads global extensions with their config tables",
+      "rust_tests": ["discovers_global_extensions_and_delivers_their_configuration"]
+    },
+    {
+      "source_test": "extends a provisional pass without executing its unchanged factories again",
+      "rust_tests": ["extends_a_provisional_prefix_without_starting_its_process_again"]
+    },
+    {
+      "source_test": "shuts down a provisional pass before changed config requires rebuilding it",
+      "rust_tests": ["changed_configuration_retires_before_rebuilding_the_extension"]
+    },
+    {
+      "source_test": "maps load failures onto startup notices without dropping config notices",
+      "rust_tests": ["startup::tests::merge_appends_failures_after_existing_config_notices"]
+    },
+    {
+      "source_test": "strips terminal control sequences out of failure notices",
+      "rust_tests": ["startup::tests::load_failures_become_sanitized_single_line_bounded_notices"]
+    },
+    {
+      "source_test": "keeps the original notice identity when nothing failed to load",
+      "rust_tests": ["startup::tests::merge_borrows_original_notices_when_nothing_failed"]
+    }
+  ],
+  "rust_commands": [
+    "cargo test -p workdeck-extension-host startup",
+    "cargo test -p workdeck-examples --test startup_lifecycle",
+    "cargo test -p workdeck-tui status_bar_prioritizes_startup_notices"
+  ]
+}

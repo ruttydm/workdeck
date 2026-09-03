@@ -146,7 +146,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 use workdeck_core::{
     AgentAnnotation, Changeset, ChangesetSource, DiffFile, DiffLine, DiffLineKind, ReviewSelection,
-    ReviewSide, SourceOrigin,
+    ReviewSide, SourceOrigin, StartupNotice,
 };
 use workdeck_diff::{
     DIFF_RAIL_PREFIX_WIDTH, HighlightCache, HighlightedDiffLine, LanguageMatcher,
@@ -218,6 +218,8 @@ pub struct ReviewOptions {
     pub keybindings: Vec<UserKeyBindingEntry>,
     /// Non-fatal diagnostics produced while reading the user's binding table.
     pub keybinding_notices: Vec<String>,
+    /// Ordered, deduplicated notices shown transiently on the startup footer row.
+    pub startup_notices: Vec<StartupNotice>,
     pub extension_panes: Vec<ExtensionPaneView>,
     pub extension_notifications: Option<ExtensionNotificationHub>,
     /// Repository whose native extensions are waiting on an explicit trust decision.
@@ -251,6 +253,7 @@ impl Default for ReviewOptions {
             review_input: None,
             keybindings: Vec::new(),
             keybinding_notices: Vec::new(),
+            startup_notices: Vec::new(),
             extension_panes: Vec::new(),
             extension_notifications: None,
             pending_extension_trust_repo_root: None,
@@ -666,6 +669,7 @@ pub struct ReviewApp {
     expanded_gaps: BTreeSet<(String, usize)>,
     highlights: Mutex<HighlightCache>,
     themes: ThemeController,
+    startup_notices: StartupNoticeQueue,
     extension_toasts: Arc<Mutex<ExtensionNotificationSurface>>,
     extension_notification_subscription: Option<ExtensionNotificationSubscription>,
     mouse_scroll_acceleration: ReviewMouseWheelScrollAcceleration,
@@ -708,6 +712,13 @@ impl ReviewApp {
         let mut state = ReviewState::new(changeset);
         state.set_layout(options.layout);
         let themes = ThemeController::new(options.theme.id.clone());
+        let mut startup_notices = StartupNoticeQueue::new(true, DEFAULT_STARTUP_NOTICE_DURATION);
+        startup_notices.restart(
+            true,
+            DEFAULT_STARTUP_NOTICE_DURATION,
+            options.startup_notices.iter().cloned(),
+            Instant::now(),
+        );
         let extension_toasts = Arc::new(Mutex::new(ExtensionNotificationSurface::default()));
         let extension_notification_subscription =
             options
@@ -798,6 +809,7 @@ impl ReviewApp {
             expanded_gaps: BTreeSet::new(),
             highlights: Mutex::new(HighlightCache::default()),
             themes,
+            startup_notices,
             extension_toasts,
             extension_notification_subscription,
             mouse_scroll_acceleration: ReviewMouseWheelScrollAcceleration::default(),
@@ -1105,6 +1117,7 @@ impl ReviewApp {
 
     pub fn tick_extension_notifications(&mut self, now: Instant) {
         self.sync_extension_note_events();
+        self.startup_notices.tick(now);
         self.extension_toasts
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -1118,6 +1131,11 @@ impl ReviewApp {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .active()
             .cloned()
+    }
+
+    #[must_use]
+    pub fn active_startup_notice(&self) -> Option<&str> {
+        self.startup_notices.text()
     }
 
     #[must_use]
@@ -8529,7 +8547,7 @@ fn expand_tabs(value: &str, tab_width: u16, column: &mut usize) -> String {
 }
 
 fn render_footer(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
-    if app.active_extension_notification().is_some() {
+    if app.active_startup_notice().is_none() && app.active_extension_notification().is_some() {
         render_extension_toast(area, buffer, app);
         render_active_keyboard_mode_badge(area, buffer, app);
         return;
@@ -8593,7 +8611,10 @@ fn render_footer(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             ])
         } else {
             let text = if app.filter.is_empty() {
-                app.status.as_deref().unwrap_or_default().to_owned()
+                app.active_startup_notice()
+                    .or(app.status.as_deref())
+                    .unwrap_or_default()
+                    .to_owned()
             } else {
                 format!("filter={}", app.filter)
             };
@@ -11126,6 +11147,45 @@ mod tests {
         assert_eq!(buffer.cell((0, 0)).unwrap().fg, Color::Rgb(255, 255, 255));
         assert_eq!(buffer.cell((19, 0)).unwrap().symbol(), " ");
         assert_eq!(buffer.cell((19, 0)).unwrap().fg, Color::Rgb(255, 255, 255));
+    }
+
+    #[test]
+    fn status_bar_prioritizes_startup_notices_then_reveals_buffered_extension_output() {
+        let hub = ExtensionNotificationHub::new();
+        hub.notify("factory ready", ExtensionNotifyType::Info);
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                startup_notices: vec![StartupNotice::new(
+                    "extension:broken",
+                    "Extension broken failed to load • boom",
+                )],
+                extension_notifications: Some(hub),
+                ..ReviewOptions::default()
+            },
+        );
+        app.set_status("ordinary status");
+        let area = Rect::new(0, 0, 60, 1);
+        let mut startup = Buffer::empty(area);
+        render_footer(area, &mut startup, &app);
+        let startup_text = startup
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(startup_text.contains("Extension broken failed to load • boom"));
+        assert!(!startup_text.contains("factory ready"));
+
+        app.tick_extension_notifications(Instant::now() + Duration::from_secs(8));
+        let mut notification = Buffer::empty(area);
+        render_footer(area, &mut notification, &app);
+        let notification_text = notification
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(notification_text.contains("ext factory ready"));
+        assert!(!notification_text.contains("ordinary status"));
     }
 
     #[test]

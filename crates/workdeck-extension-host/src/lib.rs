@@ -15,6 +15,7 @@ mod keyboard_mode_controller;
 mod line_highlights;
 mod native_vcs;
 mod runtime_boundary;
+mod startup;
 mod synchronous_callbacks;
 
 pub use extension_discovery::*;
@@ -32,6 +33,7 @@ pub use keyboard_mode_controller::*;
 pub use line_highlights::*;
 pub use native_vcs::*;
 pub use runtime_boundary::*;
+pub use startup::*;
 pub use synchronous_callbacks::*;
 
 use serde::{Deserialize, Serialize};

@@ -91,6 +91,8 @@ pub mod file_view_gallery_extension;
 
 #[path = "../extensions/native-vcs/extension.rs"]
 pub mod native_vcs_extension;
+#[path = "../extensions/startup-lifecycle/extension.rs"]
+pub mod startup_lifecycle_extension;
 
 #[path = "../extensions/file-view-gallery/fixtures/change-atlas/after.rs"]
 pub mod file_view_gallery_change_atlas_after;

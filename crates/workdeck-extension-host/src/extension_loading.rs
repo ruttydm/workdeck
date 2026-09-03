@@ -57,6 +57,8 @@ impl fmt::Display for ExtensionLoadIssue {
 /// Immutable inputs and claimed namespaces represented by one completed pass.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ExtensionLoadState {
+    /// Working directory whose discovery and configuration produced this pass.
+    pub cwd: PathBuf,
     pub candidates: Vec<ManifestCandidate>,
     pub extension_configs: BTreeMap<String, Value>,
     /// Every compatible namespace accepted before process startup, including a process that later
@@ -71,7 +73,7 @@ pub struct ExtensionLoadControl {
 }
 
 impl ExtensionLoadControl {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             registry: Arc::new(ExtensionRuntimeRegistry::new()),
         }
@@ -182,9 +184,7 @@ pub fn prepare_extension_load(options: LoadExtensionsOptions<'_>) -> PreparedExt
         .unwrap_or(options.candidates)
         .to_vec();
     result.load_state.extension_configs = options.extension_configs.clone();
-    if options.pending_trust_repo_root.is_some() {
-        result.pending_trust_repo_root = options.pending_trust_repo_root;
-    }
+    result.pending_trust_repo_root = options.pending_trust_repo_root;
 
     let mut accepted = Vec::new();
     for candidate in options.candidates {

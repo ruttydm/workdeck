@@ -26,7 +26,7 @@ use workdeck_cli::store::{
 use workdeck_core::{
     AgentContext, Changeset, ChangesetSource, CliInput, CommonOptions, DiffToolCommandInput,
     InputCursorLine, InputLayoutMode, PatchCommandInput, ReviewSide, SelfUpdateCommandInput,
-    SidebarVisibility, VcsDiffCommandInput, VcsRangeEndpoints, VcsShowCommandInput,
+    SidebarVisibility, StartupNotice, VcsDiffCommandInput, VcsRangeEndpoints, VcsShowCommandInput,
     VcsStashShowCommandInput, resolve_app_state_path,
 };
 use workdeck_diff::{LanguageMatcher, LanguageRegistration, LanguageRegistry};
@@ -35,8 +35,9 @@ use workdeck_extension_api::{
     FileLanguageGlobTarget, FileLanguageMatcher, Registration,
 };
 use workdeck_extension_host::{
-    LoadExtensionsOptions, LoadedExtension, TrustDecision, TrustStore,
-    discover_manifests_with_config, load_extensions, native_vcs_adapters,
+    LoadStartupExtensionsOptions, LoadedExtension, TrustDecision, TrustStore,
+    create_extension_load_notices, discover_manifests_with_config, load_startup_extensions,
+    native_vcs_adapters,
 };
 use workdeck_review::{
     CommentTargetInput, LayoutMode, ReviewComment, build_live_comment, find_diff_file_by_path,
@@ -745,6 +746,7 @@ impl ReviewCliOptions {
             review_input: None,
             keybindings: self.keybindings.clone(),
             keybinding_notices: self.keybinding_notices.clone(),
+            startup_notices: Vec::new(),
             extension_panes: Vec::new(),
             extension_notifications: None,
             pending_extension_trust_repo_root: None,
@@ -983,15 +985,17 @@ mod extension_cli_tests {
                 origin: workdeck_extension_host::ManifestOrigin::Explicit,
             })
             .collect::<Vec<_>>();
-        let prepared = workdeck_extension_host::prepare_extension_load(LoadExtensionsOptions {
-            candidates: &candidates,
-            all_candidates: None,
-            previous_load: None,
-            host_version: "test",
-            extension_configs: &BTreeMap::new(),
-            notifications: None,
-            pending_trust_repo_root: None,
-        });
+        let prepared = workdeck_extension_host::prepare_extension_load(
+            workdeck_extension_host::LoadExtensionsOptions {
+                candidates: &candidates,
+                all_candidates: None,
+                previous_load: None,
+                host_version: "test",
+                extension_configs: &BTreeMap::new(),
+                notifications: None,
+                pending_trust_repo_root: None,
+            },
+        );
         assert_eq!(prepared.accepted.len(), 1);
         assert_eq!(prepared.accepted[0].manifest_path, paths[0]);
         assert_eq!(prepared.result.issues.len(), 2);
@@ -1949,6 +1953,7 @@ struct PreparedReviewExtensions {
     extensions: Vec<LoadedExtension>,
     notifications: ExtensionNotificationHub,
     pending_trust_repo_root: Option<PathBuf>,
+    startup_notices: Vec<StartupNotice>,
     vcs_catalog: Option<VcsCatalog>,
 }
 
@@ -1956,13 +1961,7 @@ fn prepare_review_extensions(
     cwd: &Path,
     review: &ReviewCliOptions,
 ) -> Result<PreparedReviewExtensions> {
-    let (extensions, notifications, pending_trust_repo_root) = load_review_extensions(cwd, review)?;
-    Ok(PreparedReviewExtensions {
-        extensions,
-        notifications,
-        pending_trust_repo_root,
-        vcs_catalog: None,
-    })
+    load_review_extensions(cwd, review)
 }
 
 fn compose_review_vcs_catalog(extensions: &[LoadedExtension]) -> VcsCatalog {
@@ -2342,11 +2341,13 @@ fn run_review_with_preloaded_extensions(
         mut extensions,
         notifications,
         pending_trust_repo_root,
+        startup_notices,
         vcs_catalog,
     } = prepared_extensions;
     changeset = apply_review_extensions(changeset, &mut extensions)?;
     let mut options = review.tui_options();
     options.extension_notifications = Some(notifications.clone());
+    options.startup_notices = startup_notices;
     options.pending_extension_trust_repo_root = pending_trust_repo_root;
     options.extension_trust_handler =
         Some(review_extension_trust_handler(cwd, &review, &notifications));
@@ -2469,24 +2470,26 @@ fn apply_agent_context(cwd: &Path, path: Option<&Path>, changeset: &mut Changese
 fn load_review_extensions(
     cwd: &Path,
     review: &ReviewCliOptions,
-) -> Result<(
-    Vec<LoadedExtension>,
-    ExtensionNotificationHub,
-    Option<PathBuf>,
-)> {
+) -> Result<PreparedReviewExtensions> {
     let notifications = ExtensionNotificationHub::new();
-    let (extensions, pending_trust_repo_root) =
+    let (extensions, pending_trust_repo_root, startup_notices) =
         load_review_extensions_with_notifications(cwd, review, &notifications)?;
-    Ok((extensions, notifications, pending_trust_repo_root))
+    Ok(PreparedReviewExtensions {
+        extensions,
+        notifications,
+        pending_trust_repo_root,
+        startup_notices,
+        vcs_catalog: None,
+    })
 }
 
 fn load_review_extensions_with_notifications(
     cwd: &Path,
     review: &ReviewCliOptions,
     notifications: &ExtensionNotificationHub,
-) -> Result<(Vec<LoadedExtension>, Option<PathBuf>)> {
+) -> Result<(Vec<LoadedExtension>, Option<PathBuf>, Vec<StartupNotice>)> {
     if review.no_extensions {
-        return Ok((Vec::new(), None));
+        return Ok((Vec::new(), None, Vec::new()));
     }
     let config = user_config_root().map(|root| root.join("workdeck"));
     let trust = load_extension_trust_store();
@@ -2495,28 +2498,26 @@ fn load_review_extensions_with_notifications(
         .ok()
         .map(|provider| provider.root().to_owned())
         .or_else(|| find_project_root_candidate(cwd));
-    let discovery = discover_manifests_with_config(
-        global_extensions.as_deref(),
-        repo.as_deref(),
-        &trust,
-        &review.extension,
-        &review.user_extension_paths,
-        &review.repo_extension_paths,
+    let result = load_startup_extensions(LoadStartupExtensionsOptions {
+        enabled: true,
         cwd,
-    )?;
-    let result = load_extensions(LoadExtensionsOptions {
-        candidates: &discovery.candidates,
-        all_candidates: None,
-        previous_load: None,
+        global_directory: global_extensions.as_deref(),
+        repo_root: repo.as_deref(),
+        trust: &trust,
+        explicit_paths: &review.extension,
+        user_config_paths: &review.user_extension_paths,
+        repo_config_paths: &review.repo_extension_paths,
         host_version: env!("CARGO_PKG_VERSION"),
         extension_configs: &review.extension_config,
         notifications: Some(notifications.clone()),
-        pending_trust_repo_root: discovery.pending_trust_repo_root,
-    });
-    for issue in result.issues {
-        notifications.notify(issue.to_string(), ExtensionNotifyType::Warning);
-    }
-    Ok((result.extensions, result.pending_trust_repo_root))
+        previous_load: None,
+    })?;
+    let startup_notices = create_extension_load_notices(&result.issues);
+    Ok((
+        result.extensions,
+        result.pending_trust_repo_root,
+        startup_notices,
+    ))
 }
 
 fn review_extension_trust_handler(
@@ -2543,11 +2544,14 @@ fn review_extension_trust_handler(
         if !load_extensions {
             return Ok(Vec::new());
         }
-        let (extensions, pending) =
+        let (extensions, pending, notices) =
             load_review_extensions_with_notifications(&cwd, &review, &notifications)
                 .map_err(|_| ExtensionTrustHostError::Reload)?;
         if pending.is_some() {
             return Err(ExtensionTrustHostError::Reload);
+        }
+        for notice in notices {
+            notifications.notify(notice.message, ExtensionNotifyType::Warning);
         }
         Ok(extensions)
     })
@@ -2569,24 +2573,20 @@ fn load_cli_extensions(
         .map(|provider| provider.root().to_owned())
         .or_else(|| find_project_root_candidate(cwd));
     let config = Config::load(repo.as_deref().unwrap_or(cwd))?;
-    let discovery = discover_manifests_with_config(
-        global_extensions.as_deref(),
-        repo.as_deref(),
-        &trust,
-        explicit,
-        &config.user_extension_paths,
-        &config.repo_extension_paths,
+    let result = load_startup_extensions(LoadStartupExtensionsOptions {
+        enabled: true,
         cwd,
-    )?;
-    let result = load_extensions(LoadExtensionsOptions {
-        candidates: &discovery.candidates,
-        all_candidates: None,
-        previous_load: None,
+        global_directory: global_extensions.as_deref(),
+        repo_root: repo.as_deref(),
+        trust: &trust,
+        explicit_paths: explicit,
+        user_config_paths: &config.user_extension_paths,
+        repo_config_paths: &config.repo_extension_paths,
         host_version: env!("CARGO_PKG_VERSION"),
         extension_configs: &config.extension,
         notifications: None,
-        pending_trust_repo_root: discovery.pending_trust_repo_root,
-    });
+        previous_load: None,
+    })?;
     for issue in result.issues {
         eprintln!("warning: {issue}");
     }

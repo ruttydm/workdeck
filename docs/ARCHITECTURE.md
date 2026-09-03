@@ -46,6 +46,9 @@ The checker also validates invariants that a crate graph alone cannot express:
   runtime inputs; candidate namespaces are settled before startup and each failed process is
   isolated from the remaining load pass (see
   [Native extension runtime boundary](native-extension-runtime-boundary.md));
+- startup passes reuse only an unchanged cwd, candidate/config prefix, retire incompatible passes
+  before replacement startup, and surface bounded terminal-safe failures through the Ratatui
+  footer (see [Native extension startup](native-extension-startup.md));
 - extension CLI commands use lazy stdin and ordered output leases over the host-owned JSON-RPC
   channel, and cannot retain terminal or signal authority after settlement (see
   [Native extension CLI runtime](native-extension-cli-runtime.md));
