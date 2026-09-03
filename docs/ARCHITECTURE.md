@@ -43,7 +43,9 @@ The checker also validates invariants that a crate graph alone cannot express:
   not import the CLI, session broker, or TUI renderer;
 - native extension startup resolves only a canonical `workdeck-extension.toml` boundary and its
   named compiled executable; adjacent JavaScript package metadata and source modules are never
-  runtime inputs (see [Native extension runtime boundary](native-extension-runtime-boundary.md));
+  runtime inputs; candidate namespaces are settled before startup and each failed process is
+  isolated from the remaining load pass (see
+  [Native extension runtime boundary](native-extension-runtime-boundary.md));
 - extension CLI commands use lazy stdin and ordered output leases over the host-owned JSON-RPC
   channel, and cannot retain terminal or signal authority after settlement (see
   [Native extension CLI runtime](native-extension-cli-runtime.md));

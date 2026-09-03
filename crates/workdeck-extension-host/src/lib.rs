@@ -2,6 +2,7 @@
 
 mod extension_discovery;
 mod extension_document_reader;
+mod extension_loading;
 mod extension_selection;
 mod extension_trust;
 mod file_view_host;
@@ -16,6 +17,7 @@ mod synchronous_callbacks;
 
 pub use extension_discovery::*;
 pub use extension_document_reader::*;
+pub use extension_loading::*;
 pub use extension_selection::*;
 pub use extension_trust::*;
 pub use file_view_host::*;
@@ -65,6 +67,8 @@ pub enum HostError {
     Manifest(#[from] ManifestError),
     #[error("extension executable does not exist: {0}")]
     MissingExecutable(PathBuf),
+    #[error("extension manifest changed after provisional validation: {0}")]
+    ManifestChanged(PathBuf),
     #[error("failed to start extension {id}: {source}")]
     Spawn { id: String, source: std::io::Error },
     #[error("extension {0} did not expose stdin/stdout pipes")]
@@ -141,6 +145,45 @@ impl ExtensionRuntimeRegistry {
 
     pub fn set_phase(&self, phase: ExtensionEventBusPhase) {
         self.phase.store(phase as u8, Ordering::Release);
+    }
+
+    /// Begin or resume a staged load without reviving a retiring registry.
+    #[must_use]
+    pub fn begin_loading(&self) -> bool {
+        loop {
+            let current = self.phase.load(Ordering::Acquire);
+            if current >= ExtensionEventBusPhase::Closing as u8 {
+                return false;
+            }
+            if current == ExtensionEventBusPhase::Loading as u8 {
+                return true;
+            }
+            if self
+                .phase
+                .compare_exchange(
+                    current,
+                    ExtensionEventBusPhase::Loading as u8,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+            {
+                return true;
+            }
+        }
+    }
+
+    /// Seal a successful staged load while preserving concurrent retirement.
+    #[must_use]
+    pub fn finish_loading(&self) -> bool {
+        self.phase
+            .compare_exchange(
+                ExtensionEventBusPhase::Loading as u8,
+                ExtensionEventBusPhase::Ready as u8,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
     }
 
     /// Revoke ordinary runtime authority exactly once before shutdown begins.
@@ -475,12 +518,42 @@ impl LoadedExtension {
         notifications: ExtensionNotificationHub,
         config: Value,
     ) -> Result<Self, HostError> {
+        Self::spawn_with_expected_manifest(manifest_path, host_version, notifications, config, None)
+    }
+
+    pub(crate) fn spawn_prevalidated(
+        manifest_path: &Path,
+        expected_manifest: &ExtensionManifest,
+        host_version: &str,
+        notifications: ExtensionNotificationHub,
+        config: Value,
+    ) -> Result<Self, HostError> {
+        Self::spawn_with_expected_manifest(
+            manifest_path,
+            host_version,
+            notifications,
+            config,
+            Some(expected_manifest),
+        )
+    }
+
+    fn spawn_with_expected_manifest(
+        manifest_path: &Path,
+        host_version: &str,
+        notifications: ExtensionNotificationHub,
+        config: Value,
+        expected_manifest: Option<&ExtensionManifest>,
+    ) -> Result<Self, HostError> {
+        let entrypoint = resolve_native_extension_entrypoint(manifest_path)?;
+        if expected_manifest.is_some_and(|expected| expected != &entrypoint.manifest) {
+            return Err(HostError::ManifestChanged(entrypoint.manifest_path));
+        }
         let NativeExtensionEntrypoint {
             manifest,
             manifest_path: resolved_manifest_path,
             directory,
             executable,
-        } = resolve_native_extension_entrypoint(manifest_path)?;
+        } = entrypoint;
         let mut child = Command::new(&executable)
             .current_dir(&directory)
             .env("WORKDECK_EXTENSION_API_VERSION", API_VERSION.to_string())
@@ -2516,6 +2589,43 @@ mod tests {
                 .to_string()
                 .contains("undeclared capability")
         );
+    }
+
+    #[test]
+    fn native_vcs_registration_has_no_implicit_operations_and_rejects_legacy_shapes() {
+        let manifest = ExtensionManifest {
+            id: "fossil-tools".into(),
+            name: "Fossil tools".into(),
+            version: "1.0.0".into(),
+            api_version: API_VERSION,
+            executable: PathBuf::from("fossil-tools"),
+            capabilities: vec![workdeck_extension_api::Capability::VcsAdapters],
+            description: None,
+        };
+        let handshake: HandshakeResponse = serde_json::from_value(serde_json::json!({
+            "extension_api_version": API_VERSION,
+            "extension_version": "1.0.0",
+            "registrations": [{
+                "kind": "vcs-adapter",
+                "id": "fossil",
+                "markers": [".fslckout"]
+            }]
+        }))
+        .unwrap();
+        validate_registrations(&manifest, &handshake).unwrap();
+
+        let legacy_operations = serde_json::from_value::<HandshakeResponse>(serde_json::json!({
+            "extension_api_version": API_VERSION,
+            "extension_version": "1.0.0",
+            "registrations": [{
+                "kind": "vcs-adapter",
+                "id": "fossil",
+                "markers": [],
+                "operations": []
+            }]
+        }))
+        .unwrap_err();
+        assert!(legacy_operations.to_string().contains("operations"));
     }
 
     #[test]

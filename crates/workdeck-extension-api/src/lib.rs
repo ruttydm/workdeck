@@ -311,7 +311,7 @@ pub enum ManifestError {
         source: toml::de::Error,
     },
     #[error(
-        "extension id {0:?} must contain only lowercase ASCII letters, digits, dots, dashes, or underscores"
+        "extension id {0:?} must start with an ASCII letter or digit and contain only ASCII letters, digits, dots, dashes, or underscores"
     )]
     InvalidId(String),
     #[error("extension id {0:?} is reserved by Workdeck")]
@@ -350,24 +350,36 @@ impl ExtensionManifest {
     }
 
     pub fn validate(&self) -> Result<(), ManifestError> {
-        if self.id.is_empty()
-            || !self.id.bytes().all(|byte| {
-                byte.is_ascii_lowercase()
-                    || byte.is_ascii_digit()
-                    || matches!(byte, b'.' | b'-' | b'_')
-            })
+        self.validate_identity()?;
+        self.validate_api_compatibility()?;
+        self.validate_executable()?;
+        Ok(())
+    }
+
+    pub fn validate_identity(&self) -> Result<(), ManifestError> {
+        let mut id = self.id.bytes();
+        if !matches!(id.next(), Some(first) if first.is_ascii_alphanumeric())
+            || !id.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
         {
             return Err(ManifestError::InvalidId(self.id.clone()));
         }
         if matches!(self.id.as_str(), "workdeck" | "git" | "jj" | "sl") {
             return Err(ManifestError::ReservedId(self.id.clone()));
         }
+        Ok(())
+    }
+
+    pub fn validate_api_compatibility(&self) -> Result<(), ManifestError> {
         if self.api_version != API_VERSION {
             return Err(ManifestError::ApiVersion {
                 found: self.api_version,
                 expected: API_VERSION,
             });
         }
+        Ok(())
+    }
+
+    pub fn validate_executable(&self) -> Result<(), ManifestError> {
         if self.executable.is_absolute()
             || self
                 .executable
@@ -482,7 +494,7 @@ pub struct HandshakeResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Registration {
     Command(CommandRegistration),
     CliCommand(CliCommandRegistration),
@@ -1581,6 +1593,31 @@ mod tests {
             assert!(matches!(
                 manifest.validate(),
                 Err(ManifestError::ReservedId(actual)) if actual == id
+            ));
+        }
+    }
+
+    #[test]
+    fn manifest_ids_start_with_a_namespace_character_and_keep_native_dotted_ids() {
+        let mut manifest = ExtensionManifest {
+            id: "example.review-tools".into(),
+            name: "Review tools".into(),
+            version: "1.0.0".into(),
+            api_version: API_VERSION,
+            executable: PathBuf::from("review-tools"),
+            capabilities: Vec::new(),
+            description: None,
+        };
+        manifest.validate().unwrap();
+
+        manifest.id = "Upper.Tools".into();
+        manifest.validate().unwrap();
+
+        for invalid in ["-leading", "_leading", ".leading", "has:colon"] {
+            manifest.id = invalid.into();
+            assert!(matches!(
+                manifest.validate(),
+                Err(ManifestError::InvalidId(id)) if id == invalid
             ));
         }
     }

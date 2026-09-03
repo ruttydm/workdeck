@@ -650,12 +650,15 @@ fn dispatch_request(
     state: &mut ReviewTriageState,
 ) -> Result<Value, String> {
     match method {
-        "workdeck/handshake" => serde_json::to_value(HandshakeResponse {
-            extension_api_version: API_VERSION,
-            extension_version: env!("CARGO_PKG_VERSION").into(),
-            registrations: registrations(),
-        })
-        .map_err(|error| error.to_string()),
+        "workdeck/handshake" => {
+            apply_loader_fixture_delay()?;
+            serde_json::to_value(HandshakeResponse {
+                extension_api_version: API_VERSION,
+                extension_version: env!("CARGO_PKG_VERSION").into(),
+                registrations: registrations(),
+            })
+            .map_err(|error| error.to_string())
+        }
         "workdeck/command/invoke" => {
             let invocation = serde_json::from_value(params).map_err(|error| error.to_string())?;
             serde_json::to_value(invoke_command(&invocation, state)?)
@@ -691,6 +694,26 @@ fn dispatch_request(
         }
         method => Err(format!("Unknown method: {method}")),
     }
+}
+
+/// Integration-fixture seam proving that the host awaits a handshake and starts the child in the
+/// manifest directory. Ordinary examples never contain this sentinel file.
+fn apply_loader_fixture_delay() -> Result<(), String> {
+    let path = std::env::current_dir()
+        .map_err(|error| error.to_string())?
+        .join(".workdeck-test-handshake-delay-ms");
+    let source = match std::fs::read_to_string(path) {
+        Ok(source) => source,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.to_string()),
+    };
+    let milliseconds = source
+        .trim()
+        .parse::<u64>()
+        .map_err(|error| error.to_string())?
+        .min(1_000);
+    std::thread::sleep(std::time::Duration::from_millis(milliseconds));
+    Ok(())
 }
 
 #[must_use]

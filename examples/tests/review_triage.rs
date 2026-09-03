@@ -1,6 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
 use serde_json::json;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -18,7 +19,9 @@ use workdeck_extension_api::{
     SelectDialogSubmission, ViewNode,
 };
 use workdeck_extension_host::{
-    ExtensionEventBusPhase, LoadedExtension, build_extension_review_selection_from_snapshot,
+    ExtensionEventBusPhase, LoadExtensionsOptions, LoadedExtension, ManifestCandidate,
+    ManifestOrigin, build_extension_review_selection_from_snapshot, execute_extension_load,
+    load_extensions, prepare_extension_load,
 };
 use workdeck_review::{CommentAnchor, ReviewComment, ReviewNoteResolution, ReviewState};
 use workdeck_tui::{ReviewApp, ReviewOptions, render, to_extension_paint_theme};
@@ -341,6 +344,84 @@ fn registration_and_manifest_capabilities_cover_the_complete_public_surface() {
             Capability::ReviewNavigation,
         ]
     );
+}
+
+#[test]
+fn native_loader_isolates_a_failed_process_and_keeps_loading_in_candidate_order() {
+    let broken_directory = TempDir::new().unwrap();
+    let broken_manifest = broken_directory.path().join("workdeck-extension.toml");
+    fs::write(
+        &broken_manifest,
+        "id = \"broken\"\nname = \"Broken\"\nversion = \"1.0.0\"\napi_version = 1\nexecutable = \"missing\"\n",
+    )
+    .unwrap();
+    let (_healthy_directory, healthy_manifest) = staged_extension();
+    let candidates = [
+        ManifestCandidate {
+            path: broken_manifest.clone(),
+            origin: ManifestOrigin::Explicit,
+        },
+        ManifestCandidate {
+            path: healthy_manifest,
+            origin: ManifestOrigin::Global,
+        },
+    ];
+    let mut result = load_extensions(LoadExtensionsOptions {
+        candidates: &candidates,
+        all_candidates: None,
+        previous_load: None,
+        host_version: "test",
+        extension_configs: &BTreeMap::new(),
+        notifications: None,
+        pending_trust_repo_root: None,
+    });
+
+    assert_eq!(result.extensions.len(), 1);
+    assert_eq!(result.extensions[0].manifest.id, "example.review-triage");
+    assert_eq!(result.issues.len(), 1);
+    assert_eq!(result.issues[0].extension_id.as_deref(), Some("broken"));
+    assert_eq!(result.issues[0].path, broken_manifest);
+    assert_eq!(result.issues[0].origin, ManifestOrigin::Explicit);
+    assert!(result.issues[0].message.contains("does not exist"));
+    assert_eq!(result.control.phase(), ExtensionEventBusPhase::Ready);
+    result.retire();
+}
+
+#[test]
+fn native_loader_awaits_handshake_and_rejects_a_late_success_after_retirement() {
+    let (directory, manifest) = staged_extension();
+    fs::write(
+        directory.path().join(".workdeck-test-handshake-delay-ms"),
+        "60",
+    )
+    .unwrap();
+    let candidates = [ManifestCandidate {
+        path: manifest,
+        origin: ManifestOrigin::Explicit,
+    }];
+    let prepared = prepare_extension_load(LoadExtensionsOptions {
+        candidates: &candidates,
+        all_candidates: None,
+        previous_load: None,
+        host_version: "test",
+        extension_configs: &BTreeMap::new(),
+        notifications: None,
+        pending_trust_repo_root: None,
+    });
+    let control = prepared.control();
+    let retirement = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        assert!(control.begin_retirement());
+    });
+
+    let started = std::time::Instant::now();
+    let mut result = execute_extension_load(prepared);
+    retirement.join().unwrap();
+    assert!(started.elapsed() >= std::time::Duration::from_millis(50));
+    assert!(result.extensions.is_empty());
+    assert_eq!(result.control.phase(), ExtensionEventBusPhase::Closing);
+    result.retire();
+    assert_eq!(result.control.phase(), ExtensionEventBusPhase::Closed);
 }
 
 #[test]

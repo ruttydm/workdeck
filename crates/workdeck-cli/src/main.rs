@@ -35,7 +35,8 @@ use workdeck_extension_api::{
     FileLanguageGlobTarget, FileLanguageMatcher, Registration,
 };
 use workdeck_extension_host::{
-    LoadedExtension, TrustDecision, TrustStore, discover_manifests_with_config,
+    LoadExtensionsOptions, LoadedExtension, TrustDecision, TrustStore,
+    discover_manifests_with_config, load_extensions,
 };
 use workdeck_review::{
     CommentTargetInput, LayoutMode, ReviewComment, build_live_comment, find_diff_file_by_path,
@@ -974,19 +975,39 @@ mod extension_cli_tests {
         std::fs::write(&paths[1], valid).unwrap();
         std::fs::write(&paths[2], "not valid = [").unwrap();
 
-        let (candidates, issues) = extension_load_candidates(&paths);
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].0, paths[0]);
-        assert_eq!(issues.len(), 2);
+        let candidates = paths
+            .iter()
+            .cloned()
+            .map(|path| workdeck_extension_host::ManifestCandidate {
+                path,
+                origin: workdeck_extension_host::ManifestOrigin::Explicit,
+            })
+            .collect::<Vec<_>>();
+        let prepared = workdeck_extension_host::prepare_extension_load(LoadExtensionsOptions {
+            candidates: &candidates,
+            all_candidates: None,
+            previous_load: None,
+            host_version: "test",
+            extension_configs: &BTreeMap::new(),
+            notifications: None,
+            pending_trust_repo_root: None,
+        });
+        assert_eq!(prepared.accepted.len(), 1);
+        assert_eq!(prepared.accepted[0].manifest_path, paths[0]);
+        assert_eq!(prepared.result.issues.len(), 2);
         assert!(
-            issues
+            prepared
+                .result
+                .issues
                 .iter()
-                .any(|issue| issue.contains("duplicate extension id"))
+                .any(|issue| issue.message.contains("already loaded"))
         );
         assert!(
-            issues
+            prepared
+                .result
+                .issues
                 .iter()
-                .any(|issue| issue.contains("invalid extension manifest"))
+                .any(|issue| issue.message.contains("invalid extension manifest"))
         );
     }
 
@@ -2317,30 +2338,19 @@ fn load_review_extensions_with_notifications(
         &review.repo_extension_paths,
         cwd,
     )?;
-    let (candidates, issues) = extension_load_candidates(&discovery.manifests);
-    for issue in issues {
-        notifications.notify(issue, ExtensionNotifyType::Warning);
+    let result = load_extensions(LoadExtensionsOptions {
+        candidates: &discovery.candidates,
+        all_candidates: None,
+        previous_load: None,
+        host_version: env!("CARGO_PKG_VERSION"),
+        extension_configs: &review.extension_config,
+        notifications: Some(notifications.clone()),
+        pending_trust_repo_root: discovery.pending_trust_repo_root,
+    });
+    for issue in result.issues {
+        notifications.notify(issue.to_string(), ExtensionNotifyType::Warning);
     }
-    let mut extensions = Vec::new();
-    for (path, manifest) in candidates {
-        match LoadedExtension::spawn_with_notifications_and_configuration(
-            &path,
-            env!("CARGO_PKG_VERSION"),
-            notifications.clone(),
-            review
-                .extension_config
-                .get(&manifest.id)
-                .cloned()
-                .unwrap_or_else(|| Value::Object(Default::default())),
-        ) {
-            Ok(extension) => extensions.push(extension),
-            Err(error) => notifications.notify(
-                format!("Native extension {} was skipped: {error}", path.display()),
-                ExtensionNotifyType::Warning,
-            ),
-        }
-    }
-    Ok((extensions, discovery.pending_trust_repo_root))
+    Ok((result.extensions, result.pending_trust_repo_root))
 }
 
 fn review_extension_trust_handler(
@@ -2402,51 +2412,19 @@ fn load_cli_extensions(
         &config.repo_extension_paths,
         cwd,
     )?;
-    let manifests = discovery.manifests;
-    let (candidates, issues) = extension_load_candidates(&manifests);
-    for issue in issues {
+    let result = load_extensions(LoadExtensionsOptions {
+        candidates: &discovery.candidates,
+        all_candidates: None,
+        previous_load: None,
+        host_version: env!("CARGO_PKG_VERSION"),
+        extension_configs: &config.extension,
+        notifications: None,
+        pending_trust_repo_root: discovery.pending_trust_repo_root,
+    });
+    for issue in result.issues {
         eprintln!("warning: {issue}");
     }
-    let mut extensions = Vec::new();
-    for (path, manifest) in candidates {
-        match LoadedExtension::spawn_with_configuration(
-            &path,
-            env!("CARGO_PKG_VERSION"),
-            config.extension_config(&manifest.id),
-        ) {
-            Ok(extension) => extensions.push(extension),
-            Err(error) => eprintln!(
-                "warning: Native extension {} was skipped: {error}",
-                path.display()
-            ),
-        }
-    }
-    Ok(extensions)
-}
-
-fn extension_load_candidates(
-    manifests: &[PathBuf],
-) -> (Vec<(PathBuf, ExtensionManifest)>, Vec<String>) {
-    let mut candidates = Vec::new();
-    let mut issues = Vec::new();
-    let mut ids = BTreeSet::new();
-    for path in manifests {
-        match ExtensionManifest::load(path) {
-            Ok(manifest) if ids.insert(manifest.id.clone()) => {
-                candidates.push((path.clone(), manifest));
-            }
-            Ok(manifest) => issues.push(format!(
-                "Native extension {} was skipped: duplicate extension id {:?}",
-                path.display(),
-                manifest.id
-            )),
-            Err(error) => issues.push(format!(
-                "Native extension {} was skipped: {error}",
-                path.display()
-            )),
-        }
-    }
-    (candidates, issues)
+    Ok(result.extensions)
 }
 
 fn registered_extension_cli_commands(
