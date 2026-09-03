@@ -23,6 +23,12 @@ pub struct Config {
     /// Merged user/repository settings exposed only to the named native extension.
     #[serde(default)]
     pub extension: BTreeMap<String, serde_json::Value>,
+    /// Trusted paths from the user `[extensions]` table, kept separate for provenance.
+    #[serde(skip)]
+    pub user_extension_paths: Vec<PathBuf>,
+    /// Trust-gated paths from the repository `[extensions]` table.
+    #[serde(skip)]
+    pub repo_extension_paths: Vec<PathBuf>,
     /// Hunk-compatible command bindings from the global user layer only.
     #[serde(skip)]
     pub keybindings: Vec<UserKeyBindingEntry>,
@@ -302,14 +308,18 @@ impl Config {
         let mut merged = toml::Value::Table(Default::default());
         let mut keybindings = Vec::new();
         let mut keybinding_notices = Vec::new();
+        let mut user_extension_paths = Vec::new();
+        let mut repo_extension_paths = Vec::new();
 
         if let Some(path) = user_config_path.filter(|path| path.exists()) {
             (keybindings, keybinding_notices) = read_user_keybindings(path)?;
+            user_extension_paths = read_extension_paths(path)?;
             let user = read_config_value(path)?;
             merge_toml_values(&mut merged, user);
         }
 
         if repo_config_path.exists() {
+            repo_extension_paths = read_extension_paths(repo_config_path)?;
             let repo = read_config_value(repo_config_path)?;
             merge_toml_values(&mut merged, repo);
         }
@@ -319,6 +329,8 @@ impl Config {
             .with_context(|| "failed to parse merged config")?;
         config.keybindings = keybindings;
         config.keybinding_notices = keybinding_notices;
+        config.user_extension_paths = user_extension_paths;
+        config.repo_extension_paths = repo_extension_paths;
         config
             .validate()
             .with_context(|| "invalid Workdeck config")?;
@@ -367,6 +379,30 @@ impl Config {
         }
         self.keys.validate()
     }
+}
+
+fn read_extension_paths(path: &Path) -> Result<Vec<PathBuf>> {
+    let value = read_config_value(path)?;
+    let Some(extensions) = value.get("extensions") else {
+        return Ok(Vec::new());
+    };
+    let table = extensions
+        .as_table()
+        .context("Expected extensions to contain a TOML table.")?;
+    let Some(paths) = table.get("paths") else {
+        return Ok(Vec::new());
+    };
+    paths
+        .as_array()
+        .context("Expected extensions.paths to contain an array of paths.")?
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .map(PathBuf::from)
+                .context("Expected every extensions.paths entry to be a string.")
+        })
+        .collect()
 }
 
 fn read_user_keybindings(path: &Path) -> Result<(Vec<UserKeyBindingEntry>, Vec<String>)> {
@@ -775,6 +811,40 @@ mod tests {
             })
         );
         assert_eq!(config.extension_config("missing"), serde_json::json!({}));
+    }
+
+    #[test]
+    fn extension_discovery_paths_retain_user_and_repository_provenance() {
+        let dir = tempfile::tempdir().unwrap();
+        let user_config = dir.path().join("user-config.toml");
+        let repo_config = dir.path().join("repo-config.toml");
+        fs::write(
+            &user_config,
+            "[extensions]\npaths = ['~/trusted', './user-relative']\n",
+        )
+        .unwrap();
+        fs::write(&repo_config, "[extensions]\npaths = ['./repo-relative']\n").unwrap();
+        let config = Config::load_from_paths(&repo_config, Some(&user_config)).unwrap();
+        assert_eq!(
+            config.user_extension_paths,
+            [PathBuf::from("~/trusted"), PathBuf::from("./user-relative")]
+        );
+        assert_eq!(
+            config.repo_extension_paths,
+            [PathBuf::from("./repo-relative")]
+        );
+    }
+
+    #[test]
+    fn extension_discovery_paths_reject_non_string_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let user_config = dir.path().join("user-config.toml");
+        fs::write(&user_config, "[extensions]\npaths = ['./ok', 3]\n").unwrap();
+        let error =
+            Config::load_from_paths(&dir.path().join("missing-repo.toml"), Some(&user_config))
+                .unwrap_err()
+                .to_string();
+        assert!(error.contains("every extensions.paths entry"));
     }
 
     #[test]

@@ -36,7 +36,7 @@ use workdeck_extension_api::{
     FileLanguageGlobTarget, FileLanguageMatcher, Registration,
 };
 use workdeck_extension_host::{
-    LoadedExtension, TrustDecision, TrustStore, discover_manifests, discover_manifests_with_status,
+    LoadedExtension, TrustDecision, TrustStore, discover_manifests_with_config,
 };
 use workdeck_review::{
     CommentTargetInput, LayoutMode, ReviewComment, build_live_comment, find_diff_file_by_path,
@@ -52,7 +52,8 @@ use workdeck_tui::{
     ReviewOptions, UserKeyBindingEntry,
 };
 use workdeck_vcs::{
-    AnyProvider, DiffRequest, GitProvider, ProviderPreference, VcsProvider, parse_patch_input,
+    AnyProvider, DiffRequest, GitProvider, ProviderPreference, VcsProvider,
+    find_project_root_candidate, parse_patch_input,
 };
 
 use crate::extension_cli_commands::{
@@ -606,6 +607,10 @@ struct ReviewCliOptions {
     keybinding_notices: Vec<String>,
     #[arg(skip)]
     extension_config: BTreeMap<String, Value>,
+    #[arg(skip)]
+    user_extension_paths: Vec<PathBuf>,
+    #[arg(skip)]
+    repo_extension_paths: Vec<PathBuf>,
 }
 
 impl ReviewCliOptions {
@@ -657,6 +662,8 @@ impl ReviewCliOptions {
                 .keys()
                 .map(|id| (id.clone(), config.extension_config(id)))
                 .collect(),
+            user_extension_paths: config.user_extension_paths.clone(),
+            repo_extension_paths: config.repo_extension_paths.clone(),
         }
     }
 
@@ -703,6 +710,8 @@ impl ReviewCliOptions {
         self.keybindings = configured.keybindings;
         self.keybinding_notices = configured.keybinding_notices;
         self.extension_config = configured.extension_config;
+        self.user_extension_paths = configured.user_extension_paths;
+        self.repo_extension_paths = configured.repo_extension_paths;
     }
 
     fn preference(&self) -> ProviderPreference {
@@ -2297,12 +2306,16 @@ fn load_review_extensions_with_notifications(
     let global_extensions = config.as_ref().map(|config| config.join("extensions"));
     let repo = AnyProvider::discover(cwd, review.preference())
         .ok()
-        .map(|provider| provider.root().to_owned());
-    let discovery = discover_manifests_with_status(
+        .map(|provider| provider.root().to_owned())
+        .or_else(|| find_project_root_candidate(cwd));
+    let discovery = discover_manifests_with_config(
         global_extensions.as_deref(),
         repo.as_deref(),
         &trust,
         &review.extension,
+        &review.user_extension_paths,
+        &review.repo_extension_paths,
+        cwd,
     )?;
     let (candidates, issues) = extension_load_candidates(&discovery.manifests);
     for issue in issues {
@@ -2377,14 +2390,19 @@ fn load_cli_extensions(
     let global_extensions = config.as_ref().map(|config| config.join("extensions"));
     let repo = AnyProvider::discover(cwd, ProviderPreference::Auto)
         .ok()
-        .map(|provider| provider.root().to_owned());
+        .map(|provider| provider.root().to_owned())
+        .or_else(|| find_project_root_candidate(cwd));
     let config = Config::load(repo.as_deref().unwrap_or(cwd))?;
-    let manifests = discover_manifests(
+    let discovery = discover_manifests_with_config(
         global_extensions.as_deref(),
         repo.as_deref(),
         &trust,
         explicit,
+        &config.user_extension_paths,
+        &config.repo_extension_paths,
+        cwd,
     )?;
+    let manifests = discovery.manifests;
     let (candidates, issues) = extension_load_candidates(&manifests);
     for issue in issues {
         eprintln!("warning: {issue}");
@@ -3176,7 +3194,21 @@ fn handle_extension_command(cwd: &Path, command: ExtensionCommand) -> Result<()>
         }
         ExtensionCommand::List { json } => {
             let trust = load_extension_trust_store();
-            let manifests = discover_manifests(Some(&extensions_root), Some(cwd), &trust, &[])?;
+            let repo = AnyProvider::discover(cwd, ProviderPreference::Auto)
+                .ok()
+                .map(|provider| provider.root().to_owned())
+                .or_else(|| find_project_root_candidate(cwd));
+            let config = Config::load(repo.as_deref().unwrap_or(cwd))?;
+            let manifests = discover_manifests_with_config(
+                Some(&extensions_root),
+                repo.as_deref(),
+                &trust,
+                &[],
+                &config.user_extension_paths,
+                &config.repo_extension_paths,
+                cwd,
+            )?
+            .manifests;
             let managed = manager.list();
             let mut seen_managed = BTreeSet::new();
             let mut payload = manifests

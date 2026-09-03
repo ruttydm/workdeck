@@ -1,5 +1,6 @@
 //! Subprocess host for trusted native Workdeck extensions.
 
+mod extension_discovery;
 mod extension_document_reader;
 mod extension_selection;
 mod extension_trust;
@@ -12,6 +13,7 @@ mod keyboard_mode_controller;
 mod line_highlights;
 mod synchronous_callbacks;
 
+pub use extension_discovery::*;
 pub use extension_document_reader::*;
 pub use extension_selection::*;
 pub use extension_trust::*;
@@ -36,7 +38,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 use thiserror::Error;
-use workdeck_core::{Changeset, INSTALLED_EXTENSIONS_DIR_NAME, ReviewSnapshot};
+use workdeck_core::{Changeset, ReviewSnapshot};
 use workdeck_diff::{SanitizeOptions, sanitize_terminal_text};
 use workdeck_extension_api::{
     API_VERSION, CliCommandExecution, CliCommandInvocation, CliCommandResult,
@@ -2165,194 +2167,12 @@ impl Drop for LoadedExtension {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ManifestDiscovery {
-    pub manifests: Vec<PathBuf>,
-    pub pending_trust_repo_root: Option<PathBuf>,
-}
-
-pub fn discover_manifests(
-    global_directory: Option<&Path>,
-    repo_root: Option<&Path>,
-    trust: &TrustStore,
-    explicit: &[PathBuf],
-) -> Result<Vec<PathBuf>, HostError> {
-    Ok(discover_manifests_with_status(global_directory, repo_root, trust, explicit)?.manifests)
-}
-
-/// Discover explicit and global extensions while nonfatally trust-gating repository extensions.
-pub fn discover_manifests_with_status(
-    global_directory: Option<&Path>,
-    repo_root: Option<&Path>,
-    trust: &TrustStore,
-    explicit: &[PathBuf],
-) -> Result<ManifestDiscovery, HostError> {
-    let mut manifests = Vec::new();
-    let mut seen = BTreeSet::new();
-    let mut pending_trust_repo_root = None;
-    let mut explicit = explicit
-        .iter()
-        .map(|path| {
-            if path.is_dir() {
-                path.join("workdeck-extension.toml")
-            } else {
-                path.clone()
-            }
-        })
-        .collect::<Vec<_>>();
-    explicit.sort();
-    append_manifests(explicit, &mut manifests, &mut seen);
-    if let Some(global) = global_directory {
-        append_manifests(scan_manifests(global), &mut manifests, &mut seen);
-    }
-    if let Some(repo) = repo_root {
-        let directory = repo.join(".agents/workdeck/extensions");
-        if directory.exists() {
-            match trust.decision(repo) {
-                Some(TrustDecision::Trusted) => {
-                    append_manifests(scan_manifests(&directory), &mut manifests, &mut seen);
-                }
-                Some(TrustDecision::Denied) => {}
-                Some(TrustDecision::Legacy) | None => {
-                    pending_trust_repo_root = Some(repo.to_owned());
-                }
-            }
-        }
-    }
-    Ok(ManifestDiscovery {
-        manifests,
-        pending_trust_repo_root,
-    })
-}
-
-fn append_manifests(
-    candidates: impl IntoIterator<Item = PathBuf>,
-    manifests: &mut Vec<PathBuf>,
-    seen: &mut BTreeSet<PathBuf>,
-) {
-    for path in candidates {
-        let identity = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
-        if path.is_file() && seen.insert(identity) {
-            manifests.push(path);
-        }
-    }
-}
-
-fn scan_manifests(directory: &Path) -> Vec<PathBuf> {
-    let mut manifests = BTreeSet::new();
-    let direct = directory.join("workdeck-extension.toml");
-    if direct.is_file() {
-        manifests.insert(direct);
-    }
-    let Ok(entries) = fs::read_dir(directory) else {
-        return manifests.into_iter().collect();
-    };
-    for entry in entries.flatten() {
-        let manifest = entry.path().join("workdeck-extension.toml");
-        if manifest.is_file() {
-            manifests.insert(manifest);
-        }
-    }
-    let installed = directory.join(INSTALLED_EXTENSIONS_DIR_NAME);
-    if let Ok(repositories) = fs::read_dir(installed) {
-        for repository in repositories.flatten() {
-            let path = repository.path();
-            let direct = path.join("workdeck-extension.toml");
-            if direct.is_file() {
-                manifests.insert(direct);
-            }
-            if let Ok(entries) = fs::read_dir(path) {
-                for entry in entries.flatten() {
-                    let manifest = entry.path().join("workdeck-extension.toml");
-                    if manifest.is_file() {
-                        manifests.insert(manifest);
-                    }
-                }
-            }
-        }
-    }
-    manifests.into_iter().collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::Mutex;
     use std::sync::atomic::AtomicBool;
     use tempfile::TempDir;
-
-    #[test]
-    fn repo_discovery_is_trust_gated() {
-        let repo = TempDir::new().unwrap();
-        let extension = repo.path().join(".agents/workdeck/extensions/demo");
-        fs::create_dir_all(&extension).unwrap();
-        fs::write(extension.join("workdeck-extension.toml"), "id = 'demo'").unwrap();
-        let trust = TrustStore::default();
-        let pending = discover_manifests_with_status(None, Some(repo.path()), &trust, &[]).unwrap();
-        assert!(pending.manifests.is_empty());
-        assert_eq!(
-            pending.pending_trust_repo_root.as_deref(),
-            Some(repo.path())
-        );
-
-        let mut trust = trust;
-        trust.grant(repo.path(), TrustDecision::Trusted);
-        let loaded = discover_manifests_with_status(None, Some(repo.path()), &trust, &[]).unwrap();
-        assert_eq!(loaded.manifests.len(), 1);
-        assert!(loaded.pending_trust_repo_root.is_none());
-
-        trust.grant(repo.path(), TrustDecision::Denied);
-        let denied = discover_manifests_with_status(None, Some(repo.path()), &trust, &[]).unwrap();
-        assert!(denied.manifests.is_empty());
-        assert!(denied.pending_trust_repo_root.is_none());
-    }
-
-    #[test]
-    fn discovery_orders_explicit_then_global_then_repo_and_deduplicates_paths() {
-        let root = TempDir::new().unwrap();
-        let explicit_a = root.path().join("explicit-a/workdeck-extension.toml");
-        let explicit_b = root.path().join("explicit-b/workdeck-extension.toml");
-        let global = root.path().join("global");
-        let repo = root.path().join("repo");
-        let global_manifest = global.join("global/workdeck-extension.toml");
-        let repo_manifest = repo.join(".agents/workdeck/extensions/repo/workdeck-extension.toml");
-        for manifest in [&explicit_a, &explicit_b, &global_manifest, &repo_manifest] {
-            fs::create_dir_all(manifest.parent().unwrap()).unwrap();
-            fs::write(manifest, "id = 'placeholder'").unwrap();
-        }
-        let mut trust = TrustStore::default();
-        trust.grant(&repo, TrustDecision::Trusted);
-        let manifests = discover_manifests(
-            Some(&global),
-            Some(&repo),
-            &trust,
-            &[explicit_b.clone(), explicit_a.clone(), explicit_b.clone()],
-        )
-        .unwrap();
-        assert_eq!(
-            manifests,
-            [explicit_a, explicit_b, global_manifest, repo_manifest]
-        );
-    }
-
-    #[test]
-    fn discovery_includes_managed_repositories_and_one_level_collections() {
-        let root = TempDir::new().unwrap();
-        let global = root.path().join("extensions");
-        let installed = global.join(INSTALLED_EXTENSIONS_DIR_NAME);
-        let direct = installed.join("direct/workdeck-extension.toml");
-        let collection_a = installed.join("collection/a/workdeck-extension.toml");
-        let collection_b = installed.join("collection/b/workdeck-extension.toml");
-        for manifest in [&direct, &collection_a, &collection_b] {
-            fs::create_dir_all(manifest.parent().unwrap()).unwrap();
-            fs::write(manifest, "id = 'placeholder'").unwrap();
-        }
-
-        assert_eq!(
-            discover_manifests(Some(&global), None, &TrustStore::default(), &[]).unwrap(),
-            [collection_a, collection_b, direct]
-        );
-    }
 
     #[test]
     fn trust_store_round_trips_atomically() {

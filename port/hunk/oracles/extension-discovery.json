@@ -1,0 +1,150 @@
+{
+  "schema_version": 1,
+  "captured_with": "bun 1.3.5 executing the untouched pinned src/extensions/discovery.test.ts",
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "source_blob": "7806ec6ab4e2e92071d070ac22ac4109314be81a",
+      "test_blob": "479ef52c85c5dede5277c456577bf7f9d2c8e10e",
+      "passed": 28,
+      "failed": 0,
+      "expect_calls": 29
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "source_blob": "7806ec6ab4e2e92071d070ac22ac4109314be81a",
+      "test_blob": "479ef52c85c5dede5277c456577bf7f9d2c8e10e",
+      "passed": 28,
+      "failed": 0,
+      "expect_calls": 29
+    }
+  ],
+  "native_adaptation": {
+    "entrypoint": "workdeck-extension.toml naming one compiled executable",
+    "collection": "one level of directories, each with its own native manifest",
+    "api_compatibility": "api_version must equal native extension API v1 and malformed values are attributed manifest errors",
+    "source_runtime_policy": "package.json and JavaScript or TypeScript entry files are never discovery inputs",
+    "trust": "user-authored paths are immediate intent; repository paths and repository configuration share repository trust",
+    "branding": ".hunk/extensions becomes .agents/workdeck/extensions"
+  },
+  "rust_commands": [
+    "cargo test -p workdeck-extension-host extension_discovery --lib",
+    "cargo test -p workdeck-cli extension_discovery_honors_config_provenance_xdg_and_provider_neutral_repo_root --test cli",
+    "cargo test -p workdeck-cli invalid_and_duplicate_manifests_are_contained_before_process_start --bin workdeck",
+    "cargo test -p workdeck-vcs workdeck_boundary_is_directory_only_and_nearest_nested_checkout_wins --lib"
+  ],
+  "test_mapping": [
+    {
+      "source_test": "scans entry files and one level of folder extensions in the global dir",
+      "rust_tests": ["extension_discovery::tests::scans_only_direct_manifest_folders_and_orders_them"]
+    },
+    {
+      "source_test": "discovers .tsx and .jsx entries everywhere .ts entries are discovered",
+      "rust_tests": ["extension_discovery::tests::javascript_sources_and_package_manifests_are_never_discovered", "extension_discovery::tests::native_manifest_is_the_only_entrypoint_authority"]
+    },
+    {
+      "source_test": "prefers index.ts over index.tsx for a folder shipping both",
+      "rust_tests": ["extension_discovery::tests::native_manifest_is_the_only_entrypoint_authority"]
+    },
+    {
+      "source_test": "bootstraps repo-local extensions from .hunk without a bundled VCS marker",
+      "rust_tests": ["extension_discovery_honors_config_provenance_xdg_and_provider_neutral_repo_root", "catalog::tests::workdeck_boundary_is_directory_only_and_nearest_nested_checkout_wins"]
+    },
+    {
+      "source_test": "orders flag, user config, global, then repo-local sources",
+      "rust_tests": ["extension_discovery::tests::orders_groups_and_deduplicates_by_resolved_path", "extension_discovery::tests::sorts_paths_within_each_precedence_group"]
+    },
+    {
+      "source_test": "treats repo config paths as repo-local regardless of where they point",
+      "rust_tests": ["extension_discovery::tests::repository_config_paths_share_repository_trust_even_outside_repo", "extension_discovery_honors_config_provenance_xdg_and_provider_neutral_repo_root"]
+    },
+    {
+      "source_test": "expands explicit directory paths and keeps explicit file paths",
+      "rust_tests": ["extension_discovery::tests::explicit_folder_is_one_extension_and_container_expands_one_level", "extension_discovery::tests::explicit_manifest_file_is_kept_without_directory_reinterpretation"]
+    },
+    {
+      "source_test": "loads an explicit folder-extension path as one extension, not as a container",
+      "rust_tests": ["extension_discovery::tests::explicit_folder_is_one_extension_and_container_expands_one_level"]
+    },
+    {
+      "source_test": "prefers index.ts over index.js for an explicit folder-extension path",
+      "rust_tests": ["extension_discovery::tests::native_manifest_is_the_only_entrypoint_authority"]
+    },
+    {
+      "source_test": "scans an explicit directory without an index as a container of extensions",
+      "rust_tests": ["extension_discovery::tests::explicit_folder_is_one_extension_and_container_expands_one_level", "extension_discovery::tests::one_level_native_collection_replaces_multi_entry_source_manifests"]
+    },
+    {
+      "source_test": "keeps a missing explicit path so the host can report it",
+      "rust_tests": ["extension_discovery::tests::keeps_missing_explicit_manifest_for_an_attributed_load_issue"]
+    },
+    {
+      "source_test": "dedupes one path across groups and keeps the first origin",
+      "rust_tests": ["extension_discovery::tests::orders_groups_and_deduplicates_by_resolved_path", "extension_discovery::tests::user_config_is_immediate_intent_and_wins_repo_deduplication"]
+    },
+    {
+      "source_test": "falls back to the XDG global extensions directory",
+      "rust_tests": ["extension_discovery_honors_config_provenance_xdg_and_provider_neutral_repo_root"]
+    },
+    {
+      "source_test": "prefers a package.json manifest over the index fallback when scanning",
+      "rust_tests": ["extension_discovery::tests::native_manifest_is_the_only_entrypoint_authority"]
+    },
+    {
+      "source_test": "resolves a manifest for an explicit folder path",
+      "rust_tests": ["extension_discovery::tests::explicit_folder_is_one_extension_and_container_expands_one_level"]
+    },
+    {
+      "source_test": "keeps manifest order and per-file ids when a manifest declares several entries",
+      "rust_tests": ["extension_discovery::tests::one_level_native_collection_replaces_multi_entry_source_manifests", "extension_discovery::tests::sorts_paths_within_each_precedence_group"]
+    },
+    {
+      "source_test": "disambiguates duplicate ids within a multi-entry manifest",
+      "rust_tests": ["extension_cli_tests::invalid_and_duplicate_manifests_are_contained_before_process_start"]
+    },
+    {
+      "source_test": "falls back to the index entry when package.json is malformed",
+      "rust_tests": ["extension_discovery::tests::javascript_sources_and_package_manifests_are_never_discovered"]
+    },
+    {
+      "source_test": "falls back to the index entry for a package.json without a hunk field",
+      "rust_tests": ["extension_discovery::tests::javascript_sources_and_package_manifests_are_never_discovered"]
+    },
+    {
+      "source_test": "keeps a manifest entry pointing at a missing file so the host can report it",
+      "rust_tests": ["extension_discovery::tests::keeps_a_manifest_with_a_missing_executable_for_an_attributed_host_issue"]
+    },
+    {
+      "source_test": "expands a leading ~/ in a config path to the user's home directory",
+      "rust_tests": ["extension_discovery::tests::authored_paths_expand_home_and_normalize_dot_segments"]
+    },
+    {
+      "source_test": "expands a bare ~ to the home directory itself",
+      "rust_tests": ["extension_discovery::tests::bare_and_windows_written_home_prefixes_expand_without_expanding_named_users"]
+    },
+    {
+      "source_test": "expands a backslash-separated ~\\ prefix for Windows-written config",
+      "rust_tests": ["extension_discovery::tests::bare_and_windows_written_home_prefixes_expand_without_expanding_named_users"]
+    },
+    {
+      "source_test": "leaves ~user alone, since resolving another account's home is a shell feature",
+      "rust_tests": ["extension_discovery::tests::authored_paths_expand_home_and_normalize_dot_segments", "extension_discovery::tests::bare_and_windows_written_home_prefixes_expand_without_expanding_named_users"]
+    },
+    {
+      "source_test": "attaches hunk.apiVersion to every entry the manifest declares",
+      "rust_tests": ["extension_discovery::tests::manifest_api_version_is_strict_and_the_candidate_keeps_its_source_path"]
+    },
+    {
+      "source_test": "applies hunk.apiVersion to the index fallback when no entries are declared",
+      "rust_tests": ["extension_discovery::tests::manifest_api_version_is_strict_and_the_candidate_keeps_its_source_path"]
+    },
+    {
+      "source_test": "ignores a malformed apiVersion instead of dropping the folder",
+      "rust_tests": ["extension_discovery::tests::malformed_native_api_version_is_an_attributed_manifest_error"]
+    },
+    {
+      "source_test": "skips the installer's dot-prefixed staging and backup directories",
+      "rust_tests": ["extension_discovery::tests::managed_root_loads_direct_and_collection_repositories_but_skips_workspaces"]
+    }
+  ]
+}

@@ -11,6 +11,17 @@ fn workdeck() -> Command {
     command
 }
 
+fn write_native_extension(directory: &std::path::Path, id: &str) {
+    fs::create_dir_all(directory).unwrap();
+    fs::write(
+        directory.join("workdeck-extension.toml"),
+        format!(
+            "id = '{id}'\nname = '{id}'\nversion = '1.0.0'\napi_version = 1\nexecutable = '{id}'\ncapabilities = []\n"
+        ),
+    )
+    .unwrap();
+}
+
 #[test]
 fn help_renders() {
     workdeck()
@@ -136,6 +147,92 @@ fn extension_trust_uses_shared_state_preserves_siblings_and_gates_discovery() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"data\": []"));
+}
+
+#[test]
+fn extension_discovery_honors_config_provenance_xdg_and_provider_neutral_repo_root() {
+    let root = tempdir().unwrap();
+    let config = tempdir().unwrap();
+    let repo = root.path().join("repo");
+    let nested = repo.join("src/nested");
+    let user_extension = root.path().join("user-extension");
+    let repo_extension = root.path().join("outside-repo-extension");
+    let global_extension = config.path().join("workdeck/extensions/global-extension");
+    write_native_extension(&user_extension, "user-path");
+    write_native_extension(&repo_extension, "repo-path");
+    write_native_extension(&global_extension, "global-path");
+    fs::create_dir_all(&nested).unwrap();
+    fs::create_dir_all(repo.join(".agents/workdeck")).unwrap();
+    fs::write(
+        config.path().join("workdeck/config.toml"),
+        format!(
+            "[extensions]\npaths = [{}]\n",
+            toml::Value::String(user_extension.to_string_lossy().into())
+        ),
+    )
+    .unwrap();
+    fs::write(
+        repo.join(".agents/workdeck/config.toml"),
+        format!(
+            "[extensions]\npaths = [{}]\n",
+            toml::Value::String(repo_extension.to_string_lossy().into())
+        ),
+    )
+    .unwrap();
+
+    let mut before = workdeck();
+    let before = before
+        .env("XDG_CONFIG_HOME", config.path())
+        .arg("--cwd")
+        .arg(&nested)
+        .args(["extension", "list", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        before.status.success(),
+        "{}",
+        String::from_utf8_lossy(&before.stderr)
+    );
+    let before: Value = serde_json::from_slice(&before.stdout).unwrap();
+    let before_ids = before["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|entry| entry["id"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(before_ids, ["user-path", "global-path"]);
+
+    let mut trust = workdeck();
+    trust
+        .env("XDG_CONFIG_HOME", config.path())
+        .arg("--cwd")
+        .arg(&nested)
+        .args(["extension", "trust", "--allow", "--yes", "--repo"])
+        .arg(&repo)
+        .assert()
+        .success();
+
+    let mut after = workdeck();
+    let after = after
+        .env("XDG_CONFIG_HOME", config.path())
+        .arg("--cwd")
+        .arg(&nested)
+        .args(["extension", "list", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        after.status.success(),
+        "{}",
+        String::from_utf8_lossy(&after.stderr)
+    );
+    let after: Value = serde_json::from_slice(&after.stdout).unwrap();
+    let after_ids = after["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|entry| entry["id"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(after_ids, ["user-path", "global-path", "repo-path"]);
 }
 
 #[test]
