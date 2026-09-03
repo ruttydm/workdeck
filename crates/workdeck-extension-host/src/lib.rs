@@ -3,6 +3,7 @@
 mod extension_discovery;
 mod extension_document_reader;
 mod extension_loading;
+mod extension_registration;
 mod extension_selection;
 mod extension_trust;
 mod file_view_host;
@@ -18,6 +19,7 @@ mod synchronous_callbacks;
 pub use extension_discovery::*;
 pub use extension_document_reader::*;
 pub use extension_loading::*;
+pub use extension_registration::*;
 pub use extension_selection::*;
 pub use extension_trust::*;
 pub use file_view_host::*;
@@ -57,8 +59,7 @@ use workdeck_extension_api::{
     MAX_CLI_STDIN_CHUNK_BYTES, MAX_MESSAGE_BYTES, ManifestError, PaneActionInvocation,
     PaneAvailabilityRequest, PaneAvailabilityResponse, PaneRenderRequest, PaneRenderResponse,
     Registration, ReviewEvent, SelectDialogSubmission, TransformRequest, TransformResponse,
-    ValidatedFileViewLayout, extension_pane_size, is_vertical_pane_placement, parse_key_chord,
-    validate_view,
+    ValidatedFileViewLayout, validate_view,
 };
 
 #[derive(Debug, Error)]
@@ -625,7 +626,7 @@ impl LoadedExtension {
             },
             Duration::from_millis(DEFAULT_HANDSHAKE_TIMEOUT_MS),
         )?;
-        let handshake: HandshakeResponse =
+        let mut handshake: HandshakeResponse =
             serde_json::from_value(result).map_err(|error| HostError::Handshake {
                 id: loaded.manifest.id.clone(),
                 message: error.to_string(),
@@ -639,7 +640,12 @@ impl LoadedExtension {
                 ),
             });
         }
-        validate_registrations(&loaded.manifest, &handshake)?;
+        normalize_and_validate_registrations(&loaded.manifest, &mut handshake).map_err(
+            |message| HostError::Handshake {
+                id: loaded.manifest.id.clone(),
+                message,
+            },
+        )?;
         loaded.handshake = handshake;
         loaded.registry.set_phase(ExtensionEventBusPhase::Ready);
         Ok(loaded)
@@ -2363,163 +2369,18 @@ fn validate_cli_execution(
     Ok(())
 }
 
-fn valid_cli_command_name(name: &str) -> bool {
-    let mut bytes = name.bytes();
-    matches!(bytes.next(), Some(first) if first.is_ascii_lowercase())
-        && bytes.all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
-}
-
+#[cfg(test)]
 fn validate_registrations(
     manifest: &ExtensionManifest,
     handshake: &HandshakeResponse,
 ) -> Result<(), HostError> {
-    let mut registration_keys = BTreeSet::new();
-    for registration in &handshake.registrations {
-        let key = registration.key();
-        if !registration_keys.insert(key.clone()) {
-            return Err(HostError::Handshake {
-                id: manifest.id.clone(),
-                message: format!("duplicate registration {key}"),
-            });
+    let mut handshake = handshake.clone();
+    normalize_and_validate_registrations(manifest, &mut handshake).map_err(|message| {
+        HostError::Handshake {
+            id: manifest.id.clone(),
+            message,
         }
-        let required = registration.required_capability();
-        if !manifest.capabilities.contains(&required) {
-            return Err(HostError::Handshake {
-                id: manifest.id.clone(),
-                message: format!("registration {key} requires undeclared capability {required:?}"),
-            });
-        }
-        if let Registration::CliCommand(command) = registration {
-            if !valid_cli_command_name(&command.name) {
-                return Err(HostError::Handshake {
-                    id: manifest.id.clone(),
-                    message: format!(
-                        "CLI command {:?} must use lowercase kebab case and start with a letter",
-                        command.name
-                    ),
-                });
-            }
-            if command.summary.trim().is_empty() {
-                return Err(HostError::Handshake {
-                    id: manifest.id.clone(),
-                    message: format!(
-                        "CLI command {:?} requires a non-empty summary",
-                        command.name
-                    ),
-                });
-            }
-            if command
-                .usage
-                .as_ref()
-                .is_some_and(|usage| usage.trim().is_empty())
-            {
-                return Err(HostError::Handshake {
-                    id: manifest.id.clone(),
-                    message: format!(
-                        "CLI command {:?} usage must be non-empty when provided",
-                        command.name
-                    ),
-                });
-            }
-        }
-        if let Registration::Command(command) = registration {
-            if command.id.trim().is_empty() || command.title.trim().is_empty() {
-                return Err(HostError::Handshake {
-                    id: manifest.id.clone(),
-                    message: "commands require non-empty ids and titles".into(),
-                });
-            }
-            for chord in &command.default_keys {
-                parse_key_chord(chord).map_err(|error| HostError::Handshake {
-                    id: manifest.id.clone(),
-                    message: format!("command {:?} has invalid key chord: {error}", command.id),
-                })?;
-            }
-        }
-        if let Registration::Pane(pane) = registration {
-            if pane.id.trim().is_empty() || pane.title.trim().is_empty() || pane.id.contains(':') {
-                return Err(HostError::Handshake {
-                    id: manifest.id.clone(),
-                    message: "panes require non-empty local ids and titles".into(),
-                });
-            }
-            let vertical = is_vertical_pane_placement(pane.placement);
-            if vertical && pane.height.is_some() || !vertical && pane.width.is_some() {
-                return Err(HostError::Handshake {
-                    id: manifest.id.clone(),
-                    message: format!(
-                        "pane {:?} uses the dimension opposite its {:?} placement",
-                        pane.id, pane.placement
-                    ),
-                });
-            }
-            let size = extension_pane_size(pane, None);
-            let min = size.min.unwrap_or(1);
-            let max = size.max.unwrap_or(u16::MAX);
-            if size.preferred == 0
-                || min == 0
-                || max == 0
-                || min > size.preferred
-                || size.preferred > max
-            {
-                return Err(HostError::Handshake {
-                    id: manifest.id.clone(),
-                    message: format!(
-                        "pane {:?} size must satisfy 0 < min <= preferred <= max",
-                        pane.id
-                    ),
-                });
-            }
-            if size
-                .fraction
-                .is_some_and(|fraction| !fraction.is_finite() || fraction <= 0.0 || fraction > 1.0)
-            {
-                return Err(HostError::Handshake {
-                    id: manifest.id.clone(),
-                    message: format!(
-                        "pane {:?} fraction must be greater than 0 and at most 1",
-                        pane.id
-                    ),
-                });
-            }
-        }
-        if let Registration::KeyboardMode(mode) = registration
-            && (mode.id.trim().is_empty() || mode.id.contains(':') || mode.title.trim().is_empty())
-        {
-            return Err(HostError::Handshake {
-                id: manifest.id.clone(),
-                message: "keyboard modes require non-empty local ids and titles".into(),
-            });
-        }
-        if let Registration::FileView { id, title, .. } = registration
-            && (id.trim().is_empty() || id.contains(':') || title.trim().is_empty())
-        {
-            return Err(HostError::Handshake {
-                id: manifest.id.clone(),
-                message: "file views require non-empty local ids and titles".into(),
-            });
-        }
-        if let Registration::EventSubscription { names } = registration {
-            let unique = names.iter().collect::<BTreeSet<_>>();
-            if names.is_empty()
-                || unique.len() != names.len()
-                || names.iter().any(|name| {
-                    name.trim().is_empty()
-                        || name.len() > 256
-                        || !name.bytes().all(|byte| {
-                            byte.is_ascii_alphanumeric()
-                                || matches!(byte, b'-' | b'_' | b'.' | b':')
-                        })
-                })
-            {
-                return Err(HostError::Handshake {
-                    id: manifest.id.clone(),
-                    message: "event subscriptions require unique, non-empty protocol names".into(),
-                });
-            }
-        }
-    }
-    Ok(())
+    })
 }
 
 impl Drop for LoadedExtension {
@@ -2549,7 +2410,7 @@ mod tests {
     }
 
     #[test]
-    fn handshake_rejects_duplicate_and_undeclared_registrations() {
+    fn handshake_keeps_duplicate_declarations_but_rejects_undeclared_capabilities() {
         let command = Registration::Command(workdeck_extension_api::CommandRegistration {
             id: "review.accept".into(),
             title: "Accept".into(),
@@ -2570,12 +2431,7 @@ mod tests {
             extension_version: "1.0.0".into(),
             registrations: vec![command.clone(), command.clone()],
         };
-        assert!(
-            validate_registrations(&manifest, &duplicate)
-                .unwrap_err()
-                .to_string()
-                .contains("duplicate registration")
-        );
+        assert!(validate_registrations(&manifest, &duplicate).is_ok());
 
         manifest.capabilities.clear();
         let undeclared = HandshakeResponse {
@@ -3097,7 +2953,8 @@ mod tests {
             .is_ok()
         );
         assert!(validate_registrations(&manifest, &response(&[])).is_err());
-        assert!(validate_registrations(&manifest, &response(&["same", "same"])).is_err());
-        assert!(validate_registrations(&manifest, &response(&["bad name"])).is_err());
+        assert!(validate_registrations(&manifest, &response(&["same", "same"])).is_ok());
+        assert!(validate_registrations(&manifest, &response(&["bad name"])).is_ok());
+        assert!(validate_registrations(&manifest, &response(&[" "])).is_err());
     }
 }

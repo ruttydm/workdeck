@@ -388,6 +388,61 @@ fn native_loader_isolates_a_failed_process_and_keeps_loading_in_candidate_order(
 }
 
 #[test]
+fn invalid_handshake_discards_its_valid_prefix_and_keeps_loading_other_extensions() {
+    let (broken_directory, broken_manifest) = staged_extension();
+    fs::write(
+        broken_directory
+            .path()
+            .join(".workdeck-test-invalid-registration"),
+        "invalid final declaration",
+    )
+    .unwrap();
+    let source = fs::read_to_string(&broken_manifest).unwrap();
+    fs::write(
+        &broken_manifest,
+        source.replace(
+            "id = \"example.review-triage\"",
+            "id = \"broken.registration\"",
+        ),
+    )
+    .unwrap();
+    let (_healthy_directory, healthy_manifest) = staged_extension();
+    let candidates = [
+        ManifestCandidate {
+            path: broken_manifest,
+            origin: ManifestOrigin::Explicit,
+        },
+        ManifestCandidate {
+            path: healthy_manifest,
+            origin: ManifestOrigin::Global,
+        },
+    ];
+    let mut result = load_extensions(LoadExtensionsOptions {
+        candidates: &candidates,
+        all_candidates: None,
+        previous_load: None,
+        host_version: "test",
+        extension_configs: &BTreeMap::new(),
+        notifications: None,
+        pending_trust_repo_root: None,
+    });
+
+    assert_eq!(result.extensions.len(), 1);
+    assert_eq!(result.extensions[0].manifest.id, "example.review-triage");
+    assert_eq!(result.issues.len(), 1);
+    assert_eq!(
+        result.issues[0].extension_id.as_deref(),
+        Some("broken.registration")
+    );
+    assert!(
+        result.issues[0]
+            .message
+            .contains("non-empty ids and titles")
+    );
+    result.retire();
+}
+
+#[test]
 fn native_loader_awaits_handshake_and_rejects_a_late_success_after_retirement() {
     let (directory, manifest) = staged_extension();
     fs::write(

@@ -1,0 +1,200 @@
+{
+  "schema_version": 1,
+  "captured_with": "bun 1.3.5 executing the untouched pinned src/extensions/runExtension.test.ts",
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "source_blob": "063c51881c5e05bddf8563b3feea1725106c0efb",
+      "test_blob": "5c31e85c3c355e9b5ff14d072e46c7420e4be5c3",
+      "tests": 38,
+      "passed": 38,
+      "failed": 0,
+      "expect_calls": 150
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "source_blob": "3fdb00b5890180702e571b9f37ec2ffc5be8382e",
+      "test_blob": "f9e4c97a940c5fb0a597c9d5a5afb3ba922452e7",
+      "tests": 36,
+      "passed": 36,
+      "failed": 0,
+      "expect_calls": 129
+    }
+  ],
+  "baseline_only_tests": [
+    "registers generic CLI commands through the current API",
+    "rejects reserved CLI names and rolls back earlier registrations"
+  ],
+  "native_adaptation": {
+    "factory": "one owned JSON-RPC handshake replaces incremental in-process registration and is published only after complete validation",
+    "rollback": "a rejected handshake retires its process and exposes none of its valid prefix; staged loading continues with later extension IDs",
+    "async": "the host awaits the bounded handshake and load-control retirement makes late success terminal",
+    "sealing": "the subprocess has no registration channel after its one handshake response and closing revokes all retained runtime authority",
+    "callbacks": "typed registration variants declare the corresponding protocol callbacks; the Rust SDK cannot encode JavaScript non-function values",
+    "sidebar": "the deprecated sidebar helper is represented by the same left pane registration and first-wins pane resolver",
+    "duplicates": "declaration duplicates survive handshake validation and are resolved downstream in declaration order",
+    "vcs": "detection values are treated as untrusted JSON, unusable roots become misses, and the registered adapter ID wins with one diagnostic",
+    "remaining_source_gate": "the source ledger record remains unmapped until native extension VCS operation dispatch is implemented and consumed"
+  },
+  "test_mapping": [
+    {
+      "source_test": "applies a synchronous factory before returning, with nothing to await",
+      "rust_tests": ["extension_loading::tests::publishes_all_provisional_claims_before_starting_a_process", "registration_and_manifest_capabilities_cover_the_complete_public_surface"]
+    },
+    {
+      "source_test": "rolls a throwing synchronous factory back before returning",
+      "rust_tests": ["invalid_handshake_discards_its_valid_prefix_and_keeps_loading_other_extensions"]
+    },
+    {
+      "source_test": "hands back a promise for an async factory and isolates its rejection",
+      "rust_tests": ["native_loader_isolates_a_failed_process_and_keeps_loading_in_candidate_order", "native_loader_awaits_handshake_and_rejects_a_late_success_after_retirement"]
+    },
+    {
+      "source_test": "isolates a factory result whose then getter throws",
+      "rust_tests": ["native_loader_isolates_a_failed_process_and_keeps_loading_in_candidate_order"]
+    },
+    {
+      "source_test": "seals the API so a deferred callback cannot register later",
+      "rust_tests": ["extension_loading::tests::retirement_is_terminal_before_a_prepared_load_resumes", "invalid_handshake_discards_its_valid_prefix_and_keeps_loading_other_extensions"]
+    },
+    {
+      "source_test": "collects every placement with normalized width or height",
+      "rust_tests": ["extension_registration::tests::pane_declarations_apply_hunks_defaults_and_validate_every_geometry_constraint", "extension_panes::tests::plans_all_four_edges_around_one_review_rectangle"]
+    },
+    {
+      "source_test": "uses placement-aware defaults for width and height",
+      "rust_tests": ["panes::tests::placement_selects_hunks_exact_default_dimension", "extension_registration::tests::pane_declarations_apply_hunks_defaults_and_validate_every_geometry_constraint"]
+    },
+    {
+      "source_test": "validates opt-ins, replacement keys, and synchronous availability callbacks",
+      "rust_tests": ["extension_registration::tests::pane_declarations_apply_hunks_defaults_and_validate_every_geometry_constraint", "subprocess_protocol_preserves_state_across_every_callback_boundary"]
+    },
+    {
+      "source_test": "rejects invalid placements, dimensions, and bounds",
+      "rust_tests": ["extension_registration::tests::pane_declarations_apply_hunks_defaults_and_validate_every_geometry_constraint", "tests::handshake_validates_pane_geometry_and_command_keys"]
+    },
+    {
+      "source_test": "rolls pane registrations back when their factory later throws",
+      "rust_tests": ["invalid_handshake_discards_its_valid_prefix_and_keeps_loading_other_extensions"]
+    },
+    {
+      "source_test": "records transient view preferences under the owning extension",
+      "rust_tests": ["extension_registration::tests::session_policy_is_owned_by_the_handshake_and_any_transient_request_wins"]
+    },
+    {
+      "source_test": "rejects unknown policy values and rolls back earlier requests",
+      "rust_tests": ["tests::session_options_reject_unknown_view_preference_policies", "invalid_handshake_discards_its_valid_prefix_and_keeps_loading_other_extensions"]
+    },
+    {
+      "source_test": "collects a valid view tagged with the owning extension",
+      "rust_tests": ["bundled_ui::tests::registers_only_the_built_in_files_pane", "extension_panes::tests::offers_the_bundled_files_pane_before_user_panes"]
+    },
+    {
+      "source_test": "rejects a view without a component function and rolls the factory back",
+      "rust_tests": ["invalid_handshake_discards_its_valid_prefix_and_keeps_loading_other_extensions", "subprocess_protocol_preserves_state_across_every_callback_boundary"]
+    },
+    {
+      "source_test": "rolls a registered view back when the factory later throws",
+      "rust_tests": ["invalid_handshake_discards_its_valid_prefix_and_keeps_loading_other_extensions"]
+    },
+    {
+      "source_test": "collides with registerPane through one identity path and keeps the first",
+      "rust_tests": ["extension_registration::tests::duplicates_survive_for_downstream_first_wins_resolution", "extension_panes::tests::duplicate_pane_keys_are_first_wins"]
+    },
+    {
+      "source_test": "collects a layout callback that may return bounded custom row components",
+      "rust_tests": ["file_views::tests::accepts_bounded_declarative_custom_row_painters", "compiled_protocol_matches_layouts_and_toggles_the_view"]
+    },
+    {
+      "source_test": "rejects a file view without a layout function",
+      "rust_tests": ["file_views::tests::rejects_layouts_without_positional_hunk_geometry", "subprocess_protocol_preserves_state_across_every_callback_boundary"]
+    },
+    {
+      "source_test": "keeps an interactive mode optional but refuses one that could never be entered",
+      "rust_tests": ["file_view_mode::tests::enters_atomically_and_selects_the_view_when_needed", "file_view_mode::tests::lifecycle_callbacks_contain_failures_and_protocol_violations"]
+    },
+    {
+      "source_test": "collects a valid highlighter under its owning extension",
+      "rust_tests": ["extension_registration::tests::validates_all_method_backed_registration_metadata_before_publication", "line_highlights::tests::registered_highlighter_keys_share_the_extension_qualification_policy"]
+    },
+    {
+      "source_test": "rejects a highlighter without an id or a highlight() function",
+      "rust_tests": ["extension_registration::tests::rejects_reserved_cli_names_bad_callbacks_metadata_and_undeclared_capabilities", "line_highlights::tests::rejects_a_non_array_result_whole"]
+    },
+    {
+      "source_test": "collects a valid mode under its owning extension",
+      "rust_tests": ["extension_registration::tests::validates_all_method_backed_registration_metadata_before_publication", "keyboard_mode::tests::validity_requires_registry_authority_phase_and_registration_identity"]
+    },
+    {
+      "source_test": "validates the complete synchronous callback shape",
+      "rust_tests": ["keyboard_mode::tests::invalid_key_results_failures_and_deferred_answers_are_contained", "keyboard_mode::tests::lifecycle_failures_and_deferred_answers_are_contained"]
+    },
+    {
+      "source_test": "rolls a registered mode back when its factory later throws",
+      "rust_tests": ["invalid_handshake_discards_its_valid_prefix_and_keeps_loading_other_extensions"]
+    },
+    {
+      "source_test": "registers a bus listener under its owning extension",
+      "rust_tests": ["tests::event_names_distinguish_host_lifecycle_subscriptions_from_extension_emissions", "compiled_event_delivery_is_pollable_and_serialized_per_extension"]
+    },
+    {
+      "source_test": "rolls bus registrations and queued factory events back with a failing factory",
+      "rust_tests": ["invalid_handshake_discards_its_valid_prefix_and_keeps_loading_other_extensions", "extension_event_publication_is_a_noop_without_subscribers_and_bounds_recursion"]
+    },
+    {
+      "source_test": "collects a valid command tagged with the owning extension",
+      "rust_tests": ["extension_registration::tests::validates_all_method_backed_registration_metadata_before_publication", "subprocess_protocol_preserves_state_across_every_callback_boundary"]
+    },
+    {
+      "source_test": "rejects an unparsable key chord and rolls the factory back",
+      "rust_tests": ["tests::handshake_validates_pane_geometry_and_command_keys", "invalid_handshake_discards_its_valid_prefix_and_keeps_loading_other_extensions"]
+    },
+    {
+      "source_test": "accepts a list of chords and rejects the list if any chord is bad",
+      "rust_tests": ["extension_registration::tests::validates_all_method_backed_registration_metadata_before_publication", "extension_registration::tests::rejects_reserved_cli_names_bad_callbacks_metadata_and_undeclared_capabilities"]
+    },
+    {
+      "source_test": "rejects a command without a handler function",
+      "rust_tests": ["subprocess_protocol_preserves_state_across_every_callback_boundary", "invalid_handshake_discards_its_valid_prefix_and_keeps_loading_other_extensions"]
+    },
+    {
+      "source_test": "forces a mismatched detection id back to the registered adapter id",
+      "rust_tests": ["extension_registration::tests::vcs_detection_uses_the_registered_id_and_reports_only_the_first_mismatch"]
+    },
+    {
+      "source_test": "reports one mismatch per adapter however often detection runs",
+      "rust_tests": ["extension_registration::tests::vcs_detection_uses_the_registered_id_and_reports_only_the_first_mismatch"]
+    },
+    {
+      "source_test": "passes a matching detection through untouched, with no diagnostic",
+      "rust_tests": ["extension_registration::tests::vcs_detection_uses_the_registered_id_and_reports_only_the_first_mismatch"]
+    },
+    {
+      "source_test": "treats a detection without a usable repoRoot as no detection",
+      "rust_tests": ["extension_registration::tests::vcs_detection_treats_nonobjects_and_unusable_repo_roots_as_no_detection"]
+    },
+    {
+      "source_test": "registers generic CLI commands through the current API",
+      "rust_tests": ["tests::handshake_validates_cli_command_metadata", "tests::extension_cli_names_share_hunks_grammar_and_cannot_shadow_workdeck"]
+    },
+    {
+      "source_test": "rejects reserved CLI names and rolls back earlier registrations",
+      "rust_tests": ["extension_registration::tests::rejects_reserved_cli_names_bad_callbacks_metadata_and_undeclared_capabilities", "invalid_handshake_discards_its_valid_prefix_and_keeps_loading_other_extensions"]
+    },
+    {
+      "source_test": "treats a non-detection return value as no detection",
+      "rust_tests": ["extension_registration::tests::vcs_detection_treats_nonobjects_and_unusable_repo_roots_as_no_detection"]
+    },
+    {
+      "source_test": "records the mismatch on the registry when registered through the public API",
+      "rust_tests": ["extension_registration::tests::vcs_detection_uses_the_registered_id_and_reports_only_the_first_mismatch"]
+    }
+  ],
+  "rust_commands": [
+    "cargo test -p workdeck-extension-api --lib",
+    "cargo test -p workdeck-diff --lib",
+    "cargo test -p workdeck-extension-host --lib",
+    "cargo test -p workdeck-tui --lib",
+    "cargo test -p workdeck-examples --test review_triage"
+  ]
+}

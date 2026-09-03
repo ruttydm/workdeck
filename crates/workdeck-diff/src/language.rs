@@ -119,6 +119,19 @@ impl LanguageRegistry {
     }
 }
 
+/// Validate one extension-authored glob with the exact parser used by the live registry.
+pub fn validate_language_glob(value: &str) -> Result<(), String> {
+    if value.is_empty() {
+        return Err("glob matcher value must be non-empty".into());
+    }
+    if value.contains('\0') {
+        return Err("glob matchers cannot contain NUL".into());
+    }
+    Glob::new(&encode_backslashes(value))
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
 fn encode_backslashes(value: &str) -> String {
     value.replace('\\', "\0")
 }
@@ -329,5 +342,14 @@ mod tests {
             registration(LanguageMatcher::Extension("repeat".into()), "ruby"),
         ]);
         assert_eq!(registry.language_for_path("foo.repeat"), "ruby");
+    }
+
+    #[test]
+    fn extension_glob_validation_uses_the_live_registry_parser() {
+        assert!(validate_language_glob("generated/**/*.rs").is_ok());
+        assert!(validate_language_glob("foo[\\]bar").is_ok());
+        assert!(validate_language_glob("").is_err());
+        assert!(validate_language_glob("bad\0glob").is_err());
+        assert!(validate_language_glob("[").is_err());
     }
 }

@@ -659,6 +659,21 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_pane_keys_are_first_wins() {
+        let mut first = registration("meta", "tree");
+        Arc::get_mut(&mut first).unwrap().pane.title = "First".into();
+        let mut duplicate = registration("meta", "tree");
+        Arc::get_mut(&mut duplicate).unwrap().pane.title = "Duplicate".into();
+        let panes = build_session_panes(&[first, duplicate]);
+        let matching = panes
+            .iter()
+            .filter(|pane| pane.key == "meta:tree")
+            .collect::<Vec<_>>();
+        assert_eq!(matching.len(), 1);
+        assert_eq!(matching[0].title, "First");
+    }
+
+    #[test]
     fn a_replacement_changes_only_the_initial_bundled_files_default() {
         let mut replacement = registration("meta", "files");
         Arc::get_mut(&mut replacement).unwrap().pane.replaces =

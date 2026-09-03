@@ -655,7 +655,7 @@ fn dispatch_request(
             serde_json::to_value(HandshakeResponse {
                 extension_api_version: API_VERSION,
                 extension_version: env!("CARGO_PKG_VERSION").into(),
-                registrations: registrations(),
+                registrations: loader_fixture_registrations()?,
             })
             .map_err(|error| error.to_string())
         }
@@ -714,6 +714,25 @@ fn apply_loader_fixture_delay() -> Result<(), String> {
         .min(1_000);
     std::thread::sleep(std::time::Duration::from_millis(milliseconds));
     Ok(())
+}
+
+/// Return the ordinary declarations unless a copied integration fixture asks for a deliberately
+/// invalid final declaration. This proves the host never publishes the valid prefix of a failed
+/// native factory-equivalent handshake.
+fn loader_fixture_registrations() -> Result<Vec<Registration>, String> {
+    let path = std::env::current_dir()
+        .map_err(|error| error.to_string())?
+        .join(".workdeck-test-invalid-registration");
+    let mut values = registrations();
+    if path.exists() {
+        values.push(Registration::Command(CommandRegistration {
+            id: "invalid-tail".into(),
+            title: " ".into(),
+            description: None,
+            default_keys: Vec::new(),
+        }));
+    }
+    Ok(values)
 }
 
 #[must_use]

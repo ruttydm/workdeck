@@ -51,7 +51,9 @@ pub use highlight_worker::{
 pub use highlighted_diff_cache::{
     HighlightedDiffCache, HighlightedDiffCode, MAX_HIGHLIGHTED_DIFF_CACHE_LINES,
 };
-pub use language::{LanguageMatcher, LanguageRegistration, LanguageRegistry};
+pub use language::{
+    LanguageMatcher, LanguageRegistration, LanguageRegistry, validate_language_glob,
+};
 pub use row_model::{
     CollapsedGapPosition, DiffRow, RenderForegroundTransform, RenderSpan, SplitLineCell,
     SplitLineKind, StackLineCell, StackLineKind,

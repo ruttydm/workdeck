@@ -43,6 +43,57 @@ pub const MAX_VIEW_DEPTH: usize = 64;
 pub const FILE_VIEW_DRAFT_UNAVAILABLE_REASON: &str =
     "File presentations are unavailable while drafting an inline review note • using raw diff";
 
+/// Top-level Workdeck commands that native extensions may not shadow.
+///
+/// This list is owned by the versioned extension API so the handshake validator and the CLI
+/// parser enforce one policy without introducing a host-to-CLI dependency.
+pub const BUILT_IN_CLI_COMMAND_NAMES: &[&str] = &[
+    "diff",
+    "show",
+    "patch",
+    "pager",
+    "difftool",
+    "stash",
+    "session",
+    "markup",
+    "skill",
+    "extension",
+    "ext",
+    "update",
+    "daemon",
+    "mcp",
+    "help",
+    "version",
+    "migrate",
+    "status",
+    "files",
+    "changes",
+    "search",
+    "config",
+    "events",
+    "import",
+    "doctor",
+    "export",
+    "issue",
+    "agent",
+    "project",
+    "cycle",
+    "label",
+];
+
+/// Hunk's public lowercase-kebab grammar for extension-owned top-level commands.
+#[must_use]
+pub fn is_valid_extension_cli_command_name(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    matches!(bytes.next(), Some(first) if first.is_ascii_lowercase())
+        && bytes.all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+#[must_use]
+pub fn is_reserved_extension_cli_command_name(name: &str) -> bool {
+    BUILT_IN_CLI_COMMAND_NAMES.contains(&name)
+}
+
 /// Draft editing remains raw-only; committed notes are placed from validated source bindings.
 #[must_use]
 pub const fn file_view_unavailable_reason(has_draft_note: bool) -> Option<&'static str> {
@@ -496,6 +547,7 @@ pub struct HandshakeResponse {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Registration {
+    SessionOptions(SessionOptionsRegistration),
     Command(CommandRegistration),
     CliCommand(CliCommandRegistration),
     Pane(PaneRegistration),
@@ -527,6 +579,7 @@ pub enum Registration {
 impl Registration {
     pub fn key(&self) -> String {
         match self {
+            Self::SessionOptions(_) => "session-options".into(),
             Self::Command(value) => format!("command:{}", value.id),
             Self::CliCommand(value) => format!("cli-command:{}", value.name),
             Self::Pane(value) => format!("pane:{}", value.id),
@@ -543,6 +596,7 @@ impl Registration {
 
     pub fn required_capability(&self) -> Capability {
         match self {
+            Self::SessionOptions(_) => Capability::Configuration,
             Self::Command(_) => Capability::Commands,
             Self::CliCommand(_) => Capability::CliCommands,
             Self::Pane(_) => Capability::Panes,
@@ -556,6 +610,20 @@ impl Registration {
             Self::EventSubscription { .. } => Capability::Events,
         }
     }
+}
+
+/// Host-level behavior requested for the review session loading an extension.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionOptionsRegistration {
+    #[serde(default)]
+    pub view_preferences: Option<ViewPreferencesPolicy>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ViewPreferencesPolicy {
+    Default,
+    Transient,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -695,9 +763,10 @@ pub struct CliCommandExecution {
     pub stdin_consumed: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PanePlacement {
+    #[default]
     Left,
     Right,
     Top,
@@ -707,7 +776,9 @@ pub enum PanePlacement {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PaneRegistration {
     pub id: String,
+    #[serde(default)]
     pub title: String,
+    #[serde(default)]
     pub placement: PanePlacement,
     /// Whether this pane is open when first registered. User choices made
     /// after registration take precedence for the remainder of the review.
@@ -1484,6 +1555,34 @@ pub fn validate_view(root: &ViewNode) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extension_cli_names_share_hunks_grammar_and_cannot_shadow_workdeck() {
+        for valid in ["lint", "review-export", "x1", "cli--tools-"] {
+            assert!(is_valid_extension_cli_command_name(valid), "{valid}");
+        }
+        for invalid in ["", "1lint", "Lint", "lint_me", "lint/me"] {
+            assert!(!is_valid_extension_cli_command_name(invalid), "{invalid}");
+        }
+        for reserved in ["diff", "session", "ext", "help", "issue"] {
+            assert!(is_reserved_extension_cli_command_name(reserved));
+        }
+        assert!(!is_reserved_extension_cli_command_name("greptile"));
+    }
+
+    #[test]
+    fn session_options_reject_unknown_view_preference_policies() {
+        let error = serde_json::from_value::<HandshakeResponse>(serde_json::json!({
+            "extension_api_version": API_VERSION,
+            "extension_version": "1.0.0",
+            "registrations": [{
+                "kind": "session-options",
+                "view_preferences": "forever"
+            }]
+        }))
+        .unwrap_err();
+        assert!(error.to_string().contains("unknown variant"));
+    }
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]

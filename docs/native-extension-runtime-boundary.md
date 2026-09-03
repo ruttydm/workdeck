@@ -32,7 +32,12 @@ recording the full candidate order supplied by the caller.
 
 `execute_extension_load` starts accepted processes sequentially and contains manifest, spawn,
 protocol, and handshake failures as source-attributed issues. Each successful handshake publishes
-all registrations atomically; partial registration is impossible. The host revalidates that the
+all registrations atomically; partial registration is impossible. Before publication the host
+normalizes file-extension matchers, compiles file-language globs with the live registry parser,
+validates pane geometry and replacement ownership, rejects built-in CLI names, checks every
+method-backed registration's metadata, and enforces declared capabilities. Duplicate declarations
+remain ordered input for the downstream first-wins resolvers, matching Hunk rather than rejecting
+them at the process boundary. The host revalidates that the
 manifest is byte-for-byte equivalent to its provisional value before starting the child, so a path
 swap cannot acquire another ID or receive another extension's configuration. A load control retired while a
 handshake is pending stays terminal, rejects the late process, and cannot be reopened by a resumed
@@ -62,3 +67,10 @@ The stable test blob uses Hunk's older extension-only file-language shape; the b
 API retain filename and glob matchers. Native dotted manifest IDs preserve Workdeck's established
 SDK namespace, while leading separators, colons, invalid characters, product IDs, and bundled VCS
 IDs remain refused before process startup.
+
+`port/hunk/oracles/extension-run-factory.json` records the 38 baseline and 36 stable
+`runExtension` tests. Rust tests cover atomic failure containment with a real compiled child,
+registration normalization and validation, downstream duplicate resolution, transient session
+policy, command-name reservation, and VCS detection-ID repair. Its source ledger record remains
+open until the native extension VCS operation requests and their startup/catalog consumers are
+implemented; the translated test record is complete independently.
