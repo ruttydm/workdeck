@@ -897,6 +897,13 @@ impl HighlightCache {
                 let syntax = job
                     .syntaxes
                     .find_syntax_by_token(&request.language)
+                    .or_else(|| match request.language.as_str() {
+                        // Syntect's bundled syntax set does not name its JS-compatible grammar
+                        // `typescript`; use that grammar until the imported TextMate definition
+                        // replaces this compatibility alias.
+                        "typescript" | "tsx" => job.syntaxes.find_syntax_by_extension("js"),
+                        _ => None,
+                    })
                     .or_else(|| {
                         Path::new(&request.metadata.path)
                             .extension()
@@ -1033,6 +1040,10 @@ impl HighlightCache {
         let syntax = self
             .syntaxes
             .find_syntax_by_token(&language)
+            .or_else(|| match language.as_str() {
+                "typescript" | "tsx" => self.syntaxes.find_syntax_by_extension("js"),
+                _ => None,
+            })
             .or_else(|| {
                 Path::new(&file.path)
                     .extension()
@@ -1261,6 +1272,10 @@ fn run_source_highlight_job(job: QueuedNativeSourceHighlight) -> HighlightedSour
     let syntax = job
         .syntaxes
         .find_syntax_by_token(&job.language)
+        .or_else(|| match job.language.as_str() {
+            "typescript" | "tsx" => job.syntaxes.find_syntax_by_extension("js"),
+            _ => None,
+        })
         .or_else(|| {
             Path::new(&job.path)
                 .extension()

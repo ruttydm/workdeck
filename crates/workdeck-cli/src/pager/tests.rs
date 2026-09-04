@@ -114,6 +114,77 @@ fn partial_markers_and_plain_git_text_are_not_patches() {
 }
 
 #[test]
+fn routes_non_diff_input_by_host_capability() {
+    let text = "* main\n  feature/demo\n";
+    assert_eq!(
+        resolve_pager_startup_route(text, &env(&[("TERM", "xterm-256color")]), true, true,),
+        PagerStartupRoute::PlainText,
+    );
+    for marker in [
+        ("LV", "-c"),
+        ("GIT_PAGER", "workdeck"),
+        ("LAZYGIT_NEW_DIR_FILE", "/tmp/dir"),
+    ] {
+        assert_eq!(
+            resolve_pager_startup_route(text, &env(&[("TERM", "dumb"), marker]), true, true,),
+            PagerStartupRoute::Passthrough {
+                preserve_color: true,
+            },
+        );
+    }
+    assert_eq!(
+        resolve_pager_startup_route(text, &env(&[("TERM", "dumb")]), true, true),
+        PagerStartupRoute::Passthrough {
+            preserve_color: false,
+        },
+    );
+}
+
+#[test]
+fn routes_diff_input_by_stdout_host_and_controlling_terminal() {
+    let patch = "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-old\n+new\n";
+    assert_eq!(
+        resolve_pager_startup_route(patch, &env(&[("TERM", "xterm-256color")]), true, true,),
+        PagerStartupRoute::InteractiveDiff,
+    );
+    assert_eq!(
+        resolve_pager_startup_route(patch, &env(&[("TERM", "xterm-256color")]), false, true,),
+        PagerStartupRoute::Passthrough {
+            preserve_color: false,
+        },
+    );
+    assert_eq!(
+        resolve_pager_startup_route(patch, &env(&[("TERM", "dumb")]), true, true),
+        PagerStartupRoute::Passthrough {
+            preserve_color: false,
+        },
+    );
+    assert_eq!(
+        resolve_pager_startup_route(patch, &env(&[("TERM", "dumb"), ("LV", "-c")]), true, true,),
+        PagerStartupRoute::StaticDiff,
+    );
+    assert_eq!(
+        resolve_pager_startup_route(patch, &env(&[("TERM", "xterm-256color")]), true, false,),
+        PagerStartupRoute::StaticDiff,
+    );
+}
+
+#[test]
+fn passthrough_preserves_only_safe_sgr_when_requested() {
+    let input = format!("\x1b[31mred\x1b[0m{CSI_CLEAR_SCREEN}{OSC52_CLIPBOARD}");
+    let mut colored = Vec::new();
+    write_passthrough_with(&input, true, &mut colored).unwrap();
+    let colored = String::from_utf8(colored).unwrap();
+    assert!(colored.contains("\x1b[31mred\x1b[0m"));
+    assert!(!colored.contains(CSI_CLEAR_SCREEN));
+    assert!(!colored.contains(OSC52_CLIPBOARD));
+
+    let mut plain = Vec::new();
+    write_passthrough_with(&input, false, &mut plain).unwrap();
+    assert_eq!(String::from_utf8(plain).unwrap(), "red");
+}
+
+#[test]
 fn falls_back_to_less_when_no_pager_is_configured() {
     assert_eq!(resolve_text_pager_command(&BTreeMap::new()), "less -R");
 }

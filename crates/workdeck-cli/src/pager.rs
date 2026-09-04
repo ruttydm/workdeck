@@ -11,6 +11,58 @@ use workdeck_diff::{SanitizeOptions, sanitize_terminal_text};
 pub const TEXT_PAGER_ENV: &str = "WORKDECK_TEXT_PAGER";
 const DEFAULT_TEXT_PAGER_COMMAND: &str = "less -R";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PagerStartupRoute {
+    PlainText,
+    Passthrough { preserve_color: bool },
+    StaticDiff,
+    InteractiveDiff,
+}
+
+/// Captured hosts such as LazyGit advertise a dumb terminal but still expect pager stdout.
+#[must_use]
+pub fn is_captured_pager_host(env: &BTreeMap<String, String>) -> bool {
+    env.get("TERM").is_some_and(|term| term == "dumb")
+        && (env.get("LV").is_some_and(|value| value == "-c")
+            || env.get("GIT_PAGER").is_some_and(|value| !value.is_empty())
+            || env.keys().any(|key| key.starts_with("LAZYGIT")))
+}
+
+/// Decide the complete pager startup branch before any extension or changeset loading.
+#[must_use]
+pub fn resolve_pager_startup_route(
+    text: &str,
+    env: &BTreeMap<String, String>,
+    stdout_is_terminal: bool,
+    controlling_terminal_available: bool,
+) -> PagerStartupRoute {
+    let captured = is_captured_pager_host(env);
+    if !looks_like_patch_input(text) {
+        return if env.get("TERM").is_some_and(|term| term == "dumb") {
+            PagerStartupRoute::Passthrough {
+                preserve_color: captured,
+            }
+        } else {
+            PagerStartupRoute::PlainText
+        };
+    }
+    if !stdout_is_terminal {
+        return PagerStartupRoute::Passthrough {
+            preserve_color: captured,
+        };
+    }
+    if env.get("TERM").is_some_and(|term| term == "dumb") && !captured {
+        return PagerStartupRoute::Passthrough {
+            preserve_color: false,
+        };
+    }
+    if captured || !controlling_terminal_available {
+        PagerStartupRoute::StaticDiff
+    } else {
+        PagerStartupRoute::InteractiveDiff
+    }
+}
+
 /// Detect whether generic pager stdin looks like a diff/patch that Workdeck should review.
 #[must_use]
 pub fn looks_like_patch_input(text: &str) -> bool {
@@ -307,6 +359,27 @@ pub fn page_plain_text_with(
 
 pub fn page_plain_text(text: &str, context: &PlainTextPagerContext) -> Result<(), PagerError> {
     page_plain_text_with(text, context, &mut std::io::stdout().lock())
+}
+
+pub fn write_passthrough_with(
+    text: &str,
+    preserve_color: bool,
+    output: &mut dyn Write,
+) -> Result<(), PagerError> {
+    let safe = sanitize_terminal_text(
+        text,
+        SanitizeOptions {
+            preserve_ansi_style: preserve_color,
+            ..SanitizeOptions::default()
+        },
+    );
+    output
+        .write_all(safe.as_bytes())
+        .map_err(|error| PagerError::new("stdout", Some(error.to_string())))
+}
+
+pub fn write_passthrough(text: &str, preserve_color: bool) -> Result<(), PagerError> {
+    write_passthrough_with(text, preserve_color, &mut std::io::stdout().lock())
 }
 
 #[cfg(test)]

@@ -947,6 +947,17 @@ mod review_cli_option_tests {
             false,
             true,
         ));
+        let captured_environment = BTreeMap::from([
+            ("TERM".into(), "dumb".into()),
+            ("LAZYGIT_NEW_DIR_FILE".into(), "/tmp/lazygit-dir".into()),
+        ]);
+        assert!(!should_open_controlling_terminal_in_environment(
+            pager.command.as_ref(),
+            "--- a/a\n+++ b/a\n",
+            false,
+            true,
+            &captured_environment,
+        ));
         assert!(should_open_controlling_terminal(None, "", false, true,));
     }
 
@@ -3917,15 +3928,24 @@ fn attach_prepared_controlling_terminal(
     let Some(prepared) = prepared else {
         return Ok(());
     };
+    let environment = std::env::vars().collect::<BTreeMap<_, _>>();
     if prepared.terminal.is_none()
-        && should_open_controlling_terminal(
+        && should_open_controlling_terminal_in_environment(
             command,
             &prepared.text,
             false,
             std::io::stdout().is_terminal(),
+            &environment,
         )
     {
-        prepared.terminal = Some(attach_controlling_terminal_input()?);
+        match attach_controlling_terminal_input() {
+            Ok(terminal) => prepared.terminal = Some(terminal),
+            Err(_) if matches!(command, Some(Command::Pager { .. })) => {
+                // A pager with no controlling terminal must remain useful inside captured hosts.
+                // Its command handler will select the static renderer from this missing guard.
+            }
+            Err(error) => return Err(error),
+        }
     }
     Ok(())
 }
@@ -3966,6 +3986,22 @@ fn should_open_controlling_terminal(
     stdin_is_terminal: bool,
     stdout_is_terminal: bool,
 ) -> bool {
+    should_open_controlling_terminal_in_environment(
+        command,
+        piped_text,
+        stdin_is_terminal,
+        stdout_is_terminal,
+        &BTreeMap::new(),
+    )
+}
+
+fn should_open_controlling_terminal_in_environment(
+    command: Option<&Command>,
+    piped_text: &str,
+    stdin_is_terminal: bool,
+    stdout_is_terminal: bool,
+    environment: &BTreeMap<String, String>,
+) -> bool {
     if stdin_is_terminal || !stdout_is_terminal {
         return false;
     }
@@ -3978,7 +4014,15 @@ fn should_open_controlling_terminal(
             | Command::Patch { .. }
             | Command::Difftool { .. },
         ) => true,
-        Some(Command::Pager { .. }) => workdeck_cli::pager::looks_like_patch_input(piped_text),
+        Some(Command::Pager { .. }) => matches!(
+            workdeck_cli::pager::resolve_pager_startup_route(
+                piped_text,
+                environment,
+                stdout_is_terminal,
+                true,
+            ),
+            workdeck_cli::pager::PagerStartupRoute::InteractiveDiff
+        ),
         _ => false,
     }
 }
@@ -4330,6 +4374,7 @@ fn handle_review_command(
             )
         }
         Command::Pager { mut review } => {
+            review.pager = true;
             let input = if let Some(prepared) = prepared_piped_input.as_mut() {
                 std::mem::take(&mut prepared.text)
             } else {
@@ -4339,39 +4384,75 @@ fn handle_review_command(
                     .context("failed to read pager input")?;
                 input
             };
-            if workdeck_cli::pager::looks_like_patch_input(&input) {
-                let (prepared_extensions, changeset) = load_extensions_before_changeset(
-                    || {
-                        prepare_review_extensions(
-                            cwd,
-                            &mut review,
-                            &raw_review,
-                            preloaded_extensions.take(),
-                            discovery_catalog.as_ref(),
-                        )
-                    },
-                    || parse_patch_input(&input, "pager").map_err(anyhow::Error::from),
-                )?;
-                let session_input = CliInput::Patch(PatchCommandInput {
-                    file: None,
-                    text: Some(input),
-                    options: review.common_options(),
-                });
-                run_review_with_preloaded_extensions(
-                    cwd,
-                    LoadedReviewChangeset {
-                        changeset,
-                        repo_root: None,
-                    },
-                    review,
-                    session_input,
-                    None,
-                    None,
-                    prepared_extensions,
-                )
-            } else {
-                let context = workdeck_cli::pager::PlainTextPagerContext::current();
-                workdeck_cli::pager::page_plain_text(&input, &context).map_err(anyhow::Error::from)
+            let environment = std::env::vars().collect::<BTreeMap<_, _>>();
+            let route = workdeck_cli::pager::resolve_pager_startup_route(
+                &input,
+                &environment,
+                std::io::stdout().is_terminal(),
+                prepared_piped_input
+                    .as_ref()
+                    .is_some_and(|prepared| prepared.terminal.is_some()),
+            );
+            match route {
+                workdeck_cli::pager::PagerStartupRoute::PlainText => {
+                    let context = workdeck_cli::pager::PlainTextPagerContext::current();
+                    workdeck_cli::pager::page_plain_text(&input, &context)
+                        .map_err(anyhow::Error::from)
+                }
+                workdeck_cli::pager::PagerStartupRoute::Passthrough { preserve_color } => {
+                    workdeck_cli::pager::write_passthrough(&input, preserve_color)
+                        .map_err(anyhow::Error::from)
+                }
+                workdeck_cli::pager::PagerStartupRoute::StaticDiff => {
+                    let output = workdeck_tui::render_static_diff_pager(
+                        &input,
+                        &review.common_options(),
+                        &review.custom_themes,
+                        crossterm::terminal::size()
+                            .ok()
+                            .map(|(columns, _)| usize::from(columns)),
+                    );
+                    if let Some(reason) = output.fallback_reason {
+                        eprintln!(
+                            "workdeck: static pager render failed; falling back to raw diff ({reason})."
+                        );
+                    }
+                    std::io::stdout()
+                        .lock()
+                        .write_all(output.text.as_bytes())
+                        .context("write static pager output")
+                }
+                workdeck_cli::pager::PagerStartupRoute::InteractiveDiff => {
+                    let (prepared_extensions, changeset) = load_extensions_before_changeset(
+                        || {
+                            prepare_review_extensions(
+                                cwd,
+                                &mut review,
+                                &raw_review,
+                                preloaded_extensions.take(),
+                                discovery_catalog.as_ref(),
+                            )
+                        },
+                        || parse_patch_input(&input, "pager").map_err(anyhow::Error::from),
+                    )?;
+                    let session_input = CliInput::Patch(PatchCommandInput {
+                        file: None,
+                        text: Some(input),
+                        options: review.common_options(),
+                    });
+                    run_review_with_preloaded_extensions(
+                        cwd,
+                        LoadedReviewChangeset {
+                            changeset,
+                            repo_root: None,
+                        },
+                        review,
+                        session_input,
+                        None,
+                        None,
+                        prepared_extensions,
+                    )
+                }
             }
         }
         _ => unreachable!("non-review command passed to review handler"),

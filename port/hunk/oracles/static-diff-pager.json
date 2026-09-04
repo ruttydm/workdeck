@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "runtime": {
+    "name": "Bun",
+    "version": "1.3.5",
+    "execution": "disposable pinned Hunk worktrees"
+  },
+  "command": ["bun", "test", "src/ui/staticDiffPager.test.ts"],
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "source_blob": "9b4e00a244d4a79fbcaca3be8295dec58aa22ecc",
+      "source_bytes": 14561,
+      "source_lines": 447,
+      "test_blob": "d0f9240271d0c3fd7e17a47f825c7bb2adaf09d0",
+      "test_bytes": 10252,
+      "test_lines": 294,
+      "suite_passed": 15,
+      "suite_failed": 0,
+      "suite_expect_calls": 70
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "source_blob": "9b4e00a244d4a79fbcaca3be8295dec58aa22ecc",
+      "test_blob": "d0f9240271d0c3fd7e17a47f825c7bb2adaf09d0",
+      "suite_passed": 15,
+      "suite_failed": 0,
+      "suite_expect_calls": 70
+    }
+  ],
+  "fixture": {
+    "patch": "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-const value = 1;\n+const value = 2;\n",
+    "standard_ansi": "\u001b[38;2;230;237;243ma.ts\u001b[0m \u001b[38;2;173;174;177mmodified\u001b[0m \u001b[38;2;119;193;133m+1\u001b[0m \u001b[38;2;250;142;137m-1\u001b[0m\n\u001b[38;2;135;140;146m\u001b[48;2;39;43;49m▌\u001b[0m\u001b[38;2;173;174;177m\u001b[48;2;39;43;49m@@ -1 +1 @@\u001b[0m\n\u001b[38;2;248;81;73m\u001b[48;2;30;35;41m▌\u001b[0m\u001b[38;2;248;81;73m\u001b[48;2;60;30;33m1   -  \u001b[0m\u001b[38;2;255;123;114m\u001b[48;2;60;30;33mconst\u001b[0m\u001b[38;2;121;192;255m\u001b[48;2;60;30;33m value\u001b[0m\u001b[38;2;255;123;114m\u001b[48;2;60;30;33m =\u001b[0m\u001b[38;2;121;192;255m\u001b[48;2;60;30;33m \u001b[0m\u001b[38;2;121;192;255m\u001b[48;2;79;35;37m1\u001b[0m\u001b[38;2;230;237;243m\u001b[48;2;60;30;33m;\u001b[0m\u001b[48;2;60;30;33m\u001b[K\u001b[0m\n\u001b[38;2;46;160;67m\u001b[48;2;30;35;41m▌\u001b[0m\u001b[38;2;46;160;67m\u001b[48;2;18;37;29m  1 +  \u001b[0m\u001b[38;2;255;123;114m\u001b[48;2;18;37;29mconst\u001b[0m\u001b[38;2;121;192;255m\u001b[48;2;18;37;29m value\u001b[0m\u001b[38;2;255;123;114m\u001b[48;2;18;37;29m =\u001b[0m\u001b[38;2;121;192;255m\u001b[48;2;18;37;29m \u001b[0m\u001b[38;2;121;192;255m\u001b[48;2;22;57;35m2\u001b[0m\u001b[38;2;230;237;243m\u001b[48;2;18;37;29m;\u001b[0m\u001b[48;2;18;37;29m\u001b[K\u001b[0m\n",
+    "standard_plain": "a.ts modified +1 -1\n▌@@ -1 +1 @@\n▌1   -  const value = 1;\n▌  1 +  const value = 2;\n",
+    "split_plain_width_80": "a.ts modified +1 -1\n▌@@ -1 +1 @@\n▌1 - const value = 1;                   ▌1 + const value = 2;                   \n",
+    "fallback_input": "diff --git incomplete\n",
+    "fallback_output": "diff --git incomplete\n",
+    "fallback_warning": "hunk: static pager render failed; falling back to raw diff (no files rendered).\n",
+    "alternate_screen_sequence_present": false,
+    "stack_rows_end_with_background_fill": true
+  },
+  "test_mapping": [
+    {"source_test": "renders diff-like stdin as non-interactive ANSI output", "rust_test": "static_diff_pager::tests::renders_non_interactive_ansi_stack_output"},
+    {"source_test": "honors configured hidden line numbers and hunk headers", "rust_test": "static_diff_pager::tests::honors_hidden_line_numbers_and_hunk_headers"},
+    {"source_test": "honors configured tab stops", "rust_test": "static_diff_pager::tests::honors_tab_stops"},
+    {"source_test": "honors explicit split mode in static pager output", "rust_test": "static_diff_pager::tests::honors_explicit_split_layout"},
+    {"source_test": "keeps auto mode stacked in static pager output", "rust_test": "static_diff_pager::tests::auto_layout_remains_stacked_at_wide_widths"},
+    {"source_test": "extends stacked row backgrounds to the host panel edge", "rust_test": "static_diff_pager::tests::extends_stacked_row_backgrounds_to_host_edge"},
+    {"source_test": "uses configured custom themes in static pager output", "rust_test": "static_diff_pager::tests::uses_custom_theme_text_color"},
+    {"source_test": "translates deprecated semantic comment colors in static pager output", "rust_test": "static_diff_pager::tests::translates_deprecated_semantic_comment_colors"},
+    {"source_test": "applies raw Shiki comment scopes in static pager output", "rust_test": "static_diff_pager::tests::applies_raw_textmate_comment_scopes"},
+    {"source_test": "keeps only added/removed backgrounds when transparent background is requested", "rust_test": "static_diff_pager::tests::transparent_mode_keeps_only_added_and_removed_backgrounds"},
+    {"source_test": "shows semantic file metadata without raw patch headers", "rust_test": "static_diff_pager::tests::shows_semantic_file_metadata_without_patch_transport_headers"},
+    {"source_test": "falls back to original text with a diagnostic when the patch cannot be parsed", "rust_test": "static_diff_pager::tests::malformed_patch_falls_back_with_diagnostic"},
+    {"source_test": "does not pass terminal control sequences through malformed pager fallback", "rust_test": "static_diff_pager::tests::malformed_fallback_strips_unsafe_terminal_controls"},
+    {"source_test": "does not pass terminal controls through parsed file paths or hunk headers", "rust_test": "static_diff_pager::tests::parsed_paths_and_hunk_headers_strip_unsafe_terminal_controls"},
+    {"source_test": "does not pass terminal control sequences through parsed diff content", "rust_test": "static_diff_pager::tests::parsed_diff_content_strips_unsafe_terminal_controls"}
+  ]
+}

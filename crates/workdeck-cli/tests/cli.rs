@@ -386,6 +386,50 @@ fn pager_plain_text_fallback_is_headless_sanitized_and_read_only() {
 }
 
 #[test]
+fn pager_redirected_diff_passthrough_preserves_pipeline_exit_and_read_only_behavior() {
+    let dir = tempdir().unwrap();
+    git(dir.path(), &["init"]);
+    let patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old\n+new\n";
+    let mut command = assert_cmd::Command::cargo_bin("workdeck").unwrap();
+    command
+        .env("HOME", "/nonexistent/workdeck-test-home")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("pager")
+        .write_stdin(patch)
+        .assert()
+        .success()
+        .stdout(patch)
+        .stderr(predicate::str::is_empty());
+    assert!(!dir.path().join(".agents/workdeck").exists());
+}
+
+#[test]
+fn captured_pager_redirect_preserves_sgr_but_strips_terminal_commands() {
+    let dir = tempdir().unwrap();
+    git(dir.path(), &["init"]);
+    let patch =
+        "\x1b[31mdiff --git a/a b/a\x1b[0m\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-old\n+new\x1b[2J\n";
+    let mut command = assert_cmd::Command::cargo_bin("workdeck").unwrap();
+    command
+        .env("HOME", "/nonexistent/workdeck-test-home")
+        .env("TERM", "dumb")
+        .env("LV", "-c")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("pager")
+        .write_stdin(patch)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\x1b[31mdiff --git a/a b/a\x1b[0m",
+        ))
+        .stdout(predicate::str::contains("\x1b[2J").not())
+        .stderr(predicate::str::is_empty());
+    assert!(!dir.path().join(".agents/workdeck").exists());
+}
+
+#[test]
 fn markup_render_defaults_to_stdin_and_emits_hunks_exact_json_shape() {
     let mut command = assert_cmd::Command::cargo_bin("workdeck").unwrap();
     command
