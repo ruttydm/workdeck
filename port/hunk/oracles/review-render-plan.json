@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/diff/reviewRenderPlan.ts",
+    "baselineBlob": "830932581f8e74dab62e5122819e15b5fd4f849a",
+    "baselineSha256": "a1a754b04dfbf0e5d5c600e66a38227b5779235e0a7905691c42d97b67f529a0",
+    "baselineBytes": 13941,
+    "baselineLines": 430,
+    "stableBlob": "71f409377147c8b80c7c450875d03b3f1a2cfe0e",
+    "stableSha256": "08225489b0648196693bc24b6dca36819d9fe653727743169b277bbdd60600a3",
+    "stableBytes": 13301,
+    "stableLines": 408
+  },
+  "test": {
+    "path": "src/ui/diff/reviewRenderPlan.test.ts",
+    "baselineBlob": "fcedb60fe487d73c5f7d64fb21c537aeaf337902",
+    "baselineSha256": "13c5e108b589d8a93ed7dbaf60f82c3049d5001e94b657a576a6fced6230ea6a",
+    "baselineBytes": 16628,
+    "baselineLines": 494,
+    "stableBlob": "68deae23f93066fe1d0b39e32cc604e0e3186bf2",
+    "stableSha256": "ca79e8609e1637426e48ca5b694f23aeb243c9ced51e092af432d1ef4a105d23",
+    "stableBytes": 14608,
+    "stableLines": 438
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/review_render_plan.rs",
+      "sha256": "072bb0b462d4ee1bb1c71c9c6874c755156d33f5ac542c724f992fb18398794a"
+    },
+    {
+      "path": "crates/workdeck-tui/src/planned_review_row.rs",
+      "sha256": "abcd77a0bed803aa1b481d434ea4c19b8fba18d8fc0ab2b7f923ac95f23c261a"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "2ae0f0d48fab499f669f85bf8c6eae484427b13b58918ce16397e75b4f11596b"
+    }
+  ],
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/diff/reviewRenderPlan.test.ts",
+    "passed": 14,
+    "failed": 0,
+    "expectations": 69
+  },
+  "stableOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/diff/reviewRenderPlan.test.ts",
+    "passed": 12,
+    "failed": 0,
+    "expectations": 54,
+    "relationship": "Pinned main adds the configurable hunk-gap row variant and its two tests. None of the five stable-only commits modifies either reviewRenderPlan file."
+  },
+  "projectionVectors": {
+    "runtime": "bun 1.3.5",
+    "source": "untouched pinned baseline reviewRenderPlan.ts",
+    "notePlan": [
+      {"kind":"diff-row","key":"diff-row:header:0","stableKey":"meta:hunk-header:0","aliases":[],"anchorId":"diff-hunk:file:0","guide":null},
+      {"kind":"diff-row","key":"diff-row:l1","stableKey":"line:0:old:1","aliases":["line:0:new:1"],"anchorId":null,"guide":null},
+      {"kind":"diff-row","key":"diff-row:l2","stableKey":"line:0:new:2","aliases":[],"anchorId":null,"guide":null},
+      {"kind":"inline-note","key":"inline-note:n:l2:0","stableKey":"inline-note:n","hunkIndex":0,"side":"new","count":1,"index":0},
+      {"kind":"diff-row","key":"diff-row:l3","stableKey":"line:0:new:3","aliases":[],"anchorId":null,"guide":"new"}
+    ],
+    "gapPlan": [
+      {"kind":"diff-row","key":"diff-row:header:0","stableKey":"meta:hunk-header:0","aliases":[],"anchorId":null,"guide":null},
+      {"kind":"hunk-gap","key":"hunk-gap:file:1","stableKey":"hunk-gap:1","hunkIndex":1,"height":2},
+      {"kind":"diff-row","key":"diff-row:header:1","stableKey":"meta:hunk-header:1","aliases":[],"anchorId":null,"guide":null}
+    ],
+    "stablePlan": [
+      {"kind":"diff-row","key":"diff-row:gap","stableKey":"meta:collapsed:before:1","aliases":[],"anchorId":null,"guide":null},
+      {"kind":"diff-row","key":"diff-row:header:1","stableKey":"meta:hunk-header:1","aliases":[],"anchorId":"diff-hunk:file:1","guide":null},
+      {"kind":"diff-row","key":"diff-row:context","stableKey":"line:1:context:12:14","aliases":["line:1:new:14","line:1:old:12"],"anchorId":null,"guide":null},
+      {"kind":"diff-row","key":"diff-row:changed","stableKey":"line:1:old:15","aliases":["line:1:new:17"],"anchorId":null,"guide":null},
+      {"kind":"diff-row","key":"diff-row:addition","stableKey":"line:1:new:18","aliases":[],"anchorId":null,"guide":null}
+    ],
+    "targets": [
+      {"hunkIndex":2,"side":"old","line":41},
+      {"hunkIndex":3,"side":"new","line":14},
+      {"hunkIndex":3,"oldLine":12,"newLine":14},
+      null
+    ]
+  },
+  "sourceCoverage": [
+    {"lines":[1,58],"bytes":[0,1624],"destination":"imports, empty sentinels, placement model, and all three planned-row variants"},
+    {"lines":[59,161],"bytes":[1624,4950],"destination":"ordered stable-key generation plus strict sided and context target parsing"},
+    {"lines":[162,236],"bytes":[4950,7391],"destination":"cross-layout stable-key preference, row side lookup, and inclusive range overlap"},
+    {"lines":[237,335],"bytes":[7391,10838],"destination":"owner-hunk anchor selection, note placement/counting, and deterministic first-wins guide projection"},
+    {"lines":[336,350],"bytes":[10838,11309],"destination":"visible hunk-anchor selection that excludes headers, collapsed rows, and expanded gap rows as configured"},
+    {"lines":[351,430],"bytes":[11309,13941],"destination":"ordered diff, note, hunk-gap, stable alias, anchor id, and guide row plan construction"}
+  ],
+  "testCoverage": [
+    {"lines":[1,86],"bytes":[0,2533],"destination":"native diff, note, multi-hunk, anchor, and guide fixtures"},
+    {"lines":[87,404],"bytes":[2533,13502],"destination":"eight complete note placement, ownership, hidden-header, collapsed-gap, expansion, and ordering tests"},
+    {"lines":[405,460],"bytes":[13502,15522],"destination":"two complete split, stack, visible-header, and hidden-header hunk-gap tests"},
+    {"lines":[461,494],"bytes":[15522,16628],"destination":"four complete sided/context stable-key target tests"}
+  ],
+  "testMapping": [
+    {"sourceTest":"inserts an inline note after the anchor row and starts the guide below the note","rustTest":"review_render_plan::tests::inserts_note_after_anchor_and_starts_guide_below_note"},
+    {"sourceTest":"anchors deletion-only notes to old-side rows without a dangling guide above the note","rustTest":"review_render_plan::tests::deletion_note_anchors_old_without_dangling_guide"},
+    {"sourceTest":"assigns hunk anchor ids from the first visible row for every hunk when hunk headers are hidden","rustTest":"review_render_plan::tests::hidden_headers_anchor_each_hunk_at_first_non_expansion_code_row"},
+    {"sourceTest":"anchors range-less notes to the shared default line without guide rows","rustTest":"review_render_plan::tests::range_less_note_uses_default_new_first_line_without_guides"},
+    {"sourceTest":"anchors notes on the matching hunk in multi-hunk diffs","rustTest":"review_render_plan::tests::note_uses_matching_hunk_and_collapsed_owner_fallback"},
+    {"sourceTest":"keeps a note on collapsed lines inside its owning hunk","rustTest":"review_render_plan::tests::note_uses_matching_hunk_and_collapsed_owner_fallback"},
+    {"sourceTest":"places a note on an expanded gap line beside that line","rustTest":"review_render_plan::tests::expanded_gap_note_stays_beside_revealed_line"},
+    {"sourceTest":"renders every visible note at its own anchor row","rustTest":"review_render_plan::tests::every_visible_note_renders_at_its_own_anchor_in_row_order"},
+    {"sourceTest":"inserts a spacer before each hunk after the first in split and stack plans","rustTest":"review_render_plan::tests::inserts_configured_gap_before_each_later_hunk_in_split_and_stack"},
+    {"sourceTest":"keeps the spacer before a later hunk when hunk headers are hidden","rustTest":"review_render_plan::tests::hunk_gap_stays_before_hidden_later_header"},
+    {"sourceTest":"reads a single-sided anchor back into a note target","rustTest":"review_render_plan::tests::single_sided_stable_keys_round_trip_to_note_targets"},
+    {"sourceTest":"reads a shared context anchor as its new-side line","rustTest":"review_render_plan::tests::context_stable_key_targets_new_side_and_preserves_both_sides"},
+    {"sourceTest":"keeps the two anchor shapes apart","rustTest":"review_render_plan::tests::stable_key_shapes_are_disjoint_and_invalid_metadata_is_ignored"},
+    {"sourceTest":"ignores anchors that do not name a source line","rustTest":"review_render_plan::tests::stable_key_shapes_are_disjoint_and_invalid_metadata_is_ignored"}
+  ],
+  "nativeValidation": [
+    {
+      "command":"cargo test -p workdeck-tui review_render_plan::tests -- --nocapture",
+      "passed":15,
+      "failed":0,
+      "translatedSourceTests":14,
+      "frozenDifferentialTests":1,
+      "additionalCoverage":"both context sides, malformed numeric keys, stable alias ordering, deterministic conflicting guide ownership, and complete baseline projection vectors"
+    }
+  ]
+}
