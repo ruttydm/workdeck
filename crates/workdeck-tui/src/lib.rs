@@ -32,6 +32,7 @@ mod extension_dialogs;
 mod extension_navigation;
 mod extension_notifications;
 mod extension_pane_controller;
+mod extension_pane_host;
 mod extension_panes;
 mod extension_review_events;
 mod extension_trust_controller;
@@ -115,6 +116,7 @@ pub use extension_current_line::*;
 pub use extension_navigation::*;
 pub use extension_notifications::*;
 pub use extension_pane_controller::*;
+pub use extension_pane_host::*;
 pub use extension_panes::*;
 pub use extension_review_events::*;
 pub use extension_trust_controller::*;
@@ -342,6 +344,7 @@ struct LivePaneRegistration {
     extension_index: usize,
     extension_id: String,
     pane: PaneRegistration,
+    registered: Arc<RegisteredExtensionPane>,
 }
 
 #[derive(Debug, Clone)]
@@ -468,6 +471,7 @@ struct CachedPaneRender {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PaneRenderSignature {
+    registration_identity: u64,
     generation: u64,
     selection: ReviewSelection,
     placement: PanePlacement,
@@ -512,6 +516,8 @@ struct ExtensionPaneRuntime {
     dialogs: ExtensionDialogQueue,
     pane_action_hits: Vec<ExtensionPaneActionHit>,
     open: BTreeSet<String>,
+    failed_pane_registration_ids: BTreeSet<u64>,
+    force_builtin_files_sidebar: bool,
     size_overrides: BTreeMap<String, u16>,
     cached_renders: BTreeMap<String, CachedPaneRender>,
     layout: ExtensionPaneLayoutPlan,
@@ -654,6 +660,7 @@ impl ExtensionPaneRuntime {
                 extension_index,
                 extension_id: registered.extension_id.clone(),
                 pane: registered.pane.clone(),
+                registered,
             })
             .collect::<Vec<_>>();
         open.extend(
@@ -682,7 +689,7 @@ impl ExtensionPaneRuntime {
 
     fn reconcile_panes_from(&mut self, previous: &Self, files_pane_open: bool) -> bool {
         let mut previous_open = previous.open.iter().cloned().collect::<Vec<_>>();
-        if files_pane_open {
+        if files_pane_open || previous.force_builtin_files_sidebar {
             previous_open.insert(0, WORKDECK_FILES_PANE_KEY.into());
         }
         let previous_state = Arc::new(PaneOpenState {
@@ -704,6 +711,29 @@ impl ExtensionPaneRuntime {
             .open
             .iter()
             .any(|key| key == WORKDECK_FILES_PANE_KEY)
+    }
+
+    fn contain_pane_render_failure(
+        &mut self,
+        registration: &LivePaneRegistration,
+        error: impl std::fmt::Display,
+    ) -> Option<ExtensionPaneRenderFailure> {
+        if !self
+            .failed_pane_registration_ids
+            .insert(registration.registered.identity)
+        {
+            return None;
+        }
+        self.open.remove(&registration.key);
+        self.cached_renders.remove(&registration.key);
+        if registration.pane.replaces.as_deref() == Some(WORKDECK_FILES_PANE_KEY) {
+            self.force_builtin_files_sidebar = true;
+        }
+        Some(extension_pane_render_failure(
+            &registration.registered,
+            error,
+            true,
+        ))
     }
 
     fn retire_extensions(&mut self) {
@@ -2029,7 +2059,7 @@ impl ReviewApp {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut open = runtime.open.clone();
-        if self.options.sidebar {
+        if self.options.sidebar || runtime.force_builtin_files_sidebar {
             open.insert(WORKDECK_FILES_PANE_KEY.into());
         }
         let key = resolve_pane_slot_key(
@@ -2039,7 +2069,12 @@ impl ReviewApp {
             &BTreeSet::new(),
         );
         if key == WORKDECK_FILES_PANE_KEY {
-            self.options.sidebar = !self.options.sidebar;
+            if runtime.force_builtin_files_sidebar {
+                runtime.force_builtin_files_sidebar = false;
+                self.options.sidebar = false;
+            } else {
+                self.options.sidebar = !self.options.sidebar;
+            }
         } else if !runtime.open.remove(&key) {
             runtime.open.insert(key.clone());
         }
@@ -2868,15 +2903,17 @@ impl ReviewApp {
                     message,
                     notification_type,
                 } => {
-                    let prefix = match notification_type {
+                    let message = sanitize_terminal_line(&message);
+                    let notification = format!("{extension_id}: {message}");
+                    if let Some(notifications) = self.options.extension_notifications.as_ref() {
+                        notifications.notify(notification, notification_type);
+                    }
+                    let severity = match notification_type {
                         ExtensionNotifyType::Info => "",
                         ExtensionNotifyType::Warning => "warning: ",
                         ExtensionNotifyType::Error => "error: ",
                     };
-                    self.status = Some(format!(
-                        "{extension_id}: {prefix}{}",
-                        sanitize_terminal_line(&message)
-                    ));
+                    self.status = Some(format!("{extension_id}: {severity}{message}"));
                 }
             }
         }
@@ -6518,6 +6555,17 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         pane: registration.pane.clone(),
     }));
     let mut open = runtime.open.clone();
+    open.retain(|key| {
+        runtime
+            .panes
+            .iter()
+            .find(|registration| registration.key == *key)
+            .is_none_or(|registration| {
+                !runtime
+                    .failed_pane_registration_ids
+                    .contains(&registration.registered.identity)
+            })
+    });
     open.extend(static_specs.iter().map(|spec| spec.key.clone()));
     let plan = plan_extension_panes(
         &specs,
@@ -6555,6 +6603,7 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             continue;
         };
         let signature = PaneRenderSignature {
+            registration_identity: registration.registered.identity,
             generation,
             selection,
             placement: registration.pane.placement,
@@ -6598,19 +6647,18 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 height: signature.height,
                 theme: signature.theme.clone(),
             };
-            let result = runtime.extensions[registration.extension_index]
-                .render_pane(request)
-                .unwrap_or_else(|error| ExtensionPaneView {
-                    extension_id: registration.extension_id.clone(),
-                    pane: registration.pane.clone(),
-                    content: ViewNode::Text {
-                        text: format!("Pane unavailable: {error}"),
-                        style: ViewStyle {
-                            foreground: Some("danger".into()),
-                            ..ViewStyle::default()
-                        },
-                    },
-                });
+            let result = match runtime.extensions[registration.extension_index].render_pane(request)
+            {
+                Ok(result) => result,
+                Err(error) => {
+                    if let Some(failure) = runtime.contain_pane_render_failure(&registration, error)
+                        && let Some(notifications) = app.options.extension_notifications.as_ref()
+                    {
+                        notifications.notify(failure.warning, ExtensionNotifyType::Warning);
+                    }
+                    continue;
+                }
+            };
             runtime.cached_renders.insert(
                 planned.key.clone(),
                 CachedPaneRender {
@@ -6644,6 +6692,12 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
 }
 
 fn render_builtin_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+    let sidebar_open = app.options.sidebar
+        || app
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .force_builtin_files_sidebar;
     let state = app
         .state
         .lock()
@@ -6669,12 +6723,12 @@ fn render_builtin_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     }
     let responsive = state.responsive_layout(area.width);
     drop(state);
-    let sidebar_width = if app.options.sidebar && responsive.show_sidebar {
+    let sidebar_width = if sidebar_open && responsive.show_sidebar {
         bundled_sidebar_width(area.width, 30)
     } else {
         0
     };
-    let chunks = if app.options.sidebar && responsive.show_sidebar {
+    let chunks = if sidebar_open && responsive.show_sidebar {
         Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Length(sidebar_width), Constraint::Min(30)])
@@ -10701,6 +10755,78 @@ mod tests {
     }
 
     #[test]
+    fn live_pane_failure_quarantines_one_identity_and_restores_a_replaced_files_slot() {
+        let mut pane = bundled_files_pane().clone();
+        pane.id = "replacement".into();
+        pane.replaces = Some(WORKDECK_FILES_PANE_KEY.into());
+        let registered = RegisteredExtensionPane::new("probe", pane.clone());
+        let live = LivePaneRegistration {
+            key: registered.key(),
+            extension_index: 0,
+            extension_id: "probe".into(),
+            pane,
+            registered: Arc::clone(&registered),
+        };
+        let mut runtime = ExtensionPaneRuntime::default();
+        runtime.open.insert(live.key.clone());
+
+        let failure = runtime
+            .contain_pane_render_failure(&live, "renderer exploded")
+            .unwrap();
+        assert_eq!(
+            failure.warning,
+            "Extension probe pane \"replacement\" failed rendering • renderer exploded"
+        );
+        assert_eq!(failure.fallback, ExtensionPaneFallback::None);
+        assert!(!runtime.open.contains(&live.key));
+        assert!(runtime.force_builtin_files_sidebar);
+        assert!(
+            runtime
+                .failed_pane_registration_ids
+                .contains(&registered.identity)
+        );
+        assert!(
+            runtime
+                .contain_pane_render_failure(&live, "again")
+                .is_none()
+        );
+
+        let fixed = RegisteredExtensionPane::new("probe", live.pane.clone());
+        assert_eq!(registered.key(), fixed.key());
+        assert_ne!(registered.identity, fixed.identity);
+        assert!(
+            !runtime
+                .failed_pane_registration_ids
+                .contains(&fixed.identity)
+        );
+
+        let backend = TestBackend::new(220, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                sidebar: false,
+                ..ReviewOptions::default()
+            },
+        );
+        app.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .force_builtin_files_sidebar = true;
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        assert!(app.sidebar_bounds.get().is_some());
+        app.toggle_files_pane_role();
+        assert!(
+            !app.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .force_builtin_files_sidebar
+        );
+    }
+
+    #[test]
     fn active_horizontal_extension_divider_uses_the_pinned_glyph_and_paint() {
         let app = ReviewApp::new(changeset(), ReviewOptions::default());
         app.extension_pane_runtime
@@ -11177,6 +11303,30 @@ mod tests {
             extension_command_failure_message("probe", "run", "async boom"),
             "Extension probe failed command \"run\" • async boom"
         );
+    }
+
+    #[test]
+    fn extension_pane_notifications_prefix_the_owner_without_mutating_the_typed_message() {
+        let notifications = ExtensionNotificationHub::new();
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                extension_notifications: Some(notifications),
+                ..ReviewOptions::default()
+            },
+        );
+        app.apply_extension_actions(
+            0,
+            "probe",
+            vec![ExtensionHostAction::Notify {
+                message: "careful\nnow".into(),
+                notification_type: ExtensionNotifyType::Warning,
+            }],
+        );
+        assert_eq!(app.status.as_deref(), Some("probe: warning: carefulnow"));
+        let notification = app.active_extension_notification().unwrap();
+        assert_eq!(notification.message, "probe: carefulnow");
+        assert_eq!(notification.notification_type, ExtensionNotifyType::Warning);
     }
 
     #[test]

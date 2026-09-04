@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/components/panes/ExtensionPane.tsx",
+    "baselineBlob": "128e4895d044385e538c532cc4559b406522fdea",
+    "baselineSha256": "ee78269b36ee6d31fc797ffe642cfe0d9de80308349bef20274825b8b4851ebe",
+    "baselineBytes": 6787,
+    "baselineLines": 194,
+    "stableBlob": "b66501d299df2b88aab1648156e56aeddef66c01",
+    "stableSha256": "2d8682dbce008c290667cbc0fbcc3bcb29949fdbc7a216a9c19ec1b5940848ba",
+    "stableBytes": 6793,
+    "stableLines": 194,
+    "stableDifference": "v0.20.1 names the host-owned fallback component BuiltInSidebarView; pinned main names the same behavior FlexFileSidebar."
+  },
+  "testSource": {
+    "path": "src/ui/components/panes/ExtensionPane.test.tsx",
+    "baselineAndStableBlob": "135ddb4c3b75150558efa69f4677b294b6ce049e",
+    "baselineAndStableSha256": "657eb288e795e01822e421c6d9548d88172dc9f4b27948e9558368c8a10d510a",
+    "bytes": 7794,
+    "lines": 231
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/extension_pane_host.rs",
+      "sha256": "f0ef52c14b8937f30c45e7d80e564aedf2f7d9166552d46711ed9101554f8a55"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "9f6d30db6207388367016d5167e7822ec9c789b17819674abd50c21f167e1022"
+    }
+  ],
+  "baselineTestOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/components/panes/ExtensionPane.test.tsx",
+    "passed": 3,
+    "failed": 0,
+    "assertions": 12
+  },
+  "stableTestOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/components/panes/ExtensionPane.test.tsx",
+    "passed": 3,
+    "failed": 0,
+    "assertions": 12
+  },
+  "observableContract": {
+    "invalidHunkIndices": ["NaN", "positive infinity"],
+    "acceptedHunkIndices": {
+      "99": "last hunk",
+      "-5": 0,
+      "0.75": 0
+    },
+    "bundledFilesFallbackText": "Files pane unavailable",
+    "bundledFilesWarning": "Extension workdeck pane \"files\" failed rendering • files exploded",
+    "genericFallbackWarning": "Extension probe pane \"probe-view\" failed rendering • sidebar exploded • using the built-in files pane",
+    "freshRegistrationFrameContains": "FIXED VIEW"
+  },
+  "sourceCoverage": [
+    [[1, 23], [0, 1003], "imports, error description, and registration-scoped containment boundary"],
+    [[24, 52], [1003, 1899], "failure capture, registration identity reset, callback dispatch, and fallback paint"],
+    [[53, 72], [1899, 2535], "complete host input contract"],
+    [[73, 133], [2535, 4769], "public theme, stable latest-generation actions, guarded navigation, pane props, and current-line opt-in"],
+    [[134, 177], [4769, 5991], "fixed clipped host box, Files chrome, fallback selection, exact warning, and recovery callback"],
+    [[178, 194], [5991, 6787], "memo comparator and current-line repaint opt-in"]
+  ],
+  "testCoverage": [
+    [[1, 63], [0, 1846], "registrations, keybindings, diff fixtures, and deterministic OpenTUI harness"],
+    [[64, 125], [1846, 4167], "garbage and unknown hunk target rejection plus floor and clamp behavior"],
+    [[126, 171], [4167, 5624], "renderer-independent bundled Files fallback and warning suffix exclusion"],
+    [[172, 231], [5624, 7794], "generic built-in sidebar fallback and fresh registration identity recovery"]
+  ],
+  "testMappings": [
+    {
+      "hunk": "ExtensionPaneHost actions > refuses garbage hunk indices and clamps the rest into the file's range",
+      "rust": "extension_pane_host::tests::refuses_garbage_hunk_indices_and_clamps_the_rest_into_the_file_range"
+    },
+    {
+      "hunk": "ExtensionPaneHost failure recovery > the bundled files pane has a renderer-independent safe fallback",
+      "rust": "extension_pane_host::tests::the_bundled_files_pane_has_a_renderer_independent_safe_fallback"
+    },
+    {
+      "hunk": "ExtensionPaneHost failure recovery > a fresh registration clears the failed boundary under unchanged ids",
+      "rust": "extension_pane_host::tests::a_fresh_registration_clears_the_failed_boundary_under_unchanged_ids"
+    }
+  ],
+  "nativeAdaptation": {
+    "componentBoundary": "Subprocess pane rendering is contained by monotonic RegisteredExtensionPane identity instead of a React class boundary.",
+    "actions": "Declarative subprocess actions enter the existing live guarded-navigation seam; host action authority never crosses into renderer code.",
+    "geometry": "Ratatui owns the exact planned rectangle, panel fill, clipping, divider, and wrapping.",
+    "fallback": "Callback-owned app recovery quarantines the failed identity and restores the built-in Files slot when it was replaced; standalone host policy retains the two source fallbacks.",
+    "memoization": "The explicit native signature preserves registration, ordered file projection, selection, placement, theme, geometry, chrome, keybinding, and opt-in current-line invalidation semantics."
+  }
+}
