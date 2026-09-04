@@ -45,6 +45,7 @@ mod file_section_layout;
 mod file_view_geometry;
 mod file_view_view;
 mod help_content;
+mod help_dialog;
 mod highlighted_diff_runtime;
 mod hunk_scroll;
 mod ids;
@@ -131,6 +132,7 @@ pub use file_section_layout::*;
 pub use file_view_geometry::*;
 pub use file_view_view::*;
 pub use help_content::*;
+pub use help_dialog::*;
 pub use highlighted_diff_runtime::*;
 pub use hunk_scroll::*;
 pub use ids::*;
@@ -761,6 +763,8 @@ pub struct ReviewApp {
     focus: Focus,
     scroll: usize,
     show_help: bool,
+    help_scroll: usize,
+    help_dialog_hits: Cell<Option<HelpDialogHits>>,
     should_quit: bool,
     reload_requested: bool,
     extension_command_epoch: u64,
@@ -905,6 +909,8 @@ impl ReviewApp {
             focus: Focus::Review,
             scroll: 0,
             show_help: false,
+            help_scroll: 0,
+            help_dialog_hits: Cell::new(None),
             should_quit: false,
             reload_requested: false,
             extension_command_epoch: 1,
@@ -1448,6 +1454,7 @@ impl ReviewApp {
                 KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q')
             ) {
                 self.show_help = false;
+                self.help_dialog_hits.set(None);
             }
             return;
         }
@@ -1957,7 +1964,14 @@ impl ReviewApp {
         match action {
             AppCommandAction::ScrollDiff { delta, unit } => self.scroll_diff(delta, unit),
             AppCommandAction::RequestQuit => self.should_quit = true,
-            AppCommandAction::ToggleHelp => self.show_help = !self.show_help,
+            AppCommandAction::ToggleHelp => {
+                self.show_help = !self.show_help;
+                if self.show_help {
+                    self.help_scroll = 0;
+                } else {
+                    self.help_dialog_hits.set(None);
+                }
+            }
             AppCommandAction::OpenAgentSkill => {
                 self.status = Some("agent skill is available through `workdeck skill`".into());
             }
@@ -4936,6 +4950,33 @@ impl ReviewApp {
         if self.has_extension_dialog() {
             return;
         }
+        if self.show_help {
+            if let Some(hits) = self.help_dialog_hits.get() {
+                match event.kind {
+                    MouseEventKind::Up(_)
+                        if hits
+                            .close
+                            .is_some_and(|close| rect_contains(close, event.column, event.row))
+                            || !rect_contains(hits.frame, event.column, event.row) =>
+                    {
+                        self.show_help = false;
+                        self.help_dialog_hits.set(None);
+                    }
+                    MouseEventKind::ScrollUp
+                        if rect_contains(hits.content, event.column, event.row) =>
+                    {
+                        self.help_scroll = self.help_scroll.saturating_sub(1);
+                    }
+                    MouseEventKind::ScrollDown
+                        if rect_contains(hits.content, event.column, event.row) =>
+                    {
+                        self.help_scroll = self.help_scroll.saturating_add(1).min(hits.max_scroll);
+                    }
+                    _ => {}
+                }
+            }
+            return;
+        }
         if self.handle_extension_mode_badge_mouse(&event)
             || self.handle_app_menu_mouse(&event)
             || self.handle_extension_pane_mouse(&event)
@@ -5836,7 +5877,15 @@ pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     render_app_menu_dropdown(area, buffer, app);
     if app.show_help {
         let commands = app.help_commands();
-        render_help(area, buffer, &commands);
+        let map = render_help(area, buffer, &commands, &app.options.theme, app.help_scroll);
+        app.help_dialog_hits.set(Some(HelpDialogHits {
+            frame: map.modal.frame,
+            close: map.modal.close,
+            content: map.modal.content,
+            max_scroll: map.max_scroll,
+        }));
+    } else {
+        app.help_dialog_hits.set(None);
     }
     render_note_composer(area, buffer, app);
     render_extension_input_dialog(area, buffer, app);
@@ -7354,6 +7403,14 @@ struct ReviewNoteComposer {
     target: ReviewNoteTarget,
     body: String,
     cursor: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HelpDialogHits {
+    frame: Rect,
+    close: Option<Rect>,
+    content: Rect,
+    max_scroll: usize,
 }
 
 #[derive(Debug)]
@@ -8909,46 +8966,14 @@ fn render_extension_toast(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     .render(content, buffer);
 }
 
-fn render_help(area: Rect, buffer: &mut Buffer, commands: &[HelpCommand]) {
-    let sections = build_help_sections(commands);
-    let mut lines = Vec::new();
-    for (section_index, section) in sections.into_iter().enumerate() {
-        if section_index > 0 {
-            lines.push(Line::default());
-        }
-        lines.push(Line::styled(
-            section.title,
-            Style::default().add_modifier(Modifier::BOLD),
-        ));
-        let key_width = section
-            .rows
-            .iter()
-            .map(|row| row.keys.width())
-            .max()
-            .unwrap_or_default();
-        lines.extend(
-            section
-                .rows
-                .into_iter()
-                .map(|row| Line::from(format!("  {:key_width$}  {}", row.keys, row.description))),
-        );
-    }
-    let requested_height = u16::try_from(lines.len().saturating_add(2)).unwrap_or(u16::MAX);
-    let geometry = resolve_modal_geometry(76, requested_height, area.width, area.height);
-    let popup = Rect {
-        x: area.x.saturating_add(geometry.left),
-        y: area.y.saturating_add(geometry.top),
-        width: geometry.width,
-        height: geometry.height,
-    };
-    Clear.render(popup, buffer);
-    Paragraph::new(lines)
-        .block(
-            Block::default()
-                .title(" Workdeck help ")
-                .borders(Borders::ALL),
-        )
-        .render(popup, buffer);
+fn render_help(
+    area: Rect,
+    buffer: &mut Buffer,
+    commands: &[HelpCommand],
+    theme: &AppTheme,
+    vertical_offset: usize,
+) -> HelpDialogRenderMap {
+    render_help_dialog(area, buffer, commands, theme, vertical_offset)
 }
 
 fn render_note_composer(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
@@ -11382,9 +11407,16 @@ mod tests {
     fn review_help_overlay_renders_the_command_derived_sections_and_rows() {
         let backend = TestBackend::new(100, 40);
         let mut terminal = Terminal::new(backend).unwrap();
+        let theme = resolve_theme(Some("github-dark-default"), None, &[]);
         terminal
             .draw(|frame| {
-                render_help(frame.area(), frame.buffer_mut(), &default_help_commands());
+                render_help(
+                    frame.area(),
+                    frame.buffer_mut(),
+                    &default_help_commands(),
+                    &theme,
+                    0,
+                );
             })
             .unwrap();
         let rendered = terminal
@@ -11406,6 +11438,60 @@ mod tests {
         ] {
             assert!(rendered.contains(expected), "missing {expected:?}");
         }
+    }
+
+    #[test]
+    fn help_modal_owns_backdrop_close_and_bounded_body_scrolling() {
+        let backend = TestBackend::new(76, 12);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let hits = app.help_dialog_hits.get().expect("help hits");
+        assert!(hits.max_scroll > 0);
+
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: hits.content.x,
+            row: hits.content.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert_eq!(app.help_scroll, 1);
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: hits.frame.x,
+            row: hits.frame.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(app.show_help);
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(!app.show_help);
+        assert!(app.help_dialog_hits.get().is_none());
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
+        assert_eq!(app.help_scroll, 0);
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let close = app
+            .help_dialog_hits
+            .get()
+            .and_then(|hits| hits.close)
+            .expect("close hit");
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: close.x,
+            row: close.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(!app.show_help);
     }
 
     #[test]

@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/components/chrome/HelpDialog.tsx",
+    "baselineAndStableBlob": "3dcfc9808a1a642efd554fa7efc61dec1d8f1694",
+    "baselineAndStableSha256": "26f7770fa67cab4e906b8f123d6f48bbb8a87e84f8b3dc1919e7ac21499ac993",
+    "bytes": 3335,
+    "lines": 88
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/help_dialog.rs",
+      "sha256": "6c0d9fa163dd59ffa349f1b3ab4bb2f3ce36a0ac968d1d93517b9f7a2b68e523"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "c3240c626b7638bb4527750a898aec3b7a0ab9c9a356c0ef0c6e29dee82883f4"
+    },
+    {
+      "path": "crates/workdeck-tui/src/help_content.rs",
+      "role": "already mapped command-derived section model"
+    },
+    {
+      "path": "crates/workdeck-tui/src/modal_frame.rs",
+      "sha256": "05937303ca91cfa76cd6cb518a3fb9ec79fc6832286eb5756875467481fccb18"
+    }
+  ],
+  "baselineAndStableTestOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/components/ui-components.test.tsx -t HelpDialog",
+    "passed": 2,
+    "filteredOut": {
+      "baseline": 82,
+      "stable": 74
+    },
+    "failed": 0,
+    "assertions": 36,
+    "tests": [
+      "UI components > HelpDialog renders every documented control row without overlap",
+      "UI components > HelpDialog shows the keys a remapped command actually answers to"
+    ]
+  },
+  "cellOracle": {
+    "runtime": "bun 1.3.5",
+    "terminal": {
+      "width": 76,
+      "height": 39
+    },
+    "theme": "github-dark-default",
+    "baselineAndStableSha256": "fa3a65276780ab00b61b7c8107b15366723ce23f7d7b202494078f12990e6f84",
+    "nativeAssertion": "help_dialog::tests::renders_every_section_with_exact_modal_title_palette_and_spacing",
+    "notableRows": [
+      "    │ Controls help                                              [Esc] │    ",
+      "    │ PageDown / Space / f     page down                               │    ",
+      "    │ Left / Right             scroll code sideways (Shift = faster)   │    ",
+      "    │ l / w / m / M            lines / wrap / metadata / menu          │    ",
+      "    │ q                        quit                                    │    "
+    ]
+  },
+  "sourceCoverage": [
+    [[1, 5], [0, 256], "command catalog, help model, cell text, theme, and modal dependencies"],
+    [[6, 25], [256, 670], "command, terminal, theme, and close callback component contract"],
+    [[26, 30], [670, 886], "command-derived sections plus responsive modal and body widths"],
+    [[31, 41], [886, 1647], "UTF-16 key/description measurement, description-first columns, and exact content row count"],
+    [[42, 54], [1647, 2383], "six-row frame chrome budget, terminal-height clamp, scroll choice, section headings, and column body"],
+    [[55, 73], [2383, 3032], "fitted padded key rows, fitted descriptions, inter-section spacing, and modal dimensions"],
+    [[74, 88], [3032, 3335], "theme, title, close callback, and bounded unfocused vertical-scroll wrapper"]
+  ],
+  "testMappings": [
+    {
+      "hunk": "UI components > HelpDialog renders every documented control row without overlap",
+      "rust": [
+        "help_dialog::tests::renders_every_section_with_exact_modal_title_palette_and_spacing",
+        "tests::review_help_overlay_renders_the_command_derived_sections_and_rows"
+      ]
+    },
+    {
+      "hunk": "UI components > HelpDialog shows the keys a remapped command actually answers to",
+      "rust": "help_dialog::tests::remaps_reach_the_rows_and_small_dialogs_apply_bounded_scroll"
+    }
+  ],
+  "additionalRustTests": [
+    "help_dialog::tests::plans_source_columns_content_rows_and_scroll_threshold",
+    "tests::help_modal_owns_backdrop_close_and_bounded_body_scrolling"
+  ],
+  "nativeAdaptation": {
+    "catalog": "The same live command projection drives both display and runtime dispatch under Workdeck ids.",
+    "scrolling": "The shell retains the unfocused scrollbox offset and clamps wheel movement to the visible body range.",
+    "events": "The shared ModalFrame hit plan closes from its backdrop or escape affordance and contains interior clicks.",
+    "rendering": "The default 76 by 39 Ratatui character buffer hashes byte-for-byte to both pinned OpenTUI frames."
+  }
+}
