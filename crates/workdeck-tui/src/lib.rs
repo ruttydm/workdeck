@@ -80,6 +80,7 @@ mod terminal_runtime;
 mod text;
 mod theme;
 mod theme_detection;
+mod theme_selector_dialog;
 mod timed_notice;
 mod ui_geometry;
 mod viewport_anchor;
@@ -169,6 +170,7 @@ pub use terminal_runtime::*;
 pub use text::*;
 pub use theme::*;
 pub use theme_detection::*;
+pub use theme_selector_dialog::*;
 pub use timed_notice::*;
 pub use ui_geometry::*;
 pub use viewport_anchor::*;
@@ -203,8 +205,8 @@ use std::time::{Duration, Instant};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 use workdeck_core::{
-    AgentAnnotation, Changeset, ChangesetSource, DiffFile, DiffLine, DiffLineKind, ReviewSelection,
-    ReviewSide, SourceOrigin, StartupNotice,
+    AgentAnnotation, Changeset, ChangesetSource, DiffFile, DiffLine, DiffLineKind,
+    NamedCustomThemeConfig, ReviewSelection, ReviewSide, SourceOrigin, StartupNotice,
 };
 use workdeck_diff::{
     DIFF_RAIL_PREFIX_WIDTH, HighlightedDiffLine, LanguageMatcher, LanguageRegistration,
@@ -272,6 +274,8 @@ pub struct ReviewOptions {
     pub show_menu_bar: bool,
     pub copy_decorations: bool,
     pub theme: AppTheme,
+    /// Configured and extension-provided themes retained for the live selector.
+    pub custom_themes: Vec<NamedCustomThemeConfig>,
     pub repo: Option<PathBuf>,
     pub command_cwd: Option<PathBuf>,
     /// Provider-neutral invocation retained for workspace-write policy decisions.
@@ -312,6 +316,7 @@ impl Default for ReviewOptions {
             show_menu_bar: true,
             copy_decorations: false,
             theme: resolve_theme(Some(DEFAULT_DARK_THEME_ID), None, &[]),
+            custom_themes: Vec::new(),
             repo: None,
             command_cwd: None,
             review_input: None,
@@ -798,6 +803,9 @@ pub struct ReviewApp {
     expanded_gaps: BTreeSet<(String, usize)>,
     highlights: Mutex<HighlightedDiffRuntime>,
     themes: ThemeController,
+    theme_selector_dialog_hits: Mutex<Option<ThemeSelectorDialogPlan>>,
+    pending_theme_hover_preview: Option<PendingThemeHoverPreview>,
+    theme_selector_hovered_item_id: Option<String>,
     startup_notices: StartupNoticeQueue,
     extension_toasts: Arc<Mutex<ExtensionNotificationSurface>>,
     extension_notification_subscription: Option<ExtensionNotificationSubscription>,
@@ -950,6 +958,9 @@ impl ReviewApp {
             expanded_gaps: BTreeSet::new(),
             highlights: Mutex::new(HighlightedDiffRuntime::default()),
             themes,
+            theme_selector_dialog_hits: Mutex::new(None),
+            pending_theme_hover_preview: None,
+            theme_selector_hovered_item_id: None,
             startup_notices,
             extension_toasts,
             extension_notification_subscription,
@@ -1271,6 +1282,7 @@ impl ReviewApp {
     }
 
     pub fn tick_extension_notifications(&mut self, now: Instant) {
+        self.tick_theme_hover_preview(now);
         let events = self.update_extension_review_events(now);
         self.publish_extension_lifecycle_events(events);
         self.startup_notices.tick(now);
@@ -1473,6 +1485,9 @@ impl ReviewApp {
         {
             return;
         }
+        if self.handle_theme_selector_key(&key) {
+            return;
+        }
         if self.show_agent_skill {
             if key.code == KeyCode::Esc {
                 self.show_agent_skill = false;
@@ -1527,6 +1542,34 @@ impl ReviewApp {
             self.focus = Focus::Review;
             self.scroll_to_selection();
         }
+    }
+
+    fn handle_theme_selector_key(&mut self, key: &KeyEvent) -> bool {
+        if !self.themes.selector_open {
+            return false;
+        }
+        if key.code == KeyCode::Esc {
+            self.close_theme_selector();
+            return true;
+        }
+        let live_key = to_live_extension_key_event(key);
+        let commands = self.builtin_commands();
+        if let Some(direction) = vertical_command_direction(&commands, &live_key) {
+            self.move_theme_selector(direction.delta());
+            return true;
+        }
+        match key.code {
+            KeyCode::Up => self.move_theme_selector(-1),
+            KeyCode::Down => self.move_theme_selector(1),
+            KeyCode::BackTab => self.move_theme_selector(-1),
+            KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.move_theme_selector(-1);
+            }
+            KeyCode::Tab => self.move_theme_selector(1),
+            KeyCode::Enter => self.accept_theme_selector(),
+            _ => {}
+        }
+        true
     }
 
     fn handle_note_composer_key(&mut self, key: &KeyEvent) -> bool {
@@ -2061,7 +2104,7 @@ impl ReviewApp {
             AppCommandAction::ApplyFilePresentationToAllMatching => {}
             AppCommandAction::ToggleFilesPane => self.toggle_files_pane_role(),
             AppCommandAction::RefreshCurrentInput => self.reload_requested = true,
-            AppCommandAction::OpenThemeSelector => self.cycle_theme_preview(),
+            AppCommandAction::OpenThemeSelector => self.open_theme_selector(),
             AppCommandAction::ToggleAgentNotes => {
                 self.options.agent_notes = !self.options.agent_notes;
             }
@@ -2159,19 +2202,117 @@ impl ReviewApp {
         };
     }
 
-    fn cycle_theme_preview(&mut self) {
-        let theme = self.themes.cycle_preview();
-        let resolved = resolve_theme(Some(&theme), None, &[]);
+    fn theme_catalog(&self) -> Vec<AppTheme> {
+        available_themes(&self.options.custom_themes)
+    }
+
+    fn apply_theme_id(&mut self, theme_id: &str) {
+        let resolved = resolve_theme(Some(theme_id), None, &self.options.custom_themes);
         self.options.theme = if self.options.transparent_background {
             with_transparent_surfaces(&resolved)
         } else {
             resolved
         };
+        self.themes
+            .set_cursor_palette(Some(self.options.theme.id.clone()));
         self.highlights
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clear();
-        self.status = Some(format!("theme {theme}"));
+    }
+
+    fn clear_theme_hover_preview(&mut self) {
+        self.pending_theme_hover_preview = None;
+        self.theme_selector_hovered_item_id = None;
+    }
+
+    fn open_theme_selector(&mut self) {
+        let catalog = self.theme_catalog();
+        self.themes.open_selector(&catalog);
+        self.clear_theme_hover_preview();
+        *self
+            .theme_selector_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        self.show_help = false;
+        self.help_dialog_hits.set(None);
+        self.show_agent_skill = false;
+        self.agent_skill_dialog_hits.set(None);
+    }
+
+    fn close_theme_selector(&mut self) {
+        let committed = self.themes.close_selector();
+        self.clear_theme_hover_preview();
+        *self
+            .theme_selector_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        self.apply_theme_id(&committed);
+    }
+
+    fn move_theme_selector(&mut self, delta: isize) {
+        let catalog = self.theme_catalog();
+        self.clear_theme_hover_preview();
+        if let Some(theme_id) = self.themes.move_selector(&catalog, delta) {
+            self.apply_theme_id(&theme_id);
+        }
+    }
+
+    fn preview_theme_selector_item(&mut self, index: usize) {
+        let catalog = self.theme_catalog();
+        if let Some(theme_id) = self.themes.preview_index(&catalog, index) {
+            self.apply_theme_id(&theme_id);
+        }
+    }
+
+    fn accept_theme_selector(&mut self) {
+        let catalog = self.theme_catalog();
+        let accepted = self.themes.accept_selector(&catalog);
+        self.finish_theme_selector_acceptance(accepted);
+    }
+
+    fn accept_theme_selector_item(&mut self, index: usize) {
+        let catalog = self.theme_catalog();
+        let accepted = self.themes.accept_selector_index(&catalog, index);
+        self.finish_theme_selector_acceptance(accepted);
+    }
+
+    fn finish_theme_selector_acceptance(&mut self, accepted: Option<(String, String)>) {
+        let Some((theme_id, label)) = accepted else {
+            return;
+        };
+        self.clear_theme_hover_preview();
+        *self
+            .theme_selector_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        self.apply_theme_id(&theme_id);
+        self.status = Some(format!("Theme: {label}"));
+    }
+
+    fn scroll_theme_selector_window(&mut self, delta: isize) {
+        let plan = self
+            .theme_selector_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        let Some(plan) = plan else {
+            return;
+        };
+        self.clear_theme_hover_preview();
+        let max_start = plan
+            .window
+            .item_count
+            .saturating_sub(plan.window.visible_rows);
+        let window_start = plan
+            .window
+            .window_start
+            .saturating_add_signed(delta)
+            .min(max_start);
+        self.themes.window = Some(ThemeSelectorWindowState {
+            window_start,
+            ..plan.window
+        });
     }
 
     fn move_selection(&mut self, scope: ReviewSelectionScope, delta: isize) {
@@ -5052,6 +5193,9 @@ impl ReviewApp {
         if self.has_extension_dialog() {
             return;
         }
+        if self.handle_theme_selector_mouse(&event, Instant::now()) {
+            return;
+        }
         if self.show_agent_skill {
             if let Some(hits) = self.agent_skill_dialog_hits.get()
                 && let MouseEventKind::Up(_) = event.kind
@@ -5110,6 +5254,92 @@ impl ReviewApp {
             return;
         }
         self.handle_mouse_at(event.kind, Instant::now());
+    }
+
+    fn handle_theme_selector_mouse(&mut self, event: &MouseEvent, now: Instant) -> bool {
+        if !self.themes.selector_open {
+            return false;
+        }
+        let plan = self
+            .theme_selector_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        let Some(plan) = plan else {
+            return true;
+        };
+        match event.kind {
+            MouseEventKind::Moved => {
+                let hovered = theme_selector_item_at(&plan, event.column, event.row)
+                    .map(|hit| (hit.index, hit.id.clone()));
+                if hovered.as_ref().map(|(_, id)| id.as_str())
+                    != self.theme_selector_hovered_item_id.as_deref()
+                {
+                    self.clear_theme_hover_preview();
+                    if let Some((index, item_id)) = hovered {
+                        self.theme_selector_hovered_item_id = Some(item_id.clone());
+                        self.pending_theme_hover_preview = Some(PendingThemeHoverPreview {
+                            index,
+                            item_id,
+                            deadline: now + Duration::from_millis(THEME_HOVER_PREVIEW_DELAY_MS),
+                            item_count: plan.window.item_count,
+                            selected_index: plan.window.selected_index,
+                            visible_rows: plan.window.visible_rows,
+                        });
+                    }
+                }
+            }
+            MouseEventKind::ScrollUp => self.scroll_theme_selector_window(-1),
+            MouseEventKind::ScrollDown => self.scroll_theme_selector_window(1),
+            MouseEventKind::Up(_) => {
+                if let Some(hit) = theme_selector_item_at(&plan, event.column, event.row) {
+                    let index = hit.index;
+                    self.clear_theme_hover_preview();
+                    self.accept_theme_selector_item(index);
+                } else if plan
+                    .modal
+                    .close
+                    .is_some_and(|close| rect_contains(close, event.column, event.row))
+                    || !rect_contains(plan.modal.frame, event.column, event.row)
+                {
+                    self.close_theme_selector();
+                }
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn tick_theme_hover_preview(&mut self, now: Instant) {
+        let Some(pending) = self.pending_theme_hover_preview.as_ref() else {
+            return;
+        };
+        if now < pending.deadline {
+            return;
+        }
+        let pending = self
+            .pending_theme_hover_preview
+            .take()
+            .expect("pending preview was checked");
+        let plan = self
+            .theme_selector_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        let still_current = self.themes.selector_open
+            && self.theme_selector_hovered_item_id.as_deref() == Some(pending.item_id.as_str())
+            && plan.as_ref().is_some_and(|plan| {
+                plan.window.item_count == pending.item_count
+                    && plan.window.selected_index == pending.selected_index
+                    && plan.window.visible_rows == pending.visible_rows
+                    && plan
+                        .item_hits
+                        .iter()
+                        .any(|hit| hit.index == pending.index && hit.id == pending.item_id)
+            });
+        if still_current {
+            self.preview_theme_selector_item(pending.index);
+        }
     }
 
     /// Route horizontal wheel gestures without leaving a fractional vertical
@@ -5555,8 +5785,12 @@ fn to_live_extension_key_event(key: &KeyEvent) -> ExtensionKeyEvent {
 /// stable-only Hunk theme regressions without relying on a React lifecycle.
 #[derive(Debug)]
 pub struct ThemeController {
+    committed: String,
     active: String,
     requested: String,
+    selected_theme_id: Option<String>,
+    selector_open: bool,
+    window: Option<ThemeSelectorWindowState>,
     generation: u64,
     cursor_palette: Option<String>,
     cursor_updates: u64,
@@ -5565,8 +5799,12 @@ pub struct ThemeController {
 impl ThemeController {
     pub fn new(theme: String) -> Self {
         Self {
+            committed: theme.clone(),
             active: theme.clone(),
             requested: theme,
+            selected_theme_id: None,
+            selector_open: false,
+            window: None,
             generation: 0,
             cursor_palette: None,
             cursor_updates: 0,
@@ -5596,17 +5834,105 @@ impl ThemeController {
         true
     }
 
-    fn cycle_preview(&mut self) -> String {
-        let next = THEMES
+    fn open_selector(&mut self, catalog: &[AppTheme]) {
+        let committed = catalog
             .iter()
-            .position(|theme| theme.id == self.requested)
-            .map_or(0, |index| (index + 1) % THEMES.len());
-        let next = THEMES[next].id.clone();
-        let generation = self.request_preview(&next);
-        self.commit_preview(generation);
-        self.set_cursor_palette(Some(next.clone()));
-        next
+            .find(|theme| theme.id == self.committed)
+            .or_else(|| catalog.first())
+            .map(|theme| theme.id.clone());
+        self.selector_open = true;
+        self.selected_theme_id = committed;
+        self.requested.clone_from(&self.active);
+        self.window = None;
     }
+
+    fn close_selector(&mut self) -> String {
+        self.generation = self.generation.saturating_add(1);
+        self.selector_open = false;
+        self.selected_theme_id = None;
+        self.window = None;
+        self.active.clone_from(&self.committed);
+        self.requested.clone_from(&self.committed);
+        self.committed.clone()
+    }
+
+    fn selected_index(&self, catalog: &[AppTheme]) -> usize {
+        self.selected_theme_id
+            .as_ref()
+            .and_then(|selected| catalog.iter().position(|theme| &theme.id == selected))
+            .or_else(|| catalog.iter().position(|theme| theme.id == self.committed))
+            .unwrap_or(0)
+    }
+
+    fn preview_index(&mut self, catalog: &[AppTheme], index: usize) -> Option<String> {
+        let theme = catalog.get(index)?;
+        self.selected_theme_id = Some(theme.id.clone());
+        let generation = self.request_preview(&theme.id);
+        self.commit_preview(generation);
+        Some(theme.id.clone())
+    }
+
+    fn move_selector(&mut self, catalog: &[AppTheme], delta: isize) -> Option<String> {
+        if catalog.is_empty() {
+            self.selected_theme_id = None;
+            self.requested.clone_from(&self.committed);
+            self.active.clone_from(&self.committed);
+            return None;
+        }
+        let anchor = self.selected_index(catalog);
+        let count = isize::try_from(catalog.len()).unwrap_or(isize::MAX);
+        let anchor = isize::try_from(anchor).unwrap_or_default();
+        let next = usize::try_from((anchor + delta).rem_euclid(count)).unwrap_or_default();
+        self.preview_index(catalog, next)
+    }
+
+    fn accept_selector(&mut self, catalog: &[AppTheme]) -> Option<(String, String)> {
+        let selected = self.selected_theme_id.as_ref()?;
+        let theme = catalog.iter().find(|theme| &theme.id == selected)?;
+        self.committed.clone_from(&theme.id);
+        self.active.clone_from(&theme.id);
+        self.requested.clone_from(&theme.id);
+        self.selector_open = false;
+        self.selected_theme_id = Some(theme.id.clone());
+        self.window = None;
+        Some((theme.id.clone(), theme.label.clone()))
+    }
+
+    fn accept_selector_index(
+        &mut self,
+        catalog: &[AppTheme],
+        index: usize,
+    ) -> Option<(String, String)> {
+        let theme = catalog.get(index)?;
+        self.selected_theme_id = Some(theme.id.clone());
+        self.accept_selector(catalog)
+    }
+
+    fn items(&self, catalog: &[AppTheme]) -> Vec<ThemeSelectorItem> {
+        catalog
+            .iter()
+            .map(|theme| ThemeSelectorItem {
+                id: theme.id.clone(),
+                label: theme.label.clone(),
+                description: if theme.id == self.active {
+                    "active".into()
+                } else {
+                    String::new()
+                },
+                active: theme.id == self.active,
+            })
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone)]
+struct PendingThemeHoverPreview {
+    index: usize,
+    item_id: String,
+    deadline: Instant,
+    item_count: usize,
+    selected_index: usize,
+    visible_rows: usize,
 }
 
 const fn extension_layout_mode(layout: LayoutMode) -> ExtensionLayoutMode {
@@ -6031,6 +6357,27 @@ pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         }));
     } else {
         app.help_dialog_hits.set(None);
+    }
+    if app.themes.selector_open {
+        let catalog = app.theme_catalog();
+        let items = app.themes.items(&catalog);
+        let selected_index = app.themes.selected_index(&catalog);
+        let base_theme = resolve_theme(Some(&app.themes.active), None, &app.options.custom_themes);
+        let plan = render_theme_selector_dialog(
+            area,
+            buffer,
+            &items,
+            selected_index,
+            app.themes.window,
+            &base_theme,
+        );
+        *app.theme_selector_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(plan);
+    } else {
+        *app.theme_selector_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
     }
     render_note_composer(area, buffer, app);
     render_extension_input_dialog(area, buffer, app);
@@ -12093,6 +12440,243 @@ mod tests {
         assert!(!themes.commit_preview(first));
         assert!(themes.commit_preview(latest));
         assert_eq!(themes.active, "solarized");
+    }
+
+    #[test]
+    fn theme_selector_keyboard_previews_reverts_accepts_and_reopens_on_commit() {
+        let backend = TestBackend::new(100, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        let committed = app.themes.committed.clone();
+
+        app.apply_builtin_command_action(AppCommandAction::OpenThemeSelector);
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(rendered.contains("Theme selector"));
+        assert!(rendered.contains("Enter/click accept  Esc cancel"));
+        assert!(app.themes.selector_open);
+
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        let preview = app.options.theme.id.clone();
+        assert_ne!(preview, committed);
+        assert_eq!(app.themes.committed, committed);
+        app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        assert!(!app.should_quit);
+        assert_eq!(app.options.theme.id, preview);
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(!app.themes.selector_open);
+        assert_eq!(app.options.theme.id, committed);
+
+        app.apply_builtin_command_action(AppCommandAction::OpenThemeSelector);
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        let accepted = app.options.theme.id.clone();
+        let accepted_label = app
+            .theme_catalog()
+            .into_iter()
+            .find(|theme| theme.id == accepted)
+            .unwrap()
+            .label;
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(!app.themes.selector_open);
+        assert_eq!(app.themes.committed, accepted);
+        let expected_status = format!("Theme: {accepted_label}");
+        assert_eq!(app.status.as_deref(), Some(expected_status.as_str()));
+
+        app.apply_builtin_command_action(AppCommandAction::OpenThemeSelector);
+        let catalog = app.theme_catalog();
+        let committed_index = catalog
+            .iter()
+            .position(|theme| theme.id == app.themes.committed)
+            .unwrap();
+        assert_eq!(app.themes.selected_index(&catalog), committed_index);
+    }
+
+    #[test]
+    fn configured_vertical_review_keys_move_the_open_theme_selector() {
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                keybindings: vec![UserKeyBindingEntry::new(
+                    "workdeck.review.nextHunk",
+                    UserKeyBinding::Chord("x".into()),
+                )],
+                ..ReviewOptions::default()
+            },
+        );
+        app.apply_builtin_command_action(AppCommandAction::OpenThemeSelector);
+        let before = app.themes.selected_index(&app.theme_catalog());
+        app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        assert_eq!(
+            app.themes.selected_index(&app.theme_catalog()),
+            (before + 1) % app.theme_catalog().len()
+        );
+    }
+
+    #[test]
+    fn custom_theme_catalog_and_palette_remain_active_in_the_selector() {
+        let custom: NamedCustomThemeConfig = serde_json::from_value(serde_json::json!({
+            "id": "team-dark",
+            "label": "Team Dark",
+            "base": "github-dark-default",
+            "accent": "#8877cc"
+        }))
+        .unwrap();
+        let theme = resolve_theme(Some(&custom.id), None, std::slice::from_ref(&custom));
+        let backend = TestBackend::new(100, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                theme,
+                custom_themes: vec![custom],
+                ..ReviewOptions::default()
+            },
+        );
+        app.apply_builtin_command_action(AppCommandAction::OpenThemeSelector);
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let catalog = app.theme_catalog();
+        let index = catalog
+            .iter()
+            .position(|theme| theme.id == "team-dark")
+            .unwrap();
+        assert_eq!(app.themes.selected_index(&catalog), index);
+        assert_eq!(app.options.theme.accent, "#8877cc");
+        assert!(app.themes.items(&catalog)[index].active);
+        assert!(
+            terminal
+                .backend()
+                .buffer()
+                .content()
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+                .contains("Team Dark")
+        );
+    }
+
+    #[test]
+    fn theme_selector_pointer_dwell_wheel_click_and_backdrop_follow_source_timing() {
+        let backend = TestBackend::new(90, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        let committed = app.themes.committed.clone();
+        app.apply_builtin_command_action(AppCommandAction::OpenThemeSelector);
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let initial_plan = app
+            .theme_selector_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+            .unwrap();
+        let target = initial_plan
+            .item_hits
+            .iter()
+            .find(|hit| hit.id != committed)
+            .unwrap()
+            .clone();
+        let start = Instant::now();
+        app.handle_theme_selector_mouse(
+            &MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: target.bounds.x,
+                row: target.bounds.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            start,
+        );
+        app.tick_theme_hover_preview(start + Duration::from_millis(199));
+        assert_eq!(app.options.theme.id, committed);
+        app.tick_theme_hover_preview(start + Duration::from_millis(200));
+        assert_eq!(app.options.theme.id, target.id);
+        assert_eq!(app.themes.committed, committed);
+
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let before_scroll = app
+            .theme_selector_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+            .unwrap()
+            .window
+            .window_start;
+        app.handle_theme_selector_mouse(
+            &MouseEvent {
+                kind: MouseEventKind::ScrollDown,
+                column: target.bounds.x,
+                row: target.bounds.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            start + Duration::from_millis(201),
+        );
+        assert_eq!(app.options.theme.id, target.id);
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let scrolled_plan = app
+            .theme_selector_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+            .unwrap();
+        assert_eq!(
+            scrolled_plan.window.window_start,
+            (before_scroll + 1).min(
+                scrolled_plan
+                    .window
+                    .item_count
+                    .saturating_sub(scrolled_plan.window.visible_rows)
+            )
+        );
+
+        let accepted = scrolled_plan
+            .item_hits
+            .iter()
+            .find(|hit| hit.id != target.id)
+            .unwrap()
+            .clone();
+        app.handle_theme_selector_mouse(
+            &MouseEvent {
+                kind: MouseEventKind::Up(MouseButton::Left),
+                column: accepted.bounds.x,
+                row: accepted.bounds.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            start + Duration::from_millis(202),
+        );
+        assert!(!app.themes.selector_open);
+        assert_eq!(app.themes.committed, accepted.id);
+
+        app.apply_builtin_command_action(AppCommandAction::OpenThemeSelector);
+        app.move_theme_selector(1);
+        assert_ne!(app.options.theme.id, app.themes.committed);
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        app.handle_theme_selector_mouse(
+            &MouseEvent {
+                kind: MouseEventKind::Up(MouseButton::Left),
+                column: 0,
+                row: 0,
+                modifiers: KeyModifiers::NONE,
+            },
+            start + Duration::from_millis(203),
+        );
+        assert!(!app.themes.selector_open);
+        assert_eq!(app.options.theme.id, app.themes.committed);
     }
 
     #[test]

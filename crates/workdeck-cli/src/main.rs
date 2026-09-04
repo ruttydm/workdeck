@@ -978,6 +978,7 @@ impl ReviewCliOptions {
             show_menu_bar: self.show_menu_bar,
             copy_decorations: self.copy_decorations,
             theme,
+            custom_themes: Vec::new(),
             repo: None,
             command_cwd: None,
             review_input: None,
@@ -6419,6 +6420,7 @@ fn run_app_bootstrap(
     } else {
         theme
     };
+    options.custom_themes = custom_themes;
     options.keybindings = keybindings;
     options.keybinding_notices = keybinding_notices;
     options.review_input = Some(input.clone());
