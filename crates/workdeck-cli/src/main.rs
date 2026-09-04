@@ -25,10 +25,11 @@ use workdeck_cli::store::{
 };
 use workdeck_core::{
     AgentContext, AppBootstrap, Changeset, ChangesetSource, CliInput, CommonOptions,
-    DiffToolCommandInput, FileCommandInput, InputCursorLine, InputLayoutMode, PatchCommandInput,
-    ReloadContext, ReviewSide, SelfUpdateCommandInput, SidebarVisibility, StartupNotice,
-    UserKeyBindingEntry, VcsDiffCommandInput, VcsRangeEndpoints, VcsShowCommandInput,
-    VcsStashShowCommandInput, resolve_app_state_path,
+    DiffToolCommandInput, FileCommandInput, InputCursorLine, InputLayoutMode,
+    NamedCustomThemeConfig, PatchCommandInput, RegisteredCustomTheme, ReloadContext, ReviewSide,
+    SelfUpdateCommandInput, SidebarVisibility, StartupNotice, UserKeyBindingEntry,
+    VcsDiffCommandInput, VcsRangeEndpoints, VcsShowCommandInput, VcsStashShowCommandInput,
+    collect_session_custom_themes, resolve_app_state_path,
 };
 use workdeck_diff::{
     LanguageMatcher, LanguageRegistration, LanguageRegistry, sanitize_terminal_line,
@@ -609,6 +610,10 @@ struct ReviewCliOptions {
     user_extension_paths: Vec<PathBuf>,
     #[arg(skip)]
     repo_extension_paths: Vec<PathBuf>,
+    #[arg(skip)]
+    custom_themes: Vec<NamedCustomThemeConfig>,
+    #[arg(skip)]
+    view_preferences_config_path: Option<PathBuf>,
 }
 
 impl ReviewCliOptions {
@@ -661,6 +666,8 @@ impl ReviewCliOptions {
             extension_config: config.extension_configs().clone(),
             user_extension_paths: config.resolved_extensions.paths.clone(),
             repo_extension_paths: config.resolved_extensions.repo_paths.clone(),
+            custom_themes: config.custom_themes.clone(),
+            view_preferences_config_path: config.view_preferences_config_path.clone(),
         }
     }
 
@@ -713,6 +720,8 @@ impl ReviewCliOptions {
         self.extension_config = configured.extension_config;
         self.user_extension_paths = configured.user_extension_paths;
         self.repo_extension_paths = configured.repo_extension_paths;
+        self.custom_themes = configured.custom_themes;
+        self.view_preferences_config_path = configured.view_preferences_config_path;
         self.no_extensions |= configured.no_extensions;
     }
 
@@ -910,6 +919,31 @@ mod review_cli_option_tests {
         assert_eq!(review.configured_vcs_id(), Some("fossil-tools"));
         assert_eq!(review.preference(), ProviderPreference::Auto);
         assert_eq!(review.common_options().vcs.as_deref(), Some("fossil-tools"));
+    }
+
+    #[test]
+    fn native_extension_theme_fields_enter_the_provider_neutral_catalog() {
+        let registration = workdeck_extension_api::ThemeRegistration {
+            id: "midnight-review".into(),
+            base: Some("graphite".into()),
+            colors: BTreeMap::from([
+                ("accent".into(), "#ABCDEF".into()),
+                ("panelAlt".into(), "#123456".into()),
+            ]),
+        };
+        let registered = registered_custom_theme("paint.review", &registration);
+        let resolved = collect_session_custom_themes(&[], &[registered]);
+
+        assert!(resolved.notices.is_empty());
+        assert_eq!(
+            serde_json::to_value(&resolved.themes).unwrap(),
+            serde_json::json!([{
+                "id": "midnight-review",
+                "base": "github-dark-default",
+                "accent": "#abcdef",
+                "panelAlt": "#123456",
+            }])
+        );
     }
 
     #[test]
@@ -1131,6 +1165,78 @@ mod review_cli_option_tests {
         assert!(bootstrap.reload_context.vcs_catalog.is_some());
         assert_eq!(bootstrap.startup_notices[0].key, "fixture");
         assert!(bootstrap.extensions.is_some());
+    }
+
+    #[test]
+    fn composed_bootstrap_carries_config_themes_and_view_preference_destination() {
+        let directory = tempfile::tempdir().unwrap();
+        let user_config = directory.path().join("config.toml");
+        std::fs::write(
+            &user_config,
+            concat!(
+                "[ui]\ntheme = 'custom'\n",
+                "[custom_theme]\nbase = 'catppuccin-mocha'\naccent = '#7755aa'\n",
+                "[custom_theme.syntax_scopes]\ncomment = '#998877'\n",
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("before.ts"),
+            "export const alpha = 1;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("after.ts"),
+            "export const alpha = 2;\n",
+        )
+        .unwrap();
+        let config = Config::load_from_paths(
+            &directory.path().join("missing-repo-config.toml"),
+            Some(&user_config),
+        )
+        .unwrap();
+        let review = ReviewCliOptions::from_config(&config);
+        let input = CliInput::Files(FileCommandInput {
+            left: "before.ts".into(),
+            right: "after.ts".into(),
+            options: review.common_options(),
+        });
+        let changeset = load_file_comparison(
+            directory.path(),
+            Path::new("before.ts"),
+            Path::new("after.ts"),
+        )
+        .unwrap();
+        let bootstrap = build_app_bootstrap(
+            directory.path(),
+            None,
+            changeset,
+            &review,
+            input,
+            None,
+            PreparedReviewExtensions {
+                extensions: Vec::new(),
+                notifications: ExtensionNotificationHub::new(),
+                pending_trust_repo_root: None,
+                startup_notices: Vec::new(),
+                vcs_catalog: None,
+            },
+        );
+
+        assert_eq!(bootstrap.initial_theme.as_deref(), Some("custom"));
+        assert_eq!(
+            serde_json::to_value(&bootstrap.custom_themes).unwrap(),
+            serde_json::json!([{
+                "id": "custom",
+                "base": "catppuccin-mocha",
+                "accent": "#7755aa",
+                "syntaxScopes": { "comment": "#998877" },
+            }]),
+        );
+        assert_eq!(
+            bootstrap.view_preferences_config_path.as_deref(),
+            Some(user_config.as_path())
+        );
     }
 
     #[test]
@@ -2940,6 +3046,10 @@ fn build_app_bootstrap(
     let initial_copy_decorations = options.copy_decorations.unwrap_or(false);
     let initial_cursor_line = options.cursor_line.unwrap_or_default();
     let vcs_catalog = prepared_extensions.vcs_catalog.take();
+    let session_themes = collect_review_custom_themes(review, &prepared_extensions.extensions);
+    prepared_extensions
+        .startup_notices
+        .extend(session_themes.notices);
     let startup_notices = std::mem::take(&mut prepared_extensions.startup_notices);
 
     AppBootstrap {
@@ -2954,7 +3064,7 @@ fn build_app_bootstrap(
         initial_mode,
         initial_theme,
         initial_theme_mode: None,
-        custom_themes: Vec::new(),
+        custom_themes: session_themes.themes,
         initial_show_line_numbers,
         initial_tab_width,
         initial_file_gap,
@@ -2967,10 +3077,59 @@ fn build_app_bootstrap(
         initial_copy_decorations,
         initial_cursor_line,
         startup_notices,
-        view_preferences_config_path: None,
+        view_preferences_config_path: review.view_preferences_config_path.clone(),
         keybindings: review.keybindings.clone(),
         keybinding_notices: review.keybinding_notices.clone(),
         extensions: Some(prepared_extensions),
+    }
+}
+
+fn collect_review_custom_themes(
+    review: &ReviewCliOptions,
+    extensions: &[LoadedExtension],
+) -> workdeck_core::SessionCustomThemes {
+    let resolution = resolve_loaded_extension_registrations(extensions, bundled_vcs_catalog());
+    let registered = extensions
+        .iter()
+        .enumerate()
+        .flat_map(|(extension_index, extension)| {
+            let resolution = &resolution;
+            extension
+                .handshake
+                .registrations
+                .iter()
+                .enumerate()
+                .filter_map(move |(registration_index, registration)| {
+                    resolution
+                        .accepts(extension_index, registration_index)
+                        .then_some((extension, registration))
+                })
+        })
+        .filter_map(|(extension, registration)| {
+            let Registration::Theme(theme) = registration else {
+                return None;
+            };
+            Some(registered_custom_theme(&extension.manifest.id, theme))
+        })
+        .collect::<Vec<_>>();
+    collect_session_custom_themes(&review.custom_themes, &registered)
+}
+
+fn registered_custom_theme(
+    extension_id: &str,
+    theme: &workdeck_extension_api::ThemeRegistration,
+) -> RegisteredCustomTheme {
+    let mut value = serde_json::Map::new();
+    value.insert("id".into(), Value::String(theme.id.clone()));
+    if let Some(base) = &theme.base {
+        value.insert("base".into(), Value::String(base.clone()));
+    }
+    for (key, color) in &theme.colors {
+        value.insert(key.clone(), Value::String(color.clone()));
+    }
+    RegisteredCustomTheme {
+        extension_id: extension_id.into(),
+        theme: Value::Object(value),
     }
 }
 

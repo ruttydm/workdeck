@@ -3,7 +3,14 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use workdeck_core::{StartupNotice, UserKeyBinding, UserKeyBindingEntry};
+use workdeck_core::{
+    BUNDLED_SHIKI_THEME_IDS, CUSTOM_THEME_COLOR_KEYS, LEGACY_CUSTOM_SYNTAX_COLOR_KEYS,
+    LEGACY_CUSTOM_SYNTAX_NOTICE, LEGACY_CUSTOM_THEME_ID, NamedCustomThemeConfig, StartupNotice,
+    UserKeyBinding, UserKeyBindingEntry, create_invalid_theme_id_notice,
+    create_theme_collision_notice, describe_custom_theme_id_issue, describe_theme_color_issue,
+    normalize_theme_color_value, resolve_bundled_shiki_theme_id,
+    resolve_custom_syntax_scope_overrides,
+};
 use workdeck_diff::sanitize_terminal_line;
 
 /// Resolved user-extension configuration for one Workdeck invocation.
@@ -59,6 +66,12 @@ pub struct Config {
     /// Unsupported values ignored while reading `[keybindings]`.
     #[serde(skip)]
     pub keybinding_notices: Vec<String>,
+    /// Layered `[custom_theme]` and `[themes.<id>]` declarations in selector order.
+    #[serde(skip)]
+    pub custom_themes: Vec<NamedCustomThemeConfig>,
+    /// Existing repository config, otherwise the global config path, for view persistence.
+    #[serde(skip)]
+    pub view_preferences_config_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -340,17 +353,28 @@ impl Config {
         let mut keybinding_notices = Vec::new();
         let mut user_extensions = ExtensionsLayer::default();
         let mut repo_extensions = ExtensionsLayer::default();
+        let mut custom_themes = Vec::new();
+        let mut uses_legacy_custom_syntax = false;
+        let mut theme_notices = Vec::new();
 
         if let Some(path) = user_config_path.filter(|path| path.exists()) {
             (keybindings, keybinding_notices) = read_user_keybindings(path)?;
             let user = read_config_value(path)?;
             user_extensions = read_extensions_layer(&user)?;
+            let themes = read_custom_themes(&user)?;
+            merge_custom_theme_layer(&mut custom_themes, themes.themes);
+            uses_legacy_custom_syntax |= themes.uses_legacy_syntax;
+            merge_startup_notices(&mut theme_notices, themes.notices);
             merge_toml_values(&mut merged, user);
         }
 
         if repo_config_path.exists() {
             let repo = read_config_value(repo_config_path)?;
             repo_extensions = read_extensions_layer(&repo)?;
+            let themes = read_custom_themes(&repo)?;
+            merge_custom_theme_layer(&mut custom_themes, themes.themes);
+            uses_legacy_custom_syntax |= themes.uses_legacy_syntax;
+            merge_startup_notices(&mut theme_notices, themes.notices);
             merge_toml_values(&mut merged, repo);
         }
 
@@ -371,6 +395,12 @@ impl Config {
             .with_context(|| "failed to parse merged config")?;
         config.keybindings = keybindings;
         config.keybinding_notices = keybinding_notices;
+        config.custom_themes = custom_themes;
+        config.view_preferences_config_path = if repo_config_path.exists() {
+            Some(repo_config_path.to_owned())
+        } else {
+            user_config_path.map(Path::to_owned)
+        };
         config.resolved_extensions = ExtensionsConfig {
             enabled: repo_extensions
                 .enabled
@@ -380,9 +410,22 @@ impl Config {
             repo_paths: repo_extensions.paths,
             extension_configs: config.extension.clone(),
         };
-        config.startup_notices = repo_extension_config_notice(&repo_extensions.extension_configs)
+        config.startup_notices = uses_legacy_custom_syntax
+            .then(|| LEGACY_CUSTOM_SYNTAX_NOTICE.clone())
             .into_iter()
+            .chain(theme_notices)
+            .chain(repo_extension_config_notice(
+                &repo_extensions.extension_configs,
+            ))
             .collect();
+        if config.ui.theme == LEGACY_CUSTOM_THEME_ID
+            && !config
+                .custom_themes
+                .iter()
+                .any(|theme| theme.id == LEGACY_CUSTOM_THEME_ID)
+        {
+            bail!("Expected a [custom_theme] table when config selects theme = \"custom\".");
+        }
         config
             .validate()
             .with_context(|| "invalid Workdeck config")?;
@@ -442,6 +485,259 @@ impl Config {
             bail!("review.hunk_gap must be between 0 and 8");
         }
         self.keys.validate()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct CustomThemeLayer {
+    themes: Vec<NamedCustomThemeConfig>,
+    uses_legacy_syntax: bool,
+    notices: Vec<StartupNotice>,
+}
+
+fn read_custom_themes(value: &toml::Value) -> Result<CustomThemeLayer> {
+    let root = value
+        .as_table()
+        .context("Expected Workdeck config to contain a TOML table.")?;
+    let mut layer = CustomThemeLayer::default();
+
+    if let Some(value) = root.get("custom_theme") {
+        let table = value
+            .as_table()
+            .context("Expected custom_theme to contain a TOML table.")?;
+        let (theme, uses_legacy_syntax) =
+            read_custom_theme_table(table, LEGACY_CUSTOM_THEME_ID, "custom_theme")?;
+        layer.themes.push(theme);
+        layer.uses_legacy_syntax |= uses_legacy_syntax;
+    }
+
+    if let Some(value) = root.get("themes") {
+        let themes = value
+            .as_table()
+            .context("Expected themes to contain named TOML tables.")?;
+        for (id, value) in themes {
+            let table = value
+                .as_table()
+                .with_context(|| format!("Expected [themes.{id}] to contain a TOML table."))?;
+            let id_value = serde_json::Value::String(id.clone());
+            if let Some(reason) = describe_custom_theme_id_issue(&id_value) {
+                layer
+                    .notices
+                    .push(create_invalid_theme_id_notice("config", id, reason));
+                continue;
+            }
+            if layer.themes.iter().any(|theme| theme.id == *id) {
+                layer.notices.push(create_theme_collision_notice(
+                    "config",
+                    id,
+                    "[custom_theme]",
+                ));
+                continue;
+            }
+            let (theme, uses_legacy_syntax) =
+                read_custom_theme_table(table, id, &format!("themes.{id}"))?;
+            layer.themes.push(theme);
+            layer.uses_legacy_syntax |= uses_legacy_syntax;
+        }
+    }
+    Ok(layer)
+}
+
+fn read_custom_theme_table(
+    table: &toml::map::Map<String, toml::Value>,
+    id: &str,
+    key_path: &str,
+) -> Result<(NamedCustomThemeConfig, bool)> {
+    let legacy_syntax = optional_theme_table(table, "syntax", key_path)?;
+    let exact_scopes = optional_theme_table(table, "syntax_scopes", key_path)?;
+    let mut theme = serde_json::Map::new();
+    theme.insert("id".into(), serde_json::Value::String(id.into()));
+
+    if let Some(value) = table.get("base") {
+        let resolved = value
+            .as_str()
+            .and_then(|value| resolve_bundled_shiki_theme_id(Some(value)))
+            .with_context(|| {
+                format!(
+                    "Expected {key_path}.base to be a built-in theme id. Known themes: {}.",
+                    BUNDLED_SHIKI_THEME_IDS.join(", ")
+                )
+            })?;
+        theme.insert("base".into(), serde_json::Value::String(resolved.into()));
+    }
+    if let Some(label) = table
+        .get("label")
+        .and_then(toml::Value::as_str)
+        .filter(|label| !label.is_empty())
+    {
+        theme.insert("label".into(), serde_json::Value::String(label.into()));
+    }
+    for key in CUSTOM_THEME_COLOR_KEYS {
+        if let Some(value) = table.get(*key) {
+            let json = toml_value_as_json(value);
+            if describe_theme_color_issue(&json).is_some() {
+                bail!("Expected {key_path}.{key} to be a hex color like #112233.");
+            }
+            let color = value.as_str().expect("validated theme colors are strings");
+            theme.insert(
+                (*key).into(),
+                serde_json::Value::String(normalize_theme_color_value(color)),
+            );
+        }
+    }
+
+    let legacy = read_theme_color_table(
+        legacy_syntax,
+        LEGACY_CUSTOM_SYNTAX_COLOR_KEYS,
+        &format!("{key_path}.syntax"),
+    )?;
+    let exact = read_exact_syntax_scopes(exact_scopes, key_path)?;
+    let scopes = resolve_custom_syntax_scope_overrides(&legacy, &exact);
+    if !scopes.is_empty() {
+        theme.insert(
+            "syntaxScopes".into(),
+            serde_json::to_value(scopes).expect("syntax scopes are JSON serializable"),
+        );
+    }
+
+    let theme = serde_json::from_value(serde_json::Value::Object(theme))
+        .expect("normalized config theme has the provider-neutral schema");
+    Ok((theme, !legacy.is_empty()))
+}
+
+fn optional_theme_table<'a>(
+    parent: &'a toml::map::Map<String, toml::Value>,
+    key: &str,
+    key_path: &str,
+) -> Result<Option<&'a toml::map::Map<String, toml::Value>>> {
+    parent
+        .get(key)
+        .map(|value| {
+            value
+                .as_table()
+                .with_context(|| format!("Expected {key_path}.{key} to contain a TOML table."))
+        })
+        .transpose()
+}
+
+fn read_theme_color_table(
+    table: Option<&toml::map::Map<String, toml::Value>>,
+    recognized: &[&str],
+    key_path: &str,
+) -> Result<indexmap::IndexMap<String, String>> {
+    let mut colors = indexmap::IndexMap::new();
+    let Some(table) = table else {
+        return Ok(colors);
+    };
+    for key in recognized {
+        let Some(value) = table.get(*key) else {
+            continue;
+        };
+        let json = toml_value_as_json(value);
+        if describe_theme_color_issue(&json).is_some() {
+            bail!("Expected {key_path}.{key} to be a hex color like #112233.");
+        }
+        colors.insert(
+            (*key).to_owned(),
+            normalize_theme_color_value(value.as_str().expect("validated color is a string")),
+        );
+    }
+    Ok(colors)
+}
+
+fn read_exact_syntax_scopes(
+    table: Option<&toml::map::Map<String, toml::Value>>,
+    key_path: &str,
+) -> Result<indexmap::IndexMap<String, String>> {
+    let mut colors = indexmap::IndexMap::new();
+    let Some(table) = table else {
+        return Ok(colors);
+    };
+    for (scope, value) in table {
+        if scope.trim().is_empty() {
+            bail!("Expected {key_path}.syntax_scopes keys to be non-empty Shiki scopes.");
+        }
+        let json = toml_value_as_json(value);
+        if describe_theme_color_issue(&json).is_some() {
+            bail!("Expected {key_path}.syntax_scopes.{scope} to be a hex color like #112233.");
+        }
+        colors.insert(
+            scope.clone(),
+            normalize_theme_color_value(value.as_str().expect("validated color is a string")),
+        );
+    }
+    Ok(colors)
+}
+
+fn toml_value_as_json(value: &toml::Value) -> serde_json::Value {
+    serde_json::to_value(value).expect("TOML values are JSON serializable")
+}
+
+fn merge_custom_theme_layer(
+    merged: &mut Vec<NamedCustomThemeConfig>,
+    overrides: Vec<NamedCustomThemeConfig>,
+) {
+    for theme in overrides {
+        if let Some(index) = merged.iter().position(|candidate| candidate.id == theme.id) {
+            merged[index] = merge_custom_theme(&merged[index], &theme);
+        } else {
+            merged.push(theme);
+        }
+    }
+}
+
+fn merge_custom_theme(
+    base: &NamedCustomThemeConfig,
+    overrides: &NamedCustomThemeConfig,
+) -> NamedCustomThemeConfig {
+    let mut base = serde_json::to_value(base)
+        .expect("custom themes are JSON serializable")
+        .as_object()
+        .expect("custom themes serialize as objects")
+        .clone();
+    let mut overrides = serde_json::to_value(overrides)
+        .expect("custom themes are JSON serializable")
+        .as_object()
+        .expect("custom themes serialize as objects")
+        .clone();
+    let override_scopes = overrides.remove("syntaxScopes");
+    let base_scopes = base.remove("syntaxScopes");
+    for (key, value) in overrides {
+        if key != "id" {
+            base.insert(key, value);
+        }
+    }
+    if !base.contains_key("base") {
+        base.insert(
+            "base".into(),
+            serde_json::Value::String("github-dark-default".into()),
+        );
+    }
+    if base_scopes.is_some() || override_scopes.is_some() {
+        let mut scopes = base_scopes
+            .and_then(|value| value.as_object().cloned())
+            .unwrap_or_default();
+        if let Some(overrides) = override_scopes.and_then(|value| value.as_object().cloned()) {
+            for (scope, color) in overrides {
+                scopes.insert(scope, color);
+            }
+        }
+        base.insert("syntaxScopes".into(), serde_json::Value::Object(scopes));
+    }
+    serde_json::from_value(serde_json::Value::Object(base))
+        .expect("merged custom theme has the provider-neutral schema")
+}
+
+fn merge_startup_notices(merged: &mut Vec<StartupNotice>, layer: Vec<StartupNotice>) {
+    for notice in layer {
+        if let Some(existing) = merged
+            .iter_mut()
+            .find(|candidate| candidate.key == notice.key)
+        {
+            *existing = notice;
+        } else {
+            merged.push(notice);
+        }
     }
 }
 
@@ -521,10 +817,11 @@ fn merge_extension_configs(
 fn repo_extension_config_notice(
     extension_configs: &toml::map::Map<String, toml::Value>,
 ) -> Option<StartupNotice> {
-    let ids = extension_configs
+    let mut ids = extension_configs
         .iter()
         .filter_map(|(id, value)| (!value.as_table()?.is_empty()).then_some(id.as_str()))
         .collect::<Vec<_>>();
+    ids.sort_unstable();
     if ids.is_empty() {
         return None;
     }
@@ -1314,6 +1611,189 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert_eq!(error, "Expected keybindings to contain a TOML table.");
+    }
+
+    fn load_theme_projection(user: &str, repo: Option<&str>) -> Result<serde_json::Value> {
+        let dir = tempfile::tempdir().unwrap();
+        let user_config = dir.path().join("user-config.toml");
+        let repo_config = dir.path().join("repo-config.toml");
+        fs::write(&user_config, user).unwrap();
+        if let Some(repo) = repo {
+            fs::write(&repo_config, repo).unwrap();
+        }
+        let config = Config::load_from_paths(&repo_config, Some(&user_config))?;
+        let theme = match config.ui.theme.as_str() {
+            // This fixture isolates Hunk's custom-theme parser. Workdeck's pre-existing
+            // terminal-adaptive default remains auto until startup detection is ported.
+            "auto" => "github-dark-default",
+            theme => theme,
+        };
+        Ok(serde_json::json!({
+            "theme": theme,
+            "customThemes": config.custom_themes,
+            "startupNotices": if config.startup_notices.is_empty() {
+                serde_json::Value::Null
+            } else {
+                serde_json::to_value(config.startup_notices).unwrap()
+            },
+            "viewPreferencesConfigPath": if config.view_preferences_config_path.as_deref()
+                == Some(repo_config.as_path())
+            {
+                "repo"
+            } else {
+                "user"
+            },
+        }))
+    }
+
+    #[test]
+    fn custom_theme_config_matches_both_pinned_hunk_oracles() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/config-themes.json"
+        ))
+        .unwrap();
+        assert_eq!(oracle["pinsAgree"], true);
+        let expected = &oracle["expected"];
+
+        assert_eq!(
+            load_theme_projection(
+                concat!(
+                    "[ui]\ntheme = 'custom'\n",
+                    "[custom_theme]\nbase = 'github-dark-default'\n",
+                    "label = 'Global Custom'\naccent = '#123456'\n",
+                    "[custom_theme.syntax_scopes]\n'keyword.control' = '#abcdef'\n",
+                ),
+                Some(concat!(
+                    "[ui]\ntheme = 'custom'\n",
+                    "[custom_theme]\nlabel = 'Repo Custom'\npanel = '#654321'\n",
+                    "[custom_theme.syntax_scopes]\n'string.quoted' = '#fedcba'\n",
+                )),
+            )
+            .unwrap(),
+            expected["layered"],
+        );
+        assert_eq!(
+            load_theme_projection(
+                concat!(
+                    "[ui]\ntheme = 'ocean'\n",
+                    "[custom_theme]\nbase = 'github-dark-default'\n",
+                    "[themes.ocean]\nbase = 'nord'\nlabel = 'Ocean'\naccent = '#ABCDEF'\n",
+                    "[themes.ocean.syntax_scopes]\n'keyword.control' = '#ABCDEF'\n",
+                    "[themes.team_theme]\nbase = 'dracula'\n",
+                ),
+                None,
+            )
+            .unwrap(),
+            expected["declarationOrder"],
+        );
+        assert_eq!(
+            load_theme_projection(
+                "[custom_theme]\naccent = '#123456'\n[themes.custom]\naccent = '#654321'\n",
+                None,
+            )
+            .unwrap(),
+            expected["collision"],
+        );
+        assert_eq!(
+            load_theme_projection(
+                concat!(
+                    "[themes.'Ocean Dark']\nbase = 'nord'\n",
+                    "[themes.dracula]\nbase = 'nord'\n",
+                    "[themes.ocean]\nbase = 'nord'\n",
+                ),
+                None,
+            )
+            .unwrap(),
+            expected["invalidIds"],
+        );
+        assert_eq!(
+            load_theme_projection(
+                concat!(
+                    "[custom_theme.syntax]\ncomment = '#FFFFFF'\n",
+                    "[custom_theme.syntax_scopes]\ncomment = '#EEEEEE'\n",
+                ),
+                None,
+            )
+            .unwrap(),
+            expected["legacySyntax"],
+        );
+        assert_eq!(
+            load_theme_projection(
+                "[themes.ocean]\naccent = '#123456'\n",
+                Some("[themes.ocean]\npanel = '#654321'\n"),
+            )
+            .unwrap(),
+            expected["defaultBaseOnMerge"],
+        );
+        assert_eq!(
+            load_theme_projection(
+                concat!(
+                    "[themes.ocean]\nbase = 'nord'\nlabel = 'Ocean'\naccent = '#123456'\n",
+                    "[themes.ocean.syntax_scopes]\n'keyword.control' = '#abcdef'\n",
+                ),
+                Some(concat!(
+                    "[themes.ocean]\nlabel = 'Repo Ocean'\npanel = '#654321'\n",
+                    "[themes.ocean.syntax_scopes]\n'string.quoted' = '#fedcba'\n",
+                    "[themes.repo-only]\nbase = 'dracula'\n",
+                )),
+            )
+            .unwrap()["customThemes"],
+            expected["namedLayered"],
+        );
+        assert_eq!(
+            load_theme_projection(
+                "[themes.'Ocean Dark']\nbase = 'nord'\n",
+                Some("[themes.'Ocean Dark']\nbase = 'dracula'\n"),
+            )
+            .unwrap(),
+            expected["noticeReplacement"],
+        );
+    }
+
+    #[test]
+    fn custom_theme_config_errors_match_the_pinned_hunk_oracle() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/config-themes.json"
+        ))
+        .unwrap();
+        let expected = &oracle["expected"]["errors"];
+        for (source, key) in [
+            ("[ui]\ntheme = 'custom'\n", "selectedCustomWithoutTable"),
+            ("[custom_theme]\nbase = 'unknown'\n", "invalidBase"),
+            ("[custom_theme]\naccent = 'blue'\n", "invalidColor"),
+            ("[themes.ocean]\naccent = 'blue'\n", "invalidNamedColor"),
+            (
+                "[custom_theme.syntax_scopes]\n'comment.line' = 'white'\n",
+                "invalidScope",
+            ),
+            ("[custom_theme]\nsyntax = 'white'\n", "invalidSyntaxTable"),
+            ("themes = 'ocean'\n", "invalidThemesTable"),
+            ("[themes]\nocean = 'nord'\n", "invalidNamedTable"),
+        ] {
+            let error = load_theme_projection(source, None).unwrap_err().to_string();
+            assert_eq!(error, expected[key], "fixture {key}");
+        }
+    }
+
+    #[test]
+    fn custom_theme_bases_accept_every_oracle_case_and_normalize_legacy_ids() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/config-themes.json"
+        ))
+        .unwrap();
+        let expected = &oracle["expected"];
+        for base in [
+            "github-dark-default",
+            "github-light-default",
+            "dracula",
+            "catppuccin-mocha",
+        ] {
+            let config =
+                load_theme_projection(&format!("[custom_theme]\nbase = '{base}'\n"), None).unwrap();
+            assert_eq!(config["customThemes"], expected["acceptedBases"][base],);
+        }
+        let legacy = load_theme_projection("[custom_theme]\nbase = 'graphite'\n", None).unwrap();
+        assert_eq!(legacy["customThemes"], expected["legacyBase"]);
     }
 
     #[test]
