@@ -16,6 +16,7 @@ mod code_row_view;
 mod color;
 mod command_keymap;
 mod command_keys;
+mod confirm_dialog;
 mod copy_selection;
 mod current_review_controller;
 mod current_review_refresh;
@@ -106,6 +107,7 @@ pub use code_row_view::*;
 pub use color::*;
 pub use command_keymap::*;
 pub use command_keys::*;
+pub use confirm_dialog::*;
 pub use copy_selection::*;
 pub use current_review_controller::*;
 pub use current_review_refresh::*;
@@ -808,6 +810,8 @@ pub struct ReviewApp {
     extension_review_events: ExtensionReviewEventController,
     extension_registry_generation: u64,
     review_projection_generation: u64,
+    extension_confirm_dialog_hits: Mutex<Option<ConfirmDialogRenderMap>>,
+    extension_confirm_hovered_action_key: Option<String>,
     #[cfg(test)]
     observed_extension_events: Vec<(u64, String, serde_json::Value)>,
     extension_trust_controller: ExtensionTrustController,
@@ -958,6 +962,8 @@ impl ReviewApp {
             extension_review_events: ExtensionReviewEventController::default(),
             extension_registry_generation: 1,
             review_projection_generation: 1,
+            extension_confirm_dialog_hits: Mutex::new(None),
+            extension_confirm_hovered_action_key: None,
             #[cfg(test)]
             observed_extension_events: Vec::new(),
             extension_trust_controller,
@@ -3439,6 +3445,11 @@ impl ReviewApp {
     }
 
     fn settle_extension_dialog(&mut self, settlement: ExtensionDialogSettlement) {
+        self.extension_confirm_hovered_action_key = None;
+        *self
+            .extension_confirm_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
         match (settlement.request, settlement.answer) {
             (ExtensionDialogRequest::Input(dialog), ExtensionDialogAnswer::Input(value)) => {
                 self.submit_extension_input(dialog, value);
@@ -3485,6 +3496,11 @@ impl ReviewApp {
     }
 
     fn cancel_extension_dialogs_for_reload(&mut self) {
+        self.extension_confirm_hovered_action_key = None;
+        *self
+            .extension_confirm_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
         let settlements = self
             .extension_pane_runtime
             .lock()
@@ -3703,26 +3719,73 @@ impl ReviewApp {
             _ => None,
         };
         if let Some(confirmed) = confirmed {
-            let settlement = {
-                let mut runtime = self
-                    .extension_pane_runtime
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                let request_id = runtime
-                    .dialogs
-                    .current()
-                    .map(ExtensionDialogRequest::request_id);
-                request_id.and_then(|request_id| {
-                    if confirmed {
-                        runtime.dialogs.accept(request_id, None)
-                    } else {
-                        runtime.dialogs.cancel(request_id)
-                    }
-                })
-            };
-            if let Some(settlement) = settlement {
-                self.settle_extension_dialog(settlement);
+            self.settle_current_extension_confirm(confirmed);
+        }
+        true
+    }
+
+    fn settle_current_extension_confirm(&mut self, confirmed: bool) {
+        let settlement = {
+            let mut runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let request_id = runtime
+                .dialogs
+                .current()
+                .map(ExtensionDialogRequest::request_id);
+            request_id.and_then(|request_id| {
+                if confirmed {
+                    runtime.dialogs.accept(request_id, None)
+                } else {
+                    runtime.dialogs.cancel(request_id)
+                }
+            })
+        };
+        if let Some(settlement) = settlement {
+            self.settle_extension_dialog(settlement);
+        }
+    }
+
+    fn handle_extension_confirm_mouse(&mut self, event: &MouseEvent) -> bool {
+        let has_dialog = matches!(
+            self.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .dialogs
+                .current(),
+            Some(ExtensionDialogRequest::Confirm(_))
+        );
+        if !has_dialog {
+            return false;
+        }
+        let map = self
+            .extension_confirm_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        let Some(map) = map else {
+            return true;
+        };
+        match event.kind {
+            MouseEventKind::Moved => {
+                self.extension_confirm_hovered_action_key =
+                    dialog_action_at(&map, event.column, event.row)
+                        .map(|hit| hit.key_label.clone());
             }
+            MouseEventKind::Up(_) => {
+                if let Some(hit) = dialog_action_at(&map, event.column, event.row) {
+                    self.settle_current_extension_confirm(hit.index == 0);
+                } else if map
+                    .modal
+                    .close
+                    .is_some_and(|close| rect_contains(close, event.column, event.row))
+                    || !rect_contains(map.modal.frame, event.column, event.row)
+                {
+                    self.settle_current_extension_confirm(false);
+                }
+            }
+            _ => {}
         }
         true
     }
@@ -4981,6 +5044,9 @@ impl ReviewApp {
                     _ => {}
                 }
             }
+            return;
+        }
+        if self.handle_extension_confirm_mouse(&event) {
             return;
         }
         if self.has_extension_dialog() {
@@ -6538,64 +6604,87 @@ pub fn render_extension_confirm_dialog(area: Rect, buffer: &mut Buffer, app: &Re
             _ => None,
         });
     let Some(dialog) = dialog else {
+        *app.extension_confirm_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
         return;
     };
-    let title =
-        extension_dialog_title(&dialog.title, &dialog.extension_id, dialog.show_attribution);
-    let help = format!(
-        "Enter/y {} · Esc/n {}",
-        dialog.confirm_label, dialog.cancel_label
+    let requested_width = 72_u16.min(40_u16.max(area.width.saturating_sub(8)));
+    let maximum_frame = resolve_modal_geometry(requested_width, u16::MAX, area.width, area.height);
+    let body_width = usize::from(maximum_frame.width.saturating_sub(4).max(1));
+    let available_body_rows =
+        usize::from(maximum_frame.height).saturating_sub(confirm_dialog_height(0));
+    let attribution_rows = usize::from(dialog.show_attribution && available_body_rows > 0);
+    let rows_after_attribution = available_body_rows.saturating_sub(attribution_rows);
+    let attribution_gap_rows = usize::from(
+        attribution_rows > 0 && !dialog.body_lines.is_empty() && rows_after_attribution > 1,
     );
-    let body_width = dialog
-        .body_lines
-        .iter()
-        .map(|line| line.width())
-        .max()
-        .unwrap_or_default();
-    let desired_width = title
-        .width()
-        .max(body_width)
-        .max(help.width())
-        .saturating_add(4);
-    let width = u16::try_from(desired_width)
-        .unwrap_or(u16::MAX)
-        .max(30)
-        .min(area.width.max(1));
-    let height = u16::try_from(dialog.body_lines.len())
-        .unwrap_or(u16::MAX)
-        .saturating_add(3)
-        .max(3)
-        .min(area.height.max(1));
-    let bounds = Rect::new(
-        area.x.saturating_add(area.width.saturating_sub(width) / 2),
-        area.y
-            .saturating_add(area.height.saturating_sub(height) / 2),
-        width,
-        height,
+    let body_rows = rows_after_attribution.saturating_sub(attribution_gap_rows);
+    let visible_body = window_dialog_text(&dialog.body_lines, body_width, body_rows);
+    let rendered_body_rows = visible_body
+        .lines
+        .len()
+        .saturating_add(attribution_rows)
+        .saturating_add(attribution_gap_rows);
+    let actions = [
+        ConfirmDialogAction::new("enter/y", &dialog.confirm_label),
+        ConfirmDialogAction::new("esc/n", &dialog.cancel_label),
+    ];
+    let map = render_confirm_dialog(
+        area,
+        buffer,
+        requested_width,
+        u16::try_from(confirm_dialog_height(rendered_body_rows)).unwrap_or(u16::MAX),
+        &dialog.title,
+        true,
+        rendered_body_rows,
+        &actions,
+        app.extension_confirm_hovered_action_key.as_deref(),
+        &app.options.theme,
     );
-    Clear.render(bounds, buffer);
-    let block = Block::default()
-        .title(format!(" {title} "))
-        .borders(Borders::ALL)
-        .style(Style::default().bg(ratatui_theme_color(&app.options.theme.panel)))
-        .border_style(Style::default().fg(ratatui_theme_color(&app.options.theme.accent)));
-    let inner = block.inner(bounds);
-    block.render(bounds, buffer);
-    let mut lines = dialog
-        .body_lines
-        .into_iter()
-        .map(|body| {
-            Line::styled(
-                body,
-                Style::default().fg(ratatui_theme_color(&app.options.theme.text)),
-            )
-        })
-        .collect::<Vec<_>>();
-    lines.push(Line::styled(
-        help,
-        Style::default().fg(ratatui_theme_color(&app.options.theme.muted)),
-    ));
-    Paragraph::new(lines).render(inner, buffer);
+    let mut row_index = 0_usize;
+    if attribution_rows > 0 {
+        let text = fit_text(
+            &format!("{} {}", extension_toast_prefix(), dialog.extension_id),
+            body_width,
+            None,
+        );
+        paint_confirm_dialog_text(
+            buffer,
+            Rect::new(
+                map.body.x,
+                map.body.y,
+                map.body.width,
+                u16::from(map.body.height > 0),
+            ),
+            &text,
+            Style::default()
+                .fg(ratatui_theme_color(&app.options.theme.badge_neutral))
+                .bg(ratatui_theme_color(&app.options.theme.panel)),
+        );
+        row_index = row_index.saturating_add(1 + attribution_gap_rows);
+    }
+    for line in visible_body.lines {
+        let y = map
+            .body
+            .y
+            .saturating_add(u16::try_from(row_index).unwrap_or(u16::MAX));
+        if y >= map.body.bottom() {
+            break;
+        }
+        paint_confirm_dialog_text(
+            buffer,
+            Rect::new(map.body.x, y, map.body.width, 1),
+            &fit_text(&line, body_width, None),
+            Style::default()
+                .fg(ratatui_theme_color(&app.options.theme.muted))
+                .bg(ratatui_theme_color(&app.options.theme.panel)),
+        );
+        row_index = row_index.saturating_add(1);
+    }
+    *app.extension_confirm_dialog_hits
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(map);
 }
 
 /// Draw the host-owned consent prompt for a native extension workspace write.
@@ -9547,6 +9636,72 @@ mod tests {
             runtime.dialogs.current(),
             Some(ExtensionDialogRequest::Input(dialog))
                 if dialog.title == "Third?" && dialog.value == "initial"
+        ));
+    }
+
+    #[test]
+    fn extension_confirm_uses_shared_footer_hover_and_separator_hit_semantics() {
+        let backend = TestBackend::new(100, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        app.apply_extension_actions(
+            0,
+            "probe",
+            vec![ExtensionHostAction::OpenConfirmDialog {
+                id: "confirm".into(),
+                title: "Ship this change?".into(),
+                body: "Review the generated artifact.".into(),
+                confirm_label: "ship".into(),
+                cancel_label: Some("cancel".into()),
+            }],
+        );
+
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let map = app
+            .extension_confirm_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+            .expect("confirm dialog hit map");
+        assert_eq!(map.action_hits.len(), 2);
+        assert_eq!(map.action_hits[0].key_label, "enter/y");
+        assert_eq!(map.action_hits[1].key_label, "esc/n");
+
+        let first = map.action_hits[0].bounds;
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: first.x,
+            row: first.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert_eq!(
+            app.extension_confirm_hovered_action_key.as_deref(),
+            Some("enter/y")
+        );
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        assert_eq!(
+            terminal.backend().buffer()[first.as_position()].bg,
+            ratatui_theme_color(&app.options.theme.accent_muted)
+        );
+
+        let separator_column = map.action_hits[0].bounds.right().saturating_add(1);
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: separator_column,
+            row: first.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(matches!(
+            app.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .dialogs
+                .current(),
+            Some(ExtensionDialogRequest::Confirm(_))
         ));
     }
 
