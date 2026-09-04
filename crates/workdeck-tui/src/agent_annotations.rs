@@ -185,7 +185,8 @@ fn github_style_range(prefix: char, range: LineRange) -> String {
     }
 }
 
-fn file_label(file: &DiffFile) -> String {
+#[must_use]
+pub fn file_label(file: &DiffFile) -> String {
     let path = sanitize_terminal_line(&file.path);
     let base = file
         .previous_path

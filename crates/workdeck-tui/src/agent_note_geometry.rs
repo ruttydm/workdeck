@@ -147,7 +147,8 @@ fn wrapped_prose_line_count(text: &str, width: usize) -> usize {
     rows.saturating_add(usize::from(used > 0)).max(1)
 }
 
-fn draft_visual_line_count(text: &str, width: usize) -> usize {
+#[must_use]
+pub fn draft_visual_line_count(text: &str, width: usize) -> usize {
     text.split('\n')
         .map(|line| grapheme_wrapped_line_count(&sanitize_terminal_line(line), width.max(1)).max(1))
         .sum::<usize>()
