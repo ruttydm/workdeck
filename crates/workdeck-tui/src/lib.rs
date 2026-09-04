@@ -43,6 +43,7 @@ mod mouse_scroll;
 mod open_in_editor;
 mod public_review;
 mod review_state_helpers;
+mod row_style;
 mod shutdown;
 mod spatial;
 mod startup_notices;
@@ -107,6 +108,7 @@ pub use mouse_scroll::*;
 pub use open_in_editor::*;
 pub use public_review::*;
 pub use review_state_helpers::*;
+pub use row_style::*;
 pub use shutdown::*;
 pub use spatial::*;
 pub use startup_notices::*;
@@ -7082,6 +7084,35 @@ fn render_sidebar(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = hits;
 }
 
+fn cursor_highlighted_style(style: Style, fallback: &str, theme: &AppTheme) -> Style {
+    let base = match style.bg {
+        Some(Color::Rgb(red, green, blue)) => format!("#{red:02x}{green:02x}{blue:02x}"),
+        Some(Color::Reset) => TRANSPARENT_BACKGROUND.to_owned(),
+        _ => fallback.to_owned(),
+    };
+    style.bg(ratatui_theme_color(&cursor_line_highlight_background(
+        &base, theme,
+    )))
+}
+
+fn paint_cursor_line(line: &mut Line<'_>, mode: CursorLineMode, theme: &AppTheme) {
+    match mode {
+        CursorLineMode::Row => {
+            line.style = cursor_highlighted_style(line.style, &theme.panel, theme);
+            for span in &mut line.spans {
+                span.style = cursor_highlighted_style(span.style, &theme.panel, theme);
+            }
+        }
+        CursorLineMode::Number => {
+            for prefix_or_gutter in line.spans.iter_mut().take(2) {
+                prefix_or_gutter.style =
+                    cursor_highlighted_style(prefix_or_gutter.style, &theme.panel, theme);
+            }
+        }
+        CursorLineMode::Off => {}
+    }
+}
+
 fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     app.review_width.set(area.width);
     app.review_height.set(area.height);
@@ -7148,23 +7179,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         && app.options.cursor_line != CursorLineMode::Off
         && let Some(line) = rows.lines.get_mut(cursor_row)
     {
-        match app.options.cursor_line {
-            CursorLineMode::Row => {
-                let background = ratatui_theme_color(&app.options.theme.accent_muted);
-                line.style = line.style.bg(background);
-                for span in &mut line.spans {
-                    span.style = span.style.bg(background);
-                }
-            }
-            CursorLineMode::Number => {
-                if let Some(gutter) = line.spans.get_mut(1) {
-                    gutter.style = gutter
-                        .style
-                        .fg(ratatui_theme_color(&app.options.theme.accent));
-                }
-            }
-            CursorLineMode::Off => {}
-        }
+        paint_cursor_line(line, app.options.cursor_line, &app.options.theme);
     }
     let visible = rows
         .lines
@@ -7505,9 +7520,8 @@ fn build_review_rows_with_chrome(
                 rows.extend((0..options.hunk_gap).map(|_| Line::default()));
             }
             hunk_tops.insert((file_index, hunk_index), rows.len());
-            let selected_hunk = selection.file_index == file_index
-                && selection.hunk_index == Some(hunk_index)
-                && selection.line.is_none();
+            let selected_hunk =
+                selection.file_index == file_index && selection.hunk_index == Some(hunk_index);
             if options.hunk_headers {
                 rows.push(Line::styled(
                     format!("▌{}", hunk.formatted_header()),
@@ -8250,35 +8264,39 @@ fn stack_line_rows(
     width: u16,
     line_highlights: Option<&LineHighlightRangeList>,
 ) -> Vec<Line<'static>> {
-    let (marker, fg, default_bg) = line_style(line.kind, &options.theme);
-    let bg = moved_line_background(line, &options.theme).unwrap_or(default_bg);
-    let base_background = line_background_value(line, selected, options);
-    let row_bg = if selected && options.cursor_line == CursorLineMode::Row {
-        ratatui_theme_color(&options.theme.selected_hunk)
-    } else {
-        bg
-    };
-    let gutter = if options.line_numbers {
-        let digits = options.line_number_digits.unwrap_or(4).max(1);
-        format!(
-            "{:>digits$} {:>digits$} {marker}  ",
-            line.old_line.map_or(String::new(), |line| line.to_string()),
-            line.new_line.map_or(String::new(), |line| line.to_string()),
-            digits = digits,
-        )
-    } else {
-        format!("{marker} ")
-    };
+    let kind = row_cell_kind(line.kind);
+    let palette = stack_cell_palette(kind, &options.theme, line.moved);
+    let base_background = palette.content_background;
+    let row_bg = ratatui_theme_color(palette.content_background);
+    let gutter_bg = ratatui_theme_color(palette.gutter_background);
+    let digits = options.line_number_digits.unwrap_or(4).max(1);
+    let geometry = resolve_stack_cell_geometry(
+        usize::from(width),
+        digits,
+        options.line_numbers,
+        DIFF_RAIL_PREFIX_WIDTH,
+    );
+    let gutter = format!(
+        "{:<width$}",
+        stack_gutter_text(
+            line_sign(line.kind),
+            line.old_line,
+            line.new_line,
+            digits,
+            options.line_numbers,
+        ),
+        width = geometry.gutter_width,
+    );
     let number_style = Style::default()
-        .fg(
-            if selected && options.cursor_line == CursorLineMode::Number {
-                ratatui_theme_color(&options.theme.accent)
-            } else {
-                ratatui_theme_color(&options.theme.line_number_fg)
-            },
-        )
-        .bg(row_bg);
-    let marker_style = Style::default().fg(fg).bg(row_bg);
+        .fg(ratatui_theme_color(palette.number_color))
+        .bg(gutter_bg);
+    let marker_style = Style::default()
+        .fg(ratatui_theme_color(&stack_rail_color(
+            kind,
+            &options.theme,
+            selected,
+        )))
+        .bg(ratatui_theme_color(&options.theme.panel));
     let mut code = Vec::new();
     if let Some(tokens) = highlighted.filter(|tokens| !tokens.is_empty()) {
         let mut code_column = 0;
@@ -8307,7 +8325,9 @@ fn stack_line_rows(
     } else {
         code.push(Span::styled(
             expand_tabs(&line.content, options.tab_width, &mut 0),
-            Style::default().fg(fg).bg(row_bg),
+            Style::default()
+                .fg(ratatui_theme_color(&options.theme.syntax_colors.default))
+                .bg(row_bg),
         ));
     }
     code = emphasize_spans(
@@ -8323,13 +8343,6 @@ fn stack_line_rows(
             &options.theme,
         );
     }
-    let digits = options.line_number_digits.unwrap_or(4).max(1);
-    let geometry = resolve_stack_cell_geometry(
-        usize::from(width),
-        digits,
-        options.line_numbers,
-        DIFF_RAIL_PREFIX_WIDTH,
-    );
     let prefix_width = geometry.gutter_width + DIFF_RAIL_PREFIX_WIDTH;
     let content_width = geometry.content_width;
     let wrapped = if options.wrap_lines {
@@ -8346,15 +8359,15 @@ fn stack_line_rows(
         .map(|(index, mut code)| {
             let mut spans = if index == 0 {
                 vec![
-                    Span::styled("▌", marker_style),
+                    Span::styled(diff_rail_marker(), marker_style),
                     Span::styled(gutter.clone(), number_style),
                 ]
             } else {
                 vec![
-                    Span::styled("▌", marker_style),
+                    Span::styled(diff_rail_marker(), marker_style),
                     Span::styled(
                         " ".repeat(prefix_width.saturating_sub(1)),
-                        Style::default().bg(row_bg),
+                        Style::default().bg(gutter_bg),
                     ),
                 ]
             };
@@ -8594,91 +8607,88 @@ fn split_cell_lines(
     width: usize,
     selected: bool,
 ) -> Vec<Vec<Span<'static>>> {
-    let Some(line) = input.line else {
-        return vec![vec![
-            Span::styled(
-                "▌",
-                Style::default().fg(ratatui_theme_color(&options.theme.muted)),
-            ),
-            Span::raw(" ".repeat(width.saturating_sub(1))),
-        ]];
-    };
-    let (marker, fg, default_bg) = line_style(line.kind, &options.theme);
-    let bg = moved_line_background(line, &options.theme).unwrap_or(default_bg);
-    let base_background = line_background_value(line, selected, options);
-    let row_bg = if selected && options.cursor_line == CursorLineMode::Row {
-        ratatui_theme_color(&options.theme.selected_hunk)
-    } else {
-        bg
-    };
-    let gutter = if options.line_numbers {
-        let digits = options.line_number_digits.unwrap_or(4).max(1);
-        let number = if old { line.old_line } else { line.new_line };
-        format!(
-            "{:>digits$} {marker} ",
-            number.map_or(String::new(), |line| line.to_string()),
-            digits = digits,
-        )
-    } else {
-        format!("{marker} ")
-    };
-    let number_style = Style::default()
-        .fg(
-            if selected && options.cursor_line == CursorLineMode::Number {
-                ratatui_theme_color(&options.theme.accent)
-            } else {
-                ratatui_theme_color(&options.theme.line_number_fg)
-            },
-        )
-        .bg(row_bg);
-    let marker_style = Style::default().fg(fg).bg(row_bg);
-    let mut code = Vec::new();
-    if let Some(tokens) = input.highlighted.filter(|tokens| !tokens.is_empty()) {
-        let mut code_column = 0;
-        code.extend(tokens.iter().map(|token| {
-            let mut style = Style::default()
-                .fg(Color::Rgb(
-                    token.foreground.red,
-                    token.foreground.green,
-                    token.foreground.blue,
-                ))
-                .bg(row_bg);
-            if token.bold {
-                style = style.add_modifier(Modifier::BOLD);
-            }
-            if token.italic {
-                style = style.add_modifier(Modifier::ITALIC);
-            }
-            if token.underline {
-                style = style.add_modifier(Modifier::UNDERLINED);
-            }
-            Span::styled(
-                expand_tabs(&token.text, options.tab_width, &mut code_column),
-                style,
-            )
-        }));
-    } else {
-        code.push(Span::styled(
-            expand_tabs(&line.content, options.tab_width, &mut 0),
-            Style::default().fg(fg).bg(row_bg),
-        ));
-    }
-    code = emphasize_spans(
-        code,
-        input.emphasis,
-        emphasis_background(line.kind, &options.theme),
+    let kind = input
+        .line
+        .map_or(RowCellKind::Empty, |line| row_cell_kind(line.kind));
+    let palette = split_cell_palette(
+        kind,
+        &options.theme,
+        input.line.is_some_and(|line| line.moved),
     );
-    if let Some(line_highlights) = input.line_highlights {
-        code = apply_prepared_line_highlights_to_ratatui_spans(
-            code,
-            line_highlights,
-            base_background,
-            &options.theme,
-        );
-    }
+    let base_background = palette.content_background;
+    let row_bg = ratatui_theme_color(palette.content_background);
+    let gutter_bg = ratatui_theme_color(palette.gutter_background);
     let digits = options.line_number_digits.unwrap_or(4).max(1);
     let geometry =
         resolve_split_cell_geometry(width, digits, options.line_numbers, DIFF_RAIL_PREFIX_WIDTH);
+    let sign = input.line.map_or(' ', |line| line_sign(line.kind));
+    let number = input
+        .line
+        .and_then(|line| if old { line.old_line } else { line.new_line });
+    let gutter = format!(
+        "{:<width$}",
+        split_gutter_text(sign, number, digits, options.line_numbers),
+        width = geometry.gutter_width,
+    );
+    let rail = if old {
+        split_left_rail_color(kind, &options.theme, selected)
+    } else {
+        split_right_rail_color(kind, &options.theme, selected)
+    };
+    let number_style = Style::default()
+        .fg(ratatui_theme_color(palette.number_color))
+        .bg(gutter_bg);
+    let marker_style = Style::default()
+        .fg(ratatui_theme_color(&rail))
+        .bg(ratatui_theme_color(&options.theme.panel));
+    let mut code = Vec::new();
+    if let Some(line) = input.line {
+        if let Some(tokens) = input.highlighted.filter(|tokens| !tokens.is_empty()) {
+            let mut code_column = 0;
+            code.extend(tokens.iter().map(|token| {
+                let mut style = Style::default()
+                    .fg(Color::Rgb(
+                        token.foreground.red,
+                        token.foreground.green,
+                        token.foreground.blue,
+                    ))
+                    .bg(row_bg);
+                if token.bold {
+                    style = style.add_modifier(Modifier::BOLD);
+                }
+                if token.italic {
+                    style = style.add_modifier(Modifier::ITALIC);
+                }
+                if token.underline {
+                    style = style.add_modifier(Modifier::UNDERLINED);
+                }
+                Span::styled(
+                    expand_tabs(&token.text, options.tab_width, &mut code_column),
+                    style,
+                )
+            }));
+        } else {
+            code.push(Span::styled(
+                expand_tabs(&line.content, options.tab_width, &mut 0),
+                Style::default()
+                    .fg(ratatui_theme_color(&options.theme.syntax_colors.default))
+                    .bg(row_bg),
+            ));
+        }
+        code = emphasize_spans(
+            code,
+            input.emphasis,
+            emphasis_background(line.kind, &options.theme),
+        );
+        if let Some(line_highlights) = input.line_highlights {
+            code = apply_prepared_line_highlights_to_ratatui_spans(
+                code,
+                line_highlights,
+                base_background,
+                &options.theme,
+            );
+        }
+    }
     let prefix_width = geometry.gutter_width + DIFF_RAIL_PREFIX_WIDTH;
     let content_width = geometry.content_width;
     let wrapped = if options.wrap_lines {
@@ -8695,15 +8705,15 @@ fn split_cell_lines(
         .map(|(index, mut code)| {
             let mut spans = if index == 0 {
                 vec![
-                    Span::styled("▌", marker_style),
+                    Span::styled(diff_rail_marker(), marker_style),
                     Span::styled(gutter.clone(), number_style),
                 ]
             } else {
                 vec![
-                    Span::styled("▌", marker_style),
+                    Span::styled(diff_rail_marker(), marker_style),
                     Span::styled(
                         " ".repeat(prefix_width.saturating_sub(1)),
-                        Style::default().bg(row_bg),
+                        Style::default().bg(gutter_bg),
                     ),
                 ]
             };
@@ -8715,56 +8725,19 @@ fn split_cell_lines(
         .collect()
 }
 
-fn line_style(kind: DiffLineKind, theme: &AppTheme) -> (char, Color, Color) {
+const fn row_cell_kind(kind: DiffLineKind) -> RowCellKind {
     match kind {
-        DiffLineKind::Context => (
-            ' ',
-            ratatui_theme_color(&theme.text),
-            ratatui_theme_color(&theme.context_bg),
-        ),
-        DiffLineKind::Addition => (
-            '+',
-            ratatui_theme_color(&theme.added_sign_color),
-            ratatui_theme_color(&theme.added_bg),
-        ),
-        DiffLineKind::Deletion => (
-            '-',
-            ratatui_theme_color(&theme.removed_sign_color),
-            ratatui_theme_color(&theme.removed_bg),
-        ),
+        DiffLineKind::Context => RowCellKind::Context,
+        DiffLineKind::Addition => RowCellKind::Addition,
+        DiffLineKind::Deletion => RowCellKind::Deletion,
     }
 }
 
-fn moved_line_background(line: &DiffLine, theme: &AppTheme) -> Option<Color> {
-    if !line.moved {
-        return None;
-    }
-    match line.kind {
-        DiffLineKind::Addition => Some(ratatui_theme_color(&theme.moved_added_bg)),
-        DiffLineKind::Deletion => Some(ratatui_theme_color(&theme.moved_removed_bg)),
-        DiffLineKind::Context => None,
-    }
-}
-
-fn line_background_value<'a>(
-    line: &DiffLine,
-    selected: bool,
-    options: &'a ReviewOptions,
-) -> &'a str {
-    if selected && options.cursor_line == CursorLineMode::Row {
-        return &options.theme.selected_hunk;
-    }
-    if line.moved {
-        return match line.kind {
-            DiffLineKind::Addition => &options.theme.moved_added_bg,
-            DiffLineKind::Deletion => &options.theme.moved_removed_bg,
-            DiffLineKind::Context => &options.theme.context_bg,
-        };
-    }
-    match line.kind {
-        DiffLineKind::Addition => &options.theme.added_bg,
-        DiffLineKind::Deletion => &options.theme.removed_bg,
-        DiffLineKind::Context => &options.theme.context_bg,
+const fn line_sign(kind: DiffLineKind) -> char {
+    match kind {
+        DiffLineKind::Context => ' ',
+        DiffLineKind::Addition => '+',
+        DiffLineKind::Deletion => '-',
     }
 }
 
@@ -9978,9 +9951,9 @@ mod tests {
         let new = cells_matching_text(buffer, "new");
         assert_eq!(old.len(), 1);
         assert_eq!(new.len(), 1);
-        assert_eq!(old[0].fg, ratatui_theme_color(&theme.removed_sign_color));
+        assert_eq!(old[0].fg, ratatui_theme_color(&theme.syntax_colors.default));
         assert_eq!(old[0].bg, ratatui_theme_color(&theme.removed_content_bg));
-        assert_eq!(new[0].fg, ratatui_theme_color(&theme.added_sign_color));
+        assert_eq!(new[0].fg, ratatui_theme_color(&theme.syntax_colors.default));
         assert_eq!(new[0].bg, ratatui_theme_color(&theme.added_content_bg));
         assert_eq!(
             buffer.cell((99, 19)).unwrap().bg,
@@ -10386,6 +10359,119 @@ mod tests {
                         ))
             }));
         }
+    }
+
+    #[test]
+    fn live_diff_cells_use_shared_palettes_and_selection_only_activates_rails() {
+        let changeset = changeset();
+        let line = &changeset.files[0].hunks[0].lines[0];
+        let options = ReviewOptions {
+            sidebar: false,
+            line_numbers: true,
+            highlight: false,
+            cursor_line: CursorLineMode::Off,
+            ..ReviewOptions::default()
+        };
+        let kind = RowCellKind::Deletion;
+        let palette = stack_cell_palette(kind, &options.theme, false);
+
+        let inactive = stack_line_rows(line, &options, None, &[], false, 80, None);
+        let active = stack_line_rows(line, &options, None, &[], true, 80, None);
+        assert_eq!(inactive.len(), 1);
+        assert_eq!(active.len(), 1);
+        assert_eq!(inactive[0].spans[0].content, diff_rail_marker());
+        assert_eq!(
+            inactive[0].spans[0].style.fg,
+            Some(ratatui_theme_color(&stack_rail_color(
+                kind,
+                &options.theme,
+                false,
+            )))
+        );
+        assert_eq!(
+            active[0].spans[0].style.fg,
+            Some(ratatui_theme_color(&stack_rail_color(
+                kind,
+                &options.theme,
+                true,
+            )))
+        );
+        assert_eq!(
+            inactive[0].spans[1].style.bg,
+            Some(ratatui_theme_color(palette.gutter_background))
+        );
+        assert_eq!(
+            inactive[0].spans[2].style.bg,
+            Some(ratatui_theme_color(palette.content_background))
+        );
+        assert_eq!(inactive[0].spans[1].style, active[0].spans[1].style);
+        assert_eq!(inactive[0].spans[2].style, active[0].spans[2].style);
+
+        let empty = split_cell_lines(
+            SplitCellInput {
+                line: None,
+                highlighted: None,
+                emphasis: &[],
+                line_highlights: None,
+            },
+            true,
+            &options,
+            40,
+            false,
+        );
+        let empty_palette = split_cell_palette(RowCellKind::Empty, &options.theme, false);
+        assert_eq!(empty[0][0].content, diff_rail_marker());
+        assert_eq!(
+            empty[0][1].style.bg,
+            Some(ratatui_theme_color(empty_palette.gutter_background))
+        );
+        assert_eq!(
+            empty[0].last().unwrap().style.bg,
+            Some(ratatui_theme_color(empty_palette.content_background))
+        );
+    }
+
+    #[test]
+    fn native_cursor_paint_blends_each_ratatui_surface_and_number_mode_stops_at_the_gutter() {
+        let theme = resolve_theme(Some("github-dark-default"), None, &[]);
+        let prefix = Style::default().bg(ratatui_theme_color(&theme.panel));
+        let gutter = Style::default().bg(ratatui_theme_color(&theme.line_number_bg));
+        let code = Style::default().bg(ratatui_theme_color(&theme.added_bg));
+        let mut number = Line::from(vec![
+            Span::styled(diff_rail_marker(), prefix),
+            Span::styled(" 1 + ", gutter),
+            Span::styled("new", code),
+        ]);
+        paint_cursor_line(&mut number, CursorLineMode::Number, &theme);
+        assert_eq!(
+            number.spans[0].style.bg,
+            Some(ratatui_theme_color(&cursor_line_highlight_background(
+                &theme.panel,
+                &theme,
+            )))
+        );
+        assert_eq!(
+            number.spans[1].style.bg,
+            Some(ratatui_theme_color(&cursor_line_highlight_background(
+                &theme.line_number_bg,
+                &theme,
+            )))
+        );
+        assert_eq!(number.spans[2].style.bg, code.bg);
+
+        let mut row = Line::from(vec![
+            Span::styled(diff_rail_marker(), prefix),
+            Span::styled(" 1 + ", gutter),
+            Span::styled("new", code),
+        ]);
+        paint_cursor_line(&mut row, CursorLineMode::Row, &theme);
+        assert_eq!(
+            row.spans[2].style.bg,
+            Some(ratatui_theme_color(&cursor_line_highlight_background(
+                &theme.added_bg,
+                &theme,
+            )))
+        );
     }
 
     #[test]

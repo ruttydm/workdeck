@@ -1,4 +1,5 @@
 use super::*;
+use crate::{RowCellKind, diff_rail_marker, ratatui_theme_color, stack_rail_color};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use workdeck_diff::{FileComparisonOptions, FileSnapshot, diff_from_file_snapshots};
@@ -1123,7 +1124,17 @@ fn public_body_honors_header_number_and_selected_hunk_options() {
         .iter()
         .find(|cell| cell.symbol() == "e")
         .expect("rendered code cell");
-    assert_eq!(code_cell.bg, Color::Rgb(57, 45, 20));
+    let theme = resolve_theme(None, None, &[]);
+    assert_eq!(code_cell.bg, ratatui_theme_color(&theme.removed_bg));
+    let rail = buffer
+        .content()
+        .iter()
+        .find(|cell| cell.symbol() == diff_rail_marker())
+        .expect("rendered diff rail");
+    assert_eq!(
+        rail.fg,
+        ratatui_theme_color(&stack_rail_color(RowCellKind::Deletion, &theme, true))
+    );
 }
 
 #[test]

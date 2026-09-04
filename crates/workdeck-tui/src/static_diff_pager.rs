@@ -21,14 +21,15 @@ use workdeck_diff::{
 use workdeck_review::{review_gap_source_for_file, review_leading_gap, review_trailing_gap};
 
 use crate::{
-    AppTheme, ThemeAppearance, resolve_theme, resolve_word_diff_highlight_bg,
+    AppTheme, RowCellKind, ThemeAppearance, diff_rail_marker, neutral_rail_color, resolve_theme,
+    resolve_word_diff_highlight_bg, split_cell_palette, split_gutter_text, split_left_rail_color,
+    split_right_rail_color, stack_cell_palette, stack_gutter_text, stack_rail_color,
     with_transparent_surfaces,
 };
 
 pub const DEFAULT_STATIC_DIFF_PAGER_WIDTH: usize = 120;
 pub const MIN_STATIC_DIFF_PAGER_WIDTH: usize = 20;
 const RESET: &str = "\u{1b}[0m";
-const RAIL: &str = "▌";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StaticDiffPagerOutput {
@@ -48,20 +49,6 @@ struct StaticSpan {
 enum StaticLayout {
     Stack,
     Split,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StaticCellKind {
-    Context,
-    Addition,
-    Deletion,
-    Empty,
-}
-
-struct CellPalette<'a> {
-    gutter_background: &'a str,
-    content_background: &'a str,
-    number_color: &'a str,
 }
 
 /// Render patch text for embedded/captured pager hosts without ever entering the alternate screen.
@@ -341,24 +328,22 @@ fn render_stack_line(
     show_line_numbers: bool,
     tab_width: u16,
 ) -> String {
-    let kind = cell_kind(line.kind);
-    let palette = cell_palette(kind, line.moved, theme);
+    let kind = row_cell_kind(line.kind);
+    let palette = stack_cell_palette(kind, theme, line.moved);
     let sign = line_sign(line.kind);
-    let gutter = if show_line_numbers {
-        format!(
-            "{:>digits$} {:>digits$} {sign}",
-            line.old_line.map_or(String::new(), |line| line.to_string()),
-            line.new_line.map_or(String::new(), |line| line.to_string()),
-            digits = digits,
-        )
-    } else {
-        format!("{sign} ")
-    };
+    let gutter = stack_gutter_text(
+        sign,
+        line.old_line,
+        line.new_line,
+        digits,
+        show_line_numbers,
+    );
     let gutter_width = if show_line_numbers { digits * 2 + 5 } else { 2 };
     let spans = line_spans(line, tokens, emphasis, theme, tab_width);
+    let rail = stack_rail_color(kind, theme, true);
     format!(
         "{}{}{}{}",
-        color_text(RAIL, Some(rail_color(kind, theme)), Some(&theme.panel)),
+        color_text(diff_rail_marker(), Some(&rail), Some(&theme.panel)),
         color_text(
             &pad_or_clip(&gutter, gutter_width),
             Some(palette.number_color),
@@ -438,9 +423,9 @@ fn render_split_cell(
     show_line_numbers: bool,
     tab_width: u16,
 ) -> String {
-    let kind = line.map_or(StaticCellKind::Empty, |line| cell_kind(line.kind));
+    let kind = line.map_or(RowCellKind::Empty, |line| row_cell_kind(line.kind));
     let moved = line.is_some_and(|line| line.moved);
-    let palette = cell_palette(kind, moved, theme);
+    let palette = split_cell_palette(kind, theme, moved);
     let geometry = resolve_split_cell_geometry(width, digits, show_line_numbers, 1);
     let sign = line.map_or(' ', |line| line_sign(line.kind));
     let number = line.and_then(|line| {
@@ -450,32 +435,18 @@ fn render_split_cell(
             line.new_line
         }
     });
-    let gutter = if show_line_numbers {
-        format!(
-            "{:>digits$} {sign}",
-            number.map_or(String::new(), |line| line.to_string()),
-            digits = digits,
-        )
-    } else {
-        format!("{sign} ")
-    };
+    let gutter = split_gutter_text(sign, number, digits, show_line_numbers);
     let spans = line.map_or_else(Vec::new, |line| {
         line_spans(line, tokens, emphasis, theme, tab_width)
     });
     let rail = if old_side {
-        if kind == StaticCellKind::Deletion {
-            &theme.removed_sign_color
-        } else {
-            &theme.line_number_fg
-        }
-    } else if kind == StaticCellKind::Addition {
-        &theme.added_sign_color
+        split_left_rail_color(kind, theme, true)
     } else {
-        &theme.line_number_fg
+        split_right_rail_color(kind, theme, true)
     };
     format!(
         "{}{}{}",
-        color_text(RAIL, Some(rail), Some(&theme.panel)),
+        color_text(diff_rail_marker(), Some(&rail), Some(&theme.panel)),
         color_text(
             &pad_or_clip(&gutter, geometry.gutter_width),
             Some(palette.number_color),
@@ -576,11 +547,11 @@ fn apply_emphasis(
     result
 }
 
-fn cell_kind(kind: DiffLineKind) -> StaticCellKind {
+fn row_cell_kind(kind: DiffLineKind) -> RowCellKind {
     match kind {
-        DiffLineKind::Context => StaticCellKind::Context,
-        DiffLineKind::Addition => StaticCellKind::Addition,
-        DiffLineKind::Deletion => StaticCellKind::Deletion,
+        DiffLineKind::Context => RowCellKind::Context,
+        DiffLineKind::Addition => RowCellKind::Addition,
+        DiffLineKind::Deletion => RowCellKind::Deletion,
     }
 }
 
@@ -592,55 +563,6 @@ fn line_sign(kind: DiffLineKind) -> char {
     }
 }
 
-fn cell_palette(kind: StaticCellKind, moved: bool, theme: &AppTheme) -> CellPalette<'_> {
-    match kind {
-        StaticCellKind::Addition => CellPalette {
-            gutter_background: if moved {
-                &theme.moved_added_bg
-            } else {
-                &theme.added_bg
-            },
-            content_background: if moved {
-                &theme.moved_added_bg
-            } else {
-                &theme.added_bg
-            },
-            number_color: &theme.added_sign_color,
-        },
-        StaticCellKind::Deletion => CellPalette {
-            gutter_background: if moved {
-                &theme.moved_removed_bg
-            } else {
-                &theme.removed_bg
-            },
-            content_background: if moved {
-                &theme.moved_removed_bg
-            } else {
-                &theme.removed_bg
-            },
-            number_color: &theme.removed_sign_color,
-        },
-        StaticCellKind::Empty => CellPalette {
-            gutter_background: &theme.line_number_bg,
-            content_background: &theme.panel_alt,
-            number_color: &theme.line_number_fg,
-        },
-        StaticCellKind::Context => CellPalette {
-            gutter_background: &theme.line_number_bg,
-            content_background: &theme.context_bg,
-            number_color: &theme.line_number_fg,
-        },
-    }
-}
-
-fn rail_color(kind: StaticCellKind, theme: &AppTheme) -> &str {
-    match kind {
-        StaticCellKind::Addition => &theme.added_sign_color,
-        StaticCellKind::Deletion => &theme.removed_sign_color,
-        StaticCellKind::Context | StaticCellKind::Empty => &theme.line_number_fg,
-    }
-}
-
 fn render_header_like_row(
     text: &str,
     foreground: &str,
@@ -649,7 +571,11 @@ fn render_header_like_row(
 ) -> String {
     format!(
         "{}{}",
-        color_text(RAIL, Some(&theme.line_number_fg), Some(background)),
+        color_text(
+            diff_rail_marker(),
+            Some(neutral_rail_color(theme)),
+            Some(background),
+        ),
         color_text(text.trim_end(), Some(foreground), Some(background)),
     )
 }

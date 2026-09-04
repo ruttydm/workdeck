@@ -26,7 +26,7 @@
   },
   "destination": {
     "path": "crates/workdeck-tui/src/line_highlight_paint.rs",
-    "sha256": "e2b4707c202b8713b6a1171d37e40e26c79068faf65e0fbc4165ddb0ad84e8b1",
+    "sha256": "58210df90ff839ce262ac2b39a9a3a1e9985662d40e05208af9713977c78ea94",
     "moduleExport": "crates/workdeck-tui/src/lib.rs"
   },
   "baselineOracle": {

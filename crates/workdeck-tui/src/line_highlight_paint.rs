@@ -22,16 +22,10 @@ use workdeck_review::{
 };
 
 use crate::{
-    AppTheme, blend_hex, contrast_ratio, hex_color_distance, measure_cluster_width,
-    measure_sanitized_text_width, measure_text_width, ratatui_theme_color,
+    AppTheme, DEFAULT_DIM_RATIO, LineHighlightToneStyle, dim_span_foreground,
+    line_highlight_tone_style, measure_cluster_width, measure_sanitized_text_width,
+    measure_text_width, ratatui_theme_color,
 };
-
-const MIN_LINE_HIGHLIGHT_BG_DISTANCE: u16 = 72;
-const LINE_HIGHLIGHT_BLEND_STEP: f64 = 0.05;
-const LINE_HIGHLIGHT_MAX_BLEND: f64 = 0.85;
-const MIN_LINE_HIGHLIGHT_TEXT_CONTRAST: f64 = 3.1;
-const DEFAULT_DIM_RATIO: f64 = 0.45;
-const MIN_DIM_TEXT_CONTRAST: f64 = 1.6;
 
 /// One mark resolved to terminal columns of the rendered, expanded line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -714,99 +708,11 @@ fn apply_line_highlights_with_plan(
     result
 }
 
-fn is_hex_theme_color(color: &str) -> bool {
-    color.len() == 7
-        && color.starts_with('#')
-        && color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
-}
-
-fn effective_highlight_background(base: &str, theme: &AppTheme) -> String {
-    if is_hex_theme_color(base) {
-        return base.to_owned();
-    }
-    if is_hex_theme_color(&theme.background) {
-        return theme.background.clone();
-    }
-    match theme.appearance {
-        crate::ThemeAppearance::Dark => "#000000".into(),
-        crate::ThemeAppearance::Light => "#ffffff".into(),
-    }
-}
-
-fn line_highlight_tone_anchor(tone: HighlightTone, theme: &AppTheme) -> &str {
-    match tone {
-        HighlightTone::Info => &theme.badge_neutral,
-        HighlightTone::Warning => &theme.file_modified,
-        HighlightTone::Error => &theme.removed_sign_color,
-        HighlightTone::Current | HighlightTone::Match | HighlightTone::Dim => &theme.accent,
-    }
-}
-
-fn strengthen_line_highlight_background(base: &str, anchor: &str, text_color: &str) -> String {
-    let mut strongest_readable = base.to_owned();
-    let max_steps = (LINE_HIGHLIGHT_MAX_BLEND / LINE_HIGHLIGHT_BLEND_STEP).floor() as usize;
-    for step in 1..=max_steps {
-        let candidate = blend_hex(anchor, base, step as f64 * LINE_HIGHLIGHT_BLEND_STEP);
-        if contrast_ratio(text_color, &candidate) < MIN_LINE_HIGHLIGHT_TEXT_CONTRAST {
-            return strongest_readable;
-        }
-        strongest_readable.clone_from(&candidate);
-        if hex_color_distance(&candidate, base) >= MIN_LINE_HIGHLIGHT_BG_DISTANCE {
-            return candidate;
-        }
-    }
-    strongest_readable
-}
-
 fn color_hex(color: Color) -> Option<String> {
     match color {
         Color::Rgb(red, green, blue) => Some(format!("#{red:02x}{green:02x}{blue:02x}")),
         _ => None,
     }
-}
-
-fn dim_span_foreground(
-    source_foreground: Option<Color>,
-    span_background: Option<Color>,
-    base_background: &str,
-    theme: &AppTheme,
-) -> Color {
-    let background = span_background
-        .and_then(color_hex)
-        .unwrap_or_else(|| base_background.to_owned());
-    let background = effective_highlight_background(&background, theme);
-    let fallback = if is_hex_theme_color(&theme.syntax_colors.default) {
-        theme.syntax_colors.default.as_str()
-    } else if is_hex_theme_color(&theme.text) {
-        theme.text.as_str()
-    } else {
-        match theme.appearance {
-            crate::ThemeAppearance::Dark => "#adbac7",
-            crate::ThemeAppearance::Light => "#24292f",
-        }
-    };
-    let foreground = source_foreground
-        .and_then(color_hex)
-        .filter(|color| is_hex_theme_color(color))
-        .unwrap_or_else(|| fallback.to_owned());
-    let mut result = foreground.clone();
-    let candidate = blend_hex(&foreground, &background, DEFAULT_DIM_RATIO);
-    if contrast_ratio(&candidate, &background) >= MIN_DIM_TEXT_CONTRAST {
-        result = candidate;
-    } else {
-        for step in 1..=9 {
-            let ratio = DEFAULT_DIM_RATIO + f64::from(step) * 0.05;
-            if ratio > 0.901 {
-                break;
-            }
-            let strengthened = blend_hex(&foreground, &background, ratio);
-            if contrast_ratio(&strengthened, &background) >= MIN_DIM_TEXT_CONTRAST {
-                result = strengthened;
-                break;
-            }
-        }
-    }
-    ratatui_theme_color(&result)
 }
 
 fn paint_ratatui_style(
@@ -815,32 +721,28 @@ fn paint_ratatui_style(
     base_background: &str,
     theme: &AppTheme,
 ) -> Style {
-    if tone == HighlightTone::Dim {
-        return style.fg(dim_span_foreground(
-            style.fg,
-            style.bg,
-            base_background,
-            theme,
-        ));
-    }
-    if tone == HighlightTone::Current && is_hex_theme_color(&theme.text) {
-        return style
-            .bg(ratatui_theme_color(&theme.text))
-            .fg(ratatui_theme_color(&effective_highlight_background(
-                &theme.background,
+    match line_highlight_tone_style(tone, base_background, theme) {
+        Some(LineHighlightToneStyle::Dim) => {
+            let source_foreground = style.fg.and_then(color_hex);
+            let span_background = style.bg.and_then(color_hex);
+            style.fg(ratatui_theme_color(&dim_span_foreground(
+                source_foreground.as_deref(),
+                span_background.as_deref().unwrap_or(base_background),
                 theme,
-            )));
+                DEFAULT_DIM_RATIO,
+            )))
+        }
+        Some(LineHighlightToneStyle::Colors {
+            background,
+            foreground,
+        }) => {
+            let style = style.bg(ratatui_theme_color(&background));
+            foreground.map_or(style, |foreground| {
+                style.fg(ratatui_theme_color(&foreground))
+            })
+        }
+        None => style,
     }
-    let anchor = line_highlight_tone_anchor(tone, theme);
-    if !is_hex_theme_color(anchor) || !is_hex_theme_color(&theme.text) {
-        return style;
-    }
-    let background = strengthen_line_highlight_background(
-        &effective_highlight_background(base_background, theme),
-        anchor,
-        &theme.text,
-    );
-    style.bg(ratatui_theme_color(&background))
 }
 
 fn append_ratatui_span(target: &mut Vec<Span<'static>>, span: Span<'static>) {
