@@ -165,7 +165,11 @@ pub(crate) fn is_probably_binary(contents: &[u8]) -> bool {
 }
 
 fn escape_untracked_patch_path(path: &str) -> String {
-    path.replace('\\', "/")
+    if cfg!(windows) {
+        path.replace('\\', "/")
+    } else {
+        path.to_owned()
+    }
 }
 
 fn quote_git_path(path: &str) -> String {
@@ -255,6 +259,29 @@ mod tests {
         );
         assert!(!terminated.patch.contains("No newline at end of file"));
         assert!(!terminated.patch.contains('\r'));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preserves_literal_backslashes_in_untracked_unix_filenames() {
+        let directory = TempDir::new().unwrap();
+        fs::write(directory.path().join("tools\\Hunkfile"), "one\n").unwrap();
+
+        let file = build_filesystem_untracked_diff_file(
+            directory.path(),
+            Path::new("tools\\Hunkfile"),
+            0,
+            "test",
+        )
+        .unwrap();
+
+        assert_eq!(file.path, "tools\\Hunkfile");
+        assert!(
+            file.patch.contains(r"a/tools\\Hunkfile"),
+            "unexpected synthesized patch: {:?}",
+            file.patch
+        );
+        assert!(file.patch.contains(r"b/tools\\Hunkfile"));
     }
 
     #[cfg(unix)]

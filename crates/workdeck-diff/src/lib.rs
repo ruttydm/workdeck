@@ -1357,4 +1357,191 @@ mod tests {
             )
         );
     }
+
+    fn loader_patch_file(patch: &str) -> DiffFile {
+        let mut changeset = parse_patch(
+            patch,
+            "loader-parity",
+            "Patch review: stdin patch",
+            ChangesetSource::Patch {
+                label: "stdin patch".into(),
+            },
+        )
+        .expect("Hunk loader fixture parses");
+        assert_eq!(changeset.files.len(), 1);
+        changeset.files.remove(0)
+    }
+
+    #[test]
+    fn hunk_loader_accepts_noprefix_mnemonic_and_nested_a_directory_patches() {
+        let noprefix = loader_patch_file(concat!(
+            "diff --git src/example.ts src/example.ts\n",
+            "index 0000000..1111111 100644\n",
+            "--- src/example.ts\n",
+            "+++ src/example.ts\n",
+            "@@ -1,1 +1,2 @@\n",
+            " const value = 1;\n",
+            "+const added = 2;\n",
+        ));
+        assert_eq!(noprefix.path, "src/example.ts");
+        assert_eq!(noprefix.change_kind, FileChangeKind::Modified);
+        assert_eq!(noprefix.stats.additions, 1);
+        assert!(
+            noprefix
+                .patch
+                .starts_with("diff --git a/src/example.ts b/src/example.ts\n")
+        );
+        assert!(noprefix.patch.contains("\n--- a/src/example.ts\n"));
+
+        let mnemonic = loader_patch_file(concat!(
+            "diff --git i/example.ts w/example.ts\n",
+            "--- i/example.ts\n",
+            "+++ w/example.ts\n",
+            "@@ -1 +1 @@\n",
+            "-one\n",
+            "+two\n",
+        ));
+        assert_eq!(mnemonic.path, "example.ts");
+        assert_eq!(mnemonic.stats.additions, 1);
+        assert_eq!(mnemonic.stats.deletions, 1);
+        assert!(
+            mnemonic
+                .patch
+                .starts_with("diff --git a/example.ts b/example.ts\n--- a/example.ts\n")
+        );
+
+        let canonical_nested = loader_patch_file(concat!(
+            "diff --git a/a/inner.ts b/a/inner.ts\n",
+            "--- a/a/inner.ts\n",
+            "+++ b/a/inner.ts\n",
+            "@@ -1 +1,2 @@\n",
+            " const x = 1;\n",
+            "+const y = 2;\n",
+        ));
+        assert_eq!(canonical_nested.path, "a/inner.ts");
+
+        let no_index_with_numeric_directory = loader_patch_file(concat!(
+            "\x1b[1mdiff --git a/tmp/before/feat/2.0/auth.ts b/tmp/after/feat/2.0/auth.ts\x1b[0m\n",
+            "\x1b[1m--- a/tmp/before/feat/2.0/auth.ts\x1b[0m\n",
+            "\x1b[1m+++ b/tmp/after/feat/2.0/auth.ts\x1b[0m\n",
+            "\x1b[36m@@ -1 +1,2 @@\x1b[0m\n",
+            "-old\n",
+            "+new\n",
+            "+added\n",
+        ));
+        assert!(
+            no_index_with_numeric_directory
+                .path
+                .ends_with("feat/2.0/auth.ts")
+        );
+        assert_eq!(no_index_with_numeric_directory.stats.additions, 2);
+        assert!(!no_index_with_numeric_directory.patch.contains('\x1b'));
+    }
+
+    #[test]
+    fn hunk_loader_preserves_rename_paths_across_prefix_modes() {
+        let mnemonic = loader_patch_file(concat!(
+            "diff --git c/old.ts i/new.ts\n",
+            "similarity index 100%\n",
+            "rename from old.ts\n",
+            "rename to new.ts\n",
+        ));
+        assert_eq!(mnemonic.path, "new.ts");
+        assert_eq!(mnemonic.previous_path.as_deref(), Some("old.ts"));
+        assert_eq!(mnemonic.change_kind, FileChangeKind::Renamed);
+        assert!(mnemonic.patch.starts_with("diff --git a/old.ts b/new.ts\n"));
+
+        let real_mnemonic_directories = loader_patch_file(concat!(
+            "diff --git c/foo.ts w/bar.ts\n",
+            "similarity index 100%\n",
+            "rename from c/foo.ts\n",
+            "rename to w/bar.ts\n",
+        ));
+        assert_eq!(real_mnemonic_directories.path, "w/bar.ts");
+        assert_eq!(
+            real_mnemonic_directories.previous_path.as_deref(),
+            Some("c/foo.ts")
+        );
+        assert!(
+            real_mnemonic_directories
+                .patch
+                .starts_with("diff --git a/c/foo.ts b/w/bar.ts\n")
+        );
+
+        let plain = loader_patch_file(concat!(
+            "diff --git old/path.ts new/path.ts\n",
+            "similarity index 100%\n",
+            "rename from old/path.ts\n",
+            "rename to new/path.ts\n",
+        ));
+        assert_eq!(plain.path, "new/path.ts");
+        assert_eq!(plain.previous_path.as_deref(), Some("old/path.ts"));
+    }
+
+    #[test]
+    fn hunk_loader_decodes_exact_quoted_paths_and_rename_metadata() {
+        let tab = loader_patch_file(concat!(
+            "diff --git \"src\\tfile.txt\" \"src\\tfile.txt\"\n",
+            "--- \"src\\tfile.txt\"\n",
+            "+++ \"src\\tfile.txt\"\n",
+            "@@ -1 +1 @@\n",
+            "-one\n",
+            "+two\n",
+        ));
+        assert_eq!(tab.path, "src\tfile.txt");
+
+        let backslash = loader_patch_file(concat!(
+            "diff --git \"a/tools\\\\Hunkfile\" \"b/tools\\\\Hunkfile\"\n",
+            "--- \"a/tools\\\\Hunkfile\"\n",
+            "+++ \"b/tools\\\\Hunkfile\"\n",
+            "@@ -1 +1 @@\n",
+            "-one\n",
+            "+two\n",
+        ));
+        assert_eq!(backslash.path, "tools\\Hunkfile");
+
+        let trailing_newline = loader_patch_file(concat!(
+            "diff --git \"a/line\\n\" \"b/line\\n\"\n",
+            "--- \"a/line\\n\"\n",
+            "+++ \"b/line\\n\"\n",
+            "@@ -1 +1 @@\n",
+            "-one\n",
+            "+two\n",
+        ));
+        assert_eq!(trailing_newline.path, "line\n");
+
+        let renamed = loader_patch_file(concat!(
+            "diff --git \"a/\\346\\227\\245\\346\\234\\254\\350\\252\\236.txt\" \"b/\\355\\225\\234\\352\\265\\255\\354\\226\\264\\360\\237\\247\\252.txt\"\n",
+            "similarity index 100%\n",
+            "rename from \"\\346\\227\\245\\346\\234\\254\\350\\252\\236.txt\"\n",
+            "rename to \"\\355\\225\\234\\352\\265\\255\\354\\226\\264\\360\\237\\247\\252.txt\"\n",
+        ));
+        assert_eq!(renamed.path, "한국어🧪.txt");
+        assert_eq!(renamed.previous_path.as_deref(), Some("日本語.txt"));
+    }
+
+    #[test]
+    fn hunk_loader_does_not_rewrite_sql_deletion_lines_as_file_headers() {
+        let file = loader_patch_file(concat!(
+            "diff --git db/schema.sql db/schema.sql\n",
+            "index 0000000..1111111 100644\n",
+            "--- db/schema.sql\n",
+            "+++ db/schema.sql\n",
+            "@@ -1,3 +1,2 @@\n",
+            " CREATE TABLE users (id INT);\n",
+            "--- drop table users;\n",
+            " CREATE TABLE posts (id INT);\n",
+        ));
+        assert_eq!(file.path, "db/schema.sql");
+        assert_eq!(file.stats.deletions, 1);
+        assert!(file.hunks[0].lines.iter().any(|line| {
+            line.kind == DiffLineKind::Deletion && line.content == "-- drop table users;"
+        }));
+        assert!(
+            !file.hunks[0]
+                .lines
+                .iter()
+                .any(|line| line.content.contains("a/drop table"))
+        );
+    }
 }

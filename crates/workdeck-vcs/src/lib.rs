@@ -857,6 +857,378 @@ mod tests {
         }));
     }
 
+    #[test]
+    fn hunk_loader_marks_tracked_binary_and_large_files_as_bounded_placeholders() {
+        let binary_repo = initialized_git_repo();
+        fs::write(binary_repo.path().join("image.png"), [0, 1, 2, 3, 4]).unwrap();
+        run_git(binary_repo.path(), &["add", "image.png"]);
+        run_git(binary_repo.path(), &["commit", "-qm", "initial"]);
+        fs::write(binary_repo.path().join("image.png"), [0, 1, 9, 3, 4, 5]).unwrap();
+
+        let binary = GitProvider::discover(binary_repo.path())
+            .unwrap()
+            .working_tree(&DiffRequest::default())
+            .unwrap();
+        assert_eq!(binary.files.len(), 1);
+        assert_eq!(binary.files[0].path, "image.png");
+        assert!(binary.files[0].flags.binary);
+        assert!(binary.files[0].hunks.is_empty());
+        assert!(binary.files[0].sources.old.is_none());
+        assert!(binary.files[0].sources.new.is_none());
+
+        let tracked_repo = initialized_git_repo();
+        fs::write(tracked_repo.path().join("large.txt"), "original\n").unwrap();
+        run_git(tracked_repo.path(), &["add", "large.txt"]);
+        run_git(tracked_repo.path(), &["commit", "-qm", "initial"]);
+        let mut generated = "x\n".repeat(100_000);
+        generated.push_str("widest generated line\n");
+        fs::write(tracked_repo.path().join("large.txt"), generated).unwrap();
+
+        let tracked = GitProvider::discover(tracked_repo.path())
+            .unwrap()
+            .working_tree(&DiffRequest::default())
+            .unwrap();
+        assert_eq!(tracked.files.len(), 1);
+        assert!(tracked.files[0].flags.too_large);
+        assert_eq!(tracked.files[0].stats.additions, 100_001);
+        assert_eq!(tracked.files[0].stats.deletions, 1);
+        assert!(tracked.files[0].hunks.is_empty());
+        assert!(tracked.files[0].sources.old.is_none());
+        assert!(tracked.files[0].sources.new.is_none());
+
+        let untracked_repo = initialized_git_repo();
+        fs::write(
+            untracked_repo.path().join("large.txt"),
+            "x\n".repeat(100_001),
+        )
+        .unwrap();
+        fs::write(
+            untracked_repo.path().join("large-single-line.txt"),
+            "x".repeat(1_000_001),
+        )
+        .unwrap();
+        let untracked = GitProvider::discover(untracked_repo.path())
+            .unwrap()
+            .working_tree(&DiffRequest::default())
+            .unwrap();
+        let line_limited = untracked
+            .files
+            .iter()
+            .find(|file| file.path == "large.txt")
+            .unwrap();
+        assert!(line_limited.flags.too_large && line_limited.flags.untracked);
+        assert_eq!(line_limited.stats.additions, 100_001);
+        assert!(!line_limited.stats.truncated);
+        let byte_limited = untracked
+            .files
+            .iter()
+            .find(|file| file.path == "large-single-line.txt")
+            .unwrap();
+        assert!(byte_limited.flags.too_large && byte_limited.flags.untracked);
+        assert_eq!(byte_limited.stats.additions, 1);
+        assert!(byte_limited.stats.truncated);
+    }
+
+    #[test]
+    fn hunk_loader_applies_worktree_range_pathspec_and_repository_config_semantics() {
+        let directory = initialized_git_repo();
+        for (path, body) in [("alpha.ts", "alpha one\n"), ("beta.ts", "beta one\n")] {
+            fs::write(directory.path().join(path), body).unwrap();
+        }
+        run_git(directory.path(), &["add", "."]);
+        run_git(directory.path(), &["commit", "-qm", "initial"]);
+        run_git(directory.path(), &["branch", "base-branch"]);
+        fs::write(directory.path().join("alpha.ts"), "alpha two\n").unwrap();
+        fs::write(directory.path().join("beta.ts"), "beta two\n").unwrap();
+        run_git(directory.path(), &["add", "."]);
+        run_git(directory.path(), &["commit", "-qm", "second"]);
+        fs::write(directory.path().join("alpha.ts"), "alpha three\n").unwrap();
+        fs::write(directory.path().join("beta.ts"), "beta three\n").unwrap();
+        fs::write(directory.path().join("new-alpha.ts"), "new alpha\n").unwrap();
+        fs::write(directory.path().join("new-beta.ts"), "new beta\n").unwrap();
+        run_git(
+            directory.path(),
+            &["config", "diff.external", "git --version"],
+        );
+        run_git(directory.path(), &["config", "diff.noprefix", "true"]);
+        run_git(directory.path(), &["config", "diff.mnemonicPrefix", "true"]);
+
+        let provider = GitProvider::discover(directory.path()).unwrap();
+        let default = provider.working_tree(&DiffRequest::default()).unwrap();
+        assert_eq!(
+            default
+                .files
+                .iter()
+                .map(|file| file.path.as_str())
+                .collect::<Vec<_>>(),
+            ["alpha.ts", "beta.ts", "new-alpha.ts", "new-beta.ts"]
+        );
+
+        let excluded = provider
+            .working_tree(&DiffRequest {
+                exclude_untracked: true,
+                ..DiffRequest::default()
+            })
+            .unwrap();
+        assert_eq!(
+            excluded
+                .files
+                .iter()
+                .map(|file| file.path.as_str())
+                .collect::<Vec<_>>(),
+            ["alpha.ts", "beta.ts"]
+        );
+
+        let one_ref = provider
+            .working_tree(&DiffRequest {
+                target: Some("base-branch".into()),
+                ..DiffRequest::default()
+            })
+            .unwrap();
+        assert!(one_ref.files.iter().any(|file| file.path == "new-alpha.ts"));
+
+        let revisions = provider
+            .working_tree(&DiffRequest {
+                target: Some("HEAD".into()),
+                from: Some("base-branch".into()),
+                ..DiffRequest::default()
+            })
+            .unwrap();
+        assert!(!revisions.files.iter().any(|file| file.flags.untracked));
+
+        let parent_bang = provider
+            .working_tree(&DiffRequest {
+                target: Some("HEAD^!".into()),
+                ..DiffRequest::default()
+            })
+            .unwrap();
+        assert!(!parent_bang.files.iter().any(|file| file.flags.untracked));
+
+        let pathspec = provider
+            .working_tree(&DiffRequest {
+                pathspec: vec!["new-beta.ts".into()],
+                ..DiffRequest::default()
+            })
+            .unwrap();
+        assert_eq!(pathspec.files.len(), 1);
+        assert_eq!(pathspec.files[0].path, "new-beta.ts");
+
+        fs::create_dir(directory.path().join("nested")).unwrap();
+        let nested = GitProvider::discover(&directory.path().join("nested")).unwrap();
+        assert_eq!(
+            fs::canonicalize(nested.root()).unwrap(),
+            fs::canonicalize(directory.path()).unwrap()
+        );
+        assert!(
+            nested
+                .working_tree(&DiffRequest::default())
+                .unwrap()
+                .files
+                .iter()
+                .any(|file| file.path == "new-alpha.ts")
+        );
+    }
+
+    #[test]
+    fn hunk_loader_show_stash_and_unicode_sources_are_immutable_snapshots() {
+        let directory = initialized_git_repo();
+        fs::write(directory.path().join("value.txt"), "first\n").unwrap();
+        run_git(directory.path(), &["add", "value.txt"]);
+        run_git(directory.path(), &["commit", "-qm", "first"]);
+        fs::write(directory.path().join("value.txt"), "second\n").unwrap();
+        run_git(directory.path(), &["commit", "-qam", "second"]);
+
+        let provider = GitProvider::discover(directory.path()).unwrap();
+        let shown = provider.show(Some("HEAD"), &[]).unwrap();
+        assert_eq!(
+            shown.files[0].sources.old.as_ref().unwrap().content,
+            "first\n"
+        );
+        assert_eq!(
+            shown.files[0].sources.new.as_ref().unwrap().content,
+            "second\n"
+        );
+        fs::write(directory.path().join("value.txt"), "third\n").unwrap();
+        run_git(directory.path(), &["commit", "-qam", "third"]);
+        assert_eq!(
+            shown.files[0].sources.old.as_ref().unwrap().content,
+            "first\n"
+        );
+        assert_eq!(
+            shown.files[0].sources.new.as_ref().unwrap().content,
+            "second\n"
+        );
+
+        fs::write(directory.path().join("value.txt"), "first stash\n").unwrap();
+        run_git(directory.path(), &["stash", "push", "-qm", "first stash"]);
+        let stashed = provider.stash(None).unwrap();
+        fs::write(directory.path().join("value.txt"), "second stash\n").unwrap();
+        run_git(directory.path(), &["stash", "push", "-qm", "second stash"]);
+        assert_eq!(
+            stashed.files[0].sources.old.as_ref().unwrap().content,
+            "third\n"
+        );
+        assert_eq!(
+            stashed.files[0].sources.new.as_ref().unwrap().content,
+            "first stash\n"
+        );
+
+        let unicode_repo = initialized_git_repo();
+        fs::write(
+            unicode_repo.path().join("日本語.txt"),
+            "shared\nold-only\nshared\n",
+        )
+        .unwrap();
+        run_git(unicode_repo.path(), &["add", "日本語.txt"]);
+        run_git(unicode_repo.path(), &["commit", "-qm", "before"]);
+        run_git(unicode_repo.path(), &["mv", "日本語.txt", "한국어🧪.txt"]);
+        fs::write(
+            unicode_repo.path().join("한국어🧪.txt"),
+            "shared\nnew-only\nshared\n",
+        )
+        .unwrap();
+        run_git(unicode_repo.path(), &["add", "한국어🧪.txt"]);
+        run_git(unicode_repo.path(), &["commit", "-qm", "rename"]);
+        let renamed = GitProvider::discover(unicode_repo.path())
+            .unwrap()
+            .show(Some("HEAD"), &[])
+            .unwrap();
+        assert_eq!(renamed.files[0].path, "한국어🧪.txt");
+        assert_eq!(
+            renamed.files[0].previous_path.as_deref(),
+            Some("日本語.txt")
+        );
+        assert_eq!(
+            renamed.files[0].sources.old.as_ref().unwrap().content,
+            "shared\nold-only\nshared\n"
+        );
+        assert_eq!(
+            renamed.files[0].sources.new.as_ref().unwrap().content,
+            "shared\nnew-only\nshared\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hunk_loader_skips_directory_symlinks_and_preserves_exact_untracked_names() {
+        use std::os::unix::fs::symlink;
+
+        let directory = initialized_git_repo();
+        fs::write(directory.path().join("tracked.ts"), "one\n").unwrap();
+        run_git(directory.path(), &["add", "tracked.ts"]);
+        run_git(directory.path(), &["commit", "-qm", "initial"]);
+        fs::create_dir(directory.path().join("targetdir")).unwrap();
+        symlink("targetdir", directory.path().join("linkdir")).unwrap();
+        fs::write(directory.path().join("quote\"name.txt"), "quote\n").unwrap();
+        fs::write(directory.path().join("tab\tname.txt"), "tab\n").unwrap();
+        fs::write(directory.path().join("back\\slash.txt"), "backslash\n").unwrap();
+        symlink("tracked.ts", directory.path().join("good-link")).unwrap();
+        symlink("missing-file", directory.path().join("dangling-link")).unwrap();
+
+        let changeset = GitProvider::discover(directory.path())
+            .unwrap()
+            .working_tree(&DiffRequest::default())
+            .unwrap();
+        let paths = changeset
+            .files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<Vec<_>>();
+        assert!(!paths.contains(&"linkdir"));
+        for path in [
+            "quote\"name.txt",
+            "tab\tname.txt",
+            "back\\slash.txt",
+            "good-link",
+            "dangling-link",
+        ] {
+            assert!(
+                paths.contains(&path),
+                "missing exact untracked path {path:?}; loaded {paths:?}"
+            );
+        }
+        let good = changeset
+            .files
+            .iter()
+            .find(|file| file.path == "good-link")
+            .unwrap();
+        assert!(good.patch.contains("new file mode 120000"));
+        assert!(good.patch.contains("+tracked.ts"));
+        let dangling = changeset
+            .files
+            .iter()
+            .find(|file| file.path == "dangling-link")
+            .unwrap();
+        assert!(dangling.patch.contains("+missing-file"));
+    }
+
+    #[test]
+    fn frozen_hunk_loader_oracle_maps_every_baseline_source_test() {
+        use std::collections::BTreeSet;
+
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../port/hunk/oracles/changeset-loaders.json"
+        )))
+        .unwrap();
+        assert_eq!(oracle["schema_version"], 1);
+        assert_eq!(
+            oracle["source"]["baseline"]["commit"],
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2"
+        );
+        assert_eq!(
+            oracle["source"]["baseline"]["source_blob"],
+            "aece09bc494a7d5f56e6d70601c2fdfb967efaec"
+        );
+        assert_eq!(
+            oracle["source"]["baseline"]["test_blob"],
+            "9950f19daa506712c599567f68f3844390bdc7c0"
+        );
+        assert_eq!(oracle["source"]["baseline"]["result"]["passed"], 73);
+        assert_eq!(oracle["source"]["baseline"]["result"]["skipped"], 3);
+        assert_eq!(oracle["source"]["baseline"]["result"]["failed"], 0);
+        assert_eq!(oracle["source"]["stable"]["result"]["passed"], 72);
+        assert_eq!(oracle["source"]["stable"]["result"]["skipped"], 3);
+        assert_eq!(oracle["source"]["stable"]["result"]["failed"], 0);
+
+        let groups = oracle["test_groups"].as_array().unwrap();
+        assert_eq!(groups.len(), 5);
+        let mut tests = BTreeSet::new();
+        for group in groups {
+            let rust_tests = group["rust_tests"].as_array().unwrap();
+            assert!(!rust_tests.is_empty());
+            assert!(rust_tests.iter().all(|name| {
+                name.as_str().is_some_and(|name| {
+                    name.starts_with("workdeck_") && name.matches("::").count() >= 2
+                })
+            }));
+            for test in group["hunk_tests"].as_array().unwrap() {
+                assert!(tests.insert(test.as_str().unwrap()));
+            }
+        }
+        assert_eq!(tests.len(), 76);
+        assert!(
+            tests.contains("preserves literal backslashes when matching exact Git-quoted paths")
+        );
+        assert!(tests.contains("`hunk stash show` pins expansion sources after stash@{0} moves"));
+        assert!(tests.contains("includes Sapling unknown files in working copy reviews"));
+    }
+
+    fn initialized_git_repo() -> TempDir {
+        let directory = TempDir::new().unwrap();
+        run_git(
+            directory.path(),
+            &["init", "-q", "--initial-branch", "master"],
+        );
+        run_git(
+            directory.path(),
+            &["config", "user.email", "test@example.com"],
+        );
+        run_git(directory.path(), &["config", "user.name", "Test"]);
+        run_git(directory.path(), &["config", "commit.gpgsign", "false"]);
+        directory
+    }
+
     fn run_git(cwd: &Path, args: &[&str]) {
         assert!(
             Command::new("git")
