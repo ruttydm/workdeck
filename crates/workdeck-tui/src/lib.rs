@@ -7,6 +7,7 @@ mod agent_inline_note_parity_tests;
 mod agent_inline_note_view;
 mod agent_note_geometry;
 mod agent_popover;
+mod agent_skill_dialog;
 mod app_commands;
 mod app_menus;
 mod code_cell_view;
@@ -96,6 +97,7 @@ pub use agent_card_view::*;
 pub use agent_inline_note_view::*;
 pub use agent_note_geometry::*;
 pub use agent_popover::*;
+pub use agent_skill_dialog::*;
 pub use app_commands::*;
 pub use app_menus::*;
 pub use code_cell_view::*;
@@ -762,6 +764,10 @@ pub struct ReviewApp {
     options: ReviewOptions,
     focus: Focus,
     scroll: usize,
+    show_agent_skill: bool,
+    agent_skill_dialog_hits: Cell<Option<AgentSkillDialogHits>>,
+    clipboard_copy_supported: bool,
+    clipboard_copy_request: Option<String>,
     show_help: bool,
     help_scroll: usize,
     help_dialog_hits: Cell<Option<HelpDialogHits>>,
@@ -908,6 +914,10 @@ impl ReviewApp {
             options,
             focus: Focus::Review,
             scroll: 0,
+            show_agent_skill: false,
+            agent_skill_dialog_hits: Cell::new(None),
+            clipboard_copy_supported: false,
+            clipboard_copy_request: None,
             show_help: false,
             help_scroll: 0,
             help_dialog_hits: Cell::new(None),
@@ -989,6 +999,21 @@ impl ReviewApp {
 
     pub fn take_quit_requested(&mut self) -> bool {
         std::mem::take(&mut self.should_quit)
+    }
+
+    /// Tell the native dialog whether its host can service clipboard requests.
+    pub fn set_clipboard_copy_supported(&mut self, supported: bool) {
+        self.clipboard_copy_supported = supported;
+    }
+
+    /// Consume one host-owned clipboard write requested by the agent-skill dialog.
+    pub fn take_clipboard_copy_request(&mut self) -> Option<String> {
+        self.clipboard_copy_request.take()
+    }
+
+    /// Replace the optimistic source-compatible notice when the host copy fails.
+    pub fn report_clipboard_copy_failure(&mut self, error: impl std::fmt::Display) {
+        self.status = Some(format!("Clipboard copy failed: {error}"));
     }
 
     /// Replace the discovery result without remounting the review application.
@@ -1440,6 +1465,13 @@ impl ReviewApp {
             || self.handle_extension_select_key(&key)
             || self.handle_extension_input_key(&key)
         {
+            return;
+        }
+        if self.show_agent_skill {
+            if key.code == KeyCode::Esc {
+                self.show_agent_skill = false;
+                self.agent_skill_dialog_hits.set(None);
+            }
             return;
         }
         if self.handle_filter_key(&key) {
@@ -1967,13 +1999,17 @@ impl ReviewApp {
             AppCommandAction::ToggleHelp => {
                 self.show_help = !self.show_help;
                 if self.show_help {
+                    self.show_agent_skill = false;
+                    self.agent_skill_dialog_hits.set(None);
                     self.help_scroll = 0;
                 } else {
                     self.help_dialog_hits.set(None);
                 }
             }
             AppCommandAction::OpenAgentSkill => {
-                self.status = Some("agent skill is available through `workdeck skill`".into());
+                self.show_help = false;
+                self.help_dialog_hits.set(None);
+                self.show_agent_skill = true;
             }
             AppCommandAction::ToggleFocusArea => {
                 if self.focus == Focus::Filter {
@@ -4950,6 +4986,26 @@ impl ReviewApp {
         if self.has_extension_dialog() {
             return;
         }
+        if self.show_agent_skill {
+            if let Some(hits) = self.agent_skill_dialog_hits.get()
+                && let MouseEventKind::Up(_) = event.kind
+            {
+                if hits
+                    .close
+                    .is_some_and(|close| rect_contains(close, event.column, event.row))
+                    || !rect_contains(hits.frame, event.column, event.row)
+                {
+                    self.show_agent_skill = false;
+                    self.agent_skill_dialog_hits.set(None);
+                } else if hits.copy_supported
+                    && rect_contains(hits.copy_button, event.column, event.row)
+                {
+                    self.clipboard_copy_request = Some(AGENT_SKILL_PROMPT.to_string());
+                    self.status = Some("Copied agent skill prompt to clipboard".into());
+                }
+            }
+            return;
+        }
         if self.show_help {
             if let Some(hits) = self.help_dialog_hits.get() {
                 match event.kind {
@@ -5694,6 +5750,7 @@ fn run_review_inner(
         .unwrap_or_else(std::env::current_dir)?;
     options.review_input = watch_input.as_ref().map(|(input, _, _)| input.clone());
     let mut app = ReviewApp::new_with_extensions(changeset, options, extensions);
+    app.set_clipboard_copy_supported(true);
     let watch_vcs_catalog =
         watch_vcs_catalog.unwrap_or_else(|| workdeck_vcs::bundled_vcs_catalog().clone());
     let mut watched_input =
@@ -5781,6 +5838,12 @@ fn run_loop(
                 Event::Resize(_, _) | Event::FocusGained | Event::FocusLost => {}
             }
             app.process_extension_trust_request(reloader);
+            if let Some(text) = app.take_clipboard_copy_request()
+                && let Err(error) = write_osc52_clipboard(&mut io::stdout(), &text)
+            {
+                app.report_clipboard_copy_failure(error);
+                app.set_clipboard_copy_supported(false);
+            }
         }
         let session_requested =
             session_reload.is_some_and(|reload| reload.swap(false, Ordering::Relaxed));
@@ -5875,6 +5938,22 @@ pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     render_body(outer[1], buffer, app);
     render_footer(outer[2], buffer, app);
     render_app_menu_dropdown(area, buffer, app);
+    if app.show_agent_skill {
+        let map = render_agent_skill_dialog(
+            area,
+            buffer,
+            &app.options.theme,
+            app.clipboard_copy_supported,
+        );
+        app.agent_skill_dialog_hits.set(Some(AgentSkillDialogHits {
+            frame: map.modal.frame,
+            close: map.modal.close,
+            copy_button: map.copy_button,
+            copy_supported: map.copy_supported,
+        }));
+    } else {
+        app.agent_skill_dialog_hits.set(None);
+    }
     if app.show_help {
         let commands = app.help_commands();
         let map = render_help(area, buffer, &commands, &app.options.theme, app.help_scroll);
@@ -7403,6 +7482,14 @@ struct ReviewNoteComposer {
     target: ReviewNoteTarget,
     body: String,
     cursor: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AgentSkillDialogHits {
+    frame: Rect,
+    close: Option<Rect>,
+    copy_button: Rect,
+    copy_supported: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11438,6 +11525,81 @@ mod tests {
         ] {
             assert!(rendered.contains(expected), "missing {expected:?}");
         }
+    }
+
+    #[test]
+    fn agent_menu_action_opens_copyable_guidance_and_modal_owns_input() {
+        let backend = TestBackend::new(120, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        app.set_clipboard_copy_supported(true);
+        app.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE));
+        for _ in 0..3 {
+            app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        }
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(app.show_agent_skill);
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        for expected in [
+            "Agent skill",
+            "Teach your agent how to review this Workdeck session.",
+            AGENT_SKILL_PROMPT_ROWS[0],
+            AGENT_SKILL_COMMAND,
+            "Copy prompt",
+        ] {
+            assert!(rendered.contains(expected), "missing {expected:?}");
+        }
+        let hits = app.agent_skill_dialog_hits.get().expect("agent skill hits");
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: hits.copy_button.x,
+            row: hits.copy_button.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert_eq!(
+            app.take_clipboard_copy_request().as_deref(),
+            Some(AGENT_SKILL_PROMPT.as_str())
+        );
+        assert_eq!(
+            app.status.as_deref(),
+            Some("Copied agent skill prompt to clipboard")
+        );
+        app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        assert!(app.show_agent_skill);
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(!app.show_agent_skill);
+        assert!(app.agent_skill_dialog_hits.get().is_none());
+
+        app.set_clipboard_copy_supported(false);
+        app.apply_builtin_command_action(AppCommandAction::OpenAgentSkill);
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let hits = app.agent_skill_dialog_hits.get().expect("agent skill hits");
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: hits.copy_button.x,
+            row: hits.copy_button.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(app.take_clipboard_copy_request().is_none());
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(!app.show_agent_skill);
     }
 
     #[test]

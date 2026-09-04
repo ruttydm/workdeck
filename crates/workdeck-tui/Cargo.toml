@@ -8,6 +8,7 @@ description = "Hunk-style Ratatui review canvas for Workdeck"
 
 [dependencies]
 anyhow = "1.0"
+base64 = "0.22"
 chrono = "0.4"
 crossterm = { version = "0.28", features = ["use-dev-tty"] }
 ratatui = { version = "0.29", features = ["unstable-rendered-line-info"] }

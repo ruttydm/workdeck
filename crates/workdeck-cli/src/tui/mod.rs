@@ -139,6 +139,9 @@ fn run_loop(
     let mut notice_lookup_in_flight = false;
     let mut next_notice_check = Instant::now() + DEFAULT_STARTUP_NOTICE_DELAY;
     let job_control = JobControlSupport::default();
+    if let Some(review) = &mut app.review {
+        review.set_clipboard_copy_supported(true);
+    }
 
     loop {
         if review_session.is_some_and(|session| {
@@ -194,12 +197,14 @@ fn run_loop(
                     return Ok(());
                 }
                 process_review_extension_trust(app);
+                process_review_clipboard(app);
             }
             Event::Mouse(mouse) if app.active_tab == Tab::Review => {
                 if let Some(review) = &mut app.review {
                     review.handle_mouse_event(mouse);
                 }
                 process_review_extension_trust(app);
+                process_review_clipboard(app);
             }
             Event::Mouse(_)
             | Event::Resize(_, _)
@@ -207,6 +212,19 @@ fn run_loop(
             | Event::FocusLost
             | Event::Paste(_) => {}
         }
+    }
+}
+
+fn process_review_clipboard(app: &mut App) {
+    let Some(review) = &mut app.review else {
+        return;
+    };
+    let Some(text) = review.take_clipboard_copy_request() else {
+        return;
+    };
+    if let Err(error) = workdeck_tui::write_osc52_clipboard(&mut io::stdout(), &text) {
+        review.report_clipboard_copy_failure(error);
+        review.set_clipboard_copy_supported(false);
     }
 }
 
