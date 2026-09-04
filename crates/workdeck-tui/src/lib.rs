@@ -31,6 +31,7 @@ mod diff_section_view;
 mod extension_command_controls;
 mod extension_commands;
 mod extension_current_line;
+mod extension_dialog_view;
 mod extension_dialogs;
 mod extension_navigation;
 mod extension_notifications;
@@ -89,6 +90,10 @@ mod viewport_geometry;
 mod viewport_selection;
 mod watched_input;
 
+use extension_dialog_view::{
+    ExtensionInputDialogPlan, ExtensionSelectDialogPlan, extension_dialog_action_at,
+    render_extension_input_dialog_view, render_extension_select_dialog_view, select_item_at,
+};
 use extension_dialogs::{
     ExtensionConfirmDialog, ExtensionDialogAnswer, ExtensionDialogError, ExtensionDialogQueue,
     ExtensionDialogRequest, ExtensionDialogSettlement, ExtensionInputDialog, ExtensionSelectDialog,
@@ -822,6 +827,9 @@ pub struct ReviewApp {
     review_projection_generation: u64,
     extension_confirm_dialog_hits: Mutex<Option<ConfirmDialogRenderMap>>,
     extension_confirm_hovered_action_key: Option<String>,
+    extension_input_dialog_hits: Mutex<Option<ExtensionInputDialogPlan>>,
+    extension_select_dialog_hits: Mutex<Option<ExtensionSelectDialogPlan>>,
+    extension_dialog_hovered_action_key: Option<String>,
     #[cfg(test)]
     observed_extension_events: Vec<(u64, String, serde_json::Value)>,
     extension_trust_controller: ExtensionTrustController,
@@ -982,6 +990,9 @@ impl ReviewApp {
             review_projection_generation: 1,
             extension_confirm_dialog_hits: Mutex::new(None),
             extension_confirm_hovered_action_key: None,
+            extension_input_dialog_hits: Mutex::new(None),
+            extension_select_dialog_hits: Mutex::new(None),
+            extension_dialog_hovered_action_key: None,
             #[cfg(test)]
             observed_extension_events: Vec::new(),
             extension_trust_controller,
@@ -3594,8 +3605,17 @@ impl ReviewApp {
 
     fn settle_extension_dialog(&mut self, settlement: ExtensionDialogSettlement) {
         self.extension_confirm_hovered_action_key = None;
+        self.extension_dialog_hovered_action_key = None;
         *self
             .extension_confirm_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        *self
+            .extension_input_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        *self
+            .extension_select_dialog_hits
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
         match (settlement.request, settlement.answer) {
@@ -3645,8 +3665,17 @@ impl ReviewApp {
 
     fn cancel_extension_dialogs_for_reload(&mut self) {
         self.extension_confirm_hovered_action_key = None;
+        self.extension_dialog_hovered_action_key = None;
         *self
             .extension_confirm_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        *self
+            .extension_input_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        *self
+            .extension_select_dialog_hits
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
         let settlements = self
@@ -3895,6 +3924,152 @@ impl ReviewApp {
         }
     }
 
+    fn settle_current_extension_select(&mut self, selected_index: Option<usize>, accept: bool) {
+        let settlement = {
+            let mut runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if let Some(selected_index) = selected_index {
+                runtime.dialogs.pick_option(selected_index);
+            }
+            let selected = runtime.dialogs.current().and_then(|request| match request {
+                ExtensionDialogRequest::Select(dialog) => Some((
+                    dialog.request_id,
+                    dialog.options.get(dialog.selected).cloned(),
+                )),
+                _ => None,
+            });
+            selected.and_then(|(request_id, value)| {
+                if accept {
+                    runtime.dialogs.accept(request_id, value)
+                } else {
+                    runtime.dialogs.cancel(request_id)
+                }
+            })
+        };
+        if let Some(settlement) = settlement {
+            self.settle_extension_dialog(settlement);
+        }
+    }
+
+    fn settle_current_extension_input(&mut self, accept: bool) {
+        let settlement = {
+            let mut runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let input = runtime.dialogs.current().and_then(|request| match request {
+                ExtensionDialogRequest::Input(dialog) => {
+                    Some((dialog.request_id, Some(dialog.value.clone())))
+                }
+                _ => None,
+            });
+            input.and_then(|(request_id, value)| {
+                if accept {
+                    runtime.dialogs.accept(request_id, value)
+                } else {
+                    runtime.dialogs.cancel(request_id)
+                }
+            })
+        };
+        if let Some(settlement) = settlement {
+            self.settle_extension_dialog(settlement);
+        }
+    }
+
+    fn handle_extension_select_mouse(&mut self, event: &MouseEvent) -> bool {
+        let has_dialog = matches!(
+            self.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .dialogs
+                .current(),
+            Some(ExtensionDialogRequest::Select(_))
+        );
+        if !has_dialog {
+            return false;
+        }
+        let plan = self
+            .extension_select_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        let Some(plan) = plan else {
+            return true;
+        };
+        match event.kind {
+            MouseEventKind::Moved => {
+                self.extension_dialog_hovered_action_key =
+                    extension_dialog_action_at(&plan.action_hits, event.column, event.row)
+                        .map(|hit| hit.key_label.clone());
+            }
+            MouseEventKind::Up(_) => {
+                if let Some(hit) = select_item_at(&plan, event.column, event.row) {
+                    self.settle_current_extension_select(Some(hit.index), true);
+                } else if let Some(hit) =
+                    extension_dialog_action_at(&plan.action_hits, event.column, event.row)
+                {
+                    self.settle_current_extension_select(None, hit.index == 0);
+                } else if plan
+                    .modal
+                    .close
+                    .is_some_and(|close| rect_contains(close, event.column, event.row))
+                    || !rect_contains(plan.modal.frame, event.column, event.row)
+                {
+                    self.settle_current_extension_select(None, false);
+                }
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn handle_extension_input_mouse(&mut self, event: &MouseEvent) -> bool {
+        let has_dialog = matches!(
+            self.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .dialogs
+                .current(),
+            Some(ExtensionDialogRequest::Input(_))
+        );
+        if !has_dialog {
+            return false;
+        }
+        let plan = self
+            .extension_input_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        let Some(plan) = plan else {
+            return true;
+        };
+        match event.kind {
+            MouseEventKind::Moved => {
+                self.extension_dialog_hovered_action_key =
+                    extension_dialog_action_at(&plan.action_hits, event.column, event.row)
+                        .map(|hit| hit.key_label.clone());
+            }
+            MouseEventKind::Up(_) => {
+                if let Some(hit) =
+                    extension_dialog_action_at(&plan.action_hits, event.column, event.row)
+                {
+                    self.settle_current_extension_input(hit.index == 0);
+                } else if plan
+                    .modal
+                    .close
+                    .is_some_and(|close| rect_contains(close, event.column, event.row))
+                    || !rect_contains(plan.modal.frame, event.column, event.row)
+                {
+                    self.settle_current_extension_input(false);
+                }
+            }
+            _ => {}
+        }
+        true
+    }
+
     fn handle_extension_confirm_mouse(&mut self, event: &MouseEvent) -> bool {
         let has_dialog = matches!(
             self.extension_pane_runtime
@@ -4101,6 +4276,20 @@ impl ReviewApp {
     }
 
     fn submit_extension_input(&mut self, dialog: ExtensionInputDialog, value: Option<String>) {
+        if self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .extensions
+            .len()
+            <= dialog.extension_index
+        {
+            self.status = Some(format!(
+                "extension {} input retired before submission",
+                dialog.extension_id
+            ));
+            return;
+        }
         let (snapshot, review) =
             self.with_state(|state| (state.snapshot(), build_extension_review_snapshot(state)));
         let cwd = self.extension_command_cwd();
@@ -4146,6 +4335,20 @@ impl ReviewApp {
     }
 
     fn submit_extension_select(&mut self, dialog: ExtensionSelectDialog, value: Option<String>) {
+        if self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .extensions
+            .len()
+            <= dialog.extension_index
+        {
+            self.status = Some(format!(
+                "extension {} selection retired before submission",
+                dialog.extension_id
+            ));
+            return;
+        }
         let (snapshot, review) =
             self.with_state(|state| (state.snapshot(), build_extension_review_snapshot(state)));
         let cwd = self.extension_command_cwd();
@@ -4191,6 +4394,20 @@ impl ReviewApp {
     }
 
     fn submit_extension_confirm(&mut self, dialog: ExtensionConfirmDialog, confirmed: bool) {
+        if self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .extensions
+            .len()
+            <= dialog.extension_index
+        {
+            self.status = Some(format!(
+                "extension {} confirmation retired before submission",
+                dialog.extension_id
+            ));
+            return;
+        }
         let (snapshot, review) =
             self.with_state(|state| (state.snapshot(), build_extension_review_snapshot(state)));
         let cwd = self.extension_command_cwd();
@@ -5195,6 +5412,12 @@ impl ReviewApp {
             return;
         }
         if self.handle_extension_confirm_mouse(&event) {
+            return;
+        }
+        if self.handle_extension_select_mouse(&event) {
+            return;
+        }
+        if self.handle_extension_input_mouse(&event) {
             return;
         }
         if self.has_extension_dialog() {
@@ -6657,14 +6880,6 @@ pub fn render_active_keyboard_mode_badge(area: Rect, buffer: &mut Buffer, app: &
     .render(bounds, buffer);
 }
 
-fn extension_dialog_title(title: &str, extension_id: &str, show_attribution: bool) -> String {
-    if show_attribution {
-        format!("{title} · {extension_id}")
-    } else {
-        title.into()
-    }
-}
-
 /// Draw the host-owned input modal requested by a native extension.
 pub fn render_extension_input_dialog(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     let dialog = app
@@ -6678,49 +6893,21 @@ pub fn render_extension_input_dialog(area: Rect, buffer: &mut Buffer, app: &Revi
             _ => None,
         });
     let Some(dialog) = dialog else {
+        *app.extension_input_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
         return;
     };
-    let title =
-        extension_dialog_title(&dialog.title, &dialog.extension_id, dialog.show_attribution);
-    let desired_width = dialog
-        .title
-        .width()
-        .max(title.width())
-        .max(dialog.placeholder.width())
-        .max(dialog.value.width())
-        .saturating_add(4);
-    let width = u16::try_from(desired_width)
-        .unwrap_or(u16::MAX)
-        .max(24)
-        .min(area.width.max(1));
-    let height = 3.min(area.height.max(1));
-    let bounds = Rect::new(
-        area.x.saturating_add(area.width.saturating_sub(width) / 2),
-        area.y
-            .saturating_add(area.height.saturating_sub(height) / 2),
-        width,
-        height,
+    let plan = render_extension_input_dialog_view(
+        area,
+        buffer,
+        &dialog,
+        app.extension_dialog_hovered_action_key.as_deref(),
+        &app.options.theme,
     );
-    Clear.render(bounds, buffer);
-    let block = Block::default()
-        .title(format!(" {title} "))
-        .borders(Borders::ALL)
-        .style(Style::default().bg(ratatui_theme_color(&app.options.theme.panel)))
-        .border_style(Style::default().fg(ratatui_theme_color(&app.options.theme.accent)));
-    let inner = block.inner(bounds);
-    block.render(bounds, buffer);
-    let (value, style) = if dialog.value.is_empty() {
-        (
-            dialog.placeholder,
-            Style::default().fg(ratatui_theme_color(&app.options.theme.muted)),
-        )
-    } else {
-        (
-            dialog.value,
-            Style::default().fg(ratatui_theme_color(&app.options.theme.text)),
-        )
-    };
-    Paragraph::new(Line::styled(value, style)).render(inner, buffer);
+    *app.extension_input_dialog_hits
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(plan);
 }
 
 /// Draw the host-owned selection modal requested by a native extension.
@@ -6736,68 +6923,21 @@ pub fn render_extension_select_dialog(area: Rect, buffer: &mut Buffer, app: &Rev
             _ => None,
         });
     let Some(dialog) = dialog else {
+        *app.extension_select_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
         return;
     };
-    let title =
-        extension_dialog_title(&dialog.title, &dialog.extension_id, dialog.show_attribution);
-    let desired_width = dialog
-        .options
-        .iter()
-        .map(|option| option.width().saturating_add(4))
-        .max()
-        .unwrap_or(24)
-        .max(title.width().saturating_add(4));
-    let width = u16::try_from(desired_width)
-        .unwrap_or(u16::MAX)
-        .max(24)
-        .min(area.width.max(1));
-    let desired_height = u16::try_from(dialog.options.len())
-        .unwrap_or(u16::MAX)
-        .saturating_add(2);
-    let height = desired_height.max(3).min(area.height.max(1));
-    let bounds = Rect::new(
-        area.x.saturating_add(area.width.saturating_sub(width) / 2),
-        area.y
-            .saturating_add(area.height.saturating_sub(height) / 2),
-        width,
-        height,
+    let plan = render_extension_select_dialog_view(
+        area,
+        buffer,
+        &dialog,
+        app.extension_dialog_hovered_action_key.as_deref(),
+        &app.options.theme,
     );
-    Clear.render(bounds, buffer);
-    let block = Block::default()
-        .title(format!(" {title} "))
-        .borders(Borders::ALL)
-        .style(Style::default().bg(ratatui_theme_color(&app.options.theme.panel)))
-        .border_style(Style::default().fg(ratatui_theme_color(&app.options.theme.accent)));
-    let inner = block.inner(bounds);
-    block.render(bounds, buffer);
-    let visible = usize::from(inner.height);
-    let first = dialog
-        .selected
-        .saturating_add(1)
-        .saturating_sub(visible)
-        .min(dialog.options.len().saturating_sub(visible));
-    let lines = dialog
-        .options
-        .iter()
-        .enumerate()
-        .skip(first)
-        .take(visible)
-        .map(|(index, option)| {
-            let selected = index == dialog.selected;
-            Line::styled(
-                format!("{} {option}", if selected { "›" } else { " " }),
-                if selected {
-                    Style::default()
-                        .fg(ratatui_theme_color(&app.options.theme.background))
-                        .bg(ratatui_theme_color(&app.options.theme.accent))
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(ratatui_theme_color(&app.options.theme.text))
-                },
-            )
-        })
-        .collect::<Vec<_>>();
-    Paragraph::new(lines).render(inner, buffer);
+    *app.extension_select_dialog_hits
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(plan);
 }
 
 /// Draw the host-owned confirmation modal requested by a native extension.
@@ -9912,6 +10052,176 @@ mod tests {
                 .current(),
             Some(ExtensionDialogRequest::Confirm(_))
         ));
+    }
+
+    #[test]
+    fn extension_select_mouse_accepts_the_exact_visible_row_and_backdrop_cancels() {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        app.apply_extension_actions(
+            0,
+            "probe",
+            vec![ExtensionHostAction::OpenSelectDialog {
+                id: "target".into(),
+                title: "Deploy where?".into(),
+                options: (0..12).map(|index| format!("Option {index}")).collect(),
+            }],
+        );
+        {
+            let mut runtime = app
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            runtime.dialogs.pick_option(8);
+        }
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let plan = app
+            .extension_select_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+            .expect("select dialog hit map");
+        assert_eq!(plan.window_start, 3);
+        let target = plan
+            .item_hits
+            .iter()
+            .find(|hit| hit.index == 9)
+            .unwrap()
+            .bounds;
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: target.x,
+            row: target.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(
+            app.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .dialogs
+                .current()
+                .is_none()
+        );
+
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        app.apply_extension_actions(
+            0,
+            "probe",
+            vec![ExtensionHostAction::OpenSelectDialog {
+                id: "cancel".into(),
+                title: "Cancel me".into(),
+                options: vec!["one".into()],
+            }],
+        );
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(
+            app.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .dialogs
+                .current()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn extension_input_mouse_actions_submit_live_text_or_cancel_from_close() {
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        app.apply_extension_actions(
+            0,
+            "probe",
+            vec![ExtensionHostAction::OpenInputDialog {
+                id: "branch".into(),
+                title: "Branch name?".into(),
+                placeholder: "feature/...".into(),
+                initial: None,
+            }],
+        );
+        app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let plan = app
+            .extension_input_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+            .expect("input dialog hit map");
+        assert!(
+            terminal
+                .backend()
+                .buffer()
+                .content()
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+                .contains("qx")
+        );
+        let submit = plan.action_hits[0].bounds;
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: submit.x,
+            row: submit.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(
+            app.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .dialogs
+                .current()
+                .is_none()
+        );
+
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        app.apply_extension_actions(
+            0,
+            "probe",
+            vec![ExtensionHostAction::OpenInputDialog {
+                id: "cancel".into(),
+                title: "Cancel input?".into(),
+                placeholder: String::new(),
+                initial: None,
+            }],
+        );
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let close = app
+            .extension_input_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+            .and_then(|plan| plan.modal.close)
+            .unwrap();
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: close.x,
+            row: close.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(
+            app.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .dialogs
+                .current()
+                .is_none()
+        );
     }
 
     #[test]

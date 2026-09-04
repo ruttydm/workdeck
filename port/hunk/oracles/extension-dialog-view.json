@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/components/chrome/ExtensionDialog.tsx",
+    "baselineAndStableBlob": "5a79b6b79c3d56465e001e6977aed53bc6b608cc",
+    "baselineAndStableSha256": "43f6a9bb7f99f59675bf0d166af23cbc44fe1599c992887ce142ab4c543d9a84",
+    "bytes": 11300,
+    "lines": 326,
+    "finalizedBy": {
+      "commit": "fe9373bcc7cd19d8c86333dcbf1079aa9c6fce6b",
+      "subject": "feat(extensions): support guided review workflows (#717)"
+    }
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/extension_dialog_view.rs",
+      "sha256": "b97322d42dd21022b6aaa475e2fdd922101c84c2b00d7d13c7b21c08eb6dc37f"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "d30df449fe11b2ac692234ae4710a661f123b9808b6af1031d18f8a7015f40ba"
+    },
+    {
+      "path": "crates/workdeck-tui/src/extension_dialogs.rs",
+      "sha256": "68a75cf91f4d0640c57e86fce1c7e022732a099d48bbab5c1ca8b6531802339f"
+    },
+    {
+      "path": "crates/workdeck-tui/src/confirm_dialog.rs",
+      "sha256": "691e4b938a6b992896c27a914c7cfaadb0566b9da584f33b9db9542fbd9b3a21"
+    },
+    {
+      "path": "crates/workdeck-tui/src/modal_frame.rs",
+      "sha256": "05937303ca91cfa76cd6cb518a3fb9ec79fc6832286eb5756875467481fccb18"
+    },
+    {
+      "path": "crates/workdeck-tui/src/list_geometry.rs",
+      "sha256": "4b3bfed805a329811372db42e634461dcbe8c53b33b75a414cf42fd8b3463158"
+    },
+    {
+      "path": "crates/workdeck-tui/src/ui_geometry.rs",
+      "sha256": "d3619b60d177853eeeaac3d0b5eae955194c8640e628ab14ee1f49fdf13845e1"
+    },
+    {
+      "path": "crates/workdeck-tui/src/text.rs",
+      "sha256": "6b69a9309ccde490ff1fd4dbbff39c350d5174c6a624ccebbc80f789731dc23d"
+    }
+  ],
+  "directOracle": {
+    "runtime": "bun 1.3.5",
+    "temporaryTest": "src/ui/components/chrome/ExtensionDialog.oracle.test.tsx",
+    "temporarySourceCommitted": false,
+    "eachPin": {
+      "passed": 1,
+      "failed": 0,
+      "assertions": 6
+    },
+    "frames": [
+      {
+        "name": "select-80x24",
+        "terminal": { "width": 80, "height": 24 },
+        "frame": { "left": 4, "top": 3, "width": 72, "height": 18 },
+        "selectedIndex": 8,
+        "visibleRows": 9,
+        "windowStart": 3,
+        "status": "4-12 of 12",
+        "baselineStableAndRustSha256": "8052b0d091c40d508fd5f98f309354471bd5a48d3f5148e284c3b61e1b3d5b38"
+      },
+      {
+        "name": "select-50x10",
+        "terminal": { "width": 50, "height": 10 },
+        "frame": { "left": 4, "top": 1, "width": 42, "height": 8 },
+        "selectedIndex": 8,
+        "visibleRows": 1,
+        "windowStart": 8,
+        "visibleChildren": ["attribution", "selected option", "actions"],
+        "baselineStableAndRustSha256": "1fef3064ab1ac7dc93583e869dd1c2e604f531d6df5056d9c5a23ee83c57bf85"
+      },
+      {
+        "name": "input-80x20",
+        "terminal": { "width": 80, "height": 20 },
+        "frame": { "left": 4, "top": 5, "width": 72, "height": 10 },
+        "field": { "left": 6, "top": 11, "width": 68, "height": 1 },
+        "value": "quick-fix",
+        "baselineStableAndRustSha256": "ffd02d648a9a4ba264d59e6c98d9c8dd60de4605cb2d5126ea1a121c883321e4"
+      },
+      {
+        "name": "input-38x7",
+        "terminal": { "width": 38, "height": 7 },
+        "frame": { "left": 1, "top": 1, "width": 36, "height": 5 },
+        "contentRows": 0,
+        "visibleChildren": [],
+        "baselineStableAndRustSha256": "a62c325b6afe5458dd524eee2c7bf7de0ea70771f5d39fb39b53b91f422b95ba"
+      }
+    ]
+  },
+  "applicationOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test ./src/ui/AppHost.extension-dialogs.test.tsx",
+    "eachPin": {
+      "passed": 8,
+      "failed": 0,
+      "assertions": 20
+    },
+    "tests": [
+      "a confirm dialog renders with attribution and resolves true on enter",
+      "keeps confirm actions visible when wrapped prose exceeds a short terminal",
+      "escape resolves a confirm dialog as false",
+      "a select dialog resolves the option the arrow keys land on",
+      "clicking a select option accepts that exact row",
+      "an input dialog resolves the typed text",
+      "a daemon-driven session reload cancels the open dialog",
+      "keeps a dialog opened by the replacement generation's reload lifecycle"
+    ]
+  },
+  "sourceCoverage": [
+    [[[1, 15], [0, 722]], "mouse, dialog request, notification prefix, text windowing, list windowing, modal, text, theme, confirm, and frame dependencies"],
+    [[[16, 28], [722, 1288]], "host-controlled extension attribution and keyboard-versus-mouse ownership contract"],
+    [[[29, 38], [1288, 1675]], "responsive 40-to-72 column width and fitted ext attribution helpers"],
+    [[[39, 63], [1675, 2336]], "complete discriminated request, live input, selection, callback, dimensions, and theme interface"],
+    [[[64, 78], [2336, 2690]], "select-kind routing with every callback and geometry input"],
+    [[[79, 93], [2690, 3038]], "input-kind routing with live value mutation and every geometry input"],
+    [[[94, 138], [3038, 4875]], "confirm geometry, responsive attribution and body row allocation, bounded prose, labels, and close action"],
+    [[[139, 179], [4875, 6364]], "select interface, 11-to-24 row sizing, adaptive child budgets, centered option window, and label widths"],
+    [[[180, 244], [6364, 8487]], "select frame, attribution, duplicate-safe rows, active paint, exact-row pointer acceptance, status, and action footer"],
+    [[[245, 282], [8487, 9762]], "input interface, attributed height, adaptive attribution, field, spacer, and action row budgets"],
+    [[[283, 326], [9762, 11300]], "input frame, attribution, focused field, centralized key ownership, and pointer-enabled submit or cancel actions"]
+  ],
+  "nativeTests": [
+    "extension_dialog_view::tests::roomy_select_matches_the_frozen_opentui_cell_frame",
+    "extension_dialog_view::tests::narrow_select_preserves_only_attribution_selected_row_and_actions",
+    "extension_dialog_view::tests::attributed_input_matches_the_frozen_opentui_cell_frame",
+    "extension_dialog_view::tests::cramped_input_flexes_every_child_away_without_overwriting_the_frame",
+    "extension_dialog_view::tests::pointer_hit_maps_cover_only_complete_select_and_action_rows",
+    "tests::extension_select_mouse_accepts_the_exact_visible_row_and_backdrop_cancels",
+    "tests::extension_input_mouse_actions_submit_live_text_or_cancel_from_close",
+    "tests::extension_confirm_uses_shared_footer_hover_and_separator_hit_semantics"
+  ],
+  "adaptations": [
+    "Ratatui renders host-owned cells from a pure geometry plan; extensions still supply only title, body, choices, labels, placeholder, and input text.",
+    "Focused input editing and modal keyboard ownership stay in ReviewApp's centralized Crossterm router, matching the source boundary.",
+    "Mouse targets are explicit frame, row, and action rectangles; clicking a select row picks and accepts that exact current-catalog option atomically.",
+    "A dialog whose native owner disappears before settlement now reports retirement instead of indexing a stale extension registry entry."
+  ]
+}

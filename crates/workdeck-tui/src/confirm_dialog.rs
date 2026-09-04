@@ -66,7 +66,7 @@ fn clamped_row(area: Rect, y: u16) -> Rect {
     }
 }
 
-fn paint_dialog_action_row(
+pub(crate) fn paint_dialog_action_row(
     area: Rect,
     buffer: &mut Buffer,
     actions: &[ConfirmDialogAction],
