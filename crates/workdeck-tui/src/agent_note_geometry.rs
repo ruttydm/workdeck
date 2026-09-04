@@ -149,10 +149,7 @@ fn wrapped_prose_line_count(text: &str, width: usize) -> usize {
 
 #[must_use]
 pub fn draft_visual_line_count(text: &str, width: usize) -> usize {
-    text.split('\n')
-        .map(|line| grapheme_wrapped_line_count(&sanitize_terminal_line(line), width.max(1)).max(1))
-        .sum::<usize>()
-        .max(1)
+    draft_editor_visual_lines(text, width).len().max(1)
 }
 
 fn grapheme_wrapped_line_count(text: &str, width: usize) -> usize {
@@ -171,6 +168,48 @@ fn grapheme_wrapped_line_count(text: &str, width: usize) -> usize {
         }
     }
     rows.saturating_add(usize::from(used > 0))
+}
+
+fn draft_editor_cluster_width(cluster: &str) -> usize {
+    match cluster {
+        // OpenTUI's native editor advances tabs by two cells and treats the
+        // bare heart as emoji-width even without a variation selector.
+        "\t" | "❤" => 2,
+        _ => UnicodeWidthStr::width(cluster),
+    }
+}
+
+pub(crate) fn draft_editor_visual_lines(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    let mut output = Vec::new();
+    for hard_line in text.split('\n') {
+        let safe = sanitize_terminal_line(hard_line);
+        let mut current = String::new();
+        let mut used = 0_usize;
+        for cluster in safe.graphemes(true) {
+            let cluster_width = draft_editor_cluster_width(cluster);
+            if used > 0 && used.saturating_add(cluster_width) > width {
+                output.push(std::mem::take(&mut current));
+                used = 0;
+            }
+            let displayed = if cluster == "\t" { "  " } else { cluster };
+            if cluster_width > width {
+                output.push(displayed.to_owned());
+            } else {
+                current.push_str(displayed);
+                used = used.saturating_add(cluster_width);
+            }
+        }
+        if !current.is_empty() || used > 0 {
+            output.push(current);
+        } else if safe.is_empty() {
+            output.push(String::new());
+        }
+    }
+    if output.is_empty() {
+        output.push(String::new());
+    }
+    output
 }
 
 #[cfg(test)]

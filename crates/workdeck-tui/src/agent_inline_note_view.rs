@@ -16,11 +16,11 @@ use workdeck_core::{AgentAnnotation, DiffFile, ReviewSide};
 use workdeck_diff::sanitize_terminal_line;
 use workdeck_review::LayoutMode;
 
+use crate::agent_note_geometry::draft_editor_visual_lines;
 use crate::{
     AppTheme, VisibleAgentNoteActions, VisibleAgentNoteThread, agent_note_box_layout,
     annotation_range_label, draft_visual_line_count, file_label, fit_text, inline_note_title,
     measure_text_width, pad_text, ratatui_theme_color, slice_text_by_width, wrap_text,
-    wrap_text_by_width,
 };
 
 /// One semantic control rendered into a note border.
@@ -662,19 +662,7 @@ fn render_bottom_border(
 }
 
 fn draft_text_lines(body: &str, width: usize) -> Vec<String> {
-    let mut result = Vec::new();
-    for logical_line in body.split('\n') {
-        let chunks = wrap_text_by_width(logical_line, width.max(1), None, false);
-        if chunks.is_empty() {
-            result.push(String::new());
-        } else {
-            result.extend(chunks.into_iter().map(|chunk| chunk.text));
-        }
-    }
-    if result.is_empty() {
-        result.push(String::new());
-    }
-    result
+    draft_editor_visual_lines(body, width)
 }
 
 fn stml_theme(theme: &AppTheme) -> workdeck_markup::StmlThemeColors {

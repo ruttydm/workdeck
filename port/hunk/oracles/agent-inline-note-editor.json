@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/components/panes/AgentInlineNote.test.tsx",
+    "baselineBlob": "b62a54b305a1fc40763f78a2d3027acd367af2e5",
+    "baselineSha256": "ad145179880a57e57656e2eb229317d37a8d2e73bbef28c0d7b6b16b7d1d991b",
+    "baselineBytes": 11733,
+    "baselineLines": 365,
+    "stableBlob": "761abdabd25c7fcdbaa6199d6b54e62434548557",
+    "stableSha256": "808f73b49374804cc22e746c15c35f72b056a1be2d9d01cd9a9ec7d17f127079",
+    "stableBytes": 11073,
+    "stableLines": 351
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/agent_inline_note_parity_tests.rs",
+      "sha256": "759fc4d86e377618da316c5217d7f44842f0a2e453ca68d888703c51fed9b77e"
+    },
+    {
+      "path": "crates/workdeck-tui/src/agent_inline_note_view.rs",
+      "sha256": "70b7b7839f08deaeed85e2779368fbb8adec8c698dab174e36636dd1bffd7247"
+    },
+    {
+      "path": "crates/workdeck-tui/src/agent_note_geometry.rs",
+      "sha256": "d3fa9d6adfbf8291679ecbc4cf82ecd21d92c2afec7fb871c8376e1a93a68e72"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "d97bada7354837096eb3601774f3ec11d5bbd2a3c801ef65b66e16dcb430a5ef"
+    }
+  ],
+  "baselineTestOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/components/panes/AgentInlineNote.test.tsx",
+    "passed": 41,
+    "failed": 0,
+    "assertions": 176
+  },
+  "stableTestOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/components/panes/AgentInlineNote.test.tsx",
+    "passed": 40,
+    "failed": 0,
+    "assertions": 170
+  },
+  "rustTestOracle": {
+    "command": "cargo test -p workdeck-tui agent_inline_note_parity_tests --lib",
+    "mappedTests": 41,
+    "passed": 41,
+    "failed": 0
+  },
+  "behaviorCorrections": [
+    "The OpenTUI editor advances a tab by two cells; native measurement and paint now do the same.",
+    "The OpenTUI editor treats bare U+2764 as a two-cell emoji without requiring a variation selector.",
+    "Draft height planning and Ratatui visual-line painting share one editor-compatible grapheme wrapper, preventing hidden rows."
+  ],
+  "sourceCoverage": [
+    [[1, 15], [0, 496], "test runtime imports and frozen GitHub theme setup"],
+    [[16, 28], [496, 1134], "relative-age minute, hour, day, week, and year labels"],
+    [[29, 70], [1134, 3066], "30 named ASCII, whitespace, CJK, combining, emoji, newline, tab, and width-clamp vectors"],
+    [[71, 119], [3066, 4480], "25 editor parity strings executed at widths 24, 25, 40, and 72"],
+    [[120, 176], [4480, 5947], "draft annotation, stateful typing harness, render flush, card-row count, and planned-height helpers"],
+    [[177, 365], [5947, 11733], "long/typed CJK, native-width clusters, hard newlines, bracketed paste, and wide-body card-height scenarios"]
+  ],
+  "testMappings": [
+    ["shortReviewNoteAge > formats compact minute, hour, day, week, and year labels", "agent_inline_note_parity_tests::formats_compact_minute_hour_day_week_and_year_labels"],
+    ["draftVisualLineCount > empty text", "agent_inline_note_parity_tests::empty_text"],
+    ["draftVisualLineCount > short ASCII fits", "agent_inline_note_parity_tests::short_ascii_fits"],
+    ["draftVisualLineCount > ASCII exact fit", "agent_inline_note_parity_tests::ascii_exact_fit"],
+    ["draftVisualLineCount > ASCII one cell over", "agent_inline_note_parity_tests::ascii_one_cell_over"],
+    ["draftVisualLineCount > long unbroken ASCII", "agent_inline_note_parity_tests::long_unbroken_ascii"],
+    ["draftVisualLineCount > word slack packs by cells", "agent_inline_note_parity_tests::word_slack_packs_by_cells"],
+    ["draftVisualLineCount > trailing space counts", "agent_inline_note_parity_tests::trailing_space_counts"],
+    ["draftVisualLineCount > spaces only", "agent_inline_note_parity_tests::spaces_only"],
+    ["draftVisualLineCount > CJK exact fit", "agent_inline_note_parity_tests::cjk_exact_fit"],
+    ["draftVisualLineCount > CJK one cluster over", "agent_inline_note_parity_tests::cjk_one_cluster_over"],
+    ["draftVisualLineCount > long unbroken CJK", "agent_inline_note_parity_tests::long_unbroken_cjk"],
+    ["draftVisualLineCount > wide clusters cannot straddle an odd width", "agent_inline_note_parity_tests::wide_clusters_cannot_straddle_an_odd_width"],
+    ["draftVisualLineCount > CJK punctuation", "agent_inline_note_parity_tests::cjk_punctuation"],
+    ["draftVisualLineCount > combining marks stay attached", "agent_inline_note_parity_tests::combining_marks_stay_attached"],
+    ["draftVisualLineCount > combining mark at the boundary", "agent_inline_note_parity_tests::combining_mark_at_the_boundary"],
+    ["draftVisualLineCount > ZWJ emoji cluster", "agent_inline_note_parity_tests::zwj_emoji_cluster"],
+    ["draftVisualLineCount > mixed ASCII and CJK", "agent_inline_note_parity_tests::mixed_ascii_and_cjk"],
+    ["draftVisualLineCount > emoji run", "agent_inline_note_parity_tests::emoji_run"],
+    ["draftVisualLineCount > mixed emoji", "agent_inline_note_parity_tests::mixed_emoji"],
+    ["draftVisualLineCount > realistic CJK prose", "agent_inline_note_parity_tests::realistic_cjk_prose"],
+    ["draftVisualLineCount > hard newline", "agent_inline_note_parity_tests::hard_newline"],
+    ["draftVisualLineCount > trailing newline", "agent_inline_note_parity_tests::trailing_newline"],
+    ["draftVisualLineCount > empty middle line", "agent_inline_note_parity_tests::empty_middle_line"],
+    ["draftVisualLineCount > newline plus wrap", "agent_inline_note_parity_tests::newline_plus_wrap"],
+    ["draftVisualLineCount > tab is two cells", "agent_inline_note_parity_tests::tab_is_two_cells"],
+    ["draftVisualLineCount > tab fits wider box", "agent_inline_note_parity_tests::tab_fits_wider_box"],
+    ["draftVisualLineCount > tab after content", "agent_inline_note_parity_tests::tab_after_content"],
+    ["draftVisualLineCount > emoji flag with combining mark", "agent_inline_note_parity_tests::emoji_flag_with_combining_mark"],
+    ["draftVisualLineCount > bare heart emoji", "agent_inline_note_parity_tests::bare_heart_emoji"],
+    ["draftVisualLineCount > width clamps to one", "agent_inline_note_parity_tests::width_clamps_to_one"],
+    ["draftVisualLineCount editor parity > matches the real editor wrap count at width 24", "agent_inline_note_parity_tests::matches_the_real_editor_wrap_count_at_width_24"],
+    ["draftVisualLineCount editor parity > matches the real editor wrap count at width 25", "agent_inline_note_parity_tests::matches_the_real_editor_wrap_count_at_width_25"],
+    ["draftVisualLineCount editor parity > matches the real editor wrap count at width 40", "agent_inline_note_parity_tests::matches_the_real_editor_wrap_count_at_width_40"],
+    ["draftVisualLineCount editor parity > matches the real editor wrap count at width 72", "agent_inline_note_parity_tests::matches_the_real_editor_wrap_count_at_width_72"],
+    ["AgentInlineNote draft composer > renders long CJK drafts fully wrapped with nothing scrolled away", "agent_inline_note_parity_tests::renders_long_cjk_drafts_fully_wrapped_with_nothing_scrolled_away"],
+    ["AgentInlineNote draft composer > keeps every typed CJK character visible while the text wraps", "agent_inline_note_parity_tests::keeps_every_typed_cjk_character_visible_while_text_wraps"],
+    ["AgentInlineNote draft composer > renders drafts with clusters that JS width tables mismeasure", "agent_inline_note_parity_tests::renders_drafts_with_clusters_that_js_width_tables_mismeasure"],
+    ["AgentInlineNote draft composer > grows across hard newlines with wide characters before and after", "agent_inline_note_parity_tests::grows_across_hard_newlines_with_wide_characters_before_and_after"],
+    ["AgentInlineNote draft composer > grows to fit a large bracketed paste", "agent_inline_note_parity_tests::grows_to_fit_a_large_bracketed_paste"],
+    ["AgentInlineNote draft composer > rendered card height matches the planned height for wide bodies", "agent_inline_note_parity_tests::rendered_card_height_matches_the_planned_height_for_wide_bodies"]
+  ],
+  "baselineDelta": "The baseline adds the six-assertion shortReviewNoteAge test over v0.20.1; all 40 stable tests and that newer test are present in the 41-test Rust corpus."
+}

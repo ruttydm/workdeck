@@ -1,6 +1,8 @@
 //! Ratatui review canvas.
 
 mod agent_annotations;
+#[cfg(test)]
+mod agent_inline_note_parity_tests;
 mod agent_inline_note_view;
 mod agent_note_geometry;
 mod agent_popover;
