@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/diff/DiffMetaRowView.tsx",
+    "baselineBlob": "a7dbf27eab22b0e7455ce22c34d715a08b074673",
+    "baselineSha256": "274f03b9a015f4894adf5a34df12ab7c736a678f4c70c83b0576b0878814e146",
+    "baselineBytes": 4833,
+    "baselineLines": 154,
+    "stablePresent": false
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/diff_meta_row_view.rs",
+      "sha256": "178fe7a53d9e25031d3919b74e6256f866b62e44e85c8e7d72e9fdfd53dd1fe6"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "aee01b07ffd8a304db0196d3076c21ee99da6f78d9185685b8a1e265dafc713c"
+    }
+  ],
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "method": "render representative rows with OpenTUI testRender and freeze captureSpans",
+    "staticCollapsed": [
+      { "text": "▌", "fg": "#43484e", "bg": "#272b31" },
+      { "text": "··· 12 unchanged lines ···", "fg": "#adaeb1", "bg": "#272b31" },
+      { "text": "     ", "fg": "#ffffff", "bg": "#272b31" }
+    ],
+    "interactiveBadge": [
+      { "text": "▌", "fg": "#878c92", "bg": "#272b31" },
+      { "text": "▾ 12 unchanged lin…", "fg": "#adaeb1", "bg": "#272b31" },
+      { "text": " [+]", "fg": "#e6edf3", "bg": "#1e2329" }
+    ]
+  },
+  "stableOracle": {
+    "sourcePresent": false,
+    "reason": "The pinned stable tree predates the baseline's focused DiffMetaRowView extraction; stable-only behavior remains covered by its owning older renderer and the enumerated stable-fix queue."
+  },
+  "nativeAdaptation": {
+    "rendering": "The OpenTUI boxes become one fully width-filled renderer-neutral line projected directly into Ratatui cells.",
+    "hover": "The row's hover callback becomes PaintedDiffMetaRow.row_key for host hit testing.",
+    "nestedActions": "Gap and add-note mouse handlers become disjoint DiffMetaGapToggleHit and CodeRowAddNoteHit terminal-column ranges, so the host dispatches the nested action before the enclosing row.",
+    "paddingForeground": "OpenTUI reports its framework-default white foreground on background-only trailing spaces. Ratatui retains Color::Reset for those semantically unpainted foreground cells while matching their content, width, and panel-alt background."
+  },
+  "sourceCoverage": [
+    {
+      "lines": [1, 30],
+      "bytes": [0, 1229],
+      "destination": "native metadata-row options plus renderer and nested-hit result vocabulary"
+    },
+    {
+      "lines": [31, 49],
+      "bytes": [1229, 1801],
+      "destination": "all upstream props represented as shell state or returned row, hover, gap, and add-note metadata"
+    },
+    {
+      "lines": [50, 97],
+      "bytes": [1801, 3385],
+      "destination": "static and expandable collapsed labels, separately styled badge, clipped reserved area, and host-owned nested actions"
+    },
+    {
+      "lines": [98, 154],
+      "bytes": [3385, 4833],
+      "destination": "hunk-header visibility, badge geometry, Unicode-safe fitting, selected rail paint, metadata label palette, width fill, and action projection"
+    }
+  ],
+  "executableParityTests": [
+    "diff_meta_row_view::tests::collapsed_label_switches_between_static_ellipsis_and_interactive_chevron",
+    "diff_meta_row_view::tests::static_collapsed_rows_fill_the_width_with_dimmed_rail_and_muted_label",
+    "diff_meta_row_view::tests::expandable_gap_exposes_the_exact_review_gap_hit_without_claiming_the_badge",
+    "diff_meta_row_view::tests::hunk_headers_obey_visibility_and_use_the_neutral_badge_color",
+    "diff_meta_row_view::tests::labels_are_sanitized_truncated_and_clipped_to_narrow_terminal_widths",
+    "diff_meta_row_view::tests::code_and_inline_note_rows_are_not_claimed"
+  ]
+}
