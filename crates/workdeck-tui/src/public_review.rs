@@ -6,7 +6,8 @@
 
 use super::{
     HighlightedDiffRuntime, LineHighlightMap, ReviewOptions, ReviewStreamChrome,
-    build_review_rows_with_chrome, file_header, max_file_header_stats_width, resolve_theme,
+    build_review_rows_with_chrome, diff_section_separator_lines, file_header,
+    max_file_header_stats_width, resolve_theme,
 };
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -368,8 +369,12 @@ pub fn render_workdeck_review_stream(
     let mut map = WorkdeckReviewStreamRenderMap::default();
     for (file_index, file) in files.iter().enumerate() {
         if file_index > 0 && options.show_file_separators && options.file_gap > 0 {
-            lines.extend((1..options.file_gap).map(|_| Line::default()));
-            lines.push(separator_line(area.width, &options.body.theme));
+            let theme = resolve_theme(Some(&options.body.theme), None, &[]);
+            lines.extend(diff_section_separator_lines(
+                usize::from(options.file_gap),
+                usize::from(area.width.saturating_sub(2)),
+                &theme,
+            ));
         }
         if options.show_file_headers {
             map.file_rows.push(WorkdeckFileNavHit {
@@ -690,17 +695,6 @@ pub fn public_file_id(file: &DiffFile) -> &str {
     } else {
         &file.runtime_id
     }
-}
-
-fn separator_line(width: u16, theme: &str) -> Line<'static> {
-    let palette = public_palette(theme);
-    Line::styled(
-        format!(
-            " {}",
-            "─".repeat(usize::from(width.saturating_sub(2).max(1)))
-        ),
-        Style::default().fg(palette.muted).bg(palette.panel),
-    )
 }
 
 #[must_use]

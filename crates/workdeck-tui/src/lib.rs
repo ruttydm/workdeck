@@ -25,6 +25,7 @@ mod diff_rows;
 mod diff_section_body;
 mod diff_section_geometry;
 mod diff_section_row_plan;
+mod diff_section_view;
 mod extension_command_controls;
 mod extension_commands;
 mod extension_current_line;
@@ -111,6 +112,7 @@ pub use diff_rows::*;
 pub use diff_section_body::*;
 pub use diff_section_geometry::*;
 pub use diff_section_row_plan::*;
+pub use diff_section_view::*;
 pub use extension_commands::*;
 pub use extension_current_line::*;
 pub use extension_navigation::*;
@@ -7456,11 +7458,30 @@ fn build_review_rows_with_chrome(
     let mut note_targets = BTreeMap::new();
     let header_stats_width = max_file_header_stats_width(&changeset.files);
     for (file_index, file) in changeset.files.iter().enumerate() {
-        if file_index > 0 {
-            rows.extend((0..options.file_gap).map(|_| Line::default()));
-        }
         file_tops.push(rows.len());
-        if chrome.show_file_headers {
+        let has_file_view = file_view_layouts.contains_key(&file.runtime_id);
+        let section = plan_diff_section(DiffSectionViewOptions {
+            file_id: if file.runtime_id.is_empty() {
+                &file.key
+            } else {
+                &file.runtime_id
+            },
+            has_file_view,
+            // Native file-view geometry is measured immediately before painting.
+            has_section_geometry: has_file_view,
+            separator_width: usize::from(width.saturating_sub(2)),
+            show_header: chrome.show_file_headers,
+            separator_height: if file_index > 0 {
+                usize::from(options.file_gap)
+            } else {
+                0
+            },
+            theme: &options.theme,
+        });
+        if let Some(separator) = section.separator {
+            rows.extend(separator.lines());
+        }
+        if section.show_header {
             file_header_rows.push((file_index, rows.len()));
             rows.push(file_header(
                 file,
@@ -7477,7 +7498,8 @@ fn build_review_rows_with_chrome(
         if options.agent_notes {
             rows.extend(agent_rows(file, layout, usize::from(width)));
         }
-        if let Some(resolved) = file_view_layouts.get(&file.runtime_id)
+        if matches!(section.body, DiffSectionBodyRoute::FileView { .. })
+            && let Some(resolved) = file_view_layouts.get(&file.runtime_id)
             && append_extension_file_view_rows(
                 &mut rows,
                 &mut hunk_tops,
