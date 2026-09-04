@@ -31,7 +31,7 @@
     },
     {
       "path": "crates/workdeck-tui/src/lib.rs",
-      "sha256": "bf1406bed765c2ad2b95c78f5c994976668e6c668bf3a55e9d89a0b22044ea45"
+      "sha256": "013f890f7242fb53282807fa239d9c72bc4a346946f78b6701d041970723647a"
     },
     {
       "path": "crates/workdeck-tui/src/static_diff_pager.rs",

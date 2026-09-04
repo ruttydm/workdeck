@@ -31,6 +31,7 @@ mod file_render_window;
 mod file_section_layout;
 mod file_view_geometry;
 mod help_content;
+mod highlighted_diff_runtime;
 mod hunk_scroll;
 mod ids;
 mod job_control;
@@ -103,6 +104,7 @@ pub use file_render_window::*;
 pub use file_section_layout::*;
 pub use file_view_geometry::*;
 pub use help_content::*;
+pub use highlighted_diff_runtime::*;
 pub use hunk_scroll::*;
 pub use ids::*;
 pub use job_control::*;
@@ -171,9 +173,9 @@ use workdeck_core::{
     ReviewSide, SourceOrigin, StartupNotice,
 };
 use workdeck_diff::{
-    DIFF_RAIL_PREFIX_WIDTH, HighlightCache, HighlightedDiffLine, LanguageMatcher,
-    LanguageRegistration, LanguageRegistry, SyntaxToken, TextSegment, clip_segments,
-    expand_diff_tabs, plan_split_line_pairs, resolve_split_cell_geometry,
+    DIFF_RAIL_PREFIX_WIDTH, HighlightedDiffLine, LanguageMatcher, LanguageRegistration,
+    LanguageRegistry, SyntaxToken, TextSegment, clip_segments, expand_diff_tabs,
+    plan_split_line_pairs, resolve_split_cell_geometry,
     resolve_split_pane_widths as resolve_diff_split_pane_widths, resolve_stack_cell_geometry,
     sanitize_terminal_line, slice_segments_window, word_diff_ranges, wrap_segments,
 };
@@ -727,7 +729,7 @@ pub struct ReviewApp {
     review_file_header_hits: Mutex<Vec<SidebarFileHit>>,
     current_line_row: usize,
     expanded_gaps: BTreeSet<(String, usize)>,
-    highlights: Mutex<HighlightCache>,
+    highlights: Mutex<HighlightedDiffRuntime>,
     themes: ThemeController,
     startup_notices: StartupNoticeQueue,
     extension_toasts: Arc<Mutex<ExtensionNotificationSurface>>,
@@ -871,7 +873,7 @@ impl ReviewApp {
             review_file_header_hits: Mutex::new(Vec::new()),
             current_line_row: 0,
             expanded_gaps: BTreeSet::new(),
-            highlights: Mutex::new(HighlightCache::default()),
+            highlights: Mutex::new(HighlightedDiffRuntime::default()),
             themes,
             startup_notices,
             extension_toasts,
@@ -7303,7 +7305,7 @@ fn build_review_rows(
     layout: LayoutMode,
     options: &ReviewOptions,
     width: u16,
-    highlight_cache: &mut HighlightCache,
+    highlight_cache: &mut HighlightedDiffRuntime,
     expanded_gaps: &BTreeSet<(String, usize)>,
 ) -> ReviewRows {
     let line_highlights = LineHighlightMap::default();
@@ -7332,7 +7334,7 @@ fn build_live_review_rows(
     layout: LayoutMode,
     options: &ReviewOptions,
     width: u16,
-    highlight_cache: &mut HighlightCache,
+    highlight_cache: &mut HighlightedDiffRuntime,
     expanded_gaps: &BTreeSet<(String, usize)>,
     line_highlights: &LineHighlightMap,
     file_view_layouts: &BTreeMap<String, ValidatedFileViewLayout>,
@@ -7363,7 +7365,7 @@ fn build_review_rows_with_chrome(
     layout: LayoutMode,
     options: &ReviewOptions,
     width: u16,
-    highlight_cache: &mut HighlightCache,
+    highlight_cache: &mut HighlightedDiffRuntime,
     expanded_gaps: &BTreeSet<(String, usize)>,
     line_highlights: &LineHighlightMap,
     chrome: ReviewStreamChrome,
@@ -7418,27 +7420,10 @@ fn build_review_rows_with_chrome(
             continue;
         }
         let highlighted = if options.highlight {
-            let appearance = match options.theme.appearance {
-                ThemeAppearance::Light => workdeck_diff::HighlightAppearance::Light,
-                ThemeAppearance::Dark => workdeck_diff::HighlightAppearance::Dark,
-            };
-            if live {
-                highlight_cache
-                    .highlight_with_syntax_theme_live(
-                        file,
-                        appearance,
-                        options.theme.syntax_theme.as_deref(),
-                        &options.theme.syntax_scope_overrides,
-                    )
-                    .unwrap_or_default()
-            } else {
-                highlight_cache.highlight_with_syntax_theme(
-                    file,
-                    appearance,
-                    options.theme.syntax_theme.as_deref(),
-                    &options.theme.syntax_scope_overrides,
-                )
-            }
+            highlight_cache
+                .prefetch_highlighted_diff(file, &options.theme, live)
+                .map(|highlighted| highlighted.highlighted)
+                .unwrap_or_default()
         } else {
             Vec::new()
         };
@@ -9982,7 +9967,7 @@ mod tests {
     #[test]
     fn explicit_row_plan_wraps_unicode_and_keeps_nowrap_to_one_physical_row() {
         let changeset = long_changeset();
-        let mut highlights = HighlightCache::default();
+        let mut highlights = HighlightedDiffRuntime::default();
         let nowrap = build_review_rows(
             &changeset,
             &[],
@@ -10025,7 +10010,7 @@ mod tests {
     #[test]
     fn split_row_plan_wraps_each_pane_and_preserves_the_divider_geometry() {
         let changeset = long_changeset();
-        let mut highlights = HighlightCache::default();
+        let mut highlights = HighlightedDiffRuntime::default();
         let rows = build_review_rows(
             &changeset,
             &[],
@@ -10101,7 +10086,7 @@ mod tests {
             highlight: false,
             ..ReviewOptions::default()
         };
-        let mut highlights = HighlightCache::default();
+        let mut highlights = HighlightedDiffRuntime::default();
 
         let collapsed = build_review_rows(
             &changeset,
@@ -10232,7 +10217,7 @@ mod tests {
                 false,
             )),
         });
-        let mut highlights = HighlightCache::default();
+        let mut highlights = HighlightedDiffRuntime::default();
         let rows = build_review_rows(
             &changeset,
             &[],
@@ -10310,7 +10295,7 @@ mod tests {
             line_numbers: false,
             ..ReviewOptions::default()
         };
-        let mut highlights = HighlightCache::default();
+        let mut highlights = HighlightedDiffRuntime::default();
         let rows = build_review_rows(
             &changeset,
             &[],
@@ -10346,7 +10331,7 @@ mod tests {
             ChangesetSource::WorkingTree { staged: false },
         )
         .unwrap();
-        let mut highlights = HighlightCache::default();
+        let mut highlights = HighlightedDiffRuntime::default();
         for layout in [LayoutMode::Stack, LayoutMode::Split] {
             let rows = build_review_rows(
                 &changeset,
@@ -10513,7 +10498,7 @@ mod tests {
         };
 
         for layout in [LayoutMode::Stack, LayoutMode::Split] {
-            let mut syntax = HighlightCache::default();
+            let mut syntax = HighlightedDiffRuntime::default();
             let rows = build_review_rows_with_chrome(
                 &changeset,
                 &[],

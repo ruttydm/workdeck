@@ -5,8 +5,8 @@
 //! scrolling policy, or key bindings.
 
 use super::{
-    LineHighlightMap, ReviewOptions, ReviewStreamChrome, build_review_rows_with_chrome,
-    file_header, max_file_header_stats_width, resolve_theme,
+    HighlightedDiffRuntime, LineHighlightMap, ReviewOptions, ReviewStreamChrome,
+    build_review_rows_with_chrome, file_header, max_file_header_stats_width, resolve_theme,
 };
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -20,8 +20,8 @@ use workdeck_core::{
     DiffFile, FileChangeKind, FileStats, ReviewSelection,
 };
 use workdeck_diff::{
-    HighlightCache, PatchError, VisibleBodyBounds, find_max_line_number, format_terminal_path,
-    normalize_diff_path, parse_patch, resolve_visible_row_index_window, unit_row_bounds,
+    PatchError, VisibleBodyBounds, find_max_line_number, format_terminal_path, normalize_diff_path,
+    parse_patch, resolve_visible_row_index_window, unit_row_bounds,
 };
 use workdeck_review::LayoutMode;
 
@@ -610,7 +610,7 @@ fn workdeck_diff_body_rows(
         theme: resolve_theme(Some(&options.theme), None, &[]),
         ..ReviewOptions::default()
     };
-    let mut highlights = HighlightCache::default();
+    let mut highlights = HighlightedDiffRuntime::default();
     let line_highlights = LineHighlightMap::default();
     let rows = build_review_rows_with_chrome(
         &changeset,

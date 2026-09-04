@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/diff/useHighlightedDiff.ts",
+    "baselineBlob": "bd5fe41a9598323dee30a5405c50bd17e3499ec5",
+    "baselineSha256": "139a5d3a18dac4009e9f9dc399794f5aa392051b98bbe6563858f8eb00d577b4",
+    "baselineBytes": 7454,
+    "baselineLines": 229,
+    "stableBlob": "bd5fe41a9598323dee30a5405c50bd17e3499ec5",
+    "stableSha256": "139a5d3a18dac4009e9f9dc399794f5aa392051b98bbe6563858f8eb00d577b4",
+    "stableBytes": 7454,
+    "stableLines": 229
+  },
+  "test": {
+    "path": "src/ui/diff/useHighlightedDiff.test.ts",
+    "baselineBlob": "3a9e0bdb5703c663f78619f9cf18ca4f77e7c9ad",
+    "baselineSha256": "a45e4e86c7221fc2f75dfd2be983b67e3932b1aa868293b2faff587af5d39609",
+    "baselineBytes": 7334,
+    "baselineLines": 187,
+    "stableBlob": "3a9e0bdb5703c663f78619f9cf18ca4f77e7c9ad",
+    "stableSha256": "a45e4e86c7221fc2f75dfd2be983b67e3932b1aa868293b2faff587af5d39609",
+    "stableBytes": 7334,
+    "stableLines": 187
+  },
+  "destinations": [
+    { "path": "crates/workdeck-tui/src/highlighted_diff_runtime.rs", "sha256": "a18e7d7047db32e644413d6fa19abe2d92f078bbc02d9a0f2b5a18604ba2665f" },
+    { "path": "crates/workdeck-tui/src/lib.rs", "sha256": "013f890f7242fb53282807fa239d9c72bc4a346946f78b6701d041970723647a" },
+    { "path": "crates/workdeck-tui/src/public_review.rs", "sha256": "7f683180cd5d17b04cc3c286a80e76419abf9809e580c6b86e227a6021171d7b" },
+    { "path": "crates/workdeck-diff/src/syntax.rs", "sha256": "bf264a9f1226d24019028451140730f2e20d81553a0cd2b2f30a309e27c9560d" },
+    { "path": "crates/workdeck-diff/src/highlighted_diff_cache.rs", "sha256": "f313442de50fb499c09dee002cf0fd98736c0ba4aa2c5e160864ef4b5634adc0" },
+    { "path": "crates/workdeck-diff/src/highlight_worker.rs", "sha256": "c966c904aa5ddb01e00099d631454b73da64ca95773d39b6287620c8570651d4" },
+    { "path": "port/hunk/stable-fixes.jsonl", "sha256": "453bb70690802643aef5edc821fee1649132541a8793e017a543b7d714f072a1" }
+  ],
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/diff/useHighlightedDiff.test.ts",
+    "passed": 5,
+    "failed": 0,
+    "expectations": 20
+  },
+  "stableOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/diff/useHighlightedDiff.test.ts",
+    "passed": 5,
+    "failed": 0,
+    "expectations": 20,
+    "relationship": "Both pinned trees contain byte-identical final files. Main commit 129ad5b2 and stable-only commit 29f18c8e independently carry the complete-content highlight-cache collision fix."
+  },
+  "baselineCacheKeyVectors": {
+    "first": "github-dark-default:github-dark-default:adversarial-patch-cache:typescript:e26f0da38cbc67dfc330e6738c8fad1a41b4578f621646f5ef2a6b42743e0ba1:patch-only",
+    "patchChanged": "github-dark-default:github-dark-default:adversarial-patch-cache:typescript:b8380bcac6808124fa7f51f6b925dee68bd3c449ff1db34dc1345d4f96a9e6d8:patch-only",
+    "versioned": "github-dark-default:github-dark-default:cache:typescript:0a35791ba945fe8171a59b67bcbb867823a5e589459400c9c7d21135112e036a:source-cache:10:snapshot-1",
+    "versionedEquivalent": "github-dark-default:github-dark-default:cache:typescript:0a35791ba945fe8171a59b67bcbb867823a5e589459400c9c7d21135112e036a:source-cache:10:snapshot-1",
+    "versionedChanged": "github-dark-default:github-dark-default:cache:typescript:0a35791ba945fe8171a59b67bcbb867823a5e589459400c9c7d21135112e036a:source-cache:10:snapshot-2"
+  },
+  "nativeAdaptation": {
+    "sourceProviders": "Workdeck embeds content-addressed source snapshots. The explicit Versioned and Unversioned identities preserve Hunk's cacheKey and object-identity semantics at provider boundaries.",
+    "worker": "The native syntect worker is polled by cache key. Coordinator request IDs provide the same stale-completion and retryable-result exclusion as Hunk's shared Promise map.",
+    "runtime": "No React or JavaScript runtime is used; committed snapshots and prefetch are explicit Rust state transitions."
+  },
+  "sourceCoverage": [
+    { "lines": [1, 18], "bytes": [0, 904], "destination": "shared cache, in-flight request, content, and provider identity state" },
+    { "lines": [19, 42], "bytes": [904, 1786], "destination": "complete patch and metadata SHA-256 fingerprint" },
+    { "lines": [43, 62], "bytes": [1786, 2396], "destination": "patch-only, versioned, and unversioned source-provider identity" },
+    { "lines": [63, 72], "bytes": [2396, 2917], "destination": "theme, language, file, content, and source cache key" },
+    { "lines": [73, 89], "bytes": [2917, 3380], "destination": "active-request validation and retryable cache exclusion" },
+    { "lines": [90, 128], "bytes": [3380, 4621], "destination": "cache read, in-flight deduplication, worker request, fallback, and completion" },
+    { "lines": [129, 141], "bytes": [4621, 4956], "destination": "viewport prefetch entrypoint" },
+    { "lines": [142, 164], "bytes": [4956, 5626], "destination": "side-effect-free committed snapshot selection" },
+    { "lines": [165, 229], "bytes": [5626, 7454], "destination": "file/theme lifecycle, opt-in loading, cancellation-safe commit, and immediate cached paint" }
+  ],
+  "testCoverage": [
+    { "lines": [1, 47], "bytes": [0, 1884], "destination": "large-file, adversarial-patch, sampled-collision, and failing-worker fixtures" },
+    { "lines": [48, 88], "bytes": [1884, 3616], "destination": "full patch fingerprint and non-stale rendered content" },
+    { "lines": [89, 115], "bytes": [3616, 4682], "destination": "unversioned partial-source instance identity" },
+    { "lines": [116, 135], "bytes": [4682, 5382], "destination": "inline default and explicit worker offload" },
+    { "lines": [136, 152], "bytes": [5382, 6227], "destination": "retryable worker fallback cache exclusion" },
+    { "lines": [153, 187], "bytes": [6227, 7334], "destination": "equivalent and changed versioned source providers" }
+  ],
+  "testMapping": [
+    { "sourceTest": "does not reuse stale highlighted text for patches that collide under sampling", "rustTest": "highlighted_diff_runtime::tests::does_not_reuse_stale_highlights_for_full_patch_sampling_collisions" },
+    { "sourceTest": "invalidates source-backed partial highlights when an unversioned provider changes", "rustTest": "highlighted_diff_runtime::tests::unversioned_partial_source_providers_have_instance_identity" },
+    { "sourceTest": "keeps inline highlighting as the default and offloads only when requested", "rustTest": "highlighted_diff_runtime::tests::inline_is_default_and_worker_offload_requires_explicit_request" },
+    { "sourceTest": "does not cache retryable worker failures", "rustTest": "highlighted_diff_runtime::tests::retryable_and_stale_completions_never_poison_shared_cache" },
+    { "sourceTest": "reuses source-backed highlights for equivalent versioned providers", "rustTest": "highlighted_diff_runtime::tests::equivalent_versioned_sources_reuse_keys_and_changed_versions_do_not" }
+  ]
+}

@@ -27,7 +27,7 @@
   "destinations": [
     {"path":"crates/workdeck-tui/src/review_row_geometry.rs","sha256":"1b1032228a53c10d6285c5328b4ba1a9e9bf6b9b95075a3eb89a660526466b62"},
     {"path":"crates/workdeck-tui/src/planned_review_row.rs","sha256":"2a54a3615c1b2b360a99264e77a424fbad60a837d46ed56d4efa68106607ed4e"},
-    {"path":"crates/workdeck-tui/src/lib.rs","sha256":"bf1406bed765c2ad2b95c78f5c994976668e6c668bf3a55e9d89a0b22044ea45"}
+    {"path":"crates/workdeck-tui/src/lib.rs","sha256":"013f890f7242fb53282807fa239d9c72bc4a346946f78b6701d041970723647a"}
   ],
   "baselineOracle": {
     "runtime":"bun 1.3.5",
