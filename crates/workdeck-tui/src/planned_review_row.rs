@@ -40,6 +40,24 @@ pub enum PlannedReviewRow {
 
 impl PlannedReviewRow {
     #[must_use]
+    pub fn key(&self) -> &str {
+        match self {
+            Self::DiffRow { key, .. }
+            | Self::InlineNote { key, .. }
+            | Self::HunkGap { key, .. } => key,
+        }
+    }
+
+    #[must_use]
+    pub const fn hunk_index(&self) -> usize {
+        match self {
+            Self::DiffRow { hunk_index, .. }
+            | Self::InlineNote { hunk_index, .. }
+            | Self::HunkGap { hunk_index, .. } => *hunk_index,
+        }
+    }
+
+    #[must_use]
     pub fn diff_row(&self) -> Option<&DiffRow> {
         match self {
             Self::DiffRow { row, .. } => Some(row),

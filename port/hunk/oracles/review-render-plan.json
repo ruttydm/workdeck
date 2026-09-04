@@ -31,11 +31,11 @@
     },
     {
       "path": "crates/workdeck-tui/src/planned_review_row.rs",
-      "sha256": "abcd77a0bed803aa1b481d434ea4c19b8fba18d8fc0ab2b7f923ac95f23c261a"
+      "sha256": "2a54a3615c1b2b360a99264e77a424fbad60a837d46ed56d4efa68106607ed4e"
     },
     {
       "path": "crates/workdeck-tui/src/lib.rs",
-      "sha256": "2ae0f0d48fab499f669f85bf8c6eae484427b13b58918ce16397e75b4f11596b"
+      "sha256": "c355ec5e648febce9405e263f7d3759d8b7dc32a94bbe151e65134587255789e"
     }
   ],
   "baselineOracle": {
