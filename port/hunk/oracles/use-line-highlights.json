@@ -1,0 +1,183 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/highlights/useLineHighlights.ts",
+    "baselineBlob": "5488cdaae5ccfd72e980deb6c5cadd90441a3024",
+    "baselineSha256": "3f2c395b4aa294124f17fb0cbe6c262de6bf65c2eb46c2701bbaab4bc2798803",
+    "baselineBytes": 16054,
+    "baselineLines": 421,
+    "stableBlob": "5488cdaae5ccfd72e980deb6c5cadd90441a3024",
+    "stableSha256": "3f2c395b4aa294124f17fb0cbe6c262de6bf65c2eb46c2701bbaab4bc2798803",
+    "stableBytes": 16054,
+    "stableLines": 421
+  },
+  "test": {
+    "path": "src/ui/highlights/useLineHighlights.test.tsx",
+    "baselineBlob": "ae1fd241351dbbd00d3bd1ba0b0088b43d774baa",
+    "baselineSha256": "4dc3d207578c1e8c327b980fd1b620353eaa95a28dda8214f560b1d97e740020",
+    "baselineBytes": 15852,
+    "baselineLines": 488,
+    "stableBlob": "ae1fd241351dbbd00d3bd1ba0b0088b43d774baa",
+    "stableSha256": "4dc3d207578c1e8c327b980fd1b620353eaa95a28dda8214f560b1d97e740020",
+    "stableBytes": 15852,
+    "stableLines": 488
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/line_highlights.rs",
+      "sha256": "a1bb3a5dc520f6e3c29a717f14998d941f13f51e1ad7289986341ec99f0cf063"
+    },
+    {
+      "path": "crates/workdeck-extension-host/src/lib.rs",
+      "sha256": "bcbb5572fb9eb09ffc0a51d1adcd3910b8921661fa4815484ca18ff69d3e9262"
+    },
+    {
+      "path": "crates/workdeck-extension-api/src/file_views.rs",
+      "sha256": "63a4e518121f9b5dd51c4d3ec5b26c3849f755ae41faf6937ed5fdb1482097d4"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "8915263853a99541c5ed6a15c0f381c00c94f6a19fb7337a2a545e8f5ca0f82f"
+    },
+    {
+      "path": "examples/extensions/line-highlighter/extension.rs",
+      "sha256": "4c791860a9bfffd9a0ab03e76d73add8a1e5fbca5cb46d5d4d970744cc178097"
+    },
+    {
+      "path": "examples/tests/line_highlighter.rs",
+      "sha256": "827e2dd13217274799e3e33eae71dddb53378bf9ca91bd21ce5dcbe0b57210af"
+    }
+  ],
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/highlights/useLineHighlights.test.tsx",
+    "passed": 11,
+    "failed": 0,
+    "expectations": 28
+  },
+  "stableOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/highlights/useLineHighlights.test.tsx",
+    "passed": 11,
+    "failed": 0,
+    "expectations": 28,
+    "relationship": "The source and test blobs are byte-identical at both pinned baselines; none of the five stable-only commits modifies either file."
+  },
+  "sourceCoverage": [
+    {
+      "lines": [1, 24],
+      "bytes": [0, 1222],
+      "destination": "native timeout, four-request concurrency, bounded-warning, and empty-state constants"
+    },
+    {
+      "lines": [25, 92],
+      "bytes": [1222, 3480],
+      "destination": "content-addressed task/cache entries, merged identities, active-result retention, and epoch variants"
+    },
+    {
+      "lines": [93, 149],
+      "bytes": [3480, 5384],
+      "destination": "cancellable JSON-RPC request lifetime, frozen documents, deadline, and late-response isolation"
+    },
+    {
+      "lines": [150, 214],
+      "bytes": [5384, 8020],
+      "destination": "host-neutral background preparation controller, generation pruning, and stale-task cancellation"
+    },
+    {
+      "lines": [215, 269],
+      "bytes": [8020, 9944],
+      "destination": "per-file publication, outer and inner identity reuse, and bounded warning deduplication"
+    },
+    {
+      "lines": [270, 376],
+      "bytes": [9944, 14461],
+      "destination": "binary and size skips, cache hits, validation containment, ordered merge, and aggregate cap"
+    },
+    {
+      "lines": [377, 403],
+      "bytes": [14461, 15295],
+      "destination": "bounded background scheduling, retry semantics, and cooperative supersession"
+    },
+    {
+      "lines": [404, 421],
+      "bytes": [15295, 16054],
+      "destination": "current-generation resolution filter and live ReviewApp Ratatui integration"
+    }
+  ],
+  "testCoverage": [
+    {
+      "lines": [1, 34],
+      "bytes": [0, 1223],
+      "destination": "native runtime, file, registration, mark, and changeset fixtures"
+    },
+    {
+      "lines": [35, 62],
+      "bytes": [1223, 2106],
+      "destination": "compiled subprocess success cleanup, exact 1.5-second timeout, and prompt cancellation tests"
+    },
+    {
+      "lines": [63, 111],
+      "bytes": [2106, 3639],
+      "destination": "validated per-file cache and stable map/mark identity test"
+    },
+    {
+      "lines": [112, 168],
+      "bytes": [3639, 5545],
+      "destination": "file-scoped epoch invalidation with untouched mark identity test"
+    },
+    {
+      "lines": [169, 222],
+      "bytes": [5545, 7276],
+      "destination": "one failing contributor containment and warning dedupe test"
+    },
+    {
+      "lines": [223, 277],
+      "bytes": [7276, 8969],
+      "destination": "whole-result per-highlighter cap rejection test"
+    },
+    {
+      "lines": [278, 346],
+      "bytes": [8969, 11228],
+      "destination": "quick-file publication and reload stale-mark suppression tests"
+    },
+    {
+      "lines": [347, 405],
+      "bytes": [11228, 13274],
+      "destination": "exact 600-file retention and single-file refresh regression test"
+    },
+    {
+      "lines": [406, 454],
+      "bytes": [13274, 14880],
+      "destination": "registration-ordered 4,000-range merged cap test"
+    },
+    {
+      "lines": [455, 488],
+      "bytes": [14880, 15852],
+      "destination": "binary, oversized, and hunkless skip test"
+    }
+  ],
+  "nativeValidation": [
+    {
+      "command": "cargo test -p workdeck-tui line_highlights -- --nocapture",
+      "passed": 16,
+      "failed": 0,
+      "translatedHookTests": 9,
+      "liveCellBufferTests": 1,
+      "supportTests": 6
+    },
+    {
+      "command": "cargo test -p workdeck-examples --test line_highlighter -- --nocapture",
+      "passed": 4,
+      "failed": 0,
+      "coverage": "compiled protocol, frozen snapshots, success cleanup, timeout, cancellation, and live Ratatui cell paint"
+    },
+    {
+      "command": "cargo test -p workdeck-extension-api line_highlight_request_round_trips_frozen_documents",
+      "passed": 1,
+      "failed": 0
+    }
+  ]
+}

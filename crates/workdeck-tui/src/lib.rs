@@ -460,6 +460,7 @@ struct ExtensionPaneRuntime {
     keyboard_modes: Vec<LiveKeyboardModeRegistration>,
     file_views: Vec<LiveFileViewRegistration>,
     line_highlights: LineHighlightsController,
+    line_highlight_preparation: LineHighlightPreparationController,
     file_languages: Vec<LanguageRegistration>,
     file_view_selections: FileViewSelectionState,
     file_view_layouts: BTreeMap<String, CachedFileViewLayout>,
@@ -567,6 +568,7 @@ impl ExtensionPaneRuntime {
                     }),
                     Registration::LineHighlighter { id } => {
                         line_highlighters.push(RegisteredLineHighlighter {
+                            extension_index,
                             extension_id: extension.manifest.id.clone(),
                             highlighter_id: id.clone(),
                         });
@@ -4381,6 +4383,28 @@ impl ReviewApp {
         prepared
     }
 
+    fn prepare_extension_line_highlights(&self, changeset: &Changeset) -> LineHighlightMap {
+        let mut runtime = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let extensions = runtime
+            .extensions
+            .iter()
+            .cloned()
+            .map(|extension| Arc::new(extension) as Arc<dyn LineHighlightRuntime>)
+            .collect::<Vec<_>>();
+        let registrations = runtime.line_highlights.registrations().to_vec();
+        let epochs = runtime.line_highlights.epochs().clone();
+        runtime.line_highlight_preparation.reconcile(
+            &extensions,
+            &registrations,
+            &epochs,
+            &changeset.files,
+        );
+        runtime.line_highlight_preparation.resolved().clone()
+    }
+
     /// Expose ephemeral component paint state for executable extension parity tests.
     #[must_use]
     pub fn extension_file_view_component_expanded(&self, file_id: &str, row_id: &str) -> bool {
@@ -4546,6 +4570,7 @@ impl ReviewApp {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .file_view_component_expanded
             .clone();
+        let line_highlights = self.prepare_extension_line_highlights(state.changeset());
         let mut highlights = self
             .highlights
             .lock()
@@ -4559,6 +4584,7 @@ impl ReviewApp {
             width,
             &mut highlights,
             &self.expanded_gaps,
+            &line_highlights,
             &file_view_layouts,
             &component_expanded,
         )
@@ -4703,6 +4729,7 @@ impl ReviewApp {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .file_view_component_expanded
             .clone();
+        let line_highlights = self.prepare_extension_line_highlights(state.changeset());
         let mut highlights = self
             .highlights
             .lock()
@@ -4716,6 +4743,7 @@ impl ReviewApp {
             width,
             &mut highlights,
             &self.expanded_gaps,
+            &line_highlights,
             &file_view_layouts,
             &component_expanded,
         );
@@ -7069,6 +7097,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .file_view_component_expanded
         .clone();
+    let line_highlights = app.prepare_extension_line_highlights(state.changeset());
     let mut highlights = app
         .highlights
         .lock()
@@ -7082,6 +7111,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         area.width,
         &mut highlights,
         &app.expanded_gaps,
+        &line_highlights,
         &file_view_layouts,
         &component_expanded,
     );
@@ -7247,6 +7277,7 @@ fn build_review_rows(
     highlight_cache: &mut HighlightCache,
     expanded_gaps: &BTreeSet<(String, usize)>,
 ) -> ReviewRows {
+    let line_highlights = LineHighlightMap::default();
     build_review_rows_with_chrome(
         changeset,
         comments,
@@ -7256,6 +7287,7 @@ fn build_review_rows(
         width,
         highlight_cache,
         expanded_gaps,
+        &line_highlights,
         ReviewStreamChrome::default(),
         false,
         &BTreeMap::new(),
@@ -7273,6 +7305,7 @@ fn build_live_review_rows(
     width: u16,
     highlight_cache: &mut HighlightCache,
     expanded_gaps: &BTreeSet<(String, usize)>,
+    line_highlights: &LineHighlightMap,
     file_view_layouts: &BTreeMap<String, ValidatedFileViewLayout>,
     component_expanded: &BTreeSet<FileViewComponentStateKey>,
 ) -> ReviewRows {
@@ -7285,6 +7318,7 @@ fn build_live_review_rows(
         width,
         highlight_cache,
         expanded_gaps,
+        line_highlights,
         ReviewStreamChrome::default(),
         true,
         file_view_layouts,
@@ -7302,6 +7336,7 @@ fn build_review_rows_with_chrome(
     width: u16,
     highlight_cache: &mut HighlightCache,
     expanded_gaps: &BTreeSet<(String, usize)>,
+    line_highlights: &LineHighlightMap,
     chrome: ReviewStreamChrome,
     live: bool,
     file_view_layouts: &BTreeMap<String, ValidatedFileViewLayout>,
@@ -7384,6 +7419,14 @@ fn build_review_rows_with_chrome(
             ReviewSide::Old => file.sources.old.as_ref(),
             ReviewSide::New => file.sources.new.as_ref(),
         };
+        let line_highlight_paint = line_highlights.get(&file.runtime_id).and_then(|marks| {
+            build_line_highlight_paint_index(
+                file,
+                marks,
+                options.tab_width,
+                selected_source.map(|source| source.content.as_str()),
+            )
+        });
         let expanded_source = expanded_gaps
             .iter()
             .any(|(file_key, _)| file_key == &file.key)
@@ -7455,6 +7498,7 @@ fn build_review_rows_with_chrome(
                     width,
                     expanded_gaps,
                     highlighted_source.as_ref(),
+                    line_highlight_paint.as_ref(),
                 ));
             }
             if hunk_index > 0 {
@@ -7488,6 +7532,7 @@ fn build_review_rows_with_chrome(
                     comments,
                     file_selection,
                     selected_hunk,
+                    line_highlight_paint.as_ref(),
                 ),
                 LayoutMode::Stack | LayoutMode::Auto => stack_hunk_rows(
                     file,
@@ -7500,6 +7545,7 @@ fn build_review_rows_with_chrome(
                     width,
                     file_selection,
                     selected_hunk,
+                    line_highlight_paint.as_ref(),
                 ),
             };
             let row_start = rows.len();
@@ -7524,6 +7570,7 @@ fn build_review_rows_with_chrome(
                 width,
                 expanded_gaps,
                 highlighted_source.as_ref(),
+                line_highlight_paint.as_ref(),
             ));
         }
     }
@@ -7931,6 +7978,7 @@ fn source_gap_rows(
     width: u16,
     expanded_gaps: &BTreeSet<(String, usize)>,
     highlighted_source: Option<&workdeck_diff::HighlightedSourceCode>,
+    line_highlights: Option<&LineHighlightPaintIndex>,
 ) -> Vec<Line<'static>> {
     let side = review_expansion_side(file.change_kind);
     let source = match side {
@@ -7966,6 +8014,7 @@ fn source_gap_rows(
                 &[],
                 false,
                 width,
+                line_highlight_ranges(line_highlights, &line),
             )),
             LayoutMode::Split => {
                 let available = usize::from(width.saturating_sub(1));
@@ -7976,11 +8025,13 @@ fn source_gap_rows(
                         line: Some(&line),
                         highlighted: highlighted.as_ref(),
                         emphasis: &[],
+                        line_highlights: line_highlight_ranges(line_highlights, &line),
                     },
                     SplitCellInput {
                         line: Some(&line),
                         highlighted: highlighted.as_ref(),
                         emphasis: &[],
+                        line_highlights: line_highlight_ranges(line_highlights, &line),
                     },
                     options,
                     left_width,
@@ -8146,6 +8197,7 @@ fn stack_hunk_rows(
     width: u16,
     selection: ReviewSelection,
     hunk_selected: bool,
+    line_highlights: Option<&LineHighlightPaintIndex>,
 ) -> TargetedHunkRows {
     let mut rows = Vec::new();
     let mut targets = Vec::new();
@@ -8174,6 +8226,7 @@ fn stack_hunk_rows(
             &emphasis[index],
             hunk_selected || line_is_selected(line, selection),
             width,
+            line_highlight_ranges(line_highlights, line),
         );
         let target = diff_line_note_target(file_index, hunk_index, line);
         targets.extend(std::iter::repeat_n(Some(target), line_rows.len()));
@@ -8195,9 +8248,11 @@ fn stack_line_rows(
     emphasis: &[Range<usize>],
     selected: bool,
     width: u16,
+    line_highlights: Option<&LineHighlightRangeList>,
 ) -> Vec<Line<'static>> {
     let (marker, fg, default_bg) = line_style(line.kind, &options.theme);
     let bg = moved_line_background(line, &options.theme).unwrap_or(default_bg);
+    let base_background = line_background_value(line, selected, options);
     let row_bg = if selected && options.cursor_line == CursorLineMode::Row {
         ratatui_theme_color(&options.theme.selected_hunk)
     } else {
@@ -8260,6 +8315,14 @@ fn stack_line_rows(
         emphasis,
         emphasis_background(line.kind, &options.theme),
     );
+    if let Some(line_highlights) = line_highlights {
+        code = apply_prepared_line_highlights_to_ratatui_spans(
+            code,
+            line_highlights,
+            base_background,
+            &options.theme,
+        );
+    }
     let digits = options.line_number_digits.unwrap_or(4).max(1);
     let geometry = resolve_stack_cell_geometry(
         usize::from(width),
@@ -8315,6 +8378,7 @@ fn split_hunk_rows(
     comments: &[ReviewComment],
     selection: ReviewSelection,
     hunk_selected: bool,
+    line_highlights: Option<&LineHighlightPaintIndex>,
 ) -> TargetedHunkRows {
     let mut rows = Vec::new();
     let mut targets = Vec::new();
@@ -8341,6 +8405,7 @@ fn split_hunk_rows(
                     .and_then(|index| highlighted.and_then(|lines| lines.get(index)))
                     .and_then(|line| line.deletion.as_ref()),
                 emphasis: emphasis.as_ref().map_or(&[], |ranges| &ranges.old),
+                line_highlights: old.and_then(|line| line_highlight_ranges(line_highlights, line)),
             },
             SplitCellInput {
                 line: new,
@@ -8349,6 +8414,7 @@ fn split_hunk_rows(
                     .and_then(|index| highlighted.and_then(|lines| lines.get(index)))
                     .and_then(|line| line.addition.as_ref()),
                 emphasis: emphasis.as_ref().map_or(&[], |ranges| &ranges.new),
+                line_highlights: new.and_then(|line| line_highlight_ranges(line_highlights, line)),
             },
             options,
             left_width,
@@ -8495,6 +8561,7 @@ struct SplitCellInput<'a> {
     line: Option<&'a DiffLine>,
     highlighted: Option<&'a Vec<SyntaxToken>>,
     emphasis: &'a [Range<usize>],
+    line_highlights: Option<&'a LineHighlightRangeList>,
 }
 
 fn split_pair_rows(
@@ -8505,24 +8572,8 @@ fn split_pair_rows(
     right_width: usize,
     selected: bool,
 ) -> Vec<Line<'static>> {
-    let mut old_lines = split_cell_lines(
-        old.line,
-        true,
-        options,
-        left_width,
-        old.highlighted,
-        old.emphasis,
-        selected,
-    );
-    let mut new_lines = split_cell_lines(
-        new.line,
-        false,
-        options,
-        right_width,
-        new.highlighted,
-        new.emphasis,
-        selected,
-    );
+    let mut old_lines = split_cell_lines(old, true, options, left_width, selected);
+    let mut new_lines = split_cell_lines(new, false, options, right_width, selected);
     let height = old_lines.len().max(new_lines.len()).max(1);
     old_lines.resize_with(height, || vec![Span::raw(" ".repeat(left_width))]);
     new_lines.resize_with(height, || vec![Span::raw(" ".repeat(right_width))]);
@@ -8537,15 +8588,13 @@ fn split_pair_rows(
 }
 
 fn split_cell_lines(
-    line: Option<&DiffLine>,
+    input: SplitCellInput<'_>,
     old: bool,
     options: &ReviewOptions,
     width: usize,
-    highlighted: Option<&Vec<SyntaxToken>>,
-    emphasis: &[Range<usize>],
     selected: bool,
 ) -> Vec<Vec<Span<'static>>> {
-    let Some(line) = line else {
+    let Some(line) = input.line else {
         return vec![vec![
             Span::styled(
                 "▌",
@@ -8556,6 +8605,7 @@ fn split_cell_lines(
     };
     let (marker, fg, default_bg) = line_style(line.kind, &options.theme);
     let bg = moved_line_background(line, &options.theme).unwrap_or(default_bg);
+    let base_background = line_background_value(line, selected, options);
     let row_bg = if selected && options.cursor_line == CursorLineMode::Row {
         ratatui_theme_color(&options.theme.selected_hunk)
     } else {
@@ -8583,7 +8633,7 @@ fn split_cell_lines(
         .bg(row_bg);
     let marker_style = Style::default().fg(fg).bg(row_bg);
     let mut code = Vec::new();
-    if let Some(tokens) = highlighted.filter(|tokens| !tokens.is_empty()) {
+    if let Some(tokens) = input.highlighted.filter(|tokens| !tokens.is_empty()) {
         let mut code_column = 0;
         code.extend(tokens.iter().map(|token| {
             let mut style = Style::default()
@@ -8615,9 +8665,17 @@ fn split_cell_lines(
     }
     code = emphasize_spans(
         code,
-        emphasis,
+        input.emphasis,
         emphasis_background(line.kind, &options.theme),
     );
+    if let Some(line_highlights) = input.line_highlights {
+        code = apply_prepared_line_highlights_to_ratatui_spans(
+            code,
+            line_highlights,
+            base_background,
+            &options.theme,
+        );
+    }
     let digits = options.line_number_digits.unwrap_or(4).max(1);
     let geometry =
         resolve_split_cell_geometry(width, digits, options.line_numbers, DIFF_RAIL_PREFIX_WIDTH);
@@ -8686,6 +8744,41 @@ fn moved_line_background(line: &DiffLine, theme: &AppTheme) -> Option<Color> {
         DiffLineKind::Deletion => Some(ratatui_theme_color(&theme.moved_removed_bg)),
         DiffLineKind::Context => None,
     }
+}
+
+fn line_background_value<'a>(
+    line: &DiffLine,
+    selected: bool,
+    options: &'a ReviewOptions,
+) -> &'a str {
+    if selected && options.cursor_line == CursorLineMode::Row {
+        return &options.theme.selected_hunk;
+    }
+    if line.moved {
+        return match line.kind {
+            DiffLineKind::Addition => &options.theme.moved_added_bg,
+            DiffLineKind::Deletion => &options.theme.moved_removed_bg,
+            DiffLineKind::Context => &options.theme.context_bg,
+        };
+    }
+    match line.kind {
+        DiffLineKind::Addition => &options.theme.added_bg,
+        DiffLineKind::Deletion => &options.theme.removed_bg,
+        DiffLineKind::Context => &options.theme.context_bg,
+    }
+}
+
+fn line_highlight_ranges<'a>(
+    index: Option<&'a LineHighlightPaintIndex>,
+    line: &DiffLine,
+) -> Option<&'a LineHighlightRangeList> {
+    line.new_line
+        .and_then(|number| index?.get(ReviewSide::New, u64::from(number)))
+        .or_else(|| {
+            line.old_line
+                .and_then(|number| index?.get(ReviewSide::Old, u64::from(number)))
+        })
+        .map(Arc::as_ref)
 }
 
 fn expanded_line_content(line: &DiffLine, tab_width: u16) -> String {
@@ -10296,6 +10389,78 @@ mod tests {
     }
 
     #[test]
+    fn native_line_highlights_reach_stack_and_split_cell_buffers_after_word_paint() {
+        use ratatui::widgets::{Paragraph, Widget};
+        use workdeck_extension_api::{HighlightTone, ValidatedLineHighlight};
+
+        let changeset = changeset();
+        let file_id = changeset.files[0].runtime_id.clone();
+        let line_highlights = LineHighlightMap::from_entries([(
+            file_id,
+            vec![ValidatedLineHighlight {
+                side: ReviewSide::New,
+                line: 1,
+                start: 0,
+                end: 2,
+                tone: HighlightTone::Current,
+            }],
+        )]);
+        let options = ReviewOptions {
+            sidebar: false,
+            line_numbers: false,
+            highlight: false,
+            ..ReviewOptions::default()
+        };
+
+        for layout in [LayoutMode::Stack, LayoutMode::Split] {
+            let mut syntax = HighlightCache::default();
+            let rows = build_review_rows_with_chrome(
+                &changeset,
+                &[],
+                ReviewSelection::default(),
+                layout,
+                &options,
+                80,
+                &mut syntax,
+                &BTreeSet::new(),
+                &line_highlights,
+                ReviewStreamChrome::default(),
+                false,
+                &BTreeMap::new(),
+                &BTreeSet::new(),
+            );
+            let area = Rect::new(0, 0, 80, rows.lines.len() as u16);
+            let mut buffer = Buffer::empty(area);
+            Paragraph::new(rows.lines).render(area, &mut buffer);
+            let mut new_start = None;
+            for y in area.y..area.bottom() {
+                for x in area.x..area.right().saturating_sub(2) {
+                    if buffer.cell((x, y)).is_some_and(|cell| cell.symbol() == "n")
+                        && buffer
+                            .cell((x + 1, y))
+                            .is_some_and(|cell| cell.symbol() == "e")
+                        && buffer
+                            .cell((x + 2, y))
+                            .is_some_and(|cell| cell.symbol() == "w")
+                    {
+                        new_start = Some((x, y));
+                    }
+                }
+            }
+            let (x, y) = new_start.expect("the added line is present in the terminal buffer");
+            for offset in 0..2 {
+                let cell = buffer.cell((x + offset, y)).unwrap();
+                assert_eq!(cell.bg, ratatui_theme_color(&options.theme.text));
+                assert_eq!(cell.fg, ratatui_theme_color(&options.theme.background));
+            }
+            assert_ne!(
+                buffer.cell((x + 2, y)).unwrap().bg,
+                ratatui_theme_color(&options.theme.text)
+            );
+        }
+    }
+
+    #[test]
     fn stml_note_rows_preserve_styles_and_fall_back_when_markup_is_empty() {
         let theme = resolve_theme(Some("github-dark-default"), None, &[]);
         let styled = note_body_ratatui_lines(
@@ -10980,6 +11145,7 @@ mod tests {
             runtime.line_highlights = LineHighlightsController::new(
                 [file_id.clone()],
                 vec![RegisteredLineHighlighter {
+                    extension_index: 0,
                     extension_id: "search".into(),
                     highlighter_id: "matches".into(),
                 }],

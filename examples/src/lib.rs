@@ -94,6 +94,9 @@ pub mod native_vcs_extension;
 #[path = "../extensions/startup-lifecycle/extension.rs"]
 pub mod startup_lifecycle_extension;
 
+#[path = "../extensions/line-highlighter/extension.rs"]
+pub mod line_highlighter_extension;
+
 #[path = "../extensions/file-view-gallery/fixtures/change-atlas/after.rs"]
 pub mod file_view_gallery_change_atlas_after;
 #[path = "../extensions/file-view-gallery/fixtures/change-atlas/before.rs"]

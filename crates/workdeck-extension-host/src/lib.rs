@@ -49,7 +49,7 @@ use std::sync::{Arc, Mutex, MutexGuard, TryLockError, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 use thiserror::Error;
-use workdeck_core::{Changeset, ReviewSnapshot};
+use workdeck_core::{Changeset, DiffFile, ReviewSnapshot};
 use workdeck_diff::{SanitizeOptions, sanitize_terminal_text};
 use workdeck_extension_api::{
     API_VERSION, CliCommandExecution, CliCommandInvocation, CliCommandResult,
@@ -65,11 +65,11 @@ use workdeck_extension_api::{
     FileViewLayoutRequest, FileViewMatchRequest, FileViewModeKeyRequest,
     FileViewModeLifecycleRequest, HandshakeRequest, HandshakeResponse, InputDialogSubmission,
     JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, KeyboardModeExecution,
-    KeyboardModeKeyRequest, KeyboardModeLifecycleRequest, MAX_CLI_STDIN_CHUNK_BYTES,
-    MAX_MESSAGE_BYTES, ManifestError, PaneActionInvocation, PaneAvailabilityRequest,
-    PaneAvailabilityResponse, PaneRenderRequest, PaneRenderResponse, Registration, ReviewEvent,
-    SelectDialogSubmission, TransformRequest, TransformResponse, ValidatedFileViewLayout,
-    validate_view,
+    KeyboardModeKeyRequest, KeyboardModeLifecycleRequest, LineHighlightRequest,
+    MAX_CLI_STDIN_CHUNK_BYTES, MAX_MESSAGE_BYTES, ManifestError, PaneActionInvocation,
+    PaneAvailabilityRequest, PaneAvailabilityResponse, PaneRenderRequest, PaneRenderResponse,
+    Registration, ReviewEvent, SelectDialogSubmission, TransformRequest, TransformResponse,
+    ValidatedFileViewLayout, validate_view,
 };
 
 #[derive(Debug, Error)]
@@ -88,6 +88,8 @@ pub enum HostError {
     Io { id: String, source: std::io::Error },
     #[error("extension {0} timed out")]
     Timeout(String),
+    #[error("extension {0} request was cancelled")]
+    Cancelled(String),
     #[error("extension {0} closed its protocol stream")]
     Closed(String),
     #[error("extension {0} is already handling a command")]
@@ -628,6 +630,12 @@ enum PendingExecutionKind {
 }
 
 impl LoadedExtension {
+    /// Publish a host-attributed warning through this runtime's shared notification hub.
+    pub fn notify_warning(&self, message: impl Into<String>) {
+        self.notifications
+            .notify(message, ExtensionNotifyType::Warning);
+    }
+
     pub fn spawn(manifest_path: &Path, host_version: &str) -> Result<Self, HostError> {
         Self::spawn_with_configuration(
             manifest_path,
@@ -944,6 +952,67 @@ impl LoadedExtension {
         }
         let id = self.send_request_on(&mut connection, method, params)?;
         let line = self.receive_protocol_line_on(&connection, id, Instant::now() + timeout)?;
+        self.decode_response(id, &line)
+    }
+
+    fn request_cancellable(
+        &mut self,
+        method: &str,
+        params: impl Serialize,
+        timeout: Duration,
+        cancelled: &AtomicBool,
+    ) -> Result<Value, HostError> {
+        let mut connection = self.try_connection()?;
+        if connection.pending_request.is_some() {
+            return Err(HostError::Busy(self.manifest.id.clone()));
+        }
+        let id = self.send_request_on(&mut connection, method, params)?;
+        let deadline = Instant::now() + timeout;
+        let line = loop {
+            if cancelled.load(Ordering::Acquire) {
+                let _ = self.send_notification_on(
+                    &mut connection,
+                    "$/cancelRequest",
+                    serde_json::json!({ "id": id }),
+                );
+                return Err(HostError::Cancelled(self.manifest.id.clone()));
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                let _ = self.send_notification_on(
+                    &mut connection,
+                    "$/cancelRequest",
+                    serde_json::json!({ "id": id }),
+                );
+                return Err(HostError::Timeout(self.manifest.id.clone()));
+            }
+            match connection
+                .responses
+                .recv_timeout(remaining.min(Duration::from_millis(25)))
+            {
+                Ok(Ok(line)) => {
+                    if parse_cli_output_notification(&line).is_some()
+                        || parse_cli_stdin_read_notification(&line).is_some()
+                    {
+                        continue;
+                    }
+                    if json_rpc_response_id(&line).is_some_and(|response_id| response_id < id) {
+                        continue;
+                    }
+                    break line;
+                }
+                Ok(Err(source)) => {
+                    return Err(HostError::Io {
+                        id: self.manifest.id.clone(),
+                        source,
+                    });
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err(HostError::Closed(self.manifest.id.clone()));
+                }
+            }
+        };
         self.decode_response(id, &line)
     }
 
@@ -1675,6 +1744,54 @@ impl LoadedExtension {
             });
         }
         Ok(Some(validated))
+    }
+
+    /// Calculate one registered native highlighter's marks for an immutable file snapshot.
+    pub fn highlight_file(
+        &mut self,
+        highlighter_id: &str,
+        file: &DiffFile,
+    ) -> Result<Value, HostError> {
+        self.highlight_file_cancellable(highlighter_id, file, &AtomicBool::new(false))
+    }
+
+    /// Calculate marks while allowing a review reload to revoke the request promptly.
+    pub fn highlight_file_cancellable(
+        &mut self,
+        highlighter_id: &str,
+        file: &DiffFile,
+        cancelled: &AtomicBool,
+    ) -> Result<Value, HostError> {
+        self.require_line_highlighter(highlighter_id)?;
+        let documents = [
+            (
+                ExtensionFileSide::Old,
+                file.sources
+                    .old
+                    .as_ref()
+                    .map(|source| source.content.clone()),
+            ),
+            (
+                ExtensionFileSide::New,
+                file.sources
+                    .new
+                    .as_ref()
+                    .map(|source| source.content.clone()),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        self.request_cancellable(
+            "workdeck/line-highlighter/highlight",
+            LineHighlightRequest {
+                highlighter_id: highlighter_id.to_owned(),
+                file: project_extension_diff_file(file),
+                documents,
+                aborted: false,
+            },
+            LINE_HIGHLIGHT_TIMEOUT,
+            cancelled,
+        )
     }
 
     /// Notify an attached file-view mode that it acquired or released the keyboard.
@@ -2465,6 +2582,20 @@ impl LoadedExtension {
                 id: self.manifest.id.clone(),
                 kind: "file view",
                 message: format!("file view {view_id:?} is not registered"),
+            })
+        }
+    }
+
+    fn require_line_highlighter(&self, highlighter_id: &str) -> Result<(), HostError> {
+        if self.handshake.registrations.iter().any(|registration| {
+            matches!(registration, Registration::LineHighlighter { id } if id == highlighter_id)
+        }) {
+            Ok(())
+        } else {
+            Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "line highlighter",
+                message: format!("line highlighter {highlighter_id:?} is not registered"),
             })
         }
     }

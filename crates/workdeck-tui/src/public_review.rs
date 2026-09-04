@@ -5,8 +5,8 @@
 //! scrolling policy, or key bindings.
 
 use super::{
-    ReviewOptions, ReviewStreamChrome, build_review_rows_with_chrome, file_header,
-    max_file_header_stats_width, resolve_theme,
+    LineHighlightMap, ReviewOptions, ReviewStreamChrome, build_review_rows_with_chrome,
+    file_header, max_file_header_stats_width, resolve_theme,
 };
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -611,6 +611,7 @@ fn workdeck_diff_body_rows(
         ..ReviewOptions::default()
     };
     let mut highlights = HighlightCache::default();
+    let line_highlights = LineHighlightMap::default();
     let rows = build_review_rows_with_chrome(
         &changeset,
         &[],
@@ -620,6 +621,7 @@ fn workdeck_diff_body_rows(
         width,
         &mut highlights,
         &BTreeSet::new(),
+        &line_highlights,
         ReviewStreamChrome {
             show_file_headers: false,
         },

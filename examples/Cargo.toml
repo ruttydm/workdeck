@@ -64,6 +64,10 @@ path = "extensions/native-vcs/main.rs"
 name = "workdeck-example-startup-lifecycle-extension"
 path = "extensions/startup-lifecycle/main.rs"
 
+[[bin]]
+name = "workdeck-example-line-highlighter-extension"
+path = "extensions/line-highlighter/main.rs"
+
 [dependencies]
 pulldown-cmark = "=0.13.4"
 ratatui = "0.29"

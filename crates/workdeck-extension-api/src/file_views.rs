@@ -219,6 +219,21 @@ pub struct FileViewLayoutRequest {
     pub aborted: bool,
 }
 
+/// Immutable input for one native line-highlighter calculation.
+///
+/// Hunk exposed a lazy `readDocument(side)` callback in-process. Workdeck
+/// transfers the same frozen old/new snapshots with the request so native
+/// subprocesses cannot race a reload or require nested JSON-RPC calls.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineHighlightRequest {
+    pub highlighter_id: String,
+    pub file: ExtensionDiffFile,
+    pub documents: BTreeMap<ExtensionFileSide, Option<String>>,
+    #[serde(default)]
+    pub aborted: bool,
+}
+
 /// Host-validated layout plus terminal row measurements retained for painting.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -238,4 +253,59 @@ pub struct FileViewRowFailure {
     pub row_id: String,
     pub layout_generation: u64,
     pub message: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn extension_file() -> ExtensionDiffFile {
+        ExtensionDiffFile {
+            id: "file-1".into(),
+            path: "src/main.rs".into(),
+            previous_path: None,
+            patch: "@@ -1 +1 @@\n-old\n+new\n".into(),
+            language: Some("rust".into()),
+            stats: ExtensionDiffStats {
+                additions: 1,
+                deletions: 1,
+            },
+            change_type: "modified".into(),
+            stats_truncated: false,
+            hunks: vec![ExtensionDiffHunk {
+                index: 0,
+                header: "@@ -1 +1 @@".into(),
+                old_range: Some([1, 1]),
+                new_range: Some([1, 1]),
+            }],
+            agent: None,
+            is_untracked: false,
+            is_binary: false,
+            is_too_large: false,
+        }
+    }
+
+    #[test]
+    fn line_highlight_request_round_trips_frozen_documents() {
+        let request = LineHighlightRequest {
+            highlighter_id: "attention".into(),
+            file: extension_file(),
+            documents: [
+                (ExtensionFileSide::Old, Some("old\n".into())),
+                (ExtensionFileSide::New, Some("new\n".into())),
+            ]
+            .into_iter()
+            .collect(),
+            aborted: false,
+        };
+        let encoded = serde_json::to_value(&request).unwrap();
+        assert_eq!(encoded["highlighterId"], "attention");
+        assert_eq!(encoded["documents"]["old"], "old\n");
+        assert_eq!(encoded["documents"]["new"], "new\n");
+        assert_eq!(encoded["aborted"], false);
+        assert_eq!(
+            serde_json::from_value::<LineHighlightRequest>(encoded).unwrap(),
+            request
+        );
+    }
 }

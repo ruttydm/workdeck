@@ -8,6 +8,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ops::Deref;
 use std::sync::{Arc, OnceLock};
 
+use ratatui::style::{Color, Style};
+use ratatui::text::Span;
 use unicode_segmentation::UnicodeSegmentation;
 use workdeck_core::{DiffFile, DiffLineKind, ReviewSide};
 use workdeck_diff::{
@@ -19,7 +21,17 @@ use workdeck_review::{
     review_leading_gap, review_trailing_gap,
 };
 
-use crate::{measure_cluster_width, measure_sanitized_text_width, measure_text_width};
+use crate::{
+    AppTheme, blend_hex, contrast_ratio, hex_color_distance, measure_cluster_width,
+    measure_sanitized_text_width, measure_text_width, ratatui_theme_color,
+};
+
+const MIN_LINE_HIGHLIGHT_BG_DISTANCE: u16 = 72;
+const LINE_HIGHLIGHT_BLEND_STEP: f64 = 0.05;
+const LINE_HIGHLIGHT_MAX_BLEND: f64 = 0.85;
+const MIN_LINE_HIGHLIGHT_TEXT_CONTRAST: f64 = 3.1;
+const DEFAULT_DIM_RATIO: f64 = 0.45;
+const MIN_DIM_TEXT_CONTRAST: f64 = 1.6;
 
 /// One mark resolved to terminal columns of the rendered, expanded line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -696,6 +708,279 @@ fn apply_line_highlights_with_plan(
                 piece_col,
                 plan,
                 &resolve_style,
+            ),
+        );
+    }
+    result
+}
+
+fn is_hex_theme_color(color: &str) -> bool {
+    color.len() == 7
+        && color.starts_with('#')
+        && color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn effective_highlight_background(base: &str, theme: &AppTheme) -> String {
+    if is_hex_theme_color(base) {
+        return base.to_owned();
+    }
+    if is_hex_theme_color(&theme.background) {
+        return theme.background.clone();
+    }
+    match theme.appearance {
+        crate::ThemeAppearance::Dark => "#000000".into(),
+        crate::ThemeAppearance::Light => "#ffffff".into(),
+    }
+}
+
+fn line_highlight_tone_anchor(tone: HighlightTone, theme: &AppTheme) -> &str {
+    match tone {
+        HighlightTone::Info => &theme.badge_neutral,
+        HighlightTone::Warning => &theme.file_modified,
+        HighlightTone::Error => &theme.removed_sign_color,
+        HighlightTone::Current | HighlightTone::Match | HighlightTone::Dim => &theme.accent,
+    }
+}
+
+fn strengthen_line_highlight_background(base: &str, anchor: &str, text_color: &str) -> String {
+    let mut strongest_readable = base.to_owned();
+    let max_steps = (LINE_HIGHLIGHT_MAX_BLEND / LINE_HIGHLIGHT_BLEND_STEP).floor() as usize;
+    for step in 1..=max_steps {
+        let candidate = blend_hex(anchor, base, step as f64 * LINE_HIGHLIGHT_BLEND_STEP);
+        if contrast_ratio(text_color, &candidate) < MIN_LINE_HIGHLIGHT_TEXT_CONTRAST {
+            return strongest_readable;
+        }
+        strongest_readable.clone_from(&candidate);
+        if hex_color_distance(&candidate, base) >= MIN_LINE_HIGHLIGHT_BG_DISTANCE {
+            return candidate;
+        }
+    }
+    strongest_readable
+}
+
+fn color_hex(color: Color) -> Option<String> {
+    match color {
+        Color::Rgb(red, green, blue) => Some(format!("#{red:02x}{green:02x}{blue:02x}")),
+        _ => None,
+    }
+}
+
+fn dim_span_foreground(
+    source_foreground: Option<Color>,
+    span_background: Option<Color>,
+    base_background: &str,
+    theme: &AppTheme,
+) -> Color {
+    let background = span_background
+        .and_then(color_hex)
+        .unwrap_or_else(|| base_background.to_owned());
+    let background = effective_highlight_background(&background, theme);
+    let fallback = if is_hex_theme_color(&theme.syntax_colors.default) {
+        theme.syntax_colors.default.as_str()
+    } else if is_hex_theme_color(&theme.text) {
+        theme.text.as_str()
+    } else {
+        match theme.appearance {
+            crate::ThemeAppearance::Dark => "#adbac7",
+            crate::ThemeAppearance::Light => "#24292f",
+        }
+    };
+    let foreground = source_foreground
+        .and_then(color_hex)
+        .filter(|color| is_hex_theme_color(color))
+        .unwrap_or_else(|| fallback.to_owned());
+    let mut result = foreground.clone();
+    let candidate = blend_hex(&foreground, &background, DEFAULT_DIM_RATIO);
+    if contrast_ratio(&candidate, &background) >= MIN_DIM_TEXT_CONTRAST {
+        result = candidate;
+    } else {
+        for step in 1..=9 {
+            let ratio = DEFAULT_DIM_RATIO + f64::from(step) * 0.05;
+            if ratio > 0.901 {
+                break;
+            }
+            let strengthened = blend_hex(&foreground, &background, ratio);
+            if contrast_ratio(&strengthened, &background) >= MIN_DIM_TEXT_CONTRAST {
+                result = strengthened;
+                break;
+            }
+        }
+    }
+    ratatui_theme_color(&result)
+}
+
+fn paint_ratatui_style(
+    style: Style,
+    tone: HighlightTone,
+    base_background: &str,
+    theme: &AppTheme,
+) -> Style {
+    if tone == HighlightTone::Dim {
+        return style.fg(dim_span_foreground(
+            style.fg,
+            style.bg,
+            base_background,
+            theme,
+        ));
+    }
+    if tone == HighlightTone::Current && is_hex_theme_color(&theme.text) {
+        return style
+            .bg(ratatui_theme_color(&theme.text))
+            .fg(ratatui_theme_color(&effective_highlight_background(
+                &theme.background,
+                theme,
+            )));
+    }
+    let anchor = line_highlight_tone_anchor(tone, theme);
+    if !is_hex_theme_color(anchor) || !is_hex_theme_color(&theme.text) {
+        return style;
+    }
+    let background = strengthen_line_highlight_background(
+        &effective_highlight_background(base_background, theme),
+        anchor,
+        &theme.text,
+    );
+    style.bg(ratatui_theme_color(&background))
+}
+
+fn append_ratatui_span(target: &mut Vec<Span<'static>>, span: Span<'static>) {
+    if let Some(previous) = target
+        .last_mut()
+        .filter(|previous| previous.style == span.style)
+    {
+        previous.content.to_mut().push_str(&span.content);
+    } else {
+        target.push(span);
+    }
+}
+
+fn painted_ratatui_span(
+    span: &Span<'static>,
+    text: String,
+    start_col: usize,
+    plan: &LineHighlightCutPlan,
+    base_background: &str,
+    theme: &AppTheme,
+) -> Span<'static> {
+    let style = tone_at_column(plan, start_col).map_or(span.style, |tone| {
+        paint_ratatui_style(span.style, tone, base_background, theme)
+    });
+    Span::styled(text, style)
+}
+
+/// Apply a prepared line's marks directly to Ratatui spans after syntax and word-diff paint.
+#[must_use]
+pub fn apply_prepared_line_highlights_to_ratatui_spans(
+    spans: Vec<Span<'static>>,
+    ranges: &LineHighlightRangeList,
+    base_background: &str,
+    theme: &AppTheme,
+) -> Vec<Span<'static>> {
+    if ranges.is_empty() {
+        return spans;
+    }
+    let plan = ranges
+        .plan
+        .get_or_init(|| line_highlight_cut_plan(ranges.as_ref()));
+    let mut result = Vec::new();
+    let mut col = 0;
+    let mut cut_cursor = 0;
+    for span in spans {
+        let safe_text = sanitize_terminal_line(&span.content);
+        let span_width = measure_sanitized_text_width(&safe_text);
+        if span_width == 0 {
+            append_ratatui_span(&mut result, span);
+            continue;
+        }
+        let span_start = col;
+        let span_end = col + span_width;
+        col = span_end;
+        while cut_cursor < plan.cuts.len() && plan.cuts[cut_cursor] <= span_start {
+            cut_cursor += 1;
+        }
+        if cut_cursor >= plan.cuts.len() || plan.cuts[cut_cursor] >= span_end {
+            append_ratatui_span(
+                &mut result,
+                painted_ratatui_span(
+                    &span,
+                    span.content.to_string(),
+                    span_start,
+                    plan,
+                    base_background,
+                    theme,
+                ),
+            );
+            continue;
+        }
+        let mut cursor = cut_cursor;
+        let mut piece_byte = 0;
+        let mut piece_col = span_start;
+        if safe_text.is_ascii() && safe_text.bytes().all(|byte| (0x20..=0x7e).contains(&byte)) {
+            while cursor < plan.cuts.len() && plan.cuts[cursor] < span_end {
+                let cut = plan.cuts[cursor];
+                let next_byte = cut - span_start;
+                append_ratatui_span(
+                    &mut result,
+                    painted_ratatui_span(
+                        &span,
+                        safe_text[piece_byte..next_byte].to_owned(),
+                        piece_col,
+                        plan,
+                        base_background,
+                        theme,
+                    ),
+                );
+                piece_byte = next_byte;
+                piece_col = cut;
+                cursor += 1;
+            }
+            append_ratatui_span(
+                &mut result,
+                painted_ratatui_span(
+                    &span,
+                    safe_text[piece_byte..].to_owned(),
+                    piece_col,
+                    plan,
+                    base_background,
+                    theme,
+                ),
+            );
+            continue;
+        }
+        let mut cluster_col = span_start;
+        for (cluster_byte, cluster) in
+            UnicodeSegmentation::grapheme_indices(safe_text.as_str(), true)
+        {
+            while cursor < plan.cuts.len() && plan.cuts[cursor] < cluster_col {
+                cursor += 1;
+            }
+            if cursor < plan.cuts.len() && plan.cuts[cursor] == cluster_col {
+                append_ratatui_span(
+                    &mut result,
+                    painted_ratatui_span(
+                        &span,
+                        safe_text[piece_byte..cluster_byte].to_owned(),
+                        piece_col,
+                        plan,
+                        base_background,
+                        theme,
+                    ),
+                );
+                piece_byte = cluster_byte;
+                piece_col = cluster_col;
+                cursor += 1;
+            }
+            cluster_col += measure_cluster_width(cluster);
+        }
+        append_ratatui_span(
+            &mut result,
+            painted_ratatui_span(
+                &span,
+                safe_text[piece_byte..].to_owned(),
+                piece_col,
+                plan,
+                base_background,
+                theme,
             ),
         );
     }
