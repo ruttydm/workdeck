@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "runtime": {
+    "name": "Bun",
+    "version": "1.3.5",
+    "execution": "disposable pinned Hunk worktrees"
+  },
+  "command": [
+    "bun",
+    "test",
+    "src/app/startup.test.ts",
+    "--test-name-pattern",
+    "opens the controlling terminal for piped patch startup|loads extensions before the changeset and attaches them to the bootstrap|merges extension themes behind config themes and reports the collisions|skips extension loading entirely when config disables it"
+  ],
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "startup_blob": "79c05c50e63fa4f533fbb1c7b3c3868913750386",
+      "test_blob": "2a346bcb5cbebd34376663bb79c832f9d25fc44f",
+      "passed": 4,
+      "failed": 0,
+      "filtered_out": 21,
+      "expect_calls": 13
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "startup_blob": "672a2f7966498e616cddab940ca07757b1e393c2",
+      "test_blob": "6084991177e681b6e28b3dc328a3d0aa58ea12c2",
+      "passed": 4,
+      "failed": 0,
+      "filtered_out": 16,
+      "expect_calls": 13
+    }
+  ],
+  "expected": {
+    "startup_order": ["extensions", "changeset"],
+    "bootstrap_owns_extensions": true,
+    "piped_patch_opens_controlling_terminal": true,
+    "disabled_extension_request": false,
+    "theme_catalog": [
+      {"id": "ocean", "accent": "#123456"},
+      {"id": "sunset", "accent": "#abcdef"}
+    ],
+    "theme_notices": [
+      "Skipped theme \"ocean\" from extension pack • config already defines it",
+      "Skipped theme \"Bad Id\" from extension pack • theme ids must be lowercase words separated by - or _"
+    ],
+    "startup_notice_order": ["config", "theme", "apply", "unknown-vcs", "load"]
+  }
+}

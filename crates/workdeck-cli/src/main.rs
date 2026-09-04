@@ -998,6 +998,151 @@ mod review_cli_option_tests {
     }
 
     #[test]
+    fn extensions_load_before_changesets_and_disabled_startup_executes_none() {
+        struct RetirementProbe(std::rc::Rc<std::cell::Cell<u8>>);
+
+        impl Drop for RetirementProbe {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/startup-extensions.json"
+        ))
+        .unwrap();
+        let order = std::cell::RefCell::new(Vec::new());
+        let (extensions, changeset) = load_extensions_before_changeset(
+            || {
+                order.borrow_mut().push("extensions");
+                Ok("prepared")
+            },
+            || {
+                order.borrow_mut().push("changeset");
+                Ok("loaded")
+            },
+        )
+        .unwrap();
+        assert_eq!(extensions, "prepared");
+        assert_eq!(changeset, "loaded");
+        assert_eq!(
+            serde_json::to_value(order.into_inner()).unwrap(),
+            oracle["expected"]["startup_order"]
+        );
+
+        let changeset_requested = std::cell::Cell::new(false);
+        let extension_error = load_extensions_before_changeset(
+            || Err::<(), _>(anyhow::anyhow!("extension startup failed")),
+            || {
+                changeset_requested.set(true);
+                Ok(())
+            },
+        )
+        .unwrap_err();
+        assert_eq!(extension_error.to_string(), "extension startup failed");
+        assert!(!changeset_requested.get());
+
+        let retired = std::rc::Rc::new(std::cell::Cell::new(0));
+        let changeset_error = load_extensions_before_changeset(
+            || Ok(RetirementProbe(retired.clone())),
+            || Err::<(), _>(anyhow::anyhow!("changeset failed")),
+        )
+        .err()
+        .unwrap();
+        assert_eq!(changeset_error.to_string(), "changeset failed");
+        assert_eq!(retired.get(), 1);
+
+        let directory = tempfile::tempdir().unwrap();
+        let review = ReviewCliOptions {
+            no_extensions: true,
+            extension: vec![directory.path().join("must-not-run")],
+            startup_notices: vec![StartupNotice::new("config", "config")],
+            ..ReviewCliOptions::default()
+        };
+        let prepared = load_review_extensions_with_notifications(
+            directory.path(),
+            &review,
+            ExtensionNotificationHub::new(),
+        )
+        .unwrap();
+        assert!(prepared.extensions.is_empty());
+        assert!(prepared.application_notices.is_empty());
+        assert!(prepared.load_notices.is_empty());
+        assert_eq!(prepared.configured_notices, review.startup_notices);
+        assert_eq!(
+            !review.no_extensions,
+            oracle["expected"]["disabled_extension_request"]
+                .as_bool()
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn extension_theme_catalog_and_startup_notice_order_match_both_pins() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/startup-extensions.json"
+        ))
+        .unwrap();
+        let config_themes = [NamedCustomThemeConfig {
+            id: "ocean".into(),
+            accent: Some("#123456".into()),
+            ..NamedCustomThemeConfig::default()
+        }];
+        let extension_themes = [
+            RegisteredCustomTheme::new(
+                "pack",
+                serde_json::json!({"id": "ocean", "accent": "#654321"}),
+            ),
+            RegisteredCustomTheme::new(
+                "pack",
+                serde_json::json!({"id": "sunset", "accent": "#abcdef"}),
+            ),
+            RegisteredCustomTheme::new("pack", serde_json::json!({"id": "Bad Id"})),
+        ];
+        let themes = collect_session_custom_themes(&config_themes, &extension_themes);
+        assert_eq!(
+            serde_json::to_value(&themes.themes).unwrap(),
+            oracle["expected"]["theme_catalog"]
+        );
+        assert_eq!(
+            themes
+                .notices
+                .iter()
+                .map(|notice| notice.message.as_str())
+                .collect::<Vec<_>>(),
+            oracle["expected"]["theme_notices"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|message| message.as_str().unwrap())
+                .collect::<Vec<_>>()
+        );
+
+        let mut prepared = PreparedReviewExtensions {
+            extensions: Vec::new(),
+            notifications: ExtensionNotificationHub::new(),
+            pending_trust_repo_root: None,
+            configured_notices: vec![StartupNotice::new("config", "config")],
+            application_notices: vec![StartupNotice::new("apply", "apply")],
+            unknown_vcs_notices: vec![StartupNotice::new("unknown-vcs", "unknown-vcs")],
+            load_notices: vec![StartupNotice::new("load", "load")],
+            vcs_catalog: None,
+        };
+        let notices =
+            take_review_startup_notices(&mut prepared, vec![StartupNotice::new("theme", "theme")]);
+        assert_eq!(
+            serde_json::to_value(
+                notices
+                    .iter()
+                    .map(|notice| notice.key.as_str())
+                    .collect::<Vec<_>>()
+            )
+            .unwrap(),
+            oracle["expected"]["startup_notice_order"]
+        );
+    }
+
+    #[test]
     fn common_options_preserve_the_resolved_review_input_for_native_reload() {
         let options = ReviewCliOptions {
             vcs: Some("jj".into()),
@@ -1269,7 +1414,10 @@ mod review_cli_option_tests {
                 extensions: Vec::new(),
                 notifications: ExtensionNotificationHub::new(),
                 pending_trust_repo_root: None,
-                startup_notices: vec![StartupNotice::new("fixture", "notice")],
+                configured_notices: vec![StartupNotice::new("fixture", "notice")],
+                application_notices: Vec::new(),
+                unknown_vcs_notices: Vec::new(),
+                load_notices: Vec::new(),
                 vcs_catalog: Some(bundled_vcs_catalog().clone()),
             },
         );
@@ -1315,7 +1463,16 @@ mod review_cli_option_tests {
         );
         assert!(bootstrap.reload_context.vcs_catalog.is_some());
         assert_eq!(bootstrap.startup_notices[0].key, "fixture");
-        assert!(bootstrap.extensions.is_some());
+        let startup_oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/startup-extensions.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            bootstrap.extensions.is_some(),
+            startup_oracle["expected"]["bootstrap_owns_extensions"]
+                .as_bool()
+                .unwrap()
+        );
     }
 
     #[test]
@@ -1369,7 +1526,10 @@ mod review_cli_option_tests {
                 extensions: Vec::new(),
                 notifications: ExtensionNotificationHub::new(),
                 pending_trust_repo_root: None,
-                startup_notices: Vec::new(),
+                configured_notices: Vec::new(),
+                application_notices: Vec::new(),
+                unknown_vcs_notices: Vec::new(),
+                load_notices: Vec::new(),
                 vcs_catalog: None,
             },
         );
@@ -1445,7 +1605,10 @@ mod review_cli_option_tests {
                 extensions: Vec::new(),
                 notifications: ExtensionNotificationHub::new(),
                 pending_trust_repo_root: None,
-                startup_notices: Vec::new(),
+                configured_notices: Vec::new(),
+                application_notices: Vec::new(),
+                unknown_vcs_notices: Vec::new(),
+                load_notices: Vec::new(),
                 vcs_catalog: None,
             },
         )
@@ -2435,7 +2598,7 @@ fn run(mut args: Args) -> Result<()> {
     });
     let selection = select_review_vcs_adapter(&args.cwd, review.configured_vcs_id(), &catalog)?;
     if let Some(notice) = selection.unknown_id_notice {
-        prepared_extensions.startup_notices.push(notice);
+        prepared_extensions.unknown_vcs_notices.push(notice);
     }
     let adapter = selection.adapter;
     vcs_input_options_mut(&mut vcs_input).vcs = Some(adapter.id.clone());
@@ -2626,7 +2789,10 @@ struct PreparedReviewExtensions {
     extensions: Vec<LoadedExtension>,
     notifications: ExtensionNotificationHub,
     pending_trust_repo_root: Option<PathBuf>,
-    startup_notices: Vec<StartupNotice>,
+    configured_notices: Vec<StartupNotice>,
+    application_notices: Vec<StartupNotice>,
+    unknown_vcs_notices: Vec<StartupNotice>,
+    load_notices: Vec<StartupNotice>,
     vcs_catalog: Option<VcsCatalog>,
 }
 
@@ -2652,6 +2818,15 @@ fn prepare_review_extensions(
     review: &ReviewCliOptions,
 ) -> Result<PreparedReviewExtensions> {
     load_review_extensions(cwd, review)
+}
+
+fn load_extensions_before_changeset<E, C>(
+    load_extensions: impl FnOnce() -> Result<E>,
+    load_changeset: impl FnOnce() -> Result<C>,
+) -> Result<(E, C)> {
+    let extensions = load_extensions()?;
+    let changeset = load_changeset()?;
+    Ok((extensions, changeset))
 }
 
 fn compose_review_vcs_catalog(extensions: &[LoadedExtension]) -> VcsCatalog {
@@ -2844,16 +3019,23 @@ fn handle_review_command(
                 });
                 let initial_watch_signature =
                     capture_initial_watch_signature(&review, &input, cwd, None);
-                let changeset = load_file_comparison(cwd, &left, &right)?;
+                let (prepared_extensions, changeset) = load_extensions_before_changeset(
+                    || prepare_review_extensions(cwd, &review),
+                    || load_file_comparison(cwd, &left, &right).map_err(anyhow::Error::from),
+                )?;
                 let mut reload =
                     || load_file_comparison(cwd, &left, &right).map_err(anyhow::Error::from);
-                return run_review_with_options(
+                return run_review_with_preloaded_extensions(
                     cwd,
-                    changeset,
+                    LoadedReviewChangeset {
+                        changeset,
+                        repo_root: None,
+                    },
                     review,
                     input,
                     initial_watch_signature,
                     Some(&mut reload),
+                    prepared_extensions,
                 );
             }
             let (from, target) = match revisions.as_slice() {
@@ -2879,7 +3061,7 @@ fn handle_review_command(
             });
             let selection = select_review_vcs_adapter(cwd, review.configured_vcs_id(), &catalog)?;
             if let Some(notice) = selection.unknown_id_notice {
-                prepared_extensions.startup_notices.push(notice);
+                prepared_extensions.unknown_vcs_notices.push(notice);
             }
             let adapter = selection.adapter;
             vcs_input_options_mut(&mut vcs_input).vcs = Some(adapter.id.clone());
@@ -2922,7 +3104,7 @@ fn handle_review_command(
             });
             let selection = select_review_vcs_adapter(cwd, review.configured_vcs_id(), &catalog)?;
             if let Some(notice) = selection.unknown_id_notice {
-                prepared_extensions.startup_notices.push(notice);
+                prepared_extensions.unknown_vcs_notices.push(notice);
             }
             let adapter = selection.adapter;
             vcs_input_options_mut(&mut vcs_input).vcs = Some(adapter.id.clone());
@@ -2963,7 +3145,7 @@ fn handle_review_command(
             });
             let selection = select_review_vcs_adapter(cwd, configured_id, &catalog)?;
             if let Some(notice) = selection.unknown_id_notice {
-                prepared_extensions.startup_notices.push(notice);
+                prepared_extensions.unknown_vcs_notices.push(notice);
             }
             let adapter = selection.adapter;
             vcs_input_options_mut(&mut vcs_input).vcs = Some(adapter.id.clone());
@@ -3003,25 +3185,28 @@ fn handle_review_command(
             let initial_watch_signature = reload_input
                 .as_ref()
                 .and_then(|input| capture_initial_watch_signature(&review, input, cwd, None));
-            let (patch, label) = match file {
-                Some(path) if path != Path::new("-") => {
-                    let patch = std::fs::read_to_string(&path)
-                        .with_context(|| format!("failed to read patch {}", path.display()))?;
-                    (patch, path.display().to_string())
-                }
-                _ => {
-                    let patch = if let Some(prepared) = prepared_piped_input.as_mut() {
-                        std::mem::take(&mut prepared.text)
-                    } else {
-                        let mut patch = String::new();
-                        std::io::stdin()
-                            .read_to_string(&mut patch)
-                            .context("failed to read patch from stdin")?;
-                        patch
-                    };
-                    (patch, "stdin patch".to_owned())
-                }
-            };
+            let (prepared_extensions, (patch, label)) = load_extensions_before_changeset(
+                || prepare_review_extensions(cwd, &review),
+                || match file {
+                    Some(path) if path != Path::new("-") => {
+                        let patch = std::fs::read_to_string(&path)
+                            .with_context(|| format!("failed to read patch {}", path.display()))?;
+                        Ok((patch, path.display().to_string()))
+                    }
+                    _ => {
+                        let patch = if let Some(prepared) = prepared_piped_input.as_mut() {
+                            std::mem::take(&mut prepared.text)
+                        } else {
+                            let mut patch = String::new();
+                            std::io::stdin()
+                                .read_to_string(&mut patch)
+                                .context("failed to read patch from stdin")?;
+                            patch
+                        };
+                        Ok((patch, "stdin patch".to_owned()))
+                    }
+                },
+            )?;
             let session_input = reload_input.clone().unwrap_or_else(|| {
                 CliInput::Patch(PatchCommandInput {
                     file: None,
@@ -3037,16 +3222,31 @@ fn handle_review_command(
                     parse_patch_input(&patch, path.display().to_string())
                         .map_err(anyhow::Error::from)
                 };
-                run_review_with_options(
+                run_review_with_preloaded_extensions(
                     cwd,
-                    changeset,
+                    LoadedReviewChangeset {
+                        changeset,
+                        repo_root: None,
+                    },
                     review,
                     session_input,
                     initial_watch_signature,
                     Some(&mut reload),
+                    prepared_extensions,
                 )
             } else {
-                run_review_with_options(cwd, changeset, review, session_input, None, None)
+                run_review_with_preloaded_extensions(
+                    cwd,
+                    LoadedReviewChangeset {
+                        changeset,
+                        repo_root: None,
+                    },
+                    review,
+                    session_input,
+                    None,
+                    None,
+                    prepared_extensions,
+                )
             }
         }
         Command::Difftool {
@@ -3065,19 +3265,29 @@ fn handle_review_command(
             });
             let initial_watch_signature =
                 capture_initial_watch_signature(&review, &input, cwd, None);
-            let changeset = load_difftool_comparison(cwd, &left, &right, path.as_deref())?;
+            let (prepared_extensions, changeset) = load_extensions_before_changeset(
+                || prepare_review_extensions(cwd, &review),
+                || {
+                    load_difftool_comparison(cwd, &left, &right, path.as_deref())
+                        .map_err(anyhow::Error::from)
+                },
+            )?;
             let display_path = path.clone();
             let mut reload = || {
                 load_difftool_comparison(cwd, &left, &right, display_path.as_deref())
                     .map_err(anyhow::Error::from)
             };
-            run_review_with_options(
+            run_review_with_preloaded_extensions(
                 cwd,
-                changeset,
+                LoadedReviewChangeset {
+                    changeset,
+                    repo_root: None,
+                },
                 review,
                 input,
                 initial_watch_signature,
                 Some(&mut reload),
+                prepared_extensions,
             )
         }
         Command::Pager { review } => {
@@ -3091,13 +3301,27 @@ fn handle_review_command(
                 input
             };
             if workdeck_cli::pager::looks_like_patch_input(&input) {
-                let changeset = parse_patch_input(&input, "pager").map_err(anyhow::Error::from)?;
+                let (prepared_extensions, changeset) = load_extensions_before_changeset(
+                    || prepare_review_extensions(cwd, &review),
+                    || parse_patch_input(&input, "pager").map_err(anyhow::Error::from),
+                )?;
                 let session_input = CliInput::Patch(PatchCommandInput {
                     file: None,
                     text: Some(input),
                     options: review.common_options(),
                 });
-                run_review_with_options(cwd, changeset, review, session_input, None, None)
+                run_review_with_preloaded_extensions(
+                    cwd,
+                    LoadedReviewChangeset {
+                        changeset,
+                        repo_root: None,
+                    },
+                    review,
+                    session_input,
+                    None,
+                    None,
+                    prepared_extensions,
+                )
             } else {
                 let context = workdeck_cli::pager::PlainTextPagerContext::current();
                 workdeck_cli::pager::page_plain_text(&input, &context).map_err(anyhow::Error::from)
@@ -3195,29 +3419,6 @@ fn detect_initial_review_theme_mode(
     Ok(None)
 }
 
-fn run_review_with_options(
-    cwd: &Path,
-    changeset: Changeset,
-    review: ReviewCliOptions,
-    input: CliInput,
-    initial_watch_signature: Option<String>,
-    reloader: Option<&mut dyn FnMut() -> Result<Changeset>>,
-) -> Result<()> {
-    let prepared_extensions = prepare_review_extensions(cwd, &review)?;
-    run_review_with_preloaded_extensions(
-        cwd,
-        LoadedReviewChangeset {
-            changeset,
-            repo_root: None,
-        },
-        review,
-        input,
-        initial_watch_signature,
-        reloader,
-        prepared_extensions,
-    )
-}
-
 fn run_review_with_preloaded_extensions(
     cwd: &Path,
     loaded: LoadedReviewChangeset,
@@ -3288,10 +3489,8 @@ fn build_app_bootstrap(
     let initial_cursor_line = options.cursor_line.unwrap_or_default();
     let vcs_catalog = prepared_extensions.vcs_catalog.take();
     let session_themes = collect_review_custom_themes(review, &prepared_extensions.extensions);
-    prepared_extensions
-        .startup_notices
-        .extend(session_themes.notices);
-    let startup_notices = std::mem::take(&mut prepared_extensions.startup_notices);
+    let startup_notices =
+        take_review_startup_notices(&mut prepared_extensions, session_themes.notices);
 
     AppBootstrap {
         input,
@@ -3323,6 +3522,18 @@ fn build_app_bootstrap(
         keybinding_notices: review.keybinding_notices.clone(),
         extensions: Some(prepared_extensions),
     }
+}
+
+fn take_review_startup_notices(
+    prepared: &mut PreparedReviewExtensions,
+    theme_notices: Vec<StartupNotice>,
+) -> Vec<StartupNotice> {
+    let mut notices = std::mem::take(&mut prepared.configured_notices);
+    notices.extend(theme_notices);
+    notices.append(&mut prepared.application_notices);
+    notices.append(&mut prepared.unknown_vcs_notices);
+    notices.append(&mut prepared.load_notices);
+    notices
 }
 
 fn collect_review_custom_themes(
@@ -3414,7 +3625,10 @@ fn run_app_bootstrap(
         mut extensions,
         notifications,
         pending_trust_repo_root,
-        startup_notices: _,
+        configured_notices: _,
+        application_notices: _,
+        unknown_vcs_notices: _,
+        load_notices: _,
         vcs_catalog: _,
     } = prepared_extensions;
     changeset = apply_review_extensions(changeset, &mut extensions)?;
@@ -3617,24 +3831,25 @@ fn load_review_extensions(
     review: &ReviewCliOptions,
 ) -> Result<PreparedReviewExtensions> {
     let notifications = ExtensionNotificationHub::new();
-    let (extensions, pending_trust_repo_root, startup_notices) =
-        load_review_extensions_with_notifications(cwd, review, &notifications)?;
-    Ok(PreparedReviewExtensions {
-        extensions,
-        notifications,
-        pending_trust_repo_root,
-        startup_notices,
-        vcs_catalog: None,
-    })
+    load_review_extensions_with_notifications(cwd, review, notifications)
 }
 
 fn load_review_extensions_with_notifications(
     cwd: &Path,
     review: &ReviewCliOptions,
-    notifications: &ExtensionNotificationHub,
-) -> Result<(Vec<LoadedExtension>, Option<PathBuf>, Vec<StartupNotice>)> {
+    notifications: ExtensionNotificationHub,
+) -> Result<PreparedReviewExtensions> {
     if review.no_extensions {
-        return Ok((Vec::new(), None, review.startup_notices.clone()));
+        return Ok(PreparedReviewExtensions {
+            extensions: Vec::new(),
+            notifications,
+            pending_trust_repo_root: None,
+            configured_notices: review.startup_notices.clone(),
+            application_notices: Vec::new(),
+            unknown_vcs_notices: Vec::new(),
+            load_notices: Vec::new(),
+            vcs_catalog: None,
+        });
     }
     let config = user_config_root().map(|root| root.join("workdeck"));
     let trust = load_extension_trust_store();
@@ -3657,16 +3872,18 @@ fn load_review_extensions_with_notifications(
         notifications: Some(notifications.clone()),
         previous_load: None,
     })?;
-    let mut startup_notices = review.startup_notices.clone();
-    startup_notices.extend(create_extension_load_notices(&result.issues));
     let resolution =
         resolve_loaded_extension_registrations(&result.extensions, bundled_vcs_catalog());
-    startup_notices.extend(create_extension_apply_notices(&resolution.issues));
-    Ok((
-        result.extensions,
-        result.pending_trust_repo_root,
-        startup_notices,
-    ))
+    Ok(PreparedReviewExtensions {
+        extensions: result.extensions,
+        notifications,
+        pending_trust_repo_root: result.pending_trust_repo_root,
+        configured_notices: review.startup_notices.clone(),
+        application_notices: create_extension_apply_notices(&resolution.issues),
+        unknown_vcs_notices: Vec::new(),
+        load_notices: create_extension_load_notices(&result.issues),
+        vcs_catalog: None,
+    })
 }
 
 fn review_extension_trust_handler(
@@ -3693,16 +3910,16 @@ fn review_extension_trust_handler(
         if !load_extensions {
             return Ok(Vec::new());
         }
-        let (extensions, pending, notices) =
-            load_review_extensions_with_notifications(&cwd, &review, &notifications)
+        let mut prepared =
+            load_review_extensions_with_notifications(&cwd, &review, notifications.clone())
                 .map_err(|_| ExtensionTrustHostError::Reload)?;
-        if pending.is_some() {
+        if prepared.pending_trust_repo_root.is_some() {
             return Err(ExtensionTrustHostError::Reload);
         }
-        for notice in notices {
+        for notice in take_review_startup_notices(&mut prepared, Vec::new()) {
             notifications.notify(notice.message, ExtensionNotifyType::Warning);
         }
-        Ok(extensions)
+        Ok(prepared.extensions)
     })
 }
 
