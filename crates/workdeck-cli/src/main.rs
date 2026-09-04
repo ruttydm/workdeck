@@ -1125,9 +1125,10 @@ mod review_cli_option_tests {
                 "while IFS= read -r line; do\n",
                 "  request_id=$(printf '%s\\n' \"$line\" | sed -E 's/.*\"id\":([0-9]+).*/\\1/')\n",
                 "  case \"$line\" in\n",
-                "    *workdeck/handshake*) result='{{\"extension_api_version\":1,\"extension_version\":\"1.0.0\",\"registrations\":[{{\"kind\":\"vcs-adapter\",\"id\":\"custom\",\"name\":\"Custom VCS\",\"operations\":{{\"working-tree-diff\":{{\"watchSignature\":false,\"watchPlan\":false}}}},\"detectionPriority\":50}},{{\"kind\":\"cli-command\",\"name\":\"tools\",\"summary\":\"Tools\"}},{{\"kind\":\"event-subscription\",\"names\":[\"shutdown\"]}}]}}' ;;\n",
+                "    *workdeck/handshake*) result='{{\"extension_api_version\":1,\"extension_version\":\"1.0.0\",\"registrations\":[{{\"kind\":\"vcs-adapter\",\"id\":\"custom\",\"name\":\"Custom VCS\",\"operations\":{{\"working-tree-diff\":{{\"watchSignature\":false,\"watchPlan\":false}}}},\"detectionPriority\":50}},{{\"kind\":\"cli-command\",\"name\":\"tools\",\"summary\":\"Tools\"}},{{\"kind\":\"changeset-transform\",\"id\":\"rewrite-title\"}},{{\"kind\":\"file-language\",\"matcher\":{{\"kind\":\"filename\",\"value\":\"ReplacementWorkdeckfile\"}},\"language\":\"ruby\"}},{{\"kind\":\"event-subscription\",\"names\":[\"shutdown\"]}}]}}' ;;\n",
                 "    *workdeck/vcs/detect*) result='{{\"id\":\"custom\",\"repoRoot\":{quoted_repo}}}' ;;\n",
                 "    *workdeck/vcs/load*) result='{{\"repoRoot\":{quoted_repo},\"sourceLabel\":{quoted_repo},\"title\":\"Custom working copy\",\"patchText\":\"\",\"readFileSource\":false}}' ;;\n",
+                "    *workdeck/changeset/transform*) result='{{\"changeset\":{{\"id\":\"changeset:test\",\"source_label\":\"test\",\"title\":\"after\",\"source\":{{\"kind\":\"working-tree\",\"staged\":false}},\"files\":[]}}}}' ;;\n",
                 "    *workdeck/shutdown*) printf 'shutdown\\n' >> \"$factory_log\"; exit 0 ;;\n",
                 "    *) continue ;;\n",
                 "  esac\n",
@@ -1150,7 +1151,7 @@ mod review_cli_option_tests {
                 "version = '1.0.0'\n",
                 "api_version = 1\n",
                 "executable = 'custom-vcs.sh'\n",
-                "capabilities = ['vcs-adapters', 'cli-commands', 'events']\n",
+                "capabilities = ['vcs-adapters', 'cli-commands', 'changeset-transforms', 'file-languages', 'events']\n",
             ),
         )
         .unwrap();
@@ -1359,6 +1360,149 @@ mod review_cli_option_tests {
         );
         assert_eq!(collision_issues[0].extension_id, "second");
         assert!(load.issues.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn configured_session_bootstrap_applies_extensions_and_all_session_fields_before_handoff() {
+        let directory = tempfile::tempdir().unwrap();
+        let repo = directory.path().join("repo");
+        let nested = repo.join("src/nested");
+        std::fs::create_dir_all(repo.join(".custom")).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+        let repo = repo.canonicalize().unwrap();
+        let nested = nested.canonicalize().unwrap();
+        let (manifest, factory_log) = install_external_vcs_test_extension(directory.path(), &repo);
+        let raw_review = ReviewCliOptions {
+            extension: vec![manifest],
+            ..ReviewCliOptions::default()
+        };
+        let mut review = raw_review.clone();
+        review.apply_config_defaults(&Config::default());
+        let mut prepared =
+            prepare_review_extensions(&nested, &mut review, &raw_review, None, None).unwrap();
+        prepared.vcs_catalog = Some(compose_review_vcs_catalog(&prepared.extensions));
+        review.initial_theme_mode = Some(TerminalThemeMode::Dark);
+        review.keybindings = vec![UserKeyBindingEntry::new(
+            "workdeck.review.nextHunk",
+            workdeck_tui::UserKeyBinding::Chord("]".into()),
+        )];
+        review.view_preferences_config_path = Some(PathBuf::from("/tmp/workdeck-config.toml"));
+        let input = CliInput::Vcs(VcsDiffCommandInput {
+            range: None,
+            range_endpoints: None,
+            staged: false,
+            pathspecs: Vec::new(),
+            options: review.common_options(),
+        });
+        let changeset = Changeset {
+            id: "changeset:test".into(),
+            source_label: "test".into(),
+            title: "before".into(),
+            summary: None,
+            agent_summary: None,
+            source: ChangesetSource::WorkingTree { staged: false },
+            files: Vec::new(),
+        };
+
+        let mut bootstrap = prepare_app_bootstrap(
+            &nested,
+            Some(repo),
+            changeset,
+            &review,
+            input.clone(),
+            None,
+            prepared,
+        )
+        .unwrap();
+        assert_eq!(bootstrap.input, input);
+        assert_eq!(bootstrap.changeset.title, "after");
+        assert_eq!(bootstrap.initial_theme_mode, Some(TerminalThemeMode::Dark));
+        assert_eq!(bootstrap.keybindings, review.keybindings);
+        assert_eq!(
+            bootstrap.view_preferences_config_path.as_deref(),
+            Some(Path::new("/tmp/workdeck-config.toml"))
+        );
+        let prepared = bootstrap.extensions.as_mut().unwrap();
+        assert_eq!(prepared.extensions[0].manifest.id, "custom-vcs");
+        for extension in &mut prepared.extensions {
+            extension.retire();
+        }
+        assert_eq!(
+            std::fs::read_to_string(factory_log).unwrap(),
+            "factory\nshutdown\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_session_bootstrap_cannot_mutate_the_active_file_language_registry() {
+        let directory = tempfile::tempdir().unwrap();
+        let repo = directory.path().join("repo");
+        std::fs::create_dir_all(repo.join(".custom")).unwrap();
+        let repo = repo.canonicalize().unwrap();
+        let (manifest, _) = install_external_vcs_test_extension(directory.path(), &repo);
+        let mut bootstrap = load_cli_extensions(&repo, &[manifest], false).unwrap();
+        let mut active = LanguageRegistry::default();
+        active.replace_extensions(vec![LanguageRegistration {
+            matcher: LanguageMatcher::Filename("CurrentWorkdeckfile".into()),
+            language: "python".into(),
+            reserved: false,
+        }]);
+
+        let attempt: Result<()> = (|| {
+            let provisional = build_review_language_registry(&bootstrap.load.extensions);
+            assert_eq!(
+                provisional.language_for_path("ReplacementWorkdeckfile"),
+                "ruby"
+            );
+            bail!("load failed")
+        })();
+        assert_eq!(attempt.unwrap_err().to_string(), "load failed");
+        assert_eq!(active.language_for_path("CurrentWorkdeckfile"), "python");
+        assert_eq!(active.language_for_path("ReplacementWorkdeckfile"), "text");
+
+        bootstrap.load.retire();
+    }
+
+    #[test]
+    fn frozen_hunk_session_bootstrap_oracle_maps_both_pins_and_every_source_test() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/session-bootstrap.json"
+        ))
+        .unwrap();
+        let baselines = oracle["baselines"].as_array().unwrap();
+        assert_eq!(baselines.len(), 2);
+        assert_eq!(
+            baselines[0]["source_blob"],
+            "eb36b7ed7d63a4dda9621b637b821078a29ee481"
+        );
+        assert_eq!(baselines[0]["source_bytes"], 4_033);
+        assert_eq!(
+            baselines[0]["test_blob"],
+            "cad35584f7c86a24065396e26c122402b6142a1b"
+        );
+        assert_eq!(baselines[0]["test_bytes"], 3_604);
+        assert_eq!(baselines[0]["passed"], 2);
+        assert_eq!(baselines[0]["expect_calls"], 10);
+        assert_eq!(
+            baselines[1]["source_blob"],
+            "2c998dbedaac98efca7f580b6d9505e4862e065e"
+        );
+        assert_eq!(baselines[1]["source_bytes"], 3_475);
+        assert_eq!(
+            baselines[1]["test_blob"],
+            "06035ce98002460368ffe50ecfe8cd16cd3a617a"
+        );
+        assert_eq!(baselines[1]["test_bytes"], 2_371);
+        assert_eq!(baselines[1]["passed"], 1);
+        assert_eq!(baselines[1]["expect_calls"], 6);
+        assert_eq!(oracle["test_mapping"].as_array().unwrap().len(), 2);
+        assert_eq!(oracle["expected"]["transformed_title"], "after");
+        assert_eq!(
+            oracle["expected"]["rust_file_language_rollback_mechanism"],
+            "session-local registry discarded before commit"
+        );
     }
 
     #[test]
@@ -3947,9 +4091,10 @@ fn prepare_app_bootstrap(
     review: &ReviewCliOptions,
     input: CliInput,
     initial_watch_signature: Option<String>,
-    prepared_extensions: PreparedReviewExtensions,
+    mut prepared_extensions: PreparedReviewExtensions,
 ) -> Result<WorkdeckAppBootstrap> {
     apply_agent_context(cwd, review.agent_context.as_deref(), &mut changeset)?;
+    changeset = apply_review_extensions(changeset, &mut prepared_extensions.extensions)?;
     Ok(build_app_bootstrap(
         cwd,
         repo_root,
@@ -4115,11 +4260,10 @@ fn run_app_bootstrap(
     let cwd = reload_context.cwd;
     let initial_watch_signature = reload_context.initial_watch_signature;
     let vcs_catalog = reload_context.vcs_catalog;
-    let mut changeset = changeset;
     let prepared_extensions =
         extensions.ok_or_else(|| anyhow::anyhow!("review bootstrap has no extension state"))?;
     let PreparedReviewExtensions {
-        mut extensions,
+        extensions,
         notifications,
         pending_trust_repo_root,
         configured_notices: _,
@@ -4128,7 +4272,6 @@ fn run_app_bootstrap(
         load_notices: _,
         vcs_catalog: _,
     } = prepared_extensions;
-    changeset = apply_review_extensions(changeset, &mut extensions)?;
     let mut options = review.tui_options();
     options.layout = match initial_mode {
         InputLayoutMode::Auto => LayoutMode::Auto,
@@ -4250,6 +4393,22 @@ fn apply_review_extensions(
     mut changeset: Changeset,
     extensions: &mut [LoadedExtension],
 ) -> Result<Changeset> {
+    let language_registry = build_review_language_registry(extensions);
+    for file in &mut changeset.files {
+        let language = language_registry.language_for_path(&file.path);
+        file.language = (language != "text").then_some(language);
+    }
+    for extension in extensions.iter_mut() {
+        changeset = extension.apply_changeset_transforms(changeset);
+    }
+    changeset.refresh_review_identities();
+    Ok(changeset)
+}
+
+/// Build a session-local selector set so an aborted bootstrap cannot leak registrations into the
+/// active review. This is the native transaction boundary corresponding to Hunk's snapshot and
+/// restore pair around `loadConfiguredSessionBootstrap`.
+fn build_review_language_registry(extensions: &[LoadedExtension]) -> LanguageRegistry {
     let resolution = resolve_loaded_extension_registrations(extensions, bundled_vcs_catalog());
     let file_languages = extensions
         .iter()
@@ -4289,15 +4448,7 @@ fn apply_review_extensions(
         .collect::<Vec<_>>();
     let mut language_registry = LanguageRegistry::default();
     language_registry.replace_extensions(file_languages);
-    for file in &mut changeset.files {
-        let language = language_registry.language_for_path(&file.path);
-        file.language = (language != "text").then_some(language);
-    }
-    for extension in extensions.iter_mut() {
-        changeset = extension.apply_changeset_transforms(changeset);
-    }
-    changeset.refresh_review_identities();
-    Ok(changeset)
+    language_registry
 }
 
 fn apply_agent_context(cwd: &Path, path: Option<&Path>, changeset: &mut Changeset) -> Result<()> {

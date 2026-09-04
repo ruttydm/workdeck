@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "runtime": {
+    "name": "Bun",
+    "version": "1.3.5",
+    "execution": "disposable pinned Hunk worktrees"
+  },
+  "command": [
+    "bun",
+    "test",
+    "src/app/sessionBootstrap.test.ts"
+  ],
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "source_blob": "eb36b7ed7d63a4dda9621b637b821078a29ee481",
+      "source_bytes": 4033,
+      "test_blob": "cad35584f7c86a24065396e26c122402b6142a1b",
+      "test_bytes": 3604,
+      "passed": 2,
+      "failed": 0,
+      "expect_calls": 10
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "source_blob": "2c998dbedaac98efca7f580b6d9505e4862e065e",
+      "source_bytes": 3475,
+      "test_blob": "06035ce98002460368ffe50ecfe8cd16cd3a617a",
+      "test_bytes": 2371,
+      "passed": 1,
+      "failed": 0,
+      "expect_calls": 6
+    }
+  ],
+  "expected": {
+    "ordering": [
+      "collect-session-themes",
+      "apply-extension-registrations",
+      "resolve-session-vcs",
+      "load-changeset",
+      "apply-changeset-transforms",
+      "commit-bootstrap"
+    ],
+    "transformed_title": "after",
+    "initial_theme_mode": "dark",
+    "extensions_owned_by_bootstrap": true,
+    "keybinding": {
+      "workdeck.review.nextHunk": "]"
+    },
+    "view_preferences_config_path": "/tmp/workdeck-config.toml",
+    "failed_bootstrap_restores_file_languages": true,
+    "rust_file_language_rollback_mechanism": "session-local registry discarded before commit"
+  },
+  "test_mapping": [
+    {
+      "source_test": "shares extension-aware loading and session fields across launch and reload callers",
+      "rust_tests": [
+        "review_cli_option_tests::configured_session_bootstrap_applies_extensions_and_all_session_fields_before_handoff"
+      ]
+    },
+    {
+      "source_test": "restores the active file-language selectors when bootstrap loading fails",
+      "rust_tests": [
+        "review_cli_option_tests::failed_session_bootstrap_cannot_mutate_the_active_file_language_registry"
+      ]
+    }
+  ]
+}
