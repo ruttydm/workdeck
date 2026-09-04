@@ -80,6 +80,7 @@ mod terminal_runtime;
 mod text;
 mod theme;
 mod theme_detection;
+mod theme_selector_controller;
 mod theme_selector_dialog;
 mod timed_notice;
 mod ui_geometry;
@@ -170,6 +171,7 @@ pub use terminal_runtime::*;
 pub use text::*;
 pub use theme::*;
 pub use theme_detection::*;
+pub use theme_selector_controller::*;
 pub use theme_selector_dialog::*;
 pub use timed_notice::*;
 pub use ui_geometry::*;
@@ -853,7 +855,12 @@ impl ReviewApp {
         }
         let mut state = ReviewState::new(changeset);
         state.set_layout(options.layout);
-        let themes = ThemeController::new(options.theme.id.clone());
+        let themes = ThemeController::from_resolved(
+            options.theme.id.clone(),
+            None,
+            options.custom_themes.clone(),
+            options.transparent_background,
+        );
         let mut startup_notices = StartupNoticeQueue::new(true, DEFAULT_STARTUP_NOTICE_DURATION);
         startup_notices.restart(
             true,
@@ -5777,151 +5784,6 @@ fn to_live_extension_key_event(key: &KeyEvent) -> ExtensionKeyEvent {
         meta: key.modifiers.contains(KeyModifiers::SUPER),
         option: key.modifiers.contains(KeyModifiers::ALT),
         shift: key.modifiers.contains(KeyModifiers::SHIFT),
-    }
-}
-
-/// Generation-based theme preview state. Only the newest preview may commit, and cursor palette
-/// writes are emitted solely when the requested value changes. These invariants cover the two
-/// stable-only Hunk theme regressions without relying on a React lifecycle.
-#[derive(Debug)]
-pub struct ThemeController {
-    committed: String,
-    active: String,
-    requested: String,
-    selected_theme_id: Option<String>,
-    selector_open: bool,
-    window: Option<ThemeSelectorWindowState>,
-    generation: u64,
-    cursor_palette: Option<String>,
-    cursor_updates: u64,
-}
-
-impl ThemeController {
-    pub fn new(theme: String) -> Self {
-        Self {
-            committed: theme.clone(),
-            active: theme.clone(),
-            requested: theme,
-            selected_theme_id: None,
-            selector_open: false,
-            window: None,
-            generation: 0,
-            cursor_palette: None,
-            cursor_updates: 0,
-        }
-    }
-
-    pub fn request_preview(&mut self, theme: impl Into<String>) -> u64 {
-        self.generation = self.generation.saturating_add(1);
-        self.requested = theme.into();
-        self.generation
-    }
-
-    pub fn commit_preview(&mut self, generation: u64) -> bool {
-        if generation != self.generation {
-            return false;
-        }
-        self.active.clone_from(&self.requested);
-        true
-    }
-
-    pub fn set_cursor_palette(&mut self, palette: Option<String>) -> bool {
-        if self.cursor_palette == palette {
-            return false;
-        }
-        self.cursor_palette = palette;
-        self.cursor_updates = self.cursor_updates.saturating_add(1);
-        true
-    }
-
-    fn open_selector(&mut self, catalog: &[AppTheme]) {
-        let committed = catalog
-            .iter()
-            .find(|theme| theme.id == self.committed)
-            .or_else(|| catalog.first())
-            .map(|theme| theme.id.clone());
-        self.selector_open = true;
-        self.selected_theme_id = committed;
-        self.requested.clone_from(&self.active);
-        self.window = None;
-    }
-
-    fn close_selector(&mut self) -> String {
-        self.generation = self.generation.saturating_add(1);
-        self.selector_open = false;
-        self.selected_theme_id = None;
-        self.window = None;
-        self.active.clone_from(&self.committed);
-        self.requested.clone_from(&self.committed);
-        self.committed.clone()
-    }
-
-    fn selected_index(&self, catalog: &[AppTheme]) -> usize {
-        self.selected_theme_id
-            .as_ref()
-            .and_then(|selected| catalog.iter().position(|theme| &theme.id == selected))
-            .or_else(|| catalog.iter().position(|theme| theme.id == self.committed))
-            .unwrap_or(0)
-    }
-
-    fn preview_index(&mut self, catalog: &[AppTheme], index: usize) -> Option<String> {
-        let theme = catalog.get(index)?;
-        self.selected_theme_id = Some(theme.id.clone());
-        let generation = self.request_preview(&theme.id);
-        self.commit_preview(generation);
-        Some(theme.id.clone())
-    }
-
-    fn move_selector(&mut self, catalog: &[AppTheme], delta: isize) -> Option<String> {
-        if catalog.is_empty() {
-            self.selected_theme_id = None;
-            self.requested.clone_from(&self.committed);
-            self.active.clone_from(&self.committed);
-            return None;
-        }
-        let anchor = self.selected_index(catalog);
-        let count = isize::try_from(catalog.len()).unwrap_or(isize::MAX);
-        let anchor = isize::try_from(anchor).unwrap_or_default();
-        let next = usize::try_from((anchor + delta).rem_euclid(count)).unwrap_or_default();
-        self.preview_index(catalog, next)
-    }
-
-    fn accept_selector(&mut self, catalog: &[AppTheme]) -> Option<(String, String)> {
-        let selected = self.selected_theme_id.as_ref()?;
-        let theme = catalog.iter().find(|theme| &theme.id == selected)?;
-        self.committed.clone_from(&theme.id);
-        self.active.clone_from(&theme.id);
-        self.requested.clone_from(&theme.id);
-        self.selector_open = false;
-        self.selected_theme_id = Some(theme.id.clone());
-        self.window = None;
-        Some((theme.id.clone(), theme.label.clone()))
-    }
-
-    fn accept_selector_index(
-        &mut self,
-        catalog: &[AppTheme],
-        index: usize,
-    ) -> Option<(String, String)> {
-        let theme = catalog.get(index)?;
-        self.selected_theme_id = Some(theme.id.clone());
-        self.accept_selector(catalog)
-    }
-
-    fn items(&self, catalog: &[AppTheme]) -> Vec<ThemeSelectorItem> {
-        catalog
-            .iter()
-            .map(|theme| ThemeSelectorItem {
-                id: theme.id.clone(),
-                label: theme.label.clone(),
-                description: if theme.id == self.active {
-                    "active".into()
-                } else {
-                    String::new()
-                },
-                active: theme.id == self.active,
-            })
-            .collect()
     }
 }
 
