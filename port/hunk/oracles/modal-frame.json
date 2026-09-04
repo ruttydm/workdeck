@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/components/chrome/ModalFrame.tsx",
+    "baselineAndStableBlob": "950c4cffd86f5e2cf56c562e339446c8cc770ba7",
+    "baselineAndStableSha256": "3ea0337f9bbb32de4983da622913a273c259e197d8691df62ed66bf3ad65bb31",
+    "bytes": 2659,
+    "lines": 109
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/modal_frame.rs",
+      "sha256": "05937303ca91cfa76cd6cb518a3fb9ec79fc6832286eb5756875467481fccb18"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "597331256639127a1cedb2b9c379247fb416ac36dfae1c2bf2c0f9a4f8a1d370"
+    }
+  ],
+  "directOracle": {
+    "runtime": "bun 1.3.5",
+    "temporaryTest": "src/ui/components/chrome/ModalFrame.oracle.test.tsx",
+    "baseline": {
+      "passed": 1,
+      "failed": 0
+    },
+    "stable": {
+      "passed": 1,
+      "failed": 0
+    },
+    "identical": true,
+    "frames": {
+      "closeable": "                              \n                              \n     ┌──────────────────┐     \n     │                  │     \n     │ A very long[Esc] │     \n     │                  │     \n     │ secondcchild     │     \n     │                  │     \n     └──────────────────┘     \n                              \n                              \n",
+      "fixed": "                              \n                              \n     ┌──────────────────┐     \n     │                  │     \n     │ A very long      │     \n     │ modal.           │     \n     │ secondcchild     │     \n     │                  │     \n     └──────────────────┘     \n                              \n                              \n",
+      "clamped": "            \n ┌────────┐ \n │        │ \n │ A.[Esc]│ \n └────────┘ \n   first    \n",
+      "consumerBody": "                              \n                              \n     ┌──────────────────┐     \n     │                  │     \n     │ Title      [Esc] │     \n     │                  │     \n     │ first child      │     \n     │ second child     │     \n     │                  │     \n     └──────────────────┘     \n                              \n                              \n"
+    }
+  },
+  "observableContract": {
+    "backdrop": {
+      "top": 0,
+      "left": 0,
+      "width": "terminalWidth",
+      "height": "terminalHeight",
+      "zIndex": 55,
+      "mouseUp": "optional close without explicit propagation stop"
+    },
+    "frame": {
+      "zIndex": 60,
+      "border": true,
+      "borderColor": "theme.accent",
+      "background": "theme.panel",
+      "direction": "column",
+      "mouseUp": "stop propagation",
+      "mouseScroll": "stop propagation then invoke optional callback"
+    },
+    "header": {
+      "paddingLeft": 1,
+      "paddingRight": 1,
+      "paddingTop": 1,
+      "direction": "row",
+      "titleColor": "theme.text",
+      "closeText": "[Esc]",
+      "closeColor": "theme.badgeNeutral",
+      "closeMouseUp": "stop propagation then close"
+    },
+    "content": {
+      "paddingLeft": 1,
+      "paddingRight": 1,
+      "paddingBottom": 1,
+      "direction": "column",
+      "flexGrow": 1
+    }
+  },
+  "sourceCoverage": [
+    [[1, 5], [0, 267], "renderer, geometry, cell-text, theme, and child dependencies"],
+    [[6, 30], [267, 753], "complete reusable modal property and callback contract"],
+    [[31, 47], [753, 1110], "clamped centered geometry, optional close text, and title width"],
+    [[48, 61], [1110, 1405], "full-terminal backdrop, z-order, and outside-click close behavior"],
+    [[62, 86], [1405, 2173], "framed panel paint plus mouse-scroll and mouse-up containment"],
+    [[87, 109], [2173, 2659], "padded title, optional escape affordance, and growing padded child body"]
+  ],
+  "rustTests": [
+    "modal_frame::tests::closeable_frame_matches_the_frozen_opentui_chrome",
+    "modal_frame::tests::fixed_frame_wraps_the_fitted_title_and_clamps_to_real_terminal_margins",
+    "modal_frame::tests::pointer_routing_closes_only_from_the_backdrop_or_escape_affordance"
+  ],
+  "nativeAdaptation": {
+    "zOrder": "Ratatui call order replaces numeric scene z-order; the plan retains both source z-index values for hit routing and parity evidence.",
+    "children": "Consumers paint into the returned content rectangle instead of passing a ReactNode.",
+    "events": "The shell maps backdrop, frame, and close hit rectangles to explicit propagation and close effects.",
+    "rendering": "The reusable painter owns exact centered border, blank header row, fitted title cells, escape placement, palette, and constrained body rectangle."
+  }
+}
