@@ -7,10 +7,46 @@ use crate::{
     AppliedCommentBatchResult, AppliedCommentResult, AppliedHighlightResult, ClearedCommentsResult,
     ClearedHighlightsResult, CommentTargetInput, CommentToolInput, HighlightToolInput,
     NavigateToHunkToolInput, NavigatedSelectionResult, ReloadSessionOptions, ReloadedSessionResult,
-    RemovedCommentResult, WorkdeckReviewFailureCodeV1, WorkdeckReviewFailureV1,
-    WorkdeckReviewResourceReadResultV1, WorkdeckSessionCommandResult, WorkdeckSessionServerMessage,
+    RemovedCommentResult, SessionBrokerConnectionBridge, SessionServerMessage,
+    WorkdeckReviewFailureCodeV1, WorkdeckReviewFailureV1, WorkdeckReviewResourceReadResultV1,
+    WorkdeckSessionCommandInput, WorkdeckSessionCommandResult, WorkdeckSessionServerMessage,
     apply_session_review_action, read_session_review_resource,
 };
+
+fn typed_server_message(
+    message: SessionServerMessage<String, WorkdeckSessionCommandInput>,
+) -> WorkdeckSessionServerMessage {
+    let SessionServerMessage {
+        request_id,
+        command,
+        command_version,
+        input,
+    } = message;
+    macro_rules! typed {
+        ($variant:ident, $input:expr) => {
+            WorkdeckSessionServerMessage::$variant(SessionServerMessage {
+                request_id,
+                command,
+                command_version,
+                input: $input,
+            })
+        };
+    }
+    match input {
+        WorkdeckSessionCommandInput::Comment(input) => typed!(Comment, input),
+        WorkdeckSessionCommandInput::CommentBatch(input) => typed!(CommentBatch, input),
+        WorkdeckSessionCommandInput::NavigateToHunk(input) => typed!(NavigateToHunk, input),
+        WorkdeckSessionCommandInput::ReloadSession(input) => typed!(ReloadSession, input),
+        WorkdeckSessionCommandInput::RemoveComment(input) => typed!(RemoveComment, input),
+        WorkdeckSessionCommandInput::ClearComments(input) => typed!(ClearComments, input),
+        WorkdeckSessionCommandInput::ReadReviewResource(input) => {
+            typed!(ReadReviewResource, input)
+        }
+        WorkdeckSessionCommandInput::ApplyReviewAction(input) => typed!(ApplyReviewAction, input),
+        WorkdeckSessionCommandInput::Highlight(input) => typed!(Highlight, input),
+        WorkdeckSessionCommandInput::ClearHighlights(input) => typed!(ClearHighlights, input),
+    }
+}
 
 pub trait WorkdeckSessionBridgeHandlers {
     fn add_live_comment(
@@ -169,6 +205,20 @@ where
                 WorkdeckSessionCommandResult::ReviewAction(result)
             }
         }
+    }
+}
+
+impl<H> SessionBrokerConnectionBridge<WorkdeckSessionCommandInput, WorkdeckSessionCommandResult>
+    for WorkdeckSessionBridge<H>
+where
+    H: WorkdeckSessionBridgeHandlers + Send + Sync + 'static,
+{
+    fn dispatch_command(
+        &self,
+        message: SessionServerMessage<String, WorkdeckSessionCommandInput>,
+    ) -> Result<WorkdeckSessionCommandResult, String> {
+        let message = typed_server_message(message);
+        Ok(WorkdeckSessionBridge::dispatch_command(self, &message))
     }
 }
 
@@ -618,5 +668,33 @@ mod tests {
             panic!("producer-backed read did not delegate")
         };
         assert_eq!(failure.code, WorkdeckReviewFailureCodeV1::UnknownResource);
+    }
+
+    #[test]
+    fn generic_broker_envelope_is_typed_and_routed_by_the_native_bridge() {
+        let handlers = Handlers::default();
+        let calls = Arc::clone(&handlers.calls);
+        let bridge = create_workdeck_session_bridge(handlers);
+        let result = SessionBrokerConnectionBridge::dispatch_command(
+            &bridge,
+            SessionServerMessage {
+                request_id: "generic-clear".into(),
+                command: "clear_highlights".into(),
+                command_version: None,
+                input: WorkdeckSessionCommandInput::ClearHighlights(ClearHighlightsToolInput {
+                    target_session: SessionSelector::default(),
+                    file_path: Some("src/example.ts".into()),
+                }),
+            },
+        )
+        .unwrap();
+        let WorkdeckSessionCommandResult::ClearedHighlights(result) = result else {
+            panic!("generic broker command returned the wrong result")
+        };
+        assert_eq!(result.file_path.as_deref(), Some("src/example.ts"));
+        assert_eq!(
+            calls.lock().unwrap().highlight_clears,
+            [Some("src/example.ts".into())]
+        );
     }
 }

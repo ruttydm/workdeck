@@ -44,6 +44,7 @@ mod review_protocol;
 mod review_resource_cache;
 mod selectors;
 mod session_bridge;
+mod session_bridge_binding;
 mod session_models;
 mod session_registration;
 mod skill_document;
@@ -98,6 +99,7 @@ pub use selectors::{
     normalize_session_selector, repo_selector_distance, resolve_session_selector_boundary,
 };
 pub use session_bridge::*;
+pub use session_bridge_binding::*;
 pub use session_models::*;
 pub use session_registration::*;
 pub use skill_document::*;

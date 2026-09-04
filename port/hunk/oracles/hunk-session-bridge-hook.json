@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/hooks/useHunkSessionBridge.ts",
+    "baselineAndStableBlob": "727255d906e66557724b291de0cc38f0419e8ff0",
+    "baselineAndStableSha256": "cb1db2ebe0a17219c666e0af3ea7c67d15177f8bfe16fa2d0ecbc1e0c2ae8c81",
+    "bytes": 5049,
+    "lines": 157,
+    "finalizedBy": {
+      "commit": "753dc37004d6a1d756045719454df3463ee91ce7",
+      "subject": "Organize src/core into real modules (#795)"
+    }
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-session/src/session_bridge_binding.rs",
+      "sha256": "f29be4c3090485ad539e908971baa5eab17e61b8ee38b0fb34b04057c0d1b626"
+    },
+    {
+      "path": "crates/workdeck-session/src/session_bridge.rs",
+      "sha256": "f908a55be836af6d8eb831cd93965ffb2659357427b2ed74deea2f1bac1c293a"
+    },
+    {
+      "path": "crates/workdeck-session/src/session_models.rs",
+      "sha256": "a73980a280346c690d3654854b0df1d0d070ab9c778436929baecb2795cb4342"
+    },
+    {
+      "path": "crates/workdeck-review/src/geometry.rs",
+      "sha256": "d8c2ce19d7708f6a62a81c885cea80660ff4a2d57a1787e2336de1424b7b482b"
+    }
+  ],
+  "directOracle": {
+    "runtime": "bun 1.3.5",
+    "temporaryTest": "src/ui/useHunkSessionBridge.oracle.test.tsx",
+    "temporarySourceCommitted": false,
+    "eachPin": {
+      "passed": 1,
+      "failed": 0,
+      "assertions": 3
+    },
+    "output": {
+      "bridgeStates": ["attached", "detached"],
+      "snapshotCount": 1,
+      "latest": {
+        "updatedAt": "<iso>",
+        "state": {
+          "selectedFileId": "alpha",
+          "selectedFilePath": "alpha.ts",
+          "selectedHunkIndex": 0,
+          "selectedHunkOldRange": [1, 1],
+          "selectedHunkNewRange": [1, 2],
+          "showAgentNotes": true,
+          "liveCommentCount": 0,
+          "liveComments": [],
+          "reviewNoteCount": 0,
+          "reviewNotes": [],
+          "reviewPublication": {
+            "generation": "generation:oracle:0",
+            "stateRevision": 0
+          }
+        }
+      },
+      "commandResult": {
+        "fileId": "alpha",
+        "filePath": "alpha.ts",
+        "hunkIndex": 0,
+        "selectedHunk": {
+          "index": 0,
+          "oldRange": [1, 1],
+          "newRange": [1, 2]
+        }
+      }
+    }
+  },
+  "sourceCoverage": [
+    [[[1, 15], [0, 654]], "React lifecycle, review producer, diff geometry, command input, broker client, summary, and terminal-review dependencies"],
+    [[[16, 67], [654, 2498]], "complete handler, host, comment/note, publication revision, selection, hunk, markup-width, and visibility input contract"],
+    [[[68, 95], [2498, 3183]], "stable command bridge construction with every terminal handler, reload option preservation, and review producer"],
+    [[[96, 107], [3183, 3371]], "optional host attachment and deterministic detach cleanup when the mounted review lifetime ends"],
+    [[[108, 112], [3371, 3718]], "producer generation identity kept separate from the review store state revision"],
+    [[[113, 141], [3718, 4744]], "timestamped snapshot projection with file identity/path, inclusive old/new hunk ranges, visibility, markup geometry, comments, notes, and publication ordering"],
+    [[[142, 157], [4744, 5049]], "complete snapshot invalidation surface for host, generation, revision, comment/note, markup, file, hunk, index, and visibility changes"]
+  ],
+  "nativeTests": [
+    "session_bridge_binding::tests::projects_the_frozen_hunk_oracle_snapshot",
+    "session_bridge_binding::tests::preserves_absent_selection_and_publication_without_inventing_fields",
+    "session_bridge_binding::tests::attaches_publishes_and_detaches_with_raii_lifetime",
+    "session_bridge_binding::tests::no_host_is_a_noop_and_never_requires_a_fake_snapshot_sink",
+    "session_bridge::tests::generic_broker_envelope_is_typed_and_routed_by_the_native_bridge",
+    "session_bridge::tests::routes_navigation_reload_remove_clear_highlight_and_clear_highlight_exactly_once",
+    "session_bridge::tests::routes_comment_and_batch_ids_and_opens_notes_only_for_effective_reveal",
+    "session_bridge::tests::review_commands_refuse_headless_mounts_and_delegate_when_a_producer_exists"
+  ],
+  "adaptations": [
+    "React useMemo plus effect ownership becomes one stable command bridge and an RAII binding whose Drop implementation clears the host bridge.",
+    "The renderer supplies immutable snapshot facts explicitly; the binding stamps them with the current UTC millisecond timestamp before publishing.",
+    "The producer generation remains an optional string input and is paired with the independently supplied review state revision only when present.",
+    "The generic parsed broker envelope is converted losslessly to the typed command union before the already-ported native command router runs."
+  ]
+}
