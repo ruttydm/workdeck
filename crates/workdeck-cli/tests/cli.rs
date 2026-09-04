@@ -28,13 +28,28 @@ fn help_renders() {
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Terminal-native sidecar"));
+        .stdout(predicate::str::contains("Terminal-native sidecar"))
+        .stdout(predicate::str::contains("Common review options:"))
+        .stdout(predicate::str::contains("Git diff options:"))
+        .stdout(predicate::str::contains("Notes:"))
+        .stdout(predicate::str::contains("--file-gap"))
+        .stdout(predicate::str::contains("--hunk-gap"))
+        .stdout(predicate::str::contains("--extension <path>"))
+        .stdout(predicate::str::contains("--no-extensions"));
 }
 
 #[test]
 fn version_renders() {
+    for version_arg in ["--version", "-v", "version"] {
+        workdeck()
+            .arg(version_arg)
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")));
+    }
+
     workdeck()
-        .arg("--version")
+        .args(["--fast", "--version"])
         .assert()
         .success()
         .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")));
@@ -59,6 +74,342 @@ fn daemon_overview_is_headless_and_does_not_require_a_repository() {
         .success()
         .stdout(predicate::str::contains(
             "Run the local session daemon and WebSocket broker",
+        ));
+
+    workdeck()
+        .args(["mcp", "serve", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Run the local session daemon and WebSocket broker",
+        ));
+}
+
+#[test]
+fn bare_namespace_overviews_match_explicit_help_byte_for_byte() {
+    for (bare, help) in [
+        (vec!["stash"], vec!["stash", "--help"]),
+        (vec!["daemon"], vec!["daemon", "--help"]),
+        (vec!["mcp"], vec!["mcp", "--help"]),
+        (vec!["session"], vec!["session", "--help"]),
+        (
+            vec!["session", "comment"],
+            vec!["session", "comment", "--help"],
+        ),
+        (
+            vec!["session", "highlight"],
+            vec!["session", "highlight", "--help"],
+        ),
+        (vec!["extension"], vec!["extension", "--help"]),
+        (vec!["ext"], vec!["ext", "--help"]),
+        (vec!["markup"], vec!["markup", "--help"]),
+        (vec!["skill"], vec!["skill", "--help"]),
+        (vec!["skill"], vec!["skill", "path", "--help"]),
+    ] {
+        let bare = workdeck().args(bare).output().unwrap();
+        let help = workdeck().args(help).output().unwrap();
+        assert!(
+            bare.status.success(),
+            "{}",
+            String::from_utf8_lossy(&bare.stderr)
+        );
+        assert!(
+            help.status.success(),
+            "{}",
+            String::from_utf8_lossy(&help.stderr)
+        );
+        assert_eq!(help.stdout, bare.stdout);
+        assert_eq!(help.stderr, bare.stderr);
+    }
+}
+
+#[test]
+fn hunk_command_help_contract_is_available_under_workdeck_names() {
+    for (args, expected) in [
+        (
+            vec!["diff", "--help"],
+            "review diffs or compare two concrete",
+        ),
+        (vec!["show", "-h"], "review the last commit or a given ref"),
+        (vec!["patch", "--help"], "review a patch file"),
+        (vec!["pager", "--help"], "general Git pager wrapper"),
+        (vec!["difftool", "--help"], "review Git difftool file pairs"),
+        (
+            vec!["stash", "show", "--help"],
+            "review a stash entry as a full Workdeck changeset",
+        ),
+        (vec!["daemon", "serve", "--help"], "session daemon"),
+        (
+            vec!["session", "list", "--help"],
+            "list live Workdeck sessions",
+        ),
+        (
+            vec!["session", "get", "--help"],
+            "show one live Workdeck session",
+        ),
+        (
+            vec!["session", "context", "--help"],
+            "show the selected file and hunk",
+        ),
+        (
+            vec!["session", "review", "--help"],
+            "export the live review model",
+        ),
+        (
+            vec!["session", "navigate", "--help"],
+            "move a live Workdeck session to one diff hunk",
+        ),
+        (
+            vec!["session", "reload", "--help"],
+            "replace the contents of one live Workdeck session",
+        ),
+        (
+            vec!["session", "comment", "add", "--help"],
+            "attach one live inline review note",
+        ),
+        (
+            vec!["session", "comment", "apply", "--help"],
+            "apply many live inline review notes from stdin JSON",
+        ),
+        (
+            vec!["session", "comment", "list", "--help"],
+            "list live inline review notes",
+        ),
+        (
+            vec!["session", "comment", "rm", "--help"],
+            "remove one inline review note",
+        ),
+        (
+            vec!["session", "comment", "clear", "--help"],
+            "clear inline review notes",
+        ),
+        (
+            vec!["session", "highlight", "add", "--help"],
+            "paint one attention mark",
+        ),
+        (
+            vec!["session", "highlight", "clear", "--help"],
+            "clear agent attention marks",
+        ),
+    ] {
+        workdeck()
+            .args(args)
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(expected));
+    }
+
+    workdeck()
+        .args(["session", "reload", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "workdeck session reload --repo . -- diff",
+        ));
+    workdeck()
+        .args(["session", "comment", "apply", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Stdin JSON shape:"));
+}
+
+#[test]
+fn bundled_skill_paths_support_hunk_namesake_aliases_under_workdeck_branding() {
+    let config = tempdir().unwrap();
+    let run = |name: Option<&str>| {
+        let mut command = workdeck();
+        command
+            .env("XDG_CONFIG_HOME", config.path())
+            .args(["skill", "path"]);
+        if let Some(name) = name {
+            command.arg(name);
+        }
+        command.output().unwrap()
+    };
+
+    let default = run(None);
+    let review = run(Some("review"));
+    assert!(default.status.success());
+    assert!(review.status.success());
+    assert_eq!(default.stdout, review.stdout);
+    let review_path = String::from_utf8(default.stdout).unwrap();
+    assert!(review_path.trim_end().ends_with("workdeck-review/SKILL.md"));
+    assert!(std::path::Path::new(review_path.trim()).is_file());
+
+    let extensions = run(Some("extensions"));
+    assert!(extensions.status.success());
+    let extensions_path = String::from_utf8(extensions.stdout).unwrap();
+    assert!(
+        extensions_path
+            .trim_end()
+            .ends_with("workdeck-extensions/SKILL.md")
+    );
+    assert!(std::path::Path::new(extensions_path.trim()).is_file());
+
+    let unknown = run(Some("unknown"));
+    assert!(!unknown.status.success());
+    assert!(String::from_utf8_lossy(&unknown.stderr).contains("unknown bundled skill"));
+}
+
+#[test]
+fn session_overviews_and_empty_list_are_headless_and_read_only() {
+    workdeck()
+        .args(["session"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Usage: workdeck session <subcommand>",
+        ));
+    workdeck()
+        .args(["session", "comment"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("workdeck session comment add"));
+    workdeck()
+        .args(["session", "highlight"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("workdeck session highlight add"));
+    workdeck()
+        .env("WORKDECK_MCP_PORT", "1")
+        .args(["session", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No active Workdeck sessions."));
+}
+
+#[test]
+fn malformed_session_commands_fail_before_daemon_or_repository_access() {
+    let cases = [
+        (vec!["session", "get"], "Specify one live Workdeck session"),
+        (
+            vec!["session", "get", "session-1", "--repo", "."],
+            "Specify either <session-id> or --repo",
+        ),
+        (
+            vec!["session", "navigate", "session-1", "--hunk", "1"],
+            "Specify exactly one navigation selector",
+        ),
+        (
+            vec![
+                "session",
+                "comment",
+                "add",
+                "session-1",
+                "--file",
+                "README.md",
+                "--summary",
+                "note",
+            ],
+            "requires exactly one positive --old-line or --new-line",
+        ),
+        (
+            vec!["session", "comment", "apply", "session-1"],
+            "reads its batch payload only from --stdin",
+        ),
+        (
+            vec!["session", "comment", "rm", "session-1"],
+            "Specify a session id and comment id",
+        ),
+        (
+            vec!["session", "comment", "clear", "session-1"],
+            "Pass --yes to clear comments",
+        ),
+        (
+            vec![
+                "session",
+                "highlight",
+                "add",
+                "session-1",
+                "--file",
+                "src/App.tsx",
+                "--start",
+                "0",
+                "--end",
+                "4",
+            ],
+            "requires exactly one positive --old-line or --new-line",
+        ),
+        (
+            vec![
+                "session",
+                "highlight",
+                "add",
+                "session-1",
+                "--file",
+                "src/App.tsx",
+                "--new-line",
+                "42",
+                "--start",
+                "5",
+                "--end",
+                "5",
+            ],
+            "--end must be greater than --start",
+        ),
+        (
+            vec!["session", "reload", "--", "diff"],
+            "Specify one live Workdeck session",
+        ),
+        (
+            vec!["session", "reload", "session-1", "--", "pager"],
+            "Session reload requires a Workdeck review command",
+        ),
+        (
+            vec!["--fast", "session", "list"],
+            "--fast` must be used with a Workdeck review command",
+        ),
+    ];
+
+    for (args, message) in cases {
+        workdeck()
+            .args(["--cwd", "/definitely/missing/workdeck/session-root"])
+            .args(args)
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(message));
+    }
+}
+
+#[test]
+fn hunk_command_failures_keep_exit_one_and_workdeck_diagnostics() {
+    for args in [
+        vec!["diff", "--tab-width", "0"],
+        vec!["difftool", "only-one"],
+        vec![
+            "session",
+            "navigate",
+            "session-1",
+            "--file",
+            "README.md",
+            "--hunk",
+            "0",
+        ],
+        vec!["session", "get"],
+        vec!["extension", "publish"],
+    ] {
+        workdeck()
+            .args(args)
+            .assert()
+            .code(1)
+            .stderr(predicate::str::contains("workdeck:"));
+    }
+}
+
+#[test]
+fn fast_shorthand_keeps_help_and_routes_review_options() {
+    workdeck()
+        .args(["--fast", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Terminal-native sidecar"));
+
+    workdeck()
+        .args(["--fast", "--staged", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "review diffs or compare two concrete files",
         ));
 }
 
@@ -364,6 +715,24 @@ fn extension_help_exposes_complete_native_management_lifecycle() {
         .stdout(predicate::str::contains("remove"))
         .stdout(predicate::str::contains("validate"))
         .stdout(predicate::str::contains("trust"));
+
+    workdeck()
+        .args(["ext"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "workdeck extension install <source>",
+        ))
+        .stdout(predicate::str::contains(
+            "only install repositories you trust",
+        ));
+    workdeck()
+        .args(["extension", "uninstall", "example", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Remove one managed native extension",
+        ));
 }
 
 #[test]

@@ -1,0 +1,565 @@
+{
+  "schema_version": 1,
+  "runtime": {
+    "name": "Bun",
+    "version": "1.3.5",
+    "execution": "disposable pinned Hunk worktrees"
+  },
+  "command": ["bun", "test", "src/app/cli.test.ts"],
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "source_blob": "4c6d4483bb1576d4c0d0855d9fb42d2302fc3fc9",
+      "source_bytes": 71747,
+      "source_lines": 2133,
+      "test_blob": "dd9333691b01dbed79d5cca0e716a24d0e24ed60",
+      "test_bytes": 67778,
+      "test_lines": 2280,
+      "direct_test_definitions": 135,
+      "parameterized_test_definitions": 3,
+      "suite_passed": 147,
+      "suite_failed": 0,
+      "suite_expect_calls": 384
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "source_blob": "f761b7e9728f076a8fa057debd3ac7290f9a5072",
+      "source_bytes": 63884,
+      "source_lines": 1899,
+      "test_blob": "c3f3dcf53e3a7e5a90f325824a72500a00eec927",
+      "test_bytes": 56587,
+      "test_lines": 1914,
+      "direct_test_definitions": 115,
+      "parameterized_test_definitions": 3,
+      "suite_passed": 127,
+      "suite_failed": 0,
+      "suite_expect_calls": 304
+    }
+  ],
+  "process_oracles": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "cases": [
+        {"argv": ["--help"], "exit": 0, "stdout_bytes": 3315, "stderr_bytes": 0, "stdout_sha256": "7b726560faeee8bf3ad0a80ea9b7cc79c946ac9eeae44e54788b2f12ef72083c"},
+        {"argv": ["--version"], "exit": 0, "stdout": "0.21.0-beta.0\n", "stdout_bytes": 14, "stderr_bytes": 0, "stdout_sha256": "5c8dc8e9006ff470cd873f69bb105599f36e3465b684d214a4a8dde8351182c8"},
+        {"argv": ["diff", "--help"], "exit": 0, "stdout_bytes": 2082, "stderr_bytes": 0, "stdout_sha256": "792bf0e3606ddf70f5e1dce0c545985f5944c7907b28cbeb51c3106b5ac508ea"},
+        {"argv": ["session"], "exit": 0, "stdout_bytes": 1801, "stderr_bytes": 0, "stdout_sha256": "af29632d7927b58ce3aabc7a8da5caaf053f5ae9c2531d847a432c519a7c96d6"},
+        {"argv": ["session", "comment"], "exit": 0, "stdout_bytes": 604, "stderr_bytes": 0, "stdout_sha256": "a1647d57c643241c25ddcf16f1d43432de8be05f758c1e6bd135da39eb6e4a0d"},
+        {"argv": ["session", "highlight"], "exit": 0, "stdout_bytes": 259, "stderr_bytes": 0, "stdout_sha256": "15b27513f9561d88becc96bf73f65b627b175f72a8a2accdcfde26953e288a2b"},
+        {"argv": ["extension"], "exit": 0, "stdout_bytes": 819, "stderr_bytes": 0, "stdout_sha256": "0828514b9e948a0a03c6237323ebba81c9e04cf0988bee4c5bdf847bc673cb03"},
+        {"argv": ["markup"], "exit": 0, "stdout_bytes": 672, "stderr_bytes": 0, "stdout_sha256": "133c4953015dc3d761fcaf1cab746f84407be5dede85a8bca89b23fb7d2945b7"},
+        {"argv": ["session", "navigate", "session-1", "--file", "README.md", "--hunk", "0"], "exit": 1, "stdout_bytes": 0, "stderr": "hunk: Invalid positive integer: 0\n", "stderr_bytes": 34}
+      ]
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "cases": [
+        {"argv": ["--help"], "exit": 0, "stdout_bytes": 3066, "stderr_bytes": 0, "stdout_sha256": "a10668459dc1f7a2b12b3bd65d0505c2bfad1beff126878739224b4a69bdf408"},
+        {"argv": ["--version"], "exit": 0, "stdout": "0.20.1\n", "stdout_bytes": 7, "stderr_bytes": 0, "stdout_sha256": "356c9c9f099da7f9b380c6fedc51077ee98de22402b378bc0f431fdc57aac757"},
+        {"argv": ["diff", "--help"], "exit": 0, "stdout_bytes": 1819, "stderr_bytes": 0, "stdout_sha256": "f74c68dd76435099c85d16253e454ae87f567e97b7d8f5359f78224895f8bb99"},
+        {"argv": ["session"], "exit": 0, "stdout_bytes": 1722, "stderr_bytes": 0, "stdout_sha256": "13066716e21cd0847688a5f093d3d289305d1dd3961647d2a5e09e1c8108e256"},
+        {"argv": ["session", "comment"], "exit": 0, "stdout_bytes": 604, "stderr_bytes": 0, "stdout_sha256": "a1647d57c643241c25ddcf16f1d43432de8be05f758c1e6bd135da39eb6e4a0d"},
+        {"argv": ["session", "highlight"], "exit": 0, "stdout_bytes": 259, "stderr_bytes": 0, "stdout_sha256": "15b27513f9561d88becc96bf73f65b627b175f72a8a2accdcfde26953e288a2b"},
+        {"argv": ["extension"], "exit": 0, "stdout_bytes": 819, "stderr_bytes": 0, "stdout_sha256": "0828514b9e948a0a03c6237323ebba81c9e04cf0988bee4c5bdf847bc673cb03"},
+        {"argv": ["markup"], "exit": 0, "stdout_bytes": 672, "stderr_bytes": 0, "stdout_sha256": "133c4953015dc3d761fcaf1cab746f84407be5dede85a8bca89b23fb7d2945b7"},
+        {"argv": ["session", "navigate", "session-1", "--file", "README.md", "--hunk", "0"], "exit": 1, "stdout_bytes": 0, "stderr": "hunk: Invalid positive integer: 0\n", "stderr_bytes": 34}
+      ]
+    }
+  ],
+  "workdeck_adaptations": [
+    {
+      "source_behavior": "bare hunk prints help",
+      "workdeck_behavior": "bare workdeck opens the unified Hunk-first shell",
+      "authority": "user semantic-rebase plan"
+    },
+    {
+      "source_behavior": "npm update channel",
+      "workdeck_behavior": "Cargo, Homebrew, Nix, curl, PowerShell, or direct GitHub update channel",
+      "authority": "user semantic-rebase plan"
+    },
+    {
+      "source_behavior": "TypeScript extension entry paths",
+      "workdeck_behavior": "trusted native extension manifests and subprocesses only",
+      "authority": "user semantic-rebase plan"
+    }
+  ],
+  "stable_only_cli_expectations": [
+    {
+      "source_test": "keeps two concrete file paths as file-pair diff mode",
+      "disposition": "superseded-by-baseline",
+      "replacement": "explicit --files and provider-neutral two-revision endpoints",
+      "rust_test": "direct_file_mode_is_explicit_and_two_positionals_remain_revisions"
+    },
+    {
+      "source_test": "parses target followed by pathspecs without a separator",
+      "disposition": "superseded-by-baseline",
+      "replacement": "two positionals are structured endpoints; pathspecs follow --",
+      "rust_test": "diff_parser_preserves_untracked_staging_files_revisions_and_pathspecs"
+    },
+    {
+      "source_test": "rejects session navigate without --file when not using comment direction",
+      "disposition": "semantic-rename-in-baseline",
+      "replacement": "rejects session navigate without a complete selector mode",
+      "rust_test": "malformed_session_commands_fail_before_daemon_or_repository_access"
+    },
+    {
+      "source_test": "rejects removed legacy git alias",
+      "disposition": "superseded-by-baseline",
+      "replacement": "legacy names remain eligible for native extension command lookup",
+      "rust_test": "unknown_top_level_tokens_retain_raw_args_for_native_extensions"
+    },
+    {
+      "source_test": "rejects unknown top-level, skill, daemon, stash, and comment subcommands",
+      "disposition": "semantic-split-in-baseline",
+      "replacement": "unknown host tokens are validated as native extension command names while namespace errors remain parser errors",
+      "rust_test": "session_selectors_are_explicit_and_mutually_exclusive"
+    }
+  ],
+  "source_mapping": [
+    {
+      "lines": [1, 305],
+      "bytes": [0, 10239],
+      "semantics": "imports, CLI reference types, option catalogs, and command catalogs",
+      "destinations": [
+        "crates/workdeck-cli/src/main.rs#Args,Command,ReviewCliOptions",
+        "crates/workdeck-core/src/command_inputs.rs#CliInput,CommonOptions",
+        "crates/workdeck-session/src/agent_commands.rs#SESSION_AGENT_COMMAND_LIST"
+      ],
+      "rust_tests": [
+        "clap_command_tree_is_the_executable_cli_reference_contract",
+        "frozen_hunk_cli_oracle_maps_every_baseline_test_definition_and_case"
+      ]
+    },
+    {
+      "lines": [306, 429],
+      "bytes": [10239, 14116],
+      "semantics": "layout, cursor, integer, paired-flag, repeated-value, and common-option parsing",
+      "destinations": [
+        "crates/workdeck-cli/src/main.rs#ReviewLayoutArg,CursorLineArg,ReviewCliOptions",
+        "crates/workdeck-core/src/command_inputs.rs#CommonOptions"
+      ],
+      "rust_tests": [
+        "shared_review_options_preserve_only_explicit_cli_values",
+        "shared_review_flag_pairs_and_bounds_match_the_pinned_parser",
+        "session_numeric_parsers_match_javascript_safe_integer_boundaries"
+      ]
+    },
+    {
+      "lines": [430, 575],
+      "bytes": [14116, 20961],
+      "semantics": "executable command reference plus version, skill, top-level help, and pathspec splitting",
+      "destinations": [
+        "crates/workdeck-cli/src/main.rs#CommandFactory,SKILL_OVERVIEW,normalize_namespace_help",
+        "crates/workdeck-cli/tests/cli.rs#help_renders,version_renders"
+      ],
+      "rust_tests": [
+        "help_renders",
+        "version_renders",
+        "bare_namespace_overviews_match_explicit_help_byte_for_byte",
+        "bundled_skill_paths_support_hunk_namesake_aliases_under_workdeck_branding"
+      ]
+    },
+    {
+      "lines": [576, 761],
+      "bytes": [20961, 26744],
+      "semantics": "standalone parsing, output selection, batch comments, and provider-neutral selectors",
+      "destinations": [
+        "crates/workdeck-cli/src/main.rs#parse_session_comment_apply_payload,explicit_session_selector,reload_session_selector",
+        "crates/workdeck-core/src/command_inputs.rs#SessionSelectorInput,SessionCommentApplyItemInput"
+      ],
+      "rust_tests": [
+        "comment_apply_payload_is_validated_atomically",
+        "session_read_review_and_repo_selectors_preserve_all_fields",
+        "session_selectors_are_explicit_and_mutually_exclusive"
+      ]
+    },
+    {
+      "lines": [762, 984],
+      "bytes": [26744, 33512],
+      "semantics": "diff, show, patch, pager, difftool, and reloadable-input parsing",
+      "destinations": [
+        "crates/workdeck-cli/src/main.rs#review_command_input,parse_reload_review_input,validate_diff_file_arguments",
+        "crates/workdeck-core/src/command_inputs.rs#CliInput"
+      ],
+      "rust_tests": [
+        "diff_parser_preserves_untracked_staging_files_revisions_and_pathspecs",
+        "show_stash_patch_pager_and_difftool_parse_into_distinct_inputs",
+        "direct_file_mode_rejects_malformed_and_mixed_forms"
+      ]
+    },
+    {
+      "lines": [985, 1064],
+      "bytes": [33512, 36258],
+      "semantics": "session command construction, help, constraints, and namespace overview",
+      "destinations": [
+        "crates/workdeck-session/src/agent_commands.rs#AgentCommandSpec,SESSION_AGENT_COMMAND_LIST",
+        "crates/workdeck-cli/src/main.rs#session_overview,session_namespace_overview"
+      ],
+      "rust_tests": [
+        "hunk_command_help_contract_is_available_under_workdeck_names",
+        "bare_namespace_overviews_match_explicit_help_byte_for_byte"
+      ]
+    },
+    {
+      "lines": [1065, 1600],
+      "bytes": [36258, 54190],
+      "semantics": "complete live-session read, review, navigation, reload, comment, and highlight command parsing",
+      "destinations": [
+        "crates/workdeck-cli/src/main.rs#LiveSessionCommand,LiveCommentCommand,LiveHighlightCommand,handle_live_session_command",
+        "crates/workdeck-session/src/agent_commands.rs#SessionCommandRunner",
+        "crates/workdeck-core/src/command_inputs.rs#SessionCommandInput"
+      ],
+      "rust_tests": [
+        "session_read_review_and_repo_selectors_preserve_all_fields",
+        "session_navigation_supports_hunks_lines_comments_and_directions",
+        "comment_command_surface_covers_add_apply_filter_remove_and_clear",
+        "highlight_surface_validates_sides_ranges_tones_and_clear_scope",
+        "malformed_session_commands_fail_before_daemon_or_repository_access"
+      ]
+    },
+    {
+      "lines": [1601, 1967],
+      "bytes": [54190, 65940],
+      "semantics": "markup, skill, extension management, updater, daemon, and stash command families",
+      "destinations": [
+        "crates/workdeck-cli/src/main.rs#MarkupCommand,SkillCommand,ExtensionCommand,DaemonCommand,StashCommand",
+        "crates/workdeck-cli/src/extension_manage.rs#ExtensionManager",
+        "crates/workdeck-cli/src/update.rs#UpdateCommand"
+      ],
+      "rust_tests": [
+        "hunk_stml_cli_oracle_runs_exactly_under_workdeck_naming",
+        "bundled_skill_paths_support_hunk_namesake_aliases_under_workdeck_branding",
+        "managed_extension_cli_installs_lists_updates_and_removes_native_repository",
+        "update_preserves_managed_channel_exit_semantics",
+        "daemon_overview_is_headless_and_does_not_require_a_repository"
+      ]
+    },
+    {
+      "lines": [1968, 2133],
+      "bytes": [65940, 71747],
+      "semantics": "leading host flags, extension CLI delegation, top-level dispatch, aliases, and final validation",
+      "destinations": [
+        "crates/workdeck-cli/src/main.rs#parse_args_with_fast_shorthand,run_with_preloaded_extensions",
+        "crates/workdeck-cli/src/extension_cli_commands.rs#RegisteredExtensionCliCommand",
+        "crates/workdeck-cli/src/extension_manage.rs#ExtensionManager"
+      ],
+      "rust_tests": [
+        "fast_shorthand_and_prefixed_review_flags_reach_the_diff_parser",
+        "unknown_top_level_tokens_retain_raw_args_for_native_extensions",
+        "bootstrap_flags_are_rejected_by_non_review_built_ins",
+        "extension_help_exposes_complete_native_management_lifecycle"
+      ]
+    }
+  ],
+  "test_mapping": [
+    {
+      "area": "top-level help, version, and executable reference",
+      "source_tests": [
+        {"number": 1, "title": "prints help when no subcommand is passed"},
+        {"number": 2, "title": "prints the same top-level help for --help"},
+        {"number": 3, "title": "resolves the package version metadata"},
+        {"number": 4, "title": "registers each command's runtime options from its reference metadata"},
+        {"number": 5, "title": "prints the package version for --version and version"}
+      ],
+      "rust_tests": [
+        "bare_workdeck_retains_the_unified_shell_override",
+        "help_renders",
+        "version_renders",
+        "clap_command_tree_is_the_executable_cli_reference_contract"
+      ]
+    },
+    {
+      "area": "common review options and fast shorthand",
+      "source_tests": [
+        {"number": 6, "title": "parses git-style diff mode with shared options"},
+        {"number": 7, "title": "parses the current-line style and rejects an unknown one"},
+        {"number": 8, "title": "accepts --experimental before the review command"},
+        {"number": 9, "title": "uses --fast alone as the shortest fast working-tree review"},
+        {"number": 10, "title": "accepts --fast before or after a review command"},
+        {"number": 11, "title": "routes shorthand diff options through the diff parser"},
+        {"number": 12, "title": "routes shorthand targets and direct file pairs through the diff parser"},
+        {"number": 13, "title": "keeps top-level help and version handling ahead of --fast shorthand"},
+        {"number": 14, "title": "accepts leading --fast and --experimental in either order"},
+        {"number": 15, "title": "preserves leading review flags interleaved with extension bootstrap flags"},
+        {"number": 16, "title": "keeps fast disabled by default and treats it as a pathspec after --"},
+        {"number": 17, "title": "parses transparent background toggles"},
+        {"number": 18, "title": "parses sidebar toggles"},
+        {"number": 19, "title": "keeps paired-flag-shaped pathspecs after the option separator"},
+        {"number": 20, "title": "parses staged git-style diff aliases"},
+        {"number": 21, "title": "parses untracked file toggles for git diff"}
+      ],
+      "rust_tests": [
+        "shared_review_options_preserve_only_explicit_cli_values",
+        "shared_review_flag_pairs_and_bounds_match_the_pinned_parser",
+        "fast_shorthand_and_prefixed_review_flags_reach_the_diff_parser",
+        "hunk_review_aliases_and_daemon_alias_are_registered",
+        "paired_option_names_after_separator_are_literal_pathspecs"
+      ]
+    },
+    {
+      "area": "review input modes",
+      "source_tests": [
+        {"number": 22, "title": "parses the explicit two-file comparison form"},
+        {"number": 23, "title": "treats two existing file paths as revisions unless --files is present"},
+        {"number": 24, "title": "rejects malformed or mixed --files forms"},
+        {"number": 25, "title": "parses two revision positionals as structured range endpoints"},
+        {"number": 26, "title": "keeps two revisions structured when pathspecs follow the separator"},
+        {"number": 27, "title": "does not use filesystem existence to distinguish a revision from a pathspec"},
+        {"number": 28, "title": "parses pathspec-limited git diffs"},
+        {"number": 29, "title": "treats a range-shaped target plus one positional as two revision endpoints"},
+        {"number": 30, "title": "parses show mode with optional ref and pathspecs"},
+        {"number": 31, "title": "parses general pager mode"}
+      ],
+      "rust_tests": [
+        "direct_file_mode_is_explicit_and_two_positionals_remain_revisions",
+        "direct_file_mode_rejects_malformed_and_mixed_forms",
+        "diff_parser_preserves_untracked_staging_files_revisions_and_pathspecs",
+        "show_stash_patch_pager_and_difftool_parse_into_distinct_inputs"
+      ]
+    },
+    {
+      "area": "bundled skill discovery",
+      "source_tests": [
+        {"number": 32, "title": "prints the bundled skill path for hunk skill path"},
+        {"number": 33, "title": "prints a named bundled skill path, by name or alias"},
+        {"number": 34, "title": "prints skill help for hunk skill --help"}
+      ],
+      "rust_tests": [
+        "bundled_skill_paths_support_hunk_namesake_aliases_under_workdeck_branding",
+        "bare_namespace_overviews_match_explicit_help_byte_for_byte",
+        "hunk_command_help_contract_is_available_under_workdeck_names"
+      ]
+    },
+    {
+      "area": "daemon command aliases",
+      "source_tests": [
+        {"number": 35, "title": "parses the daemon serve command"},
+        {"number": 36, "title": "parses the legacy MCP daemon alias"}
+      ],
+      "rust_tests": [
+        "daemon_commands_are_classified_before_repository_startup",
+        "daemon_overview_is_headless_and_does_not_require_a_repository",
+        "hunk_review_aliases_and_daemon_alias_are_registered"
+      ]
+    },
+    {
+      "area": "session reads, review, navigation, and reload",
+      "source_tests": [
+        {"number": 37, "title": "parses session list mode"},
+        {"number": 38, "title": "parses session get by repo alias"},
+        {"number": 39, "title": "parses session context by direct session id"},
+        {"number": 40, "title": "keeps --repo provider-neutral while canonicalizing the selected subdirectory"},
+        {"number": 41, "title": "resolves --repo through a symlinked path to the canonical repo root"},
+        {"number": 42, "title": "parses session review by repo alias"},
+        {"number": 43, "title": "parses session review with raw patch export enabled"},
+        {"number": 44, "title": "parses session review with live notes included"},
+        {"number": 45, "title": "parses session navigate by hunk number"},
+        {"number": 46, "title": "parses session reload with nested show syntax"},
+        {"number": 47, "title": "keeps structured endpoints through nested session reload parsing"},
+        {"number": 48, "title": "parses split session reload with a separate session path and source directory"},
+        {"number": 49, "title": "keeps session reload --repo provider-neutral for subdirectories"},
+        {"number": 50, "title": "rejects session reload without a nested command separator"}
+      ],
+      "rust_tests": [
+        "session_read_review_and_repo_selectors_preserve_all_fields",
+        "session_navigation_supports_hunks_lines_comments_and_directions",
+        "nested_reload_preserves_show_pathspecs_and_structured_diff_endpoints",
+        "reload_parses_split_session_and_source_paths_and_rejects_non_review_inputs",
+        "session_selectors_are_explicit_and_mutually_exclusive",
+        "malformed_session_commands_fail_before_daemon_or_repository_access"
+      ]
+    },
+    {
+      "area": "comments and markup",
+      "source_tests": [
+        {"number": 51, "title": "parses session comment add without focusing by default"},
+        {"number": 52, "title": "parses markup render with defaults and options"},
+        {"number": 53, "title": "rejects invalid markup render color modes and unknown markup subcommands"},
+        {"number": 54, "title": "parses markup guide"},
+        {"number": 55, "title": "parses session comment add with --markup"},
+        {"number": 56, "title": "parses session comment add with --focus"},
+        {"number": 57, "title": "parses session comment apply with --focus"},
+        {"number": 58, "title": "rejects session comment apply with an empty comments array"},
+        {"number": 59, "title": "rejects session comment apply when both hunk aliases are present"},
+        {"number": 60, "title": "parses session comment list with file filter"},
+        {"number": 61, "title": "rejects the removed session note namespace"},
+        {"number": 62, "title": "parses session comment list with review-note type filter"},
+        {"number": 63, "title": "rejects session comment list with an unsupported type"},
+        {"number": 64, "title": "parses session comment rm"},
+        {"number": 65, "title": "parses session comment rm with a repo selector"},
+        {"number": 66, "title": "parses session comment clear"},
+        {"number": 67, "title": "parses session comment clear with user notes included"}
+      ],
+      "rust_tests": [
+        "comment_command_surface_covers_add_apply_filter_remove_and_clear",
+        "comment_apply_payload_is_validated_atomically",
+        "malformed_session_commands_fail_before_daemon_or_repository_access",
+        "markup_render_defaults_to_stdin_and_emits_hunks_exact_json_shape",
+        "markup_guide_is_headless_and_contains_the_reference_width_contract",
+        "hunk_stml_cli_oracle_runs_exactly_under_workdeck_naming"
+      ]
+    },
+    {
+      "area": "highlights, comment navigation, confirmation, and stash",
+      "source_tests": [
+        {"number": 68, "title": "parses session highlight add with defaults"},
+        {"number": 69, "title": "parses session highlight add with tone, old side, and focus"},
+        {"number": 70, "title": "rejects session highlight add with an empty range, bad tone, or missing target"},
+        {"number": 71, "title": "parses session highlight clear globally and per file"},
+        {"number": 72, "title": "rejects unknown session highlight subcommands"},
+        {"number": 73, "title": "rejects session commands without an explicit target"},
+        {"number": 74, "title": "parses session navigate with --next-comment"},
+        {"number": 75, "title": "parses session navigate with --prev-comment"},
+        {"number": 76, "title": "parses session navigate with a comment id"},
+        {"number": 77, "title": "rejects session navigate when --comment is combined with another selector"},
+        {"number": 78, "title": "rejects session navigate with both --next-comment and --prev-comment"},
+        {"number": 79, "title": "rejects session navigate without a complete selector mode"},
+        {"number": 80, "title": "rejects session navigation with multiple target selectors"},
+        {"number": 81, "title": "rejects session comment clear without confirmation"},
+        {"number": 82, "title": "parses stash show mode"}
+      ],
+      "rust_tests": [
+        "highlight_surface_validates_sides_ranges_tones_and_clear_scope",
+        "session_navigation_supports_hunks_lines_comments_and_directions",
+        "session_selectors_are_explicit_and_mutually_exclusive",
+        "malformed_session_commands_fail_before_daemon_or_repository_access",
+        "show_stash_patch_pager_and_difftool_parse_into_distinct_inputs"
+      ]
+    },
+    {
+      "area": "extension bootstrap and remaining review modes",
+      "source_tests": [
+        {"number": 83, "title": "preserves removed legacy aliases for extension lookup"},
+        {"number": 84, "title": "parses leading extension bootstrap flags without consuming command arguments"},
+        {"number": 85, "title": "does not consume another leading host flag as an extension path"},
+        {"number": 86, "title": "hard-disables unknown extension command lookup with a leading flag"},
+        {"number": 87, "title": "keeps leading extension bootstrap flags ahead of review pathspec separators"},
+        {"number": 88, "title": "refuses leading extension bootstrap flags on built-ins that never load extensions"},
+        {"number": 89, "title": "keeps the stash subcommand ahead of leading extension bootstrap flags"},
+        {"number": 90, "title": "parses patch mode from a file"},
+        {"number": 91, "title": "parses difftool mode with display path"}
+      ],
+      "rust_tests": [
+        "unknown_top_level_tokens_retain_raw_args_for_native_extensions",
+        "global_extension_paths_apply_to_built_in_review_commands",
+        "bootstrap_flags_are_rejected_by_non_review_built_ins",
+        "disabled_extension_cli_command_is_rejected_before_config_or_discovery",
+        "fast_shorthand_and_prefixed_review_flags_reach_the_diff_parser",
+        "show_stash_patch_pager_and_difftool_parse_into_distinct_inputs"
+      ]
+    },
+    {
+      "area": "command help",
+      "source_tests": [
+        {"number": 92, "title": "renders per-command help for the primary review commands"},
+        {"number": 93, "title": "renders the stash command overview and the stash show command help"},
+        {"number": 94, "title": "renders the daemon overview and the daemon serve command help"},
+        {"number": 95, "title": "renders the session overview for a bare session command and --help"},
+        {"number": 96, "title": "renders help for each session subcommand"},
+        {"number": 97, "title": "renders skill help for both `skill --help` and `skill path --help`"},
+        {"number": 98, "title": "renders the comment overview and per-comment-subcommand help"},
+        {"number": 99, "title": "renders the highlight overview and per-highlight-subcommand help"}
+      ],
+      "rust_tests": [
+        "hunk_command_help_contract_is_available_under_workdeck_names",
+        "bare_namespace_overviews_match_explicit_help_byte_for_byte",
+        "daemon_overview_is_headless_and_does_not_require_a_repository",
+        "extension_help_exposes_complete_native_management_lifecycle"
+      ]
+    },
+    {
+      "area": "argument validation",
+      "source_tests": [
+        {"number": 100, "title": "rejects invalid tab widths"},
+        {"number": 101, "title": "parses file and hunk gaps and rejects values outside 0-8"},
+        {"number": 102, "title": "rejects an invalid layout mode and rethrows the parser error"},
+        {"number": 103, "title": "rethrows commander errors for unknown options"},
+        {"number": 104, "title": "accepts positive integer navigation target %s", "case_count": 3},
+        {"number": 105, "title": "rejects malformed positive integer navigation target %s", "case_count": 6},
+        {"number": 106, "title": "rejects a partially numeric value for %s", "case_count": 3},
+        {"number": 107, "title": "rejects ambiguous diff input that is neither a single target nor a file pair"},
+        {"number": 108, "title": "rejects specifying both a session id and --repo for an explicit selector"},
+        {"number": 109, "title": "rejects prefixed review flags for non-review commands"},
+        {"number": 110, "title": "rejects top-level tokens no extension can register"},
+        {"number": 111, "title": "rejects unknown skill, daemon, stash, and comment subcommands"},
+        {"number": 112, "title": "rejects a comment-add target that is not exactly one of --old-line or --new-line"},
+        {"number": 113, "title": "rejects comment apply without --stdin before reading any input"},
+        {"number": 114, "title": "rejects comment rm with the wrong target count for each selector style"}
+      ],
+      "rust_tests": [
+        "shared_review_flag_pairs_and_bounds_match_the_pinned_parser",
+        "session_numeric_parsers_match_javascript_safe_integer_boundaries",
+        "diff_parser_preserves_untracked_staging_files_revisions_and_pathspecs",
+        "session_selectors_are_explicit_and_mutually_exclusive",
+        "malformed_session_commands_fail_before_daemon_or_repository_access",
+        "bootstrap_flags_are_rejected_by_non_review_built_ins"
+      ]
+    },
+    {
+      "area": "session reload validation",
+      "source_tests": [
+        {"number": 115, "title": "scopes reload help flags around the nested command separator"},
+        {"number": 116, "title": "rejects a reload with the `--` separator but no nested command"},
+        {"number": 117, "title": "rejects a reload that has no session target at all"},
+        {"number": 118, "title": "rejects conflicting reload selectors"},
+        {"number": 119, "title": "rejects reloading into commands that cannot back a live session"}
+      ],
+      "rust_tests": [
+        "nested_reload_preserves_show_pathspecs_and_structured_diff_endpoints",
+        "reload_parses_split_session_and_source_paths_and_rejects_non_review_inputs",
+        "malformed_session_commands_fail_before_daemon_or_repository_access",
+        "hunk_command_help_contract_is_available_under_workdeck_names"
+      ]
+    },
+    {
+      "area": "comment batch payload",
+      "source_tests": [
+        {"number": 120, "title": "parses a hunk-targeted batch with rationale and author into apply input"},
+        {"number": 121, "title": "rejects an empty stdin payload"},
+        {"number": 122, "title": "rejects invalid JSON"},
+        {"number": 123, "title": "rejects a non-object top-level value"},
+        {"number": 124, "title": "rejects a payload without a comments array"},
+        {"number": 125, "title": "rejects a non-object comment entry"},
+        {"number": 126, "title": "rejects a comment missing filePath"},
+        {"number": 127, "title": "rejects a comment missing summary"},
+        {"number": 128, "title": "rejects a non-positive-integer hunk selector"},
+        {"number": 129, "title": "rejects a comment with no line or hunk selector"}
+      ],
+      "rust_tests": [
+        "comment_apply_payload_is_validated_atomically",
+        "malformed_session_commands_fail_before_daemon_or_repository_access"
+      ]
+    },
+    {
+      "area": "extension flags",
+      "source_tests": [
+        {"number": 130, "title": "defaults to leaving extension options unset"},
+        {"number": 131, "title": "parses --no-extensions into a disabled extension option"},
+        {"number": 132, "title": "collects repeated --extension paths in order"},
+        {"number": 133, "title": "documents the extension flags in top-level help"}
+      ],
+      "rust_tests": [
+        "shared_review_options_preserve_only_explicit_cli_values",
+        "global_extension_paths_apply_to_built_in_review_commands",
+        "help_renders"
+      ]
+    },
+    {
+      "area": "extension management",
+      "source_tests": [
+        {"number": 134, "title": "parses install with its source and confirmation flag"},
+        {"number": 135, "title": "parses list, update, and remove with their targets"},
+        {"number": 136, "title": "accepts ext as an alias for extension"},
+        {"number": 137, "title": "shows extension help for the bare command and rejects unknown subcommands"},
+        {"number": 138, "title": "session reload refuses to nest an extension management command"}
+      ],
+      "rust_tests": [
+        "managed_extension_cli_installs_lists_updates_and_removes_native_repository",
+        "managed_extension_install_requires_explicit_consent_without_a_terminal",
+        "extension_help_exposes_complete_native_management_lifecycle",
+        "hunk_review_aliases_and_daemon_alias_are_registered",
+        "reload_parses_split_session_and_source_paths_and_rejects_non_review_inputs"
+      ]
+    }
+  ]
+}

@@ -164,9 +164,9 @@ impl SessionCommandRunner {
                 let result = client.navigate_to_hunk(SessionNavigateCliInput {
                     selector: required_selector(normalized_selector)?,
                     file_path,
-                    hunk_number: hunk_number.map(u64::from),
+                    hunk_number,
                     side,
-                    line: line.map(u64::from),
+                    line,
                     comment_direction: comment_direction.map(navigation_direction),
                     comment_id,
                 })?;
@@ -207,7 +207,7 @@ impl SessionCommandRunner {
                     selector: required_selector(normalized_selector)?,
                     file_path,
                     side,
-                    line: u64::from(line),
+                    line,
                     summary,
                     rationale,
                     markup,
@@ -320,9 +320,9 @@ impl SessionCommandRunner {
                     selector: required_selector(normalized_selector)?,
                     file_path,
                     side,
-                    line: u64::from(line),
-                    start: u64::from(start),
-                    end: u64::from(end),
+                    line,
+                    start,
+                    end,
                     tone: tone.map(daemon_highlight_tone),
                     reveal,
                 })?;
@@ -480,9 +480,9 @@ fn required_selector(
 fn daemon_comment(comment: SessionCommentApplyItemInput) -> DaemonCommentApplyItem {
     DaemonCommentApplyItem {
         file_path: comment.file_path,
-        hunk_number: comment.hunk_number.map(u64::from),
+        hunk_number: comment.hunk_number,
         side: comment.side,
-        line: comment.line.map(u64::from),
+        line: comment.line,
         summary: comment.summary,
         rationale: comment.rationale,
         markup: comment.markup,
