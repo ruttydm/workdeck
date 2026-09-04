@@ -1,6 +1,7 @@
 //! Ratatui review canvas.
 
 mod agent_annotations;
+mod agent_card_view;
 #[cfg(test)]
 mod agent_inline_note_parity_tests;
 mod agent_inline_note_view;
@@ -86,6 +87,7 @@ use extension_dialogs::{
 };
 
 pub use agent_annotations::*;
+pub use agent_card_view::*;
 pub use agent_inline_note_view::*;
 pub use agent_note_geometry::*;
 pub use agent_popover::*;

@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/components/panes/AgentCard.tsx",
+    "baselineBlob": "01804ed78931580926846ea083cff7129ec09cbd",
+    "baselineSha256": "b37f75d5db10d99db103396c3606d51ad89fb1eaef6c0077c3ba5fd8b47bfba5",
+    "baselineBytes": 2832,
+    "baselineLines": 103,
+    "stableBlob": "01804ed78931580926846ea083cff7129ec09cbd",
+    "stableSha256": "b37f75d5db10d99db103396c3606d51ad89fb1eaef6c0077c3ba5fd8b47bfba5",
+    "stableBytes": 2832,
+    "stableLines": 103
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/agent_card_view.rs",
+      "sha256": "6127e555abcfd3c3d722ac8f31b2646aee2f3c4808d8bf6305e566bd0f9b18d4"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "04fc69239d3c3738ab856bdb5dde15d5228c8c261ede3a95948a85167eab02bf"
+    }
+  ],
+  "baselineAndStableTestOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/components/ui-components.test.tsx --test-name-pattern AgentCard",
+    "passed": 3,
+    "failed": 0,
+    "assertions": 9,
+    "baselineFiltered": 81,
+    "stableFiltered": 73
+  },
+  "cellFrame": [
+    "┌────────────────────────────────┐",
+    "│ AI note                    [x] │",
+    "│ Annotation for alpha.ts        │",
+    "│                                │",
+    "│ Why alpha.ts changed           │",
+    "│                                │",
+    "│ alpha.ts +2                    │",
+    "└────────────────────────────────┘"
+  ],
+  "cellPaint": {
+    "panel": "#1e2329",
+    "borderAndTitle": "#bb8009",
+    "summaryAndSpacers": "#e6edf3",
+    "closeRationaleAndFooter": "#adaeb1",
+    "structuralPaddingForeground": "backend default white",
+    "closeHit": { "row": 1, "startColumn": 29, "width": 3 }
+  },
+  "sourceCoverage": [
+    [[1, 4], [0, 165], "popover, text, and theme imports"],
+    [[5, 28], [165, 618], "complete component inputs, defaults, content projection, and title budget"],
+    [[29, 103], [618, 2832], "framed panel, title/close row, summary, optional rationale spacer/body, bottom spacer, and footer"]
+  ],
+  "executableParityTests": [
+    "agent_card_view::tests::removes_outer_padding_and_keeps_the_footer_inside_the_frame",
+    "agent_card_view::tests::shows_author_in_the_title_when_set",
+    "agent_card_view::tests::falls_back_to_ai_note_when_author_is_absent",
+    "agent_card_view::tests::no_close_variant_preserves_title_budget_and_ratatui_lines"
+  ],
+  "nativeAdaptation": "OpenTUI boxes become immutable Ratatui runs; onMouseUp becomes an exact declarative close hit while the shared native popover planner remains the content authority."
+}
