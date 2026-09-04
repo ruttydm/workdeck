@@ -79,6 +79,28 @@ impl AsRef<[LineHighlightColRange]> for LineHighlightRangeList {
 }
 
 impl LineHighlightPaintIndex {
+    /// Build a paint index from already-resolved terminal-column ranges.
+    ///
+    /// Runtime callers normally use [`build_line_highlight_paint_index`]. This
+    /// constructor is the native equivalent of Hunk's public map vocabulary
+    /// for oracle fixtures and providers that already own resolved columns.
+    #[must_use]
+    pub fn from_line_ranges(
+        entries: impl IntoIterator<Item = (ReviewSide, u64, Vec<LineHighlightColRange>)>,
+    ) -> Self {
+        Self(
+            entries
+                .into_iter()
+                .map(|(side, line, ranges)| {
+                    (
+                        line_highlight_paint_key(side, line),
+                        Arc::new(LineHighlightRangeList::new(ranges)),
+                    )
+                })
+                .collect(),
+        )
+    }
+
     #[must_use]
     pub fn get(&self, side: ReviewSide, line: u64) -> Option<&Arc<LineHighlightRangeList>> {
         self.0.get(&line_highlight_paint_key(side, line))
