@@ -3,5 +3,5 @@ name = "Line highlighter"
 version = "0.1.0"
 api_version = 1
 executable = "bin/workdeck-example-line-highlighter-extension"
-capabilities = ["line-highlighters"]
+capabilities = ["configuration", "line-highlighters"]
 description = "Native line-highlight request, document snapshot, timeout, and cancellation example"

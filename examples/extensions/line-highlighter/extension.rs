@@ -6,8 +6,8 @@ use std::io::{self, BufRead, Write};
 use std::thread;
 use std::time::Duration;
 use workdeck_extension_api::{
-    API_VERSION, HandshakeResponse, JsonRpcError, JsonRpcRequest, JsonRpcResponse,
-    LineHighlightRequest, Registration,
+    API_VERSION, HandshakeRequest, HandshakeResponse, JsonRpcError, JsonRpcRequest,
+    JsonRpcResponse, LineHighlightRequest, Registration,
 };
 
 pub fn serve<R: BufRead, W: Write>(mut input: R, mut output: W) -> io::Result<()> {
@@ -25,20 +25,30 @@ pub fn serve<R: BufRead, W: Write>(mut input: R, mut output: W) -> io::Result<()
         }
         let request: JsonRpcRequest = serde_json::from_value(value).map_err(io::Error::other)?;
         match request.method.as_str() {
-            "workdeck/handshake" => write_result(
-                &mut output,
-                request.id,
-                HandshakeResponse {
-                    extension_api_version: API_VERSION,
-                    extension_version: env!("CARGO_PKG_VERSION").into(),
-                    registrations: vec![
-                        Registration::LineHighlighter {
-                            id: "attention".into(),
-                        },
-                        Registration::LineHighlighter { id: "hang".into() },
-                    ],
-                },
-            )?,
+            "workdeck/handshake" => {
+                let input: HandshakeRequest =
+                    serde_json::from_value(request.params).map_err(io::Error::other)?;
+                let mut registrations = vec![Registration::LineHighlighter {
+                    id: "attention".into(),
+                }];
+                if input
+                    .config
+                    .get("includeHang")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true)
+                {
+                    registrations.push(Registration::LineHighlighter { id: "hang".into() });
+                }
+                write_result(
+                    &mut output,
+                    request.id,
+                    HandshakeResponse {
+                        extension_api_version: API_VERSION,
+                        extension_version: env!("CARGO_PKG_VERSION").into(),
+                        registrations,
+                    },
+                )?;
+            }
             "workdeck/line-highlighter/highlight" => {
                 let input: LineHighlightRequest =
                     serde_json::from_value(request.params).map_err(io::Error::other)?;

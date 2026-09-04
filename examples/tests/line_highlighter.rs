@@ -105,7 +105,12 @@ fn native_line_highlighter_receives_frozen_documents_and_returns_declarative_mar
 #[test]
 fn compiled_highlighter_marks_reach_the_live_ratatui_cell_buffer() {
     let (_directory, manifest) = staged_extension();
-    let extension = LoadedExtension::spawn(&manifest, "test").unwrap();
+    let extension = LoadedExtension::spawn_with_configuration(
+        &manifest,
+        "test",
+        serde_json::json!({ "includeHang": false }),
+    )
+    .unwrap();
     let options = ReviewOptions {
         sidebar: false,
         line_numbers: false,
@@ -118,12 +123,14 @@ fn compiled_highlighter_marks_reach_the_live_ratatui_cell_buffer() {
     let backend = TestBackend::new(100, 20);
     let mut terminal = Terminal::new(backend).unwrap();
     let deadline = Instant::now() + Duration::from_secs(3);
+    let mut observed = Vec::new();
     loop {
         terminal
             .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
             .unwrap();
         let buffer = terminal.backend().buffer();
         let mut painted = false;
+        observed.clear();
         for y in buffer.area.y..buffer.area.bottom() {
             for x in buffer.area.x..buffer.area.right().saturating_sub(2) {
                 let Some(first) = buffer.cell((x, y)) else {
@@ -136,11 +143,15 @@ fn compiled_highlighter_marks_reach_the_live_ratatui_cell_buffer() {
                     && buffer
                         .cell((x + 2, y))
                         .is_some_and(|cell| cell.symbol() == "w")
-                    && first.bg != expected_base
-                    && buffer.cell((x + 1, y)).unwrap().bg == first.bg
-                    && buffer.cell((x + 2, y)).unwrap().bg == first.bg
                 {
-                    painted = true;
+                    let second = buffer.cell((x + 1, y)).unwrap();
+                    let third = buffer.cell((x + 2, y)).unwrap();
+                    observed.push(format!(
+                        "({x},{y})={:?}/{:?}/{:?} expected-base={expected_base:?}",
+                        first.bg, second.bg, third.bg
+                    ));
+                    painted =
+                        first.bg != expected_base && second.bg == first.bg && third.bg == first.bg;
                 }
             }
         }
@@ -149,7 +160,8 @@ fn compiled_highlighter_marks_reach_the_live_ratatui_cell_buffer() {
         }
         assert!(
             Instant::now() < deadline,
-            "native marks did not reach the terminal cell buffer"
+            "native marks did not reach the terminal cell buffer; observed {}",
+            observed.join(", ")
         );
         std::thread::sleep(Duration::from_millis(1));
     }

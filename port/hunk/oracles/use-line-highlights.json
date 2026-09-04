@@ -43,11 +43,15 @@
     },
     {
       "path": "examples/extensions/line-highlighter/extension.rs",
-      "sha256": "4c791860a9bfffd9a0ab03e76d73add8a1e5fbca5cb46d5d4d970744cc178097"
+      "sha256": "554ce9f18e4f7d740b8a0557a0c901cb5c0eb28318d59862301a2566807473dd"
+    },
+    {
+      "path": "examples/extensions/line-highlighter/workdeck-extension.toml",
+      "sha256": "473b3983216c300a44769222599a3fddb5fdada80caf0afed02da791437ce44d"
     },
     {
       "path": "examples/tests/line_highlighter.rs",
-      "sha256": "827e2dd13217274799e3e33eae71dddb53378bf9ca91bd21ce5dcbe0b57210af"
+      "sha256": "fbd6bff2adfa0388160d049bb4ab6ec27cfd2cd0ee2259d2655148f9d06a7278"
     }
   ],
   "baselineOracle": {
@@ -64,6 +68,11 @@
     "failed": 0,
     "expectations": 28,
     "relationship": "The source and test blobs are byte-identical at both pinned baselines; none of the five stable-only commits modifies either file."
+  },
+  "nativeFixtureIsolation": {
+    "reason": "The example process also registers an intentionally blocking highlighter used only for timeout and cancellation parity. Running that provider in the live-paint case made acquisition of the process connection race the fast provider.",
+    "mechanism": "The configuration-capable example reads includeHang during the handshake. The live Ratatui test supplies false; direct protocol, timeout, and cancellation tests retain the default true value.",
+    "semanticEffect": "The production four-task coordinator, quick-file publication, 1.5-second deadline, cancellation, validation, and paint behavior are unchanged; only the executable test's registered fixture set is scoped to the behavior under test."
   },
   "sourceCoverage": [
     {
