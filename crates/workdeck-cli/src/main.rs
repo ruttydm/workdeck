@@ -1128,6 +1128,7 @@ mod review_cli_option_tests {
                 "    *workdeck/handshake*) result='{{\"extension_api_version\":1,\"extension_version\":\"1.0.0\",\"registrations\":[{{\"kind\":\"vcs-adapter\",\"id\":\"custom\",\"name\":\"Custom VCS\",\"operations\":{{\"working-tree-diff\":{{\"watchSignature\":false,\"watchPlan\":false}}}},\"detectionPriority\":50}},{{\"kind\":\"cli-command\",\"name\":\"tools\",\"summary\":\"Tools\"}},{{\"kind\":\"changeset-transform\",\"id\":\"rewrite-title\"}},{{\"kind\":\"file-language\",\"matcher\":{{\"kind\":\"filename\",\"value\":\"ReplacementWorkdeckfile\"}},\"language\":\"ruby\"}},{{\"kind\":\"event-subscription\",\"names\":[\"shutdown\"]}}]}}' ;;\n",
                 "    *workdeck/vcs/detect*) result='{{\"id\":\"custom\",\"repoRoot\":{quoted_repo}}}' ;;\n",
                 "    *workdeck/vcs/load*) result='{{\"repoRoot\":{quoted_repo},\"sourceLabel\":{quoted_repo},\"title\":\"Custom working copy\",\"patchText\":\"\",\"readFileSource\":false}}' ;;\n",
+                "    *workdeck/cli/invoke*) result='{{\"result\":{{\"kind\":\"exit\",\"code\":6}},\"stdin_read_started\":false,\"stdin_consumed\":false}}' ;;\n",
                 "    *workdeck/changeset/transform*) result='{{\"changeset\":{{\"id\":\"changeset:test\",\"source_label\":\"test\",\"title\":\"after\",\"source\":{{\"kind\":\"working-tree\",\"staged\":false}},\"files\":[]}}}}' ;;\n",
                 "    *workdeck/shutdown*) printf 'shutdown\\n' >> \"$factory_log\"; exit 0 ;;\n",
                 "    *) continue ;;\n",
@@ -1298,25 +1299,25 @@ mod review_cli_option_tests {
             find_project_root_candidate_with_catalog(&nested, Some(&bootstrap.discovery_catalog)),
             Some(repo)
         );
-        let registered = registered_extension_cli_commands(&bootstrap.load.extensions);
+        let registered = registered_extension_cli_commands(&bootstrap.load().extensions);
         let commands = resolve_extension_cli_commands(&registered);
         assert_eq!(
             find_extension_cli_command("tools", &commands).map(|owner| owner.extension_id.as_str()),
             Some("custom-vcs")
         );
         assert!(commands.collisions.is_empty());
-        assert!(bootstrap.load.issues.is_empty());
+        assert!(bootstrap.load().issues.is_empty());
         assert_eq!(
-            bootstrap.load.control.phase(),
+            bootstrap.load().control.phase(),
             workdeck_extension_host::ExtensionEventBusPhase::Loading
         );
-        assert!(bootstrap.load.bind_event_bus());
+        assert!(bootstrap.load().bind_event_bus());
         assert_eq!(
-            bootstrap.load.control.phase(),
+            bootstrap.load().control.phase(),
             workdeck_extension_host::ExtensionEventBusPhase::Ready
         );
 
-        bootstrap.load.retire();
+        bootstrap.load_mut().retire();
         assert_eq!(
             std::fs::read_to_string(factory_log).unwrap(),
             "factory\nshutdown\n"
@@ -1360,6 +1361,85 @@ mod review_cli_option_tests {
         );
         assert_eq!(collision_issues[0].extension_id, "second");
         assert!(load.issues.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn extension_cli_exit_retires_the_preloaded_registry_before_returning() {
+        let directory = tempfile::tempdir().unwrap();
+        let repo = directory.path().join("repo");
+        std::fs::create_dir_all(repo.join(".custom")).unwrap();
+        let repo = repo.canonicalize().unwrap();
+        let (manifest, factory_log) = install_external_vcs_test_extension(directory.path(), &repo);
+
+        let error =
+            handle_extension_cli_command(&repo, &[manifest], false, "tools", &["status".into()])
+                .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<CommandExit>().map(|exit| exit.0),
+            Some(6)
+        );
+        assert_eq!(
+            std::fs::read_to_string(factory_log).unwrap(),
+            "factory\nshutdown\n"
+        );
+    }
+
+    #[test]
+    fn disabled_extension_cli_command_is_rejected_before_config_or_discovery() {
+        let error = handle_extension_cli_command(
+            Path::new("/definitely/missing/workdeck/startup-root"),
+            &[],
+            true,
+            "tools",
+            &[],
+        )
+        .unwrap_err();
+        assert_eq!(error.to_string(), "Unknown command: tools");
+    }
+
+    #[test]
+    fn unknown_extension_cli_command_lists_loaded_command_usage() {
+        let registered = [RegisteredExtensionCliCommand {
+            extension_index: 0,
+            extension_id: "tools".into(),
+            source_path: PathBuf::from("/tools.rs"),
+            origin: "flag".into(),
+            command: workdeck_extension_api::CliCommandRegistration {
+                name: "tools".into(),
+                summary: "Demonstrate workflows".into(),
+                usage: Some("<status|review>".into()),
+            },
+        }];
+        let resolved = resolve_extension_cli_commands(&registered);
+        let load = create_empty_extension_load_result("/repo", ExtensionNotificationHub::new());
+
+        assert_eq!(
+            unknown_extension_cli_command_message("toolz", &resolved, &load),
+            concat!(
+                "Unknown command: toolz\n",
+                "Extension commands available here:\n",
+                "workdeck tools <status|review> — Demonstrate workflows"
+            )
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dropping_startup_owned_extensions_retires_before_a_headless_handoff() {
+        let directory = tempfile::tempdir().unwrap();
+        let repo = directory.path().join("repo");
+        std::fs::create_dir_all(repo.join(".custom")).unwrap();
+        let repo = repo.canonicalize().unwrap();
+        let (manifest, factory_log) = install_external_vcs_test_extension(directory.path(), &repo);
+
+        let bootstrap = load_cli_extensions(&repo, &[manifest], false).unwrap();
+        assert_eq!(std::fs::read_to_string(&factory_log).unwrap(), "factory\n");
+        drop(bootstrap);
+        assert_eq!(
+            std::fs::read_to_string(factory_log).unwrap(),
+            "factory\nshutdown\n"
+        );
     }
 
     #[cfg(unix)]
@@ -1451,7 +1531,7 @@ mod review_cli_option_tests {
         }]);
 
         let attempt: Result<()> = (|| {
-            let provisional = build_review_language_registry(&bootstrap.load.extensions);
+            let provisional = build_review_language_registry(&bootstrap.load().extensions);
             assert_eq!(
                 provisional.language_for_path("ReplacementWorkdeckfile"),
                 "ruby"
@@ -1462,7 +1542,7 @@ mod review_cli_option_tests {
         assert_eq!(active.language_for_path("CurrentWorkdeckfile"), "python");
         assert_eq!(active.language_for_path("ReplacementWorkdeckfile"), "text");
 
-        bootstrap.load.retire();
+        bootstrap.load_mut().retire();
     }
 
     #[test]
@@ -1538,6 +1618,54 @@ mod review_cli_option_tests {
                     .as_array()
                     .is_some_and(|tests| !tests.is_empty())
         }));
+    }
+
+    #[test]
+    fn frozen_hunk_startup_extension_cli_oracle_maps_the_baseline_prefix() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/startup-extension-cli.json"
+        ))
+        .unwrap();
+        let baselines = oracle["baselines"].as_array().unwrap();
+        assert_eq!(baselines.len(), 2);
+        assert_eq!(
+            baselines[0]["source_blob"],
+            "79c05c50e63fa4f533fbb1c7b3c3868913750386"
+        );
+        assert_eq!(baselines[0]["source_bytes"], 20_884);
+        assert_eq!(baselines[0]["mapped_source_interval"]["byte_start"], 4_323);
+        assert_eq!(baselines[0]["mapped_source_interval"]["byte_end"], 11_416);
+        assert_eq!(
+            baselines[0]["test_blob"],
+            "2a346bcb5cbebd34376663bb79c832f9d25fc44f"
+        );
+        assert_eq!(baselines[0]["test_bytes"], 26_836);
+        assert_eq!(baselines[0]["mapped_test_interval"]["byte_end"], 6_379);
+        assert_eq!(baselines[0]["suite_passed"], 25);
+        assert_eq!(baselines[0]["suite_failed"], 0);
+        assert_eq!(baselines[0]["suite_expect_calls"], 58);
+        assert_eq!(baselines[0]["mapped_tests"], 4);
+        assert_eq!(
+            baselines[1]["source_blob"],
+            "672a2f7966498e616cddab940ca07757b1e393c2"
+        );
+        assert_eq!(baselines[1]["source_bytes"], 13_344);
+        assert_eq!(
+            baselines[1]["test_blob"],
+            "6084991177e681b6e28b3dc328a3d0aa58ea12c2"
+        );
+        assert_eq!(baselines[1]["test_bytes"], 20_777);
+        assert_eq!(baselines[1]["mapped_feature_status"], "absent");
+        assert_eq!(oracle["test_mapping"].as_array().unwrap().len(), 4);
+        assert_eq!(oracle["expected"]["nonzero_extension_exit_code"], 6);
+        assert_eq!(
+            oracle["expected"]["delegate_reuses_loaded_extensions"],
+            true
+        );
+        assert_eq!(
+            oracle["expected"]["unknown_command_lists_loaded_usage"],
+            "workdeck tools <status|review> — Demonstrate workflows"
+        );
     }
 
     #[test]
@@ -3016,7 +3144,9 @@ fn run_with_preloaded_extensions(
             &args.cwd,
             command,
             raw_review,
-            preloaded_extensions.take().map(|preloaded| preloaded.load),
+            preloaded_extensions
+                .take()
+                .map(|mut preloaded| preloaded.take_load()),
             delegated_discovery_catalog,
             prepared_piped_input,
         );
@@ -3121,7 +3251,9 @@ fn run_with_preloaded_extensions(
         &args.cwd,
         &mut review,
         &raw_review,
-        preloaded_extensions.take().map(|preloaded| preloaded.load),
+        preloaded_extensions
+            .take()
+            .map(|mut preloaded| preloaded.take_load()),
         None,
     )?;
     let catalog = compose_review_vcs_catalog(&prepared_extensions.extensions);
@@ -3338,9 +3470,37 @@ struct PreparedReviewExtensions {
 }
 
 struct PreloadedExtensionBootstrap {
-    load: ExtensionLoadResult,
+    load: Option<ExtensionLoadResult>,
     discovery_catalog: VcsCatalog,
     configured_notices: Vec<StartupNotice>,
+}
+
+impl PreloadedExtensionBootstrap {
+    fn load(&self) -> &ExtensionLoadResult {
+        self.load
+            .as_ref()
+            .expect("preloaded extension bootstrap still owns its load")
+    }
+
+    fn load_mut(&mut self) -> &mut ExtensionLoadResult {
+        self.load
+            .as_mut()
+            .expect("preloaded extension bootstrap still owns its load")
+    }
+
+    fn take_load(&mut self) -> ExtensionLoadResult {
+        self.load
+            .take()
+            .expect("preloaded extension bootstrap still owns its load")
+    }
+}
+
+impl Drop for PreloadedExtensionBootstrap {
+    fn drop(&mut self) {
+        if let Some(load) = &mut self.load {
+            load.retire();
+        }
+    }
 }
 
 /// Retain provisional load ownership until bootstrap either commits it to the TUI or fails.
@@ -4704,7 +4864,7 @@ fn load_cli_extensions(
     }
     let result = provisional.take();
     Ok(PreloadedExtensionBootstrap {
-        load: result,
+        load: Some(result),
         discovery_catalog,
         configured_notices: configured.startup_notices,
     })
@@ -4805,6 +4965,34 @@ fn parse_delegated_args(
     }
 }
 
+fn unknown_extension_cli_command_message(
+    command_name: &str,
+    resolved: &extension_cli_commands::ResolvedExtensionCliCommands,
+    load: &ExtensionLoadResult,
+) -> String {
+    let mut message = format!("Unknown command: {command_name}");
+    let descriptions = describe_extension_cli_commands(resolved);
+    if !descriptions.is_empty() {
+        message.push_str("\nExtension commands available here:");
+        for description in descriptions {
+            message.push('\n');
+            message.push_str(&description);
+        }
+    }
+    if let Some(repo_root) = &load.pending_trust_repo_root {
+        message.push_str(&format!(
+            "\nOpen a normal review in {} to decide whether to trust its extensions, then retry.",
+            repo_root.display()
+        ));
+    }
+    if !load.issues.is_empty() {
+        message.push_str(
+            "\nOne or more extensions failed to load; rerun with WORKDECK_DEBUG=1 or open a review to inspect startup notices.",
+        );
+    }
+    message
+}
+
 fn handle_extension_cli_command(
     cwd: &Path,
     extension_paths: &[PathBuf],
@@ -4812,35 +5000,22 @@ fn handle_extension_cli_command(
     command_name: &str,
     command_args: &[String],
 ) -> Result<()> {
+    if extensions_disabled {
+        bail!("Unknown command: {command_name}");
+    }
     let mut extension_bootstrap = load_cli_extensions(cwd, extension_paths, extensions_disabled)?;
-    let registered = registered_extension_cli_commands(&extension_bootstrap.load.extensions);
+    let registered = registered_extension_cli_commands(&extension_bootstrap.load().extensions);
     let resolved = resolve_extension_cli_commands(&registered);
     let collision_issues = create_extension_cli_collision_issues(&registered, &resolved.collisions);
 
     let Some(extension_index) =
         find_extension_cli_command(command_name, &resolved).map(|owner| owner.extension_index)
     else {
-        let mut message = format!("Unknown command: {command_name}");
-        let descriptions = describe_extension_cli_commands(&resolved);
-        if !descriptions.is_empty() {
-            message.push_str("\nExtension commands available here:");
-            for description in descriptions {
-                message.push('\n');
-                message.push_str(&description);
-            }
-        }
-        if let Some(repo_root) = &extension_bootstrap.load.pending_trust_repo_root {
-            message.push_str(&format!(
-                "\nOpen a normal review in {} to decide whether to trust its extensions, then retry.",
-                repo_root.display()
-            ));
-        }
-        if !extension_bootstrap.load.issues.is_empty() {
-            message.push_str(
-                "\nOne or more extensions failed to load; rerun with WORKDECK_DEBUG=1 or open a review to inspect startup notices.",
-            );
-        }
-        extension_bootstrap.load.retire();
+        let message = unknown_extension_cli_command_message(
+            command_name,
+            &resolved,
+            extension_bootstrap.load(),
+        );
         bail!(message);
     };
 
@@ -4850,7 +5025,7 @@ fn handle_extension_cli_command(
     for issue in collision_issues {
         eprintln!("workdeck: warning: {}", issue.message);
     }
-    let _ = extension_bootstrap.load.bind_event_bus();
+    let _ = extension_bootstrap.load().bind_event_bus();
 
     let command_cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned());
     let signal_lease = Arc::new(ExtensionCliSignalLease::new());
@@ -4867,7 +5042,7 @@ fn handle_extension_cli_command(
         let mut stdin = std::io::stdin().lock();
         let mut stdout = std::io::stdout().lock();
         let mut stderr = std::io::stderr().lock();
-        extension_bootstrap.load.extensions[extension_index]
+        extension_bootstrap.load_mut().extensions[extension_index]
             .invoke_cli_command_cancellable_with_input(
                 command_name,
                 command_args.to_vec(),
