@@ -35,6 +35,8 @@ pub struct LoadStartupExtensionsOptions<'a> {
     pub notifications: Option<ExtensionNotificationHub>,
     /// Provisional pass that may be extended when final discovery only appends candidates.
     pub previous_load: Option<ExtensionLoadResult>,
+    /// Keep the load-level event bus provisional until the composition root explicitly binds it.
+    pub defer_event_bus_binding: bool,
 }
 
 /// Produce the inert result used by disabled and candidate-free startup passes.
@@ -168,6 +170,9 @@ pub fn load_startup_extensions(
         notifications: Some(notifications),
         pending_trust_repo_root: discovery.pending_trust_repo_root,
     });
+    if options.defer_event_bus_binding {
+        let _ = result.control.begin_loading();
+    }
     Ok(result)
 }
 
@@ -257,6 +262,7 @@ mod tests {
             extension_configs: configs,
             notifications: None,
             previous_load: None,
+            defer_event_bus_binding: false,
         }
     }
 

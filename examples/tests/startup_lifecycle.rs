@@ -56,6 +56,7 @@ fn options<'a>(
         extension_configs: configs,
         notifications: None,
         previous_load: None,
+        defer_event_bus_binding: false,
     }
 }
 

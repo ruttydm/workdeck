@@ -1071,6 +1071,7 @@ mod review_cli_option_tests {
             &raw_review,
             ExtensionNotificationHub::new(),
             None,
+            None,
         )
         .unwrap();
         assert!(prepared.extensions.is_empty());
@@ -1124,7 +1125,7 @@ mod review_cli_option_tests {
                 "while IFS= read -r line; do\n",
                 "  request_id=$(printf '%s\\n' \"$line\" | sed -E 's/.*\"id\":([0-9]+).*/\\1/')\n",
                 "  case \"$line\" in\n",
-                "    *workdeck/handshake*) result='{{\"extension_api_version\":1,\"extension_version\":\"1.0.0\",\"registrations\":[{{\"kind\":\"vcs-adapter\",\"id\":\"custom\",\"name\":\"Custom VCS\",\"operations\":{{\"working-tree-diff\":{{\"watchSignature\":false,\"watchPlan\":false}}}},\"detectionPriority\":50}},{{\"kind\":\"event-subscription\",\"names\":[\"shutdown\"]}}]}}' ;;\n",
+                "    *workdeck/handshake*) result='{{\"extension_api_version\":1,\"extension_version\":\"1.0.0\",\"registrations\":[{{\"kind\":\"vcs-adapter\",\"id\":\"custom\",\"name\":\"Custom VCS\",\"operations\":{{\"working-tree-diff\":{{\"watchSignature\":false,\"watchPlan\":false}}}},\"detectionPriority\":50}},{{\"kind\":\"cli-command\",\"name\":\"tools\",\"summary\":\"Tools\"}},{{\"kind\":\"event-subscription\",\"names\":[\"shutdown\"]}}]}}' ;;\n",
                 "    *workdeck/vcs/detect*) result='{{\"id\":\"custom\",\"repoRoot\":{quoted_repo}}}' ;;\n",
                 "    *workdeck/vcs/load*) result='{{\"repoRoot\":{quoted_repo},\"sourceLabel\":{quoted_repo},\"title\":\"Custom working copy\",\"patchText\":\"\",\"readFileSource\":false}}' ;;\n",
                 "    *workdeck/shutdown*) printf 'shutdown\\n' >> \"$factory_log\"; exit 0 ;;\n",
@@ -1149,7 +1150,7 @@ mod review_cli_option_tests {
                 "version = '1.0.0'\n",
                 "api_version = 1\n",
                 "executable = 'custom-vcs.sh'\n",
-                "capabilities = ['vcs-adapters', 'events']\n",
+                "capabilities = ['vcs-adapters', 'cli-commands', 'events']\n",
             ),
         )
         .unwrap();
@@ -1187,6 +1188,7 @@ mod review_cli_option_tests {
             &mut review,
             &raw_review,
             ExtensionNotificationHub::new(),
+            None,
             None,
             |root| {
                 resolved_roots.borrow_mut().push(Some(root.to_owned()));
@@ -1245,7 +1247,7 @@ mod review_cli_option_tests {
         let notifications = ExtensionNotificationHub::new();
 
         let previous =
-            load_review_extension_pass(&nested, &review, notifications.clone(), None, None)
+            load_review_extension_pass(&nested, &review, notifications.clone(), None, None, true)
                 .unwrap();
         assert_eq!(std::fs::read_to_string(&factory_log).unwrap(), "factory\n");
         let mut prepared = load_review_extensions_with_config_loader(
@@ -1254,6 +1256,7 @@ mod review_cli_option_tests {
             &raw_review,
             notifications,
             Some(previous),
+            None,
             |_| Ok(Config::default()),
         )
         .unwrap();
@@ -1274,6 +1277,123 @@ mod review_cli_option_tests {
             std::fs::read_to_string(factory_log).unwrap(),
             "factory\nshutdown\n"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn extension_cli_bootstrap_refines_root_reuses_prefix_and_defers_event_bus() {
+        let directory = tempfile::tempdir().unwrap();
+        let repo = directory.path().join("repo");
+        let nested = repo.join("src/nested");
+        std::fs::create_dir_all(repo.join(".custom")).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+        let repo = repo.canonicalize().unwrap();
+        let nested = nested.canonicalize().unwrap();
+        let (manifest, factory_log) = install_external_vcs_test_extension(directory.path(), &repo);
+
+        let mut bootstrap = load_cli_extensions(&nested, &[manifest], false).unwrap();
+        assert_eq!(std::fs::read_to_string(&factory_log).unwrap(), "factory\n");
+        assert_eq!(
+            find_project_root_candidate_with_catalog(&nested, Some(&bootstrap.discovery_catalog)),
+            Some(repo)
+        );
+        let registered = registered_extension_cli_commands(&bootstrap.load.extensions);
+        let commands = resolve_extension_cli_commands(&registered);
+        assert_eq!(
+            find_extension_cli_command("tools", &commands).map(|owner| owner.extension_id.as_str()),
+            Some("custom-vcs")
+        );
+        assert!(commands.collisions.is_empty());
+        assert!(bootstrap.load.issues.is_empty());
+        assert_eq!(
+            bootstrap.load.control.phase(),
+            workdeck_extension_host::ExtensionEventBusPhase::Loading
+        );
+        assert!(bootstrap.load.bind_event_bus());
+        assert_eq!(
+            bootstrap.load.control.phase(),
+            workdeck_extension_host::ExtensionEventBusPhase::Ready
+        );
+
+        bootstrap.load.retire();
+        assert_eq!(
+            std::fs::read_to_string(factory_log).unwrap(),
+            "factory\nshutdown\n"
+        );
+    }
+
+    #[test]
+    fn extension_cli_bootstrap_reports_command_collision_without_load_failure() {
+        let load = create_empty_extension_load_result("/repo", ExtensionNotificationHub::new());
+        let registered = [
+            RegisteredExtensionCliCommand {
+                extension_index: 0,
+                extension_id: "first".into(),
+                source_path: PathBuf::from("/first.rs"),
+                origin: "config".into(),
+                command: workdeck_extension_api::CliCommandRegistration {
+                    name: "tools".into(),
+                    summary: "first".into(),
+                    usage: None,
+                },
+            },
+            RegisteredExtensionCliCommand {
+                extension_index: 1,
+                extension_id: "second".into(),
+                source_path: PathBuf::from("/second.rs"),
+                origin: "config".into(),
+                command: workdeck_extension_api::CliCommandRegistration {
+                    name: "tools".into(),
+                    summary: "second".into(),
+                    usage: None,
+                },
+            },
+        ];
+
+        let commands = resolve_extension_cli_commands(&registered);
+        let collision_issues =
+            create_extension_cli_collision_issues(&registered, &commands.collisions);
+        assert_eq!(
+            find_extension_cli_command("tools", &commands).map(|owner| owner.extension_id.as_str()),
+            Some("first")
+        );
+        assert_eq!(collision_issues[0].extension_id, "second");
+        assert!(load.issues.is_empty());
+    }
+
+    #[test]
+    fn frozen_hunk_extension_cli_bootstrap_oracle_maps_every_source_test() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/extension-cli-bootstrap.json"
+        ))
+        .unwrap();
+        let baselines = oracle["baselines"].as_array().unwrap();
+        assert_eq!(baselines.len(), 2);
+        assert_eq!(baselines[0]["status"], "present");
+        assert_eq!(
+            baselines[0]["source_blob"],
+            "862209d23e2781e2219e6baf02cf2071cba6c6c0"
+        );
+        assert_eq!(baselines[0]["source_bytes"], 4_307);
+        assert_eq!(
+            baselines[0]["test_blob"],
+            "484208371fd642479b7bb14e9175a1e62a0c70b5"
+        );
+        assert_eq!(baselines[0]["test_bytes"], 3_228);
+        assert_eq!(baselines[0]["passed"], 2);
+        assert_eq!(baselines[0]["failed"], 0);
+        assert_eq!(baselines[0]["expect_calls"], 7);
+        assert_eq!(baselines[1]["status"], "absent");
+        let mappings = oracle["test_mapping"].as_array().unwrap();
+        assert_eq!(mappings.len(), 2);
+        assert!(mappings.iter().all(|mapping| {
+            mapping["source_test"]
+                .as_str()
+                .is_some_and(|name| !name.is_empty())
+                && mapping["rust_tests"]
+                    .as_array()
+                    .is_some_and(|tests| !tests.is_empty())
+        }));
     }
 
     #[test]
@@ -2672,7 +2792,7 @@ fn run(args: Args) -> Result<()> {
 
 fn run_with_preloaded_extensions(
     mut args: Args,
-    mut preloaded_extensions: Option<ExtensionLoadResult>,
+    mut preloaded_extensions: Option<PreloadedExtensionBootstrap>,
 ) -> Result<()> {
     let has_extension_bootstrap_flags =
         !args.extension.is_empty() || args.extensions || args.no_extensions;
@@ -2723,13 +2843,13 @@ fn run_with_preloaded_extensions(
             .review_options()
             .expect("review command has review options")
             .clone();
-        let preference = command
-            .review_options()
-            .expect("review command has review options")
-            .preference();
-        let config_root = AnyProvider::discover(&args.cwd, preference)
-            .ok()
-            .map(|provider| provider.root().to_owned())
+        let delegated_discovery_catalog = preloaded_extensions
+            .as_ref()
+            .map(|preloaded| preloaded.discovery_catalog.clone());
+        let config_catalog = delegated_discovery_catalog
+            .as_ref()
+            .unwrap_or_else(|| bundled_vcs_catalog());
+        let config_root = find_project_root_candidate_with_catalog(&args.cwd, Some(config_catalog))
             .unwrap_or_else(|| args.cwd.clone());
         let config = Config::load(&config_root)?;
         command
@@ -2752,7 +2872,8 @@ fn run_with_preloaded_extensions(
             &args.cwd,
             command,
             raw_review,
-            preloaded_extensions.take(),
+            preloaded_extensions.take().map(|preloaded| preloaded.load),
+            delegated_discovery_catalog,
             prepared_piped_input,
         );
     }
@@ -2856,7 +2977,8 @@ fn run_with_preloaded_extensions(
         &args.cwd,
         &mut review,
         &raw_review,
-        preloaded_extensions.take(),
+        preloaded_extensions.take().map(|preloaded| preloaded.load),
+        None,
     )?;
     let catalog = compose_review_vcs_catalog(&prepared_extensions.extensions);
     prepared_extensions.vcs_catalog = Some(catalog.clone());
@@ -3071,6 +3193,12 @@ struct PreparedReviewExtensions {
     vcs_catalog: Option<VcsCatalog>,
 }
 
+struct PreloadedExtensionBootstrap {
+    load: ExtensionLoadResult,
+    discovery_catalog: VcsCatalog,
+    configured_notices: Vec<StartupNotice>,
+}
+
 /// Retain provisional load ownership until bootstrap either commits it to the TUI or fails.
 ///
 /// `LoadedExtension` is cloneable because VCS callbacks retain process handles. A plain dropped
@@ -3126,8 +3254,9 @@ fn prepare_review_extensions(
     review: &mut ReviewCliOptions,
     raw_review: &ReviewCliOptions,
     previous_load: Option<ExtensionLoadResult>,
+    discovery_catalog: Option<&VcsCatalog>,
 ) -> Result<PreparedReviewExtensions> {
-    load_review_extensions(cwd, review, raw_review, previous_load)
+    load_review_extensions(cwd, review, raw_review, previous_load, discovery_catalog)
 }
 
 fn load_extensions_before_changeset<E, C>(
@@ -3309,6 +3438,7 @@ fn handle_review_command(
     command: Command,
     raw_review: ReviewCliOptions,
     mut preloaded_extensions: Option<ExtensionLoadResult>,
+    discovery_catalog: Option<VcsCatalog>,
     mut prepared_piped_input: Option<PreparedPipedInput>,
 ) -> Result<()> {
     match command {
@@ -3331,6 +3461,7 @@ fn handle_review_command(
                             &mut review,
                             &raw_review,
                             preloaded_extensions.take(),
+                            discovery_catalog.as_ref(),
                         )
                     },
                     || load_file_comparison(cwd, &left, &right).map_err(anyhow::Error::from),
@@ -3368,6 +3499,7 @@ fn handle_review_command(
                 &mut review,
                 &raw_review,
                 preloaded_extensions.take(),
+                discovery_catalog.as_ref(),
             )?;
             let catalog = compose_review_vcs_catalog(&prepared_extensions.extensions);
             prepared_extensions.vcs_catalog = Some(catalog.clone());
@@ -3424,6 +3556,7 @@ fn handle_review_command(
                 &mut review,
                 &raw_review,
                 preloaded_extensions.take(),
+                discovery_catalog.as_ref(),
             )?;
             let catalog = compose_review_vcs_catalog(&prepared_extensions.extensions);
             prepared_extensions.vcs_catalog = Some(catalog.clone());
@@ -3474,6 +3607,7 @@ fn handle_review_command(
                 &mut review,
                 &raw_review,
                 preloaded_extensions.take(),
+                discovery_catalog.as_ref(),
             )?;
             let catalog = compose_review_vcs_catalog(&prepared_extensions.extensions);
             prepared_extensions.vcs_catalog = Some(catalog.clone());
@@ -3521,6 +3655,7 @@ fn handle_review_command(
                         &mut review,
                         &raw_review,
                         preloaded_extensions.take(),
+                        discovery_catalog.as_ref(),
                     )
                 },
                 || match file {
@@ -3608,6 +3743,7 @@ fn handle_review_command(
                         &mut review,
                         &raw_review,
                         preloaded_extensions.take(),
+                        discovery_catalog.as_ref(),
                     )
                 },
                 || {
@@ -3661,6 +3797,7 @@ fn handle_review_command(
                             &mut review,
                             &raw_review,
                             preloaded_extensions.take(),
+                            discovery_catalog.as_ref(),
                         )
                     },
                     || parse_patch_input(&input, "pager").map_err(anyhow::Error::from),
@@ -4191,12 +4328,20 @@ fn load_review_extensions(
     review: &mut ReviewCliOptions,
     raw_review: &ReviewCliOptions,
     previous_load: Option<ExtensionLoadResult>,
+    discovery_catalog: Option<&VcsCatalog>,
 ) -> Result<PreparedReviewExtensions> {
     let notifications = previous_load
         .as_ref()
         .map(|previous| previous.notifications.clone())
         .unwrap_or_default();
-    load_review_extensions_with_notifications(cwd, review, raw_review, notifications, previous_load)
+    load_review_extensions_with_notifications(
+        cwd,
+        review,
+        raw_review,
+        notifications,
+        previous_load,
+        discovery_catalog,
+    )
 }
 
 fn load_review_extensions_with_notifications(
@@ -4205,6 +4350,7 @@ fn load_review_extensions_with_notifications(
     raw_review: &ReviewCliOptions,
     notifications: ExtensionNotificationHub,
     previous_load: Option<ExtensionLoadResult>,
+    discovery_catalog: Option<&VcsCatalog>,
 ) -> Result<PreparedReviewExtensions> {
     load_review_extensions_with_config_loader(
         cwd,
@@ -4212,6 +4358,7 @@ fn load_review_extensions_with_notifications(
         raw_review,
         notifications,
         previous_load,
+        discovery_catalog,
         Config::load,
     )
 }
@@ -4222,18 +4369,20 @@ fn load_review_extensions_with_config_loader(
     raw_review: &ReviewCliOptions,
     notifications: ExtensionNotificationHub,
     previous_load: Option<ExtensionLoadResult>,
+    discovery_catalog: Option<&VcsCatalog>,
     load_config: impl Fn(&Path) -> Result<Config>,
 ) -> Result<PreparedReviewExtensions> {
-    let initial_repo = AnyProvider::discover(cwd, review.preference())
-        .ok()
-        .map(|provider| provider.root().to_owned())
-        .or_else(|| find_project_root_candidate(cwd));
+    let initial_repo = find_project_root_candidate_with_catalog(
+        cwd,
+        Some(discovery_catalog.unwrap_or_else(|| bundled_vcs_catalog())),
+    );
     let first = load_review_extension_pass(
         cwd,
         review,
         notifications.clone(),
         initial_repo.as_deref(),
         previous_load,
+        true,
     )?;
     let mut provisional = ProvisionalReviewExtensionLoad::new(first);
     let provisional_resolution = resolve_loaded_extension_registrations(
@@ -4261,11 +4410,13 @@ fn load_review_extensions_with_config_loader(
             notifications.clone(),
             extension_repo.as_deref(),
             Some(previous),
+            false,
         )?;
         provisional = ProvisionalReviewExtensionLoad::new(final_result);
     }
 
     let result = provisional.take();
+    let _ = result.bind_event_bus();
     let resolution =
         resolve_loaded_extension_registrations(&result.extensions, bundled_vcs_catalog());
     Ok(PreparedReviewExtensions {
@@ -4286,6 +4437,7 @@ fn load_review_extension_pass(
     notifications: ExtensionNotificationHub,
     repo_root: Option<&Path>,
     mut previous_load: Option<ExtensionLoadResult>,
+    defer_event_bus_binding: bool,
 ) -> Result<ExtensionLoadResult> {
     if review.no_extensions {
         if let Some(previous) = &mut previous_load {
@@ -4309,6 +4461,7 @@ fn load_review_extension_pass(
         extension_configs: &review.extension_config,
         notifications: Some(notifications),
         previous_load,
+        defer_event_bus_binding,
     })
     .map_err(anyhow::Error::from)
 }
@@ -4345,6 +4498,7 @@ fn review_extension_trust_handler(
             &raw_review,
             notifications.clone(),
             None,
+            None,
         )
         .map_err(|_| ExtensionTrustHostError::Reload)?;
         if prepared.pending_trust_repo_root.is_some() {
@@ -4361,45 +4515,84 @@ fn load_cli_extensions(
     cwd: &Path,
     explicit: &[PathBuf],
     disabled: bool,
+) -> Result<PreloadedExtensionBootstrap> {
+    let initial_repo = find_project_root_candidate_with_catalog(cwd, Some(bundled_vcs_catalog()));
+    let mut configured = Config::load(initial_repo.as_deref().unwrap_or(cwd))?;
+    let notifications = ExtensionNotificationHub::new();
+    let first = load_cli_extension_pass(
+        cwd,
+        explicit,
+        disabled,
+        &configured,
+        initial_repo.as_deref(),
+        notifications.clone(),
+        None,
+    )?;
+    let mut provisional = ProvisionalReviewExtensionLoad::new(first);
+    let resolution = resolve_loaded_extension_registrations(
+        &provisional.result().extensions,
+        bundled_vcs_catalog(),
+    );
+    let adapters = resolved_native_vcs_adapters(&provisional.result().extensions, &resolution);
+    let has_extension_vcs = !adapters.is_empty();
+    let discovery_catalog = extend_vcs_catalog(bundled_vcs_catalog(), adapters);
+    let extension_repo = find_project_root_candidate_with_catalog(cwd, Some(&discovery_catalog));
+    if has_extension_vcs && extension_repo != initial_repo {
+        configured = Config::load(extension_repo.as_deref().unwrap_or(cwd))?;
+        let previous = provisional.take();
+        let final_result = load_cli_extension_pass(
+            cwd,
+            explicit,
+            disabled,
+            &configured,
+            extension_repo.as_deref(),
+            notifications,
+            Some(previous),
+        )?;
+        provisional = ProvisionalReviewExtensionLoad::new(final_result);
+    }
+    let result = provisional.take();
+    Ok(PreloadedExtensionBootstrap {
+        load: result,
+        discovery_catalog,
+        configured_notices: configured.startup_notices,
+    })
+}
+
+fn load_cli_extension_pass(
+    cwd: &Path,
+    explicit: &[PathBuf],
+    disabled: bool,
+    configured: &Config,
+    repo_root: Option<&Path>,
+    notifications: ExtensionNotificationHub,
+    mut previous_load: Option<ExtensionLoadResult>,
 ) -> Result<ExtensionLoadResult> {
-    if disabled {
-        return Ok(create_empty_extension_load_result(
-            cwd,
-            ExtensionNotificationHub::new(),
-        ));
+    if disabled || !configured.resolved_extensions.enabled {
+        if let Some(previous) = &mut previous_load {
+            previous.retire();
+        }
+        return Ok(create_empty_extension_load_result(cwd, notifications));
     }
-    let config = user_config_root().map(|root| root.join("workdeck"));
+    let config_root = user_config_root().map(|root| root.join("workdeck"));
     let trust = load_extension_trust_store();
-    let global_extensions = config.as_ref().map(|config| config.join("extensions"));
-    let repo = AnyProvider::discover(cwd, ProviderPreference::Auto)
-        .ok()
-        .map(|provider| provider.root().to_owned())
-        .or_else(|| find_project_root_candidate(cwd));
-    let config = Config::load(repo.as_deref().unwrap_or(cwd))?;
-    if !config.resolved_extensions.enabled {
-        return Ok(create_empty_extension_load_result(
-            cwd,
-            ExtensionNotificationHub::new(),
-        ));
-    }
-    let result = load_startup_extensions(LoadStartupExtensionsOptions {
+    let global_extensions = config_root.as_ref().map(|config| config.join("extensions"));
+    load_startup_extensions(LoadStartupExtensionsOptions {
         enabled: true,
         cwd,
         global_directory: global_extensions.as_deref(),
-        repo_root: repo.as_deref(),
+        repo_root,
         trust: &trust,
         explicit_paths: explicit,
-        user_config_paths: &config.resolved_extensions.paths,
-        repo_config_paths: &config.resolved_extensions.repo_paths,
+        user_config_paths: &configured.resolved_extensions.paths,
+        repo_config_paths: &configured.resolved_extensions.repo_paths,
         host_version: env!("CARGO_PKG_VERSION"),
-        extension_configs: config.extension_configs(),
-        notifications: None,
-        previous_load: None,
-    })?;
-    for issue in &result.issues {
-        eprintln!("warning: {issue}");
-    }
-    Ok(result)
+        extension_configs: configured.extension_configs(),
+        notifications: Some(notifications),
+        previous_load,
+        defer_event_bus_binding: true,
+    })
+    .map_err(anyhow::Error::from)
 }
 
 fn registered_extension_cli_commands(
@@ -4468,12 +4661,10 @@ fn handle_extension_cli_command(
     command_name: &str,
     command_args: &[String],
 ) -> Result<()> {
-    let mut extension_load = load_cli_extensions(cwd, extension_paths, extensions_disabled)?;
-    let registered = registered_extension_cli_commands(&extension_load.extensions);
+    let mut extension_bootstrap = load_cli_extensions(cwd, extension_paths, extensions_disabled)?;
+    let registered = registered_extension_cli_commands(&extension_bootstrap.load.extensions);
     let resolved = resolve_extension_cli_commands(&registered);
-    for issue in create_extension_cli_collision_issues(&registered, &resolved.collisions) {
-        eprintln!("workdeck: warning: {}", issue.message);
-    }
+    let collision_issues = create_extension_cli_collision_issues(&registered, &resolved.collisions);
 
     let Some(extension_index) =
         find_extension_cli_command(command_name, &resolved).map(|owner| owner.extension_index)
@@ -4487,8 +4678,28 @@ fn handle_extension_cli_command(
                 message.push_str(&description);
             }
         }
+        if let Some(repo_root) = &extension_bootstrap.load.pending_trust_repo_root {
+            message.push_str(&format!(
+                "\nOpen a normal review in {} to decide whether to trust its extensions, then retry.",
+                repo_root.display()
+            ));
+        }
+        if !extension_bootstrap.load.issues.is_empty() {
+            message.push_str(
+                "\nOne or more extensions failed to load; rerun with WORKDECK_DEBUG=1 or open a review to inspect startup notices.",
+            );
+        }
+        extension_bootstrap.load.retire();
         bail!(message);
     };
+
+    for notice in &extension_bootstrap.configured_notices {
+        eprintln!("workdeck: warning: {}", notice.message);
+    }
+    for issue in collision_issues {
+        eprintln!("workdeck: warning: {}", issue.message);
+    }
+    let _ = extension_bootstrap.load.bind_event_bus();
 
     let command_cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned());
     let signal_lease = Arc::new(ExtensionCliSignalLease::new());
@@ -4505,18 +4716,19 @@ fn handle_extension_cli_command(
         let mut stdin = std::io::stdin().lock();
         let mut stdout = std::io::stdout().lock();
         let mut stderr = std::io::stderr().lock();
-        extension_load.extensions[extension_index].invoke_cli_command_cancellable_with_input(
-            command_name,
-            command_args.to_vec(),
-            &command_cwd,
-            std::time::Duration::from_millis(
-                workdeck_extension_api::DEFAULT_CLI_REQUEST_TIMEOUT_MS,
-            ),
-            signal_lease.cancellation_flag(),
-            &mut stdin,
-            &mut stdout,
-            &mut stderr,
-        )
+        extension_bootstrap.load.extensions[extension_index]
+            .invoke_cli_command_cancellable_with_input(
+                command_name,
+                command_args.to_vec(),
+                &command_cwd,
+                std::time::Duration::from_millis(
+                    workdeck_extension_api::DEFAULT_CLI_REQUEST_TIMEOUT_MS,
+                ),
+                signal_lease.cancellation_flag(),
+                &mut stdin,
+                &mut stdout,
+                &mut stderr,
+            )
     };
     signal_lease.retire();
     let execution = execution?;
@@ -4535,7 +4747,7 @@ fn handle_extension_cli_command(
             }
             // Transfer complete ownership into built-in startup. The configured resolver can
             // extend this exact prefix without executing an unchanged extension factory twice.
-            run_with_preloaded_extensions(delegated, Some(extension_load))
+            run_with_preloaded_extensions(delegated, Some(extension_bootstrap))
         }
     }
 }

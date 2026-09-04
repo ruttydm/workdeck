@@ -90,12 +90,12 @@ impl ExtensionLoadControl {
         self.registry.begin_closing()
     }
 
-    fn begin_loading(&self) -> bool {
+    pub(crate) fn begin_loading(&self) -> bool {
         self.registry.begin_loading()
     }
 
-    fn finish_loading(&self) {
-        let _ = self.registry.finish_loading();
+    fn finish_loading(&self) -> bool {
+        self.registry.finish_loading()
     }
 
     fn finish_retirement(&self) {
@@ -116,6 +116,12 @@ pub struct ExtensionLoadResult {
 }
 
 impl ExtensionLoadResult {
+    /// Publish a deferred load to the composition root exactly once.
+    #[must_use]
+    pub fn bind_event_bus(&self) -> bool {
+        self.control.finish_loading()
+    }
+
     /// Revoke every runtime first, then share one shutdown deadline across the entire pass.
     pub fn retire(&mut self) {
         let _ = self.control.begin_retirement();
@@ -290,7 +296,7 @@ pub fn execute_extension_load(mut prepared: PreparedExtensionLoad) -> ExtensionL
             }),
         }
     }
-    prepared.result.control.finish_loading();
+    let _ = prepared.result.control.finish_loading();
     prepared.result
 }
 
