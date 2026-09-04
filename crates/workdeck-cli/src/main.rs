@@ -58,11 +58,12 @@ use workdeck_tui::{
     ReviewOptions, ThemeProbeInput,
 };
 use workdeck_vcs::{
-    AnyProvider, ProviderPreference, VcsAdapter, VcsCatalog, VcsLoadContext, VcsReviewInput,
-    WatchSignatureContext, bundled_vcs_catalog, compute_watch_signature, detect_vcs,
-    extend_vcs_catalog, find_project_root_candidate, find_project_root_candidate_with_catalog,
-    get_default_vcs_adapter, get_vcs_adapter, load_difftool_comparison, load_file_comparison,
-    load_vcs_review, materialize_vcs_patch_result, operation_from_input, parse_patch_input,
+    AnyProvider, NativeWatchRuntime, ProviderPreference, VcsAdapter, VcsCatalog, VcsLoadContext,
+    VcsReviewInput, WatchSignatureContext, bundled_vcs_catalog, compute_watch_signature,
+    detect_vcs, extend_vcs_catalog, find_project_root_candidate,
+    find_project_root_candidate_with_catalog, get_default_vcs_adapter, get_vcs_adapter,
+    load_difftool_comparison, load_file_comparison, load_vcs_review, materialize_vcs_patch_result,
+    operation_from_input, parse_patch_input,
 };
 
 use crate::extension_cli_commands::{
@@ -937,6 +938,45 @@ mod review_cli_option_tests {
     }
 
     #[test]
+    fn unreloadable_watch_inputs_are_rejected_before_terminal_or_extension_startup() {
+        for argv in [
+            vec!["workdeck", "patch", "-", "--watch"],
+            vec!["workdeck", "patch", "--watch"],
+            vec!["workdeck", "pager", "--watch"],
+            vec!["workdeck", "diff", "--watch", "--agent-context", "-"],
+        ] {
+            let parsed = Args::try_parse_from(argv).unwrap();
+            let error = validate_review_watch_input(parsed.command.as_ref().unwrap()).unwrap_err();
+            assert!(error.to_string().contains("Workdeck can reopen"));
+        }
+
+        for argv in [
+            vec!["workdeck", "patch", "review.patch", "--watch"],
+            vec!["workdeck", "diff", "--watch"],
+            vec!["workdeck", "patch", "-", "--no-watch"],
+        ] {
+            let parsed = Args::try_parse_from(argv).unwrap();
+            validate_review_watch_input(parsed.command.as_ref().unwrap()).unwrap();
+        }
+
+        let parsed = Args::try_parse_from(["workdeck", "patch", "-", "--watch"]).unwrap();
+        let mut prepared = PreparedPipedInput {
+            text: "diff --git a/a b/a\n".into(),
+            terminal: None,
+        };
+        assert!(validate_review_watch_input(parsed.command.as_ref().unwrap()).is_err());
+        assert!(prepared.terminal.is_none());
+        // Startup invokes terminal attachment only after the validation above succeeds.
+        assert!(should_open_controlling_terminal(
+            parsed.command.as_ref(),
+            &prepared.text,
+            false,
+            true,
+        ));
+        assert!(prepared.terminal.take().is_none());
+    }
+
+    #[test]
     fn auto_theme_is_probed_before_startup_and_concrete_themes_are_not() {
         let oracle: serde_json::Value = serde_json::from_str(include_str!(
             "../../../port/hunk/oracles/startup-theme.json"
@@ -1665,6 +1705,53 @@ mod review_cli_option_tests {
         assert_eq!(
             oracle["expected"]["unknown_command_lists_loaded_usage"],
             "workdeck tools <status|review> — Demonstrate workflows"
+        );
+    }
+
+    #[test]
+    fn frozen_hunk_startup_watch_oracle_maps_native_preflight() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/startup-watch.json"
+        ))
+        .unwrap();
+        let baselines = oracle["baselines"].as_array().unwrap();
+        assert_eq!(baselines.len(), 2);
+        assert_eq!(
+            baselines[0]["mapped_source_interval"],
+            serde_json::json!({
+                "byte_start": 16030,
+                "byte_end": 16470,
+                "line_start": 466,
+                "line_end": 478,
+            })
+        );
+        assert_eq!(
+            baselines[0]["mapped_test_interval"],
+            serde_json::json!({
+                "byte_start": 17285,
+                "byte_end": 18865,
+                "line_start": 522,
+                "line_end": 570,
+            })
+        );
+        assert_eq!(baselines[0]["mapped_tests"], 2);
+        assert_eq!(baselines[1]["stdin_watch_test_present"], true);
+        assert_eq!(baselines[1]["bun_deadlock_test_present"], false);
+        assert_eq!(oracle["test_mapping"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            oracle["expected"]["startup_order"],
+            serde_json::json!([
+                "resolve-configured-input",
+                "assert-native-watch-runtime",
+                "validate-reloadability",
+                "attach-controlling-terminal",
+                "load-extensions",
+                "load-changeset",
+            ])
+        );
+        assert_eq!(
+            oracle["expected"]["native_runtime_requires_external_upgrade"],
+            false
         );
     }
 
@@ -3128,6 +3215,8 @@ fn run_with_preloaded_extensions(
             .review_options_mut()
             .expect("review command has review options")
             .apply_config_defaults(&config);
+        validate_review_watch_input(&command)?;
+        attach_prepared_controlling_terminal(Some(&command), prepared_piped_input.as_mut())?;
         let initial_theme_mode = detect_initial_review_theme_mode(
             command
                 .review_options()
@@ -3241,6 +3330,7 @@ fn run_with_preloaded_extensions(
     };
     let mut review = raw_review.clone();
     review.apply_config_defaults(&config);
+    attach_prepared_controlling_terminal(None, prepared_piped_input.as_mut())?;
     review.initial_theme_mode = detect_initial_review_theme_mode(
         &review,
         prepared_piped_input
@@ -3704,14 +3794,65 @@ fn prepare_piped_review_input(command: Option<&Command>) -> Result<Option<Prepar
             .read_to_string(&mut text)
             .context("failed to read piped review input")?;
     }
-    let terminal =
-        should_open_controlling_terminal(command, &text, false, std::io::stdout().is_terminal())
-            .then(attach_controlling_terminal_input)
-            .transpose()?;
-    if !reads_stdin && terminal.is_none() {
+    let will_need_controlling_terminal =
+        should_open_controlling_terminal(command, &text, false, std::io::stdout().is_terminal());
+    if !reads_stdin && !will_need_controlling_terminal {
         return Ok(None);
     }
-    Ok(Some(PreparedPipedInput { text, terminal }))
+    Ok(Some(PreparedPipedInput {
+        text,
+        terminal: None,
+    }))
+}
+
+fn attach_prepared_controlling_terminal(
+    command: Option<&Command>,
+    prepared: Option<&mut PreparedPipedInput>,
+) -> Result<()> {
+    let Some(prepared) = prepared else {
+        return Ok(());
+    };
+    if prepared.terminal.is_none()
+        && should_open_controlling_terminal(
+            command,
+            &prepared.text,
+            false,
+            std::io::stdout().is_terminal(),
+        )
+    {
+        prepared.terminal = Some(attach_controlling_terminal_input()?);
+    }
+    Ok(())
+}
+
+fn validate_review_watch_input(command: &Command) -> Result<()> {
+    let Some(review) = command.review_options() else {
+        return Ok(());
+    };
+    if !review.watch || review.no_watch {
+        return Ok(());
+    }
+    // Unlike the pinned Bun runtime, the Rust watcher has no version gate. Keep the replacement
+    // assertion at the same startup boundary so a future watcher backend cannot bypass it.
+    NativeWatchRuntime.assert_reliable();
+    let has_stdin_agent_context = review
+        .agent_context
+        .as_deref()
+        .is_some_and(|path| path == Path::new("-"));
+    let can_reload = !has_stdin_agent_context
+        && match command {
+            Command::Patch { file, .. } => {
+                file.as_deref().is_some_and(|path| path != Path::new("-"))
+            }
+            Command::Pager { .. } => false,
+            _ => true,
+        };
+    if !can_reload {
+        bail!(
+            "`--watch` requires a file- or VCS-backed input that Workdeck can reopen.\nUse a patch file path instead of stdin, and avoid `--agent-context -` for watched sessions."
+        );
+    }
+    Ok(())
 }
 
 fn should_open_controlling_terminal(
