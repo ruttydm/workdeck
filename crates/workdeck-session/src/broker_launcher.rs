@@ -1128,9 +1128,16 @@ mod tests {
         let config = test_config(u32::from(listener.local_addr().unwrap().port()));
         let server = thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
-            let mut request = [0_u8; 1024];
-            let bytes = socket.read(&mut request).unwrap();
-            assert!(String::from_utf8_lossy(&request[..bytes]).starts_with("GET /health "));
+            let mut request = Vec::new();
+            let mut chunk = [0_u8; 128];
+            while request.len() < 1024 && !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                let bytes = socket.read(&mut chunk).unwrap();
+                if bytes == 0 {
+                    break;
+                }
+                request.extend_from_slice(&chunk[..bytes]);
+            }
+            assert!(String::from_utf8_lossy(&request).starts_with("GET /health "));
             let body = br#"{"ok":true,"sessions":2}"#;
             write!(
                 socket,
