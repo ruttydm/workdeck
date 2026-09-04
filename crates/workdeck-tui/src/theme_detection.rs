@@ -1,6 +1,7 @@
 //! Terminal background probing for automatic light/dark theme selection.
 
-use std::io::{self, Write};
+use std::fs::File;
+use std::io::{self, Read, Stdin, Write};
 use std::time::{Duration, Instant};
 pub use workdeck_core::TerminalThemeMode;
 
@@ -23,6 +24,139 @@ pub trait ThemeProbeInput {
     }
     /// Return one available byte chunk, or `None` after the supplied wait expires.
     fn read_chunk(&mut self, timeout: Duration) -> io::Result<Option<Vec<u8>>>;
+}
+
+impl ThemeProbeInput for File {
+    fn is_raw(&self) -> Option<bool> {
+        crossterm::terminal::is_raw_mode_enabled().ok()
+    }
+
+    fn set_raw_mode(&mut self, raw: bool) -> io::Result<()> {
+        if raw {
+            crossterm::terminal::enable_raw_mode()
+        } else {
+            crossterm::terminal::disable_raw_mode()
+        }
+    }
+
+    fn read_chunk(&mut self, timeout: Duration) -> io::Result<Option<Vec<u8>>> {
+        wait_for_file_input(self, timeout)?;
+        let mut chunk = vec![0; 256];
+        let read = self.read(&mut chunk)?;
+        if read == 0 {
+            return Ok(None);
+        }
+        chunk.truncate(read);
+        Ok(Some(chunk))
+    }
+}
+
+impl ThemeProbeInput for Stdin {
+    fn is_raw(&self) -> Option<bool> {
+        crossterm::terminal::is_raw_mode_enabled().ok()
+    }
+
+    fn set_raw_mode(&mut self, raw: bool) -> io::Result<()> {
+        if raw {
+            crossterm::terminal::enable_raw_mode()
+        } else {
+            crossterm::terminal::disable_raw_mode()
+        }
+    }
+
+    fn read_chunk(&mut self, timeout: Duration) -> io::Result<Option<Vec<u8>>> {
+        wait_for_stdin_input(self, timeout)?;
+        let mut chunk = vec![0; 256];
+        let read = self.read(&mut chunk)?;
+        if read == 0 {
+            return Ok(None);
+        }
+        chunk.truncate(read);
+        Ok(Some(chunk))
+    }
+}
+
+#[cfg(unix)]
+fn wait_for_file_input(file: &File, timeout: Duration) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+
+    wait_for_unix_input(file.as_raw_fd(), timeout)
+}
+
+#[cfg(unix)]
+fn wait_for_stdin_input(stdin: &Stdin, timeout: Duration) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+
+    wait_for_unix_input(stdin.as_raw_fd(), timeout)
+}
+
+#[cfg(unix)]
+fn wait_for_unix_input(fd: std::os::fd::RawFd, timeout: Duration) -> io::Result<()> {
+    let mut descriptor = libc::pollfd {
+        fd,
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    let timeout_ms = timeout.as_millis().min(i32::MAX as u128) as i32;
+    // SAFETY: descriptor points to one initialized pollfd for the duration of the call.
+    let result = unsafe { libc::poll(&mut descriptor, 1, timeout_ms) };
+    if result < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if result == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "terminal probe timed out",
+        ));
+    }
+    if descriptor.revents & libc::POLLNVAL != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "terminal probe input is invalid",
+        ));
+    }
+    if descriptor.revents & libc::POLLERR != 0 {
+        return Err(io::Error::other("terminal probe input reported an error"));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn wait_for_file_input(file: &File, timeout: Duration) -> io::Result<()> {
+    use std::os::windows::io::AsRawHandle;
+
+    wait_for_windows_input(file.as_raw_handle() as _, timeout)
+}
+
+#[cfg(windows)]
+fn wait_for_stdin_input(stdin: &Stdin, timeout: Duration) -> io::Result<()> {
+    use std::os::windows::io::AsRawHandle;
+
+    wait_for_windows_input(stdin.as_raw_handle() as _, timeout)
+}
+
+#[cfg(windows)]
+fn wait_for_windows_input(
+    handle: windows_sys::Win32::Foundation::HANDLE,
+    timeout: Duration,
+) -> io::Result<()> {
+    use windows_sys::Win32::Foundation::{WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT};
+    use windows_sys::Win32::System::Threading::WaitForSingleObject;
+
+    let timeout_ms = timeout.as_millis().min(u32::MAX as u128) as u32;
+    // SAFETY: the caller provides a live terminal input handle for the duration of the wait.
+    let result = unsafe { WaitForSingleObject(handle, timeout_ms) };
+    match result {
+        WAIT_OBJECT_0 => Ok(()),
+        WAIT_TIMEOUT => Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "terminal probe timed out",
+        )),
+        WAIT_FAILED => Err(io::Error::last_os_error()),
+        result => Err(io::Error::other(format!(
+            "terminal probe wait returned status {result}"
+        ))),
+    }
 }
 
 /// Parse common xterm OSC 11 background-color responses.
@@ -109,8 +243,11 @@ pub fn detect_terminal_theme_mode_from_background(
             let Some(remaining) = timeout.checked_sub(started.elapsed()) else {
                 return Ok(None);
             };
-            let Some(chunk) = input.read_chunk(remaining)? else {
-                return Ok(None);
+            let chunk = match input.read_chunk(remaining) {
+                Ok(Some(chunk)) => chunk,
+                Ok(None) => return Ok(None),
+                Err(error) if error.kind() == io::ErrorKind::TimedOut => return Ok(None),
+                Err(error) => return Err(error),
             };
             response.extend_from_slice(&chunk);
             if let Some(color) = parse_osc_11_background_color(&String::from_utf8_lossy(&response))

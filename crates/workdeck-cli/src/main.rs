@@ -11,7 +11,7 @@ use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use workdeck_cli::app::App;
 use workdeck_cli::config::Config;
 use workdeck_cli::git;
@@ -27,9 +27,9 @@ use workdeck_core::{
     AgentContext, AppBootstrap, Changeset, ChangesetSource, CliInput, CommonOptions,
     DiffToolCommandInput, FileCommandInput, InputCursorLine, InputLayoutMode,
     NamedCustomThemeConfig, PatchCommandInput, RegisteredCustomTheme, ReloadContext, ReviewSide,
-    SelfUpdateCommandInput, SidebarVisibility, StartupNotice, UserKeyBindingEntry,
-    VcsDiffCommandInput, VcsRangeEndpoints, VcsShowCommandInput, VcsStashShowCommandInput,
-    collect_session_custom_themes, resolve_app_state_path,
+    SelfUpdateCommandInput, SidebarVisibility, StartupNotice, TerminalThemeMode,
+    UserKeyBindingEntry, VcsDiffCommandInput, VcsRangeEndpoints, VcsShowCommandInput,
+    VcsStashShowCommandInput, collect_session_custom_themes, resolve_app_state_path,
 };
 use workdeck_diff::{
     LanguageMatcher, LanguageRegistration, LanguageRegistry, sanitize_terminal_line,
@@ -54,7 +54,7 @@ use workdeck_session::{
 };
 use workdeck_tui::{
     CursorLineMode, ExtensionTrustHandler, ExtensionTrustHostError, ExtensionTrustWriteError,
-    ReviewOptions,
+    ReviewOptions, ThemeProbeInput,
 };
 use workdeck_vcs::{
     AnyProvider, ProviderPreference, VcsAdapter, VcsCatalog, VcsLoadContext, VcsReviewInput,
@@ -589,6 +589,8 @@ struct ReviewCliOptions {
     #[arg(long, value_name = "THEME")]
     theme: Option<String>,
     #[arg(skip)]
+    initial_theme_mode: Option<TerminalThemeMode>,
+    #[arg(skip)]
     extension: Vec<PathBuf>,
     #[arg(skip)]
     no_extensions: bool,
@@ -655,6 +657,7 @@ impl ReviewCliOptions {
             opaque_background: !config.review.transparent_background,
             agent_context: None,
             theme: (config.ui.theme != "auto").then(|| config.ui.theme.clone()),
+            initial_theme_mode: None,
             extension: Vec::new(),
             no_extensions: !config.resolved_extensions.enabled,
             color_moved: config.review.color_moved,
@@ -847,6 +850,152 @@ impl ReviewCliOptions {
 #[cfg(test)]
 mod review_cli_option_tests {
     use super::*;
+
+    #[derive(Debug)]
+    struct FakeStartupThemeInput {
+        raw: bool,
+        chunks: std::collections::VecDeque<Vec<u8>>,
+        raw_transitions: Vec<bool>,
+    }
+
+    impl FakeStartupThemeInput {
+        fn with_response(response: &str) -> Self {
+            Self {
+                raw: false,
+                chunks: std::collections::VecDeque::from([response.as_bytes().to_vec()]),
+                raw_transitions: Vec::new(),
+            }
+        }
+    }
+
+    impl ThemeProbeInput for FakeStartupThemeInput {
+        fn is_raw(&self) -> Option<bool> {
+            Some(self.raw)
+        }
+
+        fn set_raw_mode(&mut self, raw: bool) -> std::io::Result<()> {
+            self.raw = raw;
+            self.raw_transitions.push(raw);
+            Ok(())
+        }
+
+        fn read_chunk(&mut self, _timeout: Duration) -> std::io::Result<Option<Vec<u8>>> {
+            Ok(self.chunks.pop_front())
+        }
+    }
+
+    #[test]
+    fn all_app_startups_with_piped_stdin_open_the_controlling_terminal() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/startup-theme.json"
+        ))
+        .unwrap();
+        let expected = &oracle["expected"]["piped_app"];
+        let diff =
+            Args::try_parse_from(["workdeck", "diff", "--theme", "github-dark-default"]).unwrap();
+        assert_eq!(expected["stdin_is_tty"], false);
+        assert_eq!(expected["stdout_is_tty"], true);
+        assert_eq!(expected["opens_controlling_terminal"], true);
+        assert!(should_open_controlling_terminal(
+            diff.command.as_ref(),
+            "",
+            false,
+            true,
+        ));
+        assert!(!should_open_controlling_terminal(
+            diff.command.as_ref(),
+            "",
+            true,
+            true,
+        ));
+        assert!(!should_open_controlling_terminal(
+            diff.command.as_ref(),
+            "",
+            false,
+            false,
+        ));
+
+        let pager = Args::try_parse_from(["workdeck", "pager"]).unwrap();
+        assert!(should_open_controlling_terminal(
+            pager.command.as_ref(),
+            "--- a/a\n+++ b/a\n",
+            false,
+            true,
+        ));
+        assert!(!should_open_controlling_terminal(
+            pager.command.as_ref(),
+            "plain pager text\n",
+            false,
+            true,
+        ));
+        assert!(should_open_controlling_terminal(None, "", false, true,));
+    }
+
+    #[test]
+    fn auto_theme_is_probed_before_startup_and_concrete_themes_are_not() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/startup-theme.json"
+        ))
+        .unwrap();
+        let expected = &oracle["expected"]["auto_theme"];
+        let mut input = FakeStartupThemeInput::with_response("\x1b]11;rgb:1111/2222/3333\x1b\\");
+        let mut output = Vec::new();
+        let detected = probe_initial_theme_mode(
+            None,
+            true,
+            Some(&mut input),
+            &mut output,
+            Duration::from_millis(20),
+        )
+        .unwrap();
+        assert_eq!(detected, Some(TerminalThemeMode::Dark));
+        assert_eq!(expected["detected_mode"], "dark");
+        assert_eq!(
+            output,
+            expected["osc_11_query"].as_str().unwrap().as_bytes()
+        );
+        assert_eq!(input.raw_transitions, [true, false]);
+
+        let mut concrete = FakeStartupThemeInput::with_response("\x1b]11;#ffffff\x07");
+        let mut concrete_output = Vec::new();
+        assert_eq!(
+            probe_initial_theme_mode(
+                Some("github-dark-default"),
+                true,
+                Some(&mut concrete),
+                &mut concrete_output,
+                Duration::from_millis(20),
+            )
+            .unwrap(),
+            None
+        );
+        assert!(concrete_output.is_empty());
+        assert!(concrete.raw_transitions.is_empty());
+
+        let mut non_terminal = FakeStartupThemeInput::with_response("\x1b]11;#ffffff\x07");
+        assert_eq!(
+            probe_initial_theme_mode(
+                Some("auto"),
+                false,
+                Some(&mut non_terminal),
+                &mut Vec::new(),
+                Duration::from_millis(20),
+            )
+            .unwrap(),
+            None
+        );
+        assert_eq!(
+            probe_initial_theme_mode::<FakeStartupThemeInput, Vec<u8>>(
+                Some("auto"),
+                true,
+                None,
+                &mut Vec::new(),
+                Duration::from_millis(20),
+            )
+            .unwrap(),
+            None
+        );
+    }
 
     #[test]
     fn common_options_preserve_the_resolved_review_input_for_native_reload() {
@@ -1097,7 +1246,8 @@ mod review_cli_option_tests {
         ))
         .unwrap();
         let config = Config::default();
-        let review = ReviewCliOptions::from_config(&config);
+        let mut review = ReviewCliOptions::from_config(&config);
+        review.initial_theme_mode = Some(TerminalThemeMode::Light);
         let input = CliInput::Patch(PatchCommandInput {
             file: Some("nested/input.patch".into()),
             text: None,
@@ -1152,6 +1302,7 @@ mod review_cli_option_tests {
         });
 
         assert_eq!(actual, oracle["baselines"][0]["view_defaults"]);
+        assert_eq!(bootstrap.initial_theme_mode, Some(TerminalThemeMode::Light));
         assert_eq!(bootstrap.input, input);
         assert_eq!(bootstrap.reload_context.cwd, Path::new("/repo/subdir"));
         assert_eq!(
@@ -2112,7 +2263,7 @@ fn run(mut args: Args) -> Result<()> {
 
     // Spool piped review input and attach the controlling terminal before config, theme, or
     // extension initialization can create Crossterm's process-global event reader.
-    let prepared_piped_input = prepare_piped_review_input(args.command.as_ref())?;
+    let mut prepared_piped_input = prepare_piped_review_input(args.command.as_ref())?;
 
     if matches!(args.command, Some(Command::External(_))) {
         let Command::External(tokens) = args.command.take().expect("external command was present")
@@ -2152,6 +2303,18 @@ fn run(mut args: Args) -> Result<()> {
             .review_options_mut()
             .expect("review command has review options")
             .apply_config_defaults(&config);
+        let initial_theme_mode = detect_initial_review_theme_mode(
+            command
+                .review_options()
+                .expect("review command has review options"),
+            prepared_piped_input
+                .as_mut()
+                .and_then(|prepared| prepared.terminal.as_mut()),
+        )?;
+        command
+            .review_options_mut()
+            .expect("review command has review options")
+            .initial_theme_mode = initial_theme_mode;
         if let Command::Diff {
             exclude_untracked,
             include_untracked,
@@ -2250,6 +2413,12 @@ fn run(mut args: Args) -> Result<()> {
     let mut review = ReviewCliOptions::from_config(&config);
     review.extension = args.extension;
     review.no_extensions |= args.no_extensions && !args.extensions;
+    review.initial_theme_mode = detect_initial_review_theme_mode(
+        &review,
+        prepared_piped_input
+            .as_mut()
+            .and_then(|prepared| prepared.terminal.as_mut()),
+    )?;
     let mut prepared_extensions = prepare_review_extensions(&args.cwd, &review)?;
     let catalog = compose_review_vcs_catalog(&prepared_extensions.extensions);
     prepared_extensions.vcs_catalog = Some(catalog.clone());
@@ -2450,7 +2619,7 @@ impl SkillCommand {
 
 struct PreparedPipedInput {
     text: String,
-    _terminal: Option<workdeck_tui::ControllingTerminal<File>>,
+    terminal: Option<workdeck_tui::ControllingTerminal<File>>,
 }
 
 struct PreparedReviewExtensions {
@@ -2608,23 +2777,46 @@ fn prepare_piped_review_input(command: Option<&Command>) -> Result<Option<Prepar
         }
         _ => false,
     };
-    if !reads_stdin || std::io::stdin().is_terminal() {
+    if std::io::stdin().is_terminal() {
         return Ok(None);
     }
     let mut text = String::new();
-    std::io::stdin()
-        .read_to_string(&mut text)
-        .context("failed to read piped review input")?;
-    let needs_terminal = matches!(command, Some(Command::Patch { .. }))
-        || matches!(command, Some(Command::Pager { .. }))
-            && workdeck_cli::pager::looks_like_patch_input(&text);
-    let terminal = needs_terminal
-        .then(attach_controlling_terminal_input)
-        .transpose()?;
-    Ok(Some(PreparedPipedInput {
-        text,
-        _terminal: terminal,
-    }))
+    if reads_stdin {
+        std::io::stdin()
+            .read_to_string(&mut text)
+            .context("failed to read piped review input")?;
+    }
+    let terminal =
+        should_open_controlling_terminal(command, &text, false, std::io::stdout().is_terminal())
+            .then(attach_controlling_terminal_input)
+            .transpose()?;
+    if !reads_stdin && terminal.is_none() {
+        return Ok(None);
+    }
+    Ok(Some(PreparedPipedInput { text, terminal }))
+}
+
+fn should_open_controlling_terminal(
+    command: Option<&Command>,
+    piped_text: &str,
+    stdin_is_terminal: bool,
+    stdout_is_terminal: bool,
+) -> bool {
+    if stdin_is_terminal || !stdout_is_terminal {
+        return false;
+    }
+    match command {
+        None
+        | Some(
+            Command::Diff { .. }
+            | Command::Show { .. }
+            | Command::Stash { .. }
+            | Command::Patch { .. }
+            | Command::Difftool { .. },
+        ) => true,
+        Some(Command::Pager { .. }) => workdeck_cli::pager::looks_like_patch_input(piped_text),
+        _ => false,
+    }
 }
 
 fn handle_review_command(
@@ -2954,6 +3146,55 @@ fn attach_controlling_terminal_input() -> Result<workdeck_tui::ControllingTermin
     Ok(terminal)
 }
 
+fn probe_initial_theme_mode<I: ThemeProbeInput, W: Write>(
+    theme: Option<&str>,
+    stdout_is_terminal: bool,
+    input: Option<&mut I>,
+    output: &mut W,
+    timeout: Duration,
+) -> std::io::Result<Option<TerminalThemeMode>> {
+    if !stdout_is_terminal || theme.is_some_and(|theme| theme != "auto") {
+        return Ok(None);
+    }
+    let Some(input) = input else {
+        return Ok(None);
+    };
+    workdeck_tui::detect_terminal_theme_mode_from_background(input, output, timeout)
+}
+
+fn detect_initial_review_theme_mode(
+    review: &ReviewCliOptions,
+    terminal: Option<&mut workdeck_tui::ControllingTerminal<File>>,
+) -> Result<Option<TerminalThemeMode>> {
+    let stdout_is_terminal = std::io::stdout().is_terminal();
+    if !stdout_is_terminal || review.theme.as_deref().is_some_and(|theme| theme != "auto") {
+        return Ok(None);
+    }
+    let mut output = std::io::stdout();
+    if let Some(terminal) = terminal {
+        return probe_initial_theme_mode(
+            review.theme.as_deref(),
+            true,
+            Some(&mut terminal.input),
+            &mut output,
+            workdeck_tui::DEFAULT_THEME_PROBE_TIMEOUT,
+        )
+        .context("detect terminal background for automatic theme selection");
+    }
+    if std::io::stdin().is_terminal() {
+        let mut input = std::io::stdin();
+        return probe_initial_theme_mode(
+            review.theme.as_deref(),
+            true,
+            Some(&mut input),
+            &mut output,
+            workdeck_tui::DEFAULT_THEME_PROBE_TIMEOUT,
+        )
+        .context("detect terminal background for automatic theme selection");
+    }
+    Ok(None)
+}
+
 fn run_review_with_options(
     cwd: &Path,
     changeset: Changeset,
@@ -3063,7 +3304,7 @@ fn build_app_bootstrap(
         changeset,
         initial_mode,
         initial_theme,
-        initial_theme_mode: None,
+        initial_theme_mode: review.initial_theme_mode,
         custom_themes: session_themes.themes,
         initial_show_line_numbers,
         initial_tab_width,
