@@ -41,6 +41,7 @@ mod file_header;
 mod file_render_window;
 mod file_section_layout;
 mod file_view_geometry;
+mod file_view_view;
 mod help_content;
 mod highlighted_diff_runtime;
 mod hunk_scroll;
@@ -123,6 +124,7 @@ pub use file_header::*;
 pub use file_render_window::*;
 pub use file_section_layout::*;
 pub use file_view_geometry::*;
+pub use file_view_view::*;
 pub use help_content::*;
 pub use highlighted_diff_runtime::*;
 pub use hunk_scroll::*;
@@ -200,11 +202,10 @@ use workdeck_diff::{
     sanitize_terminal_line, slice_segments_window, word_diff_ranges, wrap_segments,
 };
 use workdeck_extension_api::{
-    ExtensionCommandAvailability, ExtensionFileViewSpan, ExtensionFileViewTone,
-    ExtensionHostAction, ExtensionKeyEvent, ExtensionLayoutMode, ExtensionLifecycleEvent,
-    ExtensionNotification, ExtensionNotificationHub, ExtensionNotificationSubscription,
-    ExtensionNotifyType, ExtensionPaintTheme, ExtensionPaneView, ExtensionResolvedLayout,
-    ExtensionReviewNote, ExtensionTextAttribute, ExtensionWorkspaceWriteCompletion,
+    ExtensionCommandAvailability, ExtensionHostAction, ExtensionKeyEvent, ExtensionLayoutMode,
+    ExtensionLifecycleEvent, ExtensionNotification, ExtensionNotificationHub,
+    ExtensionNotificationSubscription, ExtensionNotifyType, ExtensionPaintTheme, ExtensionPaneView,
+    ExtensionResolvedLayout, ExtensionReviewNote, ExtensionWorkspaceWriteCompletion,
     ExtensionWorkspaceWriteResult, FileLanguageGlobTarget, FileLanguageMatcher,
     FileViewModeKeyRequest, FileViewModeLifecycleRequest, KeyRoutingResult,
     KeyboardModeRegistration, PaneActionInvocation, PanePlacement, PaneRegistration,
@@ -224,8 +225,8 @@ use workdeck_extension_host::{
     session_keyboard_mode_still_valid,
 };
 use workdeck_review::{
-    CommentAnchor, ExpandedSourceError, ExpandedSourceStatus, LayoutMode, PlannedFileViewRow,
-    ReviewComment, ReviewGapAddress, ReviewLineTarget, ReviewNavigationFile, ReviewNavigationModel,
+    CommentAnchor, ExpandedSourceError, ExpandedSourceStatus, LayoutMode, ReviewComment,
+    ReviewGapAddress, ReviewLineTarget, ReviewNavigationFile, ReviewNavigationModel,
     ReviewNoteResolution, ReviewSelectionMove, ReviewSelectionScope, ReviewState,
     SemanticReviewAnnotationIndex, SemanticReviewSelection, VisibleFileViewNote,
     build_extension_review_snapshot, build_file_view_render_plan, plan_expanded_gap,
@@ -7683,60 +7684,51 @@ fn append_extension_file_view_rows(
     if !plan.unresolved_note_ids.is_empty() {
         return false;
     }
-    let starts = resolved.layout.hunk_rows.iter().enumerate().fold(
-        BTreeMap::<usize, Vec<usize>>::new(),
-        |mut starts, (index, bounds)| {
-            starts.entry(bounds.start_row).or_default().push(index);
-            starts
-        },
-    );
-    for planned in &plan.rows {
-        match planned {
-            PlannedFileViewRow::FileViewRow { row, row_index, .. } => {
-                if let Some(hunks) = starts.get(row_index) {
-                    for hunk_index in hunks {
-                        hunk_tops.insert((file_index, *hunk_index), rows.len());
-                    }
-                }
-                let selected = selection.file_index == file_index
-                    && selection.hunk_index.is_some_and(|selected| {
-                        resolved
-                            .layout
-                            .hunk_rows
-                            .get(selected)
-                            .is_some_and(|bounds| {
-                                *row_index >= bounds.start_row && *row_index <= bounds.end_row
-                            })
-                    });
-                let state_key = FileViewComponentStateKey {
+    let geometry = measure_file_view_geometry(resolved, &plan.rows, width);
+    let body_top = rows.len();
+    for (hunk_index, top) in &geometry.hunk_anchor_rows {
+        hunk_tops.insert((file_index, *hunk_index), body_top.saturating_add(*top));
+    }
+    let expanded_row_ids = component_expanded
+        .iter()
+        .filter(|state| state.file_id == file.runtime_id)
+        .map(|state| state.row_id.clone())
+        .collect::<BTreeSet<_>>();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| i64::try_from(duration.as_millis()).ok())
+        .unwrap_or(i64::MAX);
+    let painted = paint_file_view(FileViewViewOptions {
+        file,
+        resolved,
+        geometry: &geometry,
+        cursor_highlight: None,
+        selected_hunk_index: (selection.file_index == file_index)
+            .then_some(selection.hunk_index)
+            .flatten(),
+        theme: &options.theme,
+        visible_body_bounds: None,
+        width,
+        identity: FileViewPaintIdentity::default(),
+        expanded_row_ids: &expanded_row_ids,
+        now_ms,
+    });
+    for row in &painted.rows {
+        if row.toggle_expanded_on_left_mouse_up
+            && let Some(row_id) = &row.row_id
+        {
+            component_hits.push(FileViewComponentLogicalHit {
+                state_key: FileViewComponentStateKey {
                     file_id: file.runtime_id.clone(),
-                    row_id: row.id.clone(),
-                };
-                if row
-                    .component
-                    .as_ref()
-                    .is_some_and(|component| component.toggle_expanded_on_left_mouse_up)
-                {
-                    component_hits.push(FileViewComponentLogicalHit {
-                        state_key: state_key.clone(),
-                        top: rows.len(),
-                        height: resolved.row_heights[*row_index],
-                    });
-                }
-                rows.extend(extension_file_view_row_lines(
-                    row,
-                    resolved.row_heights[*row_index],
-                    &options.theme,
-                    width,
-                    selected,
-                    component_expanded.contains(&state_key),
-                ));
-            }
-            PlannedFileViewRow::InlineNote { note, .. } => {
-                rows.extend(extension_file_view_note_lines(note, &options.theme, width));
-            }
+                    row_id: row_id.clone(),
+                },
+                top: body_top.saturating_add(row.top),
+                height: row.height,
+            });
         }
     }
+    rows.extend(painted.lines());
     true
 }
 
@@ -7755,116 +7747,6 @@ fn review_comment_thread_depth(comment: &ReviewComment, comments: &[ReviewCommen
         parent = parent_comment.parent_id.as_deref();
     }
     depth
-}
-
-fn extension_file_view_row_lines(
-    row: &workdeck_extension_api::ExtensionFileViewRow,
-    declared_height: usize,
-    theme: &AppTheme,
-    width: usize,
-    selected: bool,
-    expanded: bool,
-) -> Vec<Line<'static>> {
-    let mut lines = if let Some(component) = &row.component {
-        let mut lines = Vec::new();
-        let content = if selected && expanded {
-            component
-                .selected_expanded_content
-                .as_ref()
-                .or(component.expanded_content.as_ref())
-                .or(component.selected_content.as_ref())
-                .unwrap_or(&component.content)
-        } else if expanded {
-            component
-                .expanded_content
-                .as_ref()
-                .unwrap_or(&component.content)
-        } else if selected {
-            component
-                .selected_content
-                .as_ref()
-                .unwrap_or(&component.content)
-        } else {
-            &component.content
-        };
-        flatten_file_view_component(content, 0, theme, &mut lines);
-        if lines.is_empty() {
-            extension_file_view_symbolic_lines(&row.spans, theme, width)
-        } else {
-            if let Some(prefix) = &component.selection_prefix
-                && let Some(line) = lines.first_mut()
-            {
-                let style = line
-                    .spans
-                    .iter()
-                    .find(|span| !span.content.is_empty())
-                    .map_or_else(Style::default, |span| span.style);
-                line.spans.insert(
-                    0,
-                    Span::styled(
-                        if selected {
-                            prefix.selected.clone()
-                        } else {
-                            prefix.unselected.clone()
-                        },
-                        style,
-                    ),
-                );
-            }
-            lines
-        }
-    } else {
-        extension_file_view_symbolic_lines(&row.spans, theme, width)
-    };
-    lines.truncate(declared_height);
-    lines.resize_with(declared_height, Line::default);
-    let component_owns_selection_paint = row.component.as_ref().is_some_and(|component| {
-        component.selected_content.is_some() || component.selected_expanded_content.is_some()
-    });
-    if selected && !component_owns_selection_paint {
-        let background = ratatui_theme_color(&theme.selected_hunk);
-        for line in &mut lines {
-            line.style = line.style.bg(background);
-            for span in &mut line.spans {
-                span.style = span.style.bg(background);
-            }
-        }
-    }
-    lines
-}
-
-fn extension_file_view_symbolic_lines(
-    spans: &[ExtensionFileViewSpan],
-    theme: &AppTheme,
-    width: usize,
-) -> Vec<Line<'static>> {
-    let spans = spans
-        .iter()
-        .map(|span| {
-            let foreground = match span.tone {
-                None | Some(ExtensionFileViewTone::Syntax) => &theme.text,
-                Some(ExtensionFileViewTone::Muted) => &theme.muted,
-                Some(ExtensionFileViewTone::Accent) => &theme.accent,
-                Some(ExtensionFileViewTone::AccentMuted) => &theme.accent_muted,
-                Some(ExtensionFileViewTone::Added) => &theme.badge_added,
-                Some(ExtensionFileViewTone::Removed) => &theme.badge_removed,
-            };
-            let mut style = Style::default().fg(ratatui_theme_color(foreground));
-            for attribute in &span.attributes {
-                style = style.add_modifier(match attribute {
-                    ExtensionTextAttribute::Bold => Modifier::BOLD,
-                    ExtensionTextAttribute::Italic => Modifier::ITALIC,
-                    ExtensionTextAttribute::Underline => Modifier::UNDERLINED,
-                    ExtensionTextAttribute::Strikethrough => Modifier::CROSSED_OUT,
-                });
-            }
-            Span::styled(span.text.clone(), style)
-        })
-        .collect::<Vec<_>>();
-    wrap_styled_spans(spans, width.max(1))
-        .into_iter()
-        .map(Line::from)
-        .collect()
 }
 
 fn stml_theme_colors(theme: &AppTheme) -> workdeck_markup::StmlThemeColors {
@@ -7944,61 +7826,6 @@ fn note_body_ratatui_lines(
             )
         })
         .collect()
-}
-
-fn extension_file_view_note_lines(
-    note: &VisibleFileViewNote,
-    theme: &AppTheme,
-    width: usize,
-) -> Vec<Line<'static>> {
-    let author = note
-        .annotation
-        .author
-        .as_deref()
-        .or(note.annotation.source.as_deref())
-        .unwrap_or("note");
-    let indent = "  ".repeat(note.thread_depth.min(8));
-    let mut rows = vec![Line::from(vec![
-        Span::styled(
-            format!("{indent}  │ note "),
-            Style::default().fg(Color::Magenta),
-        ),
-        Span::styled(
-            author.to_owned(),
-            Style::default()
-                .fg(Color::LightMagenta)
-                .add_modifier(Modifier::BOLD),
-        ),
-    ])];
-    let markup_width = width.saturating_sub(indent.len() + 8).max(1);
-    rows.extend(
-        note_body_ratatui_lines(
-            (note.annotation.source.as_deref() != Some("user-draft"))
-                .then_some(note.annotation.markup.as_deref())
-                .flatten(),
-            &note.annotation.summary,
-            markup_width,
-            theme,
-        )
-        .into_iter()
-        .map(|mut line| {
-            line.spans.insert(
-                0,
-                Span::styled(
-                    format!("{indent}  │   "),
-                    Style::default().fg(ratatui_theme_color(&theme.note_border)),
-                ),
-            );
-            line
-        }),
-    );
-    if let Some(rationale) = &note.annotation.rationale {
-        rows.push(Line::styled(
-            format!("{indent}  │   {rationale}"),
-            Style::default().fg(Color::DarkGray),
-        ));
-    }
-    rows
 }
 
 #[allow(clippy::too_many_arguments)]
