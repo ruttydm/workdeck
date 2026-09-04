@@ -41,6 +41,28 @@ fn version_renders() {
 }
 
 #[test]
+fn daemon_overview_is_headless_and_does_not_require_a_repository() {
+    workdeck()
+        .args([
+            "--cwd",
+            "/definitely/missing/workdeck/daemon-root",
+            "daemon",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Usage: workdeck daemon serve"))
+        .stdout(predicate::str::contains("WORKDECK_MCP_PORT"));
+
+    workdeck()
+        .args(["daemon", "serve", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Run the local session daemon and WebSocket broker",
+        ));
+}
+
+#[test]
 fn update_help_lists_only_native_install_channels() {
     workdeck()
         .args(["update", "--help"])

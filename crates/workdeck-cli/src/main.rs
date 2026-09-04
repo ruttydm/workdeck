@@ -1,5 +1,6 @@
 mod extension_cli_commands;
 mod extension_manage;
+mod process_signals;
 
 use anyhow::{Context, Result, bail};
 use chrono::Utc;
@@ -72,6 +73,7 @@ use crate::extension_cli_commands::{
     find_extension_cli_command, resolve_extension_cli_commands,
 };
 use crate::extension_manage::{ExtensionManager, parse_extension_install_source};
+use crate::process_signals::register_process_signal_callback;
 
 #[derive(Debug, Parser)]
 #[command(name = "workdeck")]
@@ -154,6 +156,11 @@ enum Command {
     Pager {
         #[command(flatten)]
         review: ReviewCliOptions,
+    },
+    #[command(about = "Run the local Workdeck session daemon")]
+    Daemon {
+        #[command(subcommand)]
+        command: Option<DaemonCommand>,
     },
     #[command(about = "Inspect and control live Workdeck review sessions")]
     Session {
@@ -508,6 +515,12 @@ enum SkillCommand {
         #[arg(long)]
         json: bool,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum DaemonCommand {
+    #[command(about = "Run the local session daemon and WebSocket broker")]
+    Serve,
 }
 
 #[derive(Debug, Subcommand)]
@@ -974,6 +987,95 @@ mod review_cli_option_tests {
             true,
         ));
         assert!(prepared.terminal.take().is_none());
+    }
+
+    #[test]
+    fn daemon_commands_are_classified_before_repository_startup() {
+        let overview = Args::try_parse_from([
+            "workdeck",
+            "--cwd",
+            "/definitely/missing/workdeck/daemon-root",
+            "daemon",
+        ])
+        .unwrap();
+        assert!(matches!(
+            overview.command,
+            Some(Command::Daemon { command: None })
+        ));
+        assert!(overview.command.as_ref().unwrap().is_global_command());
+
+        let serve = Args::try_parse_from(["workdeck", "daemon", "serve"]).unwrap();
+        assert!(matches!(
+            serve.command,
+            Some(Command::Daemon {
+                command: Some(DaemonCommand::Serve)
+            })
+        ));
+        assert!(serve.command.as_ref().unwrap().is_global_command());
+        let session = Args::try_parse_from([
+            "workdeck",
+            "--cwd",
+            "/definitely/missing/workdeck/session-root",
+            "session",
+            "list",
+        ])
+        .unwrap();
+        assert!(matches!(session.command, Some(Command::Session { .. })));
+        assert!(session.command.as_ref().unwrap().is_global_command());
+        assert!(DAEMON_OVERVIEW.contains("Usage: workdeck daemon serve"));
+        assert!(DAEMON_OVERVIEW.contains("WORKDECK_MCP_PORT"));
+    }
+
+    #[test]
+    fn frozen_hunk_startup_headless_oracle_maps_both_pins() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/startup-headless.json"
+        ))
+        .unwrap();
+        let baselines = oracle["baselines"].as_array().unwrap();
+        assert_eq!(baselines.len(), 2);
+        assert_eq!(
+            baselines[0]["mapped_source_interval"],
+            serde_json::json!({
+                "byte_start": 11416,
+                "byte_end": 12850,
+                "line_start": 306,
+                "line_end": 366,
+            })
+        );
+        assert_eq!(
+            baselines[0]["mapped_test_interval"],
+            serde_json::json!({
+                "byte_start": 6379,
+                "byte_end": 7912,
+                "line_start": 188,
+                "line_end": 239,
+            })
+        );
+        assert_eq!(baselines[0]["mapped_tests"], 3);
+        assert_eq!(baselines[1]["mapped_tests_present"], 3);
+        assert_eq!(oracle["test_mapping"].as_array().unwrap().len(), 3);
+        assert_eq!(
+            oracle["expected"]["headless_before_repository_discovery"],
+            serde_json::json!([
+                "help",
+                "daemon-serve",
+                "session-command",
+                "markup-render",
+                "markup-guide",
+                "extension-manage",
+                "self-update",
+            ])
+        );
+        assert_eq!(oracle["expected"]["daemon_executable"], "workdeck");
+        assert_eq!(
+            oracle["expected"]["daemon_arguments"],
+            serde_json::json!(["daemon", "serve"])
+        );
+        assert_eq!(
+            oracle["expected"]["command_signal_ownership_revocable"],
+            true
+        );
     }
 
     #[test]
@@ -3286,7 +3388,8 @@ fn run_with_preloaded_extensions(
             | Command::Pager { .. } => {
                 unreachable!("review commands are handled before config load")
             }
-            Command::Session { .. }
+            Command::Daemon { .. }
+            | Command::Session { .. }
             | Command::Extension { .. }
             | Command::Migrate { .. }
             | Command::Markup { .. }
@@ -3445,7 +3548,8 @@ impl Command {
     fn is_global_command(&self) -> bool {
         matches!(
             self,
-            Command::Session { .. }
+            Command::Daemon { .. }
+                | Command::Session { .. }
                 | Command::Extension { .. }
                 | Command::Migrate { .. }
                 | Command::Markup { .. }
@@ -3461,7 +3565,8 @@ impl Command {
             | Command::Stash { .. }
             | Command::Patch { .. }
             | Command::Difftool { .. }
-            | Command::Pager { .. } => false,
+            | Command::Pager { .. }
+            | Command::Daemon { .. } => false,
             Command::Session { command } => command.wants_json(),
             Command::Extension { command } => command.wants_json(),
             Command::Migrate { command } => command.wants_json(),
@@ -5170,7 +5275,7 @@ fn handle_extension_cli_command(
 
     let command_cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned());
     let signal_lease = Arc::new(ExtensionCliSignalLease::new());
-    ctrlc::set_handler({
+    let mut signal_registration = register_process_signal_callback({
         let signal_lease = Arc::clone(&signal_lease);
         move || {
             if signal_lease.interrupt() == ExtensionCliInterruptAction::Exit {
@@ -5178,6 +5283,7 @@ fn handle_extension_cli_command(
             }
         }
     })
+    .map_err(anyhow::Error::msg)
     .context("failed to install extension CLI cancellation handler")?;
     let execution = {
         let mut stdin = std::io::stdin().lock();
@@ -5198,6 +5304,7 @@ fn handle_extension_cli_command(
             )
     };
     signal_lease.retire();
+    signal_registration.retire();
     let execution = execution?;
 
     match execution.result {
@@ -5221,6 +5328,7 @@ fn handle_extension_cli_command(
 
 fn handle_global_command(cwd: &Path, command: Command) -> Result<()> {
     match command {
+        Command::Daemon { command } => handle_daemon_command(command),
         Command::Session { command } => handle_live_session_command(command),
         Command::Extension { command } => handle_extension_command(cwd, command),
         Command::Migrate { command } => handle_migrate_command(cwd, command),
@@ -5233,6 +5341,48 @@ fn handle_global_command(cwd: &Path, command: Command) -> Result<()> {
         } => handle_update_command(version, method, check),
         _ => unreachable!("non-global command passed to global handler"),
     }
+}
+
+const DAEMON_OVERVIEW: &str = concat!(
+    "Usage: workdeck daemon serve\n",
+    "\n",
+    "Run the local Workdeck session daemon and websocket session broker.\n",
+    "\n",
+    "Environment:\n",
+    "  WORKDECK_MCP_HOST                  bind host (default 127.0.0.1; loopback only unless explicitly overridden)\n",
+    "  WORKDECK_MCP_PORT                  bind port (default 47657)\n",
+    "  WORKDECK_MCP_UNSAFE_ALLOW_REMOTE   set to 1 to allow non-loopback binding (unsafe)\n",
+);
+
+fn handle_daemon_command(command: Option<DaemonCommand>) -> Result<()> {
+    let Some(DaemonCommand::Serve) = command else {
+        print!("{DAEMON_OVERVIEW}");
+        return Ok(());
+    };
+
+    let daemon = workdeck_session::serve_workdeck_session_broker_daemon(
+        workdeck_session::ServeWorkdeckSessionBrokerDaemonOptions::default(),
+    )
+    .map_err(anyhow::Error::msg)?;
+    let stop_requested = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut signal_registration = register_process_signal_callback({
+        let stop_requested = Arc::clone(&stop_requested);
+        move || {
+            if stop_requested.swap(true, std::sync::atomic::Ordering::AcqRel) {
+                std::process::exit(130);
+            }
+        }
+    })
+    .map_err(anyhow::Error::msg)
+    .context("failed to install session daemon shutdown handler")?;
+
+    while !daemon.wait_stopped(Duration::from_millis(100)) {
+        if stop_requested.load(std::sync::atomic::Ordering::Acquire) {
+            daemon.stop();
+        }
+    }
+    signal_registration.retire();
+    Ok(())
 }
 
 fn handle_update_command(
