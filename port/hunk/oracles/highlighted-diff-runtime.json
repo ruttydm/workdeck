@@ -26,7 +26,7 @@
   },
   "destinations": [
     { "path": "crates/workdeck-tui/src/highlighted_diff_runtime.rs", "sha256": "a18e7d7047db32e644413d6fa19abe2d92f078bbc02d9a0f2b5a18604ba2665f" },
-    { "path": "crates/workdeck-tui/src/lib.rs", "sha256": "013f890f7242fb53282807fa239d9c72bc4a346946f78b6701d041970723647a" },
+    { "path": "crates/workdeck-tui/src/lib.rs", "sha256": "596043eda721e26b35c22b16c503f501525fe6109a96f79d6ddbe820d0d9d8a7" },
     { "path": "crates/workdeck-tui/src/public_review.rs", "sha256": "7f683180cd5d17b04cc3c286a80e76419abf9809e580c6b86e227a6021171d7b" },
     { "path": "crates/workdeck-diff/src/syntax.rs", "sha256": "bf264a9f1226d24019028451140730f2e20d81553a0cd2b2f30a309e27c9560d" },
     { "path": "crates/workdeck-diff/src/highlighted_diff_cache.rs", "sha256": "f313442de50fb499c09dee002cf0fd98736c0ba4aa2c5e160864ef4b5634adc0" },

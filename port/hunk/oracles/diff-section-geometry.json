@@ -40,7 +40,7 @@
   "destinations": [
     {
       "path": "crates/workdeck-tui/src/diff_section_row_plan.rs",
-      "sha256": "31ec8d2fec18a7d3696c936af9e8eaa94cc456569d850ab6293eecca19912356"
+      "sha256": "df21616cd53de6cb3bdd4f2e1552a1b448111728be2cfa1a7eb3b10135dd7db9"
     },
     {
       "path": "crates/workdeck-tui/src/diff_section_geometry.rs",
@@ -48,7 +48,7 @@
     },
     {
       "path": "crates/workdeck-tui/src/lib.rs",
-      "sha256": "013f890f7242fb53282807fa239d9c72bc4a346946f78b6701d041970723647a"
+      "sha256": "596043eda721e26b35c22b16c503f501525fe6109a96f79d6ddbe820d0d9d8a7"
     }
   ],
   "baselineOracle": {

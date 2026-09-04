@@ -7,23 +7,20 @@
 
 use std::collections::HashSet;
 
-use unicode_width::UnicodeWidthStr;
-use workdeck_core::{DiffFile, DiffLine, DiffLineKind, ReviewGapPosition, ReviewLineMoveKind};
+use workdeck_core::{DiffFile, ReviewGapPosition};
 use workdeck_diff::{
-    DEFAULT_TAB_WIDTH, DiffRow, DiffRowLineNumbers, HighlightedDiffCode, HighlightedLine,
-    RenderSpan, SplitLineCell, SplitLineKind, StackLineCell, StackLineKind, expand_diff_tabs,
-    find_max_line_number, find_max_line_number_in_rows, plan_split_line_pairs,
-    sanitize_terminal_line,
+    DEFAULT_TAB_WIDTH, DiffRow, DiffRowLineNumbers, HighlightedDiffCode, RenderSpan, SplitLineCell,
+    SplitLineKind, StackLineCell, StackLineKind, find_max_line_number,
+    find_max_line_number_in_rows, sanitize_terminal_line,
 };
 use workdeck_review::{
-    ExpandedGapState, ExpandedSourceStatus, LayoutMode, ReviewGapAddress, plan_expanded_gap,
-    review_expansion_side, review_gap_id, review_gap_source_for_file, review_leading_gap,
-    review_trailing_gap,
+    ExpandedGapState, ExpandedSourceStatus, LayoutMode, plan_expanded_gap, review_expansion_side,
+    review_gap_id, review_gap_source_for_file, review_leading_gap, review_trailing_gap,
 };
 
 use crate::{
     AppTheme, DEFAULT_HUNK_GAP, PlannedReviewRow, ReviewRenderPlanOptions, VisibleAgentNote,
-    build_review_render_plan,
+    build_review_render_plan, build_split_rows, build_stack_rows, plain_diff_spans,
 };
 
 pub type SourceLineSpans<'a> = dyn Fn(Option<&str>, usize) -> Vec<RenderSpan> + Send + Sync + 'a;
@@ -78,343 +75,6 @@ fn file_id(file: &DiffFile) -> &str {
     } else {
         &file.runtime_id
     }
-}
-
-fn line_index(line: Option<u32>) -> usize {
-    line.and_then(|line| line.checked_sub(1))
-        .and_then(|line| usize::try_from(line).ok())
-        .unwrap_or(0)
-}
-
-fn line_move_kind(line: Option<&DiffLine>) -> Option<ReviewLineMoveKind> {
-    line.filter(|line| line.moved)
-        .map(|_| ReviewLineMoveKind::Moved)
-}
-
-fn plain_spans(text: &str, tab_width: u16) -> Vec<RenderSpan> {
-    let text = expand_diff_tabs(&sanitize_terminal_line(text), tab_width, 0);
-    if text.is_empty() {
-        Vec::new()
-    } else {
-        vec![RenderSpan {
-            text,
-            foreground: None,
-            background: None,
-            transform_foreground: None,
-        }]
-    }
-}
-
-fn highlighted_spans(
-    tokens: Option<&HighlightedLine>,
-    text: &str,
-    tab_width: u16,
-) -> Vec<RenderSpan> {
-    let Some(tokens) = tokens.filter(|tokens| !tokens.is_empty()) else {
-        return plain_spans(text, tab_width);
-    };
-    let mut column = 0;
-    let spans = tokens
-        .iter()
-        .filter_map(|token| {
-            let text = expand_diff_tabs(&sanitize_terminal_line(&token.text), tab_width, column);
-            column = column.saturating_add(text.width());
-            (!text.is_empty()).then(|| RenderSpan {
-                text,
-                foreground: Some(format!(
-                    "#{:02x}{:02x}{:02x}",
-                    token.foreground.red, token.foreground.green, token.foreground.blue
-                )),
-                background: None,
-                transform_foreground: None,
-            })
-        })
-        .collect::<Vec<_>>();
-    if spans.is_empty() {
-        plain_spans(text, tab_width)
-    } else {
-        spans
-    }
-}
-
-fn split_cell(
-    kind: SplitLineKind,
-    line: Option<&DiffLine>,
-    line_number: Option<u32>,
-    highlighted: Option<&HighlightedLine>,
-    tab_width: u16,
-) -> SplitLineCell {
-    let sign = match kind {
-        SplitLineKind::Addition => "+",
-        SplitLineKind::Deletion => "-",
-        SplitLineKind::Context | SplitLineKind::Empty => " ",
-    };
-    SplitLineCell {
-        kind,
-        sign: sign.into(),
-        line_number: line_number.map(|line| line as usize),
-        move_kind: line_move_kind(line),
-        spans: line.map_or_else(Vec::new, |line| {
-            highlighted_spans(highlighted, &line.content, tab_width)
-        }),
-    }
-}
-
-fn stack_cell(
-    kind: StackLineKind,
-    line: &DiffLine,
-    highlighted: Option<&HighlightedLine>,
-    tab_width: u16,
-) -> StackLineCell {
-    let sign = match kind {
-        StackLineKind::Addition => "+",
-        StackLineKind::Deletion => "-",
-        StackLineKind::Context => " ",
-    };
-    StackLineCell {
-        kind,
-        sign: sign.into(),
-        old_line_number: line.old_line.map(|line| line as usize),
-        new_line_number: line.new_line.map(|line| line as usize),
-        move_kind: line_move_kind(Some(line)),
-        spans: highlighted_spans(highlighted, &line.content, tab_width),
-    }
-}
-
-fn collapsed_gap_row(file: &DiffFile, address: ReviewGapAddress, stack: bool) -> DiffRow {
-    let suffix = if address.position == ReviewGapPosition::Trailing {
-        "trailing".into()
-    } else {
-        address.hunk_index.to_string()
-    };
-    let prefix = if stack {
-        "stack:collapsed:"
-    } else {
-        "collapsed:"
-    };
-    let noun = if address.line_count == 1 {
-        "line"
-    } else {
-        "lines"
-    };
-    DiffRow::Collapsed {
-        key: format!("{}:{prefix}{suffix}", file_id(file)),
-        file_id: file_id(file).into(),
-        hunk_index: address.hunk_index,
-        text: format!("{} unchanged {noun}", address.line_count),
-        position: address.position,
-        old_range: [
-            address.old_range.start as usize,
-            address.old_range.end as usize,
-        ],
-        new_range: [
-            address.new_range.start as usize,
-            address.new_range.end as usize,
-        ],
-    }
-}
-
-fn highlighted_line(
-    highlighted: Option<&HighlightedDiffCode>,
-    hunk_index: usize,
-    line_index: usize,
-) -> Option<&workdeck_diff::HighlightedDiffLine> {
-    highlighted?.highlighted.get(hunk_index)?.get(line_index)
-}
-
-fn build_split_rows(
-    file: &DiffFile,
-    highlighted: Option<&HighlightedDiffCode>,
-    tab_width: u16,
-) -> Vec<DiffRow> {
-    let id = file_id(file);
-    let gap_source = review_gap_source_for_file(file);
-    let mut rows = Vec::new();
-    for (hunk_index, hunk) in file.hunks.iter().enumerate() {
-        if !hunk.lines.is_empty()
-            && let Some(gap) = review_leading_gap(&gap_source, hunk_index)
-        {
-            rows.push(collapsed_gap_row(file, gap, false));
-        }
-        rows.push(DiffRow::HunkHeader {
-            key: format!("{id}:header:{hunk_index}"),
-            file_id: id.into(),
-            hunk_index,
-            text: hunk.formatted_header(),
-        });
-
-        let mut cursor = 0;
-        let mut deletion_index = line_index(Some(hunk.old_start));
-        let mut addition_index = line_index(Some(hunk.new_start));
-        while cursor < hunk.lines.len() {
-            if hunk.lines[cursor].kind == DiffLineKind::Context {
-                let line = &hunk.lines[cursor];
-                let highlight = highlighted_line(highlighted, hunk_index, cursor);
-                rows.push(DiffRow::SplitLine {
-                    key: format!(
-                        "{id}:split:{hunk_index}:context:{deletion_index}:{addition_index}"
-                    ),
-                    file_id: id.into(),
-                    hunk_index,
-                    left: split_cell(
-                        SplitLineKind::Context,
-                        Some(line),
-                        line.old_line,
-                        highlight.and_then(|line| line.deletion.as_ref()),
-                        tab_width,
-                    ),
-                    right: split_cell(
-                        SplitLineKind::Context,
-                        Some(line),
-                        line.new_line,
-                        highlight
-                            .and_then(|line| line.addition.as_ref())
-                            .or_else(|| highlight.and_then(|line| line.deletion.as_ref())),
-                        tab_width,
-                    ),
-                    is_expansion_row: false,
-                    expanded_gap_key: None,
-                });
-                cursor += 1;
-                deletion_index += 1;
-                addition_index += 1;
-                continue;
-            }
-
-            let block_start = cursor;
-            while cursor < hunk.lines.len() && hunk.lines[cursor].kind != DiffLineKind::Context {
-                cursor += 1;
-            }
-            let block = &hunk.lines[block_start..cursor];
-            let pairs = plan_split_line_pairs(block);
-            let deletions = block
-                .iter()
-                .filter(|line| line.kind == DiffLineKind::Deletion)
-                .count();
-            let additions = block
-                .iter()
-                .filter(|line| line.kind == DiffLineKind::Addition)
-                .count();
-            for (offset, pair) in pairs.into_iter().enumerate() {
-                let old = pair
-                    .old_index
-                    .map(|index| (block_start + index, &block[index]));
-                let new = pair
-                    .new_index
-                    .map(|index| (block_start + index, &block[index]));
-                rows.push(DiffRow::SplitLine {
-                    key: format!(
-                        "{id}:split:{hunk_index}:change:{}:{}",
-                        deletion_index + offset,
-                        addition_index + offset
-                    ),
-                    file_id: id.into(),
-                    hunk_index,
-                    left: old.map_or_else(
-                        || split_cell(SplitLineKind::Empty, None, None, None, tab_width),
-                        |(line_index, line)| {
-                            split_cell(
-                                SplitLineKind::Deletion,
-                                Some(line),
-                                line.old_line,
-                                highlighted_line(highlighted, hunk_index, line_index)
-                                    .and_then(|line| line.deletion.as_ref()),
-                                tab_width,
-                            )
-                        },
-                    ),
-                    right: new.map_or_else(
-                        || split_cell(SplitLineKind::Empty, None, None, None, tab_width),
-                        |(line_index, line)| {
-                            split_cell(
-                                SplitLineKind::Addition,
-                                Some(line),
-                                line.new_line,
-                                highlighted_line(highlighted, hunk_index, line_index)
-                                    .and_then(|line| line.addition.as_ref()),
-                                tab_width,
-                            )
-                        },
-                    ),
-                    is_expansion_row: false,
-                    expanded_gap_key: None,
-                });
-            }
-            deletion_index += deletions;
-            addition_index += additions;
-        }
-    }
-    if let Some(gap) = review_trailing_gap(&gap_source) {
-        rows.push(collapsed_gap_row(file, gap, false));
-    }
-    rows
-}
-
-fn build_stack_rows(
-    file: &DiffFile,
-    highlighted: Option<&HighlightedDiffCode>,
-    tab_width: u16,
-) -> Vec<DiffRow> {
-    let id = file_id(file);
-    let gap_source = review_gap_source_for_file(file);
-    let mut rows = Vec::new();
-    for (hunk_index, hunk) in file.hunks.iter().enumerate() {
-        if !hunk.lines.is_empty()
-            && let Some(gap) = review_leading_gap(&gap_source, hunk_index)
-        {
-            rows.push(collapsed_gap_row(file, gap, true));
-        }
-        rows.push(DiffRow::HunkHeader {
-            key: format!("{id}:stack:header:{hunk_index}"),
-            file_id: id.into(),
-            hunk_index,
-            text: hunk.formatted_header(),
-        });
-        for (hunk_line_index, line) in hunk.lines.iter().enumerate() {
-            let highlight = highlighted_line(highlighted, hunk_index, hunk_line_index);
-            let (label, index, kind, tokens) = match line.kind {
-                DiffLineKind::Context => (
-                    "context",
-                    line_index(line.old_line),
-                    StackLineKind::Context,
-                    highlight.and_then(|line| line.addition.as_ref().or(line.deletion.as_ref())),
-                ),
-                DiffLineKind::Deletion => (
-                    "deletion",
-                    line_index(line.old_line),
-                    StackLineKind::Deletion,
-                    highlight.and_then(|line| line.deletion.as_ref()),
-                ),
-                DiffLineKind::Addition => (
-                    "addition",
-                    line_index(line.new_line),
-                    StackLineKind::Addition,
-                    highlight.and_then(|line| line.addition.as_ref()),
-                ),
-            };
-            let key = if line.kind == DiffLineKind::Context {
-                format!(
-                    "{id}:stack:{hunk_index}:{label}:{}:{}",
-                    line_index(line.old_line),
-                    line_index(line.new_line)
-                )
-            } else {
-                format!("{id}:stack:{hunk_index}:{label}:{index}")
-            };
-            rows.push(DiffRow::StackLine {
-                key,
-                file_id: id.into(),
-                hunk_index,
-                cell: stack_cell(kind, line, tokens, tab_width),
-                is_expansion_row: false,
-                expanded_gap_key: None,
-            });
-        }
-    }
-    if let Some(gap) = review_trailing_gap(&gap_source) {
-        rows.push(collapsed_gap_row(file, gap, true));
-    }
-    rows
 }
 
 fn sanitized_source_spans(spans: Vec<RenderSpan>) -> Vec<RenderSpan> {
@@ -525,7 +185,7 @@ fn expand_collapsed_rows(
         }
         for line in plan.lines {
             let spans = options.source_line_spans.map_or_else(
-                || plain_spans(&line.text, options.tab_width),
+                || plain_diff_spans(&line.text, options.tab_width),
                 |resolve| sanitized_source_spans(resolve(Some(&line.text), line.source_line_index)),
             );
             result.push(expanded_context_row(&row, &line, options.layout, spans));
@@ -573,8 +233,18 @@ pub fn build_diff_section_row_plan(
         "section row planning requires a resolved layout"
     );
     let base_rows = match options.layout {
-        LayoutMode::Split => build_split_rows(file, options.highlighted_diff, options.tab_width),
-        LayoutMode::Stack => build_stack_rows(file, options.highlighted_diff, options.tab_width),
+        LayoutMode::Split => build_split_rows(
+            file,
+            options.highlighted_diff,
+            options.theme,
+            options.tab_width,
+        ),
+        LayoutMode::Stack => build_stack_rows(
+            file,
+            options.highlighted_diff,
+            options.theme,
+            options.tab_width,
+        ),
         LayoutMode::Auto => unreachable!(),
     };
     let rows = expand_collapsed_rows(base_rows, file, &options);
@@ -750,8 +420,18 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(spans[0][0].foreground.as_deref(), Some("#010203"));
-        assert_eq!(spans[1][0].foreground.as_deref(), Some("#040203"));
-        assert_eq!(spans[1][0].text, "n   ew");
+        assert!(
+            spans[1]
+                .iter()
+                .all(|span| span.foreground.as_deref() == Some("#040203"))
+        );
+        assert_eq!(
+            spans[1]
+                .iter()
+                .map(|span| span.text.as_str())
+                .collect::<String>(),
+            "n   ew"
+        );
     }
 
     #[test]
