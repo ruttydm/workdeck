@@ -592,6 +592,8 @@ struct ReviewCliOptions {
     #[arg(skip)]
     keybinding_notices: Vec<String>,
     #[arg(skip)]
+    startup_notices: Vec<StartupNotice>,
+    #[arg(skip)]
     extension_config: BTreeMap<String, Value>,
     #[arg(skip)]
     user_extension_paths: Vec<PathBuf>,
@@ -634,17 +636,14 @@ impl ReviewCliOptions {
             agent_context: None,
             theme: (config.ui.theme != "auto").then(|| config.ui.theme.clone()),
             extension: Vec::new(),
-            no_extensions: false,
+            no_extensions: !config.resolved_extensions.enabled,
             color_moved: config.review.color_moved,
             keybindings: config.keybindings.clone(),
             keybinding_notices: config.keybinding_notices.clone(),
-            extension_config: config
-                .extension
-                .keys()
-                .map(|id| (id.clone(), config.extension_config(id)))
-                .collect(),
-            user_extension_paths: config.user_extension_paths.clone(),
-            repo_extension_paths: config.repo_extension_paths.clone(),
+            startup_notices: config.startup_notices.clone(),
+            extension_config: config.extension_configs().clone(),
+            user_extension_paths: config.resolved_extensions.paths.clone(),
+            repo_extension_paths: config.resolved_extensions.repo_paths.clone(),
         }
     }
 
@@ -692,9 +691,11 @@ impl ReviewCliOptions {
         self.color_moved = self.color_moved.or(configured.color_moved);
         self.keybindings = configured.keybindings;
         self.keybinding_notices = configured.keybinding_notices;
+        self.startup_notices = configured.startup_notices;
         self.extension_config = configured.extension_config;
         self.user_extension_paths = configured.user_extension_paths;
         self.repo_extension_paths = configured.repo_extension_paths;
+        self.no_extensions |= configured.no_extensions;
     }
 
     fn preference(&self) -> ProviderPreference {
@@ -929,19 +930,48 @@ mod review_cli_option_tests {
 
     #[test]
     fn extension_configuration_flows_from_config_into_review_startup() {
-        let config = Config {
-            extension: BTreeMap::from([(
-                "example.review".into(),
-                serde_json::json!({ "threshold": 3 }),
-            )]),
-            ..Config::default()
-        };
+        let mut config = Config::default();
+        config.resolved_extensions.extension_configs.insert(
+            "example.review".into(),
+            serde_json::json!({ "threshold": 3 }),
+        );
+        config.resolved_extensions.enabled = false;
+        config.startup_notices.push(StartupNotice::new(
+            "extension:repo-config:example.review",
+            "Repo config overrides settings for extension(s): example.review",
+        ));
 
         let review = ReviewCliOptions::from_config(&config);
         assert_eq!(
             review.extension_config["example.review"],
             serde_json::json!({ "threshold": 3 })
         );
+        assert!(review.no_extensions);
+        assert_eq!(review.startup_notices, config.startup_notices);
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/config-extensions.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            !review.no_extensions,
+            oracle["expected"]["precedence"]["hardOff"]
+                .as_bool()
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn explicit_no_extensions_remains_a_hard_off_after_enabled_config() {
+        let config = Config::default();
+        assert!(config.resolved_extensions.enabled);
+        let mut review = ReviewCliOptions {
+            no_extensions: true,
+            ..ReviewCliOptions::default()
+        };
+
+        review.apply_config_defaults(&config);
+
+        assert!(review.no_extensions);
     }
 }
 
@@ -1788,7 +1818,7 @@ fn run(mut args: Args) -> Result<()> {
     }
     let mut review = ReviewCliOptions::from_config(&config);
     review.extension = args.extension;
-    review.no_extensions = args.no_extensions && !args.extensions;
+    review.no_extensions |= args.no_extensions && !args.extensions;
     let mut prepared_extensions = prepare_review_extensions(&args.cwd, &review)?;
     let catalog = compose_review_vcs_catalog(&prepared_extensions.extensions);
     prepared_extensions.vcs_catalog = Some(catalog.clone());
@@ -2611,7 +2641,7 @@ fn load_review_extensions_with_notifications(
     notifications: &ExtensionNotificationHub,
 ) -> Result<(Vec<LoadedExtension>, Option<PathBuf>, Vec<StartupNotice>)> {
     if review.no_extensions {
-        return Ok((Vec::new(), None, Vec::new()));
+        return Ok((Vec::new(), None, review.startup_notices.clone()));
     }
     let config = user_config_root().map(|root| root.join("workdeck"));
     let trust = load_extension_trust_store();
@@ -2634,7 +2664,8 @@ fn load_review_extensions_with_notifications(
         notifications: Some(notifications.clone()),
         previous_load: None,
     })?;
-    let mut startup_notices = create_extension_load_notices(&result.issues);
+    let mut startup_notices = review.startup_notices.clone();
+    startup_notices.extend(create_extension_load_notices(&result.issues));
     let resolution =
         resolve_loaded_extension_registrations(&result.extensions, bundled_vcs_catalog());
     startup_notices.extend(create_extension_apply_notices(&resolution.issues));
@@ -2698,6 +2729,9 @@ fn load_cli_extensions(
         .map(|provider| provider.root().to_owned())
         .or_else(|| find_project_root_candidate(cwd));
     let config = Config::load(repo.as_deref().unwrap_or(cwd))?;
+    if !config.resolved_extensions.enabled {
+        return Ok(Vec::new());
+    }
     let result = load_startup_extensions(LoadStartupExtensionsOptions {
         enabled: true,
         cwd,
@@ -2705,10 +2739,10 @@ fn load_cli_extensions(
         repo_root: repo.as_deref(),
         trust: &trust,
         explicit_paths: explicit,
-        user_config_paths: &config.user_extension_paths,
-        repo_config_paths: &config.repo_extension_paths,
+        user_config_paths: &config.resolved_extensions.paths,
+        repo_config_paths: &config.resolved_extensions.repo_paths,
         host_version: env!("CARGO_PKG_VERSION"),
-        extension_configs: &config.extension,
+        extension_configs: config.extension_configs(),
         notifications: None,
         previous_load: None,
     })?;
@@ -3449,8 +3483,8 @@ fn handle_extension_command(cwd: &Path, command: ExtensionCommand) -> Result<()>
                 repo.as_deref(),
                 &trust,
                 &[],
-                &config.user_extension_paths,
-                &config.repo_extension_paths,
+                &config.resolved_extensions.paths,
+                &config.resolved_extensions.repo_paths,
                 cwd,
             )?
             .manifests;

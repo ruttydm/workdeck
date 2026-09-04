@@ -3,8 +3,33 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use workdeck_core::StartupNotice;
 use workdeck_diff::sanitize_terminal_line;
 use workdeck_tui::{UserKeyBinding, UserKeyBindingEntry};
+
+/// Resolved user-extension configuration for one Workdeck invocation.
+///
+/// Bundled VCS adapters are not controlled by this switch. `paths` come from the
+/// trusted user layer, while `repo_paths` retain repository provenance for the
+/// native-extension trust gate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionsConfig {
+    pub enabled: bool,
+    pub paths: Vec<PathBuf>,
+    pub repo_paths: Vec<PathBuf>,
+    pub extension_configs: BTreeMap<String, serde_json::Value>,
+}
+
+impl Default for ExtensionsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            paths: Vec::new(),
+            repo_paths: Vec::new(),
+            extension_configs: BTreeMap::new(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
@@ -23,12 +48,12 @@ pub struct Config {
     /// Merged user/repository settings exposed only to the named native extension.
     #[serde(default)]
     pub extension: BTreeMap<String, serde_json::Value>,
-    /// Trusted paths from the user `[extensions]` table, kept separate for provenance.
+    /// Resolved `[extensions]` and `[extension.<id>]` state for this invocation.
     #[serde(skip)]
-    pub user_extension_paths: Vec<PathBuf>,
-    /// Trust-gated paths from the repository `[extensions]` table.
+    pub resolved_extensions: ExtensionsConfig,
+    /// Config-derived notices that must reach the review footer.
     #[serde(skip)]
-    pub repo_extension_paths: Vec<PathBuf>,
+    pub startup_notices: Vec<StartupNotice>,
     /// Hunk-compatible command bindings from the global user layer only.
     #[serde(skip)]
     pub keybindings: Vec<UserKeyBindingEntry>,
@@ -308,29 +333,51 @@ impl Config {
         let mut merged = toml::Value::Table(Default::default());
         let mut keybindings = Vec::new();
         let mut keybinding_notices = Vec::new();
-        let mut user_extension_paths = Vec::new();
-        let mut repo_extension_paths = Vec::new();
+        let mut user_extensions = ExtensionsLayer::default();
+        let mut repo_extensions = ExtensionsLayer::default();
 
         if let Some(path) = user_config_path.filter(|path| path.exists()) {
             (keybindings, keybinding_notices) = read_user_keybindings(path)?;
-            user_extension_paths = read_extension_paths(path)?;
             let user = read_config_value(path)?;
+            user_extensions = read_extensions_layer(&user)?;
             merge_toml_values(&mut merged, user);
         }
 
         if repo_config_path.exists() {
-            repo_extension_paths = read_extension_paths(repo_config_path)?;
             let repo = read_config_value(repo_config_path)?;
+            repo_extensions = read_extensions_layer(&repo)?;
             merge_toml_values(&mut merged, repo);
         }
+
+        // `[extension.<id>]` is special: repository tables override user tables one
+        // property at a time, but opaque nested extension values are not recursively
+        // interpreted by Workdeck.
+        let extension_configs = merge_extension_configs(
+            &user_extensions.extension_configs,
+            &repo_extensions.extension_configs,
+        );
+        merged
+            .as_table_mut()
+            .expect("a TOML document root is always a table")
+            .insert("extension".into(), toml::Value::Table(extension_configs));
 
         let mut config: Self = merged
             .try_into()
             .with_context(|| "failed to parse merged config")?;
         config.keybindings = keybindings;
         config.keybinding_notices = keybinding_notices;
-        config.user_extension_paths = user_extension_paths;
-        config.repo_extension_paths = repo_extension_paths;
+        config.resolved_extensions = ExtensionsConfig {
+            enabled: repo_extensions
+                .enabled
+                .or(user_extensions.enabled)
+                .unwrap_or(true),
+            paths: user_extensions.paths,
+            repo_paths: repo_extensions.paths,
+            extension_configs: config.extension.clone(),
+        };
+        config.startup_notices = repo_extension_config_notice(&repo_extensions.extension_configs)
+            .into_iter()
+            .collect();
         config
             .validate()
             .with_context(|| "invalid Workdeck config")?;
@@ -346,10 +393,20 @@ impl Config {
     }
 
     pub fn extension_config(&self, id: &str) -> serde_json::Value {
-        self.extension
+        self.extension_configs()
             .get(id)
             .cloned()
             .unwrap_or_else(|| serde_json::Value::Object(Default::default()))
+    }
+
+    /// Per-extension tables after layer resolution, with a fallback for callers
+    /// that deserialize one standalone `Config` value directly.
+    pub fn extension_configs(&self) -> &BTreeMap<String, serde_json::Value> {
+        if self.resolved_extensions.extension_configs.is_empty() && !self.extension.is_empty() {
+            &self.extension
+        } else {
+            &self.resolved_extensions.extension_configs
+        }
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -383,28 +440,94 @@ impl Config {
     }
 }
 
-fn read_extension_paths(path: &Path) -> Result<Vec<PathBuf>> {
-    let value = read_config_value(path)?;
-    let Some(extensions) = value.get("extensions") else {
-        return Ok(Vec::new());
-    };
-    let table = extensions
+#[derive(Debug, Clone, Default)]
+struct ExtensionsLayer {
+    enabled: Option<bool>,
+    paths: Vec<PathBuf>,
+    extension_configs: toml::map::Map<String, toml::Value>,
+}
+
+fn read_extensions_layer(value: &toml::Value) -> Result<ExtensionsLayer> {
+    let root = value
         .as_table()
-        .context("Expected extensions to contain a TOML table.")?;
-    let Some(paths) = table.get("paths") else {
-        return Ok(Vec::new());
-    };
-    paths
-        .as_array()
-        .context("Expected extensions.paths to contain an array of paths.")?
-        .iter()
-        .map(|value| {
+        .context("Expected Workdeck config to contain a TOML table.")?;
+    let extensions = match root.get("extensions") {
+        Some(value) => Some(
             value
-                .as_str()
-                .map(PathBuf::from)
-                .context("Expected every extensions.paths entry to be a string.")
-        })
-        .collect()
+                .as_table()
+                .context("Expected extensions to contain a TOML table.")?,
+        ),
+        None => None,
+    };
+    let paths = extensions
+        .and_then(|table| table.get("paths"))
+        .and_then(toml::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(toml::Value::as_str)
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .collect();
+
+    let mut extension_configs = toml::map::Map::new();
+    if let Some(value) = root.get("extension") {
+        let tables = value
+            .as_table()
+            .context("Expected extension to contain per-extension TOML tables.")?;
+        for (id, value) in tables {
+            if !value.is_table() {
+                bail!("Expected [extension.{id}] to contain a TOML table.");
+            }
+            extension_configs.insert(id.clone(), value.clone());
+        }
+    }
+
+    Ok(ExtensionsLayer {
+        enabled: extensions
+            .and_then(|table| table.get("enabled"))
+            .and_then(toml::Value::as_bool),
+        paths,
+        extension_configs,
+    })
+}
+
+fn merge_extension_configs(
+    base: &toml::map::Map<String, toml::Value>,
+    overrides: &toml::map::Map<String, toml::Value>,
+) -> toml::map::Map<String, toml::Value> {
+    let mut merged = base.clone();
+    for (id, override_value) in overrides {
+        let override_table = override_value
+            .as_table()
+            .expect("extension layers were validated as tables");
+        let target = merged
+            .entry(id.clone())
+            .or_insert_with(|| toml::Value::Table(Default::default()));
+        let target = target
+            .as_table_mut()
+            .expect("extension layers were validated as tables");
+        for (key, value) in override_table {
+            target.insert(key.clone(), value.clone());
+        }
+    }
+    merged
+}
+
+fn repo_extension_config_notice(
+    extension_configs: &toml::map::Map<String, toml::Value>,
+) -> Option<StartupNotice> {
+    let ids = extension_configs
+        .iter()
+        .filter_map(|(id, value)| (!value.as_table()?.is_empty()).then_some(id.as_str()))
+        .collect::<Vec<_>>();
+    if ids.is_empty() {
+        return None;
+    }
+    let listed = sanitize_terminal_line(&ids.join(", "));
+    Some(StartupNotice::new(
+        format!("extension:repo-config:{listed}"),
+        format!("Repo config overrides settings for extension(s): {listed}"),
+    ))
 }
 
 fn read_user_keybindings(path: &Path) -> Result<(Vec<UserKeyBindingEntry>, Vec<String>)> {
@@ -776,7 +899,7 @@ mod tests {
     }
 
     #[test]
-    fn extension_configuration_deep_merges_user_and_repository_layers() {
+    fn extension_configuration_merges_top_level_keys_without_interpreting_nested_values() {
         let dir = tempfile::tempdir().unwrap();
         let user_config = dir.path().join("user-config.toml");
         let repo_config = dir.path().join("repo-config.toml");
@@ -809,10 +932,26 @@ mod tests {
             serde_json::json!({
                 "threshold": 2,
                 "source": "repo",
-                "nested": { "keep": true, "replace": "repo" }
+                "nested": { "replace": "repo" }
             })
         );
         assert_eq!(config.extension_config("missing"), serde_json::json!({}));
+        assert_eq!(
+            config.startup_notices,
+            [StartupNotice::new(
+                "extension:repo-config:example.review",
+                "Repo config overrides settings for extension(s): example.review",
+            )]
+        );
+    }
+
+    #[test]
+    fn standalone_deserialization_keeps_extension_config_access() {
+        let config: Config = toml::from_str("[extension.tools]\nthreshold = 3\n").unwrap();
+        assert_eq!(
+            config.extension_config("tools"),
+            serde_json::json!({ "threshold": 3 })
+        );
     }
 
     #[test]
@@ -828,25 +967,249 @@ mod tests {
         fs::write(&repo_config, "[extensions]\npaths = ['./repo-relative']\n").unwrap();
         let config = Config::load_from_paths(&repo_config, Some(&user_config)).unwrap();
         assert_eq!(
-            config.user_extension_paths,
+            config.resolved_extensions.paths,
             [PathBuf::from("~/trusted"), PathBuf::from("./user-relative")]
         );
         assert_eq!(
-            config.repo_extension_paths,
+            config.resolved_extensions.repo_paths,
             [PathBuf::from("./repo-relative")]
+        );
+        assert!(config.resolved_extensions.enabled);
+    }
+
+    #[test]
+    fn extension_discovery_paths_ignore_empty_and_non_string_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let user_config = dir.path().join("user-config.toml");
+        fs::write(&user_config, "[extensions]\npaths = ['./ok', 3, '']\n").unwrap();
+        let config =
+            Config::load_from_paths(&dir.path().join("missing-repo.toml"), Some(&user_config))
+                .unwrap();
+        assert_eq!(config.resolved_extensions.paths, [PathBuf::from("./ok")]);
+    }
+
+    #[test]
+    fn repository_extension_enablement_overrides_user_and_defaults_true() {
+        let dir = tempfile::tempdir().unwrap();
+        let user_config = dir.path().join("user-config.toml");
+        let repo_config = dir.path().join("repo-config.toml");
+        fs::write(&user_config, "[extensions]\nenabled = true\n").unwrap();
+        fs::write(&repo_config, "[extensions]\nenabled = false\n").unwrap();
+
+        let disabled = Config::load_from_paths(&repo_config, Some(&user_config)).unwrap();
+        assert!(!disabled.resolved_extensions.enabled);
+
+        fs::write(&repo_config, "[extensions]\nenabled = true\n").unwrap();
+        let enabled = Config::load_from_paths(&repo_config, Some(&user_config)).unwrap();
+        assert!(enabled.resolved_extensions.enabled);
+        assert!(Config::default().resolved_extensions.enabled);
+    }
+
+    #[test]
+    fn empty_repo_extension_table_does_not_emit_an_override_notice() {
+        let dir = tempfile::tempdir().unwrap();
+        let user_config = dir.path().join("user-config.toml");
+        let repo_config = dir.path().join("repo-config.toml");
+        fs::write(&user_config, "[extension.blame]\nmax_age_days = 30\n").unwrap();
+        fs::write(&repo_config, "[extension.blame]\n").unwrap();
+
+        let config = Config::load_from_paths(&repo_config, Some(&user_config)).unwrap();
+        assert!(config.startup_notices.is_empty());
+        assert_eq!(
+            config.extension_config("blame"),
+            serde_json::json!({ "max_age_days": 30 })
         );
     }
 
     #[test]
-    fn extension_discovery_paths_reject_non_string_entries() {
+    fn repository_extension_notice_lists_every_nonempty_id_in_sorted_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_config = dir.path().join("repo-config.toml");
+        fs::write(
+            &repo_config,
+            "[extension.zebra]\nbinary = '/tmp/zebra'\n[extension.alpha]\non = true\n",
+        )
+        .unwrap();
+
+        let config = Config::load_from_paths(&repo_config, None).unwrap();
+        assert_eq!(
+            config.startup_notices,
+            [StartupNotice::new(
+                "extension:repo-config:alpha, zebra",
+                "Repo config overrides settings for extension(s): alpha, zebra",
+            )]
+        );
+    }
+
+    #[test]
+    fn extension_resolution_does_not_validate_review_theme_selection() {
         let dir = tempfile::tempdir().unwrap();
         let user_config = dir.path().join("user-config.toml");
-        fs::write(&user_config, "[extensions]\npaths = ['./ok', 3]\n").unwrap();
-        let error =
-            Config::load_from_paths(&dir.path().join("missing-repo.toml"), Some(&user_config))
+        let repo_config = dir.path().join("repo-config.toml");
+        fs::write(
+            &user_config,
+            "[ui]\ntheme = 'missing-custom-theme'\n[extensions]\npaths = ['/user/tools']\n[extension.tools]\ntoken = 'user'\n",
+        )
+        .unwrap();
+        fs::write(
+            &repo_config,
+            "[extensions]\nenabled = true\npaths = ['./repo-tools']\n[extension.tools]\ntoken = 'repo'\n",
+        )
+        .unwrap();
+
+        let config = Config::load_from_paths(&repo_config, Some(&user_config)).unwrap();
+        assert_eq!(config.ui.theme, "missing-custom-theme");
+        assert!(config.resolved_extensions.enabled);
+        assert_eq!(
+            config.resolved_extensions.paths,
+            [PathBuf::from("/user/tools")]
+        );
+        assert_eq!(
+            config.resolved_extensions.repo_paths,
+            [PathBuf::from("./repo-tools")]
+        );
+        assert_eq!(
+            config.extension_config("tools"),
+            serde_json::json!({ "token": "repo" })
+        );
+    }
+
+    #[test]
+    fn malformed_extension_sections_are_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let user_config = dir.path().join("user-config.toml");
+        let repo_config = dir.path().join("missing-repo.toml");
+
+        for (source, expected) in [
+            ("extensions = true\n", "extensions to contain a TOML table"),
+            (
+                "extension = 'copy-as'\n",
+                "extension to contain per-extension TOML tables",
+            ),
+            (
+                "[extension]\ncopy-as = 1\n",
+                "[extension.copy-as] to contain a TOML table",
+            ),
+        ] {
+            fs::write(&user_config, source).unwrap();
+            let error = Config::load_from_paths(&repo_config, Some(&user_config))
                 .unwrap_err()
                 .to_string();
-        assert!(error.contains("every extensions.paths entry"));
+            assert!(error.contains(expected), "{error:?}");
+        }
+    }
+
+    fn extension_projection(config: &Config) -> serde_json::Value {
+        serde_json::json!({
+            "enabled": config.resolved_extensions.enabled,
+            "paths": config
+                .resolved_extensions
+                .paths
+                .iter()
+                .map(|path| path.to_string_lossy())
+                .collect::<Vec<_>>(),
+            "repoPaths": config
+                .resolved_extensions
+                .repo_paths
+                .iter()
+                .map(|path| path.to_string_lossy())
+                .collect::<Vec<_>>(),
+            "extensionConfigs": config.resolved_extensions.extension_configs,
+        })
+    }
+
+    #[test]
+    fn native_extension_config_resolution_matches_both_pinned_hunk_oracles() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/config-extensions.json"
+        ))
+        .unwrap();
+        let expected = &oracle["expected"];
+        assert_eq!(
+            extension_projection(&Config::default()),
+            expected["default"]
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let user_config = dir.path().join("user-config.toml");
+        let repo_config = dir.path().join("repo-config.toml");
+        fs::write(
+            &user_config,
+            "[extensions]\npaths = ['~/dev/copy-as.ts', 7, '']\nunknown_key = true\n",
+        )
+        .unwrap();
+        fs::write(
+            &repo_config,
+            "[extensions]\npaths = ['./tools/policy.ts']\n",
+        )
+        .unwrap();
+        let paths = Config::load_from_paths(&repo_config, Some(&user_config)).unwrap();
+        assert_eq!(extension_projection(&paths), expected["paths"]);
+
+        fs::write(&user_config, "[extensions]\nenabled = true\n").unwrap();
+        fs::write(&repo_config, "[extensions]\nenabled = false\n").unwrap();
+        let repo_false = Config::load_from_paths(&repo_config, Some(&user_config)).unwrap();
+        fs::write(&repo_config, "[extensions]\nenabled = true\n").unwrap();
+        let repo_true = Config::load_from_paths(&repo_config, Some(&user_config)).unwrap();
+        assert_eq!(
+            serde_json::json!({
+                "repoFalse": repo_false.resolved_extensions.enabled,
+                "repoTrue": repo_true.resolved_extensions.enabled,
+            }),
+            serde_json::json!({
+                "repoFalse": expected["precedence"]["repoFalse"],
+                "repoTrue": expected["precedence"]["repoTrue"],
+            })
+        );
+
+        fs::write(
+            &user_config,
+            concat!(
+                "[extension.copy-as]\n",
+                "severity = 'nit'\n",
+                "wrap = true\n",
+                "[extension.copy-as.nested]\n",
+                "keep = true\n",
+                "replace = 'user'\n",
+                "[extension.blame]\n",
+                "max_age_days = 30\n",
+            ),
+        )
+        .unwrap();
+        fs::write(
+            &repo_config,
+            concat!(
+                "[extension.copy-as]\n",
+                "severity = 'blocking'\n",
+                "[extension.copy-as.nested]\n",
+                "replace = 'repo'\n",
+            ),
+        )
+        .unwrap();
+        let configs = Config::load_from_paths(&repo_config, Some(&user_config)).unwrap();
+        assert_eq!(
+            serde_json::to_value(&configs.resolved_extensions.extension_configs).unwrap(),
+            expected["configs"]
+        );
+        assert_eq!(
+            serde_json::to_value(&configs.startup_notices).unwrap(),
+            expected["notices"]
+        );
+
+        let mut malformed = Vec::new();
+        for source in [
+            "extensions = true\n",
+            "extension = 'copy-as'\n",
+            "[extension]\ncopy-as = 1\n",
+        ] {
+            fs::write(&user_config, source).unwrap();
+            malformed.push(
+                Config::load_from_paths(&dir.path().join("missing.toml"), Some(&user_config))
+                    .unwrap_err()
+                    .to_string(),
+            );
+        }
+        assert_eq!(serde_json::json!(malformed), expected["malformed"]);
     }
 
     #[test]
