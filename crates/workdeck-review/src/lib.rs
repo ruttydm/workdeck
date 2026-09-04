@@ -149,6 +149,8 @@ pub enum ReviewError {
     LineNotInHunk { side: ReviewSide, line: u32 },
     #[error("comment {0:?} already exists")]
     DuplicateComment(String),
+    #[error("comment {0:?} does not exist")]
+    UnknownComment(String),
     #[error("comment targets an unknown file key {0:?}")]
     UnknownCommentFile(String),
     #[error("invalid live comment target: {0}")]
@@ -439,6 +441,23 @@ impl ReviewState {
         let comment = self.comments.remove(index);
         self.state_revision = self.state_revision.saturating_add(1);
         Some(comment)
+    }
+
+    pub fn edit_comment_summary(
+        &mut self,
+        id: &str,
+        summary: String,
+    ) -> Result<ReviewComment, ReviewError> {
+        let comment = self
+            .comments
+            .iter_mut()
+            .find(|comment| comment.id == id)
+            .ok_or_else(|| ReviewError::UnknownComment(id.to_owned()))?;
+        if comment.summary != summary {
+            comment.summary = summary;
+            self.state_revision = self.state_revision.saturating_add(1);
+        }
+        Ok(comment.clone())
     }
 }
 
@@ -961,10 +980,20 @@ mod tests {
                 editable: false,
             })
             .unwrap();
+        let revision = state.state_revision();
         assert_eq!(
-            state.remove_comment("note-1").unwrap().summary,
-            "check this"
+            state
+                .edit_comment_summary("note-1", "updated".into())
+                .unwrap()
+                .summary,
+            "updated"
         );
+        assert_eq!(state.state_revision(), revision + 1);
+        assert_eq!(
+            state.edit_comment_summary("missing", "nope".into()),
+            Err(ReviewError::UnknownComment("missing".into()))
+        );
+        assert_eq!(state.remove_comment("note-1").unwrap().summary, "updated");
         assert!(state.remove_comment("note-1").is_none());
     }
 

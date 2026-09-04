@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "introducedBy": {
+    "commit": "f401472820034948e7e670c783df044a778a036d",
+    "subject": "feat(review): add threaded inline comments (#925)"
+  },
+  "source": {
+    "path": "src/ui/hooks/useUserNoteComposer.ts",
+    "blob": "59cdbfa04df3b4b8012e4a2049cce30faa9b934f",
+    "sha256": "a618302a78ac9e7ad4b70c5d7d6abb78dd8d5ed01a9a00f013e00ae4a2fc71d8",
+    "bytes": 7216,
+    "lines": 205
+  },
+  "sourceTest": {
+    "path": "src/ui/hooks/useUserNoteComposer.test.tsx",
+    "blob": "f588393e1e00de5522e2fadd5b11f838ebc8115a",
+    "sha256": "f2b9822744b96a2c48f20e14e389daf786d0f2023a58b309d75d516041c4f6cd",
+    "bytes": 17337,
+    "lines": 568
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/user_note_composer.rs",
+      "sha256": "25980d6baa3328b0f655ae26feec02338ba3e59801748ca4f6338f48eb47a72d"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "6db11b7a572873e48f8e039df3124dd8e5bebd59822589d4a7f3c6a11a94d1b3"
+    },
+    {
+      "path": "crates/workdeck-review/src/lib.rs",
+      "sha256": "e9d383113441557ca80856473432efc8d08fc87336a40d16680479c26c398024"
+    },
+    {
+      "path": "crates/workdeck-review/src/review_note_mapping.rs",
+      "sha256": "d40dd2dc2fb767ca3c0c4c5f7d10944f4a21516245f596a6b2a78107529df6d6"
+    },
+    {
+      "path": "crates/workdeck-extension-api/src/authoring.rs",
+      "sha256": "79f88a8ff4cd3561fdb4e1fbec3ce5b7fbbc49eef91d62d469827f82a0ce11d9"
+    }
+  ],
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test ./src/ui/hooks/useUserNoteComposer.test.tsx",
+    "passed": 10,
+    "failed": 0,
+    "assertions": 25
+  },
+  "stableOracle": {
+    "status": "absent",
+    "evidence": "Neither the composer hook nor its test path exists in the pinned v0.20.1 tree."
+  },
+  "sourceCoverage": [
+    [[[1, 10], [0, 595]], "hook boundary, semantic line target, extension event, hover affordance, line cursor, and draft/saved note dependencies"],
+    [[[11, 30], [595, 1323]], "active-hover identity, closed public note-event surface, projectable note fields, and publisher contract"],
+    [[[31, 51], [1323, 1905]], "stable public note projection with conditional parent, body-to-summary fallback, draft marker, and start-action interface"],
+    [[[52, 84], [1905, 2981]], "complete create/edit/reply/update/save/cancel focus and event host action contract with viewport policy"],
+    [[[85, 100], [2981, 3942]], "current host action adoption, active-hover state, explicit-target exclusion, hover-first fallback, and cursor gating"],
+    [[[101, 126], [3942, 4752]], "resolved start arguments, preserve-viewport policy, success-only hover clearing/focus, and edit wrapper"],
+    [[[127, 142], [4752, 5240]], "reply wrapper with viewport forwarding and success-only ownership transfer plus draft-focus action"],
+    [[[143, 158], [5240, 5947]], "draft focus, blur policy, prior-draft capture, single semantic save, and saved note projection"],
+    [[[159, 169], [5947, 6349]], "created-versus-edited committed event classification, unconditional review focus, and semantic update ordering"],
+    [[[170, 185], [6349, 6778]], "draft edit event projection using stable edit-target identity and the editor's current body"],
+    [[[186, 205], [6778, 7216]], "fresh dependency adoption, cancellation and review-focus restoration, and complete returned controller surface"]
+  ],
+  "testCoverage": [
+    [[[1, 80], [0, 2475]], "draft/saved fixtures, measured cursor helper, replaceable hook harness, inert host actions, and suite setup"],
+    [[[81, 145], [2475, 4688]], "explicit then hover then enabled-cursor precedence, stale hover exclusion, clearing, and viewport preservation"],
+    [[[146, 171], [4688, 5543]], "disabled cursor navigation avoids cursor reads and submits a fully implicit non-preserving start"],
+    [[[172, 208], [5543, 6623]], "failed draft creation keeps hover identity and never steals keyboard focus"],
+    [[[209, 248], [6623, 7834]], "edit and reply wrappers forward mouse viewport policy and focus only successful drafts"],
+    [[[249, 276], [7834, 8723]], "narrow focus, blur, cancellation, and review-return actions"],
+    [[[277, 326], [8723, 10155]], "single created event after one successful semantic save with prior runtime file and saved identity"],
+    [[[327, 366], [10155, 11308]], "committed edit publishes note_edited with stable target identity rather than a creation"],
+    [[[367, 403], [11308, 12395]], "semantic body update precedes one draft note_edited event carrying current editor text"],
+    [[[404, 534], [12395, 16311]], "committed rerender replaces every draft fact and callback without invoking stale actions"],
+    [[[535, 568], [16311, 17337]], "draft bodies and saved summaries project without changing ids, parents, targets, sides, or lines"]
+  ],
+  "testMappings": [
+    {
+      "source": "prefers explicit targets, then hover, then the enabled keyboard cursor",
+      "rust": "user_note_composer::tests::prefers_explicit_targets_then_hover_then_the_enabled_keyboard_cursor"
+    },
+    {
+      "source": "does not consult the current line when cursor navigation is off",
+      "rust": "user_note_composer::tests::does_not_consult_the_current_line_when_cursor_navigation_is_off"
+    },
+    {
+      "source": "failed draft creation preserves the hover affordance and does not steal focus",
+      "rust": "user_note_composer::tests::failed_draft_creation_preserves_hover_and_does_not_steal_focus"
+    },
+    {
+      "source": "forwards mouse viewport policy through edit and reply composer wrappers",
+      "rust": "user_note_composer::tests::forwards_mouse_viewport_policy_through_edit_and_reply_wrappers"
+    },
+    {
+      "source": "coordinates focus, cancel, and blur transitions through narrow actions",
+      "rust": "user_note_composer::tests::coordinates_focus_cancel_and_blur_transitions_through_narrow_actions"
+    },
+    {
+      "source": "publishes one created event with the prior draft file id and saved identity",
+      "rust": "user_note_composer::tests::publishes_one_created_event_with_prior_draft_file_id_and_saved_identity"
+    },
+    {
+      "source": "publishes a committed edit distinctly from note creation",
+      "rust": "user_note_composer::tests::publishes_a_committed_edit_distinctly_from_note_creation"
+    },
+    {
+      "source": "updates the semantic draft and publishes the editor's current body",
+      "rust": "user_note_composer::tests::updates_semantic_draft_and_publishes_the_editors_current_body"
+    },
+    {
+      "source": "uses replacement draft facts and callbacks after a committed rerender",
+      "rust": "user_note_composer::tests::uses_replacement_draft_facts_and_callbacks_after_a_committed_rerender"
+    },
+    {
+      "source": "projects draft bodies and saved summaries without changing ids or targets",
+      "rust": "user_note_composer::tests::projects_draft_bodies_and_saved_summaries_without_changing_ids_or_targets"
+    }
+  ],
+  "integrationTests": [
+    "tests::user_note_composer_targets_the_cursor_line_and_saves_inline",
+    "tests::user_note_composer_edits_and_replies_with_stable_public_identity",
+    "tests::note_composer_supports_editing_paste_cancel_and_safe_cursor_geometry",
+    "workdeck_review::tests::removes_live_comments_by_stable_id"
+  ],
+  "adaptations": [
+    "React hook state becomes a synchronous Rust controller; replaceable host actions are supplied on each call so stale render callbacks cannot be retained.",
+    "OpenTUI focus callbacks map to Ratatui keyboard ownership and the modal composer intercepts input until save or cancel returns focus to review navigation.",
+    "Workdeck's semantic terminal draft and stored-note models remain authoritative; the composer only projects public extension event values.",
+    "Previously inert Edit and Reply commands now open real native composers, preserve the edited note id or reply parent id, mutate the authoritative review state, and publish the matching lifecycle event."
+  ]
+}

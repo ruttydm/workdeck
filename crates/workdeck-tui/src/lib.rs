@@ -85,6 +85,7 @@ mod theme_selector_controller;
 mod theme_selector_dialog;
 mod timed_notice;
 mod ui_geometry;
+mod user_note_composer;
 mod viewport_anchor;
 mod viewport_geometry;
 mod viewport_selection;
@@ -180,6 +181,7 @@ pub use theme_selector_controller::*;
 pub use theme_selector_dialog::*;
 pub use timed_notice::*;
 pub use ui_geometry::*;
+pub use user_note_composer::*;
 pub use viewport_anchor::*;
 pub use viewport_geometry::*;
 pub use viewport_selection::*;
@@ -1601,6 +1603,7 @@ impl ReviewApp {
         if key.code == KeyCode::Esc {
             self.note_composer = None;
             self.note_composer_bounds.set(None);
+            self.focus = Focus::Review;
             self.status = Some("review note cancelled".into());
             return true;
         }
@@ -1693,10 +1696,99 @@ impl ReviewApp {
         self.note_sequence = self.note_sequence.saturating_add(1);
         self.note_composer = Some(ReviewNoteComposer {
             id: format!("user-note-{}", self.note_sequence),
+            kind: ReviewNoteComposerKind::Create,
             target,
             body: String::new(),
             cursor: 0,
         });
+        self.status = None;
+    }
+
+    fn active_note_for_composer(
+        &self,
+        editable_only: bool,
+    ) -> Option<(ReviewComment, ReviewNoteTarget)> {
+        let current_target = self.current_note_target();
+        self.with_state(|state| {
+            let selection = state.selection();
+            let file = state.changeset().files.get(selection.file_index)?;
+            let selected_hunk = selection.hunk_index?;
+            state
+                .comments()
+                .iter()
+                .filter(|comment| {
+                    comment.resolution == ReviewNoteResolution::Active
+                        && comment.anchor.file_key == file.key
+                        && (comment.anchor.owner_hunk_index == Some(selected_hunk)
+                            || comment
+                                .anchor
+                                .intersecting_hunk_indices
+                                .contains(&selected_hunk))
+                        && (self.options.agent_notes || comment.source == "user")
+                        && (!editable_only || (comment.source == "user" && comment.editable))
+                })
+                .min_by_key(|comment| {
+                    let side = comment.side.or(comment.anchor.preferred_side);
+                    let line = comment.line.or(comment.anchor.preferred_line);
+                    usize::from(current_target.is_none_or(|target| {
+                        side != Some(target.side) || line != Some(target.line)
+                    }))
+                })
+                .and_then(|comment| {
+                    let hunk_index = comment
+                        .anchor
+                        .owner_hunk_index
+                        .or_else(|| comment.anchor.intersecting_hunk_indices.first().copied())
+                        .unwrap_or(selected_hunk);
+                    Some((
+                        comment.clone(),
+                        ReviewNoteTarget {
+                            file_index: selection.file_index,
+                            hunk_index,
+                            side: comment.side.or(comment.anchor.preferred_side)?,
+                            line: comment.line.or(comment.anchor.preferred_line)?,
+                        },
+                    ))
+                })
+        })
+    }
+
+    fn open_active_note_edit(&mut self) {
+        let Some((note, target)) = self.active_note_for_composer(true) else {
+            self.status = Some("no editable user note is active".into());
+            return;
+        };
+        self.note_sequence = self.note_sequence.saturating_add(1);
+        let body = note.summary;
+        let cursor = body.chars().count();
+        self.note_composer = Some(ReviewNoteComposer {
+            id: format!("user-note-draft-{}", self.note_sequence),
+            kind: ReviewNoteComposerKind::Edit {
+                target_note_id: note.id,
+                parent_id: note.parent_id,
+            },
+            target,
+            body,
+            cursor,
+        });
+        self.focus = Focus::Review;
+        self.status = None;
+    }
+
+    fn open_active_note_reply(&mut self) {
+        let Some((note, target)) = self.active_note_for_composer(false) else {
+            self.status = Some("no review note is active".into());
+            return;
+        };
+        self.note_sequence = self.note_sequence.saturating_add(1);
+        self.note_composer = Some(ReviewNoteComposer {
+            id: format!("user-note-{}", self.note_sequence),
+            kind: ReviewNoteComposerKind::Reply { parent_id: note.id },
+            target,
+            body: String::new(),
+            cursor: 0,
+        });
+        self.focus = Focus::Review;
         self.status = None;
     }
 
@@ -1711,19 +1803,31 @@ impl ReviewApp {
                 .changeset()
                 .files
                 .get(composer.target.file_index)
-                .map(|file| ExtensionReviewNote {
-                    id: composer.id.clone(),
-                    parent_id: None,
-                    file_id: file.runtime_id.clone(),
-                    file_path: file.path.clone(),
-                    hunk_index: composer.target.hunk_index,
-                    side: match composer.target.side {
-                        ReviewSide::Old => workdeck_extension_api::ExtensionFileSide::Old,
-                        ReviewSide::New => workdeck_extension_api::ExtensionFileSide::New,
-                    },
-                    line: composer.target.line,
-                    body,
-                    draft,
+                .map(|file| {
+                    let (id, parent_id) = match &composer.kind {
+                        ReviewNoteComposerKind::Create => (composer.id.as_str(), None),
+                        ReviewNoteComposerKind::Edit {
+                            target_note_id,
+                            parent_id,
+                        } => (target_note_id.as_str(), parent_id.as_deref()),
+                        ReviewNoteComposerKind::Reply { parent_id } => {
+                            (composer.id.as_str(), Some(parent_id.as_str()))
+                        }
+                    };
+                    project_extension_review_note(
+                        ProjectableReviewNote {
+                            id,
+                            parent_id,
+                            file_id: &file.runtime_id,
+                            file_path: &file.path,
+                            hunk_index: composer.target.hunk_index,
+                            side: composer.target.side,
+                            line: composer.target.line,
+                            body: Some(&body),
+                            summary: None,
+                        },
+                        draft,
+                    )
                 })
         })
     }
@@ -1771,62 +1875,79 @@ impl ReviewApp {
             self.status = Some("empty review note discarded".into());
             return;
         }
-        let id = composer.id.clone();
         let extension_note = self.extension_note_from_composer(&composer, body.to_owned(), false);
-        let result = self.with_state(|state| {
-            let file = state
-                .changeset()
-                .files
-                .get(composer.target.file_index)
-                .ok_or(workdeck_review::ReviewError::FileOutOfRange(
-                    composer.target.file_index,
-                ))?;
-            let anchor = review_line_anchor(
-                &file.hunks,
-                ReviewLineTarget {
-                    hunk_index: composer.target.hunk_index,
-                    side: composer.target.side,
-                    line: composer.target.line,
-                },
-            );
-            let comment = ReviewComment {
-                id: id.clone(),
-                parent_id: None,
-                source: "user".into(),
-                author: None,
-                created_at: None,
-                file_path: Some(file.path.clone()),
-                hunk_index: Some(composer.target.hunk_index),
-                side: Some(composer.target.side),
-                line: Some(composer.target.line),
-                summary: body.to_owned(),
-                rationale: None,
-                markup: None,
-                title: None,
-                tags: vec!["user".into()],
-                confidence: None,
-                updated_at: None,
-                resolution: ReviewNoteResolution::Active,
-                anchor: CommentAnchor {
-                    file_key: file.key.clone(),
-                    old_range: anchor.old_range,
-                    new_range: anchor.new_range,
-                    preferred_side: anchor.preferred.map(|target| target.side),
-                    preferred_line: anchor.preferred.map(|target| target.line),
-                    intersecting_hunk_indices: anchor.intersecting_hunk_indices,
-                    owner_hunk_index: anchor.owner_hunk_index,
-                },
-                editable: true,
-            };
-            state.add_comment(comment)
+        let editing = matches!(composer.kind, ReviewNoteComposerKind::Edit { .. });
+        let result = self.with_state(|state| match &composer.kind {
+            ReviewNoteComposerKind::Edit { target_note_id, .. } => state
+                .edit_comment_summary(target_note_id, body.to_owned())
+                .map(|_| ()),
+            ReviewNoteComposerKind::Create | ReviewNoteComposerKind::Reply { .. } => {
+                let file = state
+                    .changeset()
+                    .files
+                    .get(composer.target.file_index)
+                    .ok_or(workdeck_review::ReviewError::FileOutOfRange(
+                        composer.target.file_index,
+                    ))?;
+                let anchor = review_line_anchor(
+                    &file.hunks,
+                    ReviewLineTarget {
+                        hunk_index: composer.target.hunk_index,
+                        side: composer.target.side,
+                        line: composer.target.line,
+                    },
+                );
+                let comment = ReviewComment {
+                    id: composer.id.clone(),
+                    parent_id: match &composer.kind {
+                        ReviewNoteComposerKind::Reply { parent_id } => Some(parent_id.clone()),
+                        ReviewNoteComposerKind::Create | ReviewNoteComposerKind::Edit { .. } => {
+                            None
+                        }
+                    },
+                    source: "user".into(),
+                    author: None,
+                    created_at: None,
+                    file_path: Some(file.path.clone()),
+                    hunk_index: Some(composer.target.hunk_index),
+                    side: Some(composer.target.side),
+                    line: Some(composer.target.line),
+                    summary: body.to_owned(),
+                    rationale: None,
+                    markup: None,
+                    title: None,
+                    tags: vec!["user".into()],
+                    confidence: None,
+                    updated_at: None,
+                    resolution: ReviewNoteResolution::Active,
+                    anchor: CommentAnchor {
+                        file_key: file.key.clone(),
+                        old_range: anchor.old_range,
+                        new_range: anchor.new_range,
+                        preferred_side: anchor.preferred.map(|target| target.side),
+                        preferred_line: anchor.preferred.map(|target| target.line),
+                        intersecting_hunk_indices: anchor.intersecting_hunk_indices,
+                        owner_hunk_index: anchor.owner_hunk_index,
+                    },
+                    editable: true,
+                };
+                state.add_comment(comment)
+            }
         });
         self.note_composer_bounds.set(None);
+        self.focus = Focus::Review;
         match result {
             Ok(()) => {
-                self.status = Some("review note saved".into());
+                self.status = Some(if editing {
+                    "review note updated".into()
+                } else {
+                    "review note saved".into()
+                });
                 if let Some(note) = extension_note {
-                    self.publish_extension_lifecycle_event(ExtensionLifecycleEvent::NoteCreated {
-                        note,
+                    self.publish_extension_lifecycle_event(if editing {
+                        ExtensionLifecycleEvent::NoteEdited { note }
+                    } else {
+                        ExtensionLifecycleEvent::NoteCreated { note }
                     });
                 }
                 let events = self.update_extension_review_events(Instant::now());
@@ -2096,10 +2217,10 @@ impl ReviewApp {
                 self.open_note_composer();
             }
             AppCommandAction::EditActiveNote => {
-                self.status = Some("active review note editor is not active".into());
+                self.open_active_note_edit();
             }
             AppCommandAction::ReplyToActiveNote => {
-                self.status = Some("review note reply composer is not active".into());
+                self.open_active_note_reply();
             }
             AppCommandAction::StepDiffLine(delta) => self.step_diff_line(delta),
             AppCommandAction::ScrollCodeHorizontally(delta) => {
@@ -7917,9 +8038,22 @@ struct ReviewNoteTarget {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ReviewNoteComposer {
     id: String,
+    kind: ReviewNoteComposerKind,
     target: ReviewNoteTarget,
     body: String,
     cursor: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ReviewNoteComposerKind {
+    Create,
+    Edit {
+        target_note_id: String,
+        parent_id: Option<String>,
+    },
+    Reply {
+        parent_id: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -9517,6 +9651,11 @@ fn render_note_composer(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     };
     app.note_composer_bounds.set(Some(popup));
     Clear.render(popup, buffer);
+    let title = match &composer.kind {
+        ReviewNoteComposerKind::Create => " Draft note ",
+        ReviewNoteComposerKind::Edit { .. } => " Edit note ",
+        ReviewNoteComposerKind::Reply { .. } => " Reply to note ",
+    };
     Paragraph::new(composer.body.as_str())
         .wrap(Wrap { trim: false })
         .style(
@@ -9526,7 +9665,7 @@ fn render_note_composer(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         )
         .block(
             Block::default()
-                .title(" Draft note ")
+                .title(title)
                 .title_bottom(" Ctrl+S save · Esc cancel ")
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(ratatui_theme_color(&app.options.theme.accent))),
@@ -11392,6 +11531,75 @@ mod tests {
         assert_eq!(comment.hunk_index, Some(target.hunk_index));
         assert!(comment.editable);
         assert!(rendered_review_text(&mut terminal, &app).contains("Your note"));
+    }
+
+    #[test]
+    fn user_note_composer_edits_and_replies_with_stable_public_identity() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        let file_key = app.with_state(|state| state.changeset().files[0].key.clone());
+        let mut original = saved_comment(&file_key, "user:stable-1", "original body");
+        original.source = "user".into();
+        original.editable = true;
+        original.file_path = Some("a.rs".into());
+        app.with_state(|state| state.add_comment(original).unwrap());
+        app.observed_extension_events.clear();
+
+        assert!(app.builtin_command_availability().can_edit_active_note);
+        assert!(app.builtin_command_availability().can_reply_to_active_note);
+        app.apply_builtin_command_action(AppCommandAction::EditActiveNote);
+        let composer = app.note_composer.as_ref().unwrap();
+        assert_eq!(
+            composer.kind,
+            ReviewNoteComposerKind::Edit {
+                target_note_id: "user:stable-1".into(),
+                parent_id: None,
+            }
+        );
+        assert_eq!(composer.body, "original body");
+        let composer = app.note_composer.as_mut().unwrap();
+        composer.body = "edited body".into();
+        composer.cursor = composer.body.chars().count();
+        app.save_note_composer();
+        let comments = app.with_state(|state| state.comments().to_vec());
+        assert_eq!(comments.len(), 1);
+        assert_eq!(comments[0].id, "user:stable-1");
+        assert_eq!(comments[0].summary, "edited body");
+        assert!(
+            app.observed_extension_events
+                .iter()
+                .any(|(_, event, payload)| {
+                    event == "note_edited"
+                        && payload["note"]["id"] == "user:stable-1"
+                        && payload["note"]["body"] == "edited body"
+                        && payload["note"]["draft"] == false
+                })
+        );
+
+        app.observed_extension_events.clear();
+        app.apply_builtin_command_action(AppCommandAction::ReplyToActiveNote);
+        assert_eq!(
+            app.note_composer.as_ref().unwrap().kind,
+            ReviewNoteComposerKind::Reply {
+                parent_id: "user:stable-1".into()
+            }
+        );
+        let composer = app.note_composer.as_mut().unwrap();
+        composer.body = "reply body".into();
+        composer.cursor = composer.body.chars().count();
+        app.save_note_composer();
+        let comments = app.with_state(|state| state.comments().to_vec());
+        assert_eq!(comments.len(), 2);
+        assert_eq!(comments[1].parent_id.as_deref(), Some("user:stable-1"));
+        assert_eq!(comments[1].summary, "reply body");
+        assert!(
+            app.observed_extension_events
+                .iter()
+                .any(|(_, event, payload)| {
+                    event == "note_created"
+                        && payload["note"]["parentId"] == "user:stable-1"
+                        && payload["note"]["body"] == "reply body"
+                })
+        );
     }
 
     #[test]
