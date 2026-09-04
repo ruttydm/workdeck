@@ -4,8 +4,10 @@
 //! session protocol, extension host, and Ratatui renderer. They intentionally contain no
 //! terminal widgets, Git handles, or process objects.
 
+mod bootstrap;
 mod command_inputs;
 mod identity;
+mod keybindings;
 mod paths;
 mod run;
 mod run_errors;
@@ -13,8 +15,10 @@ mod semantic;
 mod startup_notice;
 mod theme;
 
+pub use bootstrap::*;
 pub use command_inputs::*;
 pub use identity::{review_content_digest, review_file_key, review_source_identity};
+pub use keybindings::*;
 pub use paths::*;
 pub use run::*;
 pub use run_errors::*;

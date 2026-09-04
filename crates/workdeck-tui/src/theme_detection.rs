@@ -2,15 +2,10 @@
 
 use std::io::{self, Write};
 use std::time::{Duration, Instant};
+pub use workdeck_core::TerminalThemeMode;
 
 pub const OSC_11_BACKGROUND_QUERY: &str = "\x1b]11;?\x1b\\";
 pub const DEFAULT_THEME_PROBE_TIMEOUT: Duration = Duration::from_millis(150);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TerminalThemeMode {
-    Light,
-    Dark,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RgbColor {

@@ -3,9 +3,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use workdeck_core::StartupNotice;
+use workdeck_core::{StartupNotice, UserKeyBinding, UserKeyBindingEntry};
 use workdeck_diff::sanitize_terminal_line;
-use workdeck_tui::{UserKeyBinding, UserKeyBindingEntry};
 
 /// Resolved user-extension configuration for one Workdeck invocation.
 ///
@@ -84,10 +83,14 @@ pub struct ReviewConfig {
     pub wrap_lines: bool,
     #[serde(default = "default_true")]
     pub hunk_headers: bool,
+    #[serde(default = "default_true")]
+    pub menu_bar: bool,
     #[serde(default)]
     pub sidebar: ReviewSidebar,
     #[serde(default)]
     pub agent_notes: bool,
+    #[serde(default)]
+    pub copy_decorations: bool,
     #[serde(default)]
     pub transparent_background: bool,
     #[serde(default)]
@@ -109,8 +112,10 @@ impl Default for ReviewConfig {
             hunk_gap: 0,
             wrap_lines: false,
             hunk_headers: true,
+            menu_bar: true,
             sidebar: ReviewSidebar::Auto,
             agent_notes: false,
+            copy_decorations: false,
             transparent_background: false,
             color_moved: None,
             cursor_line: default_cursor_line(),
@@ -849,6 +854,23 @@ mod tests {
         assert_eq!(config.review.mode, "auto");
         assert_eq!(config.review.tab_width, 4);
         assert!(config.review.line_numbers);
+        assert!(config.review.menu_bar);
+        assert!(!config.review.copy_decorations);
+    }
+
+    #[test]
+    fn review_menu_and_copy_preferences_deserialize_explicitly() {
+        let config: Config = toml::from_str(
+            r#"
+            [review]
+            menu_bar = false
+            copy_decorations = true
+            "#,
+        )
+        .unwrap();
+
+        assert!(!config.review.menu_bar);
+        assert!(config.review.copy_decorations);
     }
 
     #[test]

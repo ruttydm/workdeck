@@ -24,9 +24,10 @@ use workdeck_cli::store::{
     Project, ReferenceData, StoreEvent, WorkdeckStore,
 };
 use workdeck_core::{
-    AgentContext, Changeset, ChangesetSource, CliInput, CommonOptions, DiffToolCommandInput,
-    InputCursorLine, InputLayoutMode, PatchCommandInput, ReviewSide, SelfUpdateCommandInput,
-    SidebarVisibility, StartupNotice, VcsDiffCommandInput, VcsRangeEndpoints, VcsShowCommandInput,
+    AgentContext, AppBootstrap, Changeset, ChangesetSource, CliInput, CommonOptions,
+    DiffToolCommandInput, FileCommandInput, InputCursorLine, InputLayoutMode, PatchCommandInput,
+    ReloadContext, ReviewSide, SelfUpdateCommandInput, SidebarVisibility, StartupNotice,
+    UserKeyBindingEntry, VcsDiffCommandInput, VcsRangeEndpoints, VcsShowCommandInput,
     VcsStashShowCommandInput, resolve_app_state_path,
 };
 use workdeck_diff::{
@@ -52,13 +53,14 @@ use workdeck_session::{
 };
 use workdeck_tui::{
     CursorLineMode, ExtensionTrustHandler, ExtensionTrustHostError, ExtensionTrustWriteError,
-    ReviewOptions, UserKeyBindingEntry,
+    ReviewOptions,
 };
 use workdeck_vcs::{
-    AnyProvider, GitProvider, ProviderPreference, VcsAdapter, VcsCatalog, VcsLoadContext,
-    VcsReviewInput, bundled_vcs_catalog, detect_vcs, extend_vcs_catalog,
-    find_project_root_candidate, get_default_vcs_adapter, get_vcs_adapter, load_vcs_review,
-    materialize_vcs_patch_result, operation_from_input, parse_patch_input,
+    AnyProvider, ProviderPreference, VcsAdapter, VcsCatalog, VcsLoadContext, VcsReviewInput,
+    WatchSignatureContext, bundled_vcs_catalog, compute_watch_signature, detect_vcs,
+    extend_vcs_catalog, find_project_root_candidate, get_default_vcs_adapter, get_vcs_adapter,
+    load_difftool_comparison, load_file_comparison, load_vcs_review, materialize_vcs_patch_result,
+    operation_from_input, parse_patch_input,
 };
 
 use crate::extension_cli_commands::{
@@ -101,6 +103,8 @@ enum Command {
     Diff {
         #[arg(value_name = "REVISION", num_args = 0..=2)]
         revisions: Vec<String>,
+        #[arg(long, value_name = "PATH", num_args = 1..)]
+        files: Vec<PathBuf>,
         #[arg(long, alias = "cached", help = "Review staged changes")]
         staged: bool,
         #[arg(long, help = "Hide untracked files")]
@@ -565,6 +569,8 @@ struct ReviewCliOptions {
     sidebar: bool,
     #[arg(long = "no-sidebar")]
     no_sidebar: bool,
+    #[arg(skip)]
+    sidebar_visibility: SidebarVisibility,
     #[arg(long, conflicts_with = "no_agent_notes")]
     agent_notes: bool,
     #[arg(long = "no-agent-notes")]
@@ -587,6 +593,10 @@ struct ReviewCliOptions {
     no_extensions: bool,
     #[arg(skip)]
     color_moved: Option<bool>,
+    #[arg(skip)]
+    show_menu_bar: bool,
+    #[arg(skip)]
+    copy_decorations: bool,
     #[arg(skip)]
     keybindings: Vec<UserKeyBindingEntry>,
     #[arg(skip)]
@@ -625,8 +635,13 @@ impl ReviewCliOptions {
             no_wrap: !config.review.wrap_lines,
             hunk_headers: config.review.hunk_headers,
             no_hunk_headers: !config.review.hunk_headers,
-            sidebar: config.review.sidebar.is_visible(),
-            no_sidebar: !config.review.sidebar.is_visible(),
+            sidebar: false,
+            no_sidebar: false,
+            sidebar_visibility: match config.review.sidebar {
+                workdeck_cli::config::ReviewSidebar::Auto => SidebarVisibility::Auto,
+                workdeck_cli::config::ReviewSidebar::Show => SidebarVisibility::Visible,
+                workdeck_cli::config::ReviewSidebar::Hide => SidebarVisibility::Hidden,
+            },
             agent_notes: config.review.agent_notes,
             no_agent_notes: !config.review.agent_notes,
             file_gap: Some(config.review.file_gap),
@@ -638,6 +653,8 @@ impl ReviewCliOptions {
             extension: Vec::new(),
             no_extensions: !config.resolved_extensions.enabled,
             color_moved: config.review.color_moved,
+            show_menu_bar: config.review.menu_bar,
+            copy_decorations: config.review.copy_decorations,
             keybindings: config.keybindings.clone(),
             keybinding_notices: config.keybinding_notices.clone(),
             startup_notices: config.startup_notices.clone(),
@@ -674,8 +691,7 @@ impl ReviewCliOptions {
             self.no_hunk_headers = configured.no_hunk_headers;
         }
         if !self.sidebar && !self.no_sidebar {
-            self.sidebar = configured.sidebar;
-            self.no_sidebar = configured.no_sidebar;
+            self.sidebar_visibility = configured.sidebar_visibility;
         }
         if !self.agent_notes && !self.no_agent_notes {
             self.agent_notes = configured.agent_notes;
@@ -689,6 +705,8 @@ impl ReviewCliOptions {
             self.theme = configured.theme;
         }
         self.color_moved = self.color_moved.or(configured.color_moved);
+        self.show_menu_bar = configured.show_menu_bar;
+        self.copy_decorations = configured.copy_decorations;
         self.keybindings = configured.keybindings;
         self.keybinding_notices = configured.keybinding_notices;
         self.startup_notices = configured.startup_notices;
@@ -724,7 +742,7 @@ impl ReviewCliOptions {
                 ReviewLayoutArg::Split => LayoutMode::Split,
                 ReviewLayoutArg::Stack => LayoutMode::Stack,
             },
-            sidebar: self.sidebar || !self.no_sidebar,
+            sidebar: self.resolved_sidebar() != SidebarVisibility::Hidden,
             line_numbers: self.line_numbers || !self.no_line_numbers,
             tab_width: self.tab_width.unwrap_or(4),
             cursor_line: match self.cursor_line.unwrap_or(CursorLineArg::Row) {
@@ -743,6 +761,8 @@ impl ReviewCliOptions {
             pager: self.pager,
             watch: self.watch && !self.no_watch,
             agent_notes: self.agent_notes && !self.no_agent_notes,
+            show_menu_bar: self.show_menu_bar,
+            copy_decorations: self.copy_decorations,
             theme,
             repo: None,
             command_cwd: None,
@@ -788,12 +808,10 @@ impl ReviewCliOptions {
             hunk_gap: Some(self.hunk_gap.unwrap_or(0)),
             wrap_lines: Some(if self.no_wrap { false } else { self.wrap }),
             hunk_headers: Some(self.hunk_headers || !self.no_hunk_headers),
-            sidebar: Some(if self.sidebar || !self.no_sidebar {
-                SidebarVisibility::Visible
-            } else {
-                SidebarVisibility::Hidden
-            }),
+            sidebar: Some(self.resolved_sidebar()),
             agent_notes: Some(self.agent_notes && !self.no_agent_notes),
+            menu_bar: Some(self.show_menu_bar),
+            copy_decorations: Some(self.copy_decorations),
             transparent_background: Some(self.transparent_background && !self.opaque_background),
             color_moved: self.color_moved,
             extensions: Some(!self.no_extensions),
@@ -803,6 +821,16 @@ impl ReviewCliOptions {
                 .map(|path| path.to_string_lossy().into_owned())
                 .collect(),
             ..CommonOptions::default()
+        }
+    }
+
+    fn resolved_sidebar(&self) -> SidebarVisibility {
+        if self.sidebar {
+            SidebarVisibility::Visible
+        } else if self.no_sidebar {
+            SidebarVisibility::Hidden
+        } else {
+            self.sidebar_visibility
         }
     }
 }
@@ -882,6 +910,303 @@ mod review_cli_option_tests {
         assert_eq!(review.configured_vcs_id(), Some("fossil-tools"));
         assert_eq!(review.preference(), ProviderPreference::Auto);
         assert_eq!(review.common_options().vcs.as_deref(), Some("fossil-tools"));
+    }
+
+    #[test]
+    fn direct_file_mode_is_explicit_and_two_positionals_remain_revisions() {
+        let parsed = Args::try_parse_from([
+            "workdeck",
+            "diff",
+            "--files",
+            "before.rs",
+            "after.rs",
+            "--mode",
+            "stack",
+        ])
+        .unwrap();
+        let Some(Command::Diff {
+            files,
+            revisions,
+            review,
+            ..
+        }) = parsed.command
+        else {
+            panic!("expected diff command");
+        };
+        assert_eq!(
+            files,
+            [PathBuf::from("before.rs"), PathBuf::from("after.rs")]
+        );
+        assert!(revisions.is_empty());
+        assert!(matches!(review.mode, Some(ReviewLayoutArg::Stack)));
+
+        let parsed = Args::try_parse_from(["workdeck", "diff", "before.rs", "after.rs"]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Some(Command::Diff { revisions, files, .. })
+                if revisions == ["before.rs", "after.rs"] && files.is_empty()
+        ));
+    }
+
+    #[test]
+    fn direct_file_mode_rejects_malformed_and_mixed_forms() {
+        let message = "exactly two file paths";
+        for (files, revisions, staged, pathspecs) in [
+            (vec!["one"], vec![], false, vec![]),
+            (vec!["one", "two", "three"], vec![], false, vec![]),
+            (vec!["one", "two"], vec![], true, vec![]),
+            (vec!["one", "two"], vec!["target"], false, vec![]),
+            (vec!["one", "two"], vec![], false, vec!["src"]),
+        ] {
+            let files = files.into_iter().map(PathBuf::from).collect::<Vec<_>>();
+            let revisions = revisions.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            let pathspecs = pathspecs.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            assert!(
+                validate_diff_file_arguments(&files, &revisions, staged, &pathspecs)
+                    .unwrap_err()
+                    .to_string()
+                    .contains(message)
+            );
+        }
+    }
+
+    #[test]
+    fn watch_signature_is_captured_before_direct_file_content_changes() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("before.rs"), "before\n").unwrap();
+        std::fs::write(directory.path().join("after.rs"), "after\n").unwrap();
+        let review = ReviewCliOptions {
+            watch: true,
+            ..ReviewCliOptions::default()
+        };
+        let input = CliInput::Files(FileCommandInput {
+            left: "before.rs".into(),
+            right: "after.rs".into(),
+            options: review.common_options(),
+        });
+
+        let captured =
+            capture_initial_watch_signature(&review, &input, directory.path(), None).unwrap();
+        std::fs::write(directory.path().join("after.rs"), "changed and longer\n").unwrap();
+        let after = compute_watch_signature(
+            &input,
+            WatchSignatureContext {
+                cwd: directory.path(),
+                vcs_catalog: None,
+            },
+        )
+        .unwrap();
+
+        assert_ne!(captured, after);
+        let stdin_patch = CliInput::Patch(PatchCommandInput {
+            file: None,
+            text: None,
+            options: review.common_options(),
+        });
+        assert!(
+            capture_initial_watch_signature(&review, &stdin_patch, directory.path(), None)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn configured_review_defaults_match_the_pinned_main_bootstrap_oracle() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/loader-bootstrap.json"
+        ))
+        .unwrap();
+        let expected = &oracle["baselines"][0]["view_defaults"];
+        let config = Config::default();
+        let review = ReviewCliOptions::from_config(&config);
+        let common = review.common_options();
+        let tui = review.tui_options();
+        let actual = serde_json::json!({
+            "mode": "auto",
+            "theme": review.theme,
+            "lineNumbers": tui.line_numbers,
+            "tabWidth": tui.tab_width,
+            "fileGap": tui.file_gap,
+            "hunkGap": tui.hunk_gap,
+            "wrapLines": tui.wrap_lines,
+            "hunkHeaders": tui.hunk_headers,
+            "menuBar": tui.show_menu_bar,
+            "sidebar": "auto",
+            "agentNotes": tui.agent_notes,
+            "copyDecorations": tui.copy_decorations,
+            "cursorLine": "row",
+        });
+
+        assert_eq!(actual, *expected);
+        assert_eq!(common.menu_bar, Some(true));
+        assert_eq!(common.copy_decorations, Some(false));
+        assert_eq!(common.sidebar, Some(SidebarVisibility::Auto));
+
+        let mut configured = Config::default();
+        configured.review.menu_bar = false;
+        configured.review.copy_decorations = true;
+        configured.review.sidebar = workdeck_cli::config::ReviewSidebar::Hide;
+        let configured_review = ReviewCliOptions::from_config(&configured);
+        assert_eq!(
+            configured_review.common_options().sidebar,
+            Some(SidebarVisibility::Hidden)
+        );
+        let configured_tui = configured_review.tui_options();
+        assert!(!configured_tui.show_menu_bar);
+        assert!(configured_tui.copy_decorations);
+        assert!(!configured_tui.sidebar);
+    }
+
+    #[test]
+    fn composed_bootstrap_crosses_the_core_boundary_with_exact_initial_state() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/loader-bootstrap.json"
+        ))
+        .unwrap();
+        let config = Config::default();
+        let review = ReviewCliOptions::from_config(&config);
+        let input = CliInput::Patch(PatchCommandInput {
+            file: Some("nested/input.patch".into()),
+            text: None,
+            options: review.common_options(),
+        });
+        let changeset = parse_patch_input(
+            "--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-old\n+new\n",
+            "nested/input.patch",
+        )
+        .unwrap();
+        let bootstrap = build_app_bootstrap(
+            Path::new("/repo/subdir"),
+            Some(PathBuf::from("/repo")),
+            changeset,
+            &review,
+            input.clone(),
+            Some("initial-signature".into()),
+            PreparedReviewExtensions {
+                extensions: Vec::new(),
+                notifications: ExtensionNotificationHub::new(),
+                pending_trust_repo_root: None,
+                startup_notices: vec![StartupNotice::new("fixture", "notice")],
+                vcs_catalog: Some(bundled_vcs_catalog().clone()),
+            },
+        );
+        let actual = serde_json::json!({
+            "mode": match bootstrap.initial_mode {
+                InputLayoutMode::Auto => "auto",
+                InputLayoutMode::Split => "split",
+                InputLayoutMode::Stack => "stack",
+            },
+            "theme": bootstrap.initial_theme,
+            "lineNumbers": bootstrap.initial_show_line_numbers,
+            "tabWidth": bootstrap.initial_tab_width,
+            "fileGap": bootstrap.initial_file_gap,
+            "hunkGap": bootstrap.initial_hunk_gap,
+            "wrapLines": bootstrap.initial_wrap_lines,
+            "hunkHeaders": bootstrap.initial_show_hunk_headers,
+            "menuBar": bootstrap.initial_show_menu_bar,
+            "sidebar": match bootstrap.initial_sidebar {
+                SidebarVisibility::Auto => serde_json::Value::String("auto".into()),
+                SidebarVisibility::Visible => serde_json::Value::Bool(true),
+                SidebarVisibility::Hidden => serde_json::Value::Bool(false),
+            },
+            "agentNotes": bootstrap.initial_show_agent_notes,
+            "copyDecorations": bootstrap.initial_copy_decorations,
+            "cursorLine": match bootstrap.initial_cursor_line {
+                InputCursorLine::Row => "row",
+                InputCursorLine::Number => "number",
+                InputCursorLine::Off => "off",
+            },
+        });
+
+        assert_eq!(actual, oracle["baselines"][0]["view_defaults"]);
+        assert_eq!(bootstrap.input, input);
+        assert_eq!(bootstrap.reload_context.cwd, Path::new("/repo/subdir"));
+        assert_eq!(
+            bootstrap.reload_context.repo_root.as_deref(),
+            Some(Path::new("/repo"))
+        );
+        assert_eq!(
+            bootstrap.reload_context.initial_watch_signature.as_deref(),
+            Some("initial-signature")
+        );
+        assert!(bootstrap.reload_context.vcs_catalog.is_some());
+        assert_eq!(bootstrap.startup_notices[0].key, "fixture");
+        assert!(bootstrap.extensions.is_some());
+    }
+
+    #[test]
+    fn prepared_direct_file_bootstrap_applies_relative_agent_context_before_handoff() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("before.ts"),
+            "export const answer = 41;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("after.ts"),
+            "export const answer = 42;\nexport const bonus = true;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("agent.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "summary": "Agent added the bonus export.",
+                "files": [{
+                    "path": "after.ts",
+                    "annotations": [{
+                        "newRange": [2, 2],
+                        "summary": "Introduces the bonus flag."
+                    }]
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let review = ReviewCliOptions {
+            agent_context: Some(PathBuf::from("agent.json")),
+            ..ReviewCliOptions::from_config(&Config::default())
+        };
+        let input = CliInput::Files(FileCommandInput {
+            left: "before.ts".into(),
+            right: "after.ts".into(),
+            options: review.common_options(),
+        });
+        let changeset = load_file_comparison(
+            directory.path(),
+            Path::new("before.ts"),
+            Path::new("after.ts"),
+        )
+        .unwrap();
+        let bootstrap = prepare_app_bootstrap(
+            directory.path(),
+            None,
+            changeset,
+            &review,
+            input,
+            None,
+            PreparedReviewExtensions {
+                extensions: Vec::new(),
+                notifications: ExtensionNotificationHub::new(),
+                pending_trust_repo_root: None,
+                startup_notices: Vec::new(),
+                vcs_catalog: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            bootstrap.changeset.agent_summary.as_deref(),
+            Some("Agent added the bonus export.")
+        );
+        assert_eq!(
+            bootstrap.changeset.files[0]
+                .agent
+                .as_ref()
+                .unwrap()
+                .annotations[0]
+                .summary,
+            "Introduces the bonus flag."
+        );
     }
 
     #[test]
@@ -1839,22 +2164,27 @@ fn run(mut args: Args) -> Result<()> {
     }
     let adapter = selection.adapter;
     vcs_input_options_mut(&mut vcs_input).vcs = Some(adapter.id.clone());
+    let session_input = match &vcs_input {
+        VcsReviewInput::Diff(input) => CliInput::Vcs(input.clone()),
+        _ => unreachable!(),
+    };
+    let initial_watch_signature =
+        capture_initial_watch_signature(&review, &session_input, &args.cwd, Some(&catalog));
     let loaded = load_selected_vcs_changeset(&args.cwd, &adapter, &catalog, &vcs_input)?;
     if !loaded.changeset.is_empty() {
-        let session_input = match &vcs_input {
-            VcsReviewInput::Diff(input) => CliInput::Vcs(input.clone()),
-            _ => unreachable!(),
-        };
         let mut reload = || {
             load_selected_vcs_changeset(&args.cwd, &adapter, &catalog, &vcs_input)
                 .map(|loaded| loaded.changeset)
         };
         run_review_with_preloaded_extensions(
             &args.cwd,
-            Some(loaded.repo_root),
-            loaded.changeset,
+            LoadedReviewChangeset {
+                changeset: loaded.changeset,
+                repo_root: Some(loaded.repo_root),
+            },
             review,
-            Some(session_input),
+            session_input,
+            initial_watch_signature,
             Some(&mut reload),
             prepared_extensions,
         )
@@ -2025,6 +2355,8 @@ struct PreparedReviewExtensions {
     vcs_catalog: Option<VcsCatalog>,
 }
 
+type WorkdeckAppBootstrap = AppBootstrap<PreparedReviewExtensions, VcsCatalog>;
+
 struct SelectedVcsAdapter {
     adapter: VcsAdapter,
     unknown_id_notice: Option<StartupNotice>,
@@ -2033,6 +2365,11 @@ struct SelectedVcsAdapter {
 struct LoadedVcsChangeset {
     changeset: Changeset,
     repo_root: PathBuf,
+}
+
+struct LoadedReviewChangeset {
+    changeset: Changeset,
+    repo_root: Option<PathBuf>,
 }
 
 fn prepare_review_extensions(
@@ -2192,12 +2529,35 @@ fn handle_review_command(
     match command {
         Command::Diff {
             revisions,
+            files,
             staged,
             exclude_untracked,
             include_untracked: _,
             pathspec,
             review,
         } => {
+            if validate_diff_file_arguments(&files, &revisions, staged, &pathspec)? {
+                let left = files[0].clone();
+                let right = files[1].clone();
+                let input = CliInput::Files(FileCommandInput {
+                    left: left.to_string_lossy().into_owned(),
+                    right: right.to_string_lossy().into_owned(),
+                    options: review.common_options(),
+                });
+                let initial_watch_signature =
+                    capture_initial_watch_signature(&review, &input, cwd, None);
+                let changeset = load_file_comparison(cwd, &left, &right)?;
+                let mut reload =
+                    || load_file_comparison(cwd, &left, &right).map_err(anyhow::Error::from);
+                return run_review_with_options(
+                    cwd,
+                    changeset,
+                    review,
+                    input,
+                    initial_watch_signature,
+                    Some(&mut reload),
+                );
+            }
             let (from, target) = match revisions.as_slice() {
                 [] => (None, None),
                 [target] => (None, Some(target.clone())),
@@ -2225,21 +2585,26 @@ fn handle_review_command(
             }
             let adapter = selection.adapter;
             vcs_input_options_mut(&mut vcs_input).vcs = Some(adapter.id.clone());
-            let loaded = load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)?;
             let session_input = match &vcs_input {
                 VcsReviewInput::Diff(input) => CliInput::Vcs(input.clone()),
                 _ => unreachable!(),
             };
+            let initial_watch_signature =
+                capture_initial_watch_signature(&review, &session_input, cwd, Some(&catalog));
+            let loaded = load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)?;
             let mut reload = || {
                 load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)
                     .map(|loaded| loaded.changeset)
             };
             run_review_with_preloaded_extensions(
                 cwd,
-                Some(loaded.repo_root),
-                loaded.changeset,
+                LoadedReviewChangeset {
+                    changeset: loaded.changeset,
+                    repo_root: Some(loaded.repo_root),
+                },
                 review,
-                Some(session_input),
+                session_input,
+                initial_watch_signature,
                 Some(&mut reload),
                 prepared_extensions,
             )
@@ -2263,21 +2628,26 @@ fn handle_review_command(
             }
             let adapter = selection.adapter;
             vcs_input_options_mut(&mut vcs_input).vcs = Some(adapter.id.clone());
-            let loaded = load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)?;
             let session_input = match &vcs_input {
                 VcsReviewInput::Show(input) => CliInput::Show(input.clone()),
                 _ => unreachable!(),
             };
+            let initial_watch_signature =
+                capture_initial_watch_signature(&review, &session_input, cwd, Some(&catalog));
+            let loaded = load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)?;
             let mut reload = || {
                 load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)
                     .map(|loaded| loaded.changeset)
             };
             run_review_with_preloaded_extensions(
                 cwd,
-                Some(loaded.repo_root),
-                loaded.changeset,
+                LoadedReviewChangeset {
+                    changeset: loaded.changeset,
+                    repo_root: Some(loaded.repo_root),
+                },
                 review,
-                Some(session_input),
+                session_input,
+                initial_watch_signature,
                 Some(&mut reload),
                 prepared_extensions,
             )
@@ -2299,21 +2669,26 @@ fn handle_review_command(
             }
             let adapter = selection.adapter;
             vcs_input_options_mut(&mut vcs_input).vcs = Some(adapter.id.clone());
-            let loaded = load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)?;
             let session_input = match &vcs_input {
                 VcsReviewInput::StashShow(input) => CliInput::StashShow(input.clone()),
                 _ => unreachable!(),
             };
+            let initial_watch_signature =
+                capture_initial_watch_signature(&review, &session_input, cwd, Some(&catalog));
+            let loaded = load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)?;
             let mut reload = || {
                 load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)
                     .map(|loaded| loaded.changeset)
             };
             run_review_with_preloaded_extensions(
                 cwd,
-                Some(loaded.repo_root),
-                loaded.changeset,
+                LoadedReviewChangeset {
+                    changeset: loaded.changeset,
+                    repo_root: Some(loaded.repo_root),
+                },
                 review,
-                Some(session_input),
+                session_input,
+                initial_watch_signature,
                 Some(&mut reload),
                 prepared_extensions,
             )
@@ -2327,6 +2702,9 @@ fn handle_review_command(
                     options: review.common_options(),
                 })
             });
+            let initial_watch_signature = reload_input
+                .as_ref()
+                .and_then(|input| capture_initial_watch_signature(&review, input, cwd, None));
             let (patch, label) = match file {
                 Some(path) if path != Path::new("-") => {
                     let patch = std::fs::read_to_string(&path)
@@ -2346,6 +2724,13 @@ fn handle_review_command(
                     (patch, "stdin patch".to_owned())
                 }
             };
+            let session_input = reload_input.clone().unwrap_or_else(|| {
+                CliInput::Patch(PatchCommandInput {
+                    file: None,
+                    text: Some(patch.clone()),
+                    options: review.common_options(),
+                })
+            });
             let changeset = parse_patch_input(&patch, label).map_err(anyhow::Error::from)?;
             if let Some(path) = reload_path {
                 let mut reload = || {
@@ -2354,9 +2739,16 @@ fn handle_review_command(
                     parse_patch_input(&patch, path.display().to_string())
                         .map_err(anyhow::Error::from)
                 };
-                run_review_with_options(cwd, changeset, review, reload_input, Some(&mut reload))
+                run_review_with_options(
+                    cwd,
+                    changeset,
+                    review,
+                    session_input,
+                    initial_watch_signature,
+                    Some(&mut reload),
+                )
             } else {
-                run_review_with_options(cwd, changeset, review, None, None)
+                run_review_with_options(cwd, changeset, review, session_input, None, None)
             }
         }
         Command::Difftool {
@@ -2373,22 +2765,22 @@ fn handle_review_command(
                     .map(|path| path.to_string_lossy().into_owned()),
                 options: review.common_options(),
             });
-            let provider = GitProvider::discover(cwd).map_err(anyhow::Error::from)?;
-            let mut changeset = provider.files(&left, &right).map_err(anyhow::Error::from)?;
-            if let (Some(path), Some(file)) = (path.as_ref(), changeset.files.first_mut()) {
-                file.path = path.to_string_lossy().into_owned();
-                changeset.refresh_review_identities();
-            }
-            let display_path = path.map(|path| path.to_string_lossy().into_owned());
+            let initial_watch_signature =
+                capture_initial_watch_signature(&review, &input, cwd, None);
+            let changeset = load_difftool_comparison(cwd, &left, &right, path.as_deref())?;
+            let display_path = path.clone();
             let mut reload = || {
-                let mut changeset = provider.files(&left, &right).map_err(anyhow::Error::from)?;
-                if let (Some(path), Some(file)) = (&display_path, changeset.files.first_mut()) {
-                    file.path.clone_from(path);
-                    changeset.refresh_review_identities();
-                }
-                Ok(changeset)
+                load_difftool_comparison(cwd, &left, &right, display_path.as_deref())
+                    .map_err(anyhow::Error::from)
             };
-            run_review_with_options(cwd, changeset, review, Some(input), Some(&mut reload))
+            run_review_with_options(
+                cwd,
+                changeset,
+                review,
+                input,
+                initial_watch_signature,
+                Some(&mut reload),
+            )
         }
         Command::Pager { review } => {
             let input = if let Some(prepared) = prepared_piped_input.as_mut() {
@@ -2402,7 +2794,12 @@ fn handle_review_command(
             };
             if workdeck_cli::pager::looks_like_patch_input(&input) {
                 let changeset = parse_patch_input(&input, "pager").map_err(anyhow::Error::from)?;
-                run_review_with_options(cwd, changeset, review, None, None)
+                let session_input = CliInput::Patch(PatchCommandInput {
+                    file: None,
+                    text: Some(input),
+                    options: review.common_options(),
+                });
+                run_review_with_options(cwd, changeset, review, session_input, None, None)
             } else {
                 let context = workdeck_cli::pager::PlainTextPagerContext::current();
                 workdeck_cli::pager::page_plain_text(&input, &context).map_err(anyhow::Error::from)
@@ -2410,6 +2807,23 @@ fn handle_review_command(
         }
         _ => unreachable!("non-review command passed to review handler"),
     }
+}
+
+fn validate_diff_file_arguments(
+    files: &[PathBuf],
+    revisions: &[String],
+    staged: bool,
+    pathspecs: &[String],
+) -> Result<bool> {
+    if files.is_empty() {
+        return Ok(false);
+    }
+    if files.len() != 2 || !revisions.is_empty() || staged || !pathspecs.is_empty() {
+        bail!(
+            "Use `workdeck diff --files <left> <right>` with exactly two file paths and no revision, staged, or pathspec arguments."
+        );
+    }
+    Ok(true)
 }
 
 fn attach_controlling_terminal_input() -> Result<workdeck_tui::ControllingTerminal<File>> {
@@ -2438,16 +2852,20 @@ fn run_review_with_options(
     cwd: &Path,
     changeset: Changeset,
     review: ReviewCliOptions,
-    input: Option<CliInput>,
+    input: CliInput,
+    initial_watch_signature: Option<String>,
     reloader: Option<&mut dyn FnMut() -> Result<Changeset>>,
 ) -> Result<()> {
     let prepared_extensions = prepare_review_extensions(cwd, &review)?;
     run_review_with_preloaded_extensions(
         cwd,
-        None,
-        changeset,
+        LoadedReviewChangeset {
+            changeset,
+            repo_root: None,
+        },
         review,
         input,
+        initial_watch_signature,
         reloader,
         prepared_extensions,
     )
@@ -2455,76 +2873,251 @@ fn run_review_with_options(
 
 fn run_review_with_preloaded_extensions(
     cwd: &Path,
-    vcs_repo_root: Option<PathBuf>,
-    mut changeset: Changeset,
+    loaded: LoadedReviewChangeset,
     review: ReviewCliOptions,
-    input: Option<CliInput>,
+    input: CliInput,
+    initial_watch_signature: Option<String>,
     reloader: Option<&mut dyn FnMut() -> Result<Changeset>>,
     prepared_extensions: PreparedReviewExtensions,
 ) -> Result<()> {
     if review.watch && !review.no_watch && reloader.is_none() {
         bail!("--watch requires a file- or VCS-backed review input");
     }
+    let bootstrap = prepare_app_bootstrap(
+        cwd,
+        loaded.repo_root,
+        loaded.changeset,
+        &review,
+        input,
+        initial_watch_signature,
+        prepared_extensions,
+    )?;
+    run_app_bootstrap(bootstrap, review, reloader)
+}
+
+fn prepare_app_bootstrap(
+    cwd: &Path,
+    repo_root: Option<PathBuf>,
+    mut changeset: Changeset,
+    review: &ReviewCliOptions,
+    input: CliInput,
+    initial_watch_signature: Option<String>,
+    prepared_extensions: PreparedReviewExtensions,
+) -> Result<WorkdeckAppBootstrap> {
     apply_agent_context(cwd, review.agent_context.as_deref(), &mut changeset)?;
+    Ok(build_app_bootstrap(
+        cwd,
+        repo_root,
+        changeset,
+        review,
+        input,
+        initial_watch_signature,
+        prepared_extensions,
+    ))
+}
+
+fn build_app_bootstrap(
+    cwd: &Path,
+    repo_root: Option<PathBuf>,
+    changeset: Changeset,
+    review: &ReviewCliOptions,
+    input: CliInput,
+    initial_watch_signature: Option<String>,
+    mut prepared_extensions: PreparedReviewExtensions,
+) -> WorkdeckAppBootstrap {
+    let options = input.options();
+    let initial_mode = options.mode.unwrap_or_default();
+    let initial_theme = options.theme.clone();
+    let initial_show_line_numbers = options.line_numbers.unwrap_or(true);
+    let initial_tab_width = options.tab_width.unwrap_or(4);
+    let initial_file_gap = options.file_gap.unwrap_or(1);
+    let initial_hunk_gap = options.hunk_gap.unwrap_or(0);
+    let initial_wrap_lines = options.wrap_lines.unwrap_or(false);
+    let initial_show_hunk_headers = options.hunk_headers.unwrap_or(true);
+    let initial_show_menu_bar = options.menu_bar.unwrap_or(true);
+    let initial_sidebar = options.sidebar.unwrap_or_default();
+    let initial_show_agent_notes = options.agent_notes.unwrap_or(false);
+    let initial_copy_decorations = options.copy_decorations.unwrap_or(false);
+    let initial_cursor_line = options.cursor_line.unwrap_or_default();
+    let vcs_catalog = prepared_extensions.vcs_catalog.take();
+    let startup_notices = std::mem::take(&mut prepared_extensions.startup_notices);
+
+    AppBootstrap {
+        input,
+        reload_context: ReloadContext {
+            cwd: cwd.to_owned(),
+            repo_root,
+            initial_watch_signature,
+            vcs_catalog,
+        },
+        changeset,
+        initial_mode,
+        initial_theme,
+        initial_theme_mode: None,
+        custom_themes: Vec::new(),
+        initial_show_line_numbers,
+        initial_tab_width,
+        initial_file_gap,
+        initial_hunk_gap,
+        initial_wrap_lines,
+        initial_show_hunk_headers,
+        initial_show_menu_bar,
+        initial_sidebar,
+        initial_show_agent_notes,
+        initial_copy_decorations,
+        initial_cursor_line,
+        startup_notices,
+        view_preferences_config_path: None,
+        keybindings: review.keybindings.clone(),
+        keybinding_notices: review.keybinding_notices.clone(),
+        extensions: Some(prepared_extensions),
+    }
+}
+
+fn run_app_bootstrap(
+    bootstrap: WorkdeckAppBootstrap,
+    review: ReviewCliOptions,
+    reloader: Option<&mut dyn FnMut() -> Result<Changeset>>,
+) -> Result<()> {
+    let AppBootstrap {
+        input,
+        reload_context,
+        changeset,
+        initial_mode,
+        initial_theme,
+        initial_theme_mode,
+        custom_themes,
+        initial_show_line_numbers,
+        initial_tab_width,
+        initial_file_gap,
+        initial_hunk_gap,
+        initial_wrap_lines,
+        initial_show_hunk_headers,
+        initial_show_menu_bar,
+        initial_sidebar,
+        initial_show_agent_notes,
+        initial_copy_decorations,
+        initial_cursor_line,
+        startup_notices,
+        keybindings,
+        keybinding_notices,
+        extensions,
+        ..
+    } = bootstrap;
+    let cwd = reload_context.cwd;
+    let initial_watch_signature = reload_context.initial_watch_signature;
+    let vcs_catalog = reload_context.vcs_catalog;
+    let mut changeset = changeset;
+    let prepared_extensions =
+        extensions.ok_or_else(|| anyhow::anyhow!("review bootstrap has no extension state"))?;
     let PreparedReviewExtensions {
         mut extensions,
         notifications,
         pending_trust_repo_root,
-        startup_notices,
-        vcs_catalog,
+        startup_notices: _,
+        vcs_catalog: _,
     } = prepared_extensions;
     changeset = apply_review_extensions(changeset, &mut extensions)?;
     let mut options = review.tui_options();
+    options.layout = match initial_mode {
+        InputLayoutMode::Auto => LayoutMode::Auto,
+        InputLayoutMode::Split => LayoutMode::Split,
+        InputLayoutMode::Stack => LayoutMode::Stack,
+    };
+    options.line_numbers = initial_show_line_numbers;
+    options.tab_width = initial_tab_width;
+    options.file_gap = initial_file_gap;
+    options.hunk_gap = initial_hunk_gap;
+    options.wrap_lines = initial_wrap_lines;
+    options.hunk_headers = initial_show_hunk_headers;
+    options.show_menu_bar = initial_show_menu_bar;
+    options.sidebar = initial_sidebar != SidebarVisibility::Hidden;
+    options.agent_notes = initial_show_agent_notes;
+    options.copy_decorations = initial_copy_decorations;
+    options.cursor_line = match initial_cursor_line {
+        InputCursorLine::Row => CursorLineMode::Row,
+        InputCursorLine::Number => CursorLineMode::Number,
+        InputCursorLine::Off => CursorLineMode::Off,
+    };
+    let theme = workdeck_tui::resolve_theme(
+        initial_theme.as_deref(),
+        initial_theme_mode.map(Into::into),
+        &custom_themes,
+    );
+    options.theme = if options.transparent_background {
+        workdeck_tui::with_transparent_surfaces(&theme)
+    } else {
+        theme
+    };
+    options.keybindings = keybindings;
+    options.keybinding_notices = keybinding_notices;
+    options.review_input = Some(input.clone());
     options.extension_notifications = Some(notifications.clone());
     options.startup_notices = startup_notices;
     options.pending_extension_trust_repo_root = pending_trust_repo_root;
-    options.extension_trust_handler =
-        Some(review_extension_trust_handler(cwd, &review, &notifications));
-    options.command_cwd = Some(cwd.to_owned());
+    options.extension_trust_handler = Some(review_extension_trust_handler(
+        &cwd,
+        &review,
+        &notifications,
+    ));
+    options.command_cwd = Some(cwd.clone());
     options.repo = Some(resolve_review_repo_root(
-        cwd,
+        &cwd,
         review.preference(),
-        vcs_repo_root.as_deref(),
+        reload_context.repo_root.as_deref(),
     ));
     if let Some(reloader) = reloader {
         let agent_context = review.agent_context.clone();
         let mut reload_extensions = extensions.clone();
         let mut decorated_reload = || {
             let mut changeset = reloader()?;
-            apply_agent_context(cwd, agent_context.as_deref(), &mut changeset)?;
+            apply_agent_context(&cwd, agent_context.as_deref(), &mut changeset)?;
             apply_review_extensions(changeset, &mut reload_extensions)
         };
-        if let Some(input) = input {
-            match vcs_catalog {
-                None => workdeck_tui::run_review_with_extensions_input_reload(
-                    changeset,
-                    options,
-                    extensions,
-                    input,
-                    cwd.to_owned(),
-                    &mut decorated_reload,
-                ),
-                Some(catalog) => workdeck_tui::run_review_with_extensions_catalog_input_reload(
-                    changeset,
-                    options,
-                    extensions,
-                    input,
-                    cwd.to_owned(),
-                    catalog,
-                    &mut decorated_reload,
-                ),
-            }
-        } else {
-            workdeck_tui::run_review_with_extensions_reload(
+        match vcs_catalog {
+            None => workdeck_tui::run_review_with_extensions_input_reload_with_signature(
                 changeset,
                 options,
                 extensions,
+                workdeck_tui::ReviewWatchInput {
+                    input,
+                    cwd: cwd.clone(),
+                    initial_signature: initial_watch_signature,
+                },
                 &mut decorated_reload,
-            )
+            ),
+            Some(catalog) => {
+                workdeck_tui::run_review_with_extensions_catalog_input_reload_with_signature(
+                    changeset,
+                    options,
+                    extensions,
+                    workdeck_tui::ReviewWatchInput {
+                        input,
+                        cwd: cwd.clone(),
+                        initial_signature: initial_watch_signature,
+                    },
+                    catalog,
+                    &mut decorated_reload,
+                )
+            }
         }
     } else {
         workdeck_tui::run_review_with_extensions(changeset, options, extensions)
     }
+}
+
+/// Capture before sidecar or changeset I/O so mutations racing the initial load
+/// are still visible when the watch controller mounts.
+fn capture_initial_watch_signature(
+    review: &ReviewCliOptions,
+    input: &CliInput,
+    cwd: &Path,
+    vcs_catalog: Option<&VcsCatalog>,
+) -> Option<String> {
+    if !review.watch || review.no_watch {
+        return None;
+    }
+    compute_watch_signature(input, WatchSignatureContext { cwd, vcs_catalog }).ok()
 }
 
 fn resolve_review_repo_root(

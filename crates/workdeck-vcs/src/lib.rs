@@ -2,6 +2,7 @@
 
 mod bundled;
 mod catalog;
+mod file_comparison;
 mod git_adapter;
 mod git_commands;
 mod git_source;
@@ -23,6 +24,7 @@ mod watch_signature;
 
 pub use bundled::*;
 pub use catalog::*;
+pub use file_comparison::*;
 pub use git_adapter::*;
 pub use git_commands::*;
 pub use git_source::*;
@@ -53,12 +55,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use thiserror::Error;
-use workdeck_core::{
-    Changeset, ChangesetSource, FileSourceSnapshots, SourceOrigin, SourceSnapshot,
-};
-use workdeck_diff::{PatchError, parse_patch};
+use workdeck_core::{Changeset, ChangesetSource};
+use workdeck_diff::PatchError;
 
-const MAX_PATCH_BYTES: usize = 64 * 1024 * 1024;
 const BINARY_SNIFF_BYTES: usize = 8_000;
 
 #[derive(Debug, Error)]
@@ -221,36 +220,7 @@ impl GitProvider {
     }
 
     pub fn files(&self, left: &Path, right: &Path) -> Result<Changeset, VcsError> {
-        let left = absolute_or_join(&self.root, left);
-        let right = absolute_or_join(&self.root, right);
-        let left_text = left.to_string_lossy();
-        let right_text = right.to_string_lossy();
-        let args = [
-            "diff",
-            "--no-index",
-            "--no-ext-diff",
-            "--no-color",
-            "--",
-            left_text.as_ref(),
-            right_text.as_ref(),
-        ];
-        let patch = output_text(run(&self.root, "git", &args, &[0, 1])?)?;
-        let mut changeset = parse_patch(
-            &patch,
-            "git:files",
-            format!("{} ↔ {}", left.display(), right.display()),
-            ChangesetSource::Files {
-                left: left.display().to_string(),
-                right: right.display().to_string(),
-            },
-        )?;
-        if let Some(file) = changeset.files.first_mut() {
-            file.set_sources(FileSourceSnapshots {
-                old: read_file_snapshot(&left),
-                new: read_file_snapshot(&right),
-            });
-        }
-        Ok(changeset)
+        load_file_comparison(&self.root, left, right)
     }
 }
 
@@ -460,7 +430,7 @@ pub fn parse_patch_input(patch: &str, label: impl Into<String>) -> Result<Change
     Ok(workdeck_diff::changeset_from_patch(
         patch,
         format!("patch:{label}"),
-        label.clone(),
+        format!("Patch review: {}", display_basename(&label)),
         label.clone(),
         ChangesetSource::Patch { label },
         None,
@@ -543,43 +513,13 @@ fn run(
     Ok(output)
 }
 
-fn output_text(output: Output) -> Result<String, VcsError> {
-    if output.stdout.len() > MAX_PATCH_BYTES {
-        return Err(VcsError::PatchTooLarge(output.stdout.len()));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-}
-
-fn absolute_or_join(root: &Path, path: &Path) -> PathBuf {
-    if path.is_absolute() {
-        path.to_owned()
-    } else {
-        root.join(path)
-    }
-}
-
-fn read_file_snapshot(path: &Path) -> Option<SourceSnapshot> {
-    read_source_snapshot(
-        path,
-        SourceOrigin::File {
-            path: path.display().to_string(),
-        },
-    )
-}
-
-fn read_source_snapshot(path: &Path, origin: SourceOrigin) -> Option<SourceSnapshot> {
-    match read_file_text_with_limit(path, DEFAULT_SOURCE_TEXT_MAX_BYTES) {
-        LimitedSourceTextResult::Text(content) => Some(SourceSnapshot::new(content, origin, true)),
-        LimitedSourceTextResult::Missing | LimitedSourceTextResult::TooLarge { .. } => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::process::Command;
     use tempfile::TempDir;
     use untracked::is_probably_binary;
+    use workdeck_core::SourceOrigin;
 
     #[test]
     fn rejects_option_like_revisions() {
@@ -655,12 +595,55 @@ mod tests {
 
         assert_eq!(changeset.id, "patch:stdin patch");
         assert_eq!(changeset.source_label, "stdin patch");
-        assert_eq!(changeset.title, "stdin patch");
+        assert_eq!(changeset.title, "Patch review: stdin patch");
         assert_eq!(
             changeset.summary.as_deref(),
             Some("not really a patch\n--- separator only")
         );
         assert!(changeset.files.is_empty());
+    }
+
+    #[test]
+    fn patch_loader_projection_matches_both_pinned_hunk_oracles() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/loader-bootstrap.json"
+        ))
+        .unwrap();
+        let expected = &oracle["patch_cases"];
+        let patch = concat!(
+            "diff --git a/a.txt b/a.txt\n",
+            "--- a/a.txt\n",
+            "+++ b/a.txt\n",
+            "@@ -1 +1 @@\n",
+            "-old\n",
+            "+new\n",
+        );
+        let file = parse_patch_input(patch, "nested/input.patch").unwrap();
+        assert_eq!(
+            serde_json::json!({
+                "sourceLabel": file.source_label,
+                "title": file.title,
+                "path": file.files[0].path,
+                "hasSource": file.files[0].source_identity.is_some(),
+            }),
+            expected["file"]
+        );
+
+        let malformed = parse_patch_input(
+            "\u{1b}]0;title\u{7}not really a patch\n--- separator only\n@@ section heading",
+            "stdin patch",
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::json!({
+                "sourceLabel": malformed.source_label,
+                "title": malformed.title,
+                "summary": malformed.summary,
+                "fileCount": malformed.files.len(),
+                "hasInitialWatchSignature": false,
+            }),
+            expected["malformed"]
+        );
     }
 
     #[test]

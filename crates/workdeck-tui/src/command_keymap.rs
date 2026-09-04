@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+pub use workdeck_core::{UserKeyBinding, UserKeyBindingEntry};
 use workdeck_extension_api::{
     ExtensionKeyEvent, ParsedKeyChord, matches_key_chord, parse_key_chord,
 };
@@ -33,39 +34,6 @@ impl CommandKeyDefaults {
             .map(|alias| alias.as_ref().to_owned())
             .collect();
         self
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum UserKeyBinding {
-    Disabled,
-    Chord(String),
-    Chords(Vec<String>),
-}
-
-impl UserKeyBinding {
-    fn requested_chords(&self) -> Vec<String> {
-        match self {
-            Self::Disabled => Vec::new(),
-            Self::Chord(chord) => vec![chord.clone()],
-            Self::Chords(chords) => chords.clone(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UserKeyBindingEntry {
-    pub command_id: String,
-    pub binding: UserKeyBinding,
-}
-
-impl UserKeyBindingEntry {
-    #[must_use]
-    pub fn new(command_id: impl Into<String>, binding: UserKeyBinding) -> Self {
-        Self {
-            command_id: command_id.into(),
-            binding,
-        }
     }
 }
 
@@ -210,7 +178,12 @@ pub fn resolve_command_keys(
         configured_by.insert(canonical_id.clone(), entry.command_id.clone());
 
         let mut accepted = Vec::new();
-        for chord in entry.binding.requested_chords() {
+        let requested_chords = match &entry.binding {
+            UserKeyBinding::Disabled => Vec::new(),
+            UserKeyBinding::Chord(chord) => vec![chord.clone()],
+            UserKeyBinding::Chords(chords) => chords.clone(),
+        };
+        for chord in requested_chords {
             let Some(canonical) = canonicalize_chord_string(&chord) else {
                 issues.push(KeymapIssue {
                     command_id: Some(entry.command_id.clone()),

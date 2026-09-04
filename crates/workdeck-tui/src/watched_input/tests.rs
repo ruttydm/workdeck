@@ -224,6 +224,30 @@ fn poll_only_plans_skip_observers_and_use_degraded_checks() {
 }
 
 #[test]
+fn preloaded_signature_is_authoritative_when_the_driver_mounts() {
+    let now = Instant::now();
+    let runtime = FakeRuntime::hybrid();
+    runtime.set_signature("content changed during initial load");
+    let runtime_trait: Arc<dyn WatchedInputRuntime> = runtime.clone();
+    let driver = WatchedInputDriver::start(
+        true,
+        input(),
+        runtime_trait,
+        Some("captured before initial load".into()),
+        now,
+        WatchControllerConfig::default(),
+    )
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(
+        driver.state().applied_signature,
+        "captured before initial load"
+    );
+    assert_eq!(runtime.signature_count.load(Ordering::Relaxed), 0);
+}
+
+#[test]
 fn source_construction_failure_degrades_without_disabling_refresh() {
     let now = Instant::now();
     let runtime = FakeRuntime::hybrid();

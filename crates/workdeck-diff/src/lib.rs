@@ -326,6 +326,43 @@ pub fn diff_from_file_snapshots(
     Ok(file)
 }
 
+/// Reproduce the `diff` package's `createTwoFilesPatch` text used by Hunk for
+/// direct comparisons while retaining `similar` as the native diff engine.
+pub fn create_two_files_patch(
+    display_path: &str,
+    before: &str,
+    after: &str,
+    context_radius: usize,
+) -> String {
+    let diff = similar::TextDiff::from_lines(before, after);
+    let unified = diff
+        .unified_diff()
+        .context_radius(context_radius)
+        .header(display_path, display_path)
+        .to_string();
+    let hunks = unified
+        .split_inclusive('\n')
+        .skip(2)
+        .map(|line| {
+            let (body, newline) = line
+                .strip_suffix('\n')
+                .map_or((line, ""), |body| (body, "\n"));
+            let Ok((old_start, old_count, new_start, new_count, context)) = parse_hunk_header(body)
+            else {
+                return line.to_owned();
+            };
+            format!(
+                "@@ -{old_start},{old_count} +{new_start},{new_count} @@{}{newline}",
+                context.map_or_else(String::new, |context| format!(" {context}"))
+            )
+        })
+        .collect::<String>();
+    format!(
+        "Index: {display_path}\n{}\n--- {display_path}\t\n+++ {display_path}\t\n{hunks}",
+        "=".repeat(67)
+    )
+}
+
 pub fn sanitize_patch(patch: &str) -> String {
     let normalized = patch.replace("\r\n", "\n");
     let stripped = strip_terminal_control(&normalized);
@@ -1273,5 +1310,51 @@ mod tests {
         assert_eq!(file.path, "same.txt");
         assert!(file.hunks.is_empty());
         assert_eq!(file.stats, FileStats::default());
+    }
+
+    #[test]
+    fn direct_file_patch_text_matches_the_pinned_hunk_diff_package_shape() {
+        assert_eq!(
+            create_two_files_patch(
+                "after.ts",
+                "zero\none\ntwo\nthree\nfour\n",
+                "zero\none\nchanged\nthree\nfour\n",
+                3,
+            ),
+            concat!(
+                "Index: after.ts\n",
+                "===================================================================\n",
+                "--- after.ts\t\n",
+                "+++ after.ts\t\n",
+                "@@ -1,5 +1,5 @@\n",
+                " zero\n",
+                " one\n",
+                "-two\n",
+                "+changed\n",
+                " three\n",
+                " four\n",
+            )
+        );
+        assert_eq!(
+            create_two_files_patch("same.txt", "same\n", "same\n", 3),
+            concat!(
+                "Index: same.txt\n",
+                "===================================================================\n",
+                "--- same.txt\t\n",
+                "+++ same.txt\t\n",
+            )
+        );
+        assert_eq!(
+            create_two_files_patch("one.txt", "before\n", "after\n", 3),
+            concat!(
+                "Index: one.txt\n",
+                "===================================================================\n",
+                "--- one.txt\t\n",
+                "+++ one.txt\t\n",
+                "@@ -1,1 +1,1 @@\n",
+                "-before\n",
+                "+after\n",
+            )
+        );
     }
 }

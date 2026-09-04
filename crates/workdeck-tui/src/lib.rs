@@ -214,6 +214,8 @@ pub struct ReviewOptions {
     pub pager: bool,
     pub watch: bool,
     pub agent_notes: bool,
+    pub show_menu_bar: bool,
+    pub copy_decorations: bool,
     pub theme: AppTheme,
     pub repo: Option<PathBuf>,
     pub command_cwd: Option<PathBuf>,
@@ -252,6 +254,8 @@ impl Default for ReviewOptions {
             pager: false,
             watch: false,
             agent_notes: false,
+            show_menu_bar: true,
+            copy_decorations: false,
             theme: resolve_theme(Some(DEFAULT_DARK_THEME_ID), None, &[]),
             repo: None,
             command_cwd: None,
@@ -814,6 +818,8 @@ impl ReviewApp {
             (!notices.is_empty()).then(|| notices.join(" • "))
         };
         let extension_event_context_provider = ExtensionEventContextProviderSlot::default();
+        let show_menu_bar = options.show_menu_bar;
+        let copy_decorations = options.copy_decorations;
         let mut app = Self {
             state: Arc::new(Mutex::new(state)),
             options,
@@ -825,8 +831,8 @@ impl ReviewApp {
             extension_command_epoch: 1,
             editor_requested: false,
             resolved_command_keys,
-            show_menu_bar: true,
-            copy_decorations: false,
+            show_menu_bar,
+            copy_decorations,
             status: keymap_status,
             note_composer: None,
             note_composer_bounds: Cell::new(None),
@@ -5378,6 +5384,14 @@ where
     run_review_inner(changeset, options, extensions, None, None, Some(reload))
 }
 
+/// Provider-neutral input and the signature captured before its initial content load.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReviewWatchInput {
+    pub input: workdeck_core::CliInput,
+    pub cwd: PathBuf,
+    pub initial_signature: Option<String>,
+}
+
 /// Run a reloadable review while retaining the provider-neutral input needed
 /// for native watch planning and signatures.
 pub fn run_review_with_input_reload<F>(
@@ -5394,7 +5408,7 @@ where
         changeset,
         options,
         Vec::new(),
-        Some((input, input_cwd)),
+        Some((input, input_cwd, None)),
         None,
         Some(reload),
     )
@@ -5411,11 +5425,39 @@ pub fn run_review_with_extensions_input_reload<F>(
 where
     F: FnMut() -> Result<Changeset>,
 {
+    run_review_with_extensions_input_reload_with_signature(
+        changeset,
+        options,
+        extensions,
+        ReviewWatchInput {
+            input,
+            cwd: input_cwd,
+            initial_signature: None,
+        },
+        reload,
+    )
+}
+
+/// Run a reloadable review using the signature captured before initial content I/O.
+pub fn run_review_with_extensions_input_reload_with_signature<F>(
+    changeset: Changeset,
+    options: ReviewOptions,
+    extensions: Vec<LoadedExtension>,
+    watch_input: ReviewWatchInput,
+    reload: &mut F,
+) -> Result<()>
+where
+    F: FnMut() -> Result<Changeset>,
+{
     run_review_inner(
         changeset,
         options,
         extensions,
-        Some((input, input_cwd)),
+        Some((
+            watch_input.input,
+            watch_input.cwd,
+            watch_input.initial_signature,
+        )),
         None,
         Some(reload),
     )
@@ -5434,11 +5476,41 @@ pub fn run_review_with_extensions_catalog_input_reload<F>(
 where
     F: FnMut() -> Result<Changeset>,
 {
+    run_review_with_extensions_catalog_input_reload_with_signature(
+        changeset,
+        options,
+        extensions,
+        ReviewWatchInput {
+            input,
+            cwd: input_cwd,
+            initial_signature: None,
+        },
+        vcs_catalog,
+        reload,
+    )
+}
+
+/// Catalog-aware variant retaining the pre-load watch signature.
+pub fn run_review_with_extensions_catalog_input_reload_with_signature<F>(
+    changeset: Changeset,
+    options: ReviewOptions,
+    extensions: Vec<LoadedExtension>,
+    watch_input: ReviewWatchInput,
+    vcs_catalog: workdeck_vcs::VcsCatalog,
+    reload: &mut F,
+) -> Result<()>
+where
+    F: FnMut() -> Result<Changeset>,
+{
     run_review_inner(
         changeset,
         options,
         extensions,
-        Some((input, input_cwd)),
+        Some((
+            watch_input.input,
+            watch_input.cwd,
+            watch_input.initial_signature,
+        )),
         Some(vcs_catalog),
         Some(reload),
     )
@@ -5448,7 +5520,7 @@ fn run_review_inner(
     changeset: Changeset,
     mut options: ReviewOptions,
     extensions: Vec<LoadedExtension>,
-    watch_input: Option<(workdeck_core::CliInput, PathBuf)>,
+    watch_input: Option<(workdeck_core::CliInput, PathBuf, Option<String>)>,
     watch_vcs_catalog: Option<workdeck_vcs::VcsCatalog>,
     mut reloader: Option<&mut dyn FnMut() -> Result<Changeset>>,
 ) -> Result<()> {
@@ -5467,32 +5539,32 @@ fn run_review_inner(
         .clone()
         .map(Ok)
         .unwrap_or_else(std::env::current_dir)?;
-    options.review_input = watch_input.as_ref().map(|(input, _)| input.clone());
+    options.review_input = watch_input.as_ref().map(|(input, _, _)| input.clone());
     let mut app = ReviewApp::new_with_extensions(changeset, options, extensions);
     let watch_vcs_catalog =
         watch_vcs_catalog.unwrap_or_else(|| workdeck_vcs::bundled_vcs_catalog().clone());
-    let mut watched_input = watch_input
-        .filter(|_| app.options.watch)
-        .and_then(|(input, cwd)| {
-            let runtime: Arc<dyn WatchedInputRuntime> = Arc::new(NativeWatchedInputRuntime::new(
-                cwd,
-                Some(watch_vcs_catalog.clone()),
-            ));
-            match WatchedInputDriver::start(
-                true,
-                input,
-                runtime,
-                None,
-                Instant::now(),
-                workdeck_vcs::WatchControllerConfig::default(),
-            ) {
-                Ok(driver) => driver,
-                Err(error) => {
-                    app.status = Some(format!("failed to initialize watch mode: {error}"));
-                    None
+    let mut watched_input =
+        watch_input
+            .filter(|_| app.options.watch)
+            .and_then(|(input, cwd, initial_signature)| {
+                let runtime: Arc<dyn WatchedInputRuntime> = Arc::new(
+                    NativeWatchedInputRuntime::new(cwd, Some(watch_vcs_catalog.clone())),
+                );
+                match WatchedInputDriver::start(
+                    true,
+                    input,
+                    runtime,
+                    initial_signature,
+                    Instant::now(),
+                    workdeck_vcs::WatchControllerConfig::default(),
+                ) {
+                    Ok(driver) => driver,
+                    Err(error) => {
+                        app.status = Some(format!("failed to initialize watch mode: {error}"));
+                        None
+                    }
                 }
-            }
-        });
+            });
     let session = default_discovery_directory()
         .map(|directory| ReviewSessionServer::spawn(app.shared_state(), session_repo, directory))
         .transpose()?;
