@@ -110,7 +110,7 @@ pub fn load_startup_extensions(
         ));
     }
 
-    let discovery = discover_manifests_with_config(
+    let discovery = match discover_manifests_with_config(
         options.global_directory,
         options.repo_root,
         options.trust,
@@ -118,7 +118,15 @@ pub fn load_startup_extensions(
         options.user_config_paths,
         options.repo_config_paths,
         options.cwd,
-    )?;
+    ) {
+        Ok(discovery) => discovery,
+        Err(error) => {
+            if let Some(mut previous) = options.previous_load.take() {
+                previous.retire();
+            }
+            return Err(error);
+        }
+    };
 
     if discovery.candidates.is_empty() && discovery.pending_trust_repo_root.is_none() {
         if let Some(mut previous) = options.previous_load.take() {

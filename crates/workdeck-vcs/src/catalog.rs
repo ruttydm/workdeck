@@ -465,12 +465,37 @@ fn normal_component(component: &Component<'_>) -> bool {
 }
 
 pub fn find_project_root_candidate(cwd: &Path) -> Option<PathBuf> {
+    find_project_root_candidate_with_catalog(cwd, None)
+}
+
+/// Find the nearest Workdeck boundary or repository recognized by the active catalog.
+///
+/// Detection runs at every ancestor and only accepts an adapter when that adapter names the
+/// ancestor itself as its repository root. This preserves a nearer nested Workdeck boundary and
+/// contains adapter failures while allowing a newly loaded native adapter to establish a project
+/// root that the bundled providers could not see during the provisional configuration pass.
+pub fn find_project_root_candidate_with_catalog(
+    cwd: &Path,
+    catalog: Option<&VcsCatalog>,
+) -> Option<PathBuf> {
     let mut current = cwd.canonicalize().ok()?;
     loop {
         if current.join(".agents/workdeck").is_dir()
-            || [".jj", ".sl", ".git"]
-                .iter()
-                .any(|marker| current.join(marker).exists())
+            || catalog.map_or_else(
+                || {
+                    [".jj", ".sl", ".git"]
+                        .iter()
+                        .any(|marker| current.join(marker).exists())
+                },
+                |catalog| {
+                    catalog.adapters.iter().any(|adapter| {
+                        (adapter.detect)(&current)
+                            .ok()
+                            .flatten()
+                            .is_some_and(|detection| detection.repo_root == current)
+                    })
+                },
+            )
         {
             return Some(current);
         }
@@ -766,6 +791,35 @@ mod tests {
         fs::create_dir_all(&nested).unwrap();
         fs::create_dir_all(other.path().join(".agents")).unwrap();
         fs::write(other.path().join(".agents/workdeck"), "not a directory\n").unwrap();
+        assert_eq!(find_project_root_candidate(&nested), None);
+    }
+
+    #[test]
+    fn active_catalog_can_establish_an_external_project_root_and_contains_detection_errors() {
+        let temporary = tempdir().unwrap();
+        let repo = temporary.path().join("external");
+        let nested = repo.join("src/nested");
+        fs::create_dir_all(&nested).unwrap();
+        let repo = repo.canonicalize().unwrap();
+        let external = adapter(
+            "custom",
+            Some(repo.to_str().unwrap()),
+            None,
+            BTreeMap::new(),
+        );
+        let broken = VcsAdapter {
+            id: "broken".into(),
+            name: "Broken".into(),
+            detect: Arc::new(|_| Err("detection exploded".into())),
+            operations: BTreeMap::new(),
+            detection_priority: Some(100),
+        };
+        let catalog = create_vcs_catalog(vec![broken, external], "custom", ["custom".to_owned()]);
+
+        assert_eq!(
+            find_project_root_candidate_with_catalog(&nested, Some(&catalog)),
+            Some(repo)
+        );
         assert_eq!(find_project_root_candidate(&nested), None);
     }
 }

@@ -39,9 +39,10 @@ use workdeck_extension_api::{
     FileLanguageGlobTarget, FileLanguageMatcher, Registration,
 };
 use workdeck_extension_host::{
-    LoadStartupExtensionsOptions, LoadedExtension, TrustDecision, TrustStore,
-    create_extension_apply_notices, create_extension_load_notices, discover_manifests_with_config,
-    load_startup_extensions, resolve_loaded_extension_registrations, resolved_native_vcs_adapters,
+    ExtensionLoadResult, LoadStartupExtensionsOptions, LoadedExtension, TrustDecision, TrustStore,
+    create_empty_extension_load_result, create_extension_apply_notices,
+    create_extension_load_notices, discover_manifests_with_config, load_startup_extensions,
+    resolve_loaded_extension_registrations, resolved_native_vcs_adapters,
 };
 use workdeck_review::{
     CommentTargetInput, LayoutMode, ReviewComment, build_live_comment, find_diff_file_by_path,
@@ -59,9 +60,9 @@ use workdeck_tui::{
 use workdeck_vcs::{
     AnyProvider, ProviderPreference, VcsAdapter, VcsCatalog, VcsLoadContext, VcsReviewInput,
     WatchSignatureContext, bundled_vcs_catalog, compute_watch_signature, detect_vcs,
-    extend_vcs_catalog, find_project_root_candidate, get_default_vcs_adapter, get_vcs_adapter,
-    load_difftool_comparison, load_file_comparison, load_vcs_review, materialize_vcs_patch_result,
-    operation_from_input, parse_patch_input,
+    extend_vcs_catalog, find_project_root_candidate, find_project_root_candidate_with_catalog,
+    get_default_vcs_adapter, get_vcs_adapter, load_difftool_comparison, load_file_comparison,
+    load_vcs_review, materialize_vcs_patch_result, operation_from_input, parse_patch_input,
 };
 
 use crate::extension_cli_commands::{
@@ -616,6 +617,8 @@ struct ReviewCliOptions {
     custom_themes: Vec<NamedCustomThemeConfig>,
     #[arg(skip)]
     view_preferences_config_path: Option<PathBuf>,
+    #[arg(skip)]
+    config_exclude_untracked: bool,
 }
 
 impl ReviewCliOptions {
@@ -671,6 +674,7 @@ impl ReviewCliOptions {
             repo_extension_paths: config.resolved_extensions.repo_paths.clone(),
             custom_themes: config.custom_themes.clone(),
             view_preferences_config_path: config.view_preferences_config_path.clone(),
+            config_exclude_untracked: config.review.exclude_untracked,
         }
     }
 
@@ -725,6 +729,7 @@ impl ReviewCliOptions {
         self.repo_extension_paths = configured.repo_extension_paths;
         self.custom_themes = configured.custom_themes;
         self.view_preferences_config_path = configured.view_preferences_config_path;
+        self.config_exclude_untracked = configured.config_exclude_untracked;
         self.no_extensions |= configured.no_extensions;
     }
 
@@ -1053,16 +1058,19 @@ mod review_cli_option_tests {
         assert_eq!(retired.get(), 1);
 
         let directory = tempfile::tempdir().unwrap();
-        let review = ReviewCliOptions {
+        let mut review = ReviewCliOptions {
             no_extensions: true,
             extension: vec![directory.path().join("must-not-run")],
             startup_notices: vec![StartupNotice::new("config", "config")],
             ..ReviewCliOptions::default()
         };
+        let raw_review = review.clone();
         let prepared = load_review_extensions_with_notifications(
             directory.path(),
-            &review,
+            &mut review,
+            &raw_review,
             ExtensionNotificationHub::new(),
+            None,
         )
         .unwrap();
         assert!(prepared.extensions.is_empty());
@@ -1075,6 +1083,257 @@ mod review_cli_option_tests {
                 .as_bool()
                 .unwrap()
         );
+    }
+
+    #[test]
+    fn distinct_provisional_guards_close_each_owned_load_exactly_once() {
+        let first = create_empty_extension_load_result("/repo", ExtensionNotificationHub::new());
+        let first_control = first.control.clone();
+        let second =
+            create_empty_extension_load_result("/recognized", ExtensionNotificationHub::new());
+        let second_control = second.control.clone();
+        {
+            let _first = ProvisionalReviewExtensionLoad::new(first);
+            let _second = ProvisionalReviewExtensionLoad::new(second);
+        }
+        assert_eq!(
+            first_control.phase(),
+            workdeck_extension_host::ExtensionEventBusPhase::Closed
+        );
+        assert_eq!(
+            second_control.phase(),
+            workdeck_extension_host::ExtensionEventBusPhase::Closed
+        );
+    }
+
+    #[cfg(unix)]
+    fn install_external_vcs_test_extension(root: &Path, repo: &Path) -> (PathBuf, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let extension = root.join("custom-vcs");
+        std::fs::create_dir_all(&extension).unwrap();
+        let factory_log = extension.join("factory.log");
+        let executable = extension.join("custom-vcs.sh");
+        let quoted_repo = serde_json::to_string(&repo.to_string_lossy()).unwrap();
+        let quoted_log = serde_json::to_string(&factory_log.to_string_lossy()).unwrap();
+        let script = format!(
+            concat!(
+                "#!/bin/sh\n",
+                "factory_log={quoted_log}\n",
+                "printf 'factory\\n' >> \"$factory_log\"\n",
+                "while IFS= read -r line; do\n",
+                "  request_id=$(printf '%s\\n' \"$line\" | sed -E 's/.*\"id\":([0-9]+).*/\\1/')\n",
+                "  case \"$line\" in\n",
+                "    *workdeck/handshake*) result='{{\"extension_api_version\":1,\"extension_version\":\"1.0.0\",\"registrations\":[{{\"kind\":\"vcs-adapter\",\"id\":\"custom\",\"name\":\"Custom VCS\",\"operations\":{{\"working-tree-diff\":{{\"watchSignature\":false,\"watchPlan\":false}}}},\"detectionPriority\":50}},{{\"kind\":\"event-subscription\",\"names\":[\"shutdown\"]}}]}}' ;;\n",
+                "    *workdeck/vcs/detect*) result='{{\"id\":\"custom\",\"repoRoot\":{quoted_repo}}}' ;;\n",
+                "    *workdeck/vcs/load*) result='{{\"repoRoot\":{quoted_repo},\"sourceLabel\":{quoted_repo},\"title\":\"Custom working copy\",\"patchText\":\"\",\"readFileSource\":false}}' ;;\n",
+                "    *workdeck/shutdown*) printf 'shutdown\\n' >> \"$factory_log\"; exit 0 ;;\n",
+                "    *) continue ;;\n",
+                "  esac\n",
+                "  printf '{{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":%s}}\\n' \"$request_id\" \"$result\"\n",
+                "done\n",
+            ),
+            quoted_log = quoted_log,
+            quoted_repo = quoted_repo,
+        );
+        std::fs::write(&executable, script).unwrap();
+        let mut permissions = std::fs::metadata(&executable).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&executable, permissions).unwrap();
+        let manifest = extension.join("workdeck-extension.toml");
+        std::fs::write(
+            &manifest,
+            concat!(
+                "id = 'custom-vcs'\n",
+                "name = 'Custom VCS'\n",
+                "version = '1.0.0'\n",
+                "api_version = 1\n",
+                "executable = 'custom-vcs.sh'\n",
+                "capabilities = ['vcs-adapters', 'events']\n",
+            ),
+        )
+        .unwrap();
+        (manifest, factory_log)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn external_vcs_reresolves_repo_config_without_restarting_the_factory() {
+        let directory = tempfile::tempdir().unwrap();
+        let repo = directory.path().join("repo");
+        let nested = repo.join("src/nested");
+        std::fs::create_dir_all(repo.join(".custom")).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+        let repo = repo.canonicalize().unwrap();
+        let nested = nested.canonicalize().unwrap();
+        let (manifest, factory_log) = install_external_vcs_test_extension(directory.path(), &repo);
+        let repo_config = directory.path().join("resolved-repo-config.toml");
+        std::fs::write(
+            &repo_config,
+            "[review]\nmode = 'stack'\nexclude_untracked = true\n",
+        )
+        .unwrap();
+
+        let raw_review = ReviewCliOptions {
+            extension: vec![manifest],
+            ..ReviewCliOptions::default()
+        };
+        let mut review = raw_review.clone();
+        review.apply_config_defaults(&Config::default());
+        review.initial_theme_mode = Some(TerminalThemeMode::Light);
+        let resolved_roots = std::cell::RefCell::new(vec![None]);
+        let mut prepared = load_review_extensions_with_config_loader(
+            &nested,
+            &mut review,
+            &raw_review,
+            ExtensionNotificationHub::new(),
+            None,
+            |root| {
+                resolved_roots.borrow_mut().push(Some(root.to_owned()));
+                Config::load_from_paths(&repo_config, None)
+            },
+        )
+        .unwrap();
+
+        assert_eq!(resolved_roots.into_inner(), [None, Some(repo.clone())]);
+        assert!(matches!(review.mode, Some(ReviewLayoutArg::Stack)));
+        assert!(review.config_exclude_untracked);
+        assert_eq!(review.initial_theme_mode, Some(TerminalThemeMode::Light));
+        assert_eq!(std::fs::read_to_string(&factory_log).unwrap(), "factory\n");
+
+        let catalog = compose_review_vcs_catalog(&prepared.extensions);
+        let selection = select_review_vcs_adapter(&nested, None, &catalog).unwrap();
+        assert_eq!(selection.adapter.id, "custom");
+        let input = VcsReviewInput::Diff(VcsDiffCommandInput {
+            range: None,
+            range_endpoints: None,
+            staged: false,
+            pathspecs: Vec::new(),
+            options: review.common_options(),
+        });
+        let loaded =
+            load_selected_vcs_changeset(&nested, &selection.adapter, &catalog, &input).unwrap();
+        assert_eq!(loaded.repo_root, repo);
+        assert_eq!(loaded.changeset.title, "Custom working copy");
+
+        for extension in &mut prepared.extensions {
+            extension.retire();
+        }
+        assert_eq!(
+            std::fs::read_to_string(factory_log).unwrap(),
+            "factory\nshutdown\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn delegated_extension_cli_load_is_reused_by_both_review_bootstrap_passes() {
+        let directory = tempfile::tempdir().unwrap();
+        let repo = directory.path().join("repo");
+        let nested = repo.join("src/nested");
+        std::fs::create_dir_all(repo.join(".custom")).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+        let repo = repo.canonicalize().unwrap();
+        let nested = nested.canonicalize().unwrap();
+        let (manifest, factory_log) = install_external_vcs_test_extension(directory.path(), &repo);
+        let raw_review = ReviewCliOptions {
+            extension: vec![manifest],
+            ..ReviewCliOptions::default()
+        };
+        let mut review = raw_review.clone();
+        review.apply_config_defaults(&Config::default());
+        let notifications = ExtensionNotificationHub::new();
+
+        let previous =
+            load_review_extension_pass(&nested, &review, notifications.clone(), None, None)
+                .unwrap();
+        assert_eq!(std::fs::read_to_string(&factory_log).unwrap(), "factory\n");
+        let mut prepared = load_review_extensions_with_config_loader(
+            &nested,
+            &mut review,
+            &raw_review,
+            notifications,
+            Some(previous),
+            |_| Ok(Config::default()),
+        )
+        .unwrap();
+
+        assert_eq!(std::fs::read_to_string(&factory_log).unwrap(), "factory\n");
+        let catalog = compose_review_vcs_catalog(&prepared.extensions);
+        assert_eq!(
+            select_review_vcs_adapter(&nested, None, &catalog)
+                .unwrap()
+                .adapter
+                .id,
+            "custom"
+        );
+        for extension in &mut prepared.extensions {
+            extension.retire();
+        }
+        assert_eq!(
+            std::fs::read_to_string(factory_log).unwrap(),
+            "factory\nshutdown\n"
+        );
+    }
+
+    #[test]
+    fn frozen_hunk_extension_bootstrap_oracle_covers_both_pins_and_every_source_test() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/extension-bootstrap.json"
+        ))
+        .unwrap();
+        let baselines = oracle["baselines"].as_array().unwrap();
+        assert_eq!(baselines.len(), 2);
+        assert_eq!(
+            baselines
+                .iter()
+                .map(|baseline| baseline["commit"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            [
+                "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+                "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+            ]
+        );
+        assert!(baselines.iter().all(|baseline| {
+            baseline["test_blob"] == "692d87fa76d60a3e8a6093a0c17b70aacd5d65f2"
+                && baseline["vcs_test_blob"] == "099b2e0d1176fa0b76d87d379043b8d31b028504"
+                && baseline["passed"] == 4
+                && baseline["failed"] == 0
+                && baseline["expect_calls"] == 18
+        }));
+        assert_eq!(
+            baselines[0]["source_blob"],
+            "15adc2d84ebeffe07641a238b8b7e39fc9318fb8"
+        );
+        assert_eq!(baselines[0]["source_bytes"], 5_662);
+        assert_eq!(
+            baselines[1]["source_blob"],
+            "1a10fc5023e29cf6e32a642b06a3f1f31ad2c72b"
+        );
+        assert_eq!(baselines[1]["source_bytes"], 5_232);
+        assert_eq!(oracle["test_mapping"].as_array().unwrap().len(), 4);
+        assert!(
+            oracle["test_mapping"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|mapping| {
+                    mapping["source_test"]
+                        .as_str()
+                        .is_some_and(|name| !name.is_empty())
+                        && mapping["rust_tests"]
+                            .as_array()
+                            .is_some_and(|tests| !tests.is_empty())
+                })
+        );
+        assert_eq!(
+            oracle["expected"]["configuration_roots"],
+            serde_json::json!([null, "external-repository"])
+        );
+        assert_eq!(oracle["expected"]["factory_starts"], 1);
+        assert_eq!(oracle["expected"]["preloaded_factory_starts"], 1);
+        assert_eq!(oracle["expected"]["final_vcs"], "custom");
+        assert_eq!(oracle["expected"]["final_title"], "Custom working copy");
     }
 
     #[test]
@@ -2407,7 +2666,14 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(mut args: Args) -> Result<()> {
+fn run(args: Args) -> Result<()> {
+    run_with_preloaded_extensions(args, None)
+}
+
+fn run_with_preloaded_extensions(
+    mut args: Args,
+    mut preloaded_extensions: Option<ExtensionLoadResult>,
+) -> Result<()> {
     let has_extension_bootstrap_flags =
         !args.extension.is_empty() || args.extensions || args.no_extensions;
     let accepts_extension_bootstrap = args.command.as_ref().is_none_or(|command| {
@@ -2453,6 +2719,10 @@ fn run(mut args: Args) -> Result<()> {
             .is_some_and(Command::is_review_command)
     {
         let mut command = args.command.take().expect("review command was present");
+        let raw_review = command
+            .review_options()
+            .expect("review command has review options")
+            .clone();
         let preference = command
             .review_options()
             .expect("review command has review options")
@@ -2478,17 +2748,13 @@ fn run(mut args: Args) -> Result<()> {
             .review_options_mut()
             .expect("review command has review options")
             .initial_theme_mode = initial_theme_mode;
-        if let Command::Diff {
-            exclude_untracked,
-            include_untracked,
-            ..
-        } = &mut command
-            && !*exclude_untracked
-            && !*include_untracked
-        {
-            *exclude_untracked = config.review.exclude_untracked;
-        }
-        return handle_review_command(&args.cwd, command, prepared_piped_input);
+        return handle_review_command(
+            &args.cwd,
+            command,
+            raw_review,
+            preloaded_extensions.take(),
+            prepared_piped_input,
+        );
     }
 
     if !args.init
@@ -2573,16 +2839,25 @@ fn run(mut args: Args) -> Result<()> {
         }
         return Ok(());
     }
-    let mut review = ReviewCliOptions::from_config(&config);
-    review.extension = args.extension;
-    review.no_extensions |= args.no_extensions && !args.extensions;
+    let raw_review = ReviewCliOptions {
+        extension: args.extension,
+        no_extensions: args.no_extensions && !args.extensions,
+        ..ReviewCliOptions::default()
+    };
+    let mut review = raw_review.clone();
+    review.apply_config_defaults(&config);
     review.initial_theme_mode = detect_initial_review_theme_mode(
         &review,
         prepared_piped_input
             .as_mut()
             .and_then(|prepared| prepared.terminal.as_mut()),
     )?;
-    let mut prepared_extensions = prepare_review_extensions(&args.cwd, &review)?;
+    let mut prepared_extensions = prepare_review_extensions(
+        &args.cwd,
+        &mut review,
+        &raw_review,
+        preloaded_extensions.take(),
+    )?;
     let catalog = compose_review_vcs_catalog(&prepared_extensions.extensions);
     prepared_extensions.vcs_catalog = Some(catalog.clone());
     let mut vcs_input = VcsReviewInput::Diff(VcsDiffCommandInput {
@@ -2592,7 +2867,7 @@ fn run(mut args: Args) -> Result<()> {
         pathspecs: Vec::new(),
         options: {
             let mut options = review.common_options();
-            options.exclude_untracked = Some(config.review.exclude_untracked);
+            options.exclude_untracked = Some(review.config_exclude_untracked);
             options
         },
     });
@@ -2796,6 +3071,39 @@ struct PreparedReviewExtensions {
     vcs_catalog: Option<VcsCatalog>,
 }
 
+/// Retain provisional load ownership until bootstrap either commits it to the TUI or fails.
+///
+/// `LoadedExtension` is cloneable because VCS callbacks retain process handles. A plain dropped
+/// vector therefore cannot guarantee immediate revocation when a provisional catalog is still in
+/// scope. This guard explicitly closes the owning load result on every error path.
+struct ProvisionalReviewExtensionLoad(Option<ExtensionLoadResult>);
+
+impl ProvisionalReviewExtensionLoad {
+    fn new(result: ExtensionLoadResult) -> Self {
+        Self(Some(result))
+    }
+
+    fn result(&self) -> &ExtensionLoadResult {
+        self.0
+            .as_ref()
+            .expect("provisional extension load is still owned")
+    }
+
+    fn take(&mut self) -> ExtensionLoadResult {
+        self.0
+            .take()
+            .expect("provisional extension load is still owned")
+    }
+}
+
+impl Drop for ProvisionalReviewExtensionLoad {
+    fn drop(&mut self) {
+        if let Some(result) = &mut self.0 {
+            result.retire();
+        }
+    }
+}
+
 type WorkdeckAppBootstrap = AppBootstrap<PreparedReviewExtensions, VcsCatalog>;
 
 struct SelectedVcsAdapter {
@@ -2815,9 +3123,11 @@ struct LoadedReviewChangeset {
 
 fn prepare_review_extensions(
     cwd: &Path,
-    review: &ReviewCliOptions,
+    review: &mut ReviewCliOptions,
+    raw_review: &ReviewCliOptions,
+    previous_load: Option<ExtensionLoadResult>,
 ) -> Result<PreparedReviewExtensions> {
-    load_review_extensions(cwd, review)
+    load_review_extensions(cwd, review, raw_review, previous_load)
 }
 
 fn load_extensions_before_changeset<E, C>(
@@ -2997,6 +3307,8 @@ fn should_open_controlling_terminal(
 fn handle_review_command(
     cwd: &Path,
     command: Command,
+    raw_review: ReviewCliOptions,
+    mut preloaded_extensions: Option<ExtensionLoadResult>,
     mut prepared_piped_input: Option<PreparedPipedInput>,
 ) -> Result<()> {
     match command {
@@ -3005,13 +3317,24 @@ fn handle_review_command(
             files,
             staged,
             exclude_untracked,
-            include_untracked: _,
+            include_untracked,
             pathspec,
-            review,
+            mut review,
         } => {
             if validate_diff_file_arguments(&files, &revisions, staged, &pathspec)? {
                 let left = files[0].clone();
                 let right = files[1].clone();
+                let (prepared_extensions, changeset) = load_extensions_before_changeset(
+                    || {
+                        prepare_review_extensions(
+                            cwd,
+                            &mut review,
+                            &raw_review,
+                            preloaded_extensions.take(),
+                        )
+                    },
+                    || load_file_comparison(cwd, &left, &right).map_err(anyhow::Error::from),
+                )?;
                 let input = CliInput::Files(FileCommandInput {
                     left: left.to_string_lossy().into_owned(),
                     right: right.to_string_lossy().into_owned(),
@@ -3019,10 +3342,6 @@ fn handle_review_command(
                 });
                 let initial_watch_signature =
                     capture_initial_watch_signature(&review, &input, cwd, None);
-                let (prepared_extensions, changeset) = load_extensions_before_changeset(
-                    || prepare_review_extensions(cwd, &review),
-                    || load_file_comparison(cwd, &left, &right).map_err(anyhow::Error::from),
-                )?;
                 let mut reload =
                     || load_file_comparison(cwd, &left, &right).map_err(anyhow::Error::from);
                 return run_review_with_preloaded_extensions(
@@ -3044,11 +3363,17 @@ fn handle_review_command(
                 [from, to] => (Some(from.clone()), Some(to.clone())),
                 _ => unreachable!("clap limits revisions to two"),
             };
-            let mut prepared_extensions = prepare_review_extensions(cwd, &review)?;
+            let mut prepared_extensions = prepare_review_extensions(
+                cwd,
+                &mut review,
+                &raw_review,
+                preloaded_extensions.take(),
+            )?;
             let catalog = compose_review_vcs_catalog(&prepared_extensions.extensions);
             prepared_extensions.vcs_catalog = Some(catalog.clone());
             let mut input_options = review.common_options();
-            input_options.exclude_untracked = Some(exclude_untracked);
+            input_options.exclude_untracked =
+                Some(!include_untracked && (exclude_untracked || review.config_exclude_untracked));
             let mut vcs_input = VcsReviewInput::Diff(VcsDiffCommandInput {
                 range: from.is_none().then(|| target.clone()).flatten(),
                 range_endpoints: from
@@ -3092,9 +3417,14 @@ fn handle_review_command(
         Command::Show {
             target,
             pathspec,
-            review,
+            mut review,
         } => {
-            let mut prepared_extensions = prepare_review_extensions(cwd, &review)?;
+            let mut prepared_extensions = prepare_review_extensions(
+                cwd,
+                &mut review,
+                &raw_review,
+                preloaded_extensions.take(),
+            )?;
             let catalog = compose_review_vcs_catalog(&prepared_extensions.extensions);
             prepared_extensions.vcs_catalog = Some(catalog.clone());
             let mut vcs_input = VcsReviewInput::Show(VcsShowCommandInput {
@@ -3133,9 +3463,18 @@ fn handle_review_command(
             )
         }
         Command::Stash {
-            command: StashCommand::Show { reference, review },
+            command:
+                StashCommand::Show {
+                    reference,
+                    mut review,
+                },
         } => {
-            let mut prepared_extensions = prepare_review_extensions(cwd, &review)?;
+            let mut prepared_extensions = prepare_review_extensions(
+                cwd,
+                &mut review,
+                &raw_review,
+                preloaded_extensions.take(),
+            )?;
             let catalog = compose_review_vcs_catalog(&prepared_extensions.extensions);
             prepared_extensions.vcs_catalog = Some(catalog.clone());
             let configured_id = review.configured_vcs_id().or(Some("git"));
@@ -3173,20 +3512,17 @@ fn handle_review_command(
                 prepared_extensions,
             )
         }
-        Command::Patch { file, review } => {
+        Command::Patch { file, mut review } => {
             let reload_path = file.clone().filter(|path| path != Path::new("-"));
-            let reload_input = reload_path.as_ref().map(|path| {
-                CliInput::Patch(PatchCommandInput {
-                    file: Some(path.to_string_lossy().into_owned()),
-                    text: None,
-                    options: review.common_options(),
-                })
-            });
-            let initial_watch_signature = reload_input
-                .as_ref()
-                .and_then(|input| capture_initial_watch_signature(&review, input, cwd, None));
             let (prepared_extensions, (patch, label)) = load_extensions_before_changeset(
-                || prepare_review_extensions(cwd, &review),
+                || {
+                    prepare_review_extensions(
+                        cwd,
+                        &mut review,
+                        &raw_review,
+                        preloaded_extensions.take(),
+                    )
+                },
                 || match file {
                     Some(path) if path != Path::new("-") => {
                         let patch = std::fs::read_to_string(&path)
@@ -3207,6 +3543,16 @@ fn handle_review_command(
                     }
                 },
             )?;
+            let reload_input = reload_path.as_ref().map(|path| {
+                CliInput::Patch(PatchCommandInput {
+                    file: Some(path.to_string_lossy().into_owned()),
+                    text: None,
+                    options: review.common_options(),
+                })
+            });
+            let initial_watch_signature = reload_input
+                .as_ref()
+                .and_then(|input| capture_initial_watch_signature(&review, input, cwd, None));
             let session_input = reload_input.clone().unwrap_or_else(|| {
                 CliInput::Patch(PatchCommandInput {
                     file: None,
@@ -3253,8 +3599,22 @@ fn handle_review_command(
             left,
             right,
             path,
-            review,
+            mut review,
         } => {
+            let (prepared_extensions, changeset) = load_extensions_before_changeset(
+                || {
+                    prepare_review_extensions(
+                        cwd,
+                        &mut review,
+                        &raw_review,
+                        preloaded_extensions.take(),
+                    )
+                },
+                || {
+                    load_difftool_comparison(cwd, &left, &right, path.as_deref())
+                        .map_err(anyhow::Error::from)
+                },
+            )?;
             let input = CliInput::DiffTool(DiffToolCommandInput {
                 left: left.to_string_lossy().into_owned(),
                 right: right.to_string_lossy().into_owned(),
@@ -3265,13 +3625,6 @@ fn handle_review_command(
             });
             let initial_watch_signature =
                 capture_initial_watch_signature(&review, &input, cwd, None);
-            let (prepared_extensions, changeset) = load_extensions_before_changeset(
-                || prepare_review_extensions(cwd, &review),
-                || {
-                    load_difftool_comparison(cwd, &left, &right, path.as_deref())
-                        .map_err(anyhow::Error::from)
-                },
-            )?;
             let display_path = path.clone();
             let mut reload = || {
                 load_difftool_comparison(cwd, &left, &right, display_path.as_deref())
@@ -3290,7 +3643,7 @@ fn handle_review_command(
                 prepared_extensions,
             )
         }
-        Command::Pager { review } => {
+        Command::Pager { mut review } => {
             let input = if let Some(prepared) = prepared_piped_input.as_mut() {
                 std::mem::take(&mut prepared.text)
             } else {
@@ -3302,7 +3655,14 @@ fn handle_review_command(
             };
             if workdeck_cli::pager::looks_like_patch_input(&input) {
                 let (prepared_extensions, changeset) = load_extensions_before_changeset(
-                    || prepare_review_extensions(cwd, &review),
+                    || {
+                        prepare_review_extensions(
+                            cwd,
+                            &mut review,
+                            &raw_review,
+                            preloaded_extensions.take(),
+                        )
+                    },
                     || parse_patch_input(&input, "pager").map_err(anyhow::Error::from),
                 )?;
                 let session_input = CliInput::Patch(PatchCommandInput {
@@ -3828,50 +4188,84 @@ fn apply_agent_context(cwd: &Path, path: Option<&Path>, changeset: &mut Changese
 
 fn load_review_extensions(
     cwd: &Path,
-    review: &ReviewCliOptions,
+    review: &mut ReviewCliOptions,
+    raw_review: &ReviewCliOptions,
+    previous_load: Option<ExtensionLoadResult>,
 ) -> Result<PreparedReviewExtensions> {
-    let notifications = ExtensionNotificationHub::new();
-    load_review_extensions_with_notifications(cwd, review, notifications)
+    let notifications = previous_load
+        .as_ref()
+        .map(|previous| previous.notifications.clone())
+        .unwrap_or_default();
+    load_review_extensions_with_notifications(cwd, review, raw_review, notifications, previous_load)
 }
 
 fn load_review_extensions_with_notifications(
     cwd: &Path,
-    review: &ReviewCliOptions,
+    review: &mut ReviewCliOptions,
+    raw_review: &ReviewCliOptions,
     notifications: ExtensionNotificationHub,
+    previous_load: Option<ExtensionLoadResult>,
 ) -> Result<PreparedReviewExtensions> {
-    if review.no_extensions {
-        return Ok(PreparedReviewExtensions {
-            extensions: Vec::new(),
-            notifications,
-            pending_trust_repo_root: None,
-            configured_notices: review.startup_notices.clone(),
-            application_notices: Vec::new(),
-            unknown_vcs_notices: Vec::new(),
-            load_notices: Vec::new(),
-            vcs_catalog: None,
-        });
-    }
-    let config = user_config_root().map(|root| root.join("workdeck"));
-    let trust = load_extension_trust_store();
-    let global_extensions = config.as_ref().map(|config| config.join("extensions"));
-    let repo = AnyProvider::discover(cwd, review.preference())
+    load_review_extensions_with_config_loader(
+        cwd,
+        review,
+        raw_review,
+        notifications,
+        previous_load,
+        Config::load,
+    )
+}
+
+fn load_review_extensions_with_config_loader(
+    cwd: &Path,
+    review: &mut ReviewCliOptions,
+    raw_review: &ReviewCliOptions,
+    notifications: ExtensionNotificationHub,
+    previous_load: Option<ExtensionLoadResult>,
+    load_config: impl Fn(&Path) -> Result<Config>,
+) -> Result<PreparedReviewExtensions> {
+    let initial_repo = AnyProvider::discover(cwd, review.preference())
         .ok()
         .map(|provider| provider.root().to_owned())
         .or_else(|| find_project_root_candidate(cwd));
-    let result = load_startup_extensions(LoadStartupExtensionsOptions {
-        enabled: true,
+    let first = load_review_extension_pass(
         cwd,
-        global_directory: global_extensions.as_deref(),
-        repo_root: repo.as_deref(),
-        trust: &trust,
-        explicit_paths: &review.extension,
-        user_config_paths: &review.user_extension_paths,
-        repo_config_paths: &review.repo_extension_paths,
-        host_version: env!("CARGO_PKG_VERSION"),
-        extension_configs: &review.extension_config,
-        notifications: Some(notifications.clone()),
-        previous_load: None,
-    })?;
+        review,
+        notifications.clone(),
+        initial_repo.as_deref(),
+        previous_load,
+    )?;
+    let mut provisional = ProvisionalReviewExtensionLoad::new(first);
+    let provisional_resolution = resolve_loaded_extension_registrations(
+        &provisional.result().extensions,
+        bundled_vcs_catalog(),
+    );
+    let provisional_adapters =
+        resolved_native_vcs_adapters(&provisional.result().extensions, &provisional_resolution);
+    let has_extension_vcs = !provisional_adapters.is_empty();
+    let provisional_catalog = extend_vcs_catalog(bundled_vcs_catalog(), provisional_adapters);
+    let extension_repo = find_project_root_candidate_with_catalog(cwd, Some(&provisional_catalog));
+
+    if has_extension_vcs && extension_repo != initial_repo {
+        let config = load_config(extension_repo.as_deref().unwrap_or(cwd))?;
+        let initial_theme_mode = review.initial_theme_mode;
+        let mut final_review = raw_review.clone();
+        final_review.apply_config_defaults(&config);
+        final_review.initial_theme_mode = initial_theme_mode;
+        *review = final_review;
+
+        let previous = provisional.take();
+        let final_result = load_review_extension_pass(
+            cwd,
+            review,
+            notifications.clone(),
+            extension_repo.as_deref(),
+            Some(previous),
+        )?;
+        provisional = ProvisionalReviewExtensionLoad::new(final_result);
+    }
+
+    let result = provisional.take();
     let resolution =
         resolve_loaded_extension_registrations(&result.extensions, bundled_vcs_catalog());
     Ok(PreparedReviewExtensions {
@@ -3884,6 +4278,39 @@ fn load_review_extensions_with_notifications(
         load_notices: create_extension_load_notices(&result.issues),
         vcs_catalog: None,
     })
+}
+
+fn load_review_extension_pass(
+    cwd: &Path,
+    review: &ReviewCliOptions,
+    notifications: ExtensionNotificationHub,
+    repo_root: Option<&Path>,
+    mut previous_load: Option<ExtensionLoadResult>,
+) -> Result<ExtensionLoadResult> {
+    if review.no_extensions {
+        if let Some(previous) = &mut previous_load {
+            previous.retire();
+        }
+        return Ok(create_empty_extension_load_result(cwd, notifications));
+    }
+    let config = user_config_root().map(|root| root.join("workdeck"));
+    let trust = load_extension_trust_store();
+    let global_extensions = config.as_ref().map(|config| config.join("extensions"));
+    load_startup_extensions(LoadStartupExtensionsOptions {
+        enabled: true,
+        cwd,
+        global_directory: global_extensions.as_deref(),
+        repo_root,
+        trust: &trust,
+        explicit_paths: &review.extension,
+        user_config_paths: &review.user_extension_paths,
+        repo_config_paths: &review.repo_extension_paths,
+        host_version: env!("CARGO_PKG_VERSION"),
+        extension_configs: &review.extension_config,
+        notifications: Some(notifications),
+        previous_load,
+    })
+    .map_err(anyhow::Error::from)
 }
 
 fn review_extension_trust_handler(
@@ -3910,9 +4337,16 @@ fn review_extension_trust_handler(
         if !load_extensions {
             return Ok(Vec::new());
         }
-        let mut prepared =
-            load_review_extensions_with_notifications(&cwd, &review, notifications.clone())
-                .map_err(|_| ExtensionTrustHostError::Reload)?;
+        let mut review = review.clone();
+        let raw_review = review.clone();
+        let mut prepared = load_review_extensions_with_notifications(
+            &cwd,
+            &mut review,
+            &raw_review,
+            notifications.clone(),
+            None,
+        )
+        .map_err(|_| ExtensionTrustHostError::Reload)?;
         if prepared.pending_trust_repo_root.is_some() {
             return Err(ExtensionTrustHostError::Reload);
         }
@@ -3927,9 +4361,12 @@ fn load_cli_extensions(
     cwd: &Path,
     explicit: &[PathBuf],
     disabled: bool,
-) -> Result<Vec<LoadedExtension>> {
+) -> Result<ExtensionLoadResult> {
     if disabled {
-        return Ok(Vec::new());
+        return Ok(create_empty_extension_load_result(
+            cwd,
+            ExtensionNotificationHub::new(),
+        ));
     }
     let config = user_config_root().map(|root| root.join("workdeck"));
     let trust = load_extension_trust_store();
@@ -3940,7 +4377,10 @@ fn load_cli_extensions(
         .or_else(|| find_project_root_candidate(cwd));
     let config = Config::load(repo.as_deref().unwrap_or(cwd))?;
     if !config.resolved_extensions.enabled {
-        return Ok(Vec::new());
+        return Ok(create_empty_extension_load_result(
+            cwd,
+            ExtensionNotificationHub::new(),
+        ));
     }
     let result = load_startup_extensions(LoadStartupExtensionsOptions {
         enabled: true,
@@ -3956,10 +4396,10 @@ fn load_cli_extensions(
         notifications: None,
         previous_load: None,
     })?;
-    for issue in result.issues {
+    for issue in &result.issues {
         eprintln!("warning: {issue}");
     }
-    Ok(result.extensions)
+    Ok(result)
 }
 
 fn registered_extension_cli_commands(
@@ -4028,8 +4468,8 @@ fn handle_extension_cli_command(
     command_name: &str,
     command_args: &[String],
 ) -> Result<()> {
-    let mut extensions = load_cli_extensions(cwd, extension_paths, extensions_disabled)?;
-    let registered = registered_extension_cli_commands(&extensions);
+    let mut extension_load = load_cli_extensions(cwd, extension_paths, extensions_disabled)?;
+    let registered = registered_extension_cli_commands(&extension_load.extensions);
     let resolved = resolve_extension_cli_commands(&registered);
     for issue in create_extension_cli_collision_issues(&registered, &resolved.collisions) {
         eprintln!("workdeck: warning: {}", issue.message);
@@ -4065,7 +4505,7 @@ fn handle_extension_cli_command(
         let mut stdin = std::io::stdin().lock();
         let mut stdout = std::io::stdout().lock();
         let mut stderr = std::io::stderr().lock();
-        extensions[extension_index].invoke_cli_command_cancellable_with_input(
+        extension_load.extensions[extension_index].invoke_cli_command_cancellable_with_input(
             command_name,
             command_args.to_vec(),
             &command_cwd,
@@ -4093,11 +4533,9 @@ fn handle_extension_cli_command(
             if matches!(delegated.command, Some(Command::External(_))) {
                 bail!("Extension CLI commands may delegate only to built-in Workdeck commands.");
             }
-            // Retain the registry until the delegated command returns. Extensions may own
-            // reloadable temporary inputs that are retired only during extension shutdown.
-            let result = run(delegated);
-            drop(extensions);
-            result
+            // Transfer complete ownership into built-in startup. The configured resolver can
+            // extend this exact prefix without executing an unchanged extension factory twice.
+            run_with_preloaded_extensions(delegated, Some(extension_load))
         }
     }
 }
