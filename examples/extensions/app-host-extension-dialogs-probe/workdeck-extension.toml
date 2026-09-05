@@ -1,0 +1,7 @@
+id = "app-host-extension-dialogs-probe"
+name = "AppHost extension dialogs parity probe"
+version = "0.1.0"
+api_version = 1
+executable = "bin/workdeck-example-app-host-extension-dialogs-probe-extension"
+capabilities = ["commands", "events", "dialogs", "configuration", "notifications"]
+description = "Compiled fixture for confirm, select, input, pointer, reload cancellation, and lifecycle dialog parity"

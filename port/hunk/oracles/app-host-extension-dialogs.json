@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "path": "src/ui/AppHost.extension-dialogs.test.tsx",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "7df60410d19cf0c428ec5f47123b1aebc6c36c69",
+      "sha256": "1617b03844c91af3c8640a10d460c77800d3aa568a037479afe7b4e97e37661d",
+      "bytes": 19344,
+      "lines": 579
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "7df60410d19cf0c428ec5f47123b1aebc6c36c69",
+      "sha256": "1617b03844c91af3c8640a10d460c77800d3aa568a037479afe7b4e97e37661d",
+      "bytes": 19344,
+      "lines": 579
+    }
+  },
+  "oracleRuns": {
+    "baseline": {
+      "runtime": "bun 1.3.14",
+      "command": "bun test src/ui/AppHost.extension-dialogs.test.tsx",
+      "passed": 8,
+      "failed": 0,
+      "expectCalls": 20,
+      "stderr": [
+        "The current testing environment is not configured to support act(...)"
+      ],
+      "elapsedMilliseconds": 2660,
+      "caseMilliseconds": [
+        330.36,
+        222.18,
+        256.06,
+        234.63,
+        262.04,
+        288.65,
+        346.76,
+        327.81
+      ]
+    },
+    "stable": {
+      "runtime": "bun 1.3.5",
+      "command": "bun test src/ui/AppHost.extension-dialogs.test.tsx",
+      "passed": 8,
+      "failed": 0,
+      "expectCalls": 20,
+      "stderr": [
+        "The current testing environment is not configured to support act(...)"
+      ],
+      "elapsedMilliseconds": 2880,
+      "caseMilliseconds": [
+        344.36,
+        250.48,
+        254.35,
+        224.39,
+        267.29,
+        405.5,
+        371.99,
+        348.5
+      ]
+    }
+  },
+  "testMappings": [
+    {
+      "upstream": "a confirm dialog renders with attribution and resolves true on enter",
+      "rust": "confirm_dialog_is_attributed_modal_owns_quit_and_enter_resolves_true"
+    },
+    {
+      "upstream": "keeps confirm actions visible when wrapped prose exceeds a short terminal",
+      "rust": "short_confirm_keeps_overflow_and_both_footer_actions_visible"
+    },
+    {
+      "upstream": "escape resolves a confirm dialog as false",
+      "rust": "escape_resolves_confirm_false_and_returns_keyboard_to_review"
+    },
+    {
+      "upstream": "a select dialog resolves the option the arrow keys land on",
+      "rust": "select_dialog_resolves_keyboard_highlight_and_exact_clicked_row"
+    },
+    {
+      "upstream": "clicking a select option accepts that exact row",
+      "rust": "select_dialog_resolves_keyboard_highlight_and_exact_clicked_row"
+    },
+    {
+      "upstream": "an input dialog resolves the typed text",
+      "rust": "input_dialog_owns_typing_and_mouse_submit_returns_exact_text"
+    },
+    {
+      "upstream": "a daemon-driven session reload cancels the open dialog",
+      "rust": "soft_reload_cancels_the_old_dialog_and_submits_false"
+    },
+    {
+      "upstream": "keeps a dialog opened by the replacement generation's reload lifecycle",
+      "rust": "replacement_reload_event_dialog_survives_old_generation_retirement"
+    }
+  ],
+  "adaptations": [
+    "Compiled native JSON-RPC extensions replace temporary TypeScript files. Dialog answers return through the matching confirm, select, and input submission methods and are observed through the host notification sink.",
+    "The direct ReviewApp soft-reload entrypoint shares the exact commit boundary used by daemon reload_session dispatch. Dedicated session bridge tests retain responsibility for transport framing; this interval verifies dialog generation ownership at that boundary.",
+    "Ratatui modal cells replace OpenTUI test frames. Workdeck attribution replaces Hunk branding while titles, wrapped body overflow, footer actions, focus, pointer targets, answers, and lifecycle ordering remain acceptance data."
+  ]
+}

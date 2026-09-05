@@ -41,6 +41,10 @@ name = "workdeck-example-app-host-file-view-modes-probe-extension"
 path = "extensions/app-host-file-view-modes-probe/main.rs"
 
 [[bin]]
+name = "workdeck-example-app-host-extension-dialogs-probe-extension"
+path = "extensions/app-host-extension-dialogs-probe/main.rs"
+
+[[bin]]
 name = "workdeck-example-review-snapshot-export-extension"
 path = "extensions/review-snapshot-export/main.rs"
 
