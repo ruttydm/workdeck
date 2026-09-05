@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "path": "src/ui/AppHost.keyboard-modes.test.tsx",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "a918f9a4b50f003a6860251a71ca8975bcbdfbee",
+      "sha256": "f4fef3e4cb7bdfb55f9a9fdd8d385e3d0c056abb3089d2e077bf7ec86ba93849",
+      "bytes": 11003,
+      "lines": 279
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "a918f9a4b50f003a6860251a71ca8975bcbdfbee",
+      "sha256": "f4fef3e4cb7bdfb55f9a9fdd8d385e3d0c056abb3089d2e077bf7ec86ba93849",
+      "bytes": 11003,
+      "lines": 279
+    }
+  },
+  "oracleRuns": {
+    "baseline": {
+      "runtime": "bun 1.3.14",
+      "command": "bun test src/ui/AppHost.keyboard-modes.test.tsx",
+      "passed": 5,
+      "failed": 0,
+      "expectCalls": 26,
+      "elapsedMilliseconds": 1016
+    },
+    "stable": {
+      "runtime": "bun 1.3.5",
+      "command": "bun test src/ui/AppHost.keyboard-modes.test.tsx",
+      "passed": 5,
+      "failed": 0,
+      "expectCalls": 26,
+      "elapsedMilliseconds": 988
+    }
+  },
+  "testMappings": [
+    {
+      "upstream": "routes handled/pass keys and keeps modal and focused input precedence",
+      "rust": "routes_handled_and_passed_keys_after_modal_and_filter_owners"
+    },
+    {
+      "upstream": "routes open-menu accelerators before extension keyboard modes",
+      "rust": "open_menu_accelerators_precede_both_extension_mode_layers"
+    },
+    {
+      "upstream": "gives a focused file-view mode first Escape and the session mode the second",
+      "rust": "focused_file_mode_owns_first_escape_and_session_mode_owns_second"
+    },
+    {
+      "upstream": "updates ownership eagerly for two Escapes in one input flush",
+      "rust": "two_escapes_in_one_input_flush_update_ownership_eagerly"
+    },
+    {
+      "upstream": "retires closed registry authority before delivering another key",
+      "rust": "closed_registry_retires_mode_before_delivering_another_key"
+    }
+  ],
+  "adaptations": [
+    "The dynamically written TypeScript probe is a compiled Rust JSON-RPC subprocess fixture with the same session mode, focused file-view mode, F8/F9/p commands, routing results, lifecycle notices, and one-row FOCUSED VIEW layout.",
+    "Workdeck prefixes visible extension notifications with its native extension id; the parity harness strips only that Workdeck attribution while comparing upstream-authored message bodies.",
+    "Ratatui's asynchronous file-view layout cache is polled until the FOCUSED VIEW cell frame and persistent Probe normal badge coexist at 120 by 24 cells.",
+    "Lifecycle ownership actions are protocol-valid but controller-inert, reproducing Hunk's false re-entry result without allowing a retiring activation to reclaim the session."
+  ]
+}

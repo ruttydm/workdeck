@@ -21,6 +21,10 @@ name = "workdeck-example-vim-navigation-extension"
 path = "extensions/vim-navigation/main.rs"
 
 [[bin]]
+name = "workdeck-example-keyboard-probe-extension"
+path = "extensions/keyboard-probe/main.rs"
+
+[[bin]]
 name = "workdeck-example-review-snapshot-export-extension"
 path = "extensions/review-snapshot-export/main.rs"
 

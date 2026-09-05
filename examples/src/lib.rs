@@ -65,6 +65,9 @@ pub mod pane_layout_extension;
 #[path = "../extensions/vim-navigation/extension.rs"]
 pub mod vim_navigation_extension;
 
+#[path = "../extensions/keyboard-probe/extension.rs"]
+pub mod keyboard_probe_extension;
+
 #[path = "../extensions/review-snapshot-export/extension.rs"]
 pub mod review_snapshot_export_extension;
 

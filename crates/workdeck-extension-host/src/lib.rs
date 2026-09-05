@@ -2709,15 +2709,12 @@ impl LoadedExtension {
                     self.manifest
                         .capabilities
                         .contains(&workdeck_extension_api::Capability::KeyboardModes)
-                        && kind != "keyboard mode lifecycle"
                         && owns(id, "keyboard mode")
                 }
-                ExtensionHostAction::ExitKeyboardMode => {
-                    self.manifest
-                        .capabilities
-                        .contains(&workdeck_extension_api::Capability::KeyboardModes)
-                        && kind != "keyboard mode lifecycle"
-                }
+                ExtensionHostAction::ExitKeyboardMode => self
+                    .manifest
+                    .capabilities
+                    .contains(&workdeck_extension_api::Capability::KeyboardModes),
                 ExtensionHostAction::ExecuteReviewCommand { id, count } => {
                     self.manifest
                         .capabilities

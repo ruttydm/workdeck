@@ -1,0 +1,7 @@
+id = "test.keyboard-probe"
+name = "Keyboard mode parity probe"
+version = "0.1.0"
+api_version = 1
+executable = "bin/workdeck-example-keyboard-probe-extension"
+capabilities = ["commands", "file-views", "keyboard-modes", "notifications"]
+description = "Compiled parity fixture for nested session and focused file-view keyboard modes"

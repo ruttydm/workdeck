@@ -4381,7 +4381,6 @@ impl ReviewApp {
             return;
         };
         self.exit_active_keyboard_mode();
-        self.exit_active_file_view_mode();
         let activation_id = self
             .extension_pane_runtime
             .lock()
@@ -5779,7 +5778,6 @@ impl ReviewApp {
             }
         }
 
-        self.exit_active_keyboard_mode();
         self.exit_active_file_view_mode();
         let current_activation_id = self
             .extension_pane_runtime
@@ -6529,8 +6527,29 @@ impl ReviewApp {
             return true;
         }
 
-        // An advertised single-key accelerator continues to the ordinary
-        // command dispatcher, which closes the menu after a successful effect.
+        // An advertised accelerator belongs to the open host menu before either
+        // layer of extension-owned keyboard mode. This is especially important
+        // while a focused file view and a session mode are active together: the
+        // menu remains the host-owned route to Help and every other command.
+        let live_key = to_live_extension_key_event(key);
+        let commands = self.builtin_commands();
+        if let Some(dispatch) = dispatch_app_command(&commands, &live_key) {
+            if dispatch.closes_menu {
+                self.close_app_menu();
+            }
+            let command_id = dispatch.command_id;
+            self.apply_builtin_command_action(dispatch.action);
+            self.publish_extension_lifecycle_event(ExtensionLifecycleEvent::CommandExecuted {
+                command_id: command_id.into(),
+            });
+            return true;
+        }
+        if self.invoke_extension_command(key) {
+            self.close_app_menu();
+            return true;
+        }
+
+        // Unbound keys continue to the layered extension modes.
         false
     }
 
