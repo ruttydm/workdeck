@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "path": "src/ui/AppHost.cursor-line.test.tsx",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "7de451afc32e1a98f94caa8d83e3bc67575dac94",
+      "sha256": "cfcff88c1808302d4c35f66c751af69a21166535ac2cbe4890834a1cb42536e5",
+      "bytes": 7643,
+      "lines": 260
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "7de451afc32e1a98f94caa8d83e3bc67575dac94",
+      "sha256": "cfcff88c1808302d4c35f66c751af69a21166535ac2cbe4890834a1cb42536e5",
+      "bytes": 7643,
+      "lines": 260
+    }
+  },
+  "oracleRuns": {
+    "baseline": {
+      "runtime": "bun 1.3.14",
+      "command": "bun test src/ui/AppHost.cursor-line.test.tsx",
+      "passed": 7,
+      "failed": 0,
+      "expectCalls": 11,
+      "elapsedMilliseconds": 1209
+    },
+    "stable": {
+      "runtime": "bun 1.3.5",
+      "command": "bun test src/ui/AppHost.cursor-line.test.tsx",
+      "passed": 7,
+      "failed": 0,
+      "expectCalls": 11,
+      "elapsedMilliseconds": 1170
+    }
+  },
+  "testMappings": [
+    {
+      "upstream": "marks the current row apart from the rows around it",
+      "rust": "tests::mounted_cursor_line_marks_initial_stack_split_and_off_rows"
+    },
+    {
+      "upstream": "keeps added and removed lines telling themselves apart under the highlight",
+      "rust": "tests::mounted_cursor_line_navigation_retains_removed_and_added_tints"
+    },
+    {
+      "upstream": "lifts added and removed rows as far as it lifts context rows",
+      "rust": "tests::mounted_cursor_line_navigation_retains_removed_and_added_tints"
+    },
+    {
+      "upstream": "number style marks the gutter without repainting the code",
+      "rust": "tests::native_cursor_paint_blends_each_ratatui_surface_and_number_mode_stops_at_the_gutter"
+    },
+    {
+      "upstream": "marks both halves of a split context row",
+      "rust": "tests::mounted_cursor_line_marks_initial_stack_split_and_off_rows"
+    },
+    {
+      "upstream": "marks a wrapped CJK row through the chunk renderer",
+      "rust": "tests::mounted_cursor_line_marks_a_wrapped_cjk_chunk"
+    },
+    {
+      "upstream": "off style leaves every row painted the same",
+      "rust": "tests::mounted_cursor_line_marks_initial_stack_split_and_off_rows"
+    }
+  ],
+  "adaptations": [
+    "The Ratatui cell buffer is authoritative; cursor paint blends each span's semantic background instead of replacing the row palette.",
+    "Measured source cursors seed the first line in the selected hunk and retain distinct old/new stops on a split replacement row.",
+    "Wrapped source chunks share one navigation stop while preserving their source target and cursor paint."
+  ]
+}

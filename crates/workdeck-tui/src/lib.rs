@@ -1335,6 +1335,7 @@ impl ReviewApp {
             extension_trust_request: None,
             extension_trust_prompt_hits: Cell::new(None),
         };
+        app.seed_current_line_cursor();
         app.commit_extension_runtime_bridge();
         app.install_extension_event_context_provider();
         let initial_events = app.update_extension_review_events(Instant::now());
@@ -3172,6 +3173,29 @@ impl ReviewApp {
                 .reveal_line(target.file_index, target.side, target.line)
                 .expect("measured review cursor names a rendered diff line");
         });
+    }
+
+    fn seed_current_line_cursor(&mut self) {
+        let rows = self.current_review_rows();
+        let cursors = review_line_cursors(&rows);
+        let selection = self.with_state(|state| state.selection());
+        let cursor = cursors
+            .iter()
+            .copied()
+            .find(|cursor| {
+                cursor.target.file_index == selection.file_index
+                    && cursor.target.hunk_index == selection.hunk_index.unwrap_or(0)
+            })
+            .or_else(|| {
+                cursors
+                    .iter()
+                    .copied()
+                    .find(|cursor| cursor.target.file_index == selection.file_index)
+            })
+            .or_else(|| cursors.first().copied());
+        if let Some(cursor) = cursor {
+            self.apply_review_line_cursor(cursor);
+        }
     }
 
     fn align_current_line(&mut self, alignment: AppCommandLineAlignment) {
@@ -9778,6 +9802,7 @@ fn render_vertical_review_scrollbar(
 struct ReviewRows {
     lines: Vec<Line<'static>>,
     note_targets: BTreeMap<usize, ReviewNoteTarget>,
+    line_cursors: Vec<ReviewLineCursor>,
     file_tops: Vec<usize>,
     file_header_rows: Vec<(usize, usize)>,
     hunk_tops: std::collections::HashMap<(usize, usize), usize>,
@@ -9802,17 +9827,7 @@ struct ReviewNoteTarget {
 /// Wrapped continuations and inline note rows retain the source target for hit-testing, but a
 /// single `j`/`k` press must cross the source line exactly once.
 fn review_line_cursors(rows: &ReviewRows) -> Vec<ReviewLineCursor> {
-    let mut cursors = Vec::new();
-    for (&row, &target) in &rows.note_targets {
-        if cursors
-            .last()
-            .is_some_and(|cursor: &ReviewLineCursor| cursor.target == target)
-        {
-            continue;
-        }
-        cursors.push(ReviewLineCursor { row, target });
-    }
-    cursors
+    rows.line_cursors.clone()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -9856,6 +9871,7 @@ struct HelpDialogHits {
 struct TargetedHunkRows {
     lines: Vec<Line<'static>>,
     targets: Vec<Option<ReviewNoteTarget>>,
+    cursor_targets: Vec<(usize, ReviewNoteTarget)>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -9962,6 +9978,7 @@ fn build_review_rows_with_chrome(
     let mut hunk_tops = std::collections::HashMap::new();
     let mut file_view_component_hits = Vec::new();
     let mut note_targets = BTreeMap::new();
+    let mut line_cursors = Vec::new();
     let header_stats_width = max_file_header_stats_width(&changeset.files);
     for (file_index, file) in changeset.files.iter().enumerate() {
         file_tops.push(rows.len());
@@ -10167,6 +10184,12 @@ fn build_review_rows_with_chrome(
                 ),
             };
             let row_start = rows.len();
+            line_cursors.extend(rendered.cursor_targets.iter().map(|(offset, target)| {
+                ReviewLineCursor {
+                    row: row_start + offset,
+                    target: *target,
+                }
+            }));
             note_targets.extend(
                 rendered
                     .targets
@@ -10195,6 +10218,7 @@ fn build_review_rows_with_chrome(
     ReviewRows {
         lines: rows,
         note_targets,
+        line_cursors,
         file_tops,
         file_header_rows,
         hunk_tops,
@@ -10677,6 +10701,7 @@ fn stack_hunk_rows(
 ) -> TargetedHunkRows {
     let mut rows = Vec::new();
     let mut targets = Vec::new();
+    let mut cursor_targets = Vec::new();
     let mut emphasis = vec![Vec::new(); hunk.lines.len()];
     for pair in plan_split_line_pairs(&hunk.lines) {
         let (Some(old_index), Some(new_index)) = (pair.old_index, pair.new_index) else {
@@ -10705,6 +10730,7 @@ fn stack_hunk_rows(
             line_highlight_ranges(line_highlights, line),
         );
         let target = diff_line_note_target(file_index, hunk_index, line);
+        cursor_targets.push((rows.len(), target));
         targets.extend(std::iter::repeat_n(Some(target), line_rows.len()));
         rows.extend(line_rows);
         let note_rows = comment_rows(file, line, comments, &options.theme, width);
@@ -10714,6 +10740,7 @@ fn stack_hunk_rows(
     TargetedHunkRows {
         lines: rows,
         targets,
+        cursor_targets,
     }
 }
 
@@ -10857,6 +10884,7 @@ fn split_hunk_rows(
 ) -> TargetedHunkRows {
     let mut rows = Vec::new();
     let mut targets = Vec::new();
+    let mut cursor_targets = Vec::new();
     let pane_widths = resolve_diff_split_pane_widths(usize::from(width));
     let left_width = pane_widths.left_width;
     let right_width = pane_widths.right_width;
@@ -10898,6 +10926,28 @@ fn split_hunk_rows(
                 || old.is_some_and(|line| line_is_selected(line, selection))
                 || new.is_some_and(|line| line_is_selected(line, selection)),
         );
+        let cursor_row = rows.len();
+        if pair.old_index == pair.new_index {
+            if let Some(line) = new.or(old) {
+                cursor_targets.push((
+                    cursor_row,
+                    diff_line_note_target(file_index, hunk_index, line),
+                ));
+            }
+        } else {
+            if let Some(line) = old {
+                cursor_targets.push((
+                    cursor_row,
+                    diff_line_note_target(file_index, hunk_index, line),
+                ));
+            }
+            if let Some(line) = new {
+                cursor_targets.push((
+                    cursor_row,
+                    diff_line_note_target(file_index, hunk_index, line),
+                ));
+            }
+        }
         let pair_target = new
             .or(old)
             .map(|line| diff_line_note_target(file_index, hunk_index, line));
@@ -10925,6 +10975,7 @@ fn split_hunk_rows(
     TargetedHunkRows {
         lines: rows,
         targets,
+        cursor_targets,
     }
 }
 
@@ -11542,6 +11593,52 @@ mod tests {
     fn changeset() -> Changeset {
         parse_patch(
             "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n",
+            "test",
+            "Working tree",
+            ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap()
+    }
+
+    fn background_for_rendered_text(buffer: &Buffer, needle: &str) -> Color {
+        for y in buffer.area.y..buffer.area.bottom() {
+            let mut text = String::new();
+            let mut byte_columns = Vec::new();
+            for x in buffer.area.x..buffer.area.right() {
+                let cell = buffer.cell((x, y)).unwrap();
+                if !cell.symbol().is_empty() {
+                    byte_columns.push((text.len(), x));
+                    text.push_str(cell.symbol());
+                }
+            }
+            if let Some(byte) = text.find(needle)
+                && let Some((_, x)) = byte_columns.iter().find(|(start, _)| *start == byte)
+            {
+                return buffer.cell((*x, y)).unwrap().bg;
+            }
+        }
+        panic!("no rendered row contained {needle:?}");
+    }
+
+    fn background_for_symbol_on_text_row(buffer: &Buffer, row_needle: &str, symbol: &str) -> Color {
+        for y in buffer.area.y..buffer.area.bottom() {
+            let row = (buffer.area.x..buffer.area.right())
+                .map(|x| buffer.cell((x, y)).unwrap().symbol())
+                .collect::<String>();
+            if row.contains(row_needle)
+                && let Some(cell) = (buffer.area.x..buffer.area.right())
+                    .map(|x| buffer.cell((x, y)).unwrap())
+                    .find(|cell| cell.symbol() == symbol)
+            {
+                return cell.bg;
+            }
+        }
+        panic!("no rendered {symbol:?} cell appeared on the {row_needle:?} row");
+    }
+
+    fn cursor_line_changeset() -> Changeset {
+        parse_patch(
+            "diff --git a/sample.ts b/sample.ts\n--- a/sample.ts\n+++ b/sample.ts\n@@ -1,5 +1,5 @@\n const alpha = 1;\n-const beta = 2;\n+const beta = 22222;\n const gamma = 3;\n const delta = 4;\n const epsilon = 5;\n",
             "test",
             "Working tree",
             ChangesetSource::WorkingTree { staged: false },
@@ -12681,6 +12778,7 @@ mod tests {
                 sidebar: false,
                 line_numbers: false,
                 highlight: false,
+                cursor_line: CursorLineMode::Off,
                 theme: theme.clone(),
                 ..ReviewOptions::default()
             },
@@ -13214,6 +13312,165 @@ mod tests {
                 &theme,
             )))
         );
+    }
+
+    #[test]
+    fn mounted_cursor_line_marks_initial_stack_split_and_off_rows() {
+        let render = |layout, cursor_line| {
+            let backend = TestBackend::new(200, 16);
+            let mut terminal = Terminal::new(backend).unwrap();
+            let app = ReviewApp::new(
+                cursor_line_changeset(),
+                ReviewOptions {
+                    layout,
+                    cursor_line,
+                    sidebar: false,
+                    highlight: false,
+                    ..ReviewOptions::default()
+                },
+            );
+            terminal
+                .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+                .unwrap();
+            terminal
+        };
+
+        let stack = render(LayoutMode::Stack, CursorLineMode::Row);
+        let stack_buffer = stack.backend().buffer();
+        assert_ne!(
+            background_for_rendered_text(stack_buffer, "alpha = 1"),
+            background_for_rendered_text(stack_buffer, "gamma = 3")
+        );
+        assert_eq!(
+            background_for_rendered_text(stack_buffer, "gamma = 3"),
+            background_for_rendered_text(stack_buffer, "delta = 4")
+        );
+
+        let split = render(LayoutMode::Split, CursorLineMode::Row);
+        assert_ne!(
+            background_for_rendered_text(split.backend().buffer(), "alpha = 1"),
+            background_for_rendered_text(split.backend().buffer(), "gamma = 3")
+        );
+
+        let off = render(LayoutMode::Stack, CursorLineMode::Off);
+        assert_eq!(
+            background_for_rendered_text(off.backend().buffer(), "alpha = 1"),
+            background_for_rendered_text(off.backend().buffer(), "gamma = 3")
+        );
+    }
+
+    #[test]
+    fn mounted_cursor_line_navigation_retains_removed_and_added_tints() {
+        let theme = resolve_theme(Some("github-dark-default"), None, &[]);
+        let backend = TestBackend::new(200, 16);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = ReviewApp::new(
+            cursor_line_changeset(),
+            ReviewOptions {
+                layout: LayoutMode::Stack,
+                cursor_line: CursorLineMode::Row,
+                sidebar: false,
+                highlight: false,
+                theme: theme.clone(),
+                ..ReviewOptions::default()
+            },
+        );
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        assert_eq!(
+            background_for_rendered_text(terminal.backend().buffer(), "beta = 2"),
+            ratatui_theme_color(&cursor_line_highlight_background(
+                stack_cell_palette(RowCellKind::Deletion, &theme, false).content_background,
+                &theme,
+            ))
+        );
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        assert_eq!(
+            background_for_rendered_text(terminal.backend().buffer(), "beta = 22222"),
+            ratatui_theme_color(&cursor_line_highlight_background(
+                stack_cell_palette(RowCellKind::Addition, &theme, false).content_background,
+                &theme,
+            ))
+        );
+    }
+
+    #[test]
+    fn mounted_cursor_line_marks_a_wrapped_cjk_chunk() {
+        let content = format!("export const message = \"{}\";", "日本語".repeat(80));
+        let patch = format!(
+            "diff --git a/wrapped.ts b/wrapped.ts\n--- /dev/null\n+++ b/wrapped.ts\n@@ -0,0 +1 @@\n+{content}\n"
+        );
+        let changeset = parse_patch(
+            &patch,
+            "test",
+            "Working tree",
+            ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap();
+        let render = |cursor_line| {
+            let backend = TestBackend::new(120, 16);
+            let mut terminal = Terminal::new(backend).unwrap();
+            let app = ReviewApp::new(
+                changeset.clone(),
+                ReviewOptions {
+                    layout: LayoutMode::Split,
+                    cursor_line,
+                    wrap_lines: true,
+                    sidebar: false,
+                    highlight: false,
+                    ..ReviewOptions::default()
+                },
+            );
+            terminal
+                .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+                .unwrap();
+            terminal
+        };
+        let marked = render(CursorLineMode::Row);
+        let plain = render(CursorLineMode::Off);
+        assert_ne!(
+            background_for_symbol_on_text_row(
+                marked.backend().buffer(),
+                "export const message",
+                "日",
+            ),
+            background_for_symbol_on_text_row(
+                plain.backend().buffer(),
+                "export const message",
+                "日",
+            )
+        );
+    }
+
+    #[test]
+    fn frozen_app_host_cursor_line_oracle_maps_both_pins_and_each_source_test() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../port/hunk/oracles/app-host-cursor-line.json");
+        let oracle: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(
+            oracle["source"]["baseline"]["commit"],
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2"
+        );
+        assert_eq!(
+            oracle["source"]["stable"]["commit"],
+            "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+        );
+        assert_eq!(oracle["source"]["baseline"]["bytes"], 7_643);
+        assert_eq!(
+            oracle["source"]["baseline"]["blob"],
+            oracle["source"]["stable"]["blob"]
+        );
+        assert_eq!(oracle["oracleRuns"]["baseline"]["passed"], 7);
+        assert_eq!(oracle["oracleRuns"]["stable"]["passed"], 7);
+        assert_eq!(oracle["testMappings"].as_array().unwrap().len(), 7);
     }
 
     #[test]
@@ -14521,7 +14778,13 @@ mod tests {
         assert_eq!(request.base_path, Path::new("/repo"));
         assert_eq!(request.file.unwrap().path, "a.rs");
         assert_eq!(request.selected_hunk.unwrap().new_start, 1);
-        assert!(request.line_cursor.is_none());
+        assert_eq!(
+            request.line_cursor.unwrap().target,
+            EditorLineTarget {
+                side: ReviewSide::Old,
+                line: 1,
+            }
+        );
         assert!(app.take_editor_request().is_none());
 
         app.handle_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE));
