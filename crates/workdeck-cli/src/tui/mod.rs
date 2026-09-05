@@ -186,6 +186,9 @@ fn run_loop(
         if let Some(review) = &mut app.review {
             review.poll_extension_commands();
             review.tick_extension_notifications(Instant::now());
+            if review.take_quit_requested() {
+                return Ok(());
+            }
         }
         terminal.draw(|frame| views::render(app, highlighter, frame))?;
         if !event::poll(Duration::from_millis(50))? {

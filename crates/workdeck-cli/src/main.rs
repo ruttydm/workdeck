@@ -50,6 +50,7 @@ use workdeck_extension_host::{
     create_empty_extension_load_result, create_extension_apply_notices,
     create_extension_load_notices, discover_manifests_with_config, load_startup_extensions,
     resolve_loaded_extension_registrations, resolved_native_vcs_adapters,
+    uses_transient_view_preferences,
 };
 use workdeck_review::{
     CommentTargetInput, LayoutMode, build_live_comment, find_diff_file_by_path,
@@ -812,6 +813,8 @@ struct ReviewCliOptions {
     #[arg(skip)]
     view_preferences_config_path: Option<PathBuf>,
     #[arg(skip)]
+    prompt_save_view_preferences: Option<bool>,
+    #[arg(skip)]
     config_exclude_untracked: bool,
 }
 
@@ -871,6 +874,7 @@ impl ReviewCliOptions {
             repo_extension_paths: config.resolved_extensions.repo_paths.clone(),
             custom_themes: config.custom_themes.clone(),
             view_preferences_config_path: config.view_preferences_config_path.clone(),
+            prompt_save_view_preferences: Some(config.prompt_save_view_preferences),
             config_exclude_untracked: config.review.exclude_untracked,
         }
     }
@@ -926,6 +930,7 @@ impl ReviewCliOptions {
         self.repo_extension_paths = configured.repo_extension_paths;
         self.custom_themes = configured.custom_themes;
         self.view_preferences_config_path = configured.view_preferences_config_path;
+        self.prompt_save_view_preferences = configured.prompt_save_view_preferences;
         self.config_exclude_untracked = configured.config_exclude_untracked;
         self.no_extensions |= configured.no_extensions;
     }
@@ -977,6 +982,10 @@ impl ReviewCliOptions {
             agent_notes: self.agent_notes && !self.no_agent_notes,
             show_menu_bar: self.show_menu_bar,
             copy_decorations: self.copy_decorations,
+            view_preferences_config_path: self.view_preferences_config_path.clone(),
+            prompt_save_view_preferences: self.prompt_save_view_preferences.unwrap_or(true),
+            transient_view_preferences: false,
+            view_preferences_home_directory: std::env::var_os("HOME").map(PathBuf::from),
             theme,
             custom_themes: Vec::new(),
             repo: None,
@@ -1029,6 +1038,7 @@ impl ReviewCliOptions {
             agent_notes: Some(self.agent_notes && !self.no_agent_notes),
             menu_bar: Some(self.show_menu_bar),
             copy_decorations: Some(self.copy_decorations),
+            prompt_save_view_preferences: Some(self.prompt_save_view_preferences.unwrap_or(true)),
             transparent_background: Some(self.transparent_background && !self.opaque_background),
             color_moved: self.color_moved,
             extensions: Some(!self.no_extensions),
@@ -1037,7 +1047,6 @@ impl ReviewCliOptions {
                 .iter()
                 .map(|path| path.to_string_lossy().into_owned())
                 .collect(),
-            ..CommonOptions::default()
         }
     }
 
@@ -6369,6 +6378,7 @@ fn run_app_bootstrap(
         initial_copy_decorations,
         initial_cursor_line,
         startup_notices,
+        view_preferences_config_path,
         keybindings,
         keybinding_notices,
         extensions,
@@ -6389,6 +6399,8 @@ fn run_app_bootstrap(
         load_notices: _,
         vcs_catalog: _,
     } = prepared_extensions;
+    let transient_view_preferences =
+        uses_transient_view_preferences(extensions.iter().map(|extension| &extension.handshake));
     let mut options = review.tui_options();
     options.layout = match initial_mode {
         InputLayoutMode::Auto => LayoutMode::Auto,
@@ -6426,6 +6438,10 @@ fn run_app_bootstrap(
     options.review_input = Some(input.clone());
     options.extension_notifications = Some(notifications.clone());
     options.startup_notices = startup_notices;
+    options.view_preferences_config_path = view_preferences_config_path;
+    options.prompt_save_view_preferences =
+        input.options().prompt_save_view_preferences.unwrap_or(true);
+    options.transient_view_preferences = transient_view_preferences;
     options.pending_extension_trust_repo_root = pending_trust_repo_root;
     options.extension_trust_handler = Some(review_extension_trust_handler(
         &cwd,

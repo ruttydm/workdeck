@@ -14,6 +14,7 @@ mod run_errors;
 mod semantic;
 mod startup_notice;
 mod theme;
+mod view_preferences;
 
 pub use bootstrap::*;
 pub use command_inputs::*;
@@ -25,6 +26,7 @@ pub use run_errors::*;
 pub use semantic::*;
 pub use startup_notice::*;
 pub use theme::*;
+pub use view_preferences::*;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

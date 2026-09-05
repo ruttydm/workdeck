@@ -86,6 +86,7 @@ mod theme_selector_dialog;
 mod timed_notice;
 mod ui_geometry;
 mod user_note_composer;
+mod view_preference_quit_controller;
 mod viewport_anchor;
 mod viewport_geometry;
 mod viewport_selection;
@@ -182,6 +183,7 @@ pub use theme_selector_dialog::*;
 pub use timed_notice::*;
 pub use ui_geometry::*;
 pub use user_note_composer::*;
+pub use view_preference_quit_controller::*;
 pub use viewport_anchor::*;
 pub use viewport_geometry::*;
 pub use viewport_selection::*;
@@ -214,8 +216,9 @@ use std::time::{Duration, Instant};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 use workdeck_core::{
-    AgentAnnotation, Changeset, ChangesetSource, DiffFile, DiffLine, DiffLineKind,
-    NamedCustomThemeConfig, ReviewSelection, ReviewSide, SourceOrigin, StartupNotice,
+    AgentAnnotation, Changeset, ChangesetSource, DiffFile, DiffLine, DiffLineKind, InputCursorLine,
+    InputLayoutMode, NamedCustomThemeConfig, PersistedViewPreferences, ReviewSelection, ReviewSide,
+    SourceOrigin, StartupNotice,
 };
 use workdeck_diff::{
     DIFF_RAIL_PREFIX_WIDTH, HighlightedDiffLine, LanguageMatcher, LanguageRegistration,
@@ -282,6 +285,14 @@ pub struct ReviewOptions {
     pub agent_notes: bool,
     pub show_menu_bar: bool,
     pub copy_decorations: bool,
+    /// Existing repository config, otherwise the global config path, for view persistence.
+    pub view_preferences_config_path: Option<PathBuf>,
+    /// Whether changed persistent view settings require a decision before quitting.
+    pub prompt_save_view_preferences: bool,
+    /// Extension-owned sessions may explicitly prevent persistence of their temporary view.
+    pub transient_view_preferences: bool,
+    /// Explicit home used only to shorten the config label in the confirmation dialog.
+    pub view_preferences_home_directory: Option<PathBuf>,
     pub theme: AppTheme,
     /// Configured and extension-provided themes retained for the live selector.
     pub custom_themes: Vec<NamedCustomThemeConfig>,
@@ -324,6 +335,10 @@ impl Default for ReviewOptions {
             agent_notes: false,
             show_menu_bar: true,
             copy_decorations: false,
+            view_preferences_config_path: None,
+            prompt_save_view_preferences: true,
+            transient_view_preferences: false,
+            view_preferences_home_directory: std::env::var_os("HOME").map(PathBuf::from),
             theme: resolve_theme(Some(DEFAULT_DARK_THEME_ID), None, &[]),
             custom_themes: Vec::new(),
             repo: None,
@@ -788,6 +803,9 @@ pub struct ReviewApp {
     help_scroll: usize,
     help_dialog_hits: Cell<Option<HelpDialogHits>>,
     should_quit: bool,
+    view_preference_quit: ViewPreferenceQuitController,
+    view_preference_prompt_hits: Mutex<Option<ConfirmDialogRenderMap>>,
+    view_preference_prompt_hovered_action_key: Option<String>,
     reload_requested: bool,
     extension_command_epoch: u64,
     editor_requested: bool,
@@ -902,6 +920,33 @@ impl ReviewApp {
         {
             options.sidebar = false;
         }
+        let initial_view_preferences = PersistedViewPreferences {
+            mode: match options.layout {
+                LayoutMode::Auto => InputLayoutMode::Auto,
+                LayoutMode::Split => InputLayoutMode::Split,
+                LayoutMode::Stack => InputLayoutMode::Stack,
+            },
+            theme: Some(themes.committed.clone()),
+            show_line_numbers: options.line_numbers,
+            wrap_lines: options.wrap_lines,
+            show_hunk_headers: options.hunk_headers,
+            show_menu_bar: options.show_menu_bar,
+            show_agent_notes: options.agent_notes,
+            copy_decorations: options.copy_decorations,
+            cursor_line: match options.cursor_line {
+                CursorLineMode::Row => InputCursorLine::Row,
+                CursorLineMode::Number => InputCursorLine::Number,
+                CursorLineMode::Off => InputCursorLine::Off,
+            },
+        };
+        let view_preference_quit = ViewPreferenceQuitController::new(
+            initial_view_preferences,
+            options.view_preferences_config_path.clone(),
+            options.pager,
+            options.prompt_save_view_preferences,
+            options.transient_view_preferences,
+            options.view_preferences_home_directory.clone(),
+        );
         let mut extension_trust_controller = ExtensionTrustController::default();
         extension_trust_controller.reconcile(
             options.pager,
@@ -951,6 +996,9 @@ impl ReviewApp {
             help_scroll: 0,
             help_dialog_hits: Cell::new(None),
             should_quit: false,
+            view_preference_quit,
+            view_preference_prompt_hits: Mutex::new(None),
+            view_preference_prompt_hovered_action_key: None,
             reload_requested: false,
             extension_command_epoch: 1,
             editor_requested: false,
@@ -1036,6 +1084,124 @@ impl ReviewApp {
 
     pub fn take_quit_requested(&mut self) -> bool {
         std::mem::take(&mut self.should_quit)
+    }
+
+    #[must_use]
+    pub fn save_config_prompt_open(&self) -> bool {
+        self.view_preference_quit.save_config_prompt_open()
+    }
+
+    #[must_use]
+    pub fn changed_view_preferences(&self) -> Vec<workdeck_core::ViewPreferenceChange> {
+        self.view_preference_quit
+            .changed_view_preferences(&self.current_view_preferences())
+    }
+
+    fn current_view_preferences(&self) -> PersistedViewPreferences {
+        PersistedViewPreferences {
+            mode: match self.layout() {
+                LayoutMode::Auto => InputLayoutMode::Auto,
+                LayoutMode::Split => InputLayoutMode::Split,
+                LayoutMode::Stack => InputLayoutMode::Stack,
+            },
+            theme: Some(self.themes.committed.clone()),
+            show_line_numbers: self.options.line_numbers,
+            wrap_lines: self.options.wrap_lines,
+            show_hunk_headers: self.options.hunk_headers,
+            show_menu_bar: self.show_menu_bar,
+            show_agent_notes: self.options.agent_notes,
+            copy_decorations: self.copy_decorations,
+            cursor_line: match self.options.cursor_line {
+                CursorLineMode::Row => InputCursorLine::Row,
+                CursorLineMode::Number => InputCursorLine::Number,
+                CursorLineMode::Off => InputCursorLine::Off,
+            },
+        }
+    }
+
+    fn request_quit(&mut self) {
+        let current = self.current_view_preferences();
+        match self.view_preference_quit.request_quit(&current) {
+            QuitRequestOutcome::Locked => {}
+            QuitRequestOutcome::PromptOpened => {
+                self.show_help = false;
+                self.help_dialog_hits.set(None);
+                self.view_preference_prompt_hovered_action_key = None;
+            }
+            QuitRequestOutcome::QuitNow => self.should_quit = true,
+        }
+    }
+
+    fn save_view_preferences_and_quit(&mut self, now: Instant) {
+        let current = self.current_view_preferences();
+        match self
+            .view_preference_quit
+            .save_view_preferences_and_schedule_quit(&current, now)
+        {
+            Ok(Some(path)) => {
+                self.status = Some(format!("Saved view preferences to {}", path.display()));
+                self.clear_view_preference_prompt_render_state();
+            }
+            Ok(None) => {}
+            Err(error) => self.status = Some(error.to_string()),
+        }
+    }
+
+    fn discard_view_preferences_and_quit(&mut self) {
+        if self
+            .view_preference_quit
+            .discard_view_preferences_and_quit()
+        {
+            self.clear_view_preference_prompt_render_state();
+            self.should_quit = true;
+        }
+    }
+
+    fn never_ask_to_save_view_preferences_and_quit(&mut self, now: Instant) {
+        match self.view_preference_quit.never_ask_and_schedule_quit(now) {
+            Ok(Some(path)) => {
+                self.status = Some(format!(
+                    "Won't ask to save view preferences again ({})",
+                    path.display()
+                ));
+                self.clear_view_preference_prompt_render_state();
+            }
+            Ok(None) => {}
+            Err(error) => self.status = Some(error.to_string()),
+        }
+    }
+
+    fn close_save_config_prompt(&mut self) {
+        self.view_preference_quit.close_save_config_prompt();
+        if !self.view_preference_quit.save_config_prompt_open() {
+            self.clear_view_preference_prompt_render_state();
+        }
+    }
+
+    fn clear_view_preference_prompt_render_state(&mut self) {
+        *self
+            .view_preference_prompt_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        self.view_preference_prompt_hovered_action_key = None;
+    }
+
+    fn handle_save_config_prompt_key(&mut self, key: &KeyEvent) -> bool {
+        if !self.view_preference_quit.save_config_prompt_open() {
+            return false;
+        }
+        match key.code {
+            KeyCode::Enter | KeyCode::Char('s') => {
+                self.save_view_preferences_and_quit(Instant::now());
+            }
+            KeyCode::Char('q') => self.discard_view_preferences_and_quit(),
+            KeyCode::Char('n') => {
+                self.never_ask_to_save_view_preferences_and_quit(Instant::now());
+            }
+            KeyCode::Esc => self.close_save_config_prompt(),
+            _ => {}
+        }
+        true
     }
 
     /// Tell the native dialog whether its host can service clipboard requests.
@@ -1302,6 +1468,9 @@ impl ReviewApp {
     }
 
     pub fn tick_extension_notifications(&mut self, now: Instant) {
+        if self.view_preference_quit.poll_quit(now) {
+            self.should_quit = true;
+        }
         self.tick_theme_hover_preview(now);
         let events = self.update_extension_review_events(now);
         self.publish_extension_lifecycle_events(events);
@@ -1491,11 +1660,14 @@ impl ReviewApp {
         if self.handle_extension_trust_prompt_key(&key) {
             return;
         }
+        if self.handle_save_config_prompt_key(&key) {
+            return;
+        }
         if self.handle_note_composer_key(&key) {
             return;
         }
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
-            self.should_quit = true;
+            self.request_quit();
             return;
         }
         if self.handle_workspace_write_key(&key)
@@ -2183,7 +2355,7 @@ impl ReviewApp {
     fn apply_builtin_command_action(&mut self, action: AppCommandAction) {
         match action {
             AppCommandAction::ScrollDiff { delta, unit } => self.scroll_diff(delta, unit),
-            AppCommandAction::RequestQuit => self.should_quit = true,
+            AppCommandAction::RequestQuit => self.request_quit(),
             AppCommandAction::ToggleHelp => {
                 self.show_help = !self.show_help;
                 if self.show_help {
@@ -5532,6 +5704,9 @@ impl ReviewApp {
             }
             return;
         }
+        if self.handle_view_preference_prompt_mouse(&event) {
+            return;
+        }
         if self.handle_extension_confirm_mouse(&event) {
             return;
         }
@@ -5605,6 +5780,46 @@ impl ReviewApp {
             return;
         }
         self.handle_mouse_at(event.kind, Instant::now());
+    }
+
+    fn handle_view_preference_prompt_mouse(&mut self, event: &MouseEvent) -> bool {
+        if !self.view_preference_quit.save_config_prompt_open() {
+            return false;
+        }
+        let map = self
+            .view_preference_prompt_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        let Some(map) = map else {
+            return true;
+        };
+        match event.kind {
+            MouseEventKind::Moved => {
+                self.view_preference_prompt_hovered_action_key =
+                    dialog_action_at(&map, event.column, event.row)
+                        .map(|hit| hit.key_label.clone());
+            }
+            MouseEventKind::Up(_) => {
+                if let Some(hit) = dialog_action_at(&map, event.column, event.row) {
+                    match hit.index {
+                        0 => self.save_view_preferences_and_quit(Instant::now()),
+                        1 => self.discard_view_preferences_and_quit(),
+                        2 => self.never_ask_to_save_view_preferences_and_quit(Instant::now()),
+                        _ => self.close_save_config_prompt(),
+                    }
+                } else if map
+                    .modal
+                    .close
+                    .is_some_and(|close| rect_contains(close, event.column, event.row))
+                    || !rect_contains(map.modal.frame, event.column, event.row)
+                {
+                    self.close_save_config_prompt();
+                }
+            }
+            _ => {}
+        }
+        true
     }
 
     fn handle_theme_selector_mouse(&mut self, event: &MouseEvent, now: Instant) -> bool {
@@ -6590,7 +6805,110 @@ pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     render_extension_select_dialog(area, buffer, app);
     render_extension_confirm_dialog(area, buffer, app);
     render_extension_workspace_write_dialog(area, buffer, app);
+    render_view_preference_save_prompt(area, buffer, app);
     render_extension_trust_prompt(area, buffer, app);
+}
+
+/// Draw the Hunk-compatible save-or-discard modal over a dirty review view.
+pub fn render_view_preference_save_prompt(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+    if !app.view_preference_quit.save_config_prompt_open() {
+        *app.view_preference_prompt_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        return;
+    }
+    let current = app.current_view_preferences();
+    let changes = app.view_preference_quit.changed_view_preferences(&current);
+    let diff_lines = app
+        .view_preference_quit
+        .view_preference_diff_lines(&current);
+    let actions = [
+        ConfirmDialogAction::new("enter/s", "save"),
+        ConfirmDialogAction::new("q", "discard"),
+        ConfirmDialogAction::new("n", "never ask"),
+        ConfirmDialogAction::new("esc", "cancel"),
+    ];
+    let body_row_count = 4_usize.saturating_add(diff_lines.len());
+    let map = render_confirm_dialog(
+        area,
+        buffer,
+        68,
+        u16::try_from(confirm_dialog_height(body_row_count)).unwrap_or(u16::MAX),
+        "Save view preferences?",
+        true,
+        body_row_count,
+        &actions,
+        app.view_preference_prompt_hovered_action_key.as_deref(),
+        &app.options.theme,
+    );
+    let panel = ratatui_theme_color(&app.options.theme.panel);
+    let muted = Style::default()
+        .fg(ratatui_theme_color(&app.options.theme.muted))
+        .bg(panel);
+    let neutral = Style::default()
+        .fg(ratatui_theme_color(&app.options.theme.badge_neutral))
+        .bg(panel);
+    let changed = changes.len();
+    let body_width = usize::from(map.body.width);
+    let rows = [
+        (
+            format!(
+                "You changed {changed} view {} during this review.",
+                if changed == 1 { "setting" } else { "settings" }
+            ),
+            muted,
+        ),
+        (
+            format!(
+                "Save {} to your config before quitting?",
+                if changed == 1 { "it" } else { "them" }
+            ),
+            muted,
+        ),
+        (String::new(), muted),
+        (
+            app.view_preference_quit.view_preferences_config_label(),
+            neutral,
+        ),
+    ];
+    for (index, (text, style)) in rows.into_iter().enumerate() {
+        let y = map
+            .body
+            .y
+            .saturating_add(u16::try_from(index).unwrap_or(u16::MAX));
+        if y >= map.body.bottom() {
+            break;
+        }
+        paint_confirm_dialog_text(
+            buffer,
+            Rect::new(map.body.x, y, map.body.width, 1),
+            &fit_text(&text, body_width, None),
+            style,
+        );
+    }
+    for (index, line) in diff_lines.iter().enumerate() {
+        let y = map
+            .body
+            .y
+            .saturating_add(u16::try_from(index.saturating_add(4)).unwrap_or(u16::MAX));
+        if y >= map.body.bottom() {
+            break;
+        }
+        let color = if line.removed {
+            &app.options.theme.badge_removed
+        } else {
+            &app.options.theme.badge_added
+        };
+        paint_confirm_dialog_text(
+            buffer,
+            Rect::new(map.body.x, y, map.body.width, 1),
+            &fit_text(&line.text, body_width, None),
+            Style::default().fg(ratatui_theme_color(color)).bg(panel),
+        );
+    }
+    *app.view_preference_prompt_hits
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(map);
 }
 
 /// Draw the host-owned repository-extension security decision above the review.
@@ -13392,5 +13710,100 @@ mod tests {
                 .map(|notification| notification.message),
             Some("second".into())
         );
+    }
+
+    #[test]
+    fn dirty_view_quit_renders_saves_and_exits_only_after_the_notice_window() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let config_path = directory.path().join(".config/workdeck/config.toml");
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                view_preferences_config_path: Some(config_path.clone()),
+                view_preferences_home_directory: Some(directory.path().to_owned()),
+                ..ReviewOptions::default()
+            },
+        );
+        app.apply_builtin_command_action(AppCommandAction::ToggleLineWrap);
+        app.show_help = true;
+        app.apply_builtin_command_action(AppCommandAction::RequestQuit);
+        assert!(app.save_config_prompt_open());
+        assert!(!app.show_help);
+        assert!(!app.take_quit_requested());
+
+        let backend = TestBackend::new(100, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let frame = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(frame.contains("Save view preferences?"));
+        assert!(frame.contains("~/.config/workdeck/config.toml"));
+        assert!(frame.contains("- wrap_lines = false"));
+        assert!(frame.contains("+ wrap_lines = true"));
+        assert!(frame.contains("enter/s save"));
+        assert!(frame.contains("q discard"));
+        assert!(frame.contains("n never ask"));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        assert!(app.save_config_prompt_open());
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(!app.save_config_prompt_open());
+        assert_eq!(app.changed_view_preferences().len(), 1);
+
+        app.request_quit();
+        let start = Instant::now();
+        app.save_view_preferences_and_quit(start);
+        assert!(!app.save_config_prompt_open());
+        assert!(
+            std::fs::read_to_string(config_path)
+                .unwrap()
+                .contains("wrap_lines = true")
+        );
+        assert!(app.changed_view_preferences().is_empty());
+        app.tick_extension_notifications(start + Duration::from_millis(119));
+        assert!(!app.take_quit_requested());
+        app.tick_extension_notifications(start + POST_PERSISTENCE_QUIT_DELAY);
+        assert!(app.take_quit_requested());
+    }
+
+    #[test]
+    fn dirty_view_quit_prompt_mouse_actions_are_modal_and_clickable() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let config_path = directory.path().join("config.toml");
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                view_preferences_config_path: Some(config_path.clone()),
+                ..ReviewOptions::default()
+            },
+        );
+        app.apply_builtin_command_action(AppCommandAction::ToggleLineWrap);
+        app.request_quit();
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 100, 24));
+        render(buffer.area, &mut buffer, &app);
+        let discard = app
+            .view_preference_prompt_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+            .unwrap()
+            .action_hits[1]
+            .bounds;
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: discard.x,
+            row: discard.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(!app.save_config_prompt_open());
+        assert!(app.take_quit_requested());
+        assert!(!config_path.exists());
     }
 }

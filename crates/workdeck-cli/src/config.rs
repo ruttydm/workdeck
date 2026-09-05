@@ -37,8 +37,10 @@ impl Default for ExtensionsConfig {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(default = "default_true")]
+    pub prompt_save_view_preferences: bool,
     #[serde(default)]
     pub ui: UiConfig,
     #[serde(default)]
@@ -72,6 +74,27 @@ pub struct Config {
     /// Existing repository config, otherwise the global config path, for view persistence.
     #[serde(skip)]
     pub view_preferences_config_path: Option<PathBuf>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            prompt_save_view_preferences: true,
+            ui: UiConfig::default(),
+            paths: PathConfig::default(),
+            git: GitConfig::default(),
+            refresh: RefreshConfig::default(),
+            review: ReviewConfig::default(),
+            keys: KeyConfig::default(),
+            extension: BTreeMap::new(),
+            resolved_extensions: ExtensionsConfig::default(),
+            startup_notices: Vec::new(),
+            keybindings: Vec::new(),
+            keybinding_notices: Vec::new(),
+            custom_themes: Vec::new(),
+            view_preferences_config_path: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -359,7 +382,8 @@ impl Config {
 
         if let Some(path) = user_config_path.filter(|path| path.exists()) {
             (keybindings, keybinding_notices) = read_user_keybindings(path)?;
-            let user = read_config_value(path)?;
+            let mut user = read_config_value(path)?;
+            apply_top_level_view_preferences(&mut user);
             user_extensions = read_extensions_layer(&user)?;
             let themes = read_custom_themes(&user)?;
             merge_custom_theme_layer(&mut custom_themes, themes.themes);
@@ -369,7 +393,8 @@ impl Config {
         }
 
         if repo_config_path.exists() {
-            let repo = read_config_value(repo_config_path)?;
+            let mut repo = read_config_value(repo_config_path)?;
+            apply_top_level_view_preferences(&mut repo);
             repo_extensions = read_extensions_layer(&repo)?;
             let themes = read_custom_themes(&repo)?;
             merge_custom_theme_layer(&mut custom_themes, themes.themes);
@@ -389,7 +414,6 @@ impl Config {
             .as_table_mut()
             .expect("a TOML document root is always a table")
             .insert("extension".into(), toml::Value::Table(extension_configs));
-
         let mut config: Self = merged
             .try_into()
             .with_context(|| "failed to parse merged config")?;
@@ -485,6 +509,48 @@ impl Config {
             bail!("review.hunk_gap must be between 0 and 8");
         }
         self.keys.validate()
+    }
+}
+
+/// Apply the flat Hunk-compatible view keys written by the interactive quit flow to
+/// Workdeck's canonical nested runtime model. A saved flat key is an explicit later
+/// choice and therefore overrides an older nested value in the same merged document.
+fn apply_top_level_view_preferences(root: &mut toml::Value) {
+    const REVIEW_KEYS: &[&str] = &[
+        "mode",
+        "line_numbers",
+        "wrap_lines",
+        "hunk_headers",
+        "menu_bar",
+        "agent_notes",
+        "copy_decorations",
+        "cursor_line",
+    ];
+    let Some(root) = root.as_table_mut() else {
+        return;
+    };
+    if let Some(theme) = root.get("theme").cloned() {
+        let ui = root
+            .entry("ui")
+            .or_insert_with(|| toml::Value::Table(Default::default()));
+        if let Some(ui) = ui.as_table_mut() {
+            ui.insert("theme".into(), theme);
+        }
+    }
+    let review_values = REVIEW_KEYS
+        .iter()
+        .filter_map(|key| root.get(*key).cloned().map(|value| (*key, value)))
+        .collect::<Vec<_>>();
+    if review_values.is_empty() {
+        return;
+    }
+    let review = root
+        .entry("review")
+        .or_insert_with(|| toml::Value::Table(Default::default()));
+    if let Some(review) = review.as_table_mut() {
+        for (key, value) in review_values {
+            review.insert(key.into(), value);
+        }
     }
 }
 
@@ -1153,6 +1219,68 @@ mod tests {
         assert!(config.review.line_numbers);
         assert!(config.review.menu_bar);
         assert!(!config.review.copy_decorations);
+        assert!(config.prompt_save_view_preferences);
+    }
+
+    #[test]
+    fn prompt_save_view_preferences_is_a_layered_top_level_policy() {
+        let directory = tempfile::tempdir().unwrap();
+        let user_config = directory.path().join("user.toml");
+        let repo_config = directory.path().join("repo.toml");
+        fs::write(&user_config, "prompt_save_view_preferences = false\n").unwrap();
+        let user = Config::load_from_paths(&repo_config, Some(&user_config)).unwrap();
+        assert!(!user.prompt_save_view_preferences);
+
+        fs::write(&repo_config, "prompt_save_view_preferences = true\n").unwrap();
+        let layered = Config::load_from_paths(&repo_config, Some(&user_config)).unwrap();
+        assert!(layered.prompt_save_view_preferences);
+        assert_eq!(
+            layered.view_preferences_config_path.as_deref(),
+            Some(repo_config.as_path())
+        );
+    }
+
+    #[test]
+    fn interactive_view_save_round_trips_into_the_nested_runtime_model() {
+        let directory = tempfile::tempdir().unwrap();
+        let user_config = directory.path().join("config.toml");
+        let repo_config = directory.path().join("missing-repo.toml");
+        fs::write(
+            &user_config,
+            "[ui]\ntheme = \"old\"\n\n[review]\nwrap_lines = false\n",
+        )
+        .unwrap();
+        workdeck_core::save_global_view_preferences(
+            &workdeck_core::PersistedViewPreferences {
+                mode: workdeck_core::InputLayoutMode::Stack,
+                theme: Some("github-light-default".into()),
+                show_line_numbers: false,
+                wrap_lines: true,
+                show_hunk_headers: false,
+                show_menu_bar: false,
+                show_agent_notes: true,
+                copy_decorations: true,
+                cursor_line: workdeck_core::InputCursorLine::Number,
+            },
+            Some(&user_config),
+        )
+        .unwrap();
+
+        let config = Config::load_from_paths(&repo_config, Some(&user_config)).unwrap();
+        assert_eq!(config.ui.theme, "github-light-default");
+        assert_eq!(config.review.mode, "stack");
+        assert!(!config.review.line_numbers);
+        assert!(config.review.wrap_lines);
+        assert!(!config.review.hunk_headers);
+        assert!(!config.review.menu_bar);
+        assert!(config.review.agent_notes);
+        assert!(config.review.copy_decorations);
+        assert_eq!(config.review.cursor_line, "number");
+
+        fs::write(&repo_config, "[review]\nwrap_lines = false\n").unwrap();
+        let layered = Config::load_from_paths(&repo_config, Some(&user_config)).unwrap();
+        assert!(!layered.review.wrap_lines);
+        assert_eq!(layered.review.mode, "stack");
     }
 
     #[test]
