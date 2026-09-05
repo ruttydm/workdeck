@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "sourceTest": {
+    "path": "src/ui/AppHost.scroll-regression.test.tsx",
+    "blob": "bb0e7f99bd0ff9b40a4f468acd7de41008de78df",
+    "sha256": "2853af6e50435f1af34cf1c1d6bd2a064a41af3e6231e923f0134e269964e3c3",
+    "bytes": 2297,
+    "lines": 72
+  },
+  "stableRelationship": "identical blob",
+  "history": [
+    {
+      "commit": "6f7e096b0e800bd33acdc586bab033d3212109b0",
+      "subject": "fix: stabilize diff repaint on scroll"
+    },
+    {
+      "commit": "402ecf47df21648d5d273afdd9b473f03f7907e3",
+      "subject": "fix: retune responsive layout thresholds"
+    },
+    {
+      "commit": "fa557d28f7ab6ce0b440966b170b9495df89e1d5",
+      "subject": "Refactor AppHost into its own module (#140)"
+    },
+    {
+      "commit": "753dc37004d6a1d756045719454df3463ee91ce7",
+      "subject": "Organize src/core into real modules (#795)"
+    }
+  ],
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/AppHost.scroll-regression.test.tsx",
+    "passed": 1,
+    "failed": 0,
+    "assertions": 6
+  },
+  "stableOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/AppHost.scroll-regression.test.tsx",
+    "passed": 1,
+    "failed": 0,
+    "assertions": 6
+  },
+  "frameContract": {
+    "terminal": { "width": 160, "height": 20 },
+    "wheel": { "column": 50, "row": 10, "direction": "down" },
+    "presentBeforeAndAfter": [
+      "36 - line 36 old value",
+      "36 + line 36 new value with long long te"
+    ],
+    "absentAfter": [
+      "lold value",
+      "36 +  with long long te"
+    ]
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/tests/scroll_regression.rs",
+      "sha256": "90de62bc871e580db21f44fb012fa4169513eb6c07a5370b20402635835c6de9"
+    }
+  ],
+  "testCoverage": [
+    [[[[1, 35], [0, 1100]]], "bootstrap imports and one eighty-line TypeScript file with a long line-36 replacement and three rows of context"],
+    [[[[36, 72], [1100, 2297]]], "160 by 20 initial frame, wheel repaint, intact old and new cells, corruption rejection, and renderer cleanup"]
+  ],
+  "testMappings": [
+    {
+      "source": "keeps split diff lines intact after a wheel scroll repaint",
+      "rust": ["scroll_regression::split_diff_cells_remain_intact_after_a_wheel_scroll_repaint"]
+    }
+  ],
+  "integrationTests": [
+    "cargo test -p workdeck-tui --test scroll_regression",
+    "cargo test --workspace --all-targets"
+  ],
+  "nativeAdaptations": [
+    "The fixture stores the exact seven-row unified hunk produced from Hunk's eighty-line before and after documents.",
+    "Ratatui TestBackend cell symbols are the frame authority and are checked before and after the same wheel coordinate."
+  ]
+}
