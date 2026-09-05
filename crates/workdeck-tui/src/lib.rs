@@ -44,6 +44,7 @@ mod extension_trust_controller;
 mod extension_trust_prompt;
 mod extension_workspace;
 mod file_header;
+mod file_presentation_controller;
 mod file_presentation_rendering;
 mod file_render_window;
 mod file_section_layout;
@@ -142,6 +143,7 @@ pub use extension_trust_controller::*;
 pub use extension_trust_prompt::*;
 pub use extension_workspace::*;
 pub use file_header::*;
+pub use file_presentation_controller::*;
 pub use file_presentation_rendering::*;
 pub use file_render_window::*;
 pub use file_section_layout::*;
@@ -221,7 +223,7 @@ use unicode_width::UnicodeWidthStr;
 use workdeck_core::{
     AgentAnnotation, Changeset, ChangesetSource, DiffFile, DiffLine, DiffLineKind, InputCursorLine,
     InputLayoutMode, NamedCustomThemeConfig, PersistedViewPreferences, ReviewSelection, ReviewSide,
-    SourceOrigin, StartupNotice,
+    SourceOrigin, StartupNotice, project_review_file,
 };
 use workdeck_diff::{
     DIFF_RAIL_PREFIX_WIDTH, HighlightedDiffLine, LanguageMatcher, LanguageRegistration,
@@ -239,7 +241,7 @@ use workdeck_extension_api::{
     FileViewModeKeyRequest, FileViewModeLifecycleRequest, KeyRoutingResult,
     KeyboardModeRegistration, PaneActionInvocation, PanePlacement, PaneRegistration,
     PaneRenderRequest, Registration, ReviewEvent, SessionReloadReason, ViewNode, ViewStyle,
-    WORKDECK_FILES_PANE_KEY, bundled_files_pane, extension_pane_size,
+    WORKDECK_FILES_PANE_KEY, bundled_files_pane, extension_pane_size, file_view_unavailable_reason,
 };
 use workdeck_extension_host::{
     ActiveSessionKeyboardMode, EXTENSION_SHUTDOWN_TIMEOUT,
@@ -248,9 +250,10 @@ use workdeck_extension_host::{
     KeyboardModeControllerState, LineHighlightRefreshResult, LineHighlightsController,
     LoadedExtension, RegisteredFileView, RegisteredKeyboardMode, RegisteredLineHighlighter,
     build_extension_review_selection_from_snapshot, create_file_view_input,
-    create_file_view_input_snapshot, format_keyboard_mode_failure, project_extension_changeset,
-    project_extension_diff_file, reconcile_file_view_selections, registered_file_view_key,
-    resolve_loaded_extension_registrations, select_file_view, session_keyboard_mode_display_title,
+    create_file_view_input_snapshot, file_view_mode_failure_message, format_keyboard_mode_failure,
+    project_extension_changeset, project_extension_diff_file, reconcile_file_view_selections,
+    registered_file_view_key, resolve_loaded_extension_registrations, select_file_view,
+    select_file_view_for_files, session_keyboard_mode_display_title,
     session_keyboard_mode_status_hint, session_keyboard_mode_still_valid,
 };
 use workdeck_review::{
@@ -260,8 +263,8 @@ use workdeck_review::{
     SemanticReviewAnnotationIndex, SemanticReviewSelection, VisibleFileViewNote,
     build_extension_review_snapshot, build_file_view_render_plan, plan_expanded_gap,
     plan_review_selection_move, project_extension_review_notes, review_annotated_hunk_indices,
-    review_default_hunk_line_target, review_expansion_side, review_gap_source_for_file,
-    review_leading_gap, review_line_anchor, review_trailing_gap,
+    review_default_hunk_line_target, review_expansion_side, review_file_matches_filter,
+    review_gap_source_for_file, review_leading_gap, review_line_anchor, review_trailing_gap,
 };
 use workdeck_session::{ReviewSessionServer, default_discovery_directory};
 use workdeck_vcs::bundled_vcs_catalog;
@@ -405,7 +408,15 @@ struct LiveKeyboardModeRegistration {
 struct LiveFileViewRegistration {
     extension_index: usize,
     registration_identity: u64,
+    title: String,
     view: Arc<RegisteredFileView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct FileViewMatchCacheKey {
+    file_id: String,
+    content_identity: String,
+    registration_identity: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -416,6 +427,27 @@ struct CachedFileViewLayout {
 }
 
 static NEXT_FILE_VIEW_REGISTRATION_IDENTITY: AtomicU64 = AtomicU64::new(1);
+const MAX_FILE_VIEW_MODE_TRANSITION_DEPTH: usize = 32;
+
+fn requested_file_view_key(extension_id: &str, view_id: &str) -> String {
+    if view_id.contains(':') {
+        view_id.to_owned()
+    } else {
+        format!("{extension_id}:{view_id}")
+    }
+}
+
+fn resolve_live_file_view(
+    registrations: &[LiveFileViewRegistration],
+    extension_id: &str,
+    view_id: &str,
+) -> Option<LiveFileViewRegistration> {
+    let key = requested_file_view_key(extension_id, view_id);
+    registrations
+        .iter()
+        .find(|registration| registered_file_view_key(&registration.view) == key)
+        .cloned()
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct FileViewComponentStateKey {
@@ -453,10 +485,12 @@ struct ActiveKeyboardMode {
 
 #[derive(Debug, Clone)]
 struct ActiveFileViewModeRuntime {
+    activation_id: u64,
     extension_index: usize,
     extension_id: String,
     view_id: String,
     view_key: String,
+    registration_identity: u64,
     file: Arc<workdeck_extension_api::ExtensionDiffFile>,
     review_generation: u64,
 }
@@ -555,11 +589,13 @@ struct ExtensionPaneRuntime {
     line_highlight_preparation: LineHighlightPreparationController,
     file_languages: Vec<LanguageRegistration>,
     file_view_selections: FileViewSelectionState,
+    file_view_match_cache: BTreeMap<FileViewMatchCacheKey, bool>,
     file_view_layouts: BTreeMap<String, CachedFileViewLayout>,
     file_view_component_expanded: BTreeSet<FileViewComponentStateKey>,
     file_view_component_hits: Vec<FileViewComponentHit>,
     file_view_component_pointer: MouseCapture<FileViewComponentPointer>,
     active_file_view_mode: Option<ActiveFileViewModeRuntime>,
+    next_file_view_mode_activation_id: u64,
     active_keyboard_mode: Option<ActiveKeyboardMode>,
     keyboard_mode_controller: KeyboardModeControllerState,
     dialogs: ExtensionDialogQueue,
@@ -650,12 +686,14 @@ impl ExtensionPaneRuntime {
                     }
                     Registration::FileView {
                         id,
+                        title,
                         interactive_mode,
                         ..
                     } => file_views.push(LiveFileViewRegistration {
                         extension_index,
                         registration_identity: NEXT_FILE_VIEW_REGISTRATION_IDENTITY
                             .fetch_add(1, Ordering::Relaxed),
+                        title: sanitize_terminal_line(title),
                         view: Arc::new(RegisteredFileView {
                             extension_id: extension.manifest.id.clone(),
                             view_id: id.clone(),
@@ -787,6 +825,35 @@ impl ExtensionPaneRuntime {
         ))
     }
 
+    fn cached_file_view_matches(
+        &mut self,
+        registration: &LiveFileViewRegistration,
+        file: &DiffFile,
+    ) -> bool {
+        let key = FileViewMatchCacheKey {
+            file_id: file.runtime_id.clone(),
+            content_identity: file.content_identity.clone(),
+            registration_identity: registration.registration_identity,
+        };
+        if let Some(matches) = self.file_view_match_cache.get(&key) {
+            return *matches;
+        }
+        if registration.extension_index >= self.extensions.len() {
+            return false;
+        }
+        if self.extensions[registration.extension_index].request_pending() {
+            return false;
+        }
+        let matches = contain_file_view_match(
+            self.extensions[registration.extension_index].file_view_matches(
+                &registration.view.view_id,
+                project_extension_diff_file(file),
+            ),
+        );
+        self.file_view_match_cache.insert(key, matches);
+        matches
+    }
+
     fn retire_extensions(&mut self) {
         self.pending_commands.clear();
         self.pending_events.clear();
@@ -857,6 +924,7 @@ pub struct ReviewApp {
     extension_event_context_provider: ExtensionEventContextProviderSlot,
     extension_event_context_installation: Option<ExtensionEventContextProviderInstallation>,
     extension_event_dispatch_depth: usize,
+    file_view_mode_transition_depth: usize,
     extension_review_events: ExtensionReviewEventController,
     extension_registry_generation: u64,
     review_projection_generation: u64,
@@ -1075,6 +1143,7 @@ impl ReviewApp {
             extension_event_context_provider,
             extension_event_context_installation: None,
             extension_event_dispatch_depth: 0,
+            file_view_mode_transition_depth: 0,
             extension_review_events: ExtensionReviewEventController::default(),
             extension_registry_generation: 1,
             review_projection_generation: 1,
@@ -1405,6 +1474,7 @@ impl ReviewApp {
                 &file_ids,
                 &view_keys,
             );
+            runtime.file_view_match_cache.clear();
             runtime.file_view_layouts.clear();
             runtime.file_view_component_expanded.clear();
             runtime.file_view_component_hits.clear();
@@ -1468,6 +1538,21 @@ impl ReviewApp {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             self.options.sidebar = replacement.reconcile_panes_from(&runtime, self.options.sidebar);
+            let file_ids = changeset
+                .files
+                .iter()
+                .map(|file| file.runtime_id.clone())
+                .collect::<Vec<_>>();
+            let view_keys = replacement
+                .file_views
+                .iter()
+                .map(|registration| registered_file_view_key(&registration.view))
+                .collect::<BTreeSet<_>>();
+            replacement.file_view_selections = reconcile_file_view_selections(
+                &runtime.file_view_selections,
+                &file_ids,
+                &view_keys,
+            );
             replacement
                 .line_highlights
                 .retain_epochs_from(&runtime.line_highlights);
@@ -1917,6 +2002,7 @@ impl ReviewApp {
             body: String::new(),
             cursor: 0,
         });
+        self.reconcile_active_file_view_mode();
         self.status = None;
     }
 
@@ -1987,6 +2073,7 @@ impl ReviewApp {
             body,
             cursor,
         });
+        self.reconcile_active_file_view_mode();
         self.focus = Focus::Review;
         self.status = None;
     }
@@ -2004,6 +2091,7 @@ impl ReviewApp {
             body: String::new(),
             cursor: 0,
         });
+        self.reconcile_active_file_view_mode();
         self.focus = Focus::Review;
         self.status = None;
     }
@@ -2280,9 +2368,13 @@ impl ReviewApp {
                 !comments.is_empty(),
             )
         });
+        let can_apply_file_presentation_to_all_matching = self
+            .file_presentation_menu_projection()
+            .bulk_target
+            .is_some();
         BuiltinCommandAvailability {
             can_align_current_line: self.options.cursor_line != CursorLineMode::Off,
-            can_apply_file_presentation_to_all_matching: false,
+            can_apply_file_presentation_to_all_matching,
             can_edit_active_note,
             can_reply_to_active_note,
             can_refresh_current_input: true,
@@ -2352,6 +2444,7 @@ impl ReviewApp {
     }
 
     fn app_menus(&self) -> AppMenus {
+        let file_presentations = self.file_presentation_menu_projection();
         let builtins = self.builtin_commands();
         let mut commands = builtins
             .iter()
@@ -2391,12 +2484,16 @@ impl ReviewApp {
             (extension_commands, keyboard_mode_exit_entry)
         };
         commands.extend(extension_commands.iter().cloned());
+        let file_view_apply_all_label = file_presentations
+            .bulk_target
+            .as_ref()
+            .map(|target| format!("Apply \"{}\" to all matching files", target.title));
         build_app_menus(BuildAppMenusOptions {
             commands,
             extension_commands,
-            file_view_entries: Vec::new(),
+            file_view_entries: file_presentations.entries,
             keyboard_mode_exit_entry,
-            file_view_apply_all_label: None,
+            file_view_apply_all_label,
             copy_decorations: self.copy_decorations,
             cursor_line: match self.options.cursor_line {
                 CursorLineMode::Row => CommandCursorLine::Row,
@@ -2412,6 +2509,153 @@ impl ReviewApp {
             show_menu_bar: self.show_menu_bar,
             wrap_lines: self.options.wrap_lines,
         })
+    }
+
+    fn review_file_is_visible(&self, files: &[DiffFile], file: &DiffFile) -> bool {
+        files
+            .iter()
+            .position(|candidate| candidate.runtime_id == file.runtime_id)
+            .is_some_and(|index| {
+                review_file_matches_filter(
+                    &project_review_file(file, "terminal-review", index),
+                    &self.filter,
+                )
+            })
+    }
+
+    fn file_presentation_menu_projection(&self) -> FilePresentationMenuProjection {
+        let (files, selected_file, draft_file_id) = self.with_state(|state| {
+            let selection = state.selection();
+            let draft_file_id = self.note_composer.as_ref().and_then(|composer| {
+                state
+                    .changeset()
+                    .files
+                    .get(composer.target.file_index)
+                    .map(|file| file.runtime_id.clone())
+            });
+            (
+                state.changeset().files.clone(),
+                state.changeset().files.get(selection.file_index).cloned(),
+                draft_file_id,
+            )
+        });
+        let Some(selected_file) = selected_file else {
+            return FilePresentationMenuProjection::default();
+        };
+        if !self.review_file_is_visible(&files, &selected_file) {
+            return FilePresentationMenuProjection::default();
+        }
+        let unavailable_reason = file_view_unavailable_reason(
+            draft_file_id.as_deref() == Some(selected_file.runtime_id.as_str()),
+        );
+        let mut runtime = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let registrations = runtime.file_views.clone();
+        let candidates = registrations
+            .iter()
+            .map(|registration| FilePresentationMenuCandidate {
+                key: registered_file_view_key(&registration.view),
+                title: registration.title.clone(),
+                matches: runtime.cached_file_view_matches(registration, &selected_file),
+            })
+            .collect::<Vec<_>>();
+        let stored_key = runtime
+            .file_view_selections
+            .get(&selected_file.runtime_id)
+            .map(str::to_owned);
+        let presented_key = if unavailable_reason.is_none() {
+            stored_key
+        } else {
+            None
+        };
+        let bulk_target = presented_key.as_deref().and_then(|selected_key| {
+            let registration = registrations.iter().find(|registration| {
+                registered_file_view_key(&registration.view) == selected_key
+            })?;
+            let matching_file_ids = files
+                .iter()
+                .filter(|file| runtime.cached_file_view_matches(registration, file))
+                .map(|file| file.runtime_id.clone())
+                .collect::<Vec<_>>();
+            (matching_file_ids
+                .iter()
+                .any(|file_id| file_id == &selected_file.runtime_id)
+                && matching_file_ids
+                    .iter()
+                    .any(|file_id| runtime.file_view_selections.get(file_id) != Some(selected_key)))
+            .then(|| FilePresentationBulkTarget {
+                key: selected_key.to_owned(),
+                title: registration.title.clone(),
+                file_ids: matching_file_ids,
+            })
+        });
+        plan_file_presentation_menu(
+            Some(&selected_file.runtime_id),
+            presented_key.as_deref(),
+            unavailable_reason,
+            &candidates,
+            bulk_target,
+        )
+    }
+
+    fn apply_file_presentation_bulk_target(&mut self) {
+        let Some(target) = self.file_presentation_menu_projection().bulk_target else {
+            return;
+        };
+        let mut runtime = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        runtime.file_view_selections = select_file_view_for_files(
+            &runtime.file_view_selections,
+            &target.file_ids,
+            &target.key,
+        );
+        for file_id in &target.file_ids {
+            runtime.file_view_layouts.remove(file_id);
+            clear_file_view_component_state(&mut runtime, file_id);
+        }
+        self.status = Some(format!(
+            "file presentation: {} applied to matching files",
+            target.title
+        ));
+    }
+
+    fn set_file_presentation_for_file(&mut self, file_id: &str, view_key: Option<&str>) -> bool {
+        let unchanged = self.selected_extension_file_view(file_id).as_deref() == view_key;
+        if unchanged {
+            return false;
+        }
+        self.exit_file_view_mode_for_file(file_id);
+        let mut runtime = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        runtime.file_view_selections =
+            select_file_view(&runtime.file_view_selections, file_id, view_key);
+        runtime.file_view_layouts.remove(file_id);
+        clear_file_view_component_state(&mut runtime, file_id);
+        true
+    }
+
+    fn select_current_file_presentation_from_menu(&mut self, view_key: Option<&str>) {
+        let file_id = self.with_state(|state| {
+            state
+                .changeset()
+                .files
+                .get(state.selection().file_index)
+                .map(|file| file.runtime_id.clone())
+        });
+        let Some(file_id) = file_id else {
+            return;
+        };
+        self.set_file_presentation_for_file(&file_id, view_key);
+        self.status = Some(match view_key {
+            Some(view_key) => format!("file presentation: {view_key}"),
+            None => "file presentation: raw diff".into(),
+        });
     }
 
     fn close_app_menu(&self) {
@@ -2493,7 +2737,9 @@ impl ReviewApp {
             AppCommandAction::SelectLayoutMode(layout) => {
                 self.with_state(|state| state.set_layout(layout));
             }
-            AppCommandAction::ApplyFilePresentationToAllMatching => {}
+            AppCommandAction::ApplyFilePresentationToAllMatching => {
+                self.apply_file_presentation_bulk_target();
+            }
             AppCommandAction::ToggleFilesPane => self.toggle_files_pane_role(),
             AppCommandAction::RefreshCurrentInput => self.reload_requested = true,
             AppCommandAction::OpenThemeSelector => self.open_theme_selector(),
@@ -3383,11 +3629,14 @@ impl ReviewApp {
                 ExtensionHostAction::ToggleFileView { id } => {
                     self.toggle_extension_file_view(extension_index, extension_id, &id);
                 }
+                ExtensionHostAction::SelectFileView { id } => {
+                    self.select_extension_file_view(extension_index, extension_id, id.as_deref());
+                }
                 ExtensionHostAction::EnterFileViewMode { id } => {
                     self.enter_file_view_mode(extension_index, extension_id, &id);
                 }
                 ExtensionHostAction::ExitFileViewMode => {
-                    self.exit_file_view_mode_for_extension(extension_index);
+                    self.exit_active_file_view_mode();
                 }
                 ExtensionHostAction::RefreshFileView { id, file_id } => {
                     self.refresh_extension_file_view(
@@ -4893,79 +5142,138 @@ impl ReviewApp {
         extension_id: &str,
         view_id: &str,
     ) {
-        let file = self.with_state(|state| {
+        let file_id = self.with_state(|state| {
             state
                 .changeset()
                 .files
                 .get(state.selection().file_index)
-                .cloned()
+                .map(|file| file.runtime_id.clone())
+        });
+        let registration = {
+            let runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            resolve_live_file_view(&runtime.file_views, extension_id, view_id)
+        };
+        let active = file_id.as_deref().is_some_and(|file_id| {
+            registration.as_ref().is_some_and(|registration| {
+                let view_key = registered_file_view_key(&registration.view);
+                self.presented_extension_file_view(file_id).as_deref() == Some(view_key.as_str())
+            })
+        });
+        self.select_extension_file_view(
+            extension_index,
+            extension_id,
+            (!active).then_some(view_id),
+        );
+    }
+
+    fn select_extension_file_view(
+        &mut self,
+        _extension_index: usize,
+        extension_id: &str,
+        view_id: Option<&str>,
+    ) {
+        let (files, file, draft_file_id) = self.with_state(|state| {
+            let file = state
+                .changeset()
+                .files
+                .get(state.selection().file_index)
+                .cloned();
+            let draft_file_id = self.note_composer.as_ref().and_then(|composer| {
+                state
+                    .changeset()
+                    .files
+                    .get(composer.target.file_index)
+                    .map(|file| file.runtime_id.clone())
+            });
+            (state.changeset().files.clone(), file, draft_file_id)
         });
         let Some(file) = file else {
-            self.status = Some(format!("extension {extension_id} has no selected file"));
-            return;
-        };
-        let replaces_active_mode = self
-            .extension_pane_runtime
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .active_file_view_mode
-            .as_ref()
-            .is_some_and(|active| active.file.id == file.runtime_id);
-        if replaces_active_mode {
-            self.exit_active_file_view_mode();
-        }
-        let mut runtime = self
-            .extension_pane_runtime
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let Some(registration) = runtime.file_views.iter().find(|registration| {
-            registration.extension_index == extension_index && registration.view.view_id == view_id
-        }) else {
             self.status = Some(format!(
-                "extension {extension_id} targeted unknown file view {view_id:?}"
+                "Extension {extension_id} cannot select a file view without a selected file"
             ));
             return;
         };
-        let view_key = registered_file_view_key(&registration.view);
-        if runtime.file_view_selections.get(&file.runtime_id) == Some(view_key.as_str()) {
-            runtime.file_view_selections =
-                select_file_view(&runtime.file_view_selections, &file.runtime_id, None);
-            runtime.file_view_layouts.remove(&file.runtime_id);
-            clear_file_view_component_state(&mut runtime, &file.runtime_id);
+        let Some(view_id) = view_id else {
+            self.set_file_presentation_for_file(&file.runtime_id, None);
             self.status = Some("file presentation: raw diff".into());
             return;
-        }
-        let snapshot = create_file_view_input_snapshot(&file);
-        match runtime.extensions[extension_index]
-            .file_view_matches(view_id, snapshot.file.as_ref().clone())
+        };
+        if let Some(reason) =
+            file_view_unavailable_reason(draft_file_id.as_deref() == Some(file.runtime_id.as_str()))
         {
+            self.status = Some(reason.into());
+            return;
+        }
+        let registration = {
+            let runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            resolve_live_file_view(&runtime.file_views, extension_id, view_id)
+        };
+        let Some(registration) = registration else {
+            self.status = Some(format!(
+                "Extension {extension_id} targeted unknown file view \"{view_id}\""
+            ));
+            return;
+        };
+        if !self.review_file_is_visible(&files, &file) {
+            self.status = Some(format!(
+                "File view \"{view_id}\" does not match the selected file • using raw diff"
+            ));
+            return;
+        }
+        let view_key = registered_file_view_key(&registration.view);
+        let snapshot = create_file_view_input_snapshot(&file);
+        let matches = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .extensions[registration.extension_index]
+            .file_view_matches(&registration.view.view_id, snapshot.file.as_ref().clone());
+        match matches {
             Ok(true) => {
-                runtime.file_view_selections = select_file_view(
-                    &runtime.file_view_selections,
-                    &file.runtime_id,
-                    Some(&view_key),
-                );
-                runtime.file_view_layouts.remove(&file.runtime_id);
-                clear_file_view_component_state(&mut runtime, &file.runtime_id);
+                self.set_file_presentation_for_file(&file.runtime_id, Some(&view_key));
                 self.status = Some(format!("file presentation: {view_key}"));
             }
             Ok(false) => {
                 self.status = Some(format!(
-                    "file view {view_id:?} does not match {} • using raw diff",
-                    file.path
+                    "File view \"{view_id}\" does not match the selected file • using raw diff"
                 ));
             }
-            Err(error) => {
+            Err(_) => {
                 self.status = Some(format!(
-                    "extension {extension_id} file view match failed: {error}"
+                    "Extension {} file view \"{}\" failed matching the selected file",
+                    registration.view.extension_id, registration.view.view_id
                 ));
             }
         }
     }
 
     fn enter_file_view_mode(&mut self, extension_index: usize, extension_id: &str, view_id: &str) {
-        let (file, review_generation) = self.with_state(|state| {
+        if self.file_view_mode_transition_depth >= MAX_FILE_VIEW_MODE_TRANSITION_DEPTH {
+            self.status = Some(format!(
+                "Extension {extension_id} exceeded the file-view mode transition limit"
+            ));
+            return;
+        }
+        self.file_view_mode_transition_depth += 1;
+        self.enter_file_view_mode_inner(extension_index, extension_id, view_id);
+        self.file_view_mode_transition_depth -= 1;
+    }
+
+    fn enter_file_view_mode_inner(
+        &mut self,
+        _extension_index: usize,
+        extension_id: &str,
+        view_id: &str,
+    ) {
+        let (files, file, review_generation) = self.with_state(|state| {
             (
+                state.changeset().files.clone(),
                 state
                     .changeset()
                     .files
@@ -4975,51 +5283,72 @@ impl ReviewApp {
             )
         });
         let Some(file) = file else {
-            self.status = Some(format!("extension {extension_id} has no selected file"));
+            self.status = Some(format!(
+                "Extension {extension_id} cannot enter a mode without a selected file"
+            ));
             return;
         };
-        let registration = self
-            .extension_pane_runtime
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .file_views
-            .iter()
-            .find(|registration| {
-                registration.extension_index == extension_index
-                    && registration.view.view_id == view_id
+        if !self.review_file_is_visible(&files, &file) {
+            self.status = Some(format!(
+                "Extension {extension_id} cannot enter a mode without a selected file"
+            ));
+            return;
+        }
+        let draft_file_id = self.with_state(|state| {
+            self.note_composer.as_ref().and_then(|composer| {
+                state
+                    .changeset()
+                    .files
+                    .get(composer.target.file_index)
+                    .map(|file| file.runtime_id.clone())
             })
-            .cloned();
+        });
+        if let Some(reason) =
+            file_view_unavailable_reason(draft_file_id.as_deref() == Some(file.runtime_id.as_str()))
+        {
+            self.status = Some(reason.into());
+            return;
+        }
+        let registration = {
+            let runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            resolve_live_file_view(&runtime.file_views, extension_id, view_id)
+        };
         let Some(registration) = registration else {
             self.status = Some(format!(
-                "extension {extension_id} targeted unknown file view {view_id:?}"
+                "Extension {extension_id} targeted unknown file view \"{view_id}\""
             ));
             return;
         };
         if !registration.view.interactive_mode {
             self.status = Some(format!(
-                "extension {extension_id} file view {view_id:?} has no interactive mode"
+                "Extension {extension_id} file view \"{view_id}\" has no interactive mode"
             ));
             return;
         }
         let snapshot = create_file_view_input_snapshot(&file);
+        let owner_index = registration.extension_index;
+        let owner_id = registration.view.extension_id.clone();
+        let owner_view_id = registration.view.view_id.clone();
         let matches = self
             .extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .extensions[extension_index]
-            .file_view_matches(view_id, snapshot.file.as_ref().clone());
+            .extensions[owner_index]
+            .file_view_matches(&owner_view_id, snapshot.file.as_ref().clone());
         match matches {
             Ok(true) => {}
             Ok(false) => {
                 self.status = Some(format!(
-                    "file view {view_id:?} does not match {} • using raw diff",
-                    file.path
+                    "File view \"{view_id}\" does not match the selected file • using raw diff"
                 ));
                 return;
             }
-            Err(error) => {
+            Err(_) => {
                 self.status = Some(format!(
-                    "extension {extension_id} file view match failed: {error}"
+                    "Extension {owner_id} file view \"{owner_view_id}\" failed matching the selected file"
                 ));
                 return;
             }
@@ -5027,12 +5356,33 @@ impl ReviewApp {
 
         self.exit_active_keyboard_mode();
         self.exit_active_file_view_mode();
+        let current_activation_id = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .active_file_view_mode
+            .as_ref()
+            .map(|active| active.activation_id);
+        if !requested_mode_may_enter(current_activation_id) {
+            return;
+        }
         let view_key = registered_file_view_key(&registration.view);
+        let activation_id = {
+            let mut runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            runtime.next_file_view_mode_activation_id =
+                runtime.next_file_view_mode_activation_id.saturating_add(1);
+            runtime.next_file_view_mode_activation_id
+        };
         let active = ActiveFileViewModeRuntime {
-            extension_index,
-            extension_id: extension_id.into(),
-            view_id: view_id.into(),
+            activation_id,
+            extension_index: owner_index,
+            extension_id: owner_id.clone(),
+            view_id: owner_view_id.clone(),
             view_key: view_key.clone(),
+            registration_identity: registration.registration_identity,
             file: snapshot.file,
             review_generation,
         };
@@ -5055,21 +5405,49 @@ impl ReviewApp {
             .extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .extensions[extension_index]
+            .extensions[owner_index]
             .file_view_mode_lifecycle("workdeck/file-view-mode/enter", request);
         match execution {
             Ok(execution) => {
-                self.status = Some(format!("{extension_id}:{view_id} mode — Esc exits"));
-                self.apply_extension_actions(extension_index, extension_id, execution.actions);
-            }
-            Err(error) => {
-                self.extension_pane_runtime
+                self.apply_extension_actions(owner_index, &owner_id, execution.actions);
+                let current_activation_id = self
+                    .extension_pane_runtime
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .active_file_view_mode = None;
-                self.status = Some(format!(
-                    "extension {extension_id} could not enter file-view mode: {error}"
-                ));
+                    .active_file_view_mode
+                    .as_ref()
+                    .map(|current| current.activation_id);
+                if let Some(detail) = execution.failure {
+                    if activation_still_owns_mode(current_activation_id, activation_id) {
+                        self.exit_active_file_view_mode();
+                    }
+                    self.report_file_view_mode_failure(
+                        &owner_id,
+                        &owner_view_id,
+                        "onEnter",
+                        &detail,
+                    );
+                } else if activation_still_owns_mode(current_activation_id, activation_id) {
+                    self.status = Some(format!("{owner_id}:{owner_view_id} mode — Esc exits"));
+                }
+            }
+            Err(error) => {
+                let current_activation_id = self
+                    .extension_pane_runtime
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .active_file_view_mode
+                    .as_ref()
+                    .map(|current| current.activation_id);
+                if activation_still_owns_mode(current_activation_id, activation_id) {
+                    self.exit_active_file_view_mode();
+                }
+                self.report_file_view_mode_failure(
+                    &owner_id,
+                    &owner_view_id,
+                    "onEnter",
+                    &error.to_string(),
+                );
             }
         }
     }
@@ -5086,7 +5464,24 @@ impl ReviewApp {
         }
     }
 
+    fn report_file_view_mode_failure(
+        &mut self,
+        extension_id: &str,
+        view_id: &str,
+        action: &str,
+        detail: &str,
+    ) {
+        let detail = sanitize_terminal_line(detail);
+        let message =
+            file_view_mode_failure_message(extension_id, view_id, action, detail.as_str());
+        if let Some(notifications) = self.options.extension_notifications.as_ref() {
+            notifications.notify(message.clone(), ExtensionNotifyType::Warning);
+        }
+        self.status = Some(message);
+    }
+
     fn route_active_file_view_mode(&mut self, key: &KeyEvent) -> bool {
+        self.reconcile_active_file_view_mode();
         let active = self
             .extension_pane_runtime
             .lock()
@@ -5099,19 +5494,6 @@ impl ReviewApp {
         if key.code == KeyCode::Esc {
             self.exit_active_file_view_mode();
             return true;
-        }
-        let still_valid = self.with_state(|state| {
-            state.generation() == active.review_generation
-                && state
-                    .selected_file()
-                    .is_some_and(|file| file.runtime_id == active.file.id)
-        }) && self
-            .selected_extension_file_view(&active.file.id)
-            .as_deref()
-            == Some(active.view_key.as_str());
-        if !still_valid {
-            self.exit_active_file_view_mode();
-            return false;
         }
         let request = FileViewModeKeyRequest {
             view_id: active.view_id.clone(),
@@ -5135,35 +5517,52 @@ impl ReviewApp {
                     execution.actions,
                 );
                 if routing == KeyRoutingResult::Exit {
-                    let unchanged = self
+                    let current_activation_id = self
                         .extension_pane_runtime
                         .lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner())
                         .active_file_view_mode
                         .as_ref()
-                        .is_some_and(|current| {
-                            current.extension_index == active.extension_index
-                                && current.view_id == active.view_id
-                                && current.file.id == active.file.id
-                        });
-                    if unchanged {
+                        .map(|current| current.activation_id);
+                    if activation_still_owns_mode(current_activation_id, active.activation_id) {
                         self.exit_active_file_view_mode();
                     }
                 }
                 routing != KeyRoutingResult::Pass
             }
             Err(error) => {
-                self.exit_active_file_view_mode();
-                self.status = Some(format!(
-                    "extension {} file-view mode failed: {error}",
-                    active.extension_id
-                ));
+                let current_activation_id = self
+                    .extension_pane_runtime
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .active_file_view_mode
+                    .as_ref()
+                    .map(|current| current.activation_id);
+                if activation_still_owns_mode(current_activation_id, active.activation_id) {
+                    self.exit_active_file_view_mode();
+                }
+                self.report_file_view_mode_failure(
+                    &active.extension_id,
+                    &active.view_id,
+                    "onKey",
+                    &error.to_string(),
+                );
                 true
             }
         }
     }
 
     fn exit_active_file_view_mode(&mut self) {
+        if self.file_view_mode_transition_depth >= MAX_FILE_VIEW_MODE_TRANSITION_DEPTH {
+            self.status = Some("File-view mode transition limit exceeded".into());
+            return;
+        }
+        self.file_view_mode_transition_depth += 1;
+        self.exit_active_file_view_mode_inner();
+        self.file_view_mode_transition_depth -= 1;
+    }
+
+    fn exit_active_file_view_mode_inner(&mut self) {
         let (active, dialogs) = {
             let mut runtime = self
                 .extension_pane_runtime
@@ -5191,16 +5590,28 @@ impl ReviewApp {
             .extensions[active.extension_index]
             .file_view_mode_lifecycle("workdeck/file-view-mode/exit", request);
         match execution {
-            Ok(execution) => self.apply_extension_actions(
-                active.extension_index,
-                &active.extension_id,
-                execution.actions,
-            ),
+            Ok(execution) => {
+                self.apply_extension_actions(
+                    active.extension_index,
+                    &active.extension_id,
+                    execution.actions,
+                );
+                if let Some(detail) = execution.failure {
+                    self.report_file_view_mode_failure(
+                        &active.extension_id,
+                        &active.view_id,
+                        "onExit",
+                        &detail,
+                    );
+                }
+            }
             Err(error) => {
-                self.status = Some(format!(
-                    "extension {} file-view mode exit failed: {error}",
-                    active.extension_id
-                ));
+                self.report_file_view_mode_failure(
+                    &active.extension_id,
+                    &active.view_id,
+                    "onExit",
+                    &error.to_string(),
+                );
             }
         }
     }
@@ -5218,9 +5629,22 @@ impl ReviewApp {
         }
     }
 
+    fn exit_file_view_mode_for_file(&mut self, file_id: &str) {
+        let owns = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .active_file_view_mode
+            .as_ref()
+            .is_some_and(|active| active.file.id == file_id);
+        if owns {
+            self.exit_active_file_view_mode();
+        }
+    }
+
     fn refresh_extension_file_view(
         &mut self,
-        extension_index: usize,
+        _extension_index: usize,
         extension_id: &str,
         view_id: &str,
         file_id: Option<&str>,
@@ -5229,20 +5653,18 @@ impl ReviewApp {
             .extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let owned = runtime.file_views.iter().any(|registration| {
-            registration.extension_index == extension_index && registration.view.view_id == view_id
-        });
-        if !owned {
+        let Some(registration) = resolve_live_file_view(&runtime.file_views, extension_id, view_id)
+        else {
             self.status = Some(format!(
                 "extension {extension_id} targeted unknown file view {view_id:?}"
             ));
             return;
-        }
+        };
         if let Some(file_id) = file_id {
             runtime.file_view_layouts.remove(file_id);
             clear_file_view_component_state(&mut runtime, file_id);
         } else {
-            let view_key = format!("{extension_id}:{view_id}");
+            let view_key = registered_file_view_key(&registration.view);
             let invalidated = runtime
                 .file_view_layouts
                 .iter()
@@ -5267,12 +5689,35 @@ impl ReviewApp {
             .map(str::to_owned)
     }
 
+    #[must_use]
+    pub fn presented_extension_file_view(&self, file_id: &str) -> Option<String> {
+        let draft_file_id = self.with_state(|state| {
+            self.note_composer.as_ref().and_then(|composer| {
+                state
+                    .changeset()
+                    .files
+                    .get(composer.target.file_index)
+                    .map(|file| file.runtime_id.clone())
+            })
+        });
+        if draft_file_id.as_deref() == Some(file_id) {
+            return None;
+        }
+        self.selected_extension_file_view(file_id)
+    }
+
     fn prepare_extension_file_view_layouts(
         &self,
         changeset: &Changeset,
         width: u16,
     ) -> BTreeMap<String, ResolvedFileViewLayout> {
         let width = usize::from(width.max(1));
+        let draft_file_id = self.note_composer.as_ref().and_then(|composer| {
+            changeset
+                .files
+                .get(composer.target.file_index)
+                .map(|file| file.runtime_id.clone())
+        });
         let mut runtime = self
             .extension_pane_runtime
             .lock()
@@ -5281,6 +5726,9 @@ impl ReviewApp {
         let registrations = runtime.file_views.clone();
         let mut prepared = BTreeMap::new();
         for file in &changeset.files {
+            if draft_file_id.as_deref() == Some(file.runtime_id.as_str()) {
+                continue;
+            }
             let Some(view_key) = selections.get(&file.runtime_id) else {
                 continue;
             };
@@ -5644,6 +6092,23 @@ impl ReviewApp {
     }
 
     fn execute_app_menu_command(&mut self, command_id: &str) {
+        if command_id == "workdeck.view.filePresentation.raw" {
+            self.select_current_file_presentation_from_menu(None);
+            return;
+        }
+        if let Some(view_key) = command_id.strip_prefix("workdeck.view.filePresentation.") {
+            let registered = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .file_views
+                .iter()
+                .any(|registration| registered_file_view_key(&registration.view) == view_key);
+            if registered {
+                self.select_current_file_presentation_from_menu(Some(view_key));
+            }
+            return;
+        }
         if command_id == "workdeck.extensions.exitKeyboardMode" {
             self.exit_active_extension_mode();
             self.publish_extension_lifecycle_event(ExtensionLifecycleEvent::CommandExecuted {
@@ -5729,20 +6194,35 @@ impl ReviewApp {
     }
 
     fn reconcile_active_file_view_mode(&mut self) {
-        let active_file_id = self
+        let active = self
             .extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .active_file_view_mode
-            .as_ref()
-            .map(|active| active.file.id.clone());
-        if active_file_id.is_some_and(|file_id| {
-            !self.with_state(|state| {
-                state
+            .clone();
+        let Some(active) = active else {
+            return;
+        };
+        let review_is_current = self.with_state(|state| {
+            state.generation() == active.review_generation
+                && state
                     .selected_file()
-                    .is_some_and(|file| file.runtime_id == file_id)
-            })
-        }) {
+                    .is_some_and(|file| file.runtime_id == active.file.id)
+        });
+        let view_is_current = self
+            .presented_extension_file_view(&active.file.id)
+            .as_deref()
+            == Some(active.view_key.as_str())
+            && self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .file_views
+                .iter()
+                .any(|registration| {
+                    registration.registration_identity == active.registration_identity
+                });
+        if !review_is_current || !view_is_current {
             self.exit_active_file_view_mode();
         }
     }
@@ -10201,6 +10681,40 @@ mod tests {
         .unwrap()
     }
 
+    fn install_cached_test_file_view(app: &ReviewApp, selected_file_id: &str) -> String {
+        let files = app.with_state(|state| state.changeset().files.clone());
+        let registration_identity = 77;
+        let registered = Arc::new(RegisteredFileView {
+            extension_id: "probe".into(),
+            view_id: "preview".into(),
+            interactive_mode: false,
+        });
+        let key = registered_file_view_key(&registered);
+        let mut runtime = app
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        runtime.file_views = vec![LiveFileViewRegistration {
+            extension_index: 0,
+            registration_identity,
+            title: "Preview".into(),
+            view: registered,
+        }];
+        for file in files {
+            runtime.file_view_match_cache.insert(
+                FileViewMatchCacheKey {
+                    file_id: file.runtime_id,
+                    content_identity: file.content_identity,
+                    registration_identity,
+                },
+                true,
+            );
+        }
+        runtime.file_view_selections =
+            select_file_view(&runtime.file_view_selections, selected_file_id, Some(&key));
+        key
+    }
+
     fn saved_comment(file_key: &str, id: &str, summary: &str) -> ReviewComment {
         ReviewComment {
             id: id.into(),
@@ -12432,6 +12946,181 @@ mod tests {
                 .menu
                 .active_menu_id(&menus),
             None
+        );
+    }
+
+    #[test]
+    fn file_presentation_menu_and_bulk_action_use_complete_review_order() {
+        let review = two_file_changeset();
+        let file_ids = review
+            .files
+            .iter()
+            .map(|file| file.runtime_id.clone())
+            .collect::<Vec<_>>();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        let key = install_cached_test_file_view(&app, &file_ids[0]);
+        app.filter = "a.rs".into();
+
+        let menus = app.app_menus();
+        let view = menus.get(&MenuId::View).unwrap();
+        assert!(view.iter().any(|entry| matches!(
+            entry,
+            MenuEntry::Item {
+                label,
+                checked: Some(true),
+                ..
+            } if label == "File presentation: Preview"
+        )));
+        assert!(view.iter().any(|entry| matches!(
+            entry,
+            MenuEntry::Item { label, .. }
+                if label == "Apply \"Preview\" to all matching files"
+        )));
+
+        app.execute_app_menu_command("workdeck.view.applyFilePresentationToAllMatching");
+        let runtime = app
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert_eq!(
+            runtime.file_view_selections.get(&file_ids[0]),
+            Some(key.as_str())
+        );
+        assert_eq!(
+            runtime.file_view_selections.get(&file_ids[1]),
+            Some(key.as_str())
+        );
+        drop(runtime);
+        assert!(
+            app.file_presentation_menu_projection()
+                .bulk_target
+                .is_none()
+        );
+
+        app.filter = "b.rs".into();
+        assert!(app.file_presentation_menu_projection().entries.is_empty());
+        assert_eq!(
+            app.selected_extension_file_view(&file_ids[0]).as_deref(),
+            Some(key.as_str())
+        );
+        app.reload(two_file_changeset());
+        assert_eq!(
+            app.selected_extension_file_view(&file_ids[1]).as_deref(),
+            Some(key.as_str())
+        );
+
+        app.filter.clear();
+        app.execute_app_menu_command("workdeck.view.filePresentation.raw");
+        assert_eq!(app.selected_extension_file_view(&file_ids[0]), None);
+        app.execute_app_menu_command(&format!("workdeck.view.filePresentation.{key}"));
+        assert_eq!(
+            app.selected_extension_file_view(&file_ids[0]).as_deref(),
+            Some(key.as_str())
+        );
+
+        app.reload(changeset());
+        app.reload(two_file_changeset());
+        assert_eq!(app.selected_extension_file_view(&file_ids[1]), None);
+    }
+
+    #[test]
+    fn draft_mask_hides_and_refuses_a_presentation_without_erasing_its_choice() {
+        let changeset = changeset();
+        let file_id = changeset.files[0].runtime_id.clone();
+        let mut app = ReviewApp::new(changeset, ReviewOptions::default());
+        let key = install_cached_test_file_view(&app, &file_id);
+        app.note_composer = Some(ReviewNoteComposer {
+            id: "draft".into(),
+            kind: ReviewNoteComposerKind::Create,
+            target: ReviewNoteTarget {
+                file_index: 0,
+                hunk_index: 0,
+                side: ReviewSide::New,
+                line: 1,
+            },
+            body: String::new(),
+            cursor: 0,
+        });
+
+        assert_eq!(
+            app.selected_extension_file_view(&file_id).as_deref(),
+            Some(key.as_str())
+        );
+        assert_eq!(app.presented_extension_file_view(&file_id), None);
+        assert!(
+            app.prepare_extension_file_view_layouts(
+                &app.with_state(|state| state.changeset().clone()),
+                80
+            )
+            .is_empty()
+        );
+        let projection = app.file_presentation_menu_projection();
+        assert_eq!(projection.entries.len(), 1);
+        assert!(projection.bulk_target.is_none());
+
+        app.toggle_extension_file_view(0, "probe", "preview");
+        assert_eq!(
+            app.status.as_deref(),
+            Some(workdeck_extension_api::FILE_VIEW_DRAFT_UNAVAILABLE_REASON)
+        );
+        assert_eq!(
+            app.selected_extension_file_view(&file_id).as_deref(),
+            Some(key.as_str())
+        );
+
+        app.note_composer = None;
+        assert_eq!(
+            app.presented_extension_file_view(&file_id).as_deref(),
+            Some(key.as_str())
+        );
+    }
+
+    #[test]
+    fn qualified_file_view_controls_resolve_the_live_registration_owner() {
+        let local = LiveFileViewRegistration {
+            extension_index: 0,
+            registration_identity: 1,
+            title: "Local".into(),
+            view: Arc::new(RegisteredFileView {
+                extension_id: "caller".into(),
+                view_id: "preview".into(),
+                interactive_mode: false,
+            }),
+        };
+        let qualified = LiveFileViewRegistration {
+            extension_index: 1,
+            registration_identity: 2,
+            title: "Qualified".into(),
+            view: Arc::new(RegisteredFileView {
+                extension_id: "other".into(),
+                view_id: "preview".into(),
+                interactive_mode: true,
+            }),
+        };
+        let registrations = [local, qualified];
+        assert_eq!(
+            resolve_live_file_view(&registrations, "caller", "preview")
+                .unwrap()
+                .extension_index,
+            0
+        );
+        assert_eq!(
+            resolve_live_file_view(&registrations, "caller", "other:preview")
+                .unwrap()
+                .extension_index,
+            1
+        );
+        assert!(resolve_live_file_view(&registrations, "caller", "missing").is_none());
+    }
+
+    #[test]
+    fn file_view_mode_transition_limit_stops_recursive_native_handoffs_before_dispatch() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        app.file_view_mode_transition_depth = MAX_FILE_VIEW_MODE_TRANSITION_DEPTH;
+        app.enter_file_view_mode(usize::MAX, "probe", "preview");
+        assert_eq!(
+            app.status.as_deref(),
+            Some("Extension probe exceeded the file-view mode transition limit")
         );
     }
 

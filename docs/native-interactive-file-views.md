@@ -11,11 +11,24 @@ select that presentation for the file, exit any other extension mode, and call
 generation form one lifecycle identity. Selection changes, presentation changes, reloads, Escape,
 extension failures, and shutdown exit the mode through `workdeck/file-view-mode/exit`.
 
+File-presentation controls are host actions resolved when they are applied, so retained command
+results observe the current selection, draft-note mask, and extension registry. `select-file-view`
+selects a named view or raw diff when `id` is absent; `toggle-file-view` preserves the concise
+toggle path. Bare view ids belong to the calling extension. A qualified `extension:view` id may
+target another live registration, matching Hunk's unified file-view registry. Hard-remount cleanup
+revokes the predecessor runtime before a successor can accept its actions.
+
 Keys not claimed by host modals are delivered synchronously through
 `workdeck/file-view-mode/key`. The result is `handled`, `pass`, or `exit` plus validated host
 actions. `pass` preserves Workdeck navigation, help, command, and quit behavior. A stateful view
 returns `refresh-file-view` after a state transition; a `fileId` scopes invalidation to one file.
 The next Ratatui frame asks the subprocess for a fresh deterministic layout.
+
+Lifecycle responses may contain ordered `actions` and an optional contained `failure`. Workdeck
+applies the actions before reporting the failure and retires only the activation that failed. This
+lets an outgoing callback hand off to a replacement mode without the old callback later tearing
+that replacement down. Activation ids apply the same ownership rule to `exit` key results. Native
+lifecycle handoffs are limited to 32 nested transitions to contain accidental recursion.
 
 Workspace mutation stays host-owned. A mode with the `workspace-write` capability may return
 `request-workspace-write`, but it cannot touch the filesystem through the protocol. Workdeck shows

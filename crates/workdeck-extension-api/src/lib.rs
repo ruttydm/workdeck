@@ -1250,11 +1250,16 @@ pub enum ExtensionHostAction {
     ToggleFileView {
         id: String,
     },
+    /// Select one registered presentation, or raw diff when `id` is absent.
+    SelectFileView {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+    },
     /// Atomically select an interactive file view for the selected file and give it input.
     EnterFileViewMode {
         id: String,
     },
-    /// Leave the native file-view mode currently owned by this extension.
+    /// Leave the one native file-view mode currently active in the review.
     ExitFileViewMode,
     /// Invalidate one file-view layout. Omitting `file_id` invalidates every file using it.
     RefreshFileView {
@@ -1354,6 +1359,21 @@ pub struct FileViewModeLifecycleRequest {
     pub file: ExtensionDiffFile,
     pub cwd: PathBuf,
     pub review_generation: u64,
+}
+
+/// Atomic result of one native file-view lifecycle callback.
+///
+/// A callback may synchronously request a host action and then fail. Keeping the
+/// contained failure beside those actions preserves Hunk's ordering: the host
+/// applies the actions first, then retires only the activation that actually
+/// failed. A replacement mode therefore keeps its independent lifecycle.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileViewModeLifecycleExecution {
+    #[serde(default)]
+    pub actions: Vec<ExtensionHostAction>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<String>,
 }
 
 /// Synchronous keyboard delivery to the active file presentation.
@@ -1695,6 +1715,59 @@ mod tests {
             BTreeMap::from([("readme".into(), FILE_VIEW_DRAFT_UNAVAILABLE_REASON.into())]);
         assert_eq!(
             presented_file_view_key(&selections, &unavailable, Some("readme")),
+            None
+        );
+    }
+
+    #[test]
+    fn file_view_selection_actions_distinguish_registered_views_from_raw_diff() {
+        let selected = ExtensionHostAction::SelectFileView {
+            id: Some("preview".into()),
+        };
+        assert_eq!(
+            serde_json::to_value(&selected).unwrap(),
+            serde_json::json!({ "kind": "select-file-view", "id": "preview" })
+        );
+        let raw = ExtensionHostAction::SelectFileView { id: None };
+        assert_eq!(
+            serde_json::to_value(&raw).unwrap(),
+            serde_json::json!({ "kind": "select-file-view" })
+        );
+        assert_eq!(
+            serde_json::from_value::<ExtensionHostAction>(
+                serde_json::json!({ "kind": "select-file-view", "id": "preview" })
+            )
+            .unwrap(),
+            selected
+        );
+    }
+
+    #[test]
+    fn file_view_lifecycle_preserves_actions_that_precede_a_contained_failure() {
+        let execution = FileViewModeLifecycleExecution {
+            actions: vec![ExtensionHostAction::EnterFileViewMode {
+                id: "probe:replacement".into(),
+            }],
+            failure: Some("entry exploded".into()),
+        };
+        let encoded = serde_json::to_value(&execution).unwrap();
+        assert_eq!(
+            encoded,
+            serde_json::json!({
+                "actions": [{ "kind": "enter-file-view-mode", "id": "probe:replacement" }],
+                "failure": "entry exploded"
+            })
+        );
+        assert_eq!(
+            serde_json::from_value::<FileViewModeLifecycleExecution>(encoded).unwrap(),
+            execution
+        );
+        assert_eq!(
+            serde_json::from_value::<FileViewModeLifecycleExecution>(
+                serde_json::json!({ "actions": [] })
+            )
+            .unwrap()
+            .failure,
             None
         );
     }

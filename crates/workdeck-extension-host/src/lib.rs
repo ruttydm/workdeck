@@ -63,13 +63,13 @@ use workdeck_extension_api::{
     ExtensionVcsOperationRequest, ExtensionVcsPatchResult, ExtensionVcsReviewInput,
     ExtensionVcsWatchPlan, ExtensionWorkspaceSnapshot, ExtensionWorkspaceWriteCompletion,
     FileViewLayoutRequest, FileViewMatchRequest, FileViewModeKeyRequest,
-    FileViewModeLifecycleRequest, HandshakeRequest, HandshakeResponse, InputDialogSubmission,
-    JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, KeyboardModeExecution,
-    KeyboardModeKeyRequest, KeyboardModeLifecycleRequest, LineHighlightRequest,
-    MAX_CLI_STDIN_CHUNK_BYTES, MAX_MESSAGE_BYTES, ManifestError, PaneActionInvocation,
-    PaneAvailabilityRequest, PaneAvailabilityResponse, PaneRenderRequest, PaneRenderResponse,
-    Registration, ReviewEvent, SelectDialogSubmission, TransformRequest, TransformResponse,
-    ValidatedFileViewLayout, validate_view,
+    FileViewModeLifecycleExecution, FileViewModeLifecycleRequest, HandshakeRequest,
+    HandshakeResponse, InputDialogSubmission, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
+    KeyboardModeExecution, KeyboardModeKeyRequest, KeyboardModeLifecycleRequest,
+    LineHighlightRequest, MAX_CLI_STDIN_CHUNK_BYTES, MAX_MESSAGE_BYTES, ManifestError,
+    PaneActionInvocation, PaneAvailabilityRequest, PaneAvailabilityResponse, PaneRenderRequest,
+    PaneRenderResponse, Registration, ReviewEvent, SelectDialogSubmission, TransformRequest,
+    TransformResponse, ValidatedFileViewLayout, validate_view,
 };
 
 #[derive(Debug, Error)]
@@ -119,6 +119,18 @@ pub enum HostError {
     },
     #[error("repository extension {0} has no current trust grant")]
     Untrusted(PathBuf),
+}
+
+/// Hunk resolves a bare file-view id inside the caller's extension and a
+/// qualified `extension:view` id against the complete live registry. The
+/// subprocess host can validate ownership for the former without seeing other
+/// processes' registrations; the Ratatui composition root resolves the latter.
+fn valid_file_view_action_target(id: &str, owns_local_id: bool) -> bool {
+    if let Some((extension_id, view_id)) = id.split_once(':') {
+        !extension_id.is_empty() && !view_id.is_empty() && !view_id.contains(':')
+    } else {
+        owns_local_id
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1799,14 +1811,14 @@ impl LoadedExtension {
         &mut self,
         method: &str,
         request: FileViewModeLifecycleRequest,
-    ) -> Result<CommandExecution, HostError> {
+    ) -> Result<FileViewModeLifecycleExecution, HostError> {
         self.require_interactive_file_view(&request.view_id)?;
         let value = self.request(
             method,
             request,
             Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
         )?;
-        let execution: CommandExecution =
+        let execution: FileViewModeLifecycleExecution =
             serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
                 id: self.manifest.id.clone(),
                 kind: "file view mode lifecycle",
@@ -2720,26 +2732,31 @@ impl LoadedExtension {
                     self.manifest
                         .capabilities
                         .contains(&workdeck_extension_api::Capability::FileViews)
-                        && owns(id, "file view")
+                        && valid_file_view_action_target(id, owns(id, "file view"))
+                }
+                ExtensionHostAction::SelectFileView { id } => {
+                    self.manifest
+                        .capabilities
+                        .contains(&workdeck_extension_api::Capability::FileViews)
+                        && id.as_deref().is_none_or(|id| {
+                            valid_file_view_action_target(id, owns(id, "file view"))
+                        })
                 }
                 ExtensionHostAction::EnterFileViewMode { id } => {
                     self.manifest
                         .capabilities
                         .contains(&workdeck_extension_api::Capability::FileViews)
-                        && kind != "file view mode lifecycle"
-                        && owns(id, "file view")
+                        && valid_file_view_action_target(id, owns(id, "file view"))
                 }
-                ExtensionHostAction::ExitFileViewMode => {
-                    self.manifest
-                        .capabilities
-                        .contains(&workdeck_extension_api::Capability::FileViews)
-                        && kind != "file view mode lifecycle"
-                }
+                ExtensionHostAction::ExitFileViewMode => self
+                    .manifest
+                    .capabilities
+                    .contains(&workdeck_extension_api::Capability::FileViews),
                 ExtensionHostAction::RefreshFileView { id, file_id } => {
                     self.manifest
                         .capabilities
                         .contains(&workdeck_extension_api::Capability::FileViews)
-                        && owns(id, "file view")
+                        && valid_file_view_action_target(id, owns(id, "file view"))
                         && file_id
                             .as_deref()
                             .is_none_or(|file_id| !file_id.trim().is_empty())
@@ -3048,6 +3065,16 @@ mod tests {
                 .to_string()
                 .contains("undeclared capability")
         );
+    }
+
+    #[test]
+    fn file_view_actions_accept_owned_bare_ids_and_well_formed_qualified_ids() {
+        assert!(valid_file_view_action_target("preview", true));
+        assert!(!valid_file_view_action_target("missing", false));
+        assert!(valid_file_view_action_target("markdown:preview", false));
+        for invalid in ["", ":preview", "markdown:", "one:two:three"] {
+            assert!(!valid_file_view_action_target(invalid, false));
+        }
     }
 
     #[test]

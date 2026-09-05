@@ -1,0 +1,193 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/fileViews/useFilePresentationController.ts",
+    "blob": "be9db0c009fc8cc2ae4981681b8cdcbbbc32ce7f",
+    "sha256": "aefffbe19c80ab1d63e3b8ec698828ab07a47432fa641b59e2cd31bfcd54caca",
+    "bytes": 17533,
+    "lines": 468
+  },
+  "sourceTest": {
+    "path": "src/ui/fileViews/useFilePresentationController.test.tsx",
+    "blob": "663979523aea2daf48b9abbb48c30170cb7611f0",
+    "sha256": "ebeb1d6d59ebd1631462fa2b1393937dcbfe36221fff1bfcc6d57b58d6896fd0",
+    "bytes": 19470,
+    "lines": 516
+  },
+  "history": [
+    {
+      "commit": "986c20e2aefc52466e71ffb83e726c4820a11853",
+      "subject": "refactor(ui): isolate file presentation state (#656)"
+    },
+    {
+      "commit": "378ec4b3f7043dcd8ceecec2d22041a71e7bf8b1",
+      "subject": "feat(extensions): let file views refresh their prepared layouts (#673)"
+    },
+    {
+      "commit": "efa2203f86845e1da5849ae64fe7cd50ceeba06e",
+      "subject": "feat(extensions): add interactive file-view modes (#675)"
+    },
+    {
+      "commit": "753dc37004d6a1d756045719454df3463ee91ce7",
+      "subject": "Organize src/core into real modules (#795)"
+    }
+  ],
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/fileViews/useFilePresentationController.test.tsx",
+    "passed": 10,
+    "failed": 0,
+    "assertions": 42
+  },
+  "stableOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/fileViews/useFilePresentationController.test.tsx",
+    "relationship": "identical blobs",
+    "sourceBlob": "be9db0c009fc8cc2ae4981681b8cdcbbbc32ce7f",
+    "sourceTestBlob": "663979523aea2daf48b9abbb48c30170cb7611f0",
+    "passed": 10,
+    "failed": 0,
+    "assertions": 42
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/file_presentation_controller.rs",
+      "sha256": "0ce50f49697a40cbd3e52c22349ef11a66ca523f69614e6fcfe567ce2b45f43b"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "7773e0878557ec1d89c2ae49b72c3abebfc9db5855dbc7ddb19ef6fa7bd9398f"
+    },
+    {
+      "path": "crates/workdeck-extension-api/src/lib.rs",
+      "sha256": "daa380fa068e3d7b1d463e9b427a453a3f318346b7e9a4ec239ec7ea0d4cae41"
+    },
+    {
+      "path": "crates/workdeck-extension-host/src/lib.rs",
+      "sha256": "3503b86510f566f8c4734efb1276cae22cc94540afe02038807679cb5a355953"
+    },
+    {
+      "path": "crates/workdeck-extension-host/src/file_view_state.rs",
+      "sha256": "045eb697230da735c12a03ce1e974af63f861da4d91d80cf8aee32319d33ecef"
+    },
+    {
+      "path": "crates/workdeck-extension-host/src/file_view_mode.rs",
+      "sha256": "e35fb66f0a56fd5edf162e47d2716f47b8df371b73ee475c56bcaf8be74a679d"
+    },
+    {
+      "path": "crates/workdeck-tui/src/extension_runtime_bridge.rs",
+      "sha256": "395c694c2ea7f6c021866b2c39c711c11af853d7e58988443357d6d08cc5fa63"
+    },
+    {
+      "path": "docs/native-interactive-file-views.md",
+      "sha256": "6657e75df9715f0775b792dab65b26e3bc0e5629c771e624d0e33ada001811d5"
+    }
+  ],
+  "sourceCoverage": [
+    [[[[1, 62], [0, 2271]]], "imports, controller contract, complete versus visible file inputs, live getters, and review-generation authority"],
+    [[[[63, 145], [2271, 5771]]], "stored selections, unavailable presentation mask, file and registration reconciliation, epochs, and raw-default selection"],
+    [[[[146, 242], [5771, 9905]]], "single active mode ownership, exact-once exit, hard-remount revocation, key handoff, reentrant entry, and failure ownership"],
+    [[[[243, 362], [9905, 14289]]], "invocation-time controls for select, toggle, active state, refresh, enter, exit, and qualified live registration lookup"],
+    [[[[363, 420], [14289, 16096]]], "active-mode reconciliation across review and registry changes plus complete-review bulk matching and application"],
+    [[[[421, 468], [16096, 17533]]], "selected visible-file menu projection, raw sentinel, contained matcher failures, checked state, and public controller result"]
+  ],
+  "testCoverage": [
+    [[[[1, 119], [0, 4156]]], "React harness, replaceable complete and visible review inputs, live getters, deterministic views, menu lookup, and checked-state helpers"],
+    [[[[120, 179], [4156, 6661]]], "selection persistence through filtering and stable reloads plus stale file and registration reconciliation"],
+    [[[[180, 210], [6661, 7928]]], "temporary draft masking and restoration without stored-state mutation"],
+    [[[[211, 238], [7928, 9040]]], "implicit raw sentinel remains distinct from a registered view literally named raw"],
+    [[[[239, 271], [9040, 10501]]], "bulk application includes filter-hidden matches and leaves nonmatches unchanged"],
+    [[[[272, 300], [10501, 11502]]], "selected-file menu omits false and throwing matchers"],
+    [[[[301, 341], [11502, 13284]]], "retained controls read live selection, draft availability, and presentation state"],
+    [[[[342, 370], [13284, 14167]]], "controls retained past a hard remount cannot create an orphaned mode"],
+    [[[[371, 421], [14167, 15719]]], "mode entered reentrantly from outgoing onExit wins over the requested replacement"],
+    [[[[422, 463], [15719, 17121]]], "actions preceding an onEnter failure preserve their replacement mode and independent lifecycle"],
+    [[[[464, 516], [17121, 19470]]], "every selection refusal is attributed and nonmutating while registrations and public selection are read live"]
+  ],
+  "testMappings": [
+    {
+      "source": "keeps a selected presentation through filtering and reconciles files and views on reload",
+      "rust": [
+        "file_view_state::tests::keeps_valid_choices_across_reload_while_dropping_stale_ids_and_views",
+        "tests::file_presentation_menu_and_bulk_action_use_complete_review_order"
+      ]
+    },
+    {
+      "source": "temporarily masks a draft file and restores its stored selection",
+      "rust": [
+        "file_presentation_controller::tests::unavailable_draft_masks_but_does_not_rewrite_the_stored_choice",
+        "tests::draft_mask_hides_and_refuses_a_presentation_without_erasing_its_choice"
+      ]
+    },
+    {
+      "source": "keeps raw implicit even when an extension view is literally named raw",
+      "rust": [
+        "file_view_state::tests::allows_a_view_named_raw_because_none_is_the_only_raw_sentinel",
+        "file_presentation_controller::tests::raw_remains_implicit_when_an_extension_view_is_literally_named_raw",
+        "tests::file_view_selection_actions_distinguish_registered_views_from_raw_diff"
+      ]
+    },
+    {
+      "source": "applies a presentation to filter-hidden matches without touching nonmatches",
+      "rust": [
+        "file_view_state::tests::offers_a_bulk_target_only_while_the_selected_file_still_matches",
+        "file_view_state::tests::applies_one_view_to_matching_files_without_touching_nonmatches",
+        "tests::file_presentation_menu_and_bulk_action_use_complete_review_order"
+      ]
+    },
+    {
+      "source": "omits nonmatching and throwing views from the selected-file menu",
+      "rust": "file_presentation_controller::tests::menu_omits_nonmatching_or_throwing_views_and_retains_registration_order"
+    },
+    {
+      "source": "keeps extension controls live across selection and draft updates",
+      "rust": [
+        "extension_runtime_bridge::tests::runtime_commands_survive_content_reload_while_review_controls_expire",
+        "tests::qualified_file_view_controls_resolve_the_live_registration_owner",
+        "tests::draft_mask_hides_and_refuses_a_presentation_without_erasing_its_choice"
+      ]
+    },
+    {
+      "source": "refuses mode entry from controls that outlived a hard remount",
+      "rust": "extension_runtime_bridge::tests::hard_remount_retires_predecessor_while_same_registry_successor_stays_live"
+    },
+    {
+      "source": "preserves a mode entered re-entrantly from the outgoing mode's onExit",
+      "rust": "file_presentation_controller::tests::reentrant_successor_from_outgoing_exit_wins_over_requested_mode"
+    },
+    {
+      "source": "does not exit a replacement mode when the outgoing onEnter throws",
+      "rust": [
+        "file_presentation_controller::tests::failed_or_exiting_activation_cannot_retire_its_reentrant_replacement",
+        "tests::file_view_lifecycle_preserves_actions_that_precede_a_contained_failure"
+      ]
+    },
+    {
+      "source": "reports every extension-control refusal without mutating the presentation",
+      "rust": [
+        "file_view_state::tests::names_every_reason_a_view_cannot_be_selected",
+        "file_view_mode::tests::names_each_activation_refusal",
+        "tests::draft_mask_hides_and_refuses_a_presentation_without_erasing_its_choice"
+      ]
+    }
+  ],
+  "integrationTests": [
+    "tests::file_presentation_menu_and_bulk_action_use_complete_review_order",
+    "tests::draft_mask_hides_and_refuses_a_presentation_without_erasing_its_choice",
+    "tests::qualified_file_view_controls_resolve_the_live_registration_owner",
+    "tests::file_view_mode_transition_limit_stops_recursive_native_handoffs_before_dispatch",
+    "tests::file_view_actions_accept_owned_bare_ids_and_well_formed_qualified_ids",
+    "extension_runtime_bridge::tests::hard_remount_retires_predecessor_while_same_registry_successor_stays_live"
+  ],
+  "adaptations": [
+    "React hook state becomes ReviewApp-owned native state shared by Ratatui rendering, menus, commands, and the subprocess extension host.",
+    "Retained JavaScript closures become native host actions resolved against current selection, draft, registration, and review facts at application time; the mount authority bridge revokes predecessor capabilities on hard remount.",
+    "A lifecycle response may carry both ordered host actions and a contained failure, preserving Hunk's synchronous action-before-throw semantics without executing extension code in-process.",
+    "Monotonic activation and registration identities replace JavaScript object identity for reentrant handoff, key-exit ownership, reload, and registry replacement.",
+    "Qualified extension:view targets are resolved against the unified registry; bare ids stay scoped to their caller, matching Hunk's control lookup.",
+    "Native lifecycle recursion is capped at 32 nested transitions so a trusted but faulty subprocess cannot overflow the host stack.",
+    "The complete Changeset remains the bulk target authority even when the file filter hides matching files; the selected-file menu is absent when its file is not in the visible stream."
+  ]
+}

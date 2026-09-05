@@ -137,15 +137,25 @@ pub enum NativeModeCallbackError {
     MustReturnSynchronously,
 }
 
-fn format_file_view_mode_failure(
-    active: &ActiveFileViewMode,
+#[must_use]
+pub fn file_view_mode_failure_message(
+    extension_id: &str,
+    view_id: &str,
     action: &str,
     detail: &str,
 ) -> String {
     format!(
         "Extension {} file view \"{}\" mode failed {action} • {detail}",
-        active.extension_id, active.view_id
+        extension_id, view_id
     )
+}
+
+fn format_file_view_mode_failure(
+    active: &ActiveFileViewMode,
+    action: &str,
+    detail: &str,
+) -> String {
+    file_view_mode_failure_message(&active.extension_id, &active.view_id, action, detail)
 }
 
 /// Run one lifecycle callback and contain a child failure as a warning.
