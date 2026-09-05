@@ -62,4 +62,11 @@ mod tests {
     fn native_runtime_requires_no_external_upgrade_recovery() {
         NativeWatchRuntime.assert_reliable();
     }
+
+    #[test]
+    fn native_watch_runtime_needs_no_bun_version_gate_for_live_reload() {
+        assert!(!legacy_runtime_supports("1.3.10"));
+        assert!(NativeWatchRuntime.supports_reliable_watch_mode());
+        NativeWatchRuntime.assert_reliable();
+    }
 }

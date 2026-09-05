@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "path": "src/ui/AppHost.reload.test.tsx",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "eafe0f289440ba5fc653ef897717feb537469f02",
+      "sha256": "20363ccee0a37bda09e7b7de6118c338be6d0c83e3af0c0aad22c9840b4934d8",
+      "bytes": 15028,
+      "lines": 456
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "a29becce6fe1f28113c465fb94d0e63d137483e9",
+      "sha256": "496085489de71652fe8f397bb0562ddebcf313bfdca92ddee6271e0eed3cc30b",
+      "bytes": 13246,
+      "lines": 403
+    }
+  },
+  "oracleRuns": {
+    "baseline": {
+      "runtime": "bun 1.3.14",
+      "command": "bun test src/ui/AppHost.reload.test.tsx",
+      "passed": 5,
+      "failed": 0,
+      "expectCalls": 17,
+      "elapsedMilliseconds": 3200
+    },
+    "stable": {
+      "runtime": "bun 1.3.5",
+      "command": "bun test src/ui/AppHost.reload.test.tsx",
+      "passed": 4,
+      "failed": 0,
+      "expectCalls": 15,
+      "elapsedMilliseconds": 2960
+    }
+  },
+  "testMappings": [
+    {
+      "upstream": "refuses a live reload that enables watch mode under an affected Bun runtime",
+      "rust": "native_watch_runtime_needs_no_bun_version_gate_for_live_reload"
+    },
+    {
+      "upstream": "r key picks up new file content for file-pair diffs",
+      "rust": "dynamic_loader_reopens_a_changed_file_pair + manual_reload_replaces_changed_content_and_invalidates_the_old_syntax_cache"
+    },
+    {
+      "upstream": "r key picks up new file content for git working tree diffs",
+      "rust": "dynamic_loader_reopens_a_changed_git_worktree + manual_reload_replaces_changed_content_and_invalidates_the_old_syntax_cache"
+    },
+    {
+      "upstream": "r key keeps agent attention marks when nothing changed on disk",
+      "rust": "reload_preserves_and_clears_attention_marks_when_content_is_unchanged"
+    },
+    {
+      "upstream": "r key keeps marks painted on an unchanged file whose runtime id shifts",
+      "rust": "reload_rekeys_painted_attention_marks_when_file_runtime_identity_shifts"
+    }
+  ],
+  "adaptations": [
+    "The baseline-only Bun compatibility rejection becomes a positive native-runtime assertion because Workdeck's Rust watcher does not inherit Bun's filesystem watcher deadlock.",
+    "Disk-backed file-pair and Git inputs are reopened through the same dynamic loader used by live session and keyboard reload transactions, then the mounted Ratatui test verifies command request, changeset commit, frame replacement, and old syntax-cache eviction.",
+    "Attention marks are tested in Ratatui cells, preserved only across exact content identity, re-keyed when a newly inserted file shifts the invocation-local runtime id, and removed through the real session clear operation."
+  ]
+}

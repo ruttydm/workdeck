@@ -12180,6 +12180,38 @@ mod tests {
         review
     }
 
+    fn reload_content_changeset(marker: &str) -> Changeset {
+        parse_patch(
+            &format!(
+                "diff --git a/after.ts b/after.ts\n--- a/after.ts\n+++ b/after.ts\n@@ -1 +1,2 @@\n-export const answer = 41;\n+export const answer = 42;\n+export const {marker} = true;\n"
+            ),
+            "changeset:reload-content",
+            "before.ts ↔ after.ts",
+            ChangesetSource::Files {
+                left: "before.ts".into(),
+                right: "after.ts".into(),
+            },
+        )
+        .unwrap()
+    }
+
+    fn reload_attention_changeset(include_alpha: bool) -> Changeset {
+        let alpha = if include_alpha {
+            "diff --git a/alpha.ts b/alpha.ts\n--- a/alpha.ts\n+++ b/alpha.ts\n@@ -1 +1 @@\n-export const alpha = 1;\n+export const alpha = 100;\n"
+        } else {
+            ""
+        };
+        parse_patch(
+            &format!(
+                "{alpha}diff --git a/bravo.ts b/bravo.ts\n--- a/bravo.ts\n+++ b/bravo.ts\n@@ -1 +1 @@\n-export const bravo = 1;\n+export const bravo = 2;\n"
+            ),
+            "changeset:reload-attention",
+            "Working tree",
+            ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap()
+    }
+
     fn install_cached_test_file_view(app: &ReviewApp, selected_file_id: &str) -> String {
         let files = app.with_state(|state| state.changeset().files.clone());
         let registration_identity = 77;
@@ -16281,6 +16313,188 @@ mod tests {
                 .iter()
                 .any(|cell| cell.bg == ratatui_theme_color(&light.panel))
         );
+    }
+
+    #[test]
+    fn manual_reload_replaces_changed_content_and_invalidates_the_old_syntax_cache() {
+        let initial = reload_content_changeset("first");
+        let previous_file = initial.files[0].clone();
+        let mut app = ReviewApp::new(
+            initial,
+            ReviewOptions {
+                sidebar: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let theme = app.options.theme.clone();
+        {
+            let mut highlights = app
+                .highlights
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            assert!(
+                highlights
+                    .prefetch_highlighted_diff(&previous_file, &theme, false)
+                    .is_some()
+            );
+            assert!(
+                highlights
+                    .resolve_snapshot(Some(&previous_file), &theme, None, None)
+                    .is_some()
+            );
+        }
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+        assert!(app.take_reload_requested());
+        app.reload(reload_content_changeset("second"));
+        assert!(
+            app.highlights
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .resolve_snapshot(Some(&previous_file), &theme, None, None)
+                .is_none()
+        );
+
+        let mut terminal = Terminal::new(TestBackend::new(220, 20)).unwrap();
+        let rendered = rendered_review_frame(&mut terminal, &app);
+        assert!(rendered.contains("second"), "{rendered}");
+        assert!(!rendered.contains("first"), "{rendered}");
+    }
+
+    fn attention_mark() -> workdeck_session::HighlightToolInput {
+        workdeck_session::HighlightToolInput {
+            target_session: workdeck_session::SessionSelector::default(),
+            file_path: "bravo.ts".into(),
+            side: ReviewSide::New,
+            line: 1,
+            start: 13,
+            end: 18,
+            tone: Some(workdeck_session::SessionLineHighlightTone::Current),
+            reveal: Some(true),
+        }
+    }
+
+    fn assert_bravo_mark_is_painted(
+        terminal: &mut Terminal<TestBackend>,
+        app: &ReviewApp,
+    ) -> Color {
+        rendered_review_frame(terminal, app);
+        let buffer = terminal.backend().buffer();
+        let marked = background_for_symbol_on_text_row(buffer, "export const bravo = 2", "b");
+        let unmarked = background_for_symbol_on_text_row(buffer, "export const bravo = 2", "e");
+        assert_ne!(marked, unmarked);
+        marked
+    }
+
+    #[test]
+    fn reload_preserves_and_clears_attention_marks_when_content_is_unchanged() {
+        let initial = reload_attention_changeset(false);
+        let mut app = ReviewApp::new(
+            initial.clone(),
+            ReviewOptions {
+                sidebar: false,
+                line_numbers: false,
+                cursor_line: CursorLineMode::Off,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        app.session_add_agent_line_highlight(&attention_mark())
+            .unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(120, 20)).unwrap();
+        let painted = assert_bravo_mark_is_painted(&mut terminal, &app);
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+        assert!(app.take_reload_requested());
+        app.reload(initial);
+        assert_eq!(assert_bravo_mark_is_painted(&mut terminal, &app), painted);
+
+        let cleared = app
+            .session_clear_agent_line_highlights(Some("bravo.ts"))
+            .unwrap();
+        assert_eq!(cleared.removed_count, 1);
+        assert_eq!(cleared.remaining_count, 0);
+        rendered_review_frame(&mut terminal, &app);
+        assert_eq!(
+            background_for_symbol_on_text_row(
+                terminal.backend().buffer(),
+                "export const bravo = 2",
+                "b"
+            ),
+            background_for_symbol_on_text_row(
+                terminal.backend().buffer(),
+                "export const bravo = 2",
+                "e"
+            )
+        );
+    }
+
+    #[test]
+    fn reload_rekeys_painted_attention_marks_when_file_runtime_identity_shifts() {
+        let initial = reload_attention_changeset(false);
+        let initial_id = initial.files[0].runtime_id.clone();
+        let replacement = reload_attention_changeset(true);
+        let replacement_id = replacement
+            .files
+            .iter()
+            .find(|file| file.path == "bravo.ts")
+            .unwrap()
+            .runtime_id
+            .clone();
+        assert_ne!(initial_id, replacement_id);
+        let mut app = ReviewApp::new(
+            initial,
+            ReviewOptions {
+                sidebar: false,
+                line_numbers: false,
+                cursor_line: CursorLineMode::Off,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        app.session_add_agent_line_highlight(&attention_mark())
+            .unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        let painted = assert_bravo_mark_is_painted(&mut terminal, &app);
+
+        app.reload(replacement);
+        assert!(app.agent_line_highlights.get(&initial_id).is_none());
+        assert_eq!(
+            app.agent_line_highlights
+                .get(&replacement_id)
+                .map(<[_]>::len),
+            Some(1)
+        );
+        assert_eq!(assert_bravo_mark_is_painted(&mut terminal, &app), painted);
+
+        let cleared = app
+            .session_clear_agent_line_highlights(Some("bravo.ts"))
+            .unwrap();
+        assert_eq!(cleared.removed_count, 1);
+        assert_eq!(cleared.remaining_count, 0);
+    }
+
+    #[test]
+    fn frozen_app_host_reload_oracle_maps_both_pins_and_all_source_tests() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../port/hunk/oracles/app-host-reload.json");
+        let oracle: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(
+            oracle["source"]["baseline"]["commit"],
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2"
+        );
+        assert_eq!(
+            oracle["source"]["stable"]["commit"],
+            "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+        );
+        assert_eq!(oracle["source"]["baseline"]["bytes"], 15_028);
+        assert_eq!(oracle["source"]["stable"]["bytes"], 13_246);
+        assert_eq!(oracle["oracleRuns"]["baseline"]["passed"], 5);
+        assert_eq!(oracle["oracleRuns"]["stable"]["passed"], 4);
+        assert_eq!(oracle["oracleRuns"]["baseline"]["expectCalls"], 17);
+        assert_eq!(oracle["oracleRuns"]["stable"]["expectCalls"], 15);
+        assert_eq!(oracle["testMappings"].as_array().unwrap().len(), 5);
     }
 
     #[test]

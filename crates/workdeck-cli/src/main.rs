@@ -2869,6 +2869,103 @@ mod review_cli_option_tests {
         );
     }
 
+    fn changeset_contains_line(changeset: &Changeset, needle: &str) -> bool {
+        changeset
+            .files
+            .iter()
+            .flat_map(|file| &file.hunks)
+            .any(|hunk| hunk.lines.iter().any(|line| line.content.contains(needle)))
+    }
+
+    #[test]
+    fn dynamic_loader_reopens_a_changed_file_pair() {
+        let files = tempfile::tempdir().unwrap();
+        std::fs::write(
+            files.path().join("before.ts"),
+            "export const answer = 41;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            files.path().join("after.ts"),
+            "export const answer = 42;\nexport const first = true;\n",
+        )
+        .unwrap();
+        let file_input = CliInput::Files(FileCommandInput {
+            left: "before.ts".into(),
+            right: "after.ts".into(),
+            options: CommonOptions {
+                mode: Some(InputLayoutMode::Stack),
+                ..CommonOptions::default()
+            },
+        });
+        let initial = load_dynamic_review_input(&file_input, files.path(), None, &[]).unwrap();
+        assert!(changeset_contains_line(&initial.changeset, "first"));
+        std::fs::write(
+            files.path().join("after.ts"),
+            "export const answer = 42;\nexport const second = true;\n",
+        )
+        .unwrap();
+        let refreshed = load_dynamic_review_input(&file_input, files.path(), None, &[]).unwrap();
+        assert!(changeset_contains_line(&refreshed.changeset, "second"));
+        assert!(!changeset_contains_line(&refreshed.changeset, "first"));
+    }
+
+    #[test]
+    fn dynamic_loader_reopens_a_changed_git_worktree() {
+        let repo = tempfile::tempdir().unwrap();
+        let git = |arguments: &[&str]| {
+            let output = std::process::Command::new("git")
+                .args(arguments)
+                .current_dir(repo.path())
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "git {arguments:?}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&["init"]);
+        git(&["config", "user.email", "test@test"]);
+        git(&["config", "user.name", "test"]);
+        std::fs::write(repo.path().join("test.txt"), "original line\n").unwrap();
+        git(&["add", "test.txt"]);
+        git(&["commit", "-m", "init"]);
+        std::fs::write(
+            repo.path().join("test.txt"),
+            "original line\nfirst change\n",
+        )
+        .unwrap();
+        let vcs_input = CliInput::Vcs(VcsDiffCommandInput {
+            range: None,
+            range_endpoints: None,
+            staged: false,
+            pathspecs: Vec::new(),
+            options: CommonOptions {
+                mode: Some(InputLayoutMode::Stack),
+                vcs: Some("git".into()),
+                exclude_untracked: Some(true),
+                ..CommonOptions::default()
+            },
+        });
+        let initial = load_dynamic_review_input(&vcs_input, repo.path(), None, &[]).unwrap();
+        assert!(changeset_contains_line(&initial.changeset, "first change"));
+        std::fs::write(
+            repo.path().join("test.txt"),
+            "original line\nsecond change\n",
+        )
+        .unwrap();
+        let refreshed = load_dynamic_review_input(&vcs_input, repo.path(), None, &[]).unwrap();
+        assert!(changeset_contains_line(
+            &refreshed.changeset,
+            "second change"
+        ));
+        assert!(!changeset_contains_line(
+            &refreshed.changeset,
+            "first change"
+        ));
+    }
+
     #[test]
     fn dynamic_input_resolution_reapplies_repo_config_then_explicit_options() {
         let directory = tempfile::tempdir().unwrap();
