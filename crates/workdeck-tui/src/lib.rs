@@ -2735,7 +2735,7 @@ impl ReviewApp {
             .iter()
             .map(AppMenuCommand::from)
             .collect::<Vec<_>>();
-        let (extension_commands, keyboard_mode_exit_entry) = {
+        let (extension_commands, keyboard_mode_exit_entry, files_pane_visible) = {
             let runtime = self
                 .extension_pane_runtime
                 .lock()
@@ -2766,7 +2766,23 @@ impl ReviewApp {
                     hint: None,
                     checked: None,
                 });
-            (extension_commands, keyboard_mode_exit_entry)
+            let visible_keys = runtime
+                .layout
+                .panes
+                .iter()
+                .map(|pane| pane.key.clone())
+                .collect::<BTreeSet<_>>();
+            let files_key = resolve_pane_slot_key(
+                &runtime.session_panes,
+                WORKDECK_FILES_PANE_KEY,
+                &visible_keys,
+                &runtime.failed_pane_registration_ids,
+            );
+            (
+                extension_commands,
+                keyboard_mode_exit_entry,
+                visible_keys.contains(&files_key),
+            )
         };
         commands.extend(extension_commands.iter().cloned());
         let file_view_apply_all_label = file_presentations
@@ -2786,7 +2802,7 @@ impl ReviewApp {
                 CursorLineMode::Off => CommandCursorLine::Off,
             },
             layout_mode: self.layout(),
-            files_pane_visible: self.options.sidebar,
+            files_pane_visible,
             show_agent_notes: self.options.agent_notes,
             show_help: self.show_help,
             show_hunk_headers: self.options.hunk_headers,
@@ -8164,12 +8180,14 @@ pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     Block::default()
         .style(Style::default().bg(background))
         .render(area, buffer);
+    let menu_bar_visible = app.show_menu_bar && !app.options.pager;
+    let footer_visible = !app.options.pager;
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(u16::from(app.show_menu_bar)),
+            Constraint::Length(u16::from(menu_bar_visible)),
             Constraint::Min(1),
-            Constraint::Length(1),
+            Constraint::Length(u16::from(footer_visible)),
         ])
         .split(area);
     render_app_menu_bar(outer[0], buffer, app);
@@ -9542,7 +9560,7 @@ fn render_sidebar(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     let generation = state.generation();
     let selected_file_id = files.get(selected).map(public_file_id).map(str::to_owned);
     let mut block = Block::default();
-    if app.show_menu_bar {
+    if app.show_menu_bar && !app.options.pager {
         block = block
             .title(format!(" {} ", bundled_files_pane().title))
             .borders(Borders::TOP)
@@ -11708,6 +11726,19 @@ mod tests {
         review
     }
 
+    fn responsive_changeset() -> Changeset {
+        let mut review = parse_patch(
+            "diff --git a/alpha.ts b/alpha.ts\n--- a/alpha.ts\n+++ b/alpha.ts\n@@ -1 +1,2 @@\n-export const alpha = 1;\n+export const alpha = 2;\n+export const add = true;\ndiff --git a/beta.ts b/beta.ts\n--- a/beta.ts\n+++ b/beta.ts\n@@ -1 +1 @@\n-export const beta = 1;\n+export const betaValue = 1;\n",
+            "changeset:responsive",
+            "Working tree",
+            ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap();
+        review.summary = Some("Patch summary".into());
+        review.agent_summary = Some("Changeset summary".into());
+        review
+    }
+
     fn install_cached_test_file_view(app: &ReviewApp, selected_file_id: &str) -> String {
         let files = app.with_state(|state| state.changeset().files.clone());
         let registration_identity = 77;
@@ -12605,6 +12636,21 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect()
+    }
+
+    fn rendered_review_frame(terminal: &mut Terminal<TestBackend>, app: &ReviewApp) -> String {
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), app))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let mut rendered = String::new();
+        for y in buffer.area.y..buffer.area.bottom() {
+            for x in buffer.area.x..buffer.area.right() {
+                rendered.push_str(buffer.cell((x, y)).unwrap().symbol());
+            }
+            rendered.push('\n');
+        }
+        rendered
     }
 
     #[test]
@@ -14405,7 +14451,7 @@ mod tests {
             .map(|cell| cell.symbol())
             .collect::<String>();
         assert!(rendered.contains("[x] Automatic layout"));
-        assert!(rendered.contains("[x] Files pane"));
+        assert!(rendered.contains("[ ] Files pane"));
         assert!(rendered.contains("[x] Line numbers"));
         assert!(rendered.contains("[ ] Line wrapping"));
 
@@ -15394,6 +15440,239 @@ mod tests {
             .panes[0]
             .clone();
         assert_eq!(planned.bounds, Rect::new(1, 1, 238, 7));
+    }
+
+    #[test]
+    fn mounted_responsive_review_switches_sidebar_and_layout_at_exact_live_widths() {
+        let app = ReviewApp::new(
+            responsive_changeset(),
+            ReviewOptions {
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let render_width = |width, app: &ReviewApp| {
+            let backend = TestBackend::new(width, 24);
+            let mut terminal = Terminal::new(backend).unwrap();
+            let frame = rendered_review_frame(&mut terminal, app);
+            let files_visible = app
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .layout
+                .panes
+                .iter()
+                .any(|pane| pane.key == WORKDECK_FILES_PANE_KEY);
+            let layout = app.with_state(|state| state.resolved_layout(app.review_width.get()));
+            (frame, files_visible, layout)
+        };
+        let split_rails = |frame: &str| {
+            frame
+                .lines()
+                .any(|line| line.chars().filter(|character| *character == '▌').count() >= 2)
+        };
+
+        let (ultra_wide, visible, layout) = render_width(280, &app);
+        assert!(visible);
+        assert_eq!(ultra_wide.matches("alpha.ts").count(), 2);
+        assert_eq!(layout, LayoutMode::Split);
+        assert!(!ultra_wide.contains("Changeset summary"));
+
+        for width in [220, 160] {
+            let (frame, visible, layout) = render_width(width, &app);
+            assert!(visible, "files pane hidden at width {width}");
+            assert_eq!(frame.matches("alpha.ts").count(), 2);
+            assert_eq!(layout, LayoutMode::Split);
+            assert!(split_rails(&frame), "no split rails at width {width}");
+            assert!(!frame.contains("Changeset summary"));
+        }
+        let (narrow, visible, layout) = render_width(159, &app);
+        assert!(!visible);
+        assert_eq!(narrow.matches("alpha.ts").count(), 1);
+        assert_eq!(layout, LayoutMode::Split);
+        assert!(split_rails(&narrow));
+        assert!(!narrow.contains("Changeset summary"));
+
+        let (tight, visible, layout) = render_width(119, &app);
+        assert!(!visible);
+        assert_eq!(tight.matches("alpha.ts").count(), 1);
+        assert_eq!(layout, LayoutMode::Stack);
+        assert!(!split_rails(&tight));
+        assert!(!tight.contains("Changeset summary"));
+    }
+
+    #[test]
+    fn mounted_responsive_header_keeps_stats_and_uses_three_dot_overflow() {
+        let mut review = changeset();
+        review.files[0].path = "packages/visual-studio-code-vscode/extension-postgres.ts".into();
+        review.files[0].key = review.files[0].path.clone();
+        review.files[0].runtime_id = "narrow-header".into();
+        review.refresh_review_identities();
+        let app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let backend = TestBackend::new(40, 12);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(
+            frame.contains("packages/visual-studio-cod... +1 -1"),
+            "{frame}"
+        );
+        assert!(!frame.contains("packages/visual-studio-code-."));
+    }
+
+    #[test]
+    fn mounted_responsive_files_menu_and_shortcut_follow_actual_visibility() {
+        let mut medium = ReviewApp::new(
+            responsive_changeset(),
+            ReviewOptions {
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let backend = TestBackend::new(180, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        assert_eq!(
+            rendered_review_frame(&mut terminal, &medium)
+                .matches("alpha.ts")
+                .count(),
+            2
+        );
+        medium.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE));
+        medium.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        let menu = rendered_review_frame(&mut terminal, &medium);
+        assert!(menu.contains("[x] Files pane"), "{menu}");
+        assert!(!menu.contains("[ ] Files pane"));
+
+        let mut tight = ReviewApp::new(
+            responsive_changeset(),
+            ReviewOptions {
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let backend = TestBackend::new(140, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        assert_eq!(
+            rendered_review_frame(&mut terminal, &tight)
+                .matches("alpha.ts")
+                .count(),
+            1
+        );
+        tight.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        assert_eq!(
+            rendered_review_frame(&mut terminal, &tight)
+                .matches("alpha.ts")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn mounted_explicit_and_pager_layouts_preserve_responsive_contract() {
+        let split_rails = |frame: &str| {
+            frame
+                .lines()
+                .any(|line| line.chars().filter(|character| *character == '▌').count() >= 2)
+        };
+        let capture = |width, options| {
+            let app = ReviewApp::new(responsive_changeset(), options);
+            let backend = TestBackend::new(width, 24);
+            let mut terminal = Terminal::new(backend).unwrap();
+            rendered_review_frame(&mut terminal, &app)
+        };
+
+        let forced_split = capture(
+            140,
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        assert_eq!(forced_split.matches("alpha.ts").count(), 1);
+        assert!(!forced_split.contains("Changeset summary"));
+        assert!(split_rails(&forced_split));
+
+        let forced_stack = capture(
+            240,
+            ReviewOptions {
+                layout: LayoutMode::Stack,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        assert_eq!(forced_stack.matches("alpha.ts").count(), 2);
+        assert!(!forced_stack.contains("Changeset summary"));
+        assert!(!split_rails(&forced_stack));
+
+        for (width, split) in [(220, true), (150, true), (110, false)] {
+            let frame = capture(
+                width,
+                ReviewOptions {
+                    pager: true,
+                    show_menu_bar: false,
+                    sidebar_visibility: SidebarVisibility::Hidden,
+                    sidebar: false,
+                    highlight: false,
+                    ..ReviewOptions::default()
+                },
+            );
+            assert!(!frame.contains("File  View  Navigate  Agent  Help"));
+            assert!(!frame.contains("F10 menu"));
+            assert_eq!(frame.matches("alpha.ts").count(), 1);
+            assert_eq!(split_rails(&frame), split, "pager width {width}");
+        }
+    }
+
+    #[test]
+    fn mounted_filter_focus_suppresses_global_quit_shortcut() {
+        let mut app = ReviewApp::new(
+            responsive_changeset(),
+            ReviewOptions {
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let backend = TestBackend::new(240, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(!app.should_quit);
+        assert_eq!(app.focus, Focus::Filter);
+        assert!(frame.contains("filter:"));
+        assert!(frame.contains('q'));
+    }
+
+    #[test]
+    fn frozen_app_host_responsive_oracle_maps_both_pins_and_main_delta() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../port/hunk/oracles/app-host-responsive.json");
+        let oracle: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(
+            oracle["source"]["baseline"]["commit"],
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2"
+        );
+        assert_eq!(
+            oracle["source"]["stable"]["commit"],
+            "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+        );
+        assert_eq!(oracle["source"]["baseline"]["bytes"], 8_674);
+        assert_eq!(oracle["source"]["stable"]["bytes"], 8_012);
+        assert_eq!(oracle["oracleRuns"]["baseline"]["expectCalls"], 42);
+        assert_eq!(oracle["oracleRuns"]["stable"]["expectCalls"], 35);
+        assert_eq!(oracle["testMappings"].as_array().unwrap().len(), 7);
+        assert_eq!(
+            oracle["pinDelta"]["commit"],
+            "15cdd7c5ef491726cf091f7b95189843fe059027"
+        );
     }
 
     #[test]

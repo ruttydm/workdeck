@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "path": "src/ui/AppHost.responsive.test.tsx",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "24d688deaa3104e8c2bd628eaa65dc3560629eb5",
+      "sha256": "ccd7ed0048d9780018f7d189e39c2521e2866a8392289963979fce6fca018c95",
+      "bytes": 8674,
+      "lines": 276
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "a344d5a62456146ae1060a7a9ec8f2d0736dcf0e",
+      "sha256": "38f0c1fae9766ee72902267f9139753a59e8c8df7ec235f41c8dd6b129a40864",
+      "bytes": 8012,
+      "lines": 260
+    }
+  },
+  "oracleRuns": {
+    "baseline": {
+      "runtime": "bun 1.3.14",
+      "command": "bun test src/ui/AppHost.responsive.test.tsx",
+      "passed": 7,
+      "failed": 0,
+      "expectCalls": 42,
+      "elapsedMilliseconds": 777
+    },
+    "stable": {
+      "runtime": "bun 1.3.5",
+      "command": "bun test src/ui/AppHost.responsive.test.tsx",
+      "passed": 7,
+      "failed": 0,
+      "expectCalls": 35,
+      "elapsedMilliseconds": 725
+    }
+  },
+  "pinDelta": {
+    "commit": "15cdd7c5ef491726cf091f7b95189843fe059027",
+    "behavior": "The main baseline shows a compact sidebar at 160 through 219 columns, hides it at 159, retains split layout down to 120, and adds the 110-column pager stack case."
+  },
+  "testMappings": [
+    {
+      "upstream": "App adjusts the visible panes and diff layout on live resize",
+      "rust": "tests::mounted_responsive_review_switches_sidebar_and_layout_at_exact_live_widths"
+    },
+    {
+      "upstream": "narrow viewports keep file stats visible and mark truncated paths with three dots",
+      "rust": "tests::mounted_responsive_header_keeps_stats_and_uses_three_dot_overflow"
+    },
+    {
+      "upstream": "View menu sidebar checkmark follows actual medium-viewport visibility",
+      "rust": "tests::mounted_responsive_files_menu_and_shortcut_follow_actual_visibility"
+    },
+    {
+      "upstream": "sidebar shortcut opens the hidden sidebar on a tight viewport",
+      "rust": "tests::mounted_responsive_files_menu_and_shortcut_follow_actual_visibility"
+    },
+    {
+      "upstream": "explicit split and stack modes override responsive auto switching",
+      "rust": "tests::mounted_explicit_and_pager_layouts_preserve_responsive_contract"
+    },
+    {
+      "upstream": "pager mode stays responsive while hiding app chrome",
+      "rust": "tests::mounted_explicit_and_pager_layouts_preserve_responsive_contract"
+    },
+    {
+      "upstream": "filter focus suppresses global shortcut keys like quit",
+      "rust": "tests::mounted_filter_focus_suppresses_global_quit_shortcut"
+    }
+  ],
+  "adaptations": [
+    "Ratatui frame assertions use the same 280, 220, 160, 159, 119, 180, 140, 40, 150, and 110 column viewports and inspect sidebar duplication, split rail cells, stack geometry, menus, headers, and chrome.",
+    "The Files menu check now reads the committed pane layout rather than the logical preference, so its mark describes actual responsive visibility and any native files replacement.",
+    "Pager rendering suppresses both top and bottom application chrome and uses the full terminal width while retaining the independent 120-column auto-layout boundary."
+  ]
+}
