@@ -1434,6 +1434,23 @@ impl ReviewApp {
         std::mem::take(&mut self.should_quit)
     }
 
+    /// Cross the same extension-retirement boundary as the interactive host when its external
+    /// signal fires. This is explicit so alternate terminal hosts and deterministic tests cannot
+    /// observe quit before subscribed extensions receive their final shutdown notification.
+    pub fn process_external_quit_signal(&mut self) -> bool {
+        let requested = self
+            .options
+            .external_quit_signal
+            .as_ref()
+            .is_some_and(|signal| signal.load(Ordering::Acquire));
+        if !requested {
+            return false;
+        }
+        self.retire_interactive_authority();
+        self.should_quit = true;
+        true
+    }
+
     /// Whether the host has crossed its terminal shutdown boundary.
     ///
     /// Signal ownership stays outside the renderer, but every irreversible or
@@ -2667,7 +2684,13 @@ impl ReviewApp {
             return false;
         }
         match key.code {
-            KeyCode::Tab | KeyCode::BackTab | KeyCode::Enter => self.focus = Focus::Review,
+            KeyCode::Tab | KeyCode::BackTab => {
+                self.focus = Focus::Review;
+                self.publish_extension_lifecycle_event(ExtensionLifecycleEvent::CommandExecuted {
+                    command_id: "workdeck.app.toggleFocusArea".into(),
+                });
+            }
+            KeyCode::Enter => self.focus = Focus::Review,
             KeyCode::Esc if self.filter.is_empty() => self.focus = Focus::Review,
             KeyCode::Esc => {
                 self.filter.clear();
@@ -3547,7 +3570,6 @@ impl ReviewApp {
 
     fn invoke_registered_extension_command(&mut self, command: RegisteredExtensionCommand) {
         self.commit_extension_runtime_bridge();
-        let command_id = command.full_id();
         let command_epoch = self.extension_command_epoch;
         let committed = self.extension_runtime_bridge.committed_review();
         let review_controls = self.extension_runtime_bridge.create_review_controls();
@@ -3615,9 +3637,6 @@ impl ReviewApp {
         }
         self.status = Some(command.command.title);
         self.start_queued_extension_requests(Some(command.extension_index));
-        self.publish_extension_lifecycle_event(ExtensionLifecycleEvent::CommandExecuted {
-            command_id,
-        });
     }
 
     /// Apply every ready native command/event result without blocking the Ratatui event loop.
@@ -3657,7 +3676,7 @@ impl ReviewApp {
             match outcome {
                 Ok(execution) => {
                     self.status = Some(pending.title.clone());
-                    self.apply_extension_command_actions(pending, execution.actions);
+                    self.apply_extension_command_actions(&pending, execution.actions);
                 }
                 Err(error) => {
                     let detail = extension_command_error_detail(&error);
@@ -3668,6 +3687,12 @@ impl ReviewApp {
                     );
                 }
             }
+            // Hunk observes the extension command after its synchronous handler returns. Native
+            // commands cross a subprocess boundary, so publish after applying the returned host
+            // actions: programmatic built-ins are observed first and the extension command once.
+            self.publish_extension_lifecycle_event(ExtensionLifecycleEvent::CommandExecuted {
+                command_id: format!("{}.{}", pending.extension_id, pending.command_id),
+            });
         }
         for (pending, outcome) in event_completions {
             match outcome {
@@ -3824,7 +3849,7 @@ impl ReviewApp {
 
     fn apply_extension_command_actions(
         &mut self,
-        pending: PendingExtensionCommand,
+        pending: &PendingExtensionCommand,
         actions: Vec<ExtensionHostAction>,
     ) {
         let current_generation = self.extension_command_epoch;
@@ -8050,14 +8075,10 @@ fn run_loop(
 ) -> Result<()> {
     let mut next_reload = Instant::now() + Duration::from_millis(250);
     let job_control = JobControlSupport::default();
-    while !app.should_quit
-        && !session_stop.is_some_and(|stop| stop.load(Ordering::Relaxed))
-        && !app
-            .options
-            .external_quit_signal
-            .as_ref()
-            .is_some_and(|stop| stop.load(Ordering::Acquire))
-    {
+    while !app.should_quit && !session_stop.is_some_and(|stop| stop.load(Ordering::Relaxed)) {
+        if app.process_external_quit_signal() {
+            break;
+        }
         let mut session_reload_handler =
             |app: &mut ReviewApp,
              next_input: &serde_json::Value,
@@ -15284,7 +15305,7 @@ mod tests {
         app.extension_command_epoch = app.extension_command_epoch.saturating_add(1);
 
         app.apply_extension_command_actions(
-            pending,
+            &pending,
             vec![ExtensionHostAction::SelectReviewFile {
                 file_id: second_file_id,
             }],

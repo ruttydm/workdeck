@@ -71,6 +71,9 @@ pub mod keyboard_probe_extension;
 #[path = "../extensions/key-routing-probe/extension.rs"]
 pub mod key_routing_probe_extension;
 
+#[path = "../extensions/keybindings-probe/extension.rs"]
+pub mod keybindings_probe_extension;
+
 #[path = "../extensions/review-snapshot-export/extension.rs"]
 pub mod review_snapshot_export_extension;
 
