@@ -2815,6 +2815,61 @@ mod review_cli_option_tests {
     }
 
     #[test]
+    fn dynamic_loader_refreshes_a_changed_agent_sidecar_on_the_next_load() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("before.ts"),
+            "export const answer = 41;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("after.ts"),
+            "export const answer = 42;\n",
+        )
+        .unwrap();
+        let sidecar = directory.path().join("agent.json");
+        std::fs::write(&sidecar, r#"{"version":1,"files":[]}"#).unwrap();
+        let input = CliInput::Files(FileCommandInput {
+            left: "before.ts".into(),
+            right: "after.ts".into(),
+            options: CommonOptions {
+                agent_context: Some("agent.json".into()),
+                watch: Some(true),
+                agent_notes: Some(true),
+                ..CommonOptions::default()
+            },
+        });
+        let initial = load_dynamic_review_input(&input, directory.path(), None, &[]).unwrap();
+        assert!(initial.changeset.files[0].agent.is_none());
+
+        std::fs::write(
+            &sidecar,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "files": [{
+                    "path": "after.ts",
+                    "annotations": [{
+                        "newRange": [1, 1],
+                        "summary": "Watch rationale updated"
+                    }]
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let refreshed = load_dynamic_review_input(&input, directory.path(), None, &[]).unwrap();
+        assert_eq!(
+            refreshed.changeset.files[0]
+                .agent
+                .as_ref()
+                .unwrap()
+                .annotations[0]
+                .summary,
+            "Watch rationale updated"
+        );
+    }
+
+    #[test]
     fn dynamic_input_resolution_reapplies_repo_config_then_explicit_options() {
         let directory = tempfile::tempdir().unwrap();
         std::fs::create_dir(directory.path().join(".git")).unwrap();

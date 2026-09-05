@@ -7959,7 +7959,7 @@ fn run_loop(
                 reason,
             );
         }
-        if let Some(driver) = watched_input {
+        let watch_refresh_completed = if let Some(driver) = watched_input.as_mut() {
             let outcome = if let (Some(loader), Some(coordinator)) =
                 (dynamic_reloader.as_deref_mut(), app_host_reload.as_mut())
             {
@@ -7988,6 +7988,25 @@ fn run_loop(
             }
             if let Some(error) = outcome.errors.last() {
                 app.status = Some(format!("auto-reload failed: {error}"));
+            }
+            outcome.refreshes > 0
+        } else {
+            false
+        };
+        if watch_refresh_completed {
+            if let Some(coordinator) = app_host_reload.as_ref() {
+                replace_watched_input(
+                    app,
+                    watched_input,
+                    coordinator.current_input().clone(),
+                    coordinator.current_cwd().to_path_buf(),
+                    watch_vcs_catalog,
+                );
+            } else {
+                watched_input.take();
+                app.status = Some(
+                    "auto-reload stopped because the refreshed input has no watch authority".into(),
+                );
             }
         }
     }
@@ -8147,7 +8166,8 @@ fn replace_watched_input(
         cwd,
         Some(vcs_catalog.clone()),
     ));
-    *watched_input = match WatchedInputDriver::start(
+    if let Err(error) = replace_watched_input_driver(
+        watched_input,
         app.options.watch,
         input,
         runtime,
@@ -8155,12 +8175,8 @@ fn replace_watched_input(
         Instant::now(),
         workdeck_vcs::WatchControllerConfig::default(),
     ) {
-        Ok(driver) => driver,
-        Err(error) => {
-            app.status = Some(format!("failed to initialize watch mode: {error}"));
-            None
-        }
-    };
+        app.status = Some(format!("failed to initialize watch mode: {error}"));
+    }
 }
 
 fn apply_reloaded_changeset(
@@ -11645,8 +11661,8 @@ mod tests {
     use super::*;
     use ratatui::backend::TestBackend;
     use workdeck_core::{
-        ChangesetSource, CliInput, CommonOptions, FileSourceSnapshots, LineRange, SourceOrigin,
-        SourceSnapshot, VcsDiffCommandInput,
+        AgentAnnotation, AgentFileContext, ChangesetSource, CliInput, CommonOptions,
+        FileSourceSnapshots, LineRange, SourceOrigin, SourceSnapshot, VcsDiffCommandInput,
     };
     use workdeck_diff::parse_patch;
     use workdeck_review::{CommentAnchor, ReviewComment};
@@ -11736,6 +11752,51 @@ mod tests {
         .unwrap();
         review.summary = Some("Patch summary".into());
         review.agent_summary = Some("Changeset summary".into());
+        review
+    }
+
+    fn watched_changeset(observed: bool, rationale: Option<&str>) -> Changeset {
+        let added = if observed {
+            "+export const answer = 42;\n+export const observed = true;\n"
+        } else {
+            "+export const answer = 42;\n"
+        };
+        let mut review = parse_patch(
+            &format!(
+                "diff --git a/after.ts b/after.ts\n--- a/after.ts\n+++ b/after.ts\n@@ -1 +1,{} @@\n-export const answer = 41;\n{added}",
+                if observed { 2 } else { 1 }
+            ),
+            "changeset:watch",
+            "before.ts ↔ after.ts",
+            ChangesetSource::Files {
+                left: "before.ts".into(),
+                right: "after.ts".into(),
+            },
+        )
+        .unwrap();
+        if let Some(summary) = rationale {
+            review.files[0].agent = Some(AgentFileContext {
+                path: "after.ts".into(),
+                summary: None,
+                annotations: vec![AgentAnnotation {
+                    id: None,
+                    old_range: None,
+                    new_range: Some(LineRange { start: 2, end: 2 }),
+                    summary: summary.into(),
+                    rationale: None,
+                    markup: None,
+                    tags: Vec::new(),
+                    confidence: None,
+                    source: None,
+                    title: None,
+                    author: None,
+                    created_at: None,
+                    updated_at: None,
+                    editable: false,
+                }],
+            });
+            review.refresh_review_identities();
+        }
         review
     }
 
@@ -15651,6 +15712,58 @@ mod tests {
     }
 
     #[test]
+    fn mounted_watch_reload_preserves_filter_theme_and_refreshes_agent_note() {
+        let light = resolve_theme(
+            Some(DEFAULT_LIGHT_THEME_ID),
+            Some(ThemeAppearance::Light),
+            &[],
+        );
+        let mut app = ReviewApp::new(
+            watched_changeset(false, None),
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                watch: true,
+                agent_notes: true,
+                highlight: false,
+                theme: light.clone(),
+                ..ReviewOptions::default()
+            },
+        );
+        let backend = TestBackend::new(220, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        for character in "after".chars() {
+            app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+        assert_eq!(app.focus, Focus::Filter);
+        assert_eq!(app.filter, "after");
+
+        apply_reloaded_changeset(
+            &mut app,
+            watched_changeset(true, Some("Watch rationale updated")),
+            SessionReloadReason::Watch,
+        );
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert_eq!(app.focus, Focus::Filter);
+        assert_eq!(app.filter, "after");
+        assert_eq!(app.options.theme.id, light.id);
+        assert_eq!(app.options.theme.panel, light.panel);
+        assert!(frame.contains("observed"), "{frame}");
+        assert!(frame.contains("filter:"), "{frame}");
+        assert!(frame.contains("after"), "{frame}");
+        assert!(frame.contains("Watch rationale updated"), "{frame}");
+        assert!(
+            terminal
+                .backend()
+                .buffer()
+                .content()
+                .iter()
+                .any(|cell| cell.bg == ratatui_theme_color(&light.panel))
+        );
+    }
+
+    #[test]
     fn frozen_app_host_responsive_oracle_maps_both_pins_and_main_delta() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../port/hunk/oracles/app-host-responsive.json");
@@ -15673,6 +15786,30 @@ mod tests {
             oracle["pinDelta"]["commit"],
             "15cdd7c5ef491726cf091f7b95189843fe059027"
         );
+    }
+
+    #[test]
+    fn frozen_app_host_watch_oracle_maps_identical_pins_and_all_tests() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../port/hunk/oracles/app-host-watch.json");
+        let oracle: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(
+            oracle["source"]["baseline"]["commit"],
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2"
+        );
+        assert_eq!(
+            oracle["source"]["stable"]["commit"],
+            "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+        );
+        assert_eq!(
+            oracle["source"]["baseline"]["blob"],
+            oracle["source"]["stable"]["blob"]
+        );
+        assert_eq!(oracle["source"]["baseline"]["bytes"], 7_545);
+        assert_eq!(oracle["oracleRuns"]["baseline"]["expectCalls"], 17);
+        assert_eq!(oracle["oracleRuns"]["stable"]["expectCalls"], 17);
+        assert_eq!(oracle["testMappings"].as_array().unwrap().len(), 3);
     }
 
     #[test]

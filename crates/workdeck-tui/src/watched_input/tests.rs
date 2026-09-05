@@ -50,6 +50,10 @@ impl FakeRuntime {
     fn callback(&self) -> WatchObserverCallbacks {
         self.callbacks.lock().unwrap()[0].clone()
     }
+
+    fn callback_at(&self, index: usize) -> WatchObserverCallbacks {
+        self.callbacks.lock().unwrap()[index].clone()
+    }
 }
 
 impl WatchedInputRuntime for FakeRuntime {
@@ -154,6 +158,12 @@ fn event_changes_debounce_and_refresh_exactly_once() {
     assert!(first.reload_pending);
     assert_eq!(first.refresh_attempts, 0);
 
+    let early = driver.poll(now + Duration::from_millis(199), &mut || {
+        refreshes += 1;
+        Ok::<(), &'static str>(())
+    });
+    assert_eq!(early.refresh_attempts, 0);
+
     let second = driver.poll(now + Duration::from_millis(200), &mut || {
         refreshes += 1;
         Ok::<(), &'static str>(())
@@ -167,6 +177,66 @@ fn event_changes_debounce_and_refresh_exactly_once() {
     driver.close();
     driver.close();
     assert_eq!(runtime.close_count.load(Ordering::Relaxed), 1);
+}
+
+#[test]
+fn successful_refresh_replaces_source_once_and_makes_late_callbacks_inert() {
+    let now = Instant::now();
+    let runtime = FakeRuntime::hybrid();
+    let runtime_trait: Arc<dyn WatchedInputRuntime> = runtime.clone();
+    let mut current = WatchedInputDriver::start(
+        true,
+        input(),
+        Arc::clone(&runtime_trait),
+        None,
+        now,
+        WatchControllerConfig::default(),
+    )
+    .unwrap();
+    let old_callback = runtime.callback_at(0);
+    runtime.set_signature("signature:replacement");
+    (old_callback.on_event)();
+
+    let pending = current
+        .as_mut()
+        .unwrap()
+        .poll(now, &mut || Err::<(), _>("debounce refreshed too early"));
+    assert!(pending.reload_pending);
+    assert_eq!(pending.refresh_attempts, 0);
+
+    let outcome = current
+        .as_mut()
+        .unwrap()
+        .poll(now + Duration::from_millis(200), &mut || {
+            Ok::<(), &'static str>(())
+        });
+    assert_eq!(outcome.refreshes, 1);
+    replace_watched_input_driver(
+        &mut current,
+        true,
+        input(),
+        runtime_trait,
+        None,
+        now + Duration::from_millis(200),
+        WatchControllerConfig::default(),
+    )
+    .unwrap();
+    assert_eq!(runtime.source_count.load(Ordering::Relaxed), 2);
+    assert_eq!(runtime.close_count.load(Ordering::Relaxed), 1);
+
+    runtime.set_signature("signature:late");
+    (old_callback.on_event)();
+    let late = current
+        .as_mut()
+        .unwrap()
+        .poll(now + Duration::from_millis(200), &mut || {
+            Err::<(), _>("late callback refreshed the replacement")
+        });
+    assert!(!late.reload_pending);
+    assert_eq!(late.refresh_attempts, 0);
+
+    drop(current);
+    assert_eq!(runtime.close_count.load(Ordering::Relaxed), 2);
 }
 
 #[test]

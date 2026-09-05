@@ -295,6 +295,33 @@ impl Drop for WatchedInputDriver {
     }
 }
 
+/// Replace one mounted watcher after its review input has committed a refresh.
+///
+/// Construct the successor before retiring the old source, then swap the whole
+/// driver so callbacks retained by the old observer only address a dropped
+/// channel. A failed replacement still retires the stale source: it must never
+/// keep observing an input whose content authority has already advanced.
+pub(crate) fn replace_watched_input_driver(
+    current: &mut Option<WatchedInputDriver>,
+    enabled: bool,
+    input: CliInput,
+    runtime: Arc<dyn WatchedInputRuntime>,
+    initial_signature: Option<String>,
+    now: Instant,
+    config: WatchControllerConfig,
+) -> Result<(), WatchSourceError> {
+    match WatchedInputDriver::start(enabled, input, runtime, initial_signature, now, config) {
+        Ok(replacement) => {
+            *current = replacement;
+            Ok(())
+        }
+        Err(error) => {
+            current.take();
+            Err(error)
+        }
+    }
+}
+
 fn outcome_from_actions(mut actions: WatchControllerActions) -> WatchedInputOutcome {
     WatchedInputOutcome {
         reload_pending: actions.reload_pending,
