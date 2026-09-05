@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use workdeck_extension_api::ExtensionFileSide;
 
@@ -31,6 +31,8 @@ impl ExtensionRequestCancellation {
 pub enum DocumentReadError {
     #[error("The extension request was aborted.")]
     Aborted,
+    #[error("The extension request timed out.")]
+    TimedOut,
 }
 
 #[derive(Debug, Default)]
@@ -50,6 +52,23 @@ impl ExtensionDocumentRead {
         &self,
         cancellation: &ExtensionRequestCancellation,
     ) -> Result<Option<String>, DocumentReadError> {
+        self.wait_inner(cancellation, None)
+    }
+
+    /// Wait no later than the layout-wide deadline, even if the shared fetch remains blocked.
+    pub fn wait_until(
+        &self,
+        cancellation: &ExtensionRequestCancellation,
+        deadline: Instant,
+    ) -> Result<Option<String>, DocumentReadError> {
+        self.wait_inner(cancellation, Some(deadline))
+    }
+
+    fn wait_inner(
+        &self,
+        cancellation: &ExtensionRequestCancellation,
+        deadline: Option<Instant>,
+    ) -> Result<Option<String>, DocumentReadError> {
         if cancellation.is_cancelled() {
             return Err(DocumentReadError::Aborted);
         }
@@ -62,13 +81,21 @@ impl ExtensionDocumentRead {
             if cancellation.is_cancelled() {
                 return Err(DocumentReadError::Aborted);
             }
+            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                return Err(DocumentReadError::TimedOut);
+            }
             if let Some(value) = result.as_ref() {
                 return Ok(value.clone());
             }
+            let wait = deadline.map_or(Duration::from_millis(5), |deadline| {
+                deadline
+                    .saturating_duration_since(Instant::now())
+                    .min(Duration::from_millis(5))
+            });
             result = self
                 .shared
                 .ready
-                .wait_timeout(result, Duration::from_millis(5))
+                .wait_timeout(result, wait)
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .0;
         }
@@ -175,6 +202,28 @@ mod tests {
         cancellation.cancel();
         assert_eq!(first.wait(&cancellation), Err(DocumentReadError::Aborted));
         assert_eq!(second.wait(&cancellation), Err(DocumentReadError::Aborted));
+        release_tx.send(()).unwrap();
+    }
+
+    #[test]
+    fn a_deadline_releases_the_caller_while_the_shared_source_read_finishes_later() {
+        let (called_tx, called_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let release_rx = Arc::new(Mutex::new(release_rx));
+        let reader = ExtensionDocumentReader::new(move |side| {
+            called_tx.send(side).unwrap();
+            release_rx.lock().unwrap().recv().unwrap();
+            Ok(Some("late\n".into()))
+        });
+        let read = reader.read_document(ExtensionFileSide::New);
+        assert_eq!(called_rx.recv().unwrap(), ExtensionFileSide::New);
+        assert_eq!(
+            read.wait_until(
+                &ExtensionRequestCancellation::default(),
+                Instant::now() + Duration::from_millis(2),
+            ),
+            Err(DocumentReadError::TimedOut)
+        );
         release_tx.send(()).unwrap();
     }
 

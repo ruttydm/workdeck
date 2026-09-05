@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
 use workdeck_core::{
     ChangesetSource, FileSourceSnapshots, ReviewSelection, ReviewSnapshot, SourceOrigin,
@@ -182,21 +182,34 @@ fn compiled_protocol_matches_layouts_and_toggles_the_registered_view() {
         .get(&ExtensionFileSide::New)
         .cloned()
         .flatten();
+    let cancellation = ExtensionRequestCancellation::default();
+    let source_calls = Arc::new(Mutex::new(Vec::new()));
     let input = FileViewInput {
         file: Arc::new(file),
         width: request.width,
-        cancellation: ExtensionRequestCancellation::default(),
+        cancellation: cancellation.clone(),
         changes: Arc::from(request.changes),
-        documents: ExtensionDocumentReader::new(move |side| {
-            Ok((side == ExtensionFileSide::New)
-                .then(|| source.clone())
-                .flatten())
+        frozen_documents: request.documents.clone(),
+        documents: ExtensionDocumentReader::new({
+            let source_calls = Arc::clone(&source_calls);
+            move |side| {
+                source_calls.lock().unwrap().push(side);
+                Ok((side == ExtensionFileSide::New)
+                    .then(|| source.clone())
+                    .flatten())
+            }
         }),
     };
     let layout = loaded
         .layout_file_view(VIEW_ID, input)
         .unwrap()
         .expect("oracle input produces a layout");
+    assert!(cancellation.is_cancelled());
+    assert_eq!(
+        *source_calls.lock().unwrap(),
+        [ExtensionFileSide::New],
+        "only the exact source side bound by the accepted layout is read"
+    );
     let expected: ExtensionFileViewLayout =
         serde_json::from_value(oracle["layout"].clone()).unwrap();
     assert_eq!(layout.layout, expected);
@@ -282,16 +295,27 @@ fn review_shell_paints_the_selected_symbolic_rows_and_restores_raw_diff() {
 
     app.handle_key(KeyEvent::new(KeyCode::F(8), KeyModifiers::NONE));
     settle_extension_commands(&mut app);
-    terminal
-        .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
-        .unwrap();
-    let rendered = terminal
-        .backend()
-        .buffer()
-        .content
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect::<String>();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let rendered = loop {
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        if !rendered.contains("-old") {
+            break rendered;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "native file-view preparation did not settle"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    };
     assert!(rendered.contains("Heading"));
     assert!(rendered.contains("paragraph"));
     assert!(!rendered.contains("-old"));

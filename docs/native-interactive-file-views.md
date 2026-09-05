@@ -22,7 +22,18 @@ Keys not claimed by host modals are delivered synchronously through
 `workdeck/file-view-mode/key`. The result is `handled`, `pass`, or `exit` plus validated host
 actions. `pass` preserves Workdeck navigation, help, command, and quit behavior. A stateful view
 returns `refresh-file-view` after a state transition; a `fileId` scopes invalidation to one file.
-The next Ratatui frame asks the subprocess for a fresh deterministic layout.
+The next Ratatui frame schedules a fresh deterministic layout. Preparation runs outside paint with
+a 1.5-second source-and-RPC budget and four global worker slots. Exact file, view, registration,
+width, and refresh-epoch identities drive a 64-entry LRU. Width and registration changes suppress
+stale geometry synchronously; an epoch refresh keeps the compatible prior tree visible until the
+replacement pass settles. Late results from a superseded pass are ignored.
+
+The subprocess receives immutable old/new snapshots so its response cannot race a reload. Once a
+layout is returned, Workdeck invokes provider-backed source reads only for sides actually named by
+row bindings, then validates every inclusive one-based range before Ratatui sees the tree. Source
+reads share the layout deadline; a blocked read releases its preparation slot while its underlying
+provider operation may finish harmlessly later. Match and layout failures fall back to raw diff and
+are deduplicated per concrete registration and deterministic failure category.
 
 Lifecycle responses may contain ordered `actions` and an optional contained `failure`. Workdeck
 applies the actions before reporting the failure and retires only the activation that failed. This

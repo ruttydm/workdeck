@@ -1704,58 +1704,94 @@ impl LoadedExtension {
         view_id: &str,
         input: FileViewInput,
     ) -> Result<Option<ValidatedFileViewLayout>, HostError> {
+        self.layout_file_view_with_timeout(
+            view_id,
+            input,
+            Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+        )
+    }
+
+    /// Calculate one file-view layout within one budget shared by source reads and native RPC.
+    pub fn layout_file_view_with_timeout(
+        &mut self,
+        view_id: &str,
+        input: FileViewInput,
+        timeout: Duration,
+    ) -> Result<Option<ValidatedFileViewLayout>, HostError> {
         self.require_file_view(view_id)?;
         if input.cancellation.is_cancelled() {
             return Ok(None);
         }
-        let mut documents = BTreeMap::new();
-        for side in [ExtensionFileSide::Old, ExtensionFileSide::New] {
-            let document = input
-                .documents
-                .read_document(side)
-                .wait(&input.cancellation)
-                .map_err(|_| HostError::InvalidPayload {
-                    id: self.manifest.id.clone(),
-                    kind: "file view layout",
-                    message: "layout request was aborted".into(),
+        let deadline = Instant::now() + timeout;
+        let cancellation = input.cancellation.clone();
+        let result = (|| {
+            let hunk_count = input.file.hunks.len();
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(HostError::Timeout(self.manifest.id.clone()));
+            }
+            let value = self.request(
+                "workdeck/file-view/layout",
+                FileViewLayoutRequest {
+                    view_id: view_id.to_owned(),
+                    file: input.file.as_ref().clone(),
+                    width: input.width,
+                    changes: input.changes.as_ref().to_vec(),
+                    documents: input.frozen_documents.clone(),
+                    aborted: false,
+                },
+                remaining,
+            )?;
+            if value.is_null() {
+                return Ok(None);
+            }
+            let validated =
+                validate_file_view_layout(&value, hunk_count, input.width).map_err(|message| {
+                    HostError::InvalidPayload {
+                        id: self.manifest.id.clone(),
+                        kind: "file view layout",
+                        message: format!("invalid layout: {message}"),
+                    }
                 })?;
-            documents.insert(side, document);
-        }
-        if input.cancellation.is_cancelled() {
-            return Ok(None);
-        }
-        let hunk_count = input.file.hunks.len();
-        let value = self.request(
-            "workdeck/file-view/layout",
-            FileViewLayoutRequest {
-                view_id: view_id.to_owned(),
-                file: input.file.as_ref().clone(),
-                width: input.width,
-                changes: input.changes.as_ref().to_vec(),
-                documents: documents.clone(),
-                aborted: false,
-            },
-            Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
-        )?;
-        if value.is_null() {
-            return Ok(None);
-        }
-        let validated =
-            validate_file_view_layout(&value, hunk_count, input.width).map_err(|message| {
-                HostError::InvalidPayload {
+            let required_sides = validated
+                .layout
+                .rows
+                .iter()
+                .flat_map(|row| row.source_ranges.iter().map(|range| range.side))
+                .collect::<BTreeSet<_>>();
+            let mut bound_documents = BTreeMap::new();
+            for side in required_sides {
+                let document = input
+                    .documents
+                    .read_document(side)
+                    .wait_until(&input.cancellation, deadline)
+                    .map_err(|error| match error {
+                        DocumentReadError::TimedOut => HostError::Timeout(self.manifest.id.clone()),
+                        DocumentReadError::Aborted => HostError::InvalidPayload {
+                            id: self.manifest.id.clone(),
+                            kind: "file view layout",
+                            message: "layout request was aborted".into(),
+                        },
+                    })?;
+                bound_documents.insert(side, document);
+            }
+            if let Some(issue) =
+                validate_file_view_source_ranges(&validated.layout, &bound_documents)
+            {
+                let category = match issue.kind {
+                    FileViewSourceBindingIssueKind::UnavailableSource => "unavailable source",
+                    FileViewSourceBindingIssueKind::OutOfBounds => "invalid layout",
+                };
+                return Err(HostError::InvalidPayload {
                     id: self.manifest.id.clone(),
                     kind: "file view layout",
-                    message,
-                }
-            })?;
-        if let Some(issue) = validate_file_view_source_ranges(&validated.layout, &documents) {
-            return Err(HostError::InvalidPayload {
-                id: self.manifest.id.clone(),
-                kind: "file view layout",
-                message: issue.detail,
-            });
-        }
-        Ok(Some(validated))
+                    message: format!("{category}: {}", issue.detail),
+                });
+            }
+            Ok(Some(validated))
+        })();
+        cancellation.cancel();
+        result
     }
 
     /// Calculate one registered native highlighter's marks for an immutable file snapshot.

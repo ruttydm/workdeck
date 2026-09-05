@@ -37,6 +37,27 @@ fn settle_extension_commands(app: &mut ReviewApp) {
     }
 }
 
+fn settle_file_view_frame(
+    app: &ReviewApp,
+    terminal: &mut Terminal<TestBackend>,
+    ready: impl Fn(&Terminal<TestBackend>) -> bool,
+) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), app))
+            .unwrap();
+        if ready(terminal) {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "native file-view preparation did not settle"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+}
+
 const CHANGE_BEFORE: &str =
     include_str!("../extensions/file-view-gallery/fixtures/change-atlas/before.rs");
 const CHANGE_AFTER: &str =
@@ -697,17 +718,17 @@ fn ratatui_paints_selection_sensitive_atlas_and_exact_css_swatches() {
         app.selected_extension_file_view(&file_id).as_deref(),
         Some("example.file-view-gallery:change-atlas")
     );
-    terminal
-        .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
-        .unwrap();
+    settle_file_view_frame(&app, &mut terminal, |terminal| {
+        rendered_text(terminal).contains("▶ CHANGE 01")
+    });
     let first = rendered_text(&terminal);
     assert!(first.contains("▶ CHANGE 01"));
     assert!(first.contains("◇ CHANGE 02"));
 
     app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
-    terminal
-        .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
-        .unwrap();
+    settle_file_view_frame(&app, &mut terminal, |terminal| {
+        rendered_text(terminal).contains("▶ CHANGE 02")
+    });
     let second = rendered_text(&terminal);
     assert!(second.contains("◇ CHANGE 01"));
     assert!(second.contains("▶ CHANGE 02"));
@@ -724,9 +745,14 @@ fn ratatui_paints_selection_sensitive_atlas_and_exact_css_swatches() {
     let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
     app.handle_key(KeyEvent::new(KeyCode::F(8), KeyModifiers::NONE));
     settle_extension_commands(&mut app);
-    terminal
-        .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
-        .unwrap();
+    settle_file_view_frame(&app, &mut terminal, |terminal| {
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .any(|cell| cell.bg == Color::Rgb(11, 16, 32))
+    });
     assert!(
         terminal
             .backend()

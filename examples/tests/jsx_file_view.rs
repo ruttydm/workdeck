@@ -1,6 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::{Terminal, backend::TestBackend};
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -127,6 +128,10 @@ fn compiled_protocol_matches_layouts_and_toggles_the_view() {
         width: 80,
         cancellation: ExtensionRequestCancellation::default(),
         changes: Arc::from([]),
+        frozen_documents: BTreeMap::from([
+            (ExtensionFileSide::Old, Some(source.clone())),
+            (ExtensionFileSide::New, Some(source.clone())),
+        ]),
         documents: ExtensionDocumentReader::new(move |_side| Ok(Some(source.clone()))),
     };
     let layout = loaded
@@ -230,6 +235,27 @@ fn terminal_rows(terminal: &Terminal<TestBackend>) -> Vec<String> {
         .collect()
 }
 
+fn settle_file_view_frame(
+    app: &ReviewApp,
+    terminal: &mut Terminal<TestBackend>,
+    ready: impl Fn(&Terminal<TestBackend>) -> bool,
+) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), app))
+            .unwrap();
+        if ready(terminal) {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "native file-view preparation did not settle"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+}
+
 #[test]
 fn ratatui_rows_toggle_only_on_an_undragged_left_mouse_up() {
     let (_directory, manifest) = staged_extension();
@@ -248,9 +274,11 @@ fn ratatui_rows_toggle_only_on_an_undragged_left_mouse_up() {
     settle_extension_commands(&mut app);
 
     let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
-    terminal
-        .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
-        .unwrap();
+    settle_file_view_frame(&app, &mut terminal, |terminal| {
+        terminal_rows(terminal)
+            .iter()
+            .any(|line| line.contains("Hunk 1"))
+    });
     let rows = terminal_rows(&terminal);
     let row = rows
         .iter()

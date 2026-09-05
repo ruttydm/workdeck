@@ -204,9 +204,10 @@ pub struct FileViewMatchRequest {
 
 /// Immutable input for one native file-view layout calculation.
 ///
-/// Exact source documents cross the subprocess boundary as owned snapshots. This
-/// keeps extensions unable to race subsequent reloads while preserving Hunk's
-/// `readDocument(side)` semantics without a nested, re-entrant RPC exchange.
+/// Frozen source documents cross the subprocess boundary as owned snapshots. This
+/// keeps extensions unable to race subsequent reloads without a nested, re-entrant
+/// RPC exchange. The host separately performs provider reads only for sides bound
+/// by the accepted layout and validates those exact results before painting.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileViewLayoutRequest {

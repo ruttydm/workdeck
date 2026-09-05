@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use workdeck_core::{DiffFile, DiffLineKind, FileChangeKind};
@@ -112,6 +113,8 @@ pub struct FileViewInput {
     pub width: usize,
     pub cancellation: ExtensionRequestCancellation,
     pub changes: Arc<[ExtensionFileChangeRange]>,
+    /// Immutable snapshots sent across the subprocess boundary without starting a source read.
+    pub frozen_documents: BTreeMap<ExtensionFileSide, Option<String>>,
     pub documents: ExtensionDocumentReader,
 }
 
@@ -127,11 +130,22 @@ pub fn create_file_view_input(
         .cloned()
         .unwrap_or_else(|| create_file_view_input_snapshot(file));
     let sources = file.sources.clone();
+    let frozen_documents = BTreeMap::from([
+        (
+            ExtensionFileSide::Old,
+            sources.old.as_ref().map(|source| source.content.clone()),
+        ),
+        (
+            ExtensionFileSide::New,
+            sources.new.as_ref().map(|source| source.content.clone()),
+        ),
+    ]);
     FileViewInput {
         file: snapshot.file,
         width,
         cancellation,
         changes: snapshot.changes,
+        frozen_documents,
         documents: ExtensionDocumentReader::new(move |side| {
             Ok(match side {
                 ExtensionFileSide::Old => sources.old.as_ref(),

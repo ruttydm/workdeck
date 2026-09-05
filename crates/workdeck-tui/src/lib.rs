@@ -49,6 +49,7 @@ mod file_presentation_rendering;
 mod file_render_window;
 mod file_section_layout;
 mod file_view_geometry;
+mod file_view_layouts;
 mod file_view_view;
 mod help_content;
 mod help_dialog;
@@ -148,6 +149,7 @@ pub use file_presentation_rendering::*;
 pub use file_render_window::*;
 pub use file_section_layout::*;
 pub use file_view_geometry::*;
+pub use file_view_layouts::*;
 pub use file_view_view::*;
 pub use help_content::*;
 pub use help_dialog::*;
@@ -246,15 +248,16 @@ use workdeck_extension_api::{
 use workdeck_extension_host::{
     ActiveSessionKeyboardMode, EXTENSION_SHUTDOWN_TIMEOUT,
     ExtensionEventContextProviderInstallation, ExtensionEventContextProviderSlot,
-    ExtensionRequestCancellation, FileViewSelectionState, HostError, KeyboardModeActionAuthority,
-    KeyboardModeControllerState, LineHighlightRefreshResult, LineHighlightsController,
-    LoadedExtension, RegisteredFileView, RegisteredKeyboardMode, RegisteredLineHighlighter,
+    FileViewSelectionState, HostError, KeyboardModeActionAuthority, KeyboardModeControllerState,
+    LineHighlightRefreshResult, LineHighlightsController, LoadedExtension, RegisteredFileView,
+    RegisteredKeyboardMode, RegisteredLineHighlighter,
     build_extension_review_selection_from_snapshot, create_file_view_input,
     create_file_view_input_snapshot, file_view_mode_failure_message, format_keyboard_mode_failure,
-    project_extension_changeset, project_extension_diff_file, reconcile_file_view_selections,
-    registered_file_view_key, resolve_loaded_extension_registrations, select_file_view,
-    select_file_view_for_files, session_keyboard_mode_display_title,
-    session_keyboard_mode_status_hint, session_keyboard_mode_still_valid,
+    project_extension_changeset, project_extension_diff_file, reconcile_file_view_epochs,
+    reconcile_file_view_selections, registered_file_view_key,
+    resolve_loaded_extension_registrations, select_file_view, select_file_view_for_files,
+    session_keyboard_mode_display_title, session_keyboard_mode_status_hint,
+    session_keyboard_mode_still_valid,
 };
 use workdeck_review::{
     CommentAnchor, ExpandedSourceError, ExpandedSourceStatus, LayoutMode, ReviewComment,
@@ -419,15 +422,99 @@ struct FileViewMatchCacheKey {
     registration_identity: u64,
 }
 
-#[derive(Debug, Clone)]
-struct CachedFileViewLayout {
-    content_identity: String,
-    width: usize,
-    resolved: ResolvedFileViewLayout,
-}
-
 static NEXT_FILE_VIEW_REGISTRATION_IDENTITY: AtomicU64 = AtomicU64::new(1);
 const MAX_FILE_VIEW_MODE_TRANSITION_DEPTH: usize = 32;
+
+#[derive(Debug)]
+struct FileViewLayoutDispatch {
+    task: FileViewLayoutTask,
+    file: DiffFile,
+    extension: LoadedExtension,
+    view_id: String,
+}
+
+fn spawn_file_view_layout_dispatch(
+    dispatch: FileViewLayoutDispatch,
+    sender: std::sync::mpsc::Sender<FileViewLayoutWorkerResult>,
+) {
+    std::thread::spawn(move || {
+        let FileViewLayoutDispatch {
+            task,
+            file,
+            mut extension,
+            view_id,
+        } = dispatch;
+        let snapshot = create_file_view_input_snapshot(&file);
+        let outcome = if task.cancellation.is_cancelled() {
+            FileViewLayoutOutcome::Retry
+        } else {
+            match extension.file_view_matches(&view_id, snapshot.file.as_ref().clone()) {
+                Ok(false) => FileViewLayoutOutcome::Declined,
+                Err(HostError::Busy(_)) => FileViewLayoutOutcome::Retry,
+                Err(_) => FileViewLayoutOutcome::Failed {
+                    category: "matches".into(),
+                    warning: format!(
+                        "Extension {} file view \"{}\" failed matching {} • using raw diff",
+                        task.identity.extension_id, task.identity.view_id, task.identity.file_path
+                    ),
+                },
+                Ok(true) => {
+                    let input = create_file_view_input(
+                        &file,
+                        task.identity.width,
+                        task.cancellation.clone(),
+                        Some(&snapshot),
+                    );
+                    match extension.layout_file_view_with_timeout(
+                        &view_id,
+                        input,
+                        FILE_VIEW_LAYOUT_TIMEOUT,
+                    ) {
+                        Ok(Some(layout)) => FileViewLayoutOutcome::Prepared(layout),
+                        Ok(None) => FileViewLayoutOutcome::Declined,
+                        Err(HostError::Busy(_)) => FileViewLayoutOutcome::Retry,
+                        Err(error) => {
+                            let detail = error.to_string();
+                            let view = format!(
+                                "Extension {} file view \"{}\"",
+                                task.identity.extension_id, task.identity.view_id
+                            );
+                            if let Some(issue) = detail.split("invalid layout: ").nth(1) {
+                                FileViewLayoutOutcome::Failed {
+                                    category: format!("invalid layout: {issue}"),
+                                    warning: format!(
+                                        "{view} returned an invalid layout: {issue} • using raw diff"
+                                    ),
+                                }
+                            } else if detail.contains("unavailable source: ") {
+                                FileViewLayoutOutcome::Failed {
+                                    category: "unavailable-source".into(),
+                                    warning: format!(
+                                        "{view} needs source for {} that Workdeck could not read • using raw diff",
+                                        task.identity.file_path
+                                    ),
+                                }
+                            } else {
+                                FileViewLayoutOutcome::Failed {
+                                    category: "layout".into(),
+                                    warning: format!(
+                                        "{view} failed laying out {} • using raw diff",
+                                        task.identity.file_path
+                                    ),
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        task.cancellation.cancel();
+        let _ = sender.send(FileViewLayoutWorkerResult {
+            request_id: task.request_id,
+            outcome,
+        });
+    });
+}
 
 fn requested_file_view_key(extension_id: &str, view_id: &str) -> String {
     if view_id.contains(':') {
@@ -590,7 +677,8 @@ struct ExtensionPaneRuntime {
     file_languages: Vec<LanguageRegistration>,
     file_view_selections: FileViewSelectionState,
     file_view_match_cache: BTreeMap<FileViewMatchCacheKey, bool>,
-    file_view_layouts: BTreeMap<String, CachedFileViewLayout>,
+    file_view_epochs: workdeck_extension_host::ScopedEpochState,
+    file_view_layouts: FileViewLayoutController,
     file_view_component_expanded: BTreeSet<FileViewComponentStateKey>,
     file_view_component_hits: Vec<FileViewComponentHit>,
     file_view_component_pointer: MouseCapture<FileViewComponentPointer>,
@@ -918,7 +1006,6 @@ pub struct ReviewApp {
     mouse_scroll_acceleration: ReviewMouseWheelScrollAcceleration,
     mouse_scroll_accumulator: f64,
     extension_pane_runtime: Mutex<ExtensionPaneRuntime>,
-    next_file_view_layout_generation: AtomicU64,
     file_presentation_rendering: Mutex<FilePresentationRenderingController>,
     extension_runtime_bridge: ExtensionRuntimeBridge,
     extension_event_context_provider: ExtensionEventContextProviderSlot,
@@ -1137,7 +1224,6 @@ impl ReviewApp {
             mouse_scroll_acceleration: ReviewMouseWheelScrollAcceleration::default(),
             mouse_scroll_accumulator: 0.0,
             extension_pane_runtime: Mutex::new(extension_pane_runtime),
-            next_file_view_layout_generation: AtomicU64::new(1),
             file_presentation_rendering: Mutex::new(FilePresentationRenderingController::default()),
             extension_runtime_bridge,
             extension_event_context_provider,
@@ -1474,6 +1560,8 @@ impl ReviewApp {
                 &file_ids,
                 &view_keys,
             );
+            runtime.file_view_epochs =
+                reconcile_file_view_epochs(&runtime.file_view_epochs, &file_ids, &view_keys);
             runtime.file_view_match_cache.clear();
             runtime.file_view_layouts.clear();
             runtime.file_view_component_expanded.clear();
@@ -2614,7 +2702,6 @@ impl ReviewApp {
             &target.key,
         );
         for file_id in &target.file_ids {
-            runtime.file_view_layouts.remove(file_id);
             clear_file_view_component_state(&mut runtime, file_id);
         }
         self.status = Some(format!(
@@ -2635,7 +2722,6 @@ impl ReviewApp {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         runtime.file_view_selections =
             select_file_view(&runtime.file_view_selections, file_id, view_key);
-        runtime.file_view_layouts.remove(file_id);
         clear_file_view_component_state(&mut runtime, file_id);
         true
     }
@@ -5396,7 +5482,6 @@ impl ReviewApp {
                 &file.runtime_id,
                 Some(&view_key),
             );
-            runtime.file_view_layouts.remove(&file.runtime_id);
             clear_file_view_component_state(&mut runtime, &file.runtime_id);
             runtime.active_file_view_mode = Some(active.clone());
         }
@@ -5660,20 +5745,25 @@ impl ReviewApp {
             ));
             return;
         };
+        let view_key = registered_file_view_key(&registration.view);
+        runtime.file_view_epochs = workdeck_extension_host::bump_file_view_epoch(
+            &runtime.file_view_epochs,
+            &view_key,
+            file_id,
+        );
+        runtime.file_view_layouts.invalidate(&view_key, file_id);
         if let Some(file_id) = file_id {
-            runtime.file_view_layouts.remove(file_id);
             clear_file_view_component_state(&mut runtime, file_id);
         } else {
-            let view_key = registered_file_view_key(&registration.view);
-            let invalidated = runtime
-                .file_view_layouts
+            let selected = runtime
+                .file_view_selections
+                .entries()
                 .iter()
-                .filter_map(|(file_id, layout)| {
-                    (layout.resolved.key == view_key).then_some(file_id.clone())
+                .filter_map(|(file_id, selected)| {
+                    (selected == &view_key).then_some(file_id.clone())
                 })
                 .collect::<Vec<_>>();
-            for file_id in invalidated {
-                runtime.file_view_layouts.remove(&file_id);
+            for file_id in selected {
                 clear_file_view_component_state(&mut runtime, &file_id);
             }
         }
@@ -5724,7 +5814,7 @@ impl ReviewApp {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let selections = runtime.file_view_selections.entries().clone();
         let registrations = runtime.file_views.clone();
-        let mut prepared = BTreeMap::new();
+        let mut candidates = BTreeMap::new();
         for file in &changeset.files {
             if draft_file_id.as_deref() == Some(file.runtime_id.as_str()) {
                 continue;
@@ -5732,56 +5822,67 @@ impl ReviewApp {
             let Some(view_key) = selections.get(&file.runtime_id) else {
                 continue;
             };
-            if let Some(cached) = runtime.file_view_layouts.get(&file.runtime_id)
-                && cached.resolved.key == *view_key
-                && cached.content_identity == file.content_identity
-                && cached.width == width
-            {
-                prepared.insert(file.runtime_id.clone(), cached.resolved.clone());
-                continue;
-            }
             let Some(registration) = registrations
                 .iter()
                 .find(|registration| registered_file_view_key(&registration.view) == *view_key)
             else {
                 continue;
             };
-            if runtime.extensions[registration.extension_index].request_pending() {
+            let identity = FileViewLayoutIdentity {
+                file_id: file.runtime_id.clone(),
+                file_path: file.path.clone(),
+                content_identity: file.content_identity.clone(),
+                view_key: view_key.clone(),
+                extension_id: registration.view.extension_id.clone(),
+                view_id: registration.view.view_id.clone(),
+                registration_identity: registration.registration_identity,
+                width,
+                epoch: workdeck_extension_host::file_view_layout_epoch(
+                    &runtime.file_view_epochs,
+                    view_key,
+                    &file.runtime_id,
+                ),
+            };
+            candidates.insert(identity, (file.clone(), registration.clone()));
+        }
+        let warnings = runtime.file_view_layouts.poll_results();
+        let identities = candidates.keys().cloned().collect::<Vec<_>>();
+        let prepared = runtime
+            .file_view_layouts
+            .reconcile(Instant::now(), identities);
+        let tasks = runtime.file_view_layouts.take_startable();
+        let sender = runtime.file_view_layouts.result_sender();
+        let mut dispatches = Vec::new();
+        for task in tasks {
+            let Some((file, registration)) = candidates.get(&task.identity) else {
+                task.cancellation.cancel();
                 continue;
-            }
+            };
+            let Some(extension) = runtime
+                .extensions
+                .get(registration.extension_index)
+                .cloned()
+            else {
+                task.cancellation.cancel();
+                continue;
+            };
             clear_file_view_component_state(&mut runtime, &file.runtime_id);
-            let input =
-                create_file_view_input(file, width, ExtensionRequestCancellation::default(), None);
-            match runtime.extensions[registration.extension_index]
-                .layout_file_view(&registration.view.view_id, input)
-            {
-                Ok(Some(layout)) => {
-                    let resolved = ResolvedFileViewLayout {
-                        key: view_key.clone(),
-                        extension_id: registration.view.extension_id.clone(),
-                        view_id: registration.view.view_id.clone(),
-                        registration_identity: registration.registration_identity,
-                        layout_generation: self
-                            .next_file_view_layout_generation
-                            .fetch_add(1, Ordering::Relaxed),
-                        validated: layout,
-                    };
-                    runtime.file_view_layouts.insert(
-                        file.runtime_id.clone(),
-                        CachedFileViewLayout {
-                            content_identity: file.content_identity.clone(),
-                            width,
-                            resolved: resolved.clone(),
-                        },
-                    );
-                    prepared.insert(file.runtime_id.clone(), resolved);
-                }
-                Ok(None) | Err(_) => {
-                    runtime.file_view_layouts.remove(&file.runtime_id);
-                }
-            }
+            dispatches.push(FileViewLayoutDispatch {
+                task,
+                file: file.clone(),
+                extension,
+                view_id: registration.view.view_id.clone(),
+            });
         }
         drop(runtime);
+        if let Some(notifications) = self.options.extension_notifications.as_ref() {
+            for warning in warnings {
+                notifications.notify(warning, ExtensionNotifyType::Warning);
+            }
+        }
+        for dispatch in dispatches {
+            spawn_file_view_layout_dispatch(dispatch, sender.clone());
+        }
         self.file_presentation_rendering
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
