@@ -8966,6 +8966,13 @@ pub fn render_extension_workspace_write_dialog(area: Rect, buffer: &mut Buffer, 
 }
 
 fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+    let body_padding = u16::from(!app.options.pager);
+    let body_area = Rect::new(
+        area.x.saturating_add(body_padding),
+        area.y,
+        area.width.saturating_sub(body_padding.saturating_mul(2)),
+        area.height,
+    );
     let static_specs = app
         .options
         .extension_panes
@@ -8977,17 +8984,21 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         })
         .collect::<Vec<_>>();
     let theme = to_extension_paint_theme(&app.options.theme);
-    let (generation, selection) = app.with_state(|state| (state.generation(), state.selection()));
+    let (generation, selection, has_changes, responsive_shows_sidebar) = app.with_state(|state| {
+        (
+            state.generation(),
+            state.selection(),
+            !state.changeset().is_empty(),
+            state.responsive_layout(area.width).show_sidebar,
+        )
+    });
     let mut runtime = app
         .extension_pane_runtime
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     runtime.pane_action_hits.clear();
     let mut specs = static_specs.clone();
-    specs.extend(runtime.panes.iter().map(|registration| ExtensionPaneSpec {
-        key: registration.key.clone(),
-        pane: registration.pane.clone(),
-    }));
+    specs.extend(runtime.session_panes.iter().map(ExtensionPaneSpec::from));
     let mut open = runtime.open.clone();
     open.retain(|key| {
         runtime
@@ -9000,20 +9011,51 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                     .contains(&registration.registered.identity)
             })
     });
+    let open_files_replacement = runtime.session_panes.iter().any(|pane| {
+        open.contains(&pane.key)
+            && pane.registered.pane.replaces.as_deref() == Some(WORKDECK_FILES_PANE_KEY)
+            && !runtime
+                .failed_pane_registration_ids
+                .contains(&pane.registered.identity)
+    });
+    if has_changes
+        && ((app.options.sidebar && !open_files_replacement) || runtime.force_builtin_files_sidebar)
+    {
+        open.insert(WORKDECK_FILES_PANE_KEY.into());
+    }
+    if app.options.sidebar_visibility == SidebarVisibility::Auto
+        && !responsive_shows_sidebar
+        && !runtime.force_builtin_files_sidebar
+    {
+        let side_keys = runtime
+            .session_panes
+            .iter()
+            .filter(|pane| matches!(pane.placement, PanePlacement::Left | PanePlacement::Right))
+            .map(|pane| pane.key.clone())
+            .collect::<Vec<_>>();
+        for key in side_keys {
+            open.remove(&key);
+        }
+    }
     open.extend(static_specs.iter().map(|spec| spec.key.clone()));
     let plan = plan_extension_panes(
         &specs,
         &open,
         &runtime.size_overrides,
-        area,
-        20,
+        body_area,
+        48,
         MIN_EXTENSION_REVIEW_HEIGHT,
     );
     runtime.layout = plan.clone();
 
     let mut rendered_panes = Vec::new();
+    let mut bundled_sidebar = None;
     let mut snapshot = None;
     for planned in &plan.panes {
+        if planned.key == WORKDECK_FILES_PANE_KEY {
+            bundled_sidebar = Some((planned.bounds, planned.divider));
+            continue;
+        }
         if let Some((index, _)) = static_specs
             .iter()
             .enumerate()
@@ -9117,6 +9159,24 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     drop(runtime);
 
     render_builtin_body(plan.review_bounds, buffer, app);
+    if let Some((sidebar_area, divider)) = bundled_sidebar {
+        render_sidebar(sidebar_area, buffer, app);
+        if let Some(divider) = divider {
+            render_extension_pane_divider(
+                divider,
+                buffer,
+                WORKDECK_FILES_PANE_KEY,
+                PanePlacement::Left,
+                app,
+            );
+        }
+    } else {
+        app.sidebar_bounds.set(None);
+        app.sidebar_file_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
+    }
     for (key, pane, pane_area, divider, owner) in rendered_panes {
         if let Some(divider) = divider {
             render_extension_pane_divider(divider, buffer, &key, pane.pane.placement, app);
@@ -9126,12 +9186,6 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
 }
 
 fn render_builtin_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
-    let sidebar_open = app.options.sidebar
-        || app
-            .extension_pane_runtime
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .force_builtin_files_sidebar;
     let state = app
         .state
         .lock()
@@ -9156,54 +9210,8 @@ fn render_builtin_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             .render(area, buffer);
         return;
     }
-    let responsive = state.responsive_layout(area.width);
     drop(state);
-    let sidebar_visible = sidebar_open
-        && (responsive.show_sidebar
-            || app.options.sidebar_visibility == SidebarVisibility::Visible);
-    let sidebar_width = if sidebar_visible {
-        bundled_sidebar_width(area.width, 30)
-    } else {
-        0
-    };
-    let chunks = if sidebar_visible {
-        Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(sidebar_width), Constraint::Min(30)])
-            .split(area)
-    } else {
-        Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(0), Constraint::Min(1)])
-            .split(area)
-    };
-    if chunks[0].width > 0 {
-        render_sidebar(chunks[0], buffer, app);
-    } else {
-        app.sidebar_bounds.set(None);
-        app.sidebar_file_hits
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clear();
-    }
-    render_review(chunks[1], buffer, app);
-}
-
-fn bundled_sidebar_width(total_width: u16, minimum_review_width: u16) -> u16 {
-    let requested = extension_pane_size(bundled_files_pane(), None);
-    let automatic = requested.fraction.map_or(requested.preferred, |fraction| {
-        (f64::from(total_width) * fraction)
-            .round()
-            .clamp(0.0, f64::from(u16::MAX)) as u16
-    });
-    let minimum = requested.min.unwrap_or(1);
-    let maximum = requested.max.unwrap_or(u16::MAX);
-    let available = total_width.saturating_sub(minimum_review_width);
-    if available < minimum {
-        0
-    } else {
-        automatic.max(minimum).min(maximum).min(available)
-    }
+    render_review(area, buffer, app);
 }
 
 fn render_extension_pane(
@@ -9533,16 +9541,17 @@ fn render_sidebar(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     let files = &state.changeset().files;
     let generation = state.generation();
     let selected_file_id = files.get(selected).map(public_file_id).map(str::to_owned);
-    let border_style = if app.focus == Focus::Sidebar {
-        Style::default().fg(ratatui_theme_color(&app.options.theme.accent))
-    } else {
-        Style::default().fg(ratatui_theme_color(&app.options.theme.border))
-    };
-    let block = Block::default()
-        .title(format!(" {} ", bundled_files_pane().title))
-        .borders(Borders::TOP | Borders::RIGHT)
-        .border_style(border_style);
-    let inner = block.inner(area);
+    let mut block = Block::default();
+    if app.show_menu_bar {
+        block = block
+            .title(format!(" {} ", bundled_files_pane().title))
+            .borders(Borders::TOP)
+            .border_style(Style::default().fg(ratatui_theme_color(&app.options.theme.border)));
+    }
+    let mut inner = block.inner(area);
+    // The public sidebar rows reserve one host-owned highlight lane; their own
+    // one-column padding then leaves the same `pane width - 2` text geometry as Hunk.
+    inner.width = inner.width.saturating_sub(1);
     block.render(area, buffer);
     app.sidebar_bounds.set(Some(inner));
 
@@ -11685,6 +11694,17 @@ mod tests {
         review.files[0].path = "src/ui/alpha.ts".into();
         review.files[0].key = "src/ui/alpha.ts".into();
         review.files[0].runtime_id = "alpha".into();
+        review
+    }
+
+    fn sidebar_resize_changeset() -> Changeset {
+        let mut review = sidebar_visibility_changeset();
+        let mut beta = review.files[0].clone();
+        beta.path = "src/ui/beta.ts".into();
+        beta.key = "src/ui/beta.ts".into();
+        beta.runtime_id = "beta".into();
+        review.files.push(beta);
+        review.refresh_review_identities();
         review
     }
 
@@ -15037,10 +15057,24 @@ mod tests {
 
     #[test]
     fn built_in_files_pane_uses_registered_responsive_widths() {
-        assert_eq!(bundled_sidebar_width(40, 30), 0);
-        assert_eq!(bundled_sidebar_width(100, 30), 22);
-        assert_eq!(bundled_sidebar_width(220, 30), 35);
-        assert_eq!(bundled_sidebar_width(500, 30), 56);
+        let width = |total_width| {
+            let plan = plan_extension_panes(
+                &[ExtensionPaneSpec {
+                    key: WORKDECK_FILES_PANE_KEY.into(),
+                    pane: bundled_files_pane().clone(),
+                }],
+                &BTreeSet::from([WORKDECK_FILES_PANE_KEY.into()]),
+                &BTreeMap::new(),
+                Rect::new(0, 0, total_width, 20),
+                48,
+                MIN_EXTENSION_REVIEW_HEIGHT,
+            );
+            plan.panes.first().map_or(0, |pane| pane.bounds.width)
+        };
+        assert_eq!(width(40), 0);
+        assert_eq!(width(100), 22);
+        assert_eq!(width(220), 35);
+        assert_eq!(width(500), 56);
     }
 
     #[test]
@@ -15096,6 +15130,292 @@ mod tests {
         assert!(render_sidebar(120, &automatic).0);
         automatic.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
         assert!(!render_sidebar(120, &automatic).0);
+    }
+
+    #[test]
+    fn mounted_sidebar_resize_tracks_responsive_geometry_until_drag_override() {
+        let mut app = ReviewApp::new(
+            sidebar_resize_changeset(),
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let render_width = |width, app: &ReviewApp| {
+            let backend = TestBackend::new(width, 24);
+            let mut terminal = Terminal::new(backend).unwrap();
+            rendered_review_text(&mut terminal, app);
+            app.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .layout
+                .panes
+                .iter()
+                .find(|pane| pane.key == WORKDECK_FILES_PANE_KEY)
+                .cloned()
+                .expect("mounted files pane")
+        };
+
+        for (width, expected_divider) in [(240, 39), (300, 49), (220, 36), (360, 57)] {
+            let planned = render_width(width, &app);
+            assert_eq!(planned.divider.unwrap().x, expected_divider);
+        }
+
+        let planned = render_width(240, &app);
+        let divider = planned.divider.unwrap();
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: divider.x,
+            row: 10,
+            modifiers: KeyModifiers::NONE,
+        });
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: divider.x.saturating_add(30),
+            row: 10,
+            modifiers: KeyModifiers::NONE,
+        });
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: divider.x.saturating_add(30),
+            row: 10,
+            modifiers: KeyModifiers::NONE,
+        });
+        let dragged = render_width(240, &app);
+        assert!(dragged.divider.unwrap().x > divider.x);
+        assert_eq!(dragged.bounds.width, 56);
+    }
+
+    #[test]
+    fn mounted_sidebar_resize_switches_projection_clamps_and_ignores_non_drags() {
+        let mut app = ReviewApp::new(
+            sidebar_resize_changeset(),
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let backend = TestBackend::new(240, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        rendered_review_text(&mut terminal, &app);
+        let initial = app
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .layout
+            .panes
+            .iter()
+            .find(|pane| pane.key == WORKDECK_FILES_PANE_KEY)
+            .cloned()
+            .unwrap();
+        let divider = initial.divider.unwrap();
+        let sidebar_text = |terminal: &Terminal<TestBackend>, divider_x| {
+            let buffer = terminal.backend().buffer();
+            let mut text = String::new();
+            for y in buffer.area.y..buffer.area.bottom() {
+                for x in buffer.area.x..divider_x {
+                    text.push_str(buffer.cell((x, y)).unwrap().symbol());
+                }
+                text.push('\n');
+            }
+            text
+        };
+        assert!(!sidebar_text(&terminal, divider.x).contains("src/ui/"));
+
+        for (kind, column) in [
+            (MouseEventKind::Down(MouseButton::Left), divider.x),
+            (MouseEventKind::Drag(MouseButton::Left), 34),
+            (MouseEventKind::Up(MouseButton::Left), 34),
+        ] {
+            app.handle_mouse_event(MouseEvent {
+                kind,
+                column,
+                row: 10,
+                modifiers: KeyModifiers::NONE,
+            });
+        }
+        rendered_review_text(&mut terminal, &app);
+        assert_eq!(
+            app.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .layout
+                .panes
+                .iter()
+                .find(|pane| pane.key == WORKDECK_FILES_PANE_KEY)
+                .unwrap()
+                .bounds
+                .width,
+            33
+        );
+        let compact = sidebar_text(&terminal, 34);
+        assert!(compact.contains("src/ui/"), "sidebar frame: {compact:?}");
+
+        app.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .size_overrides
+            .remove(WORKDECK_FILES_PANE_KEY);
+        rendered_review_text(&mut terminal, &app);
+        for (kind, column) in [
+            (MouseEventKind::Down(MouseButton::Left), divider.x),
+            (MouseEventKind::Drag(MouseButton::Left), 2),
+            (MouseEventKind::Up(MouseButton::Left), 2),
+        ] {
+            app.handle_mouse_event(MouseEvent {
+                kind,
+                column,
+                row: 10,
+                modifiers: KeyModifiers::NONE,
+            });
+        }
+        rendered_review_text(&mut terminal, &app);
+        let clamped = app
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .layout
+            .panes
+            .iter()
+            .find(|pane| pane.key == WORKDECK_FILES_PANE_KEY)
+            .cloned()
+            .unwrap();
+        assert_eq!(clamped.bounds.width, 22);
+        assert_eq!(clamped.divider.unwrap().x, 23);
+
+        app.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .size_overrides
+            .remove(WORKDECK_FILES_PANE_KEY);
+        rendered_review_text(&mut terminal, &app);
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: divider.x.saturating_add(40),
+            row: 10,
+            modifiers: KeyModifiers::NONE,
+        });
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: divider.x,
+            row: 10,
+            modifiers: KeyModifiers::NONE,
+        });
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Right),
+            column: divider.x.saturating_add(30),
+            row: 10,
+            modifiers: KeyModifiers::NONE,
+        });
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Right),
+            column: divider.x.saturating_add(30),
+            row: 10,
+            modifiers: KeyModifiers::NONE,
+        });
+        let runtime = app
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert!(!runtime.resize.is_some());
+        assert!(!runtime.size_overrides.contains_key(WORKDECK_FILES_PANE_KEY));
+    }
+
+    #[test]
+    fn mounted_horizontal_extension_resize_uses_row_axis_and_body_gutter() {
+        let pane = ExtensionPaneView {
+            extension_id: "resize-test".into(),
+            pane: workdeck_extension_api::PaneRegistration {
+                id: "top".into(),
+                title: "Top".into(),
+                placement: PanePlacement::Top,
+                default_open: true,
+                preferred_size: None,
+                width: None,
+                height: Some(workdeck_extension_api::ExtensionPaneSize {
+                    preferred: 4,
+                    min: Some(2),
+                    max: Some(8),
+                    fraction: None,
+                }),
+                replaces: None,
+                current_line: false,
+                available: false,
+            },
+            content: ViewNode::Text {
+                text: "TOP PANE".into(),
+                style: ViewStyle::default(),
+            },
+        };
+        let mut app = ReviewApp::new(
+            sidebar_resize_changeset(),
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                sidebar_visibility: SidebarVisibility::Hidden,
+                sidebar: false,
+                highlight: false,
+                extension_panes: vec![pane],
+                ..ReviewOptions::default()
+            },
+        );
+        let backend = TestBackend::new(240, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        rendered_review_text(&mut terminal, &app);
+        let planned = app
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .layout
+            .panes[0]
+            .clone();
+        assert_eq!(planned.bounds, Rect::new(1, 1, 238, 4));
+        assert_eq!(planned.divider.unwrap().y, 5);
+
+        for (kind, row) in [
+            (MouseEventKind::Down(MouseButton::Left), 5),
+            (MouseEventKind::Drag(MouseButton::Left), 8),
+            (MouseEventKind::Up(MouseButton::Left), 8),
+        ] {
+            app.handle_mouse_event(MouseEvent {
+                kind,
+                column: 120,
+                row,
+                modifiers: KeyModifiers::NONE,
+            });
+        }
+        rendered_review_text(&mut terminal, &app);
+        let planned = app
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .layout
+            .panes[0]
+            .clone();
+        assert_eq!(planned.bounds, Rect::new(1, 1, 238, 7));
+    }
+
+    #[test]
+    fn frozen_app_host_sidebar_resize_oracle_maps_both_pins_and_main_deltas() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../port/hunk/oracles/app-host-sidebar-resize.json");
+        let oracle: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(
+            oracle["source"]["baseline"]["commit"],
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2"
+        );
+        assert_eq!(
+            oracle["source"]["stable"]["commit"],
+            "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+        );
+        assert_eq!(oracle["source"]["baseline"]["bytes"], 8_249);
+        assert_eq!(oracle["source"]["stable"]["bytes"], 6_771);
+        assert_eq!(oracle["oracleRuns"]["baseline"]["passed"], 7);
+        assert_eq!(oracle["oracleRuns"]["stable"]["passed"], 5);
+        assert_eq!(oracle["testMappings"].as_array().unwrap().len(), 7);
+        assert_eq!(oracle["pinDeltas"].as_array().unwrap().len(), 2);
     }
 
     #[test]
