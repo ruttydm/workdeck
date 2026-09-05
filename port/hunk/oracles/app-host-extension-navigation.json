@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "path": "src/ui/AppHost.extension-navigation.test.tsx",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "a75a067c9d12cc1872df11d33ebf73cc4e06bf96",
+      "sha256": "707a0d4ac442bd1c999c23b7f938da1a233daa2fce170b5301c6657e79204d4f",
+      "bytes": 10498,
+      "lines": 279
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "a75a067c9d12cc1872df11d33ebf73cc4e06bf96",
+      "sha256": "707a0d4ac442bd1c999c23b7f938da1a233daa2fce170b5301c6657e79204d4f",
+      "bytes": 10498,
+      "lines": 279
+    }
+  },
+  "oracleRuns": {
+    "baseline": {
+      "runtime": "bun 1.3.14",
+      "command": "bun test src/ui/AppHost.extension-navigation.test.tsx",
+      "passed": 3,
+      "failed": 0,
+      "expectCalls": 5,
+      "elapsedMilliseconds": 1474
+    },
+    "stable": {
+      "runtime": "bun 1.3.5",
+      "command": "bun test src/ui/AppHost.extension-navigation.test.tsx",
+      "passed": 3,
+      "failed": 0,
+      "expectCalls": 5,
+      "elapsedMilliseconds": 1447
+    }
+  },
+  "testMappings": [
+    {
+      "upstream": "public command controls execute counted navigation and refuse extension commands",
+      "rust": [
+        "tests::mounted_extension_command_controls_count_navigate_clamp_and_warn",
+        "extension_command_controls::tests::enabled_public_commands_execute_with_a_normalized_count",
+        "extension_command_controls::tests::unknown_disabled_private_extension_owned_and_stale_commands_are_refused"
+      ]
+    },
+    {
+      "upstream": "a command handler jumps the review stream through ctx.navigation",
+      "rust": [
+        "tests::mounted_extension_command_controls_count_navigate_clamp_and_warn",
+        "workdeck_examples::inline_edit::ratatui_command_awaits_without_blocking_and_applies_navigation_to_live_state"
+      ]
+    },
+    {
+      "upstream": "navigation to a file the stream cannot show warns instead of jumping",
+      "rust": "tests::mounted_extension_command_controls_count_navigate_clamp_and_warn"
+    }
+  ],
+  "adaptations": [
+    "Hunk's public hunk.* command ids become workdeck.* ids while retaining the same native command-control boundary and counted execution semantics.",
+    "The Ratatui mounted test verifies the exact third-hunk destination, clamps an out-of-range hunk index for the second file, preserves selection on an unknown id, and renders the attributed warning.",
+    "The compiled inline-edit extension integration supplies the subprocess JSON-RPC command-to-navigation path and proves that asynchronous native completion applies to live review state."
+  ]
+}

@@ -14706,6 +14706,69 @@ mod tests {
     }
 
     #[test]
+    fn mounted_extension_command_controls_count_navigate_clamp_and_warn() {
+        let mut app = ReviewApp::new(overflowing_changeset(3), ReviewOptions::default());
+        let commands = app.extension_command_availability();
+        assert!(commands.is_enabled("workdeck.review.nextHunk"));
+        assert!(!commands.is_enabled("probe.jump"));
+        assert!(!app.execute_extension_review_command("probe.jump", 1));
+        assert!(app.execute_extension_review_command("workdeck.review.nextHunk", 2));
+        assert_eq!(
+            app.with_state(|state| (state.selection().file_index, state.selection().hunk_index)),
+            (2, Some(0))
+        );
+        assert!(app.execute_extension_review_command("workdeck.review.alignCurrentLineCenter", 1));
+
+        let second_file_id = app.with_state(|state| state.changeset().files[1].runtime_id.clone());
+        app.select_extension_review_hunk("probe", &second_file_id, 99);
+        assert_eq!(
+            app.with_state(|state| (state.selection().file_index, state.selection().hunk_index)),
+            (1, Some(0))
+        );
+
+        app.select_extension_review_file("probe", "no-such-file");
+        assert_eq!(
+            app.with_state(|state| (state.selection().file_index, state.selection().hunk_index)),
+            (1, Some(0))
+        );
+        assert_eq!(
+            app.status.as_deref(),
+            Some("Extension probe selectFile targeted unknown file id \"no-such-file\"")
+        );
+        let backend = TestBackend::new(140, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(
+            frame.contains("Extension probe selectFile targeted unknown file id \"no-such-file\""),
+            "{frame}"
+        );
+    }
+
+    #[test]
+    fn frozen_app_host_extension_navigation_oracle_maps_identical_pins() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../port/hunk/oracles/app-host-extension-navigation.json");
+        let oracle: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(
+            oracle["source"]["baseline"]["commit"],
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2"
+        );
+        assert_eq!(
+            oracle["source"]["stable"]["commit"],
+            "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+        );
+        assert_eq!(
+            oracle["source"]["baseline"]["blob"],
+            oracle["source"]["stable"]["blob"]
+        );
+        assert_eq!(oracle["source"]["baseline"]["bytes"], 10_498);
+        assert_eq!(oracle["oracleRuns"]["baseline"]["expectCalls"], 5);
+        assert_eq!(oracle["oracleRuns"]["stable"]["expectCalls"], 5);
+        assert_eq!(oracle["testMappings"].as_array().unwrap().len(), 3);
+    }
+
+    #[test]
     fn native_line_highlight_refresh_actions_update_live_epochs_and_notices() {
         let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
         let file_id = app.with_state(|state| state.changeset().files[0].runtime_id.clone());
