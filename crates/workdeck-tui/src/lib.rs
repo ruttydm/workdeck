@@ -90,6 +90,7 @@ mod theme_selector_dialog;
 mod timed_notice;
 mod ui_geometry;
 mod user_note_composer;
+mod vertical_scrollbar;
 mod view_preference_quit_controller;
 mod viewport_anchor;
 mod viewport_geometry;
@@ -190,6 +191,7 @@ pub use theme_selector_dialog::*;
 pub use timed_notice::*;
 pub use ui_geometry::*;
 pub use user_note_composer::*;
+pub use vertical_scrollbar::*;
 pub use view_preference_quit_controller::*;
 pub use viewport_anchor::*;
 pub use viewport_geometry::*;
@@ -707,6 +709,14 @@ struct SidebarFileHit {
     file_index: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct VerticalScrollbarRenderMap {
+    track: Rect,
+    thumb: Rect,
+    geometry: VerticalScrollbarGeometry,
+    scroll_top: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SidebarRevealKey {
     generation: u64,
@@ -988,6 +998,8 @@ pub struct ReviewApp {
     filter_scroll: Cell<usize>,
     review_width: Cell<u16>,
     review_height: Cell<u16>,
+    review_scrollbar: Mutex<VerticalScrollbarController>,
+    review_scrollbar_hits: Cell<Option<VerticalScrollbarRenderMap>>,
     sidebar_bounds: Cell<Option<Rect>>,
     sidebar_scroll_top: Cell<usize>,
     sidebar_reveal_key: Mutex<Option<SidebarRevealKey>>,
@@ -1206,6 +1218,8 @@ impl ReviewApp {
             filter_scroll: Cell::new(0),
             review_width: Cell::new(120),
             review_height: Cell::new(20),
+            review_scrollbar: Mutex::new(VerticalScrollbarController::default()),
+            review_scrollbar_hits: Cell::new(None),
             sidebar_bounds: Cell::new(None),
             sidebar_scroll_top: Cell::new(0),
             sidebar_reveal_key: Mutex::new(None),
@@ -1688,6 +1702,10 @@ impl ReviewApp {
         if self.view_preference_quit.poll_quit(now) {
             self.should_quit = true;
         }
+        self.review_scrollbar
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .tick(now);
         self.tick_theme_hover_preview(now);
         let events = self.update_extension_review_events(now);
         self.publish_extension_lifecycle_events(events);
@@ -6464,6 +6482,7 @@ impl ReviewApp {
         if self.handle_extension_mode_badge_mouse(&event)
             || self.handle_app_menu_mouse(&event)
             || self.handle_extension_pane_mouse(&event)
+            || self.handle_review_scrollbar_mouse(&event, Instant::now())
             || self.handle_extension_file_view_mouse(&event)
             || self.handle_sidebar_mouse(&event)
             || self.handle_review_file_header_mouse(&event)
@@ -6472,6 +6491,57 @@ impl ReviewApp {
             return;
         }
         self.handle_mouse_at(event.kind, Instant::now());
+    }
+
+    fn handle_review_scrollbar_mouse(&mut self, event: &MouseEvent, now: Instant) -> bool {
+        let map = self.review_scrollbar_hits.get();
+        let relative_y = map.map(|map| i32::from(event.row) - i32::from(map.track.y));
+        let relative_y = relative_y.map_or(0, |position| position as isize);
+
+        let mut next_scroll = None;
+        let handled = {
+            let mut scrollbar = self
+                .review_scrollbar
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if scrollbar.is_dragging() {
+                match event.kind {
+                    MouseEventKind::Drag(MouseButton::Left) => {
+                        if let Some(map) = map {
+                            next_scroll = scrollbar
+                                .drag_to(relative_y, map.geometry, now)
+                                .map(|scroll| scroll.round() as usize);
+                        }
+                        true
+                    }
+                    MouseEventKind::Up(MouseButton::Left) => scrollbar.end_drag(now),
+                    _ => false,
+                }
+            } else if let Some(map) = map
+                && rect_contains(map.track, event.column, event.row)
+            {
+                if event.kind == MouseEventKind::Down(MouseButton::Left) {
+                    if map.geometry.thumb_contains(relative_y) {
+                        scrollbar.begin_drag(relative_y, map.scroll_top, now);
+                    } else {
+                        next_scroll =
+                            scrollbar.track_click(relative_y, map.geometry, map.scroll_top, now);
+                    }
+                }
+                matches!(
+                    event.kind,
+                    MouseEventKind::Down(MouseButton::Left)
+                        | MouseEventKind::Drag(MouseButton::Left)
+                        | MouseEventKind::Up(MouseButton::Left)
+                )
+            } else {
+                false
+            }
+        };
+        if let Some(next_scroll) = next_scroll {
+            self.scroll = next_scroll;
+        }
+        handled
     }
 
     fn handle_view_preference_prompt_mouse(&mut self, event: &MouseEvent) -> bool {
@@ -8406,6 +8476,7 @@ fn render_builtin_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     if state.changeset().is_empty() {
         app.sidebar_bounds.set(None);
+        app.review_scrollbar_hits.set(None);
         app.sidebar_file_hits
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -8949,6 +9020,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     } else {
         app.scroll.min(max_scroll)
     };
+    let content_height = rows.lines.len();
     let viewport_bottom = scroll.saturating_add(viewport);
     *app.review_file_header_hits
         .lock()
@@ -9028,6 +9100,70 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 .border_style(border_style),
         )
         .render(area, buffer);
+    let presentation = {
+        let mut scrollbar = app
+            .review_scrollbar
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        scrollbar.observe_scroll_top(scroll, Instant::now());
+        scrollbar.presentation(content_height, viewport, scroll)
+    };
+    app.review_scrollbar_hits
+        .set(presentation.and_then(|presentation| {
+            render_vertical_review_scrollbar(area, buffer, presentation, &app.options.theme)
+        }));
+}
+
+fn render_vertical_review_scrollbar(
+    review_area: Rect,
+    buffer: &mut Buffer,
+    presentation: VerticalScrollbarPresentation,
+    theme: &AppTheme,
+) -> Option<VerticalScrollbarRenderMap> {
+    let track_height = u16::try_from(presentation.geometry.track_height)
+        .unwrap_or(u16::MAX)
+        .min(review_area.height.saturating_sub(1));
+    if review_area.width == 0 || track_height == 0 {
+        return None;
+    }
+    let track = Rect::new(
+        review_area.right().saturating_sub(VERTICAL_SCROLLBAR_WIDTH),
+        review_area.y.saturating_add(1),
+        VERTICAL_SCROLLBAR_WIDTH.min(review_area.width),
+        track_height,
+    );
+    Block::default()
+        .style(Style::default().bg(ratatui_theme_color(&theme.border)))
+        .render(track, buffer);
+
+    let logical_top = i64::from(track.y)
+        .saturating_add(i64::try_from(presentation.geometry.thumb_y).unwrap_or(i64::MAX));
+    let logical_bottom = logical_top
+        .saturating_add(i64::try_from(presentation.geometry.thumb_height).unwrap_or(i64::MAX));
+    let clipped_top = logical_top.max(i64::from(track.y));
+    let clipped_bottom = logical_bottom.min(i64::from(track.bottom()));
+    let thumb = Rect::new(
+        track.x,
+        u16::try_from(clipped_top).unwrap_or(track.y),
+        track.width,
+        u16::try_from(clipped_bottom.saturating_sub(clipped_top)).unwrap_or(track.height),
+    );
+    if thumb.height > 0 {
+        let color = if presentation.dragging {
+            &theme.accent
+        } else {
+            &theme.accent_muted
+        };
+        Block::default()
+            .style(Style::default().bg(ratatui_theme_color(color)))
+            .render(thumb, buffer);
+    }
+    Some(VerticalScrollbarRenderMap {
+        track,
+        thumb,
+        geometry: presentation.geometry,
+        scroll_top: presentation.scroll_top,
+    })
 }
 
 #[derive(Debug)]
@@ -10938,6 +11074,19 @@ mod tests {
             ChangesetSource::WorkingTree { staged: false },
         )
         .unwrap()
+    }
+
+    fn overflowing_changeset(file_count: usize) -> Changeset {
+        let mut changes = changeset();
+        changes.files[0].runtime_id = "file-0".into();
+        for index in 1..file_count {
+            let mut file = changes.files[0].clone();
+            file.key = format!("file-key-{index}");
+            file.runtime_id = format!("file-{index}");
+            file.path = format!("src/file-{index}.rs");
+            changes.files.push(file);
+        }
+        changes
     }
 
     fn writable_input() -> CliInput {
@@ -14044,6 +14193,137 @@ mod tests {
             );
         }
         assert!(app.scroll > 6);
+    }
+
+    #[test]
+    fn review_scroll_activity_paints_and_then_hides_the_native_scrollbar() {
+        let backend = TestBackend::new(80, 12);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = ReviewApp::new(
+            overflowing_changeset(12),
+            ReviewOptions {
+                sidebar: false,
+                ..ReviewOptions::default()
+            },
+        );
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        assert!(app.review_scrollbar_hits.get().is_none());
+
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: 20,
+            row: 5,
+            modifiers: KeyModifiers::NONE,
+        });
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let map = app
+            .review_scrollbar_hits
+            .get()
+            .expect("overflowing review scrollbar");
+        assert_eq!(
+            terminal.backend().buffer()[map.thumb.as_position()].bg,
+            ratatui_theme_color(&app.options.theme.accent_muted)
+        );
+
+        let deadline = app
+            .review_scrollbar
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .hide_deadline()
+            .expect("hide deadline");
+        app.tick_extension_notifications(deadline - Duration::from_millis(1));
+        assert!(
+            app.review_scrollbar
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .is_visible()
+        );
+        app.tick_extension_notifications(deadline);
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        assert!(app.review_scrollbar_hits.get().is_none());
+    }
+
+    #[test]
+    fn review_scrollbar_track_and_thumb_own_real_ratatui_pointer_geometry() {
+        let backend = TestBackend::new(80, 12);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = ReviewApp::new(
+            overflowing_changeset(16),
+            ReviewOptions {
+                sidebar: false,
+                ..ReviewOptions::default()
+            },
+        );
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        app.review_scrollbar
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .show(Instant::now());
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let map = app.review_scrollbar_hits.get().expect("scrollbar map");
+
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: map.track.x,
+            row: map.track.bottom().saturating_sub(1),
+            modifiers: KeyModifiers::NONE,
+        });
+        assert_eq!(app.scroll, map.geometry.track_height);
+
+        app.scroll = 0;
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let map = app.review_scrollbar_hits.get().expect("scrollbar map");
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: map.thumb.x,
+            row: map.thumb.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        assert_eq!(
+            terminal.backend().buffer()[map.thumb.as_position()].bg,
+            ratatui_theme_color(&app.options.theme.accent)
+        );
+
+        let drag_rows = 4_u16.min(map.track.height.saturating_sub(1));
+        let expected = (f64::from(drag_rows)
+            / (map.geometry.max_thumb_y as f64 / map.geometry.max_scroll as f64))
+            .clamp(0.0, map.geometry.max_scroll as f64)
+            .round() as usize;
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: map.thumb.x,
+            row: map.thumb.y.saturating_add(drag_rows),
+            modifiers: KeyModifiers::NONE,
+        });
+        assert_eq!(app.scroll, expected);
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: map.thumb.x,
+            row: map.thumb.y.saturating_add(drag_rows),
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(
+            app.review_scrollbar
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .hide_deadline()
+                .is_some()
+        );
     }
 
     #[test]
