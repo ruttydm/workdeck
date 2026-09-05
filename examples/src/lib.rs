@@ -77,6 +77,9 @@ pub mod keybindings_probe_extension;
 #[path = "../extensions/app-host-file-views-probe/extension.rs"]
 pub mod app_host_file_views_probe_extension;
 
+#[path = "../extensions/app-host-file-view-modes-probe/extension.rs"]
+pub mod app_host_file_view_modes_probe_extension;
+
 #[path = "../extensions/review-snapshot-export/extension.rs"]
 pub mod review_snapshot_export_extension;
 

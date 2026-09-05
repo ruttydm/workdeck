@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "path": "src/ui/AppHost.file-view-modes.test.tsx",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "f23fa7a727addc06846bebebf6450eabd7376132",
+      "sha256": "66c4a2c6ffee931d3e99e600a4512da87f5271bb0734e231fd6a41f7d9185e68",
+      "bytes": 28767,
+      "lines": 704
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "f23fa7a727addc06846bebebf6450eabd7376132",
+      "sha256": "66c4a2c6ffee931d3e99e600a4512da87f5271bb0734e231fd6a41f7d9185e68",
+      "bytes": 28767,
+      "lines": 704
+    }
+  },
+  "oracleRuns": {
+    "baseline": {
+      "runtime": "bun 1.3.14",
+      "command": "bun test src/ui/AppHost.file-view-modes.test.tsx",
+      "passed": 9,
+      "failed": 0,
+      "expectCalls": 40,
+      "stderr": [
+        "The current testing environment is not configured to support act(...)"
+      ],
+      "elapsedMilliseconds": 2060,
+      "caseMilliseconds": [
+        439.83,
+        182.11,
+        204.24,
+        109.59,
+        97.61,
+        92.54,
+        238.03,
+        60.14,
+        122.05
+      ]
+    },
+    "stable": {
+      "runtime": "bun 1.3.5",
+      "command": "bun test src/ui/AppHost.file-view-modes.test.tsx",
+      "passed": 9,
+      "failed": 0,
+      "expectCalls": 40,
+      "stderr": [
+        "The current testing environment is not configured to support act(...)"
+      ],
+      "elapsedMilliseconds": 1970,
+      "caseMilliseconds": [
+        384.15,
+        184.43,
+        187.32,
+        108.11,
+        108.25,
+        96.48,
+        234.11,
+        65.35,
+        128.6
+      ]
+    }
+  },
+  "testMappings": [
+    {
+      "upstream": "enters in one step from raw diff, selecting the view it takes keys for",
+      "rust": "live_mode_enters_from_raw_routes_handled_and_pass_keys_and_escapes_once"
+    },
+    {
+      "upstream": "routes keys to an active mode and hands the keyboard back on Escape",
+      "rust": "live_mode_enters_from_raw_routes_handled_and_pass_keys_and_escapes_once"
+    },
+    {
+      "upstream": "leaves the mode when the handler exits, the view is deselected, or the file changes",
+      "rust": "mode_exits_on_its_answer_explicit_leave_deselection_and_file_navigation"
+    },
+    {
+      "upstream": "refuses to enter an unknown view, a view with no mode, or one that does not match",
+      "rust": "entering_refuses_unknown_plain_and_nonmatching_views_without_selecting_them"
+    },
+    {
+      "upstream": "entering a second mode exits the first before the new one starts",
+      "rust": "mode_handoffs_order_lifecycle_and_an_exiting_handler_cannot_retire_its_successor"
+    },
+    {
+      "upstream": "an exiting key handler does not tear down the mode it handed off to",
+      "rust": "mode_handoffs_order_lifecycle_and_an_exiting_handler_cannot_retire_its_successor"
+    },
+    {
+      "upstream": "a mode entered after a soft reload belongs to the review the reload produced",
+      "rust": "deferred_pre_reload_command_enters_against_and_remains_owned_by_the_new_review"
+    },
+    {
+      "upstream": "a second Escape in one input flush is routed as if no mode were running",
+      "rust": "second_escape_in_one_flush_reaches_commands_after_the_first_key_exits_the_mode"
+    },
+    {
+      "upstream": "contains a throwing key handler by warning, exiting, and keeping the review usable",
+      "rust": "throwing_mode_key_warns_exits_and_leaves_the_selected_view_and_review_usable"
+    }
+  ],
+  "adaptations": [
+    "Compiled native subprocess extensions replace Hunk's TypeScript folder extensions while preserving one active file-view mode, synchronous key ownership, lifecycle ordering, and host-rendered rows.",
+    "Hunk's awaited React confirmation becomes a declarative native confirm callback. Reload cancellation submits false only after the replacement review is authoritative, so the resumed callback enters its mode against the new review and retains it.",
+    "Mode callback failures cross JSON-RPC as remote errors. Workdeck unwraps the terminal-safe remote detail before producing Hunk's attributed warning shape, while transport and protocol failures retain their host context."
+  ]
+}

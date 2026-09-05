@@ -1781,7 +1781,6 @@ impl ReviewApp {
         self.review_projection_generation = self.review_projection_generation.saturating_add(1);
         // Revoke retained review controls synchronously, before reload cleanup or lifecycle work.
         self.commit_extension_runtime_bridge();
-        self.cancel_extension_dialogs_for_reload();
         self.exit_active_keyboard_mode();
         self.exit_active_file_view_mode();
         {
@@ -1838,6 +1837,11 @@ impl ReviewApp {
                 .cached_renders
                 .clear();
         }
+        // Retire dialogs only after the replacement review is authoritative. A
+        // cancelled async extension handler may immediately enter a file-view
+        // mode, and that mode must belong to the review the reload produced.
+        self.reconcile_active_file_view_mode();
+        self.cancel_extension_dialogs_for_reload();
         if reset_app {
             self.with_state(|state| {
                 if !state.changeset().files.is_empty() {
@@ -5070,10 +5074,15 @@ impl ReviewApp {
                 _ => return,
             }
         };
-        if let Err(error) = outcome {
-            self.status = Some(format!(
-                "extension {extension_id} dialog retirement failed: {error}"
-            ));
+        match outcome {
+            Ok(execution) => {
+                self.apply_extension_actions(extension_index, &extension_id, execution.actions);
+            }
+            Err(error) => {
+                self.status = Some(format!(
+                    "extension {extension_id} dialog retirement failed: {error}"
+                ));
+            }
         }
     }
 
@@ -6109,12 +6118,8 @@ impl ReviewApp {
                 if activation_still_owns_mode(current_activation_id, activation_id) {
                     self.exit_active_file_view_mode();
                 }
-                self.report_file_view_mode_failure(
-                    &owner_id,
-                    &owner_view_id,
-                    "onEnter",
-                    &error.to_string(),
-                );
+                let detail = extension_command_error_detail(&error);
+                self.report_file_view_mode_failure(&owner_id, &owner_view_id, "onEnter", &detail);
             }
         }
     }
@@ -6208,11 +6213,12 @@ impl ReviewApp {
                 if activation_still_owns_mode(current_activation_id, active.activation_id) {
                     self.exit_active_file_view_mode();
                 }
+                let detail = extension_command_error_detail(&error);
                 self.report_file_view_mode_failure(
                     &active.extension_id,
                     &active.view_id,
                     "onKey",
-                    &error.to_string(),
+                    &detail,
                 );
                 true
             }
@@ -6273,11 +6279,12 @@ impl ReviewApp {
                 }
             }
             Err(error) => {
+                let detail = extension_command_error_detail(&error);
                 self.report_file_view_mode_failure(
                     &active.extension_id,
                     &active.view_id,
                     "onExit",
-                    &error.to_string(),
+                    &detail,
                 );
             }
         }
