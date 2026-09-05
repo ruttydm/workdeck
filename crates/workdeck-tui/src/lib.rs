@@ -229,7 +229,7 @@ use unicode_width::UnicodeWidthStr;
 use workdeck_core::{
     AgentAnnotation, Changeset, ChangesetSource, DiffFile, DiffLine, DiffLineKind, InputCursorLine,
     InputLayoutMode, NamedCustomThemeConfig, PersistedViewPreferences, ReviewSelection, ReviewSide,
-    SourceOrigin, StartupNotice, project_review_file,
+    SidebarVisibility, SourceOrigin, StartupNotice, project_review_file,
 };
 use workdeck_diff::{
     DIFF_RAIL_PREFIX_WIDTH, HighlightedDiffLine, LanguageMatcher, LanguageRegistration,
@@ -283,6 +283,8 @@ use crate::extension_runtime_bridge::{
 #[derive(Debug, Clone)]
 pub struct ReviewOptions {
     pub layout: LayoutMode,
+    /// Initial and most recent explicit sidebar policy; `sidebar` retains the logical open state.
+    pub sidebar_visibility: SidebarVisibility,
     pub sidebar: bool,
     pub line_numbers: bool,
     pub tab_width: u16,
@@ -337,6 +339,7 @@ impl Default for ReviewOptions {
     fn default() -> Self {
         Self {
             layout: LayoutMode::Auto,
+            sidebar_visibility: SidebarVisibility::Auto,
             sidebar: true,
             line_numbers: true,
             tab_width: 4,
@@ -1173,6 +1176,16 @@ impl ReviewApp {
             .is_some_and(|pane| pane.default_open)
         {
             options.sidebar = false;
+        }
+        if !options.sidebar {
+            let logical_open = extension_pane_runtime.open.clone();
+            let files_key = resolve_pane_slot_key(
+                &extension_pane_runtime.session_panes,
+                WORKDECK_FILES_PANE_KEY,
+                &logical_open,
+                &BTreeSet::new(),
+            );
+            extension_pane_runtime.open.remove(&files_key);
         }
         let initial_view_preferences = PersistedViewPreferences {
             mode: match options.layout {
@@ -3083,11 +3096,29 @@ impl ReviewApp {
             if runtime.force_builtin_files_sidebar {
                 runtime.force_builtin_files_sidebar = false;
                 self.options.sidebar = false;
+                self.options.sidebar_visibility = SidebarVisibility::Hidden;
             } else {
-                self.options.sidebar = !self.options.sidebar;
+                let responsive_shows_sidebar = !self.review_geometry_published.get()
+                    || self.with_state(|state| {
+                        state
+                            .responsive_layout(self.review_width.get())
+                            .show_sidebar
+                    });
+                let currently_visible = self.options.sidebar
+                    && (responsive_shows_sidebar
+                        || self.options.sidebar_visibility == SidebarVisibility::Visible);
+                self.options.sidebar = !currently_visible;
+                self.options.sidebar_visibility = if self.options.sidebar {
+                    SidebarVisibility::Visible
+                } else {
+                    SidebarVisibility::Hidden
+                };
             }
         } else if !runtime.open.remove(&key) {
             runtime.open.insert(key.clone());
+            self.options.sidebar_visibility = SidebarVisibility::Visible;
+        } else {
+            self.options.sidebar_visibility = SidebarVisibility::Hidden;
         }
         runtime.cached_renders.remove(&key);
     }
@@ -9127,12 +9158,15 @@ fn render_builtin_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     }
     let responsive = state.responsive_layout(area.width);
     drop(state);
-    let sidebar_width = if sidebar_open && responsive.show_sidebar {
+    let sidebar_visible = sidebar_open
+        && (responsive.show_sidebar
+            || app.options.sidebar_visibility == SidebarVisibility::Visible);
+    let sidebar_width = if sidebar_visible {
         bundled_sidebar_width(area.width, 30)
     } else {
         0
     };
-    let chunks = if sidebar_open && responsive.show_sidebar {
+    let chunks = if sidebar_visible {
         Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Length(sidebar_width), Constraint::Min(30)])
@@ -11646,6 +11680,14 @@ mod tests {
         .unwrap()
     }
 
+    fn sidebar_visibility_changeset() -> Changeset {
+        let mut review = changeset();
+        review.files[0].path = "src/ui/alpha.ts".into();
+        review.files[0].key = "src/ui/alpha.ts".into();
+        review.files[0].runtime_id = "alpha".into();
+        review
+    }
+
     fn install_cached_test_file_view(app: &ReviewApp, selected_file_id: &str) -> String {
         let files = app.with_state(|state| state.changeset().files.clone());
         let registration_identity = 77;
@@ -14051,7 +14093,7 @@ mod tests {
 
     #[test]
     fn desktop_menu_bar_renders_and_dispatches_through_the_shared_command_table() {
-        let backend = TestBackend::new(100, 20);
+        let backend = TestBackend::new(220, 20);
         let mut terminal = Terminal::new(backend).unwrap();
         let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
         terminal
@@ -14999,6 +15041,86 @@ mod tests {
         assert_eq!(bundled_sidebar_width(100, 30), 22);
         assert_eq!(bundled_sidebar_width(220, 30), 35);
         assert_eq!(bundled_sidebar_width(500, 30), 56);
+    }
+
+    #[test]
+    fn mounted_sidebar_visibility_preserves_auto_forced_and_hidden_policies() {
+        let app = |visibility| {
+            ReviewApp::new(
+                sidebar_visibility_changeset(),
+                ReviewOptions {
+                    layout: LayoutMode::Split,
+                    sidebar_visibility: visibility,
+                    sidebar: visibility != SidebarVisibility::Hidden,
+                    highlight: false,
+                    ..ReviewOptions::default()
+                },
+            )
+        };
+        let render_sidebar = |width, app: &ReviewApp| {
+            let backend = TestBackend::new(width, 24);
+            let mut terminal = Terminal::new(backend).unwrap();
+            rendered_review_text(&mut terminal, app);
+            let bounds = app.sidebar_bounds.get();
+            let mut text = String::new();
+            if let Some(bounds) = bounds {
+                for y in bounds.y..bounds.bottom() {
+                    for x in bounds.x..bounds.right() {
+                        text.push_str(terminal.backend().buffer().cell((x, y)).unwrap().symbol());
+                    }
+                }
+            }
+            (bounds.is_some(), text)
+        };
+
+        let automatic = app(SidebarVisibility::Auto);
+        let (visible, text) = render_sidebar(240, &automatic);
+        assert!(visible);
+        assert!(!text.contains("src/ui/"));
+        let (visible, text) = render_sidebar(180, &automatic);
+        assert!(visible);
+        assert!(text.contains("src/ui/"), "sidebar frame: {text:?}");
+        assert!(!render_sidebar(120, &automatic).0);
+
+        let forced = app(SidebarVisibility::Visible);
+        assert!(render_sidebar(120, &forced).0);
+
+        let mut hidden = app(SidebarVisibility::Hidden);
+        assert!(!render_sidebar(240, &hidden).0);
+        hidden.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        assert!(render_sidebar(240, &hidden).0);
+
+        let mut automatic = app(SidebarVisibility::Auto);
+        assert!(!render_sidebar(120, &automatic).0);
+        automatic.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        assert!(render_sidebar(120, &automatic).0);
+        automatic.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        assert!(!render_sidebar(120, &automatic).0);
+    }
+
+    #[test]
+    fn frozen_app_host_sidebar_visibility_oracle_maps_both_pins_and_baseline_delta() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../port/hunk/oracles/app-host-sidebar-visibility.json");
+        let oracle: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(
+            oracle["source"]["baseline"]["commit"],
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2"
+        );
+        assert_eq!(
+            oracle["source"]["stable"]["commit"],
+            "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+        );
+        assert_eq!(oracle["source"]["baseline"]["bytes"], 6_055);
+        assert_eq!(oracle["source"]["stable"]["bytes"], 5_617);
+        assert_eq!(oracle["oracleRuns"]["baseline"]["passed"], 7);
+        assert_eq!(oracle["oracleRuns"]["stable"]["passed"], 6);
+        assert_eq!(
+            oracle["pinDelta"]["commit"],
+            "15cdd7c5ef491726cf091f7b95189843fe059027"
+        );
+        assert_eq!(oracle["testMappings"].as_array().unwrap().len(), 7);
     }
 
     #[test]

@@ -961,6 +961,7 @@ impl ReviewCliOptions {
                 ReviewLayoutArg::Split => LayoutMode::Split,
                 ReviewLayoutArg::Stack => LayoutMode::Stack,
             },
+            sidebar_visibility: self.resolved_sidebar(),
             sidebar: self.resolved_sidebar() != SidebarVisibility::Hidden,
             line_numbers: self.line_numbers || !self.no_line_numbers,
             tab_width: self.tab_width.unwrap_or(4),
@@ -6840,6 +6841,7 @@ fn run_app_bootstrap(
     options.wrap_lines = initial_wrap_lines;
     options.hunk_headers = initial_show_hunk_headers;
     options.show_menu_bar = initial_show_menu_bar;
+    options.sidebar_visibility = initial_sidebar;
     options.sidebar = initial_sidebar != SidebarVisibility::Hidden;
     options.agent_notes = initial_show_agent_notes;
     options.copy_decorations = initial_copy_decorations;

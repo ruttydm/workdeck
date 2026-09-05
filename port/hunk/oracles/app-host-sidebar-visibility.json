@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "path": "src/ui/AppHost.sidebar-visibility.test.tsx",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "35ef95450d74f1c29a23f3bb4e4ca305077381d9",
+      "sha256": "89889da9b7b923cf897bac27b3fa846f5e37098a620438d591519a6c494423d8",
+      "bytes": 6055,
+      "lines": 179
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "13a71d019fcea08d6aa64bf821eda7cc2700888d",
+      "sha256": "0f00048cefef85a94a52a43b4f0e49ec5a045f09da94d5aef5e02cca007f65cd",
+      "bytes": 5617,
+      "lines": 164
+    }
+  },
+  "oracleRuns": {
+    "baseline": {
+      "runtime": "bun 1.3.14",
+      "command": "bun test src/ui/AppHost.sidebar-visibility.test.tsx",
+      "passed": 7,
+      "failed": 0,
+      "expectCalls": 15,
+      "elapsedMilliseconds": 540
+    },
+    "stable": {
+      "runtime": "bun 1.3.5",
+      "command": "bun test src/ui/AppHost.sidebar-visibility.test.tsx",
+      "passed": 6,
+      "failed": 0,
+      "expectCalls": 12,
+      "elapsedMilliseconds": 537
+    }
+  },
+  "pinDelta": {
+    "commit": "15cdd7c5ef491726cf091f7b95189843fe059027",
+    "behavior": "The main baseline adds the medium-width compact sidebar case; stable only distinguishes full width from the smaller hidden viewport."
+  },
+  "testMappings": [
+    {
+      "upstream": "auto shows the sidebar on a full-width viewport",
+      "rust": "tests::mounted_sidebar_visibility_preserves_auto_forced_and_hidden_policies"
+    },
+    {
+      "upstream": "auto shows the compact sidebar on a medium-width viewport",
+      "rust": "tests::mounted_sidebar_visibility_preserves_auto_forced_and_hidden_policies"
+    },
+    {
+      "upstream": "auto hides the sidebar on a tight viewport",
+      "rust": "tests::mounted_sidebar_visibility_preserves_auto_forced_and_hidden_policies"
+    },
+    {
+      "upstream": "the toggle forces the sidebar open where auto hides it",
+      "rust": "tests::mounted_sidebar_visibility_preserves_auto_forced_and_hidden_policies"
+    },
+    {
+      "upstream": "true shows the sidebar where auto would hide it",
+      "rust": "tests::mounted_sidebar_visibility_preserves_auto_forced_and_hidden_policies"
+    },
+    {
+      "upstream": "false starts the sidebar closed but leaves the toggle working",
+      "rust": "tests::mounted_sidebar_visibility_preserves_auto_forced_and_hidden_policies"
+    },
+    {
+      "upstream": "false closes only the active files pane and preserves independent extension panes",
+      "rust": "extension_pane_controller::tests::hidden_initial_files_slot_preserves_independent_side_panes_and_toggle_restores_replacement"
+    }
+  ],
+  "adaptations": [
+    "SidebarVisibility remains tri-state through CLI bootstrap and live session option replacement; the separate logical-open bit records toggle state.",
+    "Ratatui chooses full tree, compact path, or hidden geometry from the 240, 180, and 120 cell viewport cases while explicit visible can override tight auto policy.",
+    "The files slot is toggled independently from unrelated native extension panes, including when an extension replaces the bundled files pane."
+  ]
+}

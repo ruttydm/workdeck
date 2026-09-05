@@ -946,6 +946,44 @@ mod tests {
     }
 
     #[test]
+    fn hidden_initial_files_slot_preserves_independent_side_panes_and_toggle_restores_replacement()
+    {
+        let mut activity = registration("activity-test", "activity");
+        {
+            let pane = &mut Arc::get_mut(&mut activity).unwrap().pane;
+            pane.placement = PanePlacement::Right;
+            pane.default_open = true;
+        }
+        let mut replacement = registration("replacement-test", "files");
+        {
+            let pane = &mut Arc::get_mut(&mut replacement).unwrap().pane;
+            pane.default_open = true;
+            pane.replaces = Some(WORKDECK_FILES_PANE_KEY.into());
+        }
+        let mut controller = controller(
+            &[Arc::clone(&activity), Arc::clone(&replacement)],
+            InitialSidebarVisibility::Hidden,
+        );
+        controller.set_geometry(240, 30, true, true);
+        assert!(pane_visible(&controller, &activity.key()));
+        assert!(!pane_visible(&controller, &replacement.key()));
+
+        controller.toggle_files_pane();
+        assert!(pane_visible(&controller, &activity.key()));
+        assert!(
+            pane_visible(&controller, &replacement.key()),
+            "planned panes: {:?}; open: {:?}",
+            controller
+                .layout()
+                .panes
+                .iter()
+                .map(|pane| pane.key.as_str())
+                .collect::<Vec<_>>(),
+            controller.open_keys(),
+        );
+    }
+
+    #[test]
     fn publishes_newly_registered_default_open_state_immediately() {
         let mut controller = controller(&[], InitialSidebarVisibility::Auto);
         let mut fresh = registration("meta", "fresh");

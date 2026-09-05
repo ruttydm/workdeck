@@ -137,6 +137,7 @@ impl ReviewApp {
             self.show_menu_bar = value;
         }
         if let Some(value) = options.sidebar {
+            self.options.sidebar_visibility = value;
             self.options.sidebar = value != SidebarVisibility::Hidden;
         }
         if let Some(value) = options.agent_notes {
