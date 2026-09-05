@@ -1610,25 +1610,31 @@ impl ReviewApp {
         if !std::mem::take(&mut self.editor_requested) {
             return None;
         }
+        let current_line_cursor = self.current_review_line_cursor();
         let (file, line_cursor, selected_hunk) = self.with_state(|state| {
             let selection = state.selection();
-            let file = state.selected_file().cloned();
+            let cursor_target = current_line_cursor.map(|cursor| cursor.target);
+            let file_index = cursor_target.map_or(selection.file_index, |target| target.file_index);
+            let file = state.changeset().files.get(file_index).cloned();
+            let hunk_index = cursor_target
+                .map(|target| target.hunk_index)
+                .or(selection.hunk_index);
             let selected_hunk = file
                 .as_ref()
-                .and_then(|file| selection.hunk_index.and_then(|index| file.hunks.get(index)))
+                .and_then(|file| hunk_index.and_then(|index| file.hunks.get(index)))
                 .cloned();
             let line_cursor = file.as_ref().and_then(|file| {
+                let (hunk_index, side, line) = cursor_target
+                    .map(|target| (target.hunk_index, target.side, target.line))
+                    .or_else(|| Some((selection.hunk_index?, selection.side?, selection.line?)))?;
                 Some(EditorLineCursor {
                     file_id: if file.runtime_id.is_empty() {
                         file.key.clone()
                     } else {
                         file.runtime_id.clone()
                     },
-                    hunk_index: selection.hunk_index?,
-                    target: EditorLineTarget {
-                        side: selection.side?,
-                        line: selection.line?,
-                    },
+                    hunk_index,
+                    target: EditorLineTarget { side, line },
                 })
             });
             (file, line_cursor, selected_hunk)
@@ -3086,10 +3092,86 @@ impl ReviewApp {
     }
 
     fn step_diff_line(&mut self, delta: isize) {
-        let last = self.current_review_rows().lines.len().saturating_sub(1);
+        let rows = self.current_review_rows();
+        let last = rows.lines.len().saturating_sub(1);
+        let cursors = review_line_cursors(&rows);
+        if cursors.is_empty() {
+            self.current_line_row = self.current_line_row.saturating_add_signed(delta).min(last);
+            let viewport = usize::from(self.review_height.get().saturating_sub(1).max(1));
+            self.keep_current_line_visible(viewport, last);
+            return;
+        }
+        let current = self.current_review_line_cursor_in(&cursors);
+        let next = current.map_or_else(
+            || {
+                let next_index = 0usize
+                    .saturating_add_signed(delta)
+                    .min(cursors.len().saturating_sub(1));
+                cursors[next_index]
+            },
+            |current| {
+                let current_index = cursors
+                    .iter()
+                    .position(|candidate| *candidate == current)
+                    .expect("current review cursor comes from the measured cursor list");
+                let next_index = current_index
+                    .saturating_add_signed(delta)
+                    .min(cursors.len().saturating_sub(1));
+                cursors[next_index]
+            },
+        );
+        let changed = current != Some(next);
+        self.apply_review_line_cursor(next);
         let viewport = usize::from(self.review_height.get().saturating_sub(1).max(1));
-        self.current_line_row = self.current_line_row.saturating_add_signed(delta).min(last);
         self.keep_current_line_visible(viewport, last);
+        if changed {
+            self.publish_extension_selection_events();
+        }
+    }
+
+    fn current_review_line_cursor(&self) -> Option<ReviewLineCursor> {
+        let rows = self.current_review_rows();
+        let cursors = review_line_cursors(&rows);
+        self.current_review_line_cursor_in(&cursors)
+    }
+
+    fn current_review_line_cursor_in(
+        &self,
+        cursors: &[ReviewLineCursor],
+    ) -> Option<ReviewLineCursor> {
+        let selection = self.with_state(|state| state.selection());
+        cursors
+            .iter()
+            .copied()
+            .find(|cursor| {
+                cursor.row == self.current_line_row
+                    && selection
+                        .side
+                        .zip(selection.line)
+                        .is_none_or(|(side, line)| {
+                            cursor.target.side == side && cursor.target.line == line
+                        })
+            })
+            .or_else(|| {
+                selection.side.zip(selection.line).and_then(|(side, line)| {
+                    cursors.iter().copied().find(|cursor| {
+                        cursor.target.file_index == selection.file_index
+                            && cursor.target.hunk_index == selection.hunk_index.unwrap_or(0)
+                            && cursor.target.side == side
+                            && cursor.target.line == line
+                    })
+                })
+            })
+    }
+
+    fn apply_review_line_cursor(&mut self, cursor: ReviewLineCursor) {
+        self.current_line_row = cursor.row;
+        let target = cursor.target;
+        self.with_state(|state| {
+            state
+                .reveal_line(target.file_index, target.side, target.line)
+                .expect("measured review cursor names a rendered diff line");
+        });
     }
 
     fn align_current_line(&mut self, alignment: AppCommandLineAlignment) {
@@ -9703,11 +9785,34 @@ struct ReviewRows {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ReviewLineCursor {
+    row: usize,
+    target: ReviewNoteTarget,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ReviewNoteTarget {
     file_index: usize,
     hunk_index: usize,
     side: ReviewSide,
     line: u32,
+}
+
+/// Collapse physical rows that paint the same source line into Hunk's navigable line stops.
+/// Wrapped continuations and inline note rows retain the source target for hit-testing, but a
+/// single `j`/`k` press must cross the source line exactly once.
+fn review_line_cursors(rows: &ReviewRows) -> Vec<ReviewLineCursor> {
+    let mut cursors = Vec::new();
+    for (&row, &target) in &rows.note_targets {
+        if cursors
+            .last()
+            .is_some_and(|cursor: &ReviewLineCursor| cursor.target == target)
+        {
+            continue;
+        }
+        cursors.push(ReviewLineCursor { row, target });
+    }
+    cursors
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14425,6 +14530,38 @@ mod tests {
             Some("source expansion is unavailable for this file")
         );
         assert!(app.take_editor_request().is_none());
+    }
+
+    #[test]
+    fn editor_shortcut_tracks_the_current_source_line_instead_of_the_hunk_start() {
+        let review = parse_patch(
+            "diff --git a/sample.ts b/sample.ts\n--- a/sample.ts\n+++ b/sample.ts\n@@ -1,5 +1,5 @@\n const alpha = 1;\n-const beta = 2;\n+const beta = 22222;\n const gamma = 3;\n const delta = 4;\n const epsilon = 5;\n",
+            "test",
+            "Working tree",
+            ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap();
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                repo: Some(PathBuf::from("/repo")),
+                layout: LayoutMode::Stack,
+                ..ReviewOptions::default()
+            },
+        );
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
+        let changed_line = app.take_editor_request().unwrap().line_cursor.unwrap();
+        assert_eq!(changed_line.target.side, ReviewSide::New);
+        assert_eq!(changed_line.target.line, 2);
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
+        let context_line = app.take_editor_request().unwrap().line_cursor.unwrap();
+        assert_eq!(context_line.target.side, ReviewSide::New);
+        assert_eq!(context_line.target.line, 3);
     }
 
     #[test]

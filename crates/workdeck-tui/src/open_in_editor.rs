@@ -460,6 +460,30 @@ mod tests {
     }
 
     #[test]
+    fn frozen_app_host_edit_in_editor_oracle_maps_both_pins_and_each_source_test() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../port/hunk/oracles/app-host-edit-in-editor.json");
+        let oracle: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(
+            oracle["source"]["baseline"]["commit"],
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2"
+        );
+        assert_eq!(
+            oracle["source"]["stable"]["commit"],
+            "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+        );
+        assert_eq!(oracle["source"]["baseline"]["bytes"], 4_160);
+        assert_eq!(
+            oracle["source"]["stable"]["blob"],
+            oracle["source"]["baseline"]["blob"]
+        );
+        assert_eq!(oracle["oracleRuns"]["baseline"]["passed"], 2);
+        assert_eq!(oracle["oracleRuns"]["stable"]["passed"], 2);
+        assert_eq!(oracle["testMappings"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
     fn builds_vi_code_windows_hx_and_unknown_editor_commands_without_a_shell() {
         assert_eq!(
             build_editor_command("nvim", "/tmp/project/file with spaces's.ts", 12),
