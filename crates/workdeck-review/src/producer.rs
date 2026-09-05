@@ -144,6 +144,15 @@ pub struct ReviewProducer {
     inner: Arc<Mutex<ProducerInner>>,
 }
 
+impl fmt::Debug for ReviewProducer {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ReviewProducer")
+            .field("publication", &self.get_publication_address())
+            .finish_non_exhaustive()
+    }
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ReviewProducerLifecycleError {
     #[error(transparent)]

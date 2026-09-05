@@ -56,6 +56,8 @@ mod help_dialog;
 mod highlighted_diff_runtime;
 mod hunk_scroll;
 mod ids;
+mod interactive_runtime;
+mod interactive_session_adapter;
 mod job_control;
 mod key_routing;
 mod keyboard;
@@ -157,6 +159,8 @@ pub use help_dialog::*;
 pub use highlighted_diff_runtime::*;
 pub use hunk_scroll::*;
 pub use ids::*;
+pub use interactive_runtime::*;
+pub use interactive_session_adapter::*;
 pub use job_control::*;
 pub use key_routing::*;
 pub use keyboard::*;
@@ -200,15 +204,10 @@ pub use watched_input::*;
 
 use anyhow::Result;
 use crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
-    MouseButton, MouseEvent, MouseEventKind,
+    self, Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
-use crossterm::execute;
-use crossterm::terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
-};
+#[cfg(test)]
 use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Position, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -216,7 +215,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget, Wrap};
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::io::{self, IsTerminal, Stdout};
+use std::io::{self, IsTerminal};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -327,6 +326,8 @@ pub struct ReviewOptions {
     pub pending_extension_trust_repo_root: Option<PathBuf>,
     /// Composition-root authority for persisting a decision and loading newly trusted code.
     pub extension_trust_handler: Option<ExtensionTrustHandler>,
+    /// Process/session cancellation projected into the renderer without transferring signal ownership.
+    pub external_quit_signal: Option<Arc<AtomicBool>>,
 }
 
 impl Default for ReviewOptions {
@@ -366,6 +367,7 @@ impl Default for ReviewOptions {
             extension_notifications: None,
             pending_extension_trust_repo_root: None,
             extension_trust_handler: None,
+            external_quit_signal: None,
         }
     }
 }
@@ -969,6 +971,8 @@ impl ExtensionPaneRuntime {
 #[derive(Debug)]
 pub struct ReviewApp {
     state: Arc<Mutex<ReviewState>>,
+    review_producer: workdeck_review::ReviewProducer,
+    session_broker_client: Option<workdeck_session::WorkdeckSessionBrokerClient>,
     options: ReviewOptions,
     focus: Focus,
     scroll: usize,
@@ -980,6 +984,7 @@ pub struct ReviewApp {
     help_scroll: usize,
     help_dialog_hits: Cell<Option<HelpDialogHits>>,
     should_quit: bool,
+    interactive_authority_retired: bool,
     view_preference_quit: ViewPreferenceQuitController,
     view_preference_prompt_hits: Mutex<Option<ConfirmDialogRenderMap>>,
     view_preference_prompt_hovered_action_key: Option<String>,
@@ -1046,8 +1051,26 @@ impl ReviewApp {
 
     pub fn new_with_extensions(
         changeset: Changeset,
+        options: ReviewOptions,
+        extensions: Vec<LoadedExtension>,
+    ) -> Self {
+        let review_producer = workdeck_review::ReviewProducer::new(
+            workdeck_review::PublishReviewInput {
+                files: changeset.files.clone(),
+                source_label: Some(changeset.effective_source_label().to_owned()),
+            },
+            workdeck_review::ReviewProducerOptions::default(),
+        )
+        .expect("the native review producer uses an internally valid generation identity");
+        Self::new_with_extensions_and_session(changeset, options, extensions, review_producer, None)
+    }
+
+    fn new_with_extensions_and_session(
+        changeset: Changeset,
         mut options: ReviewOptions,
         mut extensions: Vec<LoadedExtension>,
+        review_producer: workdeck_review::ReviewProducer,
+        session_broker_client: Option<workdeck_session::WorkdeckSessionBrokerClient>,
     ) -> Self {
         // Native factories encode events emitted during handshake as provisional declarations.
         // Drain them only after every extension has registered, matching Hunk's bind-and-replay
@@ -1189,6 +1212,8 @@ impl ReviewApp {
         });
         let mut app = Self {
             state: Arc::new(Mutex::new(state)),
+            review_producer,
+            session_broker_client,
             options,
             focus: Focus::Review,
             scroll: 0,
@@ -1200,6 +1225,7 @@ impl ReviewApp {
             help_scroll: 0,
             help_dialog_hits: Cell::new(None),
             should_quit: false,
+            interactive_authority_retired: false,
             view_preference_quit,
             view_preference_prompt_hits: Mutex::new(None),
             view_preference_prompt_hovered_action_key: None,
@@ -1274,6 +1300,16 @@ impl ReviewApp {
 
     pub fn shared_state(&self) -> Arc<Mutex<ReviewState>> {
         Arc::clone(&self.state)
+    }
+
+    #[must_use]
+    pub fn review_producer(&self) -> workdeck_review::ReviewProducer {
+        self.review_producer.clone()
+    }
+
+    #[must_use]
+    pub fn session_broker_client(&self) -> Option<workdeck_session::WorkdeckSessionBrokerClient> {
+        self.session_broker_client.clone()
     }
 
     pub fn layout(&self) -> LayoutMode {
@@ -1591,6 +1627,16 @@ impl ReviewApp {
             .line_highlights
             .reconcile_files(changeset.files.iter().map(|file| file.runtime_id.clone()));
         if self.with_state(|state| state.changeset() != &changeset) {
+            if let Err(error) = self
+                .review_producer
+                .publish(&workdeck_review::PublishReviewInput {
+                    files: changeset.files.clone(),
+                    source_label: Some(changeset.effective_source_label().to_owned()),
+                })
+            {
+                self.status = Some(format!("review publication failed: {error}"));
+                return;
+            }
             self.with_state(|state| state.reload(changeset));
             self.status = Some("review reloaded".into());
             self.highlights
@@ -7014,10 +7060,15 @@ impl ReviewApp {
         }
         self.mouse_scroll_accumulator -= integer_scroll as f64;
     }
-}
 
-impl Drop for ReviewApp {
-    fn drop(&mut self) {
+    fn retire_interactive_authority(&mut self) {
+        if self.interactive_authority_retired {
+            return;
+        }
+        self.interactive_authority_retired = true;
+        if let Some(client) = &self.session_broker_client {
+            client.set_bridge(None);
+        }
         self.extension_runtime_bridge.retire_mount();
         self.exit_active_keyboard_mode();
         self.exit_active_file_view_mode();
@@ -7028,6 +7079,20 @@ impl Drop for ReviewApp {
         runtime.keyboard_mode_controller.shutdown();
         let _settlements = runtime.dialogs.shutdown();
         runtime.retire_extensions();
+    }
+
+    fn dispose_highlight_worker(&mut self) {
+        self.highlights
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .dispose_worker();
+    }
+}
+
+impl Drop for ReviewApp {
+    fn drop(&mut self) {
+        self.retire_interactive_authority();
+        self.dispose_highlight_worker();
     }
 }
 
@@ -7314,25 +7379,36 @@ fn run_review_inner(
             "interactive review requires a terminal; use a Workdeck headless command for redirected output"
         );
     }
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-    let session_repo = options
-        .repo
-        .clone()
-        .map(Ok)
-        .unwrap_or_else(std::env::current_dir)?;
-    options.review_input = watch_input.as_ref().map(|(input, _, _)| input.clone());
-    let mut app = ReviewApp::new_with_extensions(changeset, options, extensions);
-    app.set_clipboard_copy_supported(true);
-    let watch_vcs_catalog =
-        watch_vcs_catalog.unwrap_or_else(|| workdeck_vcs::bundled_vcs_catalog().clone());
-    let mut watched_input =
-        watch_input
-            .filter(|_| app.options.watch)
-            .and_then(|(input, cwd, initial_signature)| {
+    if let Some((input, _, _)) = &watch_input {
+        options.review_input = Some(input.clone());
+    }
+    let mut session_broker = InteractiveSessionBroker::start(&changeset, &options)?;
+    let _panic_hook = InteractiveTerminalPanicHook::install(true);
+    let mut terminal = match InteractiveTerminalSession::enter(true) {
+        Ok(terminal) => terminal,
+        Err(error) => {
+            session_broker.stop();
+            return Err(error);
+        }
+    };
+    let result = (|| {
+        let session_repo = options
+            .repo
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(std::env::current_dir)?;
+        let mut app = ReviewApp::new_with_extensions_and_session(
+            changeset,
+            options,
+            extensions,
+            session_broker.producer(),
+            Some(session_broker.client()),
+        );
+        app.set_clipboard_copy_supported(true);
+        let watch_vcs_catalog =
+            watch_vcs_catalog.unwrap_or_else(|| workdeck_vcs::bundled_vcs_catalog().clone());
+        let mut watched_input = watch_input.filter(|_| app.options.watch).and_then(
+            |(input, cwd, initial_signature)| {
                 let runtime: Arc<dyn WatchedInputRuntime> = Arc::new(
                     NativeWatchedInputRuntime::new(cwd, Some(watch_vcs_catalog.clone())),
                 );
@@ -7350,32 +7426,37 @@ fn run_review_inner(
                         None
                     }
                 }
-            });
-    let session = default_discovery_directory()
-        .map(|directory| ReviewSessionServer::spawn(app.shared_state(), session_repo, directory))
-        .transpose()?;
-    let stop = session.as_ref().map(ReviewSessionServer::stop_signal);
-    let reload = session.as_ref().map(ReviewSessionServer::reload_signal);
-    let result = run_loop(
-        &mut terminal,
-        &mut app,
-        stop.as_deref(),
-        reload.as_deref(),
-        &mut reloader,
-        &mut watched_input,
-    );
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        DisableMouseCapture,
-        LeaveAlternateScreen
-    )?;
-    terminal.show_cursor()?;
+            },
+        );
+        let session = default_discovery_directory()
+            .map(|directory| {
+                ReviewSessionServer::spawn(app.shared_state(), session_repo, directory)
+            })
+            .transpose()?;
+        let stop = session.as_ref().map(ReviewSessionServer::stop_signal);
+        let reload = session.as_ref().map(ReviewSessionServer::reload_signal);
+        let result = run_loop(
+            &mut terminal,
+            &mut app,
+            stop.as_deref(),
+            reload.as_deref(),
+            &mut reloader,
+            &mut watched_input,
+        );
+        drop(session);
+        drop(watched_input);
+        app.retire_interactive_authority();
+        session_broker.stop();
+        app.dispose_highlight_worker();
+        result
+    })();
+    session_broker.stop();
+    drop(terminal);
     result
 }
 
 fn run_loop(
-    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    terminal: &mut InteractiveTerminalSession,
     app: &mut ReviewApp,
     session_stop: Option<&AtomicBool>,
     session_reload: Option<&AtomicBool>,
@@ -7383,10 +7464,18 @@ fn run_loop(
     watched_input: &mut Option<WatchedInputDriver>,
 ) -> Result<()> {
     let mut next_reload = Instant::now() + Duration::from_millis(250);
-    while !app.should_quit && !session_stop.is_some_and(|stop| stop.load(Ordering::Relaxed)) {
+    let job_control = JobControlSupport::default();
+    while !app.should_quit
+        && !session_stop.is_some_and(|stop| stop.load(Ordering::Relaxed))
+        && !app
+            .options
+            .external_quit_signal
+            .as_ref()
+            .is_some_and(|stop| stop.load(Ordering::Acquire))
+    {
         app.poll_extension_commands();
         app.tick_extension_notifications(Instant::now());
-        terminal.draw(|frame| {
+        terminal.terminal_mut().draw(|frame| {
             let area = frame.area();
             render(area, frame.buffer_mut(), app);
             let footer = Rect::new(
@@ -7402,11 +7491,22 @@ fn run_loop(
         if event::poll(Duration::from_millis(100))? {
             match event::read()? {
                 Event::Key(key) => {
-                    app.handle_key(key);
-                    if let Some(request) = app.take_editor_request()
-                        && let Some(message) = open_review_editor_in_crossterm(terminal, &request)
-                    {
-                        app.status = Some(message);
+                    match job_control.action(key, JobControlPlatform::current(), false) {
+                        Some(JobControlAction::Interrupt) => app.should_quit = true,
+                        Some(JobControlAction::Suspend) => {
+                            terminal.suspend_foreground_process_group()?;
+                        }
+                        None => {
+                            app.handle_key(key);
+                            if let Some(request) = app.take_editor_request()
+                                && let Some(message) = open_review_editor_in_crossterm(
+                                    terminal.terminal_mut(),
+                                    &request,
+                                )
+                            {
+                                app.status = Some(message);
+                            }
+                        }
                     }
                 }
                 Event::Mouse(mouse) => app.handle_mouse_event(mouse),
@@ -11246,6 +11346,28 @@ mod tests {
             reload_request_reason(false, false),
             SessionReloadReason::Watch
         );
+    }
+
+    #[test]
+    fn one_review_producer_owns_initial_and_reloaded_publications() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        let producer = app.review_producer();
+        let initial = producer.get_publication_address();
+        assert_eq!(producer.get_publication().document.files.len(), 1);
+
+        let mut replacement = changeset();
+        replacement.title = "Reloaded working tree".into();
+        replacement.files[0].path = "renamed.rs".into();
+        replacement.files[0].refresh_identity();
+        app.reload_with_reason(replacement, SessionReloadReason::Watch, false);
+
+        let reloaded = producer.get_publication_address();
+        assert_ne!(reloaded.generation, initial.generation);
+        assert_eq!(
+            producer.get_publication().document.files[0].path,
+            "renamed.rs"
+        );
+        assert_eq!(app.review_producer().get_publication_address(), reloaded);
     }
 
     #[test]

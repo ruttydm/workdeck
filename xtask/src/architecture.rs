@@ -340,6 +340,7 @@ fn validate_source_import_boundaries(repo: &Path) -> Result<Vec<ArchitectureViol
     let allowed_session_adapters = BTreeSet::from([
         PathBuf::from("crates/workdeck-tui/src/current_review_controller.rs"),
         PathBuf::from("crates/workdeck-tui/src/current_review_refresh.rs"),
+        PathBuf::from("crates/workdeck-tui/src/interactive_session_adapter.rs"),
         PathBuf::from("crates/workdeck-tui/src/lib.rs"),
         PathBuf::from("crates/workdeck-tui/src/review_state_helpers.rs"),
     ]);

@@ -357,6 +357,10 @@ impl HttpWorkdeckSessionCliClient {
             Ok(result) => result,
             Err(_) => {
                 cancellation.cancel("session CLI request deadline expired");
+                // Give a cooperative transport one bounded cleanup window to observe cancellation
+                // and release its waiter before this command returns. The request deadline still
+                // decides the public result; an uncooperative transport remains detached.
+                let _ = receiver.recv_timeout(Duration::from_millis(100));
                 Err(WorkdeckSessionCliClientError::Timeout {
                     operation,
                     timeout_ms: self.timeout.as_millis().try_into().unwrap_or(u64::MAX),

@@ -220,7 +220,17 @@ pub struct HighlightedDiffRuntime {
     coordinator: HighlightedDiffCoordinator,
 }
 
+impl Drop for HighlightedDiffRuntime {
+    fn drop(&mut self) {
+        self.engine.dispose_worker();
+    }
+}
+
 impl HighlightedDiffRuntime {
+    pub fn dispose_worker(&mut self) {
+        self.engine.dispose_worker();
+    }
+
     /// Queue or poll one shared highlight request. `offload_large_diff = false` intentionally keeps
     /// inline highlighting as the default; callers opt into the native worker for eligible files.
     pub fn prefetch_highlighted_diff(

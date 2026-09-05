@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/runInteractiveApp.tsx",
+    "blob": "18f2f66c701e800b0443044794d2f208214f1b42",
+    "sha256": "b57be57b9ee97a50267262090dea660c90cba8f84019d2fe9b03e05fa8e6c5a1",
+    "bytes": 5806,
+    "lines": 155
+  },
+  "stableSource": {
+    "blob": "7735221c03d1f0e4b21b5b9814b1b5493efdacb5",
+    "sha256": "c1368e157efaaf124df53e704074e458c059d744706b0d6c7496da412a6fc41f",
+    "bytes": 4414,
+    "lines": 120,
+    "relationship": "The pinned main baseline adds platform-complete graceful signals, terminal disconnect ownership, startup rollback, explicit extension retirement, and non-exiting error shutdown beyond stable v0.20.1."
+  },
+  "history": [
+    {
+      "commit": "52aa3629eb960b7aa6cbc91f9317e6a6ec96d1ef",
+      "subject": "fix(session): validate broker runtime boundaries (#903)"
+    },
+    {
+      "commit": "79fd010a8d6cb239085790f0422eed8c136ae44f",
+      "subject": "feat(extensions): add generic CLI commands (#888)"
+    },
+    {
+      "commit": "76565a63c48769a4ebc4ab93452db7037d663330",
+      "subject": "fix(ui): exit when the terminal hosting a review disconnects (#724)"
+    },
+    {
+      "commit": "4aea1e16f6df1672c4c1de04ecce113931141617",
+      "subject": "fix(ui): keep the diff engine off the startup path (#784)"
+    },
+    {
+      "commit": "753dc37004d6a1d756045719454df3463ee91ce7",
+      "subject": "Organize src/core into real modules (#795)"
+    },
+    {
+      "commit": "823b14b6d2fcf55246de8a2b23211d98f92d7178",
+      "subject": "Enforce module boundaries with dependency-cruiser (#790)"
+    },
+    {
+      "commit": "fe9373bcc7cd19d8c86333dcbf1079aa9c6fce6b",
+      "subject": "feat(extensions): support guided review workflows (#717)"
+    },
+    {
+      "commit": "2ddef92ab086cc18404324b00b71edd5f9fd8379",
+      "subject": "feat(review): producer runtime - generations, bounded resource serving, intent completion (Phase 2) (#721)"
+    },
+    {
+      "commit": "d4aeb9ee5bd82f640c360700c67e079e9da3c9e7",
+      "subject": "refactor(session): consolidate internal session modules (#628)"
+    },
+    {
+      "commit": "336950e2588a569ddf0d32bb1fa8d11626824759",
+      "subject": "fix(cli): lazy-load OpenTUI for headless commands (#590)"
+    }
+  ],
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/core/process/jobControl.test.ts src/core/process/shutdown.test.ts src/core/process/terminal.test.ts src/app/review/producer.test.ts src/app/session/registration.test.ts src/session/broker/brokerClient.test.ts",
+    "passed": 82,
+    "failed": 0,
+    "assertions": 218
+  },
+  "stableOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/core/process/jobControl.test.ts src/core/process/shutdown.test.ts src/core/process/terminal.test.ts src/app/review/producer.test.ts src/app/session/registration.test.ts src/session/broker/brokerClient.test.ts",
+    "passed": 58,
+    "failed": 0,
+    "assertions": 141
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/interactive_runtime.rs",
+      "sha256": "38b0bb265aff161f312fc77c7855d5337b732e096b5e8fb9aba53a8ad7d240b2"
+    },
+    {
+      "path": "crates/workdeck-tui/src/interactive_session_adapter.rs",
+      "sha256": "59a661983d66a4a5d034f0e09986764dc8374183df02f7f05d54adb0dc2f8fc0"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "b38bd4a1417786dc199c438e0be70d82a3c872fd8ba302387be44eca182c47eb"
+    },
+    {
+      "path": "crates/workdeck-tui/src/highlighted_diff_runtime.rs",
+      "sha256": "57021c1c78016c27e4b64121d810e6ef77d90b5f9fb7d273c51e316c9b82d55c"
+    },
+    {
+      "path": "crates/workdeck-cli/src/process_signals.rs",
+      "sha256": "64ea93eba4112b2df91b707a57b58bbcef1b9d1c3cbd9c0d22557b1f86d86d20"
+    },
+    {
+      "path": "crates/workdeck-cli/src/main.rs",
+      "sha256": "02066b10508325333dcd685c96abd94473207a0243df3d07007f14a5684baa6a"
+    },
+    {
+      "path": "crates/workdeck-review/src/producer.rs",
+      "sha256": "82da8fbc56464981047c5d41e2abfa9ba8e1ef808da684a6e7cbbe6b7a21d5f5"
+    },
+    {
+      "path": "docs/native-interactive-review-runtime.md",
+      "sha256": "cfc664800e87162b2be7b16530931bc0c577f6282e77684cd15921655bad1a38"
+    }
+  ],
+  "sourceCoverage": [
+    [[[[1, 38], [0, 1480]]], "runtime dependencies, typed bootstrap ownership, controlling terminal, and exact platform shutdown signal set"],
+    [[[[39, 58], [1480, 2308]]], "one review producer, initial publication, session registration and snapshot, and non-blocking broker-client startup"],
+    [[[[59, 81], [2308, 3175]]], "terminal input selection, mouse policy, alternate-screen renderer options, and renderer-creation rollback"],
+    [[[[82, 99], [3175, 3837]]], "application root creation rollback, external quit state, and inert lifecycle supports before installation"],
+    [[[[100, 128], [3837, 4842]]], "once-only shutdown, signal/listener retirement, broker stop, highlight-worker disposal, root unmount, renderer teardown, and optional process exit"],
+    [[[[129, 155], [4842, 5806]]], "signal, disconnect, interrupt, and suspend installation; mounted host inputs; and non-exiting error cleanup with extension retirement"]
+  ],
+  "rustTests": [
+    "interactive_runtime::tests::every_startup_failure_attempts_complete_terminal_rollback",
+    "interactive_runtime::tests::drop_restores_a_live_session_exactly_once",
+    "interactive_runtime::tests::restore_failure_is_not_retried_and_cannot_hide_the_primary_session_result",
+    "interactive_runtime::tests::suspension_restores_then_resumes_the_same_terminal",
+    "interactive_runtime::tests::shutdown_signal_set_matches_the_platform_contract",
+    "interactive_session_adapter::tests::session_input_kind_uses_the_exact_cli_variant_and_source_fallback",
+    "interactive_session_adapter::tests::session_client_is_stopped_exactly_once_when_its_owner_drops",
+    "tests::one_review_producer_owns_initial_and_reloaded_publications",
+    "process_signals::tests::callback_slot_has_exact_revocable_ownership",
+    "shutdown::tests::unmounts_destroys_and_exits_without_clearing_the_restored_screen",
+    "terminal_runtime::tests::terminal_disconnect_is_once_only_disposable_and_terminal_only",
+    "job_control::tests::suspends_group_zero_and_resumes_after_signal_continuation"
+  ],
+  "testCommands": [
+    "cargo test -p workdeck-tui interactive_runtime --lib",
+    "cargo test -p workdeck-tui interactive_session_adapter --lib",
+    "cargo test -p workdeck-tui one_review_producer_owns_initial_and_reloaded_publications --lib",
+    "cargo test -p workdeck-cli process_signals",
+    "cargo test --workspace --all-targets"
+  ],
+  "interactiveSmoke": {
+    "environment": ["WORKDECK_MCP_DISABLE=1", "WORKDECK_UPDATE_CHECK=0"],
+    "command": "target/debug/workdeck diff --no-extensions --no-watch",
+    "terminal": { "width": 80, "height": 24 },
+    "exits": ["q", "Ctrl-C"],
+    "result": "both exited zero and emitted DisableMouseCapture, LeaveAlternateScreen, and ShowCursor"
+  },
+  "nativeAdaptations": [
+    "Ratatui's cell buffer and Crossterm own the alternate screen; a transactional RAII session replaces OpenTUI renderer/root destruction while preserving teardown order on every return and error path.",
+    "The shipped CLI owns one revocable process-signal callback. Unix signal-hook covers the baseline's exact five-signal set; the Windows console backend covers Ctrl-C, Ctrl-Break, and close events.",
+    "Crossterm reports terminal read failures through the event loop, whose error return follows the same once-only shutdown path as an explicit disconnect callback.",
+    "The named TUI session adapter owns the modern authenticated broker client and producer, while terminal RAII remains session-independent. Workdeck's pre-existing direct review session remains active in parallel until its compatibility interface is separately retired.",
+    "Native highlight work is session-local rather than a global JavaScript worker; dropping the review explicitly disposes its logical worker queue and disconnects outstanding result receivers."
+  ]
+}

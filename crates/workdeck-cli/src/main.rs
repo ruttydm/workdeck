@@ -998,6 +998,7 @@ impl ReviewCliOptions {
             extension_notifications: None,
             pending_extension_trust_repo_root: None,
             extension_trust_handler: None,
+            external_quit_signal: None,
         }
     }
 
@@ -6454,7 +6455,19 @@ fn run_app_bootstrap(
         review.preference(),
         reload_context.repo_root.as_deref(),
     ));
-    if let Some(reloader) = reloader {
+    let external_quit = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    options.external_quit_signal = Some(Arc::clone(&external_quit));
+    let mut signal_registration = register_process_signal_callback({
+        let external_quit = Arc::clone(&external_quit);
+        move || {
+            if external_quit.swap(true, std::sync::atomic::Ordering::AcqRel) {
+                std::process::exit(130);
+            }
+        }
+    })
+    .map_err(anyhow::Error::msg)
+    .context("failed to install interactive review shutdown handler")?;
+    let result = if let Some(reloader) = reloader {
         let agent_context = review.agent_context.clone();
         let mut reload_extensions = extensions.clone();
         let mut decorated_reload = || {
@@ -6491,7 +6504,9 @@ fn run_app_bootstrap(
         }
     } else {
         workdeck_tui::run_review_with_extensions(changeset, options, extensions)
-    }
+    };
+    signal_registration.retire();
+    result
 }
 
 /// Capture before sidecar or changeset I/O so mutations racing the initial load

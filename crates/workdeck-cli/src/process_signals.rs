@@ -54,11 +54,32 @@ fn dispatch_process_signal() {
 
 fn install_process_signal_handler() -> Result<(), String> {
     static INSTALLATION: OnceLock<Result<(), String>> = OnceLock::new();
-    INSTALLATION
-        .get_or_init(|| {
-            ctrlc::set_handler(dispatch_process_signal).map_err(|error| error.to_string())
+    INSTALLATION.get_or_init(install_platform_handlers).clone()
+}
+
+#[cfg(unix)]
+fn install_platform_handlers() -> Result<(), String> {
+    use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGPIPE, SIGQUIT, SIGTERM};
+    use signal_hook::iterator::Signals;
+
+    let mut signals = Signals::new([SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGPIPE])
+        .map_err(|error| error.to_string())?;
+    std::thread::Builder::new()
+        .name("workdeck-process-signals".into())
+        .spawn(move || {
+            for _signal in signals.forever() {
+                dispatch_process_signal();
+            }
         })
-        .clone()
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[cfg(windows)]
+fn install_platform_handlers() -> Result<(), String> {
+    // The ctrlc Windows backend covers CTRL_C_EVENT, CTRL_BREAK_EVENT, and console-close events,
+    // which are Node's SIGINT, SIGBREAK, and SIGTERM equivalents for this lifecycle boundary.
+    ctrlc::set_handler(dispatch_process_signal).map_err(|error| error.to_string())
 }
 
 /// Revocable ownership of the installed process signal callback.
