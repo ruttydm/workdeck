@@ -130,6 +130,9 @@ pub struct DiffSectionGeometryOptions<'a> {
     pub visible_agent_notes: &'a [VisibleAgentNote],
     pub width: usize,
     pub show_line_numbers: bool,
+    /// Override the file-derived gutter width when an embedding renderer owns
+    /// a wider fixed line-number lane.
+    pub line_number_digits: Option<usize>,
     pub wrap_lines: bool,
     pub expanded_keys: &'a HashSet<String>,
     pub source_status: ExpandedSourceStatus<'a>,
@@ -149,6 +152,7 @@ impl<'a> DiffSectionGeometryOptions<'a> {
             visible_agent_notes: &[],
             width: 0,
             show_line_numbers: true,
+            line_number_digits: None,
             wrap_lines: false,
             expanded_keys: empty_expanded_keys(),
             source_status: ExpandedSourceStatus::Pending,
@@ -298,11 +302,12 @@ fn geometry_cache_key(options: &DiffSectionGeometryOptions<'_>) -> String {
         LayoutMode::Auto => "auto",
     };
     format!(
-        "{file_id}:{layout}:{}:{}:{}:{}:{}:{}:tabs:{}:hunkGap:{}{}{}",
+        "{file_id}:{layout}:{}:{}:{}:{}:lineDigits:{:?}:{}:{}:tabs:{}:hunkGap:{}{}{}",
         usize::from(options.show_hunk_headers),
         theme_cache_key(options.theme),
         options.width,
         usize::from(options.show_line_numbers),
+        options.line_number_digits,
         usize::from(options.wrap_lines),
         usize::from(options.reserve_add_note_column),
         options.tab_width,
@@ -409,7 +414,10 @@ fn measure_uncached(options: &DiffSectionGeometryOptions<'_>) -> Arc<DiffSection
         theme: options.theme,
         visible_agent_notes: options.visible_agent_notes,
     });
-    let line_number_digits = section_row_plan.line_number_digits;
+    let line_number_digits = options
+        .line_number_digits
+        .unwrap_or(section_row_plan.line_number_digits)
+        .max(1);
     let mut hunk_anchor_rows = HashMap::new();
     let mut hunk_bounds = HashMap::<usize, PlannedHunkBounds>::new();
     let mut row_bounds = Vec::with_capacity(section_row_plan.planned_rows.len());
@@ -978,6 +986,24 @@ mod tests {
         assert_eq!(nowrap.body_height, 4);
         assert_eq!(wrapped.body_height, 7);
         assert!(wrapped.hunk_bounds[&0].height > nowrap.hunk_bounds[&0].height);
+    }
+
+    #[test]
+    fn explicit_line_number_width_is_part_of_geometry_cache_identity() {
+        let file = default_file();
+        let theme = resolve_theme(Some("github-dark-default"), None, &[]);
+        let mut cache = DiffSectionGeometryCache::default();
+        let natural = cache.measure(DiffSectionGeometryOptions::new(
+            &file,
+            LayoutMode::Stack,
+            &theme,
+        ));
+        let mut options = DiffSectionGeometryOptions::new(&file, LayoutMode::Stack, &theme);
+        options.line_number_digits = Some(4);
+        let fixed = cache.measure(options);
+
+        assert_eq!(fixed.line_number_digits, 4);
+        assert!(!Arc::ptr_eq(&natural, &fixed));
     }
 
     #[test]

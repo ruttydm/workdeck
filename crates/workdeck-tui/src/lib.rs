@@ -1090,6 +1090,7 @@ pub struct ReviewApp {
     filter_scroll: Cell<usize>,
     review_width: Cell<u16>,
     review_height: Cell<u16>,
+    review_bounds: Cell<Option<Rect>>,
     review_geometry_published: Cell<bool>,
     review_scrollbar: Mutex<VerticalScrollbarController>,
     review_scrollbar_hits: Cell<Option<VerticalScrollbarRenderMap>>,
@@ -1111,6 +1112,11 @@ pub struct ReviewApp {
     extension_notification_subscription: Option<ExtensionNotificationSubscription>,
     mouse_scroll_acceleration: ReviewMouseWheelScrollAcceleration,
     mouse_scroll_accumulator: f64,
+    copy_selection_drag: Option<CopySelectionDrag>,
+    copy_selection_snapshot: Option<LiveCopySelectionSnapshot>,
+    last_copy_click_time: Option<Instant>,
+    last_copy_click_point: Option<CopySelectionPoint>,
+    copy_click_count: u8,
     extension_pane_runtime: Mutex<ExtensionPaneRuntime>,
     file_presentation_rendering: Mutex<FilePresentationRenderingController>,
     extension_runtime_bridge: ExtensionRuntimeBridge,
@@ -1343,6 +1349,7 @@ impl ReviewApp {
             filter_scroll: Cell::new(0),
             review_width: Cell::new(120),
             review_height: Cell::new(20),
+            review_bounds: Cell::new(None),
             review_geometry_published: Cell::new(false),
             review_scrollbar: Mutex::new(VerticalScrollbarController::default()),
             review_scrollbar_hits: Cell::new(None),
@@ -1364,6 +1371,11 @@ impl ReviewApp {
             extension_notification_subscription,
             mouse_scroll_acceleration: ReviewMouseWheelScrollAcceleration::default(),
             mouse_scroll_accumulator: 0.0,
+            copy_selection_drag: None,
+            copy_selection_snapshot: None,
+            last_copy_click_time: None,
+            last_copy_click_point: None,
+            copy_click_count: 0,
             extension_pane_runtime: Mutex::new(extension_pane_runtime),
             file_presentation_rendering: Mutex::new(FilePresentationRenderingController::default()),
             extension_runtime_bridge,
@@ -1608,12 +1620,12 @@ impl ReviewApp {
         true
     }
 
-    /// Tell the native dialog whether its host can service clipboard requests.
+    /// Tell the native UI whether its host can service clipboard requests.
     pub fn set_clipboard_copy_supported(&mut self, supported: bool) {
         self.clipboard_copy_supported = supported;
     }
 
-    /// Consume one host-owned clipboard write requested by the agent-skill dialog.
+    /// Consume one host-owned clipboard write requested by a review surface.
     pub fn take_clipboard_copy_request(&mut self) -> Option<String> {
         self.clipboard_copy_request.take()
     }
@@ -1763,6 +1775,8 @@ impl ReviewApp {
         emit_startup: bool,
         reset_app: bool,
     ) {
+        self.cancel_copy_selection();
+        self.reset_copy_click_sequence();
         self.extension_command_epoch = self.extension_command_epoch.saturating_add(1);
         self.review_projection_generation = self.review_projection_generation.saturating_add(1);
         // Revoke retained review controls synchronously, before reload cleanup or lifecycle work.
@@ -6690,6 +6704,306 @@ impl ReviewApp {
         )
     }
 
+    fn live_copy_selection_snapshot(&self) -> Option<LiveCopySelectionSnapshot> {
+        let rows = self.current_review_rows();
+        let width = usize::from(self.review_width.get().max(1));
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let layout = state.resolved_layout(self.review_width.get());
+        let visible_files = state
+            .changeset()
+            .files
+            .iter()
+            .enumerate()
+            .filter(|(file_index, file)| {
+                review_file_matches_filter(
+                    &project_review_file(file, "terminal-review", *file_index),
+                    &self.filter,
+                )
+            })
+            .collect::<Vec<_>>();
+        if visible_files.is_empty() {
+            return None;
+        }
+
+        let fixed_line_number_digits = self.options.line_number_digits.unwrap_or(4).max(1);
+        let mut geometry_cache = DiffSectionGeometryCache::default();
+        let section_geometry = visible_files
+            .iter()
+            .map(|(_, file)| {
+                let mut options =
+                    DiffSectionGeometryOptions::new(file, layout, &self.options.theme);
+                options.show_hunk_headers = self.options.hunk_headers;
+                options.width = width;
+                options.show_line_numbers = self.options.line_numbers;
+                options.line_number_digits = Some(fixed_line_number_digits);
+                options.wrap_lines = self.options.wrap_lines;
+                options.reserve_add_note_column = false;
+                options.tab_width = self.options.tab_width;
+                options.hunk_gap = usize::from(self.options.hunk_gap);
+                geometry_cache.measure(options)
+            })
+            .collect::<Vec<_>>();
+        let files = visible_files
+            .into_iter()
+            .map(|(_, file)| file.clone())
+            .collect::<Vec<_>>();
+        drop(state);
+
+        let body_heights = section_geometry
+            .iter()
+            .map(|geometry| i64::try_from(geometry.body_height).unwrap_or(i64::MAX))
+            .collect::<Vec<_>>();
+        // The compact Ratatui renderer keeps every file header in the review
+        // stream, including the first. Its top border already occupies the
+        // separate chrome row.
+        let header_heights = vec![1_i64; files.len()];
+        let file_section_layouts = build_file_section_layouts(
+            &files,
+            &body_heights,
+            Some(&header_heights),
+            i64::from(self.options.file_gap),
+        );
+        let header_stats_width = max_file_header_stats_width(&files);
+        let viewport = usize::from(self.review_height.get().saturating_sub(1));
+        let max_scroll = rows.lines.len().saturating_sub(viewport);
+        let scroll = if self.scroll == usize::MAX {
+            max_scroll
+        } else {
+            self.scroll.min(max_scroll)
+        };
+
+        Some(LiveCopySelectionSnapshot {
+            files,
+            file_section_layouts,
+            section_geometry,
+            line_cursors: rows.line_cursors,
+            code_horizontal_offset: self.options.horizontal_offset,
+            copy_decorations: self.copy_decorations,
+            header_label_width: width.saturating_sub(2 + header_stats_width + 1),
+            header_stats_width,
+            layout,
+            reserve_add_note_column: false,
+            scroll,
+            show_hunk_headers: self.options.hunk_headers,
+            show_line_numbers: self.options.line_numbers,
+            width,
+            wrap_lines: self.options.wrap_lines,
+        })
+    }
+
+    fn resolve_live_copy_selection_point(
+        &self,
+        snapshot: &LiveCopySelectionSnapshot,
+        event: &MouseEvent,
+    ) -> Option<CopySelectionPoint> {
+        let bounds = self.review_bounds.get()?;
+        let content_top = bounds.y.saturating_add(1);
+        let content_height = bounds.height.saturating_sub(1);
+        if event.column < bounds.x
+            || event.column >= bounds.right()
+            || event.row < content_top
+            || event.row >= content_top.saturating_add(content_height)
+        {
+            return None;
+        }
+        let column = i64::from(event.column.saturating_sub(bounds.x));
+        let viewport_row = usize::from(event.row.saturating_sub(content_top));
+        let visual_row = i64::try_from(snapshot.scroll.saturating_add(viewport_row)).ok()?;
+        find_copy_selection_point(
+            column,
+            snapshot.copy_decorations,
+            &snapshot.file_section_layouts,
+            &snapshot.section_geometry,
+            visual_row,
+            snapshot.width,
+        )
+    }
+
+    fn live_copy_cursor_for_click(
+        snapshot: &LiveCopySelectionSnapshot,
+        point: &CopySelectionPoint,
+        side: Option<CopySelectionSide>,
+    ) -> Option<ReviewLineCursor> {
+        let CopySelectionPoint::ReviewRow { visual_row, .. } = point else {
+            return None;
+        };
+        let row = usize::try_from(*visual_row).ok()?;
+        let mut candidates = snapshot
+            .line_cursors
+            .iter()
+            .copied()
+            .filter(|cursor| cursor.row == row);
+        let first = candidates.next()?;
+        let target_side = match side {
+            Some(CopySelectionSide::Left) => Some(ReviewSide::Old),
+            Some(CopySelectionSide::Right) => Some(ReviewSide::New),
+            None => None,
+        };
+        target_side
+            .and_then(|side| candidates.find(|cursor| cursor.target.side == side))
+            .or_else(|| (target_side == Some(first.target.side)).then_some(first))
+            .or(Some(first))
+    }
+
+    fn cancel_copy_selection(&mut self) {
+        self.copy_selection_drag = None;
+        self.copy_selection_snapshot = None;
+    }
+
+    fn reset_copy_click_sequence(&mut self) {
+        self.last_copy_click_time = None;
+        self.last_copy_click_point = None;
+        self.copy_click_count = 0;
+    }
+
+    fn finish_copy_selection_text(&mut self, text: String) {
+        if text.is_empty() {
+            return;
+        }
+        if self.clipboard_copy_supported {
+            self.clipboard_copy_request = Some(text);
+            self.status = Some("Copied selection to clipboard".into());
+        } else {
+            self.status = Some(
+                "Clipboard copy unsupported in this terminal (enable OSC 52 to capture selections)"
+                    .into(),
+            );
+        }
+    }
+
+    fn handle_copy_selection_mouse_at(&mut self, event: &MouseEvent, now: Instant) -> bool {
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                if self
+                    .extension_pane_runtime
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .file_view_component_hits
+                    .iter()
+                    .any(|hit| rect_contains(hit.bounds, event.column, event.row))
+                {
+                    return false;
+                }
+                let Some(snapshot) = self.live_copy_selection_snapshot() else {
+                    self.cancel_copy_selection();
+                    self.reset_copy_click_sequence();
+                    return false;
+                };
+                let Some(point) = self.resolve_live_copy_selection_point(&snapshot, event) else {
+                    self.cancel_copy_selection();
+                    self.reset_copy_click_sequence();
+                    return false;
+                };
+                let repeated_target = self.last_copy_click_point.as_ref().is_some_and(|previous| {
+                    copy_selection_points_share_row(previous, &point)
+                        && previous.column().abs_diff(point.column()) <= 2
+                });
+                let repeated_in_time = self.last_copy_click_time.is_some_and(|previous| {
+                    now.saturating_duration_since(previous) < Duration::from_millis(350)
+                });
+                self.last_copy_click_time = Some(now);
+                self.last_copy_click_point = Some(point.clone());
+                self.copy_click_count = if repeated_target && repeated_in_time {
+                    self.copy_click_count.saturating_add(1).min(3)
+                } else {
+                    1
+                };
+
+                let expanded = (self.copy_click_count >= 2)
+                    .then(|| {
+                        expand_selection_point(&point, self.copy_click_count, snapshot.context())
+                    })
+                    .flatten();
+                let drag =
+                    if let (Some(expanded), CopySelectionPoint::ReviewRow { visual_row, .. }) =
+                        (expanded, &point)
+                    {
+                        CopySelectionDrag {
+                            anchor: CopySelectionPoint::ReviewRow {
+                                column: expanded.start_col,
+                                visual_row: *visual_row,
+                            },
+                            focus: CopySelectionPoint::ReviewRow {
+                                column: expanded.end_col,
+                                visual_row: *visual_row,
+                            },
+                            moved: true,
+                            expanded: true,
+                        }
+                    } else {
+                        CopySelectionDrag {
+                            anchor: point.clone(),
+                            focus: point,
+                            moved: false,
+                            expanded: false,
+                        }
+                    };
+                self.copy_selection_snapshot = Some(snapshot);
+                self.copy_selection_drag = Some(drag);
+                true
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                let Some(snapshot) = self.copy_selection_snapshot.as_ref() else {
+                    return false;
+                };
+                let point = self.resolve_live_copy_selection_point(snapshot, event);
+                let Some(drag) = self.copy_selection_drag.as_mut() else {
+                    return false;
+                };
+                if let Some(point) = point {
+                    drag.moved |= !copy_selection_points_equal(&point, &drag.anchor);
+                    drag.focus = point;
+                }
+                true
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                let Some(mut drag) = self.copy_selection_drag.take() else {
+                    return false;
+                };
+                let Some(snapshot) = self.copy_selection_snapshot.take() else {
+                    return false;
+                };
+                if !drag.expanded
+                    && let Some(point) = self.resolve_live_copy_selection_point(&snapshot, event)
+                {
+                    drag.moved |= !copy_selection_points_equal(&point, &drag.anchor);
+                    drag.focus = point;
+                }
+                let side = resolve_copy_selection_side(
+                    drag.anchor.column(),
+                    snapshot.layout,
+                    snapshot.width,
+                );
+                if copy_selection_drag_is_click(&drag) {
+                    if self.options.cursor_line != CursorLineMode::Off
+                        && let Some(cursor) =
+                            Self::live_copy_cursor_for_click(&snapshot, &drag.anchor, side)
+                    {
+                        self.apply_review_line_cursor(cursor);
+                        self.publish_extension_selection_events();
+                        return true;
+                    }
+                    if !drag.moved {
+                        return false;
+                    }
+                }
+                let normalized = normalize_copy_selection_range(&drag.anchor, &drag.focus);
+                let text = render_copy_selection_text(
+                    snapshot.context(),
+                    &normalized.start,
+                    &normalized.end,
+                    side,
+                );
+                self.finish_copy_selection_text(text);
+                true
+            }
+            _ => false,
+        }
+    }
+
     fn extension_command_cwd(&self) -> PathBuf {
         self.options
             .command_cwd
@@ -6982,6 +7296,7 @@ impl ReviewApp {
     }
 
     pub fn handle_mouse_event(&mut self, event: MouseEvent) {
+        let now = Instant::now();
         if self.extension_trust_controller.prompt_open() {
             if event.kind == MouseEventKind::Up(MouseButton::Left) {
                 let hits = self.extension_trust_prompt_hits.get();
@@ -7024,7 +7339,7 @@ impl ReviewApp {
         if self.has_extension_dialog() {
             return;
         }
-        if self.handle_theme_selector_mouse(&event, Instant::now()) {
+        if self.handle_theme_selector_mouse(&event, now) {
             return;
         }
         if self.show_agent_skill {
@@ -7074,18 +7389,25 @@ impl ReviewApp {
             }
             return;
         }
+        if self.copy_selection_drag.is_some() && self.handle_copy_selection_mouse_at(&event, now) {
+            return;
+        }
         if self.handle_extension_mode_badge_mouse(&event)
             || self.handle_app_menu_mouse(&event)
             || self.handle_extension_pane_mouse(&event)
-            || self.handle_review_scrollbar_mouse(&event, Instant::now())
+            || self.handle_review_scrollbar_mouse(&event, now)
             || self.handle_extension_file_view_mouse(&event)
             || self.handle_sidebar_mouse(&event)
+        {
+            return;
+        }
+        if self.handle_copy_selection_mouse_at(&event, now)
             || self.handle_review_file_header_mouse(&event)
             || self.handle_horizontal_mouse_scroll(&event)
         {
             return;
         }
-        self.handle_mouse_at(event.kind, Instant::now());
+        self.handle_mouse_at(event.kind, now);
     }
 
     fn handle_review_scrollbar_mouse(&mut self, event: &MouseEvent, now: Instant) -> bool {
@@ -9535,6 +9857,7 @@ fn render_builtin_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     if state.changeset().is_empty() {
         app.sidebar_bounds.set(None);
+        app.review_bounds.set(None);
         app.review_scrollbar_hits.set(None);
         app.sidebar_file_hits
             .lock()
@@ -10100,6 +10423,7 @@ fn paint_cursor_line(line: &mut Line<'_>, mode: CursorLineMode, theme: &AppTheme
 fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     app.review_width.set(area.width);
     app.review_height.set(area.height);
+    app.review_bounds.set(Some(area));
     app.review_geometry_published.set(true);
     let state = app
         .state
@@ -10222,6 +10546,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 .border_style(border_style),
         )
         .render(area, buffer);
+    paint_live_copy_selection(area, buffer, app);
     let presentation = {
         let mut scrollbar = app
             .review_scrollbar
@@ -10234,6 +10559,110 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .set(presentation.and_then(|presentation| {
             render_vertical_review_scrollbar(area, buffer, presentation, &app.options.theme)
         }));
+}
+
+fn copy_selection_row_is_selectable(snapshot: &LiveCopySelectionSnapshot, visual_row: i64) -> bool {
+    snapshot.file_section_layouts.iter().any(|section| {
+        if visual_row < section.body_top
+            || visual_row >= section.body_top.saturating_add(section.body_height)
+        {
+            return false;
+        }
+        let Some(geometry) = snapshot.section_geometry.get(section.section_index) else {
+            return false;
+        };
+        let body_row = visual_row.saturating_sub(section.body_top);
+        geometry.row_bounds.iter().any(|bounds| {
+            let top = i64::try_from(bounds.bounds.top).unwrap_or(i64::MAX);
+            let bottom =
+                top.saturating_add(i64::try_from(bounds.bounds.height).unwrap_or(i64::MAX));
+            body_row >= top && body_row < bottom
+        })
+    })
+}
+
+fn copy_selection_background(color: Color, theme: &AppTheme) -> Color {
+    let base = match color {
+        Color::Rgb(red, green, blue) => format!("#{red:02x}{green:02x}{blue:02x}"),
+        Color::Reset => TRANSPARENT_BACKGROUND.to_owned(),
+        _ => theme.panel.clone(),
+    };
+    ratatui_theme_color(&selection_highlight_background(&base, theme))
+}
+
+fn paint_live_copy_selection(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+    let Some(drag) = app.copy_selection_drag.as_ref().filter(|drag| drag.moved) else {
+        return;
+    };
+    let Some(snapshot) = app.copy_selection_snapshot.as_ref() else {
+        return;
+    };
+    let normalized = normalize_copy_selection_range(&drag.anchor, &drag.focus);
+    let (
+        CopySelectionPoint::ReviewRow {
+            column: start_column,
+            visual_row: start_row,
+        },
+        CopySelectionPoint::ReviewRow {
+            column: end_column,
+            visual_row: end_row,
+        },
+    ) = (&normalized.start, &normalized.end)
+    else {
+        return;
+    };
+    let side = resolve_copy_selection_side(drag.anchor.column(), snapshot.layout, snapshot.width);
+    let split = (snapshot.layout == LayoutMode::Split)
+        .then(|| resolve_diff_split_pane_widths(snapshot.width));
+    let content_top = area.y.saturating_add(1);
+    let viewport_height = area.height.saturating_sub(1);
+    for viewport_row in 0..viewport_height {
+        let visual_row = i64::try_from(snapshot.scroll.saturating_add(usize::from(viewport_row)))
+            .unwrap_or(i64::MAX);
+        if visual_row < *start_row
+            || visual_row > *end_row
+            || !copy_selection_row_is_selectable(snapshot, visual_row)
+        {
+            continue;
+        }
+        let mut first = if visual_row == *start_row {
+            *start_column
+        } else {
+            0
+        };
+        let mut last = if visual_row == *end_row {
+            *end_column
+        } else {
+            snapshot.width.saturating_sub(1)
+        };
+        if let Some(panes) = split {
+            match side {
+                Some(CopySelectionSide::Left) => {
+                    last = last.min(panes.left_width.saturating_sub(1));
+                }
+                Some(CopySelectionSide::Right) => {
+                    first = first.max(panes.left_width);
+                }
+                None => {}
+            }
+        }
+        last = last.min(snapshot.width.saturating_sub(1));
+        if first > last {
+            continue;
+        }
+        let y = content_top.saturating_add(viewport_row);
+        for column in first..=last {
+            let Ok(column) = u16::try_from(column) else {
+                break;
+            };
+            let x = area.x.saturating_add(column);
+            if x >= area.right() {
+                break;
+            }
+            let cell = &mut buffer[(x, y)];
+            cell.set_bg(copy_selection_background(cell.bg, &app.options.theme));
+        }
+    }
 }
 
 fn render_vertical_review_scrollbar(
@@ -10297,6 +10726,46 @@ struct ReviewRows {
     file_header_rows: Vec<(usize, usize)>,
     hunk_tops: std::collections::HashMap<(usize, usize), usize>,
     file_view_component_hits: Vec<FileViewComponentLogicalHit>,
+}
+
+#[derive(Debug)]
+struct LiveCopySelectionSnapshot {
+    files: Vec<DiffFile>,
+    file_section_layouts: Vec<FileSectionLayout>,
+    section_geometry: Vec<Arc<DiffSectionGeometry>>,
+    line_cursors: Vec<ReviewLineCursor>,
+    code_horizontal_offset: usize,
+    copy_decorations: bool,
+    header_label_width: usize,
+    header_stats_width: usize,
+    layout: LayoutMode,
+    reserve_add_note_column: bool,
+    scroll: usize,
+    show_hunk_headers: bool,
+    show_line_numbers: bool,
+    width: usize,
+    wrap_lines: bool,
+}
+
+impl LiveCopySelectionSnapshot {
+    fn context(&self) -> CopySelectionContext<'_> {
+        CopySelectionContext {
+            code_horizontal_offset: self.code_horizontal_offset,
+            copy_decorations: self.copy_decorations,
+            files: &self.files,
+            file_section_layouts: &self.file_section_layouts,
+            header_label_width: self.header_label_width,
+            header_stats_width: self.header_stats_width,
+            layout: self.layout,
+            pinned_header_file: None,
+            reserve_add_note_column: self.reserve_add_note_column,
+            section_geometry: &self.section_geometry,
+            show_hunk_headers: self.show_hunk_headers,
+            show_line_numbers: self.show_line_numbers,
+            width: self.width,
+            wrap_lines: self.wrap_lines,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

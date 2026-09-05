@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "path": "src/ui/AppHost.selection.test.tsx",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "7ce52e12c200d12b65e20427bd30441c65dae945",
+      "sha256": "814e11d08641bd5d9c8edc6eafffed9b947956cb1e85c5e05aea9aa7577f363e",
+      "bytes": 16221,
+      "lines": 483
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "7ce52e12c200d12b65e20427bd30441c65dae945",
+      "sha256": "814e11d08641bd5d9c8edc6eafffed9b947956cb1e85c5e05aea9aa7577f363e",
+      "bytes": 16221,
+      "lines": 483
+    }
+  },
+  "oracleRuns": {
+    "baseline": {
+      "runtime": "bun 1.3.14",
+      "command": "bun test src/ui/AppHost.selection.test.tsx",
+      "passed": 12,
+      "failed": 0,
+      "expectCalls": 37,
+      "stderr": ["The current testing environment is not configured to support act(...)"],
+      "elapsedMilliseconds": 1530,
+      "caseMilliseconds": [264.11, 33.98, 86.4, 112.2, 147.3, 35.72, 80.54, 18.11, 98.09, 89.57, 88.26, 91.25]
+    },
+    "stable": {
+      "runtime": "bun 1.3.5",
+      "command": "bun test src/ui/AppHost.selection.test.tsx",
+      "passed": 12,
+      "failed": 0,
+      "expectCalls": 37,
+      "stderr": ["The current testing environment is not configured to support act(...)"],
+      "elapsedMilliseconds": 1510,
+      "caseMilliseconds": [246.42, 32.23, 88.74, 116.7, 161.05, 38.06, 84.2, 36.3, 95.07, 97.2, 88.07, 83.48]
+    }
+  },
+  "testMappings": [
+    {
+      "upstream": "dragging across changed rows copies the rendered selection to the clipboard",
+      "rust": "live_ratatui_drag_copies_changed_rows_and_uses_mouse_up_for_coalesced_motion"
+    },
+    {
+      "upstream": "mouse-up extends a copy through drag events coalesced by the terminal host",
+      "rust": "live_ratatui_drag_copies_changed_rows_and_uses_mouse_up_for_coalesced_motion"
+    },
+    {
+      "upstream": "dragging across wide CJK characters copies exactly the selected cells",
+      "rust": "live_ratatui_copy_is_terminal_cell_exact_across_wide_cjk_clusters"
+    },
+    {
+      "upstream": "double-clicking a token selects and copies the word under the pointer",
+      "rust": "repeated_clicks_copy_one_word_then_the_complete_rendered_line"
+    },
+    {
+      "upstream": "triple-clicking a row selects and copies the whole line",
+      "rust": "repeated_clicks_copy_one_word_then_the_complete_rendered_line"
+    },
+    {
+      "upstream": "a press and release without movement does not copy anything",
+      "rust": "click_slop_buttons_viewport_and_clipboard_capability_match_hunk"
+    },
+    {
+      "upstream": "one-cell drags still copy when current-line selection is disabled",
+      "rust": "click_slop_buttons_viewport_and_clipboard_capability_match_hunk"
+    },
+    {
+      "upstream": "pressing outside the review viewport clears any pending selection",
+      "rust": "click_slop_buttons_viewport_and_clipboard_capability_match_hunk"
+    },
+    {
+      "upstream": "a non-left mouse button never starts a selection",
+      "rust": "click_slop_buttons_viewport_and_clipboard_capability_match_hunk"
+    },
+    {
+      "upstream": "a terminal without OSC 52 support reports that copying is unavailable",
+      "rust": "click_slop_buttons_viewport_and_clipboard_capability_match_hunk"
+    },
+    {
+      "upstream": "a drag starting on the pinned file header resolves a header selection point",
+      "rust": "file_header_and_split_side_drags_resolve_against_the_live_review_geometry"
+    },
+    {
+      "upstream": "dragging in split layout resolves a side and copies one column of code",
+      "rust": "file_header_and_split_side_drags_resolve_against_the_live_review_geometry"
+    }
+  ],
+  "adaptations": [
+    "Ratatui's owned review rectangle replaces OpenTUI viewport and content screen coordinates. Mouse rows are translated through the clamped live scroll offset before semantic row lookup.",
+    "The composition root emits a host-owned clipboard request. The terminal loop services it with the same OSC 52 transport already used by Workdeck's agent-skill dialog.",
+    "At this source test's zero scroll offset, Workdeck's first in-stream header occupies the same selected cells and produces the same header-to-body range. Persistent sticky-header scrolling remains assigned to the still-unmapped DiffPane source interval and is not claimed by this record."
+  ]
+}
