@@ -85,6 +85,6 @@ Menus and the `?` help dialog render keys from the resolved command table. A rem
 
 Extension commands use `<extensionId>.<commandId>` and resolve by the same rules. An activated extension keyboard mode is a routing layer, not another command table: it may consume a key, pass it to resolved bindings, or consume it and exit. Multi-key grammar and counts are extension-owned, but resolved actions invoke these same public `workdeck.*` commands.
 
-Routing precedence is host prompts and dialogs, menus and overlays, focused text inputs, interactive file-view mode, session extension keyboard mode, the command table, then the focused review widget. Widget-owned keys such as Esc, Enter, and Ctrl+S while composing a note are structural and are not remappable. Escape is reserved for exiting active extension modes so an extension cannot trap the keyboard.
+Routing precedence is host prompts and dialogs, menus and overlays, focused text inputs (including host-rendered extension pane inputs), interactive file-view mode, session extension keyboard mode, the command table, then the focused review widget. Widget-owned keys such as Esc, Enter, and Ctrl+S while composing a note are structural and are not remappable. Escape is reserved for exiting active extension modes so an extension cannot trap the keyboard.
 
 `[keybindings]` is read from `~/.config/workdeck/config.toml` only, never from repository configuration. A checkout cannot rearrange the reviewer’s keyboard.

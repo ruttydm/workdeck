@@ -52,6 +52,14 @@ An extension wraps a declarative `ViewNode` in `ViewNode::Action { id, child }`.
 
 `RefreshPane` invalidates only the named extension pane. This replaces component-framework rerenders with explicit, bounded host cache invalidation.
 
+## Focused pane inputs
+
+`ViewNode::Input { id, value, placeholder, focused }` is the native, host-rendered equivalent of Hunk's controlled one-line pane editor. IDs are unique within one pane tree and limited to 1,024 bytes; values are limited to 64 KiB; IDs, values, and placeholders cannot contain line endings; and one tree may declare at most one focused input. Across simultaneously visible panes, the first focused input in deterministic pane-layout order owns typing.
+
+Ratatui draws the value (or its placeholder), measures its cell width, and owns the terminal cursor. Character insertion, Unicode-aware Left/Right/Home/End movement, Backspace, and Delete are delivered as a complete controlled value through `workdeck/pane/input`. The request carries the local pane/input IDs, current review and saved-note snapshots, working directory, and open panes. The extension commits the value in its own state and returns ordinary validated host actions; Workdeck invalidates the pane render immediately. Protocol validation and the normal two-second request deadline contain malformed or stalled handlers.
+
+A focused pane input runs after prompts, dialogs, menus, help, theme selection, and the file filter, but before interactive file-view modes, session keyboard modes, extension commands, built-in commands, and review scrolling. This preserves Hunk's editor-first routing: text such as `j?` cannot both edit the pane and invoke navigation, extension commands, or help. Inputs are pane-only and are rejected from fixed-height file-view components, whose keyboard contract remains deliberately non-focusable.
+
 ## Dialogs
 
 Input dialogs accept an optional initial value. Select, input, confirmation, and host-mediated workspace-write prompts enter one global FIFO, so requests from different extensions cannot replace or jump ahead of the visible question. Promoting a request resets its option cursor or input value; select movement wraps at both ends, and a stale answer ID cannot settle the request behind it.

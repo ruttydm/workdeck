@@ -8,7 +8,7 @@ use workdeck_extension_api::{
     ExtensionFileSide, ExtensionFileViewHunkRows, ExtensionFileViewLayout, ExtensionFileViewRow,
     ExtensionFileViewRowComponent, ExtensionFileViewSelectionPrefix, ExtensionFileViewSourceRange,
     ExtensionFileViewSpan, ExtensionFileViewTone, ExtensionTextAttribute, ValidatedFileViewLayout,
-    ViewNode, validate_view,
+    ViewNode, validate_view, view_contains_input,
 };
 
 pub const FILE_VIEW_MAX_ROWS: usize = 10_000;
@@ -198,6 +198,11 @@ fn parse_component(
         .ok_or_else(|| format!("rows[{row_index}].component.content is not a declarative view"))?;
     let content = serde_json::from_value::<ViewNode>(content)
         .map_err(|_| format!("rows[{row_index}].component.content is not a declarative view"))?;
+    if view_contains_input(&content) {
+        return Err(format!(
+            "rows[{row_index}].component.content contains a pane-only input"
+        ));
+    }
     validate_view(&content)
         .map_err(|issue| format!("rows[{row_index}].component.content {issue}"))?;
     let selected_content = component
@@ -207,6 +212,11 @@ fn parse_component(
             let content = serde_json::from_value::<ViewNode>(content).map_err(|_| {
                 format!("rows[{row_index}].component.selectedContent is not a declarative view")
             })?;
+            if view_contains_input(&content) {
+                return Err(format!(
+                    "rows[{row_index}].component.selectedContent contains a pane-only input"
+                ));
+            }
             validate_view(&content)
                 .map_err(|issue| format!("rows[{row_index}].component.selectedContent {issue}"))?;
             Ok::<_, String>(content)
@@ -219,6 +229,11 @@ fn parse_component(
             let content = serde_json::from_value::<ViewNode>(content).map_err(|_| {
                 format!("rows[{row_index}].component.expandedContent is not a declarative view")
             })?;
+            if view_contains_input(&content) {
+                return Err(format!(
+                    "rows[{row_index}].component.expandedContent contains a pane-only input"
+                ));
+            }
             validate_view(&content)
                 .map_err(|issue| format!("rows[{row_index}].component.expandedContent {issue}"))?;
             Ok::<_, String>(content)
@@ -233,6 +248,11 @@ fn parse_component(
                     "rows[{row_index}].component.selectedExpandedContent is not a declarative view"
                 )
             })?;
+            if view_contains_input(&content) {
+                return Err(format!(
+                    "rows[{row_index}].component.selectedExpandedContent contains a pane-only input"
+                ));
+            }
             validate_view(&content).map_err(|issue| {
                 format!("rows[{row_index}].component.selectedExpandedContent {issue}")
             })?;
@@ -643,6 +663,44 @@ mod tests {
         assert!(component.expanded_content.is_some());
         assert!(component.toggle_expanded_on_left_mouse_up);
         assert_eq!(component.selection_prefix.as_ref().unwrap().selected, "▶ ");
+    }
+
+    #[test]
+    fn rejects_pane_only_inputs_from_every_file_view_component_surface() {
+        for field in [
+            "content",
+            "selectedContent",
+            "expandedContent",
+            "selectedExpandedContent",
+        ] {
+            let mut component = serde_json::Map::from_iter([
+                ("height".into(), json!(2)),
+                ("content".into(), json!({"type": "empty"})),
+                ("expandedContent".into(), json!({"type": "empty"})),
+            ]);
+            component.insert(
+                field.into(),
+                json!({
+                    "type": "input",
+                    "id": "prompt",
+                    "value": "",
+                    "focused": true
+                }),
+            );
+            let error = validate_file_view_layout(
+                &json!({
+                    "rows": [{"id": "custom", "spans": [], "component": component}],
+                    "hunkRows": []
+                }),
+                0,
+                80,
+            )
+            .unwrap_err();
+            assert_eq!(
+                error,
+                format!("rows[0].component.{field} contains a pane-only input")
+            );
+        }
     }
 
     #[test]

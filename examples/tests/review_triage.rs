@@ -145,6 +145,13 @@ fn flatten_text(node: &ViewNode, output: &mut String) {
             }
         }
         ViewNode::Action { child, .. } => flatten_text(child, output),
+        ViewNode::Input {
+            value, placeholder, ..
+        } => output.push_str(if value.is_empty() {
+            placeholder.as_deref().unwrap_or_default()
+        } else {
+            value
+        }),
         ViewNode::Divider | ViewNode::Empty => {}
     }
 }
@@ -163,6 +170,13 @@ fn text_rows(node: &ViewNode, output: &mut Vec<String>) {
             }
         }
         ViewNode::Action { child, .. } => text_rows(child, output),
+        ViewNode::Input {
+            value, placeholder, ..
+        } => output.push(if value.is_empty() {
+            placeholder.clone().unwrap_or_default()
+        } else {
+            value.clone()
+        }),
         ViewNode::Divider | ViewNode::Empty => {}
     }
 }

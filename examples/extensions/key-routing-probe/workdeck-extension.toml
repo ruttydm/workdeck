@@ -1,0 +1,7 @@
+id = "test.key-routing-probe"
+name = "Key routing parity probe"
+version = "0.1.0"
+api_version = 1
+executable = "bin/workdeck-example-key-routing-probe-extension"
+capabilities = ["commands", "panes", "file-views", "configuration", "notifications"]
+description = "Compiled parity fixture for modal, file-view mode, and focused pane input ownership"

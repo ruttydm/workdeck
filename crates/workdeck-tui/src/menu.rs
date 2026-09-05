@@ -167,6 +167,11 @@ pub struct MenuController {
 
 impl MenuController {
     #[must_use]
+    pub const fn is_open(&self) -> bool {
+        self.active_menu_id.is_some()
+    }
+
+    #[must_use]
     pub fn active_menu_id(&mut self, menus: &AppMenus) -> Option<MenuId> {
         if self
             .active_menu_id

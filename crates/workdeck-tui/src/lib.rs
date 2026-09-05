@@ -245,9 +245,10 @@ use workdeck_extension_api::{
     ExtensionResolvedLayout, ExtensionReviewNote, ExtensionWorkspaceWriteCompletion,
     ExtensionWorkspaceWriteResult, FileLanguageGlobTarget, FileLanguageMatcher,
     FileViewModeKeyRequest, FileViewModeLifecycleRequest, KeyRoutingResult,
-    KeyboardModeRegistration, PaneActionInvocation, PanePlacement, PaneRegistration,
-    PaneRenderRequest, Registration, ReviewEvent, SessionReloadReason, ViewNode, ViewStyle,
-    WORKDECK_FILES_PANE_KEY, bundled_files_pane, extension_pane_size, file_view_unavailable_reason,
+    KeyboardModeRegistration, PaneActionInvocation, PaneInputInvocation, PanePlacement,
+    PaneRegistration, PaneRenderRequest, Registration, ReviewEvent, SessionReloadReason, ViewNode,
+    ViewStyle, WORKDECK_FILES_PANE_KEY, bundled_files_pane, extension_pane_size,
+    file_view_unavailable_reason,
 };
 use workdeck_extension_host::{
     ActiveSessionKeyboardMode, EXTENSION_SHUTDOWN_TIMEOUT,
@@ -643,6 +644,41 @@ struct ExtensionPaneActionHit {
     action_id: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FocusedExtensionPaneInput {
+    pane_key: String,
+    registration_identity: u64,
+    extension_index: usize,
+    extension_id: String,
+    pane_id: String,
+    input_id: String,
+    value: String,
+    cursor: usize,
+    bounds: Rect,
+    prefix_cells: u16,
+}
+
+#[derive(Debug, Clone)]
+struct FocusedExtensionPaneInputCandidate {
+    pane_key: String,
+    registration_identity: u64,
+    extension_index: usize,
+    extension_id: String,
+    pane_id: String,
+    input_id: String,
+    value: String,
+    bounds: Rect,
+    prefix_cells: u16,
+}
+
+#[derive(Debug, Clone)]
+struct FlattenedPaneInput {
+    input_id: String,
+    value: String,
+    focused: bool,
+    prefix_cells: u16,
+}
+
 #[derive(Debug, Clone)]
 struct CachedPaneRender {
     signature: PaneRenderSignature,
@@ -698,6 +734,7 @@ struct ExtensionPaneRuntime {
     keyboard_mode_controller: KeyboardModeControllerState,
     dialogs: ExtensionDialogQueue,
     pane_action_hits: Vec<ExtensionPaneActionHit>,
+    focused_pane_input: Option<FocusedExtensionPaneInput>,
     open: BTreeSet<String>,
     failed_pane_registration_ids: BTreeSet<u64>,
     force_builtin_files_sidebar: bool,
@@ -1952,6 +1989,44 @@ impl ReviewApp {
             })
     }
 
+    /// Cursor requested by a focused, host-rendered extension-pane input.
+    #[must_use]
+    pub fn extension_pane_input_cursor_position(&self) -> Option<Position> {
+        if self.note_composer.is_some()
+            || self.view_preference_quit.save_config_prompt_open()
+            || self.extension_trust_prompt_root().is_some()
+            || self.themes.selector_open
+            || self.show_agent_skill
+            || self.focus == Focus::Filter
+            || self.show_help
+        {
+            return None;
+        }
+        let runtime = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if runtime.menu.is_open() || runtime.dialogs.current().is_some() {
+            return None;
+        }
+        let active = runtime.focused_pane_input.clone()?;
+        drop(runtime);
+        let prefix = active
+            .value
+            .chars()
+            .take(active.cursor)
+            .collect::<String>()
+            .width();
+        let offset = usize::from(active.prefix_cells).saturating_add(prefix);
+        let max_offset = usize::from(active.bounds.width.saturating_sub(1));
+        Some(Position::new(
+            active.bounds.x.saturating_add(
+                u16::try_from(offset.min(max_offset)).unwrap_or(active.bounds.width),
+            ),
+            active.bounds.y,
+        ))
+    }
+
     /// Cursor requested by the focused status-bar filter input.
     #[must_use]
     pub fn status_filter_cursor_position(&self, area: Rect) -> Option<Position> {
@@ -2115,6 +2190,9 @@ impl ReviewApp {
                 self.show_help = false;
                 self.help_dialog_hits.set(None);
             }
+            return;
+        }
+        if self.handle_focused_extension_pane_input(&key) {
             return;
         }
         if self.route_active_file_view_mode(&key) {
@@ -3834,6 +3912,134 @@ impl ReviewApp {
                 ));
             }
         }
+    }
+
+    fn handle_focused_extension_pane_input(&mut self, key: &KeyEvent) -> bool {
+        let active = {
+            let mut runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let valid = runtime.focused_pane_input.as_ref().is_some_and(|active| {
+                runtime.open.contains(&active.pane_key)
+                    && runtime.panes.iter().any(|pane| {
+                        pane.key == active.pane_key
+                            && pane.registered.identity == active.registration_identity
+                    })
+            });
+            if !valid {
+                runtime.focused_pane_input = None;
+                return false;
+            }
+            runtime.focused_pane_input.clone().expect("validated above")
+        };
+
+        let mut value = active.value.clone();
+        let mut cursor = active.cursor.min(value.chars().count());
+        let changed = match key.code {
+            KeyCode::Char(character)
+                if !key.modifiers.intersects(
+                    KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
+                ) =>
+            {
+                insert_filter_character(&mut value, &mut cursor, character);
+                true
+            }
+            KeyCode::Backspace => {
+                let before = value.clone();
+                remove_filter_character_before(&mut value, &mut cursor);
+                value != before
+            }
+            KeyCode::Delete => {
+                let before = value.clone();
+                remove_filter_character_at(&mut value, &mut cursor);
+                value != before
+            }
+            KeyCode::Left => {
+                cursor = cursor.saturating_sub(1);
+                false
+            }
+            KeyCode::Right => {
+                cursor = cursor.saturating_add(1).min(value.chars().count());
+                false
+            }
+            KeyCode::Home => {
+                cursor = 0;
+                false
+            }
+            KeyCode::End => {
+                cursor = value.chars().count();
+                false
+            }
+            _ => return false,
+        };
+
+        if !changed {
+            if let Some(current) = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .focused_pane_input
+                .as_mut()
+                .filter(|current| {
+                    current.pane_key == active.pane_key && current.input_id == active.input_id
+                })
+            {
+                current.cursor = cursor;
+            }
+            return true;
+        }
+
+        let (snapshot, review) =
+            self.with_state(|state| (state.snapshot(), build_extension_review_snapshot(state)));
+        let cwd = self.extension_command_cwd();
+        let execution = {
+            let mut runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let open_panes = runtime.open.iter().cloned().collect();
+            runtime.extensions[active.extension_index].invoke_pane_input(PaneInputInvocation {
+                pane_id: active.pane_id.clone(),
+                input_id: active.input_id.clone(),
+                value: value.clone(),
+                snapshot,
+                cwd,
+                review: Some(review),
+                open_panes,
+            })
+        };
+        match execution {
+            Ok(execution) => {
+                {
+                    let mut runtime = self
+                        .extension_pane_runtime
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    if let Some(current) = runtime.focused_pane_input.as_mut().filter(|current| {
+                        current.pane_key == active.pane_key
+                            && current.registration_identity == active.registration_identity
+                            && current.input_id == active.input_id
+                    }) {
+                        current.value = value;
+                        current.cursor = cursor;
+                    }
+                    runtime.cached_renders.remove(&active.pane_key);
+                }
+                self.apply_extension_actions(
+                    active.extension_index,
+                    &active.extension_id,
+                    execution.actions,
+                );
+            }
+            Err(error) => {
+                self.status = Some(format!(
+                    "extension {} pane input failed: {error}",
+                    active.extension_id
+                ));
+            }
+        }
+        true
     }
 
     fn route_active_keyboard_mode(&mut self, key: &KeyEvent) -> bool {
@@ -7894,7 +8100,10 @@ fn run_loop(
                 area.width,
                 u16::from(area.height > 0),
             );
-            if let Some(position) = app.status_filter_cursor_position(footer) {
+            if let Some(position) = app
+                .extension_pane_input_cursor_position()
+                .or_else(|| app.status_filter_cursor_position(footer))
+            {
                 frame.set_cursor_position(position);
             }
         })?;
@@ -9206,6 +9415,7 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 registration.extension_index,
                 registration.extension_id,
                 registration.pane.id,
+                registration.registered.identity,
             )),
         ));
     }
@@ -9230,11 +9440,49 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clear();
     }
+    let mut focused_pane_input = None;
     for (key, pane, pane_area, divider, owner) in rendered_panes {
         if let Some(divider) = divider {
             render_extension_pane_divider(divider, buffer, &key, pane.pane.placement, app);
         }
-        render_extension_pane(pane_area, buffer, &pane, owner, app);
+        if focused_pane_input.is_none() {
+            focused_pane_input = render_extension_pane(pane_area, buffer, &key, &pane, owner, app);
+        } else {
+            let _ = render_extension_pane(pane_area, buffer, &key, &pane, owner, app);
+        }
+    }
+    let mut runtime = app
+        .extension_pane_runtime
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    runtime.focused_pane_input = focused_pane_input.map(|candidate| {
+        let retained_cursor = runtime.focused_pane_input.as_ref().and_then(|current| {
+            (current.pane_key == candidate.pane_key
+                && current.registration_identity == candidate.registration_identity
+                && current.input_id == candidate.input_id
+                && current.value == candidate.value)
+                .then_some(current.cursor)
+        });
+        FocusedExtensionPaneInput {
+            cursor: retained_cursor.unwrap_or_else(|| candidate.value.chars().count()),
+            pane_key: candidate.pane_key,
+            registration_identity: candidate.registration_identity,
+            extension_index: candidate.extension_index,
+            extension_id: candidate.extension_id,
+            pane_id: candidate.pane_id,
+            input_id: candidate.input_id,
+            value: candidate.value,
+            bounds: candidate.bounds,
+            prefix_cells: candidate.prefix_cells,
+        }
+    });
+}
+
+fn pane_input_display(value: &str, placeholder: Option<&str>) -> String {
+    if value.is_empty() {
+        placeholder.unwrap_or_default().to_owned()
+    } else {
+        value.to_owned()
     }
 }
 
@@ -9270,20 +9518,30 @@ fn render_builtin_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
 fn render_extension_pane(
     area: Rect,
     buffer: &mut Buffer,
+    pane_key: &str,
     pane: &ExtensionPaneView,
-    owner: Option<(usize, String, String)>,
+    owner: Option<(usize, String, String, u64)>,
     app: &ReviewApp,
-) {
+) -> Option<FocusedExtensionPaneInputCandidate> {
     let mut lines = Vec::new();
     let mut actions = Vec::new();
-    flatten_view(&pane.content, 0, None, &mut lines, &mut actions);
+    let mut inputs = Vec::new();
+    flatten_view(
+        &pane.content,
+        0,
+        None,
+        &mut lines,
+        &mut actions,
+        &mut inputs,
+    );
     Block::default()
         .style(Style::default().bg(ratatui_theme_color(&app.options.theme.panel)))
         .render(area, buffer);
-    if let Some((extension_index, extension_id, pane_id)) = owner {
+    let mut focused = None;
+    if let Some((extension_index, extension_id, pane_id, registration_identity)) = owner {
         let mut y = area.y;
         let mut hits = Vec::new();
-        for (line, action_id) in lines.iter().zip(&actions) {
+        for ((line, action_id), input) in lines.iter().zip(&actions).zip(&inputs) {
             let height = extension_pane_line_height(line, area.width);
             let visible_height = height.min(area.bottom().saturating_sub(y));
             if let Some(action_id) = action_id
@@ -9295,6 +9553,22 @@ fn render_extension_pane(
                     extension_id: extension_id.clone(),
                     pane_id: pane_id.clone(),
                     action_id: action_id.clone(),
+                });
+            }
+            if focused.is_none()
+                && visible_height > 0
+                && let Some(input) = input.as_ref().filter(|input| input.focused)
+            {
+                focused = Some(FocusedExtensionPaneInputCandidate {
+                    pane_key: pane_key.to_owned(),
+                    registration_identity,
+                    extension_index,
+                    extension_id: extension_id.clone(),
+                    pane_id: pane_id.clone(),
+                    input_id: input.input_id.clone(),
+                    value: input.value.clone(),
+                    bounds: Rect::new(area.x, y, area.width, visible_height),
+                    prefix_cells: input.prefix_cells,
                 });
             }
             y = y.saturating_add(height);
@@ -9311,6 +9585,7 @@ fn render_extension_pane(
     Paragraph::new(lines)
         .wrap(Wrap { trim: false })
         .render(area, buffer);
+    focused
 }
 
 fn extension_pane_line_height(line: &Line<'_>, width: u16) -> u16 {
@@ -9361,6 +9636,7 @@ fn flatten_view(
     action_id: Option<&str>,
     lines: &mut Vec<Line<'static>>,
     actions: &mut Vec<Option<String>>,
+    inputs: &mut Vec<Option<FlattenedPaneInput>>,
 ) {
     match node {
         ViewNode::Text { text, style } => {
@@ -9369,9 +9645,11 @@ fn flatten_view(
                 Span::styled(text.clone(), extension_style(style)),
             ]));
             actions.push(action_id.map(str::to_owned));
+            inputs.push(None);
         }
         ViewNode::Row { children, gap } => {
             let mut spans = vec![Span::raw(" ".repeat(indent))];
+            let mut row_input: Option<FlattenedPaneInput> = None;
             for (index, child) in children.iter().enumerate() {
                 if index > 0 {
                     spans.push(Span::raw(" ".repeat(usize::from(*gap))));
@@ -9380,11 +9658,38 @@ fn flatten_view(
                     ViewNode::Text { text, style } => {
                         spans.push(Span::styled(text.clone(), extension_style(style)));
                     }
+                    ViewNode::Input {
+                        id,
+                        value,
+                        placeholder,
+                        focused,
+                    } => {
+                        let prefix_cells =
+                            u16::try_from(spans.iter().map(|span| span.width()).sum::<usize>())
+                                .unwrap_or(u16::MAX);
+                        spans.push(Span::styled(
+                            pane_input_display(value, placeholder.as_deref()),
+                            Style::default().add_modifier(Modifier::UNDERLINED),
+                        ));
+                        let candidate = FlattenedPaneInput {
+                            input_id: id.clone(),
+                            value: value.clone(),
+                            focused: *focused,
+                            prefix_cells,
+                        };
+                        if row_input
+                            .as_ref()
+                            .is_none_or(|current| !current.focused && candidate.focused)
+                        {
+                            row_input = Some(candidate);
+                        }
+                    }
                     _ => spans.push(Span::raw("…")),
                 }
             }
             lines.push(Line::from(spans));
             actions.push(action_id.map(str::to_owned));
+            inputs.push(row_input);
         }
         ViewNode::Column { children, gap } => {
             for (index, child) in children.iter().enumerate() {
@@ -9392,9 +9697,10 @@ fn flatten_view(
                     for _ in 0..*gap {
                         lines.push(Line::default());
                         actions.push(action_id.map(str::to_owned));
+                        inputs.push(None);
                     }
                 }
-                flatten_view(child, indent, action_id, lines, actions);
+                flatten_view(child, indent, action_id, lines, actions, inputs);
             }
         }
         ViewNode::List { items, selected } => {
@@ -9409,11 +9715,33 @@ fn flatten_view(
                     Style::default().fg(Color::Cyan),
                 ));
                 actions.push(action_id.map(str::to_owned));
-                flatten_view(item, indent + 2, action_id, lines, actions);
+                inputs.push(None);
+                flatten_view(item, indent + 2, action_id, lines, actions, inputs);
             }
         }
         ViewNode::Action { id, child } => {
-            flatten_view(child, indent, Some(id), lines, actions);
+            flatten_view(child, indent, Some(id), lines, actions, inputs);
+        }
+        ViewNode::Input {
+            id,
+            value,
+            placeholder,
+            focused,
+        } => {
+            lines.push(Line::from(vec![
+                Span::raw(" ".repeat(indent)),
+                Span::styled(
+                    pane_input_display(value, placeholder.as_deref()),
+                    Style::default().add_modifier(Modifier::UNDERLINED),
+                ),
+            ]));
+            actions.push(action_id.map(str::to_owned));
+            inputs.push(Some(FlattenedPaneInput {
+                input_id: id.clone(),
+                value: value.clone(),
+                focused: *focused,
+                prefix_cells: u16::try_from(indent).unwrap_or(u16::MAX),
+            }));
         }
         ViewNode::Divider => {
             lines.push(Line::styled(
@@ -9421,6 +9749,7 @@ fn flatten_view(
                 Style::default().fg(Color::DarkGray),
             ));
             actions.push(action_id.map(str::to_owned));
+            inputs.push(None);
         }
         ViewNode::Empty => {}
     }
@@ -9478,6 +9807,17 @@ fn flatten_file_view_component(
         ViewNode::Action { child, .. } => {
             flatten_file_view_component(child, indent, theme, lines);
         }
+        ViewNode::Input {
+            value, placeholder, ..
+        } => lines.push(Line::from(vec![
+            Span::raw(" ".repeat(indent)),
+            Span::styled(
+                pane_input_display(value, placeholder.as_deref()),
+                Style::default()
+                    .fg(ratatui_theme_color(&theme.text))
+                    .add_modifier(Modifier::UNDERLINED),
+            ),
+        ])),
         ViewNode::Divider => lines.push(Line::styled(
             format!("{}────────", " ".repeat(indent)),
             Style::default().fg(ratatui_theme_color(&theme.border)),
@@ -14224,6 +14564,83 @@ mod tests {
         assert_eq!(extension_pane_line_height(&line, 10), 3);
         assert_eq!(extension_pane_line_height(&line, 17), 1);
         assert_eq!(extension_pane_line_height(&Line::default(), 0), 1);
+    }
+
+    #[test]
+    fn pane_input_flattening_selects_the_focused_row_editor_and_placeholder() {
+        let view = ViewNode::Row {
+            children: vec![
+                ViewNode::Text {
+                    text: "prompt: ".into(),
+                    style: ViewStyle::default(),
+                },
+                ViewNode::Input {
+                    id: "inactive".into(),
+                    value: String::new(),
+                    placeholder: Some("first".into()),
+                    focused: false,
+                },
+                ViewNode::Input {
+                    id: "active".into(),
+                    value: "界".into(),
+                    placeholder: None,
+                    focused: true,
+                },
+            ],
+            gap: 1,
+        };
+        let mut lines = Vec::new();
+        let mut actions = Vec::new();
+        let mut inputs = Vec::new();
+        flatten_view(&view, 0, None, &mut lines, &mut actions, &mut inputs);
+
+        assert_eq!(lines[0].to_string(), "prompt:  first 界");
+        assert_eq!(inputs[0].as_ref().unwrap().input_id, "active");
+        assert!(inputs[0].as_ref().unwrap().focused);
+        assert_eq!(pane_input_display("", Some("placeholder")), "placeholder");
+        assert_eq!(pane_input_display("value", Some("ignored")), "value");
+    }
+
+    #[test]
+    fn pane_input_cursor_yields_to_every_higher_priority_overlay_owner() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        app.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .focused_pane_input = Some(FocusedExtensionPaneInput {
+            pane_key: "probe:bottom".into(),
+            registration_identity: 1,
+            extension_index: 0,
+            extension_id: "probe".into(),
+            pane_id: "bottom".into(),
+            input_id: "prompt".into(),
+            value: "j界".into(),
+            cursor: 2,
+            bounds: Rect::new(10, 7, 20, 1),
+            prefix_cells: 2,
+        });
+        assert_eq!(
+            app.extension_pane_input_cursor_position(),
+            Some(Position::new(15, 7))
+        );
+
+        app.show_help = true;
+        assert_eq!(app.extension_pane_input_cursor_position(), None);
+        app.show_help = false;
+        app.themes.selector_open = true;
+        assert_eq!(app.extension_pane_input_cursor_position(), None);
+        app.themes.selector_open = false;
+        app.focus = Focus::Filter;
+        assert_eq!(app.extension_pane_input_cursor_position(), None);
+        app.focus = Focus::Review;
+
+        let menus = app.app_menus();
+        app.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .menu
+            .open(&menus, MenuId::File);
+        assert_eq!(app.extension_pane_input_cursor_position(), None);
     }
 
     #[test]

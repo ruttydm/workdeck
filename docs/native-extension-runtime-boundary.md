@@ -17,6 +17,7 @@ at runtime. Provider-neutral values cross newline-delimited JSON-RPC as owned Se
 is no host module identity to split:
 
 - file views return bounded declarative rows and `ViewNode` trees; Ratatui alone renders them;
+- focused pane inputs exchange complete controlled values through `workdeck/pane/input`, while the host owns editing, cursor geometry, routing precedence, limits, and timeout containment;
 - extension errors retain the public `WorkdeckExtensionUserError` wire shape;
 - helper Rust modules are compiled into the selected executable;
 - canonical manifest and directory paths collapse filesystem aliases to one runtime boundary;

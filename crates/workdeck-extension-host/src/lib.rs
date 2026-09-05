@@ -66,10 +66,11 @@ use workdeck_extension_api::{
     FileViewModeLifecycleExecution, FileViewModeLifecycleRequest, HandshakeRequest,
     HandshakeResponse, InputDialogSubmission, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
     KeyboardModeExecution, KeyboardModeKeyRequest, KeyboardModeLifecycleRequest,
-    LineHighlightRequest, MAX_CLI_STDIN_CHUNK_BYTES, MAX_MESSAGE_BYTES, ManifestError,
-    PaneActionInvocation, PaneAvailabilityRequest, PaneAvailabilityResponse, PaneRenderRequest,
-    PaneRenderResponse, Registration, ReviewEvent, SelectDialogSubmission, TransformRequest,
-    TransformResponse, ValidatedFileViewLayout, validate_view,
+    LineHighlightRequest, MAX_CLI_STDIN_CHUNK_BYTES, MAX_MESSAGE_BYTES, MAX_PANE_INPUT_BYTES,
+    ManifestError, PaneActionInvocation, PaneAvailabilityRequest, PaneAvailabilityResponse,
+    PaneInputInvocation, PaneRenderRequest, PaneRenderResponse, Registration, ReviewEvent,
+    SelectDialogSubmission, TransformRequest, TransformResponse, ValidatedFileViewLayout,
+    validate_view,
 };
 
 #[derive(Debug, Error)]
@@ -2045,6 +2046,63 @@ impl LoadedExtension {
                 message: error.to_string(),
             })?;
         self.validate_host_actions(&execution.actions, "pane action")?;
+        Ok(execution)
+    }
+
+    /// Deliver one controlled value change from a focused declarative pane input.
+    pub fn invoke_pane_input(
+        &mut self,
+        invocation: PaneInputInvocation,
+    ) -> Result<CommandExecution, HostError> {
+        if !self.handshake.registrations.iter().any(|registration| {
+            matches!(registration, Registration::Pane(pane) if pane.id == invocation.pane_id)
+        }) {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "pane input",
+                message: format!("pane {:?} is not registered", invocation.pane_id),
+            });
+        }
+        if invocation.input_id.trim().is_empty() || invocation.input_id.len() > 1_024 {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "pane input",
+                message: "pane input ids must be 1..=1024 bytes".into(),
+            });
+        }
+        if invocation.input_id.contains(['\r', '\n']) {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "pane input",
+                message: "pane input ids must be one line".into(),
+            });
+        }
+        if invocation.value.len() > MAX_PANE_INPUT_BYTES {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "pane input",
+                message: format!("pane input exceeds {MAX_PANE_INPUT_BYTES} bytes"),
+            });
+        }
+        if invocation.value.contains(['\r', '\n']) {
+            return Err(HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "pane input",
+                message: "pane input values must be one line".into(),
+            });
+        }
+        let value = self.request(
+            "workdeck/pane/input",
+            invocation,
+            Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+        )?;
+        let execution: CommandExecution =
+            serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "pane input",
+                message: error.to_string(),
+            })?;
+        self.validate_host_actions(&execution.actions, "pane input")?;
         Ok(execution)
     }
 

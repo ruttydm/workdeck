@@ -213,6 +213,13 @@ fn view_text(node: &ViewNode, output: &mut String) {
             }
         }
         ViewNode::Action { child, .. } => view_text(child, output),
+        ViewNode::Input {
+            value, placeholder, ..
+        } => output.push_str(if value.is_empty() {
+            placeholder.as_deref().unwrap_or_default()
+        } else {
+            value
+        }),
         ViewNode::Divider | ViewNode::Empty => {}
     }
 }

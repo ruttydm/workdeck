@@ -23,7 +23,7 @@ pub use vcs::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::borrow::Cow;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
@@ -45,6 +45,7 @@ pub const DEFAULT_CLI_REQUEST_TIMEOUT_MS: u64 = 30_000;
 pub const MAX_CLI_STDIN_CHUNK_BYTES: usize = 64 * 1024;
 pub const MAX_VIEW_NODES: usize = 10_000;
 pub const MAX_VIEW_DEPTH: usize = 64;
+pub const MAX_PANE_INPUT_BYTES: usize = 64 * 1024;
 pub const FILE_VIEW_DRAFT_UNAVAILABLE_REASON: &str =
     "File presentations are unavailable while drafting an inline review note • using raw diff";
 
@@ -909,6 +910,15 @@ pub enum ViewNode {
         id: String,
         child: Box<ViewNode>,
     },
+    /// A host-rendered, one-line controlled input inside an extension pane.
+    Input {
+        id: String,
+        value: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        placeholder: Option<String>,
+        #[serde(default)]
+        focused: bool,
+    },
     Divider,
     Empty,
 }
@@ -1126,6 +1136,22 @@ pub struct PaneRenderResponse {
 pub struct PaneActionInvocation {
     pub pane_id: String,
     pub action_id: String,
+    pub snapshot: ReviewSnapshot,
+    #[serde(default)]
+    pub cwd: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<ExtensionReviewSnapshot>,
+    #[serde(default)]
+    pub open_panes: Vec<String>,
+}
+
+/// One controlled value change from a focused input in an extension pane.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaneInputInvocation {
+    pub pane_id: String,
+    pub input_id: String,
+    pub value: String,
     pub snapshot: ReviewSnapshot,
     #[serde(default)]
     pub cwd: PathBuf,
@@ -1580,6 +1606,8 @@ pub fn validate_view(root: &ViewNode) -> Result<(), String> {
     let mut pending = vec![(root, 1_usize)];
     let mut nodes = 0_usize;
     let mut text_bytes = 0_usize;
+    let mut input_ids = BTreeSet::new();
+    let mut focused_inputs = 0_usize;
     while let Some((node, depth)) = pending.pop() {
         if depth > MAX_VIEW_DEPTH {
             return Err(format!("view exceeds maximum depth {MAX_VIEW_DEPTH}"));
@@ -1602,6 +1630,49 @@ pub fn validate_view(root: &ViewNode) -> Result<(), String> {
                 }
                 pending.push((child, depth + 1));
             }
+            ViewNode::Input {
+                id,
+                value,
+                placeholder,
+                focused,
+            } => {
+                if id.trim().is_empty() || id.len() > 1_024 {
+                    return Err("view input ids must be 1..=1024 bytes".into());
+                }
+                if id.contains(['\r', '\n']) {
+                    return Err("view input ids must be one line".into());
+                }
+                if !input_ids.insert(id.as_str()) {
+                    return Err(format!("duplicate view input id {id:?}"));
+                }
+                if value.len() > MAX_PANE_INPUT_BYTES {
+                    return Err(format!(
+                        "view input value exceeds {MAX_PANE_INPUT_BYTES} bytes"
+                    ));
+                }
+                if value.contains(['\r', '\n']) {
+                    return Err("view input values must be one line".into());
+                }
+                if placeholder
+                    .as_ref()
+                    .is_some_and(|value| value.len() > 4 * 1_024)
+                {
+                    return Err("view input placeholder exceeds 4096 bytes".into());
+                }
+                if placeholder
+                    .as_ref()
+                    .is_some_and(|value| value.contains(['\r', '\n']))
+                {
+                    return Err("view input placeholders must be one line".into());
+                }
+                text_bytes = text_bytes
+                    .saturating_add(value.len())
+                    .saturating_add(placeholder.as_ref().map_or(0, String::len));
+                focused_inputs = focused_inputs.saturating_add(usize::from(*focused));
+                if focused_inputs > 1 {
+                    return Err("view contains more than one focused input".into());
+                }
+            }
             ViewNode::Divider | ViewNode::Empty => {}
         }
         if text_bytes > MAX_MESSAGE_BYTES {
@@ -1609,6 +1680,24 @@ pub fn validate_view(root: &ViewNode) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Report whether a declarative tree contains pane-only input state.
+#[must_use]
+pub fn view_contains_input(root: &ViewNode) -> bool {
+    let mut pending = vec![root];
+    while let Some(node) = pending.pop() {
+        match node {
+            ViewNode::Input { .. } => return true,
+            ViewNode::Row { children, .. } | ViewNode::Column { children, .. } => {
+                pending.extend(children);
+            }
+            ViewNode::List { items, .. } => pending.extend(items),
+            ViewNode::Action { child, .. } => pending.push(child),
+            ViewNode::Text { .. } | ViewNode::Divider | ViewNode::Empty => {}
+        }
+    }
+    false
 }
 
 #[cfg(test)]
@@ -2014,6 +2103,132 @@ mod tests {
             serde_json::from_value::<CommandExecution>(encoded).unwrap(),
             execution
         );
+    }
+
+    #[test]
+    fn pane_inputs_round_trip_as_bounded_unique_one_line_controlled_values() {
+        let input = ViewNode::Input {
+            id: "prompt".into(),
+            value: "j?界".into(),
+            placeholder: Some("type here".into()),
+            focused: true,
+        };
+        assert!(validate_view(&input).is_ok());
+        assert!(view_contains_input(&ViewNode::Column {
+            children: vec![ViewNode::Empty, input.clone()],
+            gap: 0,
+        }));
+        assert_eq!(
+            serde_json::to_value(&input).unwrap(),
+            serde_json::json!({
+                "type": "input",
+                "id": "prompt",
+                "value": "j?界",
+                "placeholder": "type here",
+                "focused": true
+            })
+        );
+        assert_eq!(
+            serde_json::from_value::<ViewNode>(serde_json::to_value(&input).unwrap()).unwrap(),
+            input
+        );
+
+        let invocation = PaneInputInvocation {
+            pane_id: "bottom".into(),
+            input_id: "prompt".into(),
+            value: "j?".into(),
+            snapshot: ReviewSnapshot {
+                generation: 0,
+                changeset: Changeset {
+                    id: "pane-input".into(),
+                    source_label: "test".into(),
+                    title: "Pane input".into(),
+                    summary: None,
+                    agent_summary: None,
+                    source: workdeck_core::ChangesetSource::Patch {
+                        label: "test".into(),
+                    },
+                    files: Vec::new(),
+                },
+                selection: workdeck_core::ReviewSelection::default(),
+            },
+            cwd: PathBuf::from("/tmp/review"),
+            review: None,
+            open_panes: vec!["example:bottom".into()],
+        };
+        let encoded = serde_json::to_value(&invocation).unwrap();
+        assert_eq!(encoded["paneId"], "bottom");
+        assert_eq!(encoded["inputId"], "prompt");
+        assert_eq!(encoded["openPanes"][0], "example:bottom");
+        assert_eq!(
+            serde_json::from_value::<PaneInputInvocation>(encoded).unwrap(),
+            invocation
+        );
+    }
+
+    #[test]
+    fn pane_input_validation_rejects_ambiguous_or_non_line_editor_state() {
+        let duplicate = ViewNode::Row {
+            children: vec![
+                ViewNode::Input {
+                    id: "same".into(),
+                    value: String::new(),
+                    placeholder: None,
+                    focused: false,
+                },
+                ViewNode::Input {
+                    id: "same".into(),
+                    value: String::new(),
+                    placeholder: None,
+                    focused: false,
+                },
+            ],
+            gap: 1,
+        };
+        assert!(validate_view(&duplicate).unwrap_err().contains("duplicate"));
+
+        let focused = |id: &str| ViewNode::Input {
+            id: id.into(),
+            value: String::new(),
+            placeholder: None,
+            focused: true,
+        };
+        assert!(
+            validate_view(&ViewNode::Column {
+                children: vec![focused("one"), focused("two")],
+                gap: 0,
+            })
+            .unwrap_err()
+            .contains("more than one focused")
+        );
+        for invalid in [
+            ViewNode::Input {
+                id: "bad\nid".into(),
+                value: String::new(),
+                placeholder: None,
+                focused: true,
+            },
+            ViewNode::Input {
+                id: "value".into(),
+                value: "two\nlines".into(),
+                placeholder: None,
+                focused: true,
+            },
+            ViewNode::Input {
+                id: "placeholder".into(),
+                value: String::new(),
+                placeholder: Some("two\rline".into()),
+                focused: true,
+            },
+            ViewNode::Input {
+                id: "large".into(),
+                value: "x".repeat(MAX_PANE_INPUT_BYTES + 1),
+                placeholder: None,
+                focused: true,
+            },
+        ] {
+            assert!(validate_view(&invalid).is_err());
+        }
     }
 
     #[test]
