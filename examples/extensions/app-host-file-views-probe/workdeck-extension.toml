@@ -1,0 +1,7 @@
+id = "app-host-file-views-probe"
+name = "AppHost file views parity probe"
+version = "0.1.0"
+api_version = 1
+executable = "bin/workdeck-example-app-host-file-views-probe-extension"
+capabilities = ["commands", "file-views"]
+description = "Compiled fixture for stateful refresh and matching-file bulk presentation parity"

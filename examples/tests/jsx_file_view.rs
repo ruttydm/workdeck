@@ -198,8 +198,30 @@ fn compiled_process_boundary_ignores_ambient_source_runtimes() {
 }
 
 fn multi_hunk_changeset() -> workdeck_core::Changeset {
+    let before_lines = (1..=80)
+        .map(|line| format!("export const line{line} = {line};"))
+        .collect::<Vec<_>>();
+    let mut after_lines = before_lines.clone();
+    after_lines[0] = "export const line1 = 100;".into();
+    after_lines[59] = "export const line60 = 6000;".into();
+    let patch = format!(
+        "diff --git a/runtime-proof.ts b/runtime-proof.ts\n--- a/runtime-proof.ts\n+++ b/runtime-proof.ts\n@@ -1,4 +1,4 @@\n-{}\n+{}\n {}\n {}\n {}\n@@ -57,7 +57,7 @@\n {}\n {}\n {}\n-{}\n+{}\n {}\n {}\n {}\n",
+        before_lines[0],
+        after_lines[0],
+        before_lines[1],
+        before_lines[2],
+        before_lines[3],
+        before_lines[56],
+        before_lines[57],
+        before_lines[58],
+        before_lines[59],
+        after_lines[59],
+        before_lines[60],
+        before_lines[61],
+        before_lines[62]
+    );
     let mut changeset = parse_patch(
-        "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old one\n+new one\n@@ -4 +4 @@\n-old four\n+new four\n",
+        &patch,
         "jsx-cards",
         "JSX cards",
         ChangesetSource::Patch {
@@ -209,14 +231,14 @@ fn multi_hunk_changeset() -> workdeck_core::Changeset {
     .unwrap();
     changeset.files[0].set_sources(FileSourceSnapshots {
         old: Some(SourceSnapshot::new(
-            "old one\ntwo\nthree\nold four\n".into(),
+            format!("{}\n", before_lines.join("\n")),
             SourceOrigin::Revision {
                 revision: "HEAD".into(),
             },
             true,
         )),
         new: Some(SourceSnapshot::new(
-            "new one\ntwo\nthree\nnew four\n".into(),
+            format!("{}\n", after_lines.join("\n")),
             SourceOrigin::WorkingTree,
             false,
         )),
@@ -250,7 +272,8 @@ fn settle_file_view_frame(
         }
         assert!(
             std::time::Instant::now() < deadline,
-            "native file-view preparation did not settle"
+            "native file-view preparation did not settle:\n{}",
+            terminal_rows(terminal).join("\n")
         );
         std::thread::sleep(std::time::Duration::from_millis(2));
     }
@@ -280,6 +303,9 @@ fn ratatui_rows_toggle_only_on_an_undragged_left_mouse_up() {
             .any(|line| line.contains("Hunk 1"))
     });
     let rows = terminal_rows(&terminal);
+    assert!(rows.iter().any(|line| line.contains("▶ Hunk 1")));
+    assert!(rows.iter().any(|line| line.contains("Hunk 2")));
+    assert!(!rows.iter().any(|line| line.contains("▶ Hunk 2")));
     let row = rows
         .iter()
         .position(|line| line.contains("Hunk 1"))
@@ -301,6 +327,14 @@ fn ratatui_rows_toggle_only_on_an_undragged_left_mouse_up() {
         modifiers: KeyModifiers::NONE,
     };
     app.handle_mouse_event(mouse(MouseEventKind::Down(MouseButton::Left)));
+    terminal
+        .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+        .unwrap();
+    assert!(
+        terminal_rows(&terminal)
+            .iter()
+            .any(|line| line.contains("click for detail"))
+    );
     app.handle_mouse_event(mouse(MouseEventKind::Up(MouseButton::Left)));
     assert!(app.extension_file_view_component_expanded(&file_id, "hunk-0-summary"));
     terminal
@@ -309,8 +343,9 @@ fn ratatui_rows_toggle_only_on_an_undragged_left_mouse_up() {
     assert!(
         terminal_rows(&terminal)
             .iter()
-            .any(|line| line.contains("lines 1–1 ·"))
+            .any(|line| line.contains("lines 1–4 · @@"))
     );
+    assert!(app.take_clipboard_copy_request().is_none());
 
     app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
     terminal
@@ -319,7 +354,12 @@ fn ratatui_rows_toggle_only_on_an_undragged_left_mouse_up() {
     assert!(
         terminal_rows(&terminal)
             .iter()
-            .any(|line| line.contains("▶ Hunk"))
+            .any(|line| line.contains("▶ Hunk 2"))
+    );
+    assert!(
+        !terminal_rows(&terminal)
+            .iter()
+            .any(|line| line.contains("▶ Hunk 1"))
     );
     assert!(app.extension_file_view_component_expanded(&file_id, "hunk-0-summary"));
 
@@ -335,6 +375,50 @@ fn ratatui_rows_toggle_only_on_an_undragged_left_mouse_up() {
         modifiers: KeyModifiers::NONE,
     });
     assert!(app.extension_file_view_component_expanded(&file_id, "hunk-0-summary"));
+
+    app.handle_key(KeyEvent::new(KeyCode::F(8), KeyModifiers::NONE));
+    settle_extension_commands(&mut app);
+    settle_file_view_frame(&app, &mut terminal, |terminal| {
+        terminal_rows(terminal)
+            .iter()
+            .any(|line| line.contains("line60 = 6000"))
+    });
+    let raw = terminal_rows(&terminal).join("\n");
+    assert!(!raw.contains("Hunk 1"));
+}
+
+#[test]
+fn ratatui_steps_current_line_through_alternate_file_view_rows() {
+    let (_directory, manifest) = staged_extension();
+    let loaded = LoadedExtension::spawn(&manifest, "test").unwrap();
+    let changeset = multi_hunk_changeset();
+    let mut app = ReviewApp::new_with_extensions(
+        changeset,
+        ReviewOptions {
+            sidebar: false,
+            ..ReviewOptions::default()
+        },
+        vec![loaded],
+    );
+    app.handle_key(KeyEvent::new(KeyCode::F(8), KeyModifiers::NONE));
+    settle_extension_commands(&mut app);
+    let mut terminal = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    settle_file_view_frame(&app, &mut terminal, |terminal| {
+        terminal_rows(terminal)
+            .iter()
+            .any(|line| line.contains("▶ Hunk 1"))
+    });
+    let first = terminal_rows(&terminal).join("\n");
+    assert!(!first.contains("▶ Hunk 2"));
+
+    app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    settle_file_view_frame(&app, &mut terminal, |terminal| {
+        terminal_rows(terminal)
+            .iter()
+            .any(|line| line.contains("▶ Hunk 2"))
+    });
+    let second = terminal_rows(&terminal).join("\n");
+    assert!(!second.contains("▶ Hunk 1"));
 }
 
 #[test]

@@ -265,8 +265,8 @@ use workdeck_extension_host::{
     session_keyboard_mode_still_valid,
 };
 use workdeck_review::{
-    CommentAnchor, ExpandedSourceError, ExpandedSourceStatus, LayoutMode, ReviewComment,
-    ReviewGapAddress, ReviewLineTarget, ReviewNavigationFile, ReviewNavigationModel,
+    CommentAnchor, ExpandedSourceError, ExpandedSourceStatus, LayoutMode, PlannedFileViewRow,
+    ReviewComment, ReviewGapAddress, ReviewLineTarget, ReviewNavigationFile, ReviewNavigationModel,
     ReviewNoteResolution, ReviewSelectionMove, ReviewSelectionScope, ReviewState,
     SemanticReviewAnnotationIndex, SemanticReviewSelection, VisibleFileViewNote,
     build_extension_review_snapshot, build_file_view_render_plan, plan_expanded_gap,
@@ -6302,6 +6302,19 @@ impl ReviewApp {
         view_id: &str,
         file_id: Option<&str>,
     ) {
+        if file_id.is_some_and(|file_id| {
+            !self.with_state(|state| {
+                state
+                    .changeset()
+                    .files
+                    .iter()
+                    .any(|file| file.runtime_id == file_id)
+            })
+        }) {
+            // A scoped id may race a reload. Hunk deliberately treats it as a
+            // quiet no-op: it cannot invalidate a layout the review owns.
+            return;
+        }
         let mut runtime = self
             .extension_pane_runtime
             .lock()
@@ -6383,7 +6396,13 @@ impl ReviewApp {
         let selections = runtime.file_view_selections.entries().clone();
         let registrations = runtime.file_views.clone();
         let mut candidates = BTreeMap::new();
-        for file in &changeset.files {
+        for (file_index, file) in changeset.files.iter().enumerate() {
+            if !review_file_matches_filter(
+                &project_review_file(file, "terminal-review", file_index),
+                &self.filter,
+            ) {
+                continue;
+            }
             if draft_file_id.as_deref() == Some(file.runtime_id.as_str()) {
                 continue;
             }
@@ -6667,6 +6686,7 @@ impl ReviewApp {
             &component_expanded,
             &self.file_presentation_rendering,
             self.options.extension_notifications.as_ref(),
+            &self.filter,
         )
     }
 
@@ -6866,6 +6886,7 @@ impl ReviewApp {
             &component_expanded,
             &self.file_presentation_rendering,
             self.options.extension_notifications.as_ref(),
+            &self.filter,
         );
         self.scroll = selected
             .hunk_index
@@ -6874,7 +6895,7 @@ impl ReviewApp {
                     .get(&(selected.file_index, hunk_index))
                     .copied()
             })
-            .or_else(|| rows.file_tops.get(selected.file_index).copied())
+            .or_else(|| rows.file_tops.get(&selected.file_index).copied())
             .unwrap_or(0);
     }
 
@@ -9970,9 +9991,20 @@ fn render_sidebar(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     app.sidebar_bounds.set(Some(inner));
 
     let mode = resolve_file_sidebar_mode(inner.width.saturating_sub(1));
+    let visible_files = files
+        .iter()
+        .enumerate()
+        .filter(|(file_index, file)| {
+            review_file_matches_filter(
+                &project_review_file(file, "terminal-review", *file_index),
+                &app.filter,
+            )
+        })
+        .map(|(_, file)| file.clone())
+        .collect::<Vec<_>>();
     let entries = match mode {
-        FileSidebarMode::Flat => build_flat_sidebar_entries(files),
-        FileSidebarMode::Tree => build_tree_sidebar_entries(files),
+        FileSidebarMode::Flat => build_flat_sidebar_entries(&visible_files),
+        FileSidebarMode::Tree => build_tree_sidebar_entries(&visible_files),
     };
     let selected_entry = selected_file_id.as_deref().and_then(|selected_id| {
         entries.iter().position(
@@ -10011,7 +10043,7 @@ fn render_sidebar(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     let map = render_workdeck_file_nav_window(
         inner,
         buffer,
-        files,
+        &visible_files,
         &WorkdeckFileNavOptions {
             selected_file_id,
             theme: app.options.theme.id.clone(),
@@ -10100,6 +10132,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         &component_expanded,
         &app.file_presentation_rendering,
         app.options.extension_notifications.as_ref(),
+        &app.filter,
     );
     drop(state);
     let viewport = area.height.saturating_sub(1) as usize;
@@ -10260,7 +10293,7 @@ struct ReviewRows {
     lines: Vec<Line<'static>>,
     note_targets: BTreeMap<usize, ReviewNoteTarget>,
     line_cursors: Vec<ReviewLineCursor>,
-    file_tops: Vec<usize>,
+    file_tops: BTreeMap<usize, usize>,
     file_header_rows: Vec<(usize, usize)>,
     hunk_tops: std::collections::HashMap<(usize, usize), usize>,
     file_view_component_hits: Vec<FileViewComponentLogicalHit>,
@@ -10373,6 +10406,7 @@ fn build_review_rows(
         &BTreeSet::new(),
         None,
         None,
+        None,
     )
 }
 
@@ -10391,6 +10425,7 @@ fn build_live_review_rows(
     component_expanded: &BTreeSet<FileViewComponentStateKey>,
     file_presentation_rendering: &Mutex<FilePresentationRenderingController>,
     extension_notifications: Option<&ExtensionNotificationHub>,
+    filter: &str,
 ) -> ReviewRows {
     build_review_rows_with_chrome(
         changeset,
@@ -10408,6 +10443,7 @@ fn build_live_review_rows(
         component_expanded,
         Some(file_presentation_rendering),
         extension_notifications,
+        Some(filter),
     )
 }
 
@@ -10428,17 +10464,39 @@ fn build_review_rows_with_chrome(
     component_expanded: &BTreeSet<FileViewComponentStateKey>,
     file_presentation_rendering: Option<&Mutex<FilePresentationRenderingController>>,
     extension_notifications: Option<&ExtensionNotificationHub>,
+    filter: Option<&str>,
 ) -> ReviewRows {
     let mut rows = Vec::new();
-    let mut file_tops = Vec::with_capacity(changeset.files.len());
+    let mut file_tops = BTreeMap::new();
     let mut file_header_rows = Vec::with_capacity(changeset.files.len());
     let mut hunk_tops = std::collections::HashMap::new();
     let mut file_view_component_hits = Vec::new();
     let mut note_targets = BTreeMap::new();
     let mut line_cursors = Vec::new();
-    let header_stats_width = max_file_header_stats_width(&changeset.files);
+    let visible = |file_index: usize, file: &DiffFile| {
+        filter.is_none_or(|filter| {
+            review_file_matches_filter(
+                &project_review_file(file, "terminal-review", file_index),
+                filter,
+            )
+        })
+    };
+    let header_stats_width = changeset
+        .files
+        .iter()
+        .enumerate()
+        .filter(|(file_index, file)| visible(*file_index, file))
+        .map(|(_, file)| file_header_stats(file).width)
+        .max()
+        .unwrap_or_default();
+    let mut visible_file_position = 0_usize;
     for (file_index, file) in changeset.files.iter().enumerate() {
-        file_tops.push(rows.len());
+        if !visible(file_index, file) {
+            continue;
+        }
+        let first_visible_file = visible_file_position == 0;
+        visible_file_position = visible_file_position.saturating_add(1);
+        file_tops.insert(file_index, rows.len());
         let has_file_view = file_view_layouts.contains_key(&file.runtime_id);
         let section = plan_diff_section(DiffSectionViewOptions {
             file_id: if file.runtime_id.is_empty() {
@@ -10451,10 +10509,10 @@ fn build_review_rows_with_chrome(
             has_section_geometry: has_file_view,
             separator_width: usize::from(width.saturating_sub(2)),
             show_header: chrome.show_file_headers,
-            separator_height: if file_index > 0 {
-                usize::from(options.file_gap)
-            } else {
+            separator_height: if first_visible_file {
                 0
+            } else {
+                usize::from(options.file_gap)
             },
             theme: &options.theme,
         });
@@ -10492,6 +10550,7 @@ fn build_review_rows_with_chrome(
                 usize::from(width),
                 component_expanded,
                 &mut file_view_component_hits,
+                &mut line_cursors,
                 file_presentation_rendering,
                 extension_notifications,
             )
@@ -10696,6 +10755,7 @@ fn append_extension_file_view_rows(
     width: usize,
     component_expanded: &BTreeSet<FileViewComponentStateKey>,
     component_hits: &mut Vec<FileViewComponentLogicalHit>,
+    line_cursors: &mut Vec<ReviewLineCursor>,
     file_presentation_rendering: Option<&Mutex<FilePresentationRenderingController>>,
     extension_notifications: Option<&ExtensionNotificationHub>,
 ) -> bool {
@@ -10753,6 +10813,27 @@ fn append_extension_file_view_rows(
     }
     let geometry = measure_file_view_geometry(&resolved.validated, &plan.rows, width);
     let body_top = rows.len();
+    for (plan_index, planned) in plan.rows.iter().enumerate() {
+        let PlannedFileViewRow::FileViewRow {
+            stable_alias_keys, ..
+        } = planned
+        else {
+            continue;
+        };
+        let row = body_top.saturating_add(geometry.row_bounds[plan_index].top);
+        line_cursors.extend(stable_alias_keys.iter().filter_map(|stable_key| {
+            let target = line_stable_key_target(stable_key)?;
+            Some(ReviewLineCursor {
+                row,
+                target: ReviewNoteTarget {
+                    file_index,
+                    hunk_index: target.hunk_index,
+                    side: target.side,
+                    line: target.line,
+                },
+            })
+        }));
+    }
     for (hunk_index, top) in &geometry.hunk_anchor_rows {
         hunk_tops.insert((file_index, *hunk_index), body_top.saturating_add(*top));
     }
@@ -14096,6 +14177,7 @@ mod tests {
                 &BTreeSet::new(),
                 None,
                 None,
+                None,
             );
             let area = Rect::new(0, 0, 80, rows.lines.len() as u16);
             let mut buffer = Buffer::empty(area);
@@ -14841,6 +14923,65 @@ mod tests {
         app.reload(changeset());
         app.reload(two_file_changeset());
         assert_eq!(app.selected_extension_file_view(&file_ids[1]), None);
+    }
+
+    #[test]
+    fn scoped_file_view_refresh_ignores_stale_ids_but_keeps_filter_hidden_review_files() {
+        let review = two_file_changeset();
+        let file_ids = review
+            .files
+            .iter()
+            .map(|file| file.runtime_id.clone())
+            .collect::<Vec<_>>();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        let key = install_cached_test_file_view(&app, &file_ids[0]);
+
+        app.refresh_extension_file_view(0, "probe", "preview", Some("no-such-file"));
+        assert!(
+            app.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .file_view_epochs
+                .is_empty()
+        );
+
+        app.filter = "a.rs".into();
+        assert!(!app.review_file_is_visible(
+            &app.with_state(|state| state.changeset().files.clone()),
+            &app.with_state(|state| state.changeset().files[1].clone())
+        ));
+        app.refresh_extension_file_view(0, "probe", "preview", Some(&file_ids[1]));
+        let runtime = app
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert_eq!(
+            workdeck_extension_host::file_view_layout_epoch(
+                &runtime.file_view_epochs,
+                &key,
+                &file_ids[0]
+            ),
+            0
+        );
+        assert_eq!(
+            workdeck_extension_host::file_view_layout_epoch(
+                &runtime.file_view_epochs,
+                &key,
+                &file_ids[1]
+            ),
+            1
+        );
+        drop(runtime);
+
+        app.refresh_extension_file_view(0, "probe", "not-a-view", None);
+        assert_eq!(
+            app.status.as_deref(),
+            Some("extension probe targeted unknown file view \"not-a-view\"")
+        );
+        assert_eq!(
+            app.selected_extension_file_view(&file_ids[0]).as_deref(),
+            Some(key.as_str())
+        );
     }
 
     #[test]

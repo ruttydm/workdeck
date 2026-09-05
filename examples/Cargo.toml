@@ -33,6 +33,10 @@ name = "workdeck-example-keybindings-probe-extension"
 path = "extensions/keybindings-probe/main.rs"
 
 [[bin]]
+name = "workdeck-example-app-host-file-views-probe-extension"
+path = "extensions/app-host-file-views-probe/main.rs"
+
+[[bin]]
 name = "workdeck-example-review-snapshot-export-extension"
 path = "extensions/review-snapshot-export/main.rs"
 

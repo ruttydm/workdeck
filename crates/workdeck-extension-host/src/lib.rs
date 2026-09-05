@@ -124,13 +124,13 @@ pub enum HostError {
 
 /// Hunk resolves a bare file-view id inside the caller's extension and a
 /// qualified `extension:view` id against the complete live registry. The
-/// subprocess host can validate ownership for the former without seeing other
-/// processes' registrations; the Ratatui composition root resolves the latter.
-fn valid_file_view_action_target(id: &str, owns_local_id: bool) -> bool {
+/// subprocess validates only this syntax so unknown-but-well-formed ids still
+/// reach the Ratatui composition root and produce Hunk's attributed warning.
+fn valid_file_view_action_target(id: &str) -> bool {
     if let Some((extension_id, view_id)) = id.split_once(':') {
         !extension_id.is_empty() && !view_id.is_empty() && !view_id.contains(':')
     } else {
-        owns_local_id
+        !id.is_empty()
     }
 }
 
@@ -2823,21 +2823,19 @@ impl LoadedExtension {
                     self.manifest
                         .capabilities
                         .contains(&workdeck_extension_api::Capability::FileViews)
-                        && valid_file_view_action_target(id, owns(id, "file view"))
+                        && valid_file_view_action_target(id)
                 }
                 ExtensionHostAction::SelectFileView { id } => {
                     self.manifest
                         .capabilities
                         .contains(&workdeck_extension_api::Capability::FileViews)
-                        && id.as_deref().is_none_or(|id| {
-                            valid_file_view_action_target(id, owns(id, "file view"))
-                        })
+                        && id.as_deref().is_none_or(valid_file_view_action_target)
                 }
                 ExtensionHostAction::EnterFileViewMode { id } => {
                     self.manifest
                         .capabilities
                         .contains(&workdeck_extension_api::Capability::FileViews)
-                        && valid_file_view_action_target(id, owns(id, "file view"))
+                        && valid_file_view_action_target(id)
                 }
                 ExtensionHostAction::ExitFileViewMode => self
                     .manifest
@@ -2847,7 +2845,7 @@ impl LoadedExtension {
                     self.manifest
                         .capabilities
                         .contains(&workdeck_extension_api::Capability::FileViews)
-                        && valid_file_view_action_target(id, owns(id, "file view"))
+                        && valid_file_view_action_target(id)
                         && file_id
                             .as_deref()
                             .is_none_or(|file_id| !file_id.trim().is_empty())
@@ -3159,12 +3157,12 @@ mod tests {
     }
 
     #[test]
-    fn file_view_actions_accept_owned_bare_ids_and_well_formed_qualified_ids() {
-        assert!(valid_file_view_action_target("preview", true));
-        assert!(!valid_file_view_action_target("missing", false));
-        assert!(valid_file_view_action_target("markdown:preview", false));
+    fn file_view_actions_accept_unknown_bare_ids_and_well_formed_qualified_ids() {
+        assert!(valid_file_view_action_target("preview"));
+        assert!(valid_file_view_action_target("missing"));
+        assert!(valid_file_view_action_target("markdown:preview"));
         for invalid in ["", ":preview", "markdown:", "one:two:three"] {
-            assert!(!valid_file_view_action_target(invalid, false));
+            assert!(!valid_file_view_action_target(invalid));
         }
     }
 
