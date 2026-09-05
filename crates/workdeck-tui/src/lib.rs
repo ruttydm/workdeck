@@ -44,6 +44,7 @@ mod extension_trust_controller;
 mod extension_trust_prompt;
 mod extension_workspace;
 mod file_header;
+mod file_presentation_rendering;
 mod file_render_window;
 mod file_section_layout;
 mod file_view_geometry;
@@ -141,6 +142,7 @@ pub use extension_trust_controller::*;
 pub use extension_trust_prompt::*;
 pub use extension_workspace::*;
 pub use file_header::*;
+pub use file_presentation_rendering::*;
 pub use file_render_window::*;
 pub use file_section_layout::*;
 pub use file_view_geometry::*;
@@ -211,7 +213,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::{self, IsTerminal, Stdout};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use unicode_segmentation::UnicodeSegmentation;
@@ -236,8 +238,8 @@ use workdeck_extension_api::{
     ExtensionWorkspaceWriteResult, FileLanguageGlobTarget, FileLanguageMatcher,
     FileViewModeKeyRequest, FileViewModeLifecycleRequest, KeyRoutingResult,
     KeyboardModeRegistration, PaneActionInvocation, PanePlacement, PaneRegistration,
-    PaneRenderRequest, Registration, ReviewEvent, SessionReloadReason, ValidatedFileViewLayout,
-    ViewNode, ViewStyle, WORKDECK_FILES_PANE_KEY, bundled_files_pane, extension_pane_size,
+    PaneRenderRequest, Registration, ReviewEvent, SessionReloadReason, ViewNode, ViewStyle,
+    WORKDECK_FILES_PANE_KEY, bundled_files_pane, extension_pane_size,
 };
 use workdeck_extension_host::{
     ActiveSessionKeyboardMode, EXTENSION_SHUTDOWN_TIMEOUT,
@@ -402,16 +404,18 @@ struct LiveKeyboardModeRegistration {
 #[derive(Debug, Clone)]
 struct LiveFileViewRegistration {
     extension_index: usize,
+    registration_identity: u64,
     view: Arc<RegisteredFileView>,
 }
 
 #[derive(Debug, Clone)]
 struct CachedFileViewLayout {
-    view_key: String,
     content_identity: String,
     width: usize,
-    layout: ValidatedFileViewLayout,
+    resolved: ResolvedFileViewLayout,
 }
+
+static NEXT_FILE_VIEW_REGISTRATION_IDENTITY: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct FileViewComponentStateKey {
@@ -650,6 +654,8 @@ impl ExtensionPaneRuntime {
                         ..
                     } => file_views.push(LiveFileViewRegistration {
                         extension_index,
+                        registration_identity: NEXT_FILE_VIEW_REGISTRATION_IDENTITY
+                            .fetch_add(1, Ordering::Relaxed),
                         view: Arc::new(RegisteredFileView {
                             extension_id: extension.manifest.id.clone(),
                             view_id: id.clone(),
@@ -845,6 +851,8 @@ pub struct ReviewApp {
     mouse_scroll_acceleration: ReviewMouseWheelScrollAcceleration,
     mouse_scroll_accumulator: f64,
     extension_pane_runtime: Mutex<ExtensionPaneRuntime>,
+    next_file_view_layout_generation: AtomicU64,
+    file_presentation_rendering: Mutex<FilePresentationRenderingController>,
     extension_runtime_bridge: ExtensionRuntimeBridge,
     extension_event_context_provider: ExtensionEventContextProviderSlot,
     extension_event_context_installation: Option<ExtensionEventContextProviderInstallation>,
@@ -1061,6 +1069,8 @@ impl ReviewApp {
             mouse_scroll_acceleration: ReviewMouseWheelScrollAcceleration::default(),
             mouse_scroll_accumulator: 0.0,
             extension_pane_runtime: Mutex::new(extension_pane_runtime),
+            next_file_view_layout_generation: AtomicU64::new(1),
+            file_presentation_rendering: Mutex::new(FilePresentationRenderingController::default()),
             extension_runtime_bridge,
             extension_event_context_provider,
             extension_event_context_installation: None,
@@ -5237,7 +5247,7 @@ impl ReviewApp {
                 .file_view_layouts
                 .iter()
                 .filter_map(|(file_id, layout)| {
-                    (layout.view_key == view_key).then_some(file_id.clone())
+                    (layout.resolved.key == view_key).then_some(file_id.clone())
                 })
                 .collect::<Vec<_>>();
             for file_id in invalidated {
@@ -5261,7 +5271,7 @@ impl ReviewApp {
         &self,
         changeset: &Changeset,
         width: u16,
-    ) -> BTreeMap<String, ValidatedFileViewLayout> {
+    ) -> BTreeMap<String, ResolvedFileViewLayout> {
         let width = usize::from(width.max(1));
         let mut runtime = self
             .extension_pane_runtime
@@ -5275,11 +5285,11 @@ impl ReviewApp {
                 continue;
             };
             if let Some(cached) = runtime.file_view_layouts.get(&file.runtime_id)
-                && cached.view_key == *view_key
+                && cached.resolved.key == *view_key
                 && cached.content_identity == file.content_identity
                 && cached.width == width
             {
-                prepared.insert(file.runtime_id.clone(), cached.layout.clone());
+                prepared.insert(file.runtime_id.clone(), cached.resolved.clone());
                 continue;
             }
             let Some(registration) = registrations
@@ -5298,22 +5308,36 @@ impl ReviewApp {
                 .layout_file_view(&registration.view.view_id, input)
             {
                 Ok(Some(layout)) => {
+                    let resolved = ResolvedFileViewLayout {
+                        key: view_key.clone(),
+                        extension_id: registration.view.extension_id.clone(),
+                        view_id: registration.view.view_id.clone(),
+                        registration_identity: registration.registration_identity,
+                        layout_generation: self
+                            .next_file_view_layout_generation
+                            .fetch_add(1, Ordering::Relaxed),
+                        validated: layout,
+                    };
                     runtime.file_view_layouts.insert(
                         file.runtime_id.clone(),
                         CachedFileViewLayout {
-                            view_key: view_key.clone(),
                             content_identity: file.content_identity.clone(),
                             width,
-                            layout: layout.clone(),
+                            resolved: resolved.clone(),
                         },
                     );
-                    prepared.insert(file.runtime_id.clone(), layout);
+                    prepared.insert(file.runtime_id.clone(), resolved);
                 }
                 Ok(None) | Err(_) => {
                     runtime.file_view_layouts.remove(&file.runtime_id);
                 }
             }
         }
+        drop(runtime);
+        self.file_presentation_rendering
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .reconcile_active_layouts(&prepared);
         prepared
     }
 
@@ -5521,6 +5545,8 @@ impl ReviewApp {
             &line_highlights,
             &file_view_layouts,
             &component_expanded,
+            &self.file_presentation_rendering,
+            self.options.extension_notifications.as_ref(),
         )
     }
 
@@ -5680,6 +5706,8 @@ impl ReviewApp {
             &line_highlights,
             &file_view_layouts,
             &component_expanded,
+            &self.file_presentation_rendering,
+            self.options.extension_notifications.as_ref(),
         );
         self.scroll = selected
             .hunk_index
@@ -8329,6 +8357,8 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         &line_highlights,
         &file_view_layouts,
         &component_expanded,
+        &app.file_presentation_rendering,
+        app.options.extension_notifications.as_ref(),
     );
     drop(state);
     let viewport = area.height.saturating_sub(1) as usize;
@@ -8520,6 +8550,8 @@ fn build_review_rows(
         false,
         &BTreeMap::new(),
         &BTreeSet::new(),
+        None,
+        None,
     )
 }
 
@@ -8534,8 +8566,10 @@ fn build_live_review_rows(
     highlight_cache: &mut HighlightedDiffRuntime,
     expanded_gaps: &BTreeSet<(String, usize)>,
     line_highlights: &LineHighlightMap,
-    file_view_layouts: &BTreeMap<String, ValidatedFileViewLayout>,
+    file_view_layouts: &BTreeMap<String, ResolvedFileViewLayout>,
     component_expanded: &BTreeSet<FileViewComponentStateKey>,
+    file_presentation_rendering: &Mutex<FilePresentationRenderingController>,
+    extension_notifications: Option<&ExtensionNotificationHub>,
 ) -> ReviewRows {
     build_review_rows_with_chrome(
         changeset,
@@ -8551,6 +8585,8 @@ fn build_live_review_rows(
         true,
         file_view_layouts,
         component_expanded,
+        Some(file_presentation_rendering),
+        extension_notifications,
     )
 }
 
@@ -8567,8 +8603,10 @@ fn build_review_rows_with_chrome(
     line_highlights: &LineHighlightMap,
     chrome: ReviewStreamChrome,
     live: bool,
-    file_view_layouts: &BTreeMap<String, ValidatedFileViewLayout>,
+    file_view_layouts: &BTreeMap<String, ResolvedFileViewLayout>,
     component_expanded: &BTreeSet<FileViewComponentStateKey>,
+    file_presentation_rendering: Option<&Mutex<FilePresentationRenderingController>>,
+    extension_notifications: Option<&ExtensionNotificationHub>,
 ) -> ReviewRows {
     let mut rows = Vec::new();
     let mut file_tops = Vec::with_capacity(changeset.files.len());
@@ -8632,6 +8670,8 @@ fn build_review_rows_with_chrome(
                 usize::from(width),
                 component_expanded,
                 &mut file_view_component_hits,
+                file_presentation_rendering,
+                extension_notifications,
             )
         {
             continue;
@@ -8822,11 +8862,13 @@ fn append_extension_file_view_rows(
     file_index: usize,
     selection: ReviewSelection,
     comments: &[ReviewComment],
-    resolved: &ValidatedFileViewLayout,
+    resolved: &ResolvedFileViewLayout,
     options: &ReviewOptions,
     width: usize,
     component_expanded: &BTreeSet<FileViewComponentStateKey>,
     component_hits: &mut Vec<FileViewComponentLogicalHit>,
+    file_presentation_rendering: Option<&Mutex<FilePresentationRenderingController>>,
+    extension_notifications: Option<&ExtensionNotificationHub>,
 ) -> bool {
     let notes = comments
         .iter()
@@ -8876,11 +8918,11 @@ fn append_extension_file_view_rows(
             }
         })
         .collect::<Vec<_>>();
-    let plan = build_file_view_render_plan(&resolved.layout, &notes);
+    let plan = build_file_view_render_plan(&resolved.validated.layout, &notes);
     if !plan.unresolved_note_ids.is_empty() {
         return false;
     }
-    let geometry = measure_file_view_geometry(resolved, &plan.rows, width);
+    let geometry = measure_file_view_geometry(&resolved.validated, &plan.rows, width);
     let body_top = rows.len();
     for (hunk_index, top) in &geometry.hunk_anchor_rows {
         hunk_tops.insert((file_index, *hunk_index), body_top.saturating_add(*top));
@@ -8897,7 +8939,7 @@ fn append_extension_file_view_rows(
         .unwrap_or(i64::MAX);
     let painted = paint_file_view(FileViewViewOptions {
         file,
-        resolved,
+        resolved: &resolved.validated,
         geometry: &geometry,
         cursor_highlight: None,
         selected_hunk_index: (selection.file_index == file_index)
@@ -8906,10 +8948,20 @@ fn append_extension_file_view_rows(
         theme: &options.theme,
         visible_body_bounds: None,
         width,
-        identity: FileViewPaintIdentity::default(),
+        identity: FileViewPaintIdentity {
+            extension_id: &resolved.extension_id,
+            view_id: &resolved.view_id,
+            registration_identity: resolved.registration_identity,
+            layout_generation: resolved.layout_generation,
+        },
         expanded_row_ids: &expanded_row_ids,
         now_ms,
     });
+    report_file_view_row_failures(
+        file_presentation_rendering,
+        extension_notifications,
+        &painted.failures,
+    );
     for row in &painted.rows {
         if row.toggle_expanded_on_left_mouse_up
             && let Some(row_id) = &row.row_id
@@ -8926,6 +8978,26 @@ fn append_extension_file_view_rows(
     }
     rows.extend(painted.lines());
     true
+}
+
+fn report_file_view_row_failures(
+    controller: Option<&Mutex<FilePresentationRenderingController>>,
+    extension_notifications: Option<&ExtensionNotificationHub>,
+    failures: &[workdeck_extension_api::FileViewRowFailure],
+) {
+    let Some(controller) = controller else {
+        return;
+    };
+    let mut controller = controller
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    for failure in failures {
+        if let Some(warning) = controller.report_row_failure(failure)
+            && let Some(notifications) = extension_notifications
+        {
+            notifications.notify(warning, ExtensionNotifyType::Warning);
+        }
+    }
 }
 
 fn review_comment_thread_depth(comment: &ReviewComment, comments: &[ReviewComment]) -> usize {
@@ -11765,6 +11837,8 @@ mod tests {
                 false,
                 &BTreeMap::new(),
                 &BTreeSet::new(),
+                None,
+                None,
             );
             let area = Rect::new(0, 0, 80, rows.lines.len() as u16);
             let mut buffer = Buffer::empty(area);
@@ -12770,6 +12844,49 @@ mod tests {
             extension_command_failure_message("probe", "run", "async boom"),
             "Extension probe failed command \"run\" • async boom"
         );
+    }
+
+    #[test]
+    fn file_presentation_row_failures_reach_the_warning_surface_once_per_generation() {
+        let notifications = ExtensionNotificationHub::new();
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                extension_notifications: Some(notifications.clone()),
+                ..ReviewOptions::default()
+            },
+        );
+        let failure = workdeck_extension_api::FileViewRowFailure {
+            extension_id: "probe".into(),
+            view_id: "preview".into(),
+            file_id: "alpha".into(),
+            file_path: "alpha.ts".into(),
+            row_id: "row".into(),
+            layout_generation: 7,
+            message: "paint exploded".into(),
+        };
+
+        report_file_view_row_failures(
+            Some(&app.file_presentation_rendering),
+            Some(&notifications),
+            std::slice::from_ref(&failure),
+        );
+        report_file_view_row_failures(
+            Some(&app.file_presentation_rendering),
+            Some(&notifications),
+            std::slice::from_ref(&failure),
+        );
+
+        let notification = app.active_extension_notification().unwrap();
+        assert_eq!(
+            notification.message,
+            "Extension probe file view \"preview\" row \"row\" failed rendering alpha.ts • paint exploded"
+        );
+        assert_eq!(notification.notification_type, ExtensionNotifyType::Warning);
+        let started = Instant::now();
+        app.tick_extension_notifications(started);
+        app.tick_extension_notifications(started + Duration::from_millis(4_001));
+        assert!(app.active_extension_notification().is_none());
     }
 
     #[test]

@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/fileViews/useFilePresentationRendering.ts",
+    "blob": "a358cc54917bd2b259d48ba734174954c146b365",
+    "sha256": "7d933dc72889fea647be3e8274e9bfd8aeccc42239c4d63659656904a64d72f2",
+    "bytes": 2811,
+    "lines": 79
+  },
+  "sourceTest": {
+    "path": "src/ui/fileViews/useFilePresentationRendering.test.tsx",
+    "blob": "0df1451e1d56e1e36adc530c28a3b7a9c676fd3d",
+    "sha256": "7cb4f05148b499491ddf59c0f711da72bee8b91c041377827824ba138cef6ada",
+    "bytes": 4593,
+    "lines": 130
+  },
+  "history": [
+    {
+      "commit": "986c20e2aefc52466e71ffb83e726c4820a11853",
+      "subject": "refactor(ui): isolate file presentation state (#656)"
+    },
+    {
+      "commit": "378ec4b3f7043dcd8ceecec2d22041a71e7bf8b1",
+      "subject": "feat(extensions): let file views refresh their prepared layouts (#673)"
+    },
+    {
+      "commit": "753dc37004d6a1d756045719454df3463ee91ce7",
+      "subject": "Organize src/core into real modules (#795)"
+    }
+  ],
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/fileViews/useFilePresentationRendering.test.tsx",
+    "passed": 2,
+    "failed": 0,
+    "assertions": 5
+  },
+  "stableOracle": {
+    "relationship": "identical blobs",
+    "sourceBlob": "a358cc54917bd2b259d48ba734174954c146b365",
+    "sourceTestBlob": "0df1451e1d56e1e36adc530c28a3b7a9c676fd3d"
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/file_presentation_rendering.rs",
+      "sha256": "23b8be5ec9f425fe3e7982ee932a7d9446305cd75f19054d0baf7728c5f9d9d2"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "0fe4e141e59faea0e312b6d7c84b9d25809ddb37872354f9e0012ff73d75a5ee"
+    },
+    {
+      "path": "crates/workdeck-tui/src/public_review.rs",
+      "sha256": "0701d65fc6413fa400b325425c109e8099a4d709e029e8422a6e0ded18dcfeb8"
+    }
+  ],
+  "sourceCoverage": [
+    [[[[1, 8], [0, 459]]], "imports, public ownership contract, and bounded warning constant"],
+    [[[[9, 31], [459, 1087]]], "file-presentation inputs, selected-layout preparation, and retained failure state"],
+    [[[[32, 59], [1087, 2145]]], "NUL-delimited failure identity, once-only reporting, FIFO eviction, and exact attributed warning"],
+    [[[[60, 79], [2145, 2811]]], "active file and accepted-layout generation reconciliation plus returned rendering surface"]
+  ],
+  "testCoverage": [
+    [[[[1, 60], [0, 2088]]], "test runtime, valid presentation harness, selected registration, warning collector, settlement, and teardown"],
+    [[[[61, 92], [2088, 3356]]], "same-generation deduplication and retirement-driven repeat reporting"],
+    [[[[93, 130], [3356, 4593]]], "257 unique failures, 256-entry FIFO retention, oldest eviction, and newest deduplication"]
+  ],
+  "testMappings": [
+    {
+      "source": "deduplicates row warnings within one layout generation and forgets retired generations",
+      "rust": "file_presentation_rendering::tests::deduplicates_row_warnings_within_one_generation_and_forgets_retired_generations"
+    },
+    {
+      "source": "bounds remembered row failures while retaining the newest entries",
+      "rust": "file_presentation_rendering::tests::bounds_remembered_row_failures_while_retaining_the_newest_entries"
+    }
+  ],
+  "integrationTests": [
+    "file_view_view::tests::contains_a_component_render_error_to_its_symbolic_row_fallback",
+    "tests::file_presentation_row_failures_reach_the_warning_surface_once_per_generation"
+  ],
+  "adaptations": [
+    "React hook state becomes an owned mutex-protected controller shared by Ratatui row planning and painting.",
+    "Hunk registration object identity becomes a monotonic native registration identity assigned when an accepted subprocess registration is materialized.",
+    "Accepted layouts receive a monotonic per-ReviewApp generation; cache hits preserve it while refresh, width, content, view, reload, and registry changes prepare a successor generation.",
+    "The optional extension notification hub is the native equivalent of extensions.context.notify(message, warning); absent extension context intentionally remains a no-op.",
+    "Declarative v1 row trees are validated and painted by the host, but all component-paint failures still pass through the exact generation-aware warning boundary."
+  ]
+}
