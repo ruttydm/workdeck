@@ -5,7 +5,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use workdeck_extension_host::{LoadedExtension, TrustDecision};
+use workdeck_extension_host::TrustDecision;
 
 use crate::next_extension_trust_prompt_root;
 
@@ -30,12 +30,10 @@ impl ExtensionTrustWriteError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExtensionTrustHostError {
     Write(ExtensionTrustWriteError),
-    Reload,
 }
 
-type ExtensionTrustHandlerFn = dyn Fn(&Path, TrustDecision, bool) -> Result<Vec<LoadedExtension>, ExtensionTrustHostError>
-    + Send
-    + Sync;
+type ExtensionTrustHandlerFn =
+    dyn Fn(&Path, TrustDecision) -> Result<(), ExtensionTrustHostError> + Send + Sync;
 
 /// Cloneable composition-root callback for persistence and native-extension loading.
 #[derive(Clone)]
@@ -44,10 +42,7 @@ pub struct ExtensionTrustHandler(Arc<ExtensionTrustHandlerFn>);
 impl ExtensionTrustHandler {
     pub fn new<F>(handler: F) -> Self
     where
-        F: Fn(&Path, TrustDecision, bool) -> Result<Vec<LoadedExtension>, ExtensionTrustHostError>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(&Path, TrustDecision) -> Result<(), ExtensionTrustHostError> + Send + Sync + 'static,
     {
         Self(Arc::new(handler))
     }
@@ -56,9 +51,8 @@ impl ExtensionTrustHandler {
         &self,
         repo_root: &Path,
         decision: TrustDecision,
-        load_extensions: bool,
-    ) -> Result<Vec<LoadedExtension>, ExtensionTrustHostError> {
-        (self.0)(repo_root, decision, load_extensions)
+    ) -> Result<(), ExtensionTrustHostError> {
+        (self.0)(repo_root, decision)
     }
 }
 

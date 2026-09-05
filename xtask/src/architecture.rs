@@ -338,11 +338,13 @@ fn validate_source_import_boundaries(repo: &Path) -> Result<Vec<ArchitectureViol
     let mut violations = Vec::new();
     let tui_root = repo.join("crates/workdeck-tui/src");
     let allowed_session_adapters = BTreeSet::from([
+        PathBuf::from("crates/workdeck-tui/src/app_host.rs"),
         PathBuf::from("crates/workdeck-tui/src/current_review_controller.rs"),
         PathBuf::from("crates/workdeck-tui/src/current_review_refresh.rs"),
         PathBuf::from("crates/workdeck-tui/src/interactive_session_adapter.rs"),
         PathBuf::from("crates/workdeck-tui/src/lib.rs"),
         PathBuf::from("crates/workdeck-tui/src/review_state_helpers.rs"),
+        PathBuf::from("crates/workdeck-tui/src/session_review_controller.rs"),
     ]);
     let mut tui_files = BTreeSet::new();
     collect_rust_files(&tui_root, &mut tui_files)?;

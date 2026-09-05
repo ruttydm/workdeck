@@ -94,6 +94,29 @@ impl LineHighlightMap {
         self.0.get(file_id)
     }
 
+    /// Count every mark across the immutable file map.
+    #[must_use]
+    pub fn mark_count(&self) -> usize {
+        self.0.values().map(|marks| marks.len()).sum()
+    }
+
+    /// Return a new map with one file replaced or removed.
+    #[must_use]
+    pub fn with_file_marks(
+        &self,
+        file_id: impl Into<String>,
+        marks: Vec<ValidatedLineHighlight>,
+    ) -> Self {
+        let file_id = file_id.into();
+        let mut entries = (*self.0).clone();
+        if marks.is_empty() {
+            entries.remove(&file_id);
+        } else {
+            entries.insert(file_id, Arc::from(marks));
+        }
+        Self(Arc::new(entries))
+    }
+
     #[must_use]
     pub fn ptr_eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)

@@ -9,6 +9,7 @@ mod agent_note_geometry;
 mod agent_popover;
 mod agent_skill_dialog;
 mod app_commands;
+mod app_host;
 mod app_menus;
 mod code_cell_view;
 mod code_row_layout;
@@ -77,6 +78,7 @@ mod review_render_plan;
 mod review_row_geometry;
 mod review_state_helpers;
 mod row_style;
+mod session_review_controller;
 mod shutdown;
 mod spatial;
 mod startup_notices;
@@ -116,6 +118,7 @@ pub use agent_note_geometry::*;
 pub use agent_popover::*;
 pub use agent_skill_dialog::*;
 pub use app_commands::*;
+pub use app_host::*;
 pub use app_menus::*;
 pub use code_cell_view::*;
 pub use code_row_layout::*;
@@ -876,6 +879,20 @@ impl ExtensionPaneRuntime {
         }
     }
 
+    fn apply_to_changeset(&mut self, mut changeset: Changeset) -> Changeset {
+        let mut language_registry = LanguageRegistry::default();
+        language_registry.replace_extensions(self.file_languages.clone());
+        for file in &mut changeset.files {
+            let language = language_registry.language_for_path(&file.path);
+            file.language = (language != "text").then_some(language);
+        }
+        for extension in &mut self.extensions {
+            changeset = extension.apply_changeset_transforms(changeset);
+        }
+        changeset.refresh_review_identities();
+        changeset
+    }
+
     fn reconcile_panes_from(&mut self, previous: &Self, files_pane_open: bool) -> bool {
         let mut previous_open = previous.open.iter().cloned().collect::<Vec<_>>();
         if files_pane_open || previous.force_builtin_files_sidebar {
@@ -968,6 +985,36 @@ impl ExtensionPaneRuntime {
     }
 }
 
+/// Own a newly discovered registry until the AppHost commit gate either adopts
+/// it or retires every native process on rollback.
+struct ProvisionalExtensionPaneRuntime(Option<ExtensionPaneRuntime>);
+
+impl ProvisionalExtensionPaneRuntime {
+    fn new(runtime: ExtensionPaneRuntime) -> Self {
+        Self(Some(runtime))
+    }
+
+    fn runtime_mut(&mut self) -> &mut ExtensionPaneRuntime {
+        self.0
+            .as_mut()
+            .expect("provisional extension runtime has not been adopted")
+    }
+
+    fn adopt(&mut self) -> ExtensionPaneRuntime {
+        self.0
+            .take()
+            .expect("provisional extension runtime is adopted exactly once")
+    }
+}
+
+impl Drop for ProvisionalExtensionPaneRuntime {
+    fn drop(&mut self) {
+        if let Some(runtime) = &mut self.0 {
+            runtime.retire_extensions();
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct ReviewApp {
     state: Arc<Mutex<ReviewState>>,
@@ -1003,6 +1050,7 @@ pub struct ReviewApp {
     filter_scroll: Cell<usize>,
     review_width: Cell<u16>,
     review_height: Cell<u16>,
+    review_geometry_published: Cell<bool>,
     review_scrollbar: Mutex<VerticalScrollbarController>,
     review_scrollbar_hits: Cell<Option<VerticalScrollbarRenderMap>>,
     sidebar_bounds: Cell<Option<Rect>>,
@@ -1012,6 +1060,7 @@ pub struct ReviewApp {
     review_file_header_hits: Mutex<Vec<SidebarFileHit>>,
     current_line_row: usize,
     expanded_gaps: BTreeSet<(String, usize)>,
+    agent_line_highlights: LineHighlightMap,
     highlights: Mutex<HighlightedDiffRuntime>,
     themes: ThemeController,
     theme_selector_dialog_hits: Mutex<Option<ThemeSelectorDialogPlan>>,
@@ -1244,6 +1293,7 @@ impl ReviewApp {
             filter_scroll: Cell::new(0),
             review_width: Cell::new(120),
             review_height: Cell::new(20),
+            review_geometry_published: Cell::new(false),
             review_scrollbar: Mutex::new(VerticalScrollbarController::default()),
             review_scrollbar_hits: Cell::new(None),
             sidebar_bounds: Cell::new(None),
@@ -1253,6 +1303,7 @@ impl ReviewApp {
             review_file_header_hits: Mutex::new(Vec::new()),
             current_line_row: 0,
             expanded_gaps: BTreeSet::new(),
+            agent_line_highlights: LineHighlightMap::default(),
             highlights: Mutex::new(HighlightedDiffRuntime::default()),
             themes,
             theme_selector_dialog_hits: Mutex::new(None),
@@ -1332,6 +1383,20 @@ impl ReviewApp {
         std::mem::take(&mut self.should_quit)
     }
 
+    /// Whether the host has crossed its terminal shutdown boundary.
+    ///
+    /// Signal ownership stays outside the renderer, but every irreversible or
+    /// publication-changing operation consults the same projected authority.
+    fn shutdown_requested(&self) -> bool {
+        self.should_quit
+            || self.interactive_authority_retired
+            || self
+                .options
+                .external_quit_signal
+                .as_ref()
+                .is_some_and(|signal| signal.load(Ordering::Acquire))
+    }
+
     #[must_use]
     pub fn save_config_prompt_open(&self) -> bool {
         self.view_preference_quit.save_config_prompt_open()
@@ -1363,6 +1428,31 @@ impl ReviewApp {
                 CursorLineMode::Off => InputCursorLine::Off,
             },
         }
+    }
+
+    /// Rebuild the descriptor registered by Hunk's current-review hook from
+    /// the values that are live now, rather than from launch-time options.
+    fn current_review_reload_request(&self) -> Option<WorkspaceRefreshRequest> {
+        let input = self.options.review_input.as_ref()?;
+        let source_label =
+            self.with_state(|state| state.changeset().effective_source_label().to_owned());
+        derive_workspace_refresh_request(
+            input,
+            &source_label,
+            &CurrentReviewViewOptions {
+                layout_mode: match self.layout() {
+                    LayoutMode::Auto => InputLayoutMode::Auto,
+                    LayoutMode::Split => InputLayoutMode::Split,
+                    LayoutMode::Stack => InputLayoutMode::Stack,
+                },
+                theme_id: self.themes.committed.clone(),
+                show_agent_notes: self.options.agent_notes,
+                show_hunk_headers: self.options.hunk_headers,
+                show_line_numbers: self.options.line_numbers,
+                show_menu_bar: self.show_menu_bar,
+                wrap_lines: self.options.wrap_lines,
+            },
+        )
     }
 
     fn request_quit(&mut self) {
@@ -1484,50 +1574,35 @@ impl ReviewApp {
         self.extension_trust_request.take()
     }
 
-    /// Persist one queued security decision and atomically install extensions after a fresh reload.
-    pub fn process_extension_trust_request(
-        &mut self,
-        reloader: &mut Option<&mut dyn FnMut() -> Result<Changeset>>,
-    ) {
+    /// Persist one queued security decision and tell AppHost whether it must
+    /// enqueue an extension-aware current-review refresh.
+    #[must_use]
+    pub fn process_extension_trust_request(&mut self, can_reload_extensions: bool) -> bool {
         let Some(request) = self.take_extension_trust_request() else {
-            return;
+            return false;
         };
         let Some(handler) = self.options.extension_trust_handler.clone() else {
             self.status = Some("Failed to record the trust decision.".into());
-            return;
+            return false;
         };
-        let can_reload = reloader.is_some();
-        let load_extensions =
-            can_reload && request.decision == workdeck_extension_host::TrustDecision::Trusted;
-        let extensions = match handler.run(&request.repo_root, request.decision, load_extensions) {
-            Ok(extensions) => extensions,
+        match handler.run(&request.repo_root, request.decision) {
+            Ok(()) => {}
             Err(ExtensionTrustHostError::Write(error)) => {
                 self.status = Some(error.notice());
-                return;
+                return false;
             }
-            Err(ExtensionTrustHostError::Reload) => {
-                self.status =
-                    Some("Failed to reload after trusting this repository's extensions.".into());
-                return;
-            }
-        };
+        }
         self.reconcile_extension_trust_repo_root(None);
         if request.decision == workdeck_extension_host::TrustDecision::Denied {
             self.status = Some("Won't run this repository's extensions".into());
-            return;
+            return false;
         }
-        let Some(reload) = reloader.as_deref_mut() else {
+        if !can_reload_extensions {
             self.status =
                 Some("Trusted this repository • restart Workdeck to load its extensions".into());
-            return;
-        };
-        match reload() {
-            Ok(changeset) => self.replace_extensions_and_reload(changeset, extensions),
-            Err(_) => {
-                self.status =
-                    Some("Failed to reload after trusting this repository's extensions.".into());
-            }
+            return false;
         }
+        true
     }
 
     #[must_use]
@@ -1576,11 +1651,43 @@ impl ReviewApp {
         self.reload_with_reason(changeset, SessionReloadReason::Manual, false);
     }
 
+    fn prepare_reloaded_changeset(&self, changeset: Changeset) -> Changeset {
+        self.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .apply_to_changeset(changeset)
+    }
+
     fn reload_with_reason(
         &mut self,
         changeset: Changeset,
         reason: SessionReloadReason,
         emit_startup: bool,
+    ) {
+        let changeset = self.prepare_reloaded_changeset(changeset);
+        if self.with_state(|state| state.changeset() != &changeset)
+            && let Err(error) = self
+                .review_producer
+                .publish(&workdeck_review::PublishReviewInput {
+                    files: changeset.files.clone(),
+                    source_label: Some(changeset.effective_source_label().to_owned()),
+                })
+        {
+            self.status = Some(format!("review publication failed: {error}"));
+            return;
+        }
+        self.commit_reloaded_changeset(changeset, reason, emit_startup, false);
+    }
+
+    /// Commit a changeset whose extension transforms and producer publication
+    /// have already succeeded. No fallible host operation belongs below this
+    /// boundary, matching AppHost's broker/publication commit gate.
+    fn commit_reloaded_changeset(
+        &mut self,
+        changeset: Changeset,
+        reason: SessionReloadReason,
+        emit_startup: bool,
+        reset_app: bool,
     ) {
         self.extension_command_epoch = self.extension_command_epoch.saturating_add(1);
         self.review_projection_generation = self.review_projection_generation.saturating_add(1);
@@ -1618,26 +1725,20 @@ impl ReviewApp {
             runtime.file_view_component_hits.clear();
             runtime.file_view_component_pointer.release();
         }
-        let mut changeset = changeset;
-        self.apply_extension_file_languages(&mut changeset);
-        let changeset = self.apply_extension_transforms(changeset);
         self.extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .line_highlights
             .reconcile_files(changeset.files.iter().map(|file| file.runtime_id.clone()));
         if self.with_state(|state| state.changeset() != &changeset) {
-            if let Err(error) = self
-                .review_producer
-                .publish(&workdeck_review::PublishReviewInput {
-                    files: changeset.files.clone(),
-                    source_label: Some(changeset.effective_source_label().to_owned()),
-                })
-            {
-                self.status = Some(format!("review publication failed: {error}"));
-                return;
-            }
+            let previous_changeset = self.with_state(|state| state.changeset().clone());
+            let carried_agent_line_highlights = carry_over_line_highlights(
+                &self.agent_line_highlights,
+                &previous_changeset,
+                &changeset,
+            );
             self.with_state(|state| state.reload(changeset));
+            self.agent_line_highlights = carried_agent_line_highlights;
             self.status = Some("review reloaded".into());
             self.highlights
                 .lock()
@@ -1648,6 +1749,21 @@ impl ReviewApp {
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .cached_renders
                 .clear();
+        }
+        if reset_app {
+            self.with_state(|state| {
+                if !state.changeset().files.is_empty() {
+                    let _ = state.select_file(0);
+                }
+            });
+            self.focus = Focus::Review;
+            self.scroll = 0;
+            self.current_line_row = 0;
+            self.filter.clear();
+            self.filter_cursor = 0;
+            self.filter_scroll.set(0);
+            self.expanded_gaps.clear();
+            self.options.horizontal_offset = 0;
         }
         self.commit_extension_runtime_bridge();
         let immediate = self.update_extension_review_events(Instant::now());
@@ -1660,15 +1776,40 @@ impl ReviewApp {
         self.publish_current_changeset_event(true, reason);
     }
 
+    #[cfg(test)]
     fn replace_extensions_and_reload(
         &mut self,
         changeset: Changeset,
         extensions: Vec<LoadedExtension>,
     ) {
+        let mut replacement = ProvisionalExtensionPaneRuntime::new(ExtensionPaneRuntime::new(
+            extensions,
+            &changeset.files,
+        ));
+        let changeset = replacement.runtime_mut().apply_to_changeset(changeset);
+        if self.with_state(|state| state.changeset() != &changeset)
+            && let Err(error) = self
+                .review_producer
+                .publish(&workdeck_review::PublishReviewInput {
+                    files: changeset.files.clone(),
+                    source_label: Some(changeset.effective_source_label().to_owned()),
+                })
+        {
+            self.status = Some(format!("review publication failed: {error}"));
+            return;
+        }
+        self.install_extension_runtime(replacement.adopt(), &changeset);
+        self.commit_reloaded_changeset(changeset, SessionReloadReason::Manual, true, true);
+    }
+
+    fn install_extension_runtime(
+        &mut self,
+        mut replacement: ExtensionPaneRuntime,
+        changeset: &Changeset,
+    ) {
         self.cancel_extension_dialogs_for_reload();
         self.exit_active_keyboard_mode();
         self.exit_active_file_view_mode();
-        let mut replacement = ExtensionPaneRuntime::new(extensions, &changeset.files);
         let mut command_defaults = builtin_command_key_defaults();
         command_defaults.extend(extension_command_key_defaults(&replacement.commands));
         self.resolved_command_keys =
@@ -1710,34 +1851,6 @@ impl ReviewApp {
         drop(previous);
         self.extension_registry_generation = self.extension_registry_generation.saturating_add(1);
         self.install_extension_event_context_provider();
-        self.reload_with_reason(changeset, SessionReloadReason::Manual, true);
-    }
-
-    fn apply_extension_file_languages(&self, changeset: &mut Changeset) {
-        let runtime = self
-            .extension_pane_runtime
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let file_languages = runtime.file_languages.clone();
-        drop(runtime);
-        let mut language_registry = LanguageRegistry::default();
-        language_registry.replace_extensions(file_languages);
-        for file in &mut changeset.files {
-            let language = language_registry.language_for_path(&file.path);
-            file.language = (language != "text").then_some(language);
-        }
-    }
-
-    fn apply_extension_transforms(&self, mut changeset: Changeset) -> Changeset {
-        let mut runtime = self
-            .extension_pane_runtime
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        for extension in &mut runtime.extensions {
-            changeset = extension.apply_changeset_transforms(changeset);
-        }
-        changeset.refresh_review_identities();
-        changeset
     }
 
     pub fn set_status(&mut self, status: impl Into<String>) {
@@ -4611,6 +4724,15 @@ impl ReviewApp {
         dialog: &ExtensionWorkspaceWriteDialog,
         writer: impl FnOnce(&std::path::Path, &str) -> std::io::Result<()>,
     ) -> Result<(), WorkspaceWriteFailure> {
+        // Match AppHost's atomic `runWorkspaceWrite` boundary: shutdown may
+        // refuse work that has not started, while a write already executing
+        // reports its real result and is synchronously drained by this owner
+        // thread before teardown can continue.
+        if self.shutdown_requested() {
+            return Err(WorkspaceWriteFailure::Unavailable(
+                "The review reloaded before this extension operation could finish.".into(),
+            ));
+        }
         let generation = self.with_state(|state| state.generation());
         if generation != dialog.review_generation {
             return Err(WorkspaceWriteFailure::Unavailable(
@@ -5973,7 +6095,10 @@ impl ReviewApp {
             &epochs,
             &changeset.files,
         );
-        runtime.line_highlight_preparation.resolved().clone()
+        merge_line_highlight_maps(
+            runtime.line_highlight_preparation.resolved(),
+            &self.agent_line_highlights,
+        )
     }
 
     /// Expose ephemeral component paint state for executable extension parity tests.
@@ -7066,9 +7191,6 @@ impl ReviewApp {
             return;
         }
         self.interactive_authority_retired = true;
-        if let Some(client) = &self.session_broker_client {
-            client.set_bridge(None);
-        }
         self.extension_runtime_bridge.retire_mount();
         self.exit_active_keyboard_mode();
         self.exit_active_file_view_mode();
@@ -7199,8 +7321,18 @@ const fn extension_resolved_layout(layout: LayoutMode) -> ExtensionResolvedLayou
     }
 }
 
+type ReviewReloader<'a> = dyn FnMut() -> Result<Changeset> + 'a;
+type DynamicReviewReloader<'a> = dyn FnMut(
+        &workdeck_core::CliInput,
+        &Path,
+        bool,
+        &workdeck_vcs::VcsCatalog,
+        &[LoadedExtension],
+    ) -> Result<DynamicReviewLoad>
+    + 'a;
+
 pub fn run_review(changeset: Changeset, options: ReviewOptions) -> Result<()> {
-    run_review_inner(changeset, options, Vec::new(), None, None, None)
+    run_review_inner(changeset, options, Vec::new(), None, None, None, None)
 }
 
 pub fn run_review_with_extensions(
@@ -7208,7 +7340,7 @@ pub fn run_review_with_extensions(
     options: ReviewOptions,
     extensions: Vec<LoadedExtension>,
 ) -> Result<()> {
-    run_review_inner(changeset, options, extensions, None, None, None)
+    run_review_inner(changeset, options, extensions, None, None, None, None)
 }
 
 pub fn run_review_with_reload<F>(
@@ -7219,7 +7351,15 @@ pub fn run_review_with_reload<F>(
 where
     F: FnMut() -> Result<Changeset>,
 {
-    run_review_inner(changeset, options, Vec::new(), None, None, Some(reload))
+    run_review_inner(
+        changeset,
+        options,
+        Vec::new(),
+        None,
+        None,
+        Some(reload),
+        None,
+    )
 }
 
 pub fn run_review_with_extensions_reload<F>(
@@ -7231,7 +7371,15 @@ pub fn run_review_with_extensions_reload<F>(
 where
     F: FnMut() -> Result<Changeset>,
 {
-    run_review_inner(changeset, options, extensions, None, None, Some(reload))
+    run_review_inner(
+        changeset,
+        options,
+        extensions,
+        None,
+        None,
+        Some(reload),
+        None,
+    )
 }
 
 /// Provider-neutral input and the signature captured before its initial content load.
@@ -7261,6 +7409,7 @@ where
         Some((input, input_cwd, None)),
         None,
         Some(reload),
+        None,
     )
 }
 
@@ -7310,6 +7459,7 @@ where
         )),
         None,
         Some(reload),
+        None,
     )
 }
 
@@ -7363,6 +7513,40 @@ where
         )),
         Some(vcs_catalog),
         Some(reload),
+        None,
+    )
+}
+
+/// Run an interactive review whose host can load any validated replacement input.
+pub fn run_review_with_dynamic_input_reload_with_signature<F>(
+    changeset: Changeset,
+    options: ReviewOptions,
+    extensions: Vec<LoadedExtension>,
+    watch_input: ReviewWatchInput,
+    vcs_catalog: Option<workdeck_vcs::VcsCatalog>,
+    reload: &mut F,
+) -> Result<()>
+where
+    F: FnMut(
+        &workdeck_core::CliInput,
+        &Path,
+        bool,
+        &workdeck_vcs::VcsCatalog,
+        &[LoadedExtension],
+    ) -> Result<DynamicReviewLoad>,
+{
+    run_review_inner(
+        changeset,
+        options,
+        extensions,
+        Some((
+            watch_input.input,
+            watch_input.cwd,
+            watch_input.initial_signature,
+        )),
+        vcs_catalog,
+        None,
+        Some(reload),
     )
 }
 
@@ -7372,7 +7556,8 @@ fn run_review_inner(
     extensions: Vec<LoadedExtension>,
     watch_input: Option<(workdeck_core::CliInput, PathBuf, Option<String>)>,
     watch_vcs_catalog: Option<workdeck_vcs::VcsCatalog>,
-    mut reloader: Option<&mut dyn FnMut() -> Result<Changeset>>,
+    mut reloader: Option<&mut ReviewReloader<'_>>,
+    mut dynamic_reloader: Option<&mut DynamicReviewReloader<'_>>,
 ) -> Result<()> {
     if !io::stdout().is_terminal() {
         anyhow::bail!(
@@ -7382,6 +7567,10 @@ fn run_review_inner(
     if let Some((input, _, _)) = &watch_input {
         options.review_input = Some(input.clone());
     }
+    let app_host_reload_seed = watch_input
+        .as_ref()
+        .map(|(input, cwd, _)| (input.clone(), cwd.clone()));
+    let app_host_repo = options.repo.clone();
     let mut session_broker = InteractiveSessionBroker::start(&changeset, &options)?;
     let _panic_hook = InteractiveTerminalPanicHook::install(true);
     let mut terminal = match InteractiveTerminalSession::enter(true) {
@@ -7404,8 +7593,16 @@ fn run_review_inner(
             session_broker.producer(),
             Some(session_broker.client()),
         );
+        let mut app_host_reload = app_host_reload_seed
+            .map(|(input, cwd)| AppHostReloadCoordinator::new(input, cwd, app_host_repo.as_deref()))
+            .transpose()
+            .map_err(anyhow::Error::msg)?;
+        let mut app_host = AppHostController::attach(app.session_broker_client());
+        if let Err(error) = app_host.publish_snapshot(&app) {
+            app.status = Some(format!("failed to publish session snapshot: {error}"));
+        }
         app.set_clipboard_copy_supported(true);
-        let watch_vcs_catalog =
+        let mut watch_vcs_catalog =
             watch_vcs_catalog.unwrap_or_else(|| workdeck_vcs::bundled_vcs_catalog().clone());
         let mut watched_input = watch_input.filter(|_| app.options.watch).and_then(
             |(input, cwd, initial_signature)| {
@@ -7442,9 +7639,14 @@ fn run_review_inner(
             reload.as_deref(),
             &mut reloader,
             &mut watched_input,
+            &mut app_host,
+            &mut app_host_reload,
+            &mut dynamic_reloader,
+            &mut watch_vcs_catalog,
         );
         drop(session);
         drop(watched_input);
+        app_host.retire();
         app.retire_interactive_authority();
         session_broker.stop();
         app.dispose_highlight_worker();
@@ -7455,13 +7657,18 @@ fn run_review_inner(
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_loop(
     terminal: &mut InteractiveTerminalSession,
     app: &mut ReviewApp,
     session_stop: Option<&AtomicBool>,
     session_reload: Option<&AtomicBool>,
-    reloader: &mut Option<&mut dyn FnMut() -> Result<Changeset>>,
+    reloader: &mut Option<&mut ReviewReloader<'_>>,
     watched_input: &mut Option<WatchedInputDriver>,
+    app_host: &mut AppHostController,
+    app_host_reload: &mut Option<AppHostReloadCoordinator>,
+    dynamic_reloader: &mut Option<&mut DynamicReviewReloader<'_>>,
+    watch_vcs_catalog: &mut workdeck_vcs::VcsCatalog,
 ) -> Result<()> {
     let mut next_reload = Instant::now() + Duration::from_millis(250);
     let job_control = JobControlSupport::default();
@@ -7473,8 +7680,39 @@ fn run_loop(
             .as_ref()
             .is_some_and(|stop| stop.load(Ordering::Acquire))
     {
+        let mut session_reload_handler =
+            |app: &mut ReviewApp,
+             next_input: &serde_json::Value,
+             options: workdeck_session::ReloadSessionOptions| {
+                let coordinator = app_host_reload.as_mut().ok_or_else(|| {
+                    "This Workdeck review does not have a reloadable launch input.".to_owned()
+                })?;
+                let plan = coordinator.plan(next_input, options)?;
+                let loader = dynamic_reloader.as_deref_mut().ok_or_else(|| {
+                    "This Workdeck review input does not expose a dynamic reload loader.".to_owned()
+                })?;
+                let result = commit_dynamic_review_reload(
+                    app,
+                    coordinator,
+                    plan,
+                    loader,
+                    watch_vcs_catalog,
+                )?;
+                replace_watched_input(
+                    app,
+                    watched_input,
+                    coordinator.current_input().clone(),
+                    coordinator.current_cwd().to_path_buf(),
+                    watch_vcs_catalog,
+                );
+                Ok(result)
+            };
+        app_host.process_pending(app, &mut session_reload_handler);
         app.poll_extension_commands();
         app.tick_extension_notifications(Instant::now());
+        if let Err(error) = app_host.publish_snapshot(app) {
+            app.status = Some(format!("failed to publish session snapshot: {error}"));
+        }
         terminal.terminal_mut().draw(|frame| {
             let area = frame.area();
             render(area, frame.buffer_mut(), app);
@@ -7513,7 +7751,33 @@ fn run_loop(
                 Event::Paste(text) => app.handle_paste(&text),
                 Event::Resize(_, _) | Event::FocusGained | Event::FocusLost => {}
             }
-            app.process_extension_trust_request(reloader);
+            let can_reload_extensions = dynamic_reloader.is_some() && app_host_reload.is_some();
+            if app.process_extension_trust_request(can_reload_extensions)
+                && let (Some(loader), Some(coordinator)) =
+                    (dynamic_reloader.as_deref_mut(), app_host_reload.as_mut())
+            {
+                match commit_current_dynamic_review_reload(
+                    app,
+                    coordinator,
+                    loader,
+                    watch_vcs_catalog,
+                    SessionReloadReason::Manual,
+                    true,
+                ) {
+                    Ok(_) => replace_watched_input(
+                        app,
+                        watched_input,
+                        coordinator.current_input().clone(),
+                        coordinator.current_cwd().to_path_buf(),
+                        watch_vcs_catalog,
+                    ),
+                    Err(_) => {
+                        app.status = Some(
+                            "Failed to reload after trusting this repository's extensions.".into(),
+                        );
+                    }
+                }
+            }
             if let Some(text) = app.take_clipboard_copy_request()
                 && let Err(error) = write_osc52_clipboard(&mut io::stdout(), &text)
             {
@@ -7531,17 +7795,40 @@ fn run_loop(
             app.reload_requested = false;
             next_reload = Instant::now() + Duration::from_millis(250);
             let reason = reload_request_reason(manual_requested, session_requested);
-            reload_current_review(app, reloader, manual_requested || session_requested, reason);
+            reload_current_review(
+                app,
+                reloader,
+                dynamic_reloader,
+                app_host_reload,
+                watch_vcs_catalog,
+                watched_input,
+                manual_requested || session_requested,
+                reason,
+            );
         }
         if let Some(driver) = watched_input {
-            let outcome = driver.poll(Instant::now(), &mut || {
-                let Some(reload) = reloader.as_deref_mut() else {
-                    anyhow::bail!("this review input cannot be reloaded");
-                };
-                let changeset = reload()?;
-                apply_reloaded_changeset(app, changeset, SessionReloadReason::Watch);
-                Ok::<(), anyhow::Error>(())
-            });
+            let outcome = if let (Some(loader), Some(coordinator)) =
+                (dynamic_reloader.as_deref_mut(), app_host_reload.as_mut())
+            {
+                driver.poll(Instant::now(), &mut || {
+                    commit_current_dynamic_review_reload(
+                        app,
+                        coordinator,
+                        loader,
+                        watch_vcs_catalog,
+                        SessionReloadReason::Watch,
+                        false,
+                    )
+                    .map(|_| ())
+                    .map_err(anyhow::Error::msg)
+                })
+            } else {
+                driver.poll(Instant::now(), &mut || {
+                    let changeset = load_current_review_input(reloader)?;
+                    apply_reloaded_changeset(app, changeset, SessionReloadReason::Watch);
+                    Ok::<(), anyhow::Error>(())
+                })
+            };
             if outcome.reload_pending {
                 app.notify_watch_reload_pending();
                 app.status = Some("review reload pending".into());
@@ -7552,6 +7839,78 @@ fn run_loop(
         }
     }
     Ok(())
+}
+
+/// Execute one AppHost reload transaction after bounds validation. This is the
+/// common commit gate for broker, manual, watch, editor-return, and workspace
+/// refresh paths: content, extensions, producer, broker registration, mounted
+/// input, catalog, and coordinator advance together or remain unchanged.
+fn commit_dynamic_review_reload(
+    app: &mut ReviewApp,
+    coordinator: &mut AppHostReloadCoordinator,
+    plan: AppHostReloadPlan,
+    loader: &mut DynamicReviewReloader<'_>,
+    watch_vcs_catalog: &mut workdeck_vcs::VcsCatalog,
+) -> Result<workdeck_session::ReloadedSessionResult, String> {
+    if app.shutdown_requested() {
+        return Err("The Workdeck review is shutting down and cannot reload.".into());
+    }
+    let reload_extensions = coordinator.requires_extension_reload(&plan);
+    let current_extensions = app
+        .extension_pane_runtime
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .extensions
+        .clone();
+    let loaded = loader(
+        &plan.input,
+        &plan.cwd,
+        reload_extensions,
+        watch_vcs_catalog,
+        &current_extensions,
+    )
+    .map_err(|error| format!("Failed to load session review input: {error:#}"))?;
+    let mut committed_plan = plan;
+    committed_plan.input = loaded.input.clone();
+    let replacement_catalog = loaded.replacement_vcs_catalog.clone();
+    let result = app.session_commit_dynamic_reload(loaded, &committed_plan.options)?;
+    if let Some(catalog) = replacement_catalog {
+        *watch_vcs_catalog = catalog;
+    }
+    coordinator.commit(&committed_plan);
+    Ok(result)
+}
+
+fn commit_current_dynamic_review_reload(
+    app: &mut ReviewApp,
+    coordinator: &mut AppHostReloadCoordinator,
+    loader: &mut DynamicReviewReloader<'_>,
+    watch_vcs_catalog: &mut workdeck_vcs::VcsCatalog,
+    reason: SessionReloadReason,
+    reload_extensions: bool,
+) -> Result<workdeck_session::ReloadedSessionResult, String> {
+    let request = app.current_review_reload_request().ok_or_else(|| {
+        "This Workdeck review does not have a reloadable launch input.".to_owned()
+    })?;
+    let next_input = serde_json::to_value(workdeck_session::core_cli_input_to_daemon(
+        request.next_input,
+    ))
+    .map_err(|error| format!("Failed to encode the current review input: {error}"))?;
+    let reason = match reason {
+        SessionReloadReason::Watch => workdeck_session::SessionReloadReason::Watch,
+        SessionReloadReason::Daemon => workdeck_session::SessionReloadReason::Daemon,
+        SessionReloadReason::Manual => workdeck_session::SessionReloadReason::Manual,
+    };
+    let plan = coordinator.plan(
+        &next_input,
+        workdeck_session::ReloadSessionOptions {
+            reset_app: Some(false),
+            source_path: request.source_path,
+            reason: Some(reason),
+            reload_extensions: reload_extensions.then_some(true),
+        },
+    )?;
+    commit_dynamic_review_reload(app, coordinator, plan, loader, watch_vcs_catalog)
 }
 
 const fn reload_request_reason(
@@ -7567,22 +7926,88 @@ const fn reload_request_reason(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn reload_current_review(
     app: &mut ReviewApp,
-    reloader: &mut Option<&mut dyn FnMut() -> Result<Changeset>>,
+    reloader: &mut Option<&mut ReviewReloader<'_>>,
+    dynamic_reloader: &mut Option<&mut DynamicReviewReloader<'_>>,
+    app_host_reload: &mut Option<AppHostReloadCoordinator>,
+    watch_vcs_catalog: &mut workdeck_vcs::VcsCatalog,
+    watched_input: &mut Option<WatchedInputDriver>,
     report_unavailable: bool,
     reason: SessionReloadReason,
 ) {
-    match reloader.as_deref_mut() {
-        Some(reload) => match reload() {
-            Ok(changeset) => apply_reloaded_changeset(app, changeset, reason),
-            Err(error) => app.status = Some(format!("reload failed: {error:#}")),
-        },
-        None if report_unavailable => {
+    let can_reload =
+        reloader.is_some() || (dynamic_reloader.is_some() && app_host_reload.is_some());
+    if !can_reload {
+        if report_unavailable {
             app.status = Some("this review input cannot be reloaded".into());
         }
-        None => {}
+        return;
     }
+    if let (Some(loader), Some(coordinator)) =
+        (dynamic_reloader.as_deref_mut(), app_host_reload.as_mut())
+    {
+        match commit_current_dynamic_review_reload(
+            app,
+            coordinator,
+            loader,
+            watch_vcs_catalog,
+            reason,
+            false,
+        ) {
+            Ok(_) => replace_watched_input(
+                app,
+                watched_input,
+                coordinator.current_input().clone(),
+                coordinator.current_cwd().to_path_buf(),
+                watch_vcs_catalog,
+            ),
+            Err(error) => app.status = Some(format!("reload failed: {error}")),
+        }
+        return;
+    }
+    match load_current_review_input(reloader) {
+        Ok(changeset) if !app.shutdown_requested() => {
+            apply_reloaded_changeset(app, changeset, reason);
+        }
+        Ok(_) => {}
+        Err(error) => app.status = Some(format!("reload failed: {error:#}")),
+    }
+}
+
+fn load_current_review_input(reloader: &mut Option<&mut ReviewReloader<'_>>) -> Result<Changeset> {
+    let Some(reload) = reloader.as_deref_mut() else {
+        anyhow::bail!("this review input cannot be reloaded");
+    };
+    reload()
+}
+
+fn replace_watched_input(
+    app: &mut ReviewApp,
+    watched_input: &mut Option<WatchedInputDriver>,
+    input: workdeck_core::CliInput,
+    cwd: PathBuf,
+    vcs_catalog: &workdeck_vcs::VcsCatalog,
+) {
+    let runtime: Arc<dyn WatchedInputRuntime> = Arc::new(NativeWatchedInputRuntime::new(
+        cwd,
+        Some(vcs_catalog.clone()),
+    ));
+    *watched_input = match WatchedInputDriver::start(
+        app.options.watch,
+        input,
+        runtime,
+        None,
+        Instant::now(),
+        workdeck_vcs::WatchControllerConfig::default(),
+    ) {
+        Ok(driver) => driver,
+        Err(error) => {
+            app.status = Some(format!("failed to initialize watch mode: {error}"));
+            None
+        }
+    };
 }
 
 fn apply_reloaded_changeset(
@@ -9080,6 +9505,7 @@ fn paint_cursor_line(line: &mut Line<'_>, mode: CursorLineMode, theme: &AppTheme
 fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     app.review_width.set(area.width);
     app.review_height.set(area.height);
+    app.review_geometry_published.set(true);
     let state = app
         .state
         .lock()
@@ -11803,11 +12229,13 @@ mod tests {
         std::fs::write(root.path().join("a.rs"), "new\n").unwrap();
         let review = attested_writable_changeset();
         let file_id = review.files[0].runtime_id.clone();
+        let external_quit = Arc::new(AtomicBool::new(false));
         let app = ReviewApp::new(
             review,
             ReviewOptions {
                 repo: Some(root.path().to_owned()),
                 review_input: Some(writable_input()),
+                external_quit_signal: Some(Arc::clone(&external_quit)),
                 ..ReviewOptions::default()
             },
         );
@@ -11838,8 +12266,26 @@ mod tests {
             "new\n"
         );
 
+        external_quit.store(true, Ordering::Release);
+        let refused = app
+            .write_extension_workspace_document_with(&dialog, |_, _| {
+                panic!("shutdown must refuse a write before its irreversible boundary")
+            })
+            .unwrap_err();
+        assert_eq!(
+            refused,
+            WorkspaceWriteFailure::Unavailable(
+                "The review reloaded before this extension operation could finish.".into()
+            )
+        );
+        external_quit.store(false, Ordering::Release);
+
         let shared_state = app.shared_state();
         app.write_extension_workspace_document_with(&dialog, |path, text| {
+            // Once this writer is entered, the operation owns the synchronous
+            // filesystem boundary. A simultaneous quit cannot falsify its
+            // result or tear down the app until the owner thread returns.
+            external_quit.store(true, Ordering::Release);
             shared_state
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -11984,37 +12430,24 @@ mod tests {
             changeset(),
             ReviewOptions {
                 pending_extension_trust_repo_root: Some(PathBuf::from("/repo/alpha")),
-                extension_trust_handler: Some(ExtensionTrustHandler::new(
-                    move |root, decision, load_extensions| {
-                        observed
-                            .lock()
-                            .unwrap()
-                            .push((root.to_owned(), decision, load_extensions));
-                        Ok(Vec::new())
-                    },
-                )),
+                extension_trust_handler: Some(ExtensionTrustHandler::new(move |root, decision| {
+                    observed.lock().unwrap().push((root.to_owned(), decision));
+                    Ok(())
+                })),
                 ..ReviewOptions::default()
             },
         );
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        let reloads = Arc::new(Mutex::new(0));
-        let observed_reloads = Arc::clone(&reloads);
-        let mut reload = move || {
-            *observed_reloads.lock().unwrap() += 1;
-            Ok(two_file_changeset())
-        };
-        let mut reload: Option<&mut dyn FnMut() -> Result<Changeset>> = Some(&mut reload);
-        app.process_extension_trust_request(&mut reload);
+        assert!(app.process_extension_trust_request(true));
+        app.reload(two_file_changeset());
 
         assert_eq!(
             *calls.lock().unwrap(),
             [(
                 PathBuf::from("/repo/alpha"),
                 workdeck_extension_host::TrustDecision::Trusted,
-                true,
             )]
         );
-        assert_eq!(*reloads.lock().unwrap(), 1);
         assert_eq!(app.with_state(|state| state.changeset().files.len()), 2);
         assert_eq!(app.status.as_deref(), Some("review reloaded"));
         assert!(app.options.pending_extension_trust_repo_root.is_none());
@@ -12024,13 +12457,9 @@ mod tests {
     fn repository_extension_denial_and_nonreloadable_trust_never_load_code() {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let observed = Arc::clone(&calls);
-        let handler = ExtensionTrustHandler::new(move |root, decision, load_extensions| {
-            observed
-                .lock()
-                .unwrap()
-                .push((root.to_owned(), decision, load_extensions));
-            assert!(!load_extensions);
-            Ok(Vec::new())
+        let handler = ExtensionTrustHandler::new(move |root, decision| {
+            observed.lock().unwrap().push((root.to_owned(), decision));
+            Ok(())
         });
         let mut denied = ReviewApp::new(
             changeset(),
@@ -12041,8 +12470,7 @@ mod tests {
             },
         );
         denied.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
-        let mut unavailable = None;
-        denied.process_extension_trust_request(&mut unavailable);
+        assert!(!denied.process_extension_trust_request(false));
         assert_eq!(
             denied.status.as_deref(),
             Some("Won't run this repository's extensions")
@@ -12057,7 +12485,7 @@ mod tests {
             },
         );
         deferred.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
-        deferred.process_extension_trust_request(&mut unavailable);
+        assert!(!deferred.process_extension_trust_request(false));
         assert_eq!(
             deferred.status.as_deref(),
             Some("Trusted this repository • restart Workdeck to load its extensions")

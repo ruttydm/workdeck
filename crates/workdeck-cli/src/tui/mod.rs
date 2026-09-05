@@ -232,28 +232,12 @@ fn process_review_clipboard(app: &mut App) {
 }
 
 fn process_review_extension_trust(app: &mut App) {
-    let repo_root = app.repo_root.clone();
-    let vcs = app.config.review.vcs.clone();
-    let exclude_untracked = app.config.review.exclude_untracked;
-    let color_moved = app.config.review.color_moved;
     let Some(review) = &mut app.review else {
         return;
     };
-    let mut reload = || {
-        let preference = ProviderPreference::parse(&vcs).map_err(anyhow::Error::from)?;
-        let provider =
-            AnyProvider::discover(&repo_root, preference).map_err(anyhow::Error::from)?;
-        provider
-            .working_tree(&DiffRequest {
-                exclude_untracked,
-                color_moved,
-                ..DiffRequest::default()
-            })
-            .map_err(anyhow::Error::from)
-    };
-    let mut reload: Option<&mut dyn FnMut() -> anyhow::Result<workdeck_core::Changeset>> =
-        Some(&mut reload);
-    review.process_extension_trust_request(&mut reload);
+    // The unified shell does not own AppHost's dynamic extension-discovery
+    // transaction yet, so a persisted grant takes effect on the next launch.
+    let _ = review.process_extension_trust_request(false);
 }
 
 fn maybe_spawn_startup_notice_lookup(

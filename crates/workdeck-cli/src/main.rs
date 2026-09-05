@@ -42,12 +42,12 @@ use workdeck_diff::{
     LanguageMatcher, LanguageRegistration, LanguageRegistry, sanitize_terminal_line,
 };
 use workdeck_extension_api::{
-    CliCommandResult, ExtensionManifest, ExtensionNotificationHub, ExtensionNotifyType,
-    FileLanguageGlobTarget, FileLanguageMatcher, Registration,
+    CliCommandResult, ExtensionManifest, ExtensionNotificationHub, FileLanguageGlobTarget,
+    FileLanguageMatcher, Registration,
 };
 use workdeck_extension_host::{
-    ExtensionLoadResult, LoadStartupExtensionsOptions, LoadedExtension, TrustDecision, TrustStore,
-    create_empty_extension_load_result, create_extension_apply_notices,
+    EXTENSION_SHUTDOWN_TIMEOUT, ExtensionLoadResult, LoadStartupExtensionsOptions, LoadedExtension,
+    TrustDecision, TrustStore, create_empty_extension_load_result, create_extension_apply_notices,
     create_extension_load_notices, discover_manifests_with_config, load_startup_extensions,
     resolve_loaded_extension_registrations, resolved_native_vcs_adapters,
     uses_transient_view_preferences,
@@ -2746,6 +2746,141 @@ mod review_cli_option_tests {
     }
 
     #[test]
+    fn dynamic_loader_reopens_each_file_backed_shape_at_the_validated_cwd() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("before.rs"), "fn value() { 1 }\n").unwrap();
+        std::fs::write(directory.path().join("after.rs"), "fn value() { 2 }\n").unwrap();
+        std::fs::write(
+            directory.path().join("agent.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "files": [{
+                    "path": "after.rs",
+                    "annotations": [{"newRange": [1, 1], "summary": "Changed value"}]
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let files = CliInput::Files(FileCommandInput {
+            left: "before.rs".into(),
+            right: "after.rs".into(),
+            options: CommonOptions {
+                agent_context: Some("agent.json".into()),
+                ..CommonOptions::default()
+            },
+        });
+        let loaded = load_dynamic_review_input(&files, directory.path(), None, &[]).unwrap();
+        assert_eq!(loaded.changeset.files[0].path, "after.rs");
+        assert_eq!(
+            loaded.changeset.files[0]
+                .agent
+                .as_ref()
+                .unwrap()
+                .annotations[0]
+                .summary,
+            "Changed value"
+        );
+
+        let patch_text =
+            "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
+        std::fs::write(directory.path().join("review.patch"), patch_text).unwrap();
+        let patch = CliInput::Patch(PatchCommandInput {
+            file: Some("review.patch".into()),
+            text: None,
+            options: CommonOptions::default(),
+        });
+        assert_eq!(
+            load_dynamic_review_input(&patch, directory.path(), None, &[])
+                .unwrap()
+                .changeset
+                .files[0]
+                .path,
+            "a.rs"
+        );
+        let inline = CliInput::Patch(PatchCommandInput {
+            file: None,
+            text: Some(patch_text.into()),
+            options: CommonOptions::default(),
+        });
+        assert_eq!(
+            load_dynamic_review_input(&inline, directory.path(), None, &[])
+                .unwrap()
+                .changeset
+                .files[0]
+                .path,
+            "a.rs"
+        );
+    }
+
+    #[test]
+    fn dynamic_input_resolution_reapplies_repo_config_then_explicit_options() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir(directory.path().join(".git")).unwrap();
+        std::fs::create_dir_all(directory.path().join(".agents/workdeck")).unwrap();
+        std::fs::write(
+            directory.path().join(".agents/workdeck/config.toml"),
+            "[review]\nwrap_lines = true\nline_numbers = false\ntab_width = 7\n",
+        )
+        .unwrap();
+        let requested = CliInput::Files(FileCommandInput {
+            left: "before.rs".into(),
+            right: "after.rs".into(),
+            options: CommonOptions {
+                line_numbers: Some(true),
+                experimental: Some(false),
+                extensions: Some(false),
+                extension_paths: vec!["launch-extension".into()],
+                ..CommonOptions::default()
+            },
+        });
+
+        let resolved =
+            resolve_dynamic_review_input(&requested, directory.path(), bundled_vcs_catalog())
+                .unwrap();
+        assert_eq!(resolved.options().wrap_lines, Some(true));
+        assert_eq!(resolved.options().tab_width, Some(7));
+        assert_eq!(resolved.options().line_numbers, Some(true));
+        assert_eq!(resolved.options().experimental, Some(false));
+        assert_eq!(resolved.options().extensions, Some(false));
+        assert_eq!(resolved.options().extension_paths, ["launch-extension"]);
+    }
+
+    #[test]
+    fn dynamic_extension_reload_preserves_launch_disable_authority() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir(directory.path().join(".git")).unwrap();
+        std::fs::write(directory.path().join("before.rs"), "old\n").unwrap();
+        std::fs::write(directory.path().join("after.rs"), "new\n").unwrap();
+        let input = CliInput::Files(FileCommandInput {
+            left: "before.rs".into(),
+            right: "after.rs".into(),
+            options: CommonOptions {
+                extensions: Some(false),
+                extension_paths: vec!["must-not-be-executed".into()],
+                ..CommonOptions::default()
+            },
+        });
+
+        let loaded = load_dynamic_review_session(
+            &input,
+            directory.path(),
+            true,
+            bundled_vcs_catalog(),
+            &[],
+            &ExtensionNotificationHub::new(),
+        )
+        .unwrap();
+        assert!(loaded.replacement_extensions.as_ref().unwrap().is_empty());
+        assert!(loaded.replacement_vcs_catalog.is_some());
+        assert_eq!(loaded.input.options().extensions, Some(false));
+        assert_eq!(
+            loaded.input.options().extension_paths,
+            ["must-not-be-executed"]
+        );
+    }
+
+    #[test]
     fn unknown_vcs_ids_fall_back_with_a_sanitized_startup_notice() {
         let root = tempfile::tempdir().unwrap();
         let selection = select_review_vcs_adapter(
@@ -5382,6 +5517,41 @@ impl Drop for ProvisionalReviewExtensionLoad {
     }
 }
 
+struct ProvisionalLoadedExtensions(Option<Vec<LoadedExtension>>);
+
+impl ProvisionalLoadedExtensions {
+    fn new(extensions: Vec<LoadedExtension>) -> Self {
+        Self(Some(extensions))
+    }
+
+    fn extensions(&self) -> &[LoadedExtension] {
+        self.0
+            .as_deref()
+            .expect("provisional extensions have not been adopted")
+    }
+
+    fn adopt(&mut self) -> Vec<LoadedExtension> {
+        self.0
+            .take()
+            .expect("provisional extensions are adopted exactly once")
+    }
+}
+
+impl Drop for ProvisionalLoadedExtensions {
+    fn drop(&mut self) {
+        let Some(extensions) = &mut self.0 else {
+            return;
+        };
+        for extension in extensions.iter_mut() {
+            let _ = extension.begin_retirement();
+        }
+        let deadline = std::time::Instant::now() + EXTENSION_SHUTDOWN_TIMEOUT;
+        for extension in extensions.iter_mut() {
+            extension.finish_retirement(deadline);
+        }
+    }
+}
+
 type WorkdeckAppBootstrap = AppBootstrap<PreparedReviewExtensions, VcsCatalog>;
 
 struct SelectedVcsAdapter {
@@ -5531,6 +5701,261 @@ fn load_selected_vcs_changeset(
         changeset,
         repo_root,
     })
+}
+
+/// Load any already-validated session input at its requested working
+/// directory. Extension transforms remain owned by the mounted TUI so they run
+/// exactly once after the content candidate has loaded successfully.
+fn resolve_dynamic_review_input(
+    input: &CliInput,
+    cwd: &Path,
+    vcs_catalog: &VcsCatalog,
+) -> Result<CliInput> {
+    let config_root = find_project_root_candidate_with_catalog(cwd, Some(vcs_catalog))
+        .unwrap_or_else(|| cwd.to_owned());
+    let config = Config::load(&config_root)?;
+    let mut configured = ReviewCliOptions::from_config(&config).common_options();
+    let requested = input.options();
+    macro_rules! overlay {
+        ($field:ident) => {
+            if requested.$field.is_some() {
+                configured.$field = requested.$field.clone();
+            }
+        };
+    }
+    overlay!(mode);
+    overlay!(cursor_line);
+    overlay!(vcs);
+    overlay!(theme);
+    overlay!(agent_context);
+    overlay!(pager);
+    overlay!(watch);
+    overlay!(experimental);
+    overlay!(fast);
+    overlay!(exclude_untracked);
+    overlay!(line_numbers);
+    overlay!(tab_width);
+    overlay!(file_gap);
+    overlay!(hunk_gap);
+    overlay!(wrap_lines);
+    overlay!(hunk_headers);
+    overlay!(menu_bar);
+    overlay!(sidebar);
+    overlay!(agent_notes);
+    overlay!(copy_decorations);
+    overlay!(prompt_save_view_preferences);
+    overlay!(transparent_background);
+    overlay!(color_moved);
+    overlay!(extensions);
+    // AppHost restores the exact launch authority here, including an empty
+    // list, so repository configuration cannot inject executable paths into a
+    // live session reload.
+    configured
+        .extension_paths
+        .clone_from(&requested.extension_paths);
+    if matches!(input, CliInput::Vcs(_)) && requested.exclude_untracked.is_none() {
+        configured.exclude_untracked = Some(config.review.exclude_untracked);
+    }
+    let mut resolved = input.clone();
+    *resolved.options_mut() = configured;
+    Ok(resolved)
+}
+
+fn load_dynamic_review_input(
+    input: &CliInput,
+    cwd: &Path,
+    vcs_catalog: Option<&VcsCatalog>,
+    current_extensions: &[LoadedExtension],
+) -> Result<workdeck_tui::DynamicReviewLoad> {
+    let bundled;
+    let catalog = match vcs_catalog {
+        Some(catalog) => catalog,
+        None => {
+            bundled = bundled_vcs_catalog().clone();
+            &bundled
+        }
+    };
+    let config_root = find_project_root_candidate_with_catalog(cwd, Some(catalog))
+        .unwrap_or_else(|| cwd.to_owned());
+    let config = Config::load(&config_root)?;
+    let review = ReviewCliOptions::from_config(&config);
+    let session_themes = collect_review_custom_themes(&review, current_extensions);
+    let mut startup_notices = review.startup_notices.clone();
+    startup_notices.extend(session_themes.notices);
+    let mut repo_root = Some(config_root);
+    let mut input = resolve_dynamic_review_input(input, cwd, catalog)?;
+    let mut changeset = match &mut input {
+        CliInput::Vcs(input) => {
+            let selected = select_review_vcs_adapter(cwd, input.options.vcs.as_deref(), catalog)?;
+            input.options.vcs = Some(selected.adapter.id.clone());
+            if let Some(notice) = selected.unknown_id_notice {
+                startup_notices.push(notice);
+            }
+            let review_input = VcsReviewInput::Diff(input.clone());
+            let loaded =
+                load_selected_vcs_changeset(cwd, &selected.adapter, catalog, &review_input)?;
+            repo_root = Some(loaded.repo_root);
+            loaded.changeset
+        }
+        CliInput::Show(input) => {
+            let selected = select_review_vcs_adapter(cwd, input.options.vcs.as_deref(), catalog)?;
+            input.options.vcs = Some(selected.adapter.id.clone());
+            if let Some(notice) = selected.unknown_id_notice {
+                startup_notices.push(notice);
+            }
+            let review_input = VcsReviewInput::Show(input.clone());
+            let loaded =
+                load_selected_vcs_changeset(cwd, &selected.adapter, catalog, &review_input)?;
+            repo_root = Some(loaded.repo_root);
+            loaded.changeset
+        }
+        CliInput::StashShow(input) => {
+            let selected = select_review_vcs_adapter(
+                cwd,
+                input.options.vcs.as_deref().or(Some("git")),
+                catalog,
+            )?;
+            input.options.vcs = Some(selected.adapter.id.clone());
+            if let Some(notice) = selected.unknown_id_notice {
+                startup_notices.push(notice);
+            }
+            let review_input = VcsReviewInput::StashShow(input.clone());
+            let loaded =
+                load_selected_vcs_changeset(cwd, &selected.adapter, catalog, &review_input)?;
+            repo_root = Some(loaded.repo_root);
+            loaded.changeset
+        }
+        CliInput::Files(input) => {
+            load_file_comparison(cwd, Path::new(&input.left), Path::new(&input.right))
+                .map_err(anyhow::Error::from)?
+        }
+        CliInput::Patch(input) => {
+            let (patch, label) = match (&input.file, &input.text) {
+                (Some(file), _) if file != "-" => {
+                    let path = resolve_input_path(cwd, Path::new(file));
+                    let patch = std::fs::read_to_string(&path)
+                        .with_context(|| format!("failed to read patch {}", path.display()))?;
+                    (patch, path.display().to_string())
+                }
+                (_, Some(text)) => (text.clone(), "session patch".into()),
+                _ => bail!("session reload cannot reopen a patch from stdin"),
+            };
+            parse_patch_input(&patch, label).map_err(anyhow::Error::from)?
+        }
+        CliInput::DiffTool(input) => load_difftool_comparison(
+            cwd,
+            Path::new(&input.left),
+            Path::new(&input.right),
+            input.path.as_deref().map(Path::new),
+        )
+        .map_err(anyhow::Error::from)?,
+    };
+    apply_agent_context(
+        cwd,
+        input.options().agent_context.as_deref().map(Path::new),
+        &mut changeset,
+    )?;
+    Ok(workdeck_tui::DynamicReviewLoad {
+        host_options: workdeck_tui::DynamicReviewHostOptions {
+            command_cwd: cwd.to_owned(),
+            repo_root,
+            startup_notices,
+            custom_themes: session_themes.themes,
+            keybindings: review.keybindings,
+            keybinding_notices: review.keybinding_notices,
+            view_preferences_config_path: review.view_preferences_config_path,
+            prompt_save_view_preferences: input
+                .options()
+                .prompt_save_view_preferences
+                .unwrap_or(true),
+            transient_view_preferences: Some(uses_transient_view_preferences(
+                current_extensions
+                    .iter()
+                    .map(|extension| &extension.handshake),
+            )),
+            pending_extension_trust_repo_root: None,
+            extension_trust_handler: Some(review_extension_trust_handler()),
+        },
+        input,
+        changeset,
+        replacement_extensions: None,
+        replacement_vcs_catalog: None,
+    })
+}
+
+fn load_dynamic_review_session(
+    input: &CliInput,
+    cwd: &Path,
+    reload_extensions: bool,
+    current_catalog: &VcsCatalog,
+    current_extensions: &[LoadedExtension],
+    notifications: &ExtensionNotificationHub,
+) -> Result<workdeck_tui::DynamicReviewLoad> {
+    if !reload_extensions {
+        return load_dynamic_review_input(input, cwd, Some(current_catalog), current_extensions);
+    }
+
+    let config_root = find_project_root_candidate_with_catalog(cwd, Some(current_catalog))
+        .unwrap_or_else(|| cwd.to_owned());
+    let config = Config::load(&config_root)?;
+    let mut review = ReviewCliOptions::from_config(&config);
+    let mut raw_review = ReviewCliOptions::default();
+    for target in [&mut review, &mut raw_review] {
+        target.experimental = input.options().experimental.unwrap_or(false);
+        target.fast = input.options().fast.unwrap_or(false);
+        target.extension = input
+            .options()
+            .extension_paths
+            .iter()
+            .map(PathBuf::from)
+            .collect();
+        match input.options().extensions {
+            Some(true) => {
+                target.extensions = true;
+                target.no_extensions = false;
+            }
+            Some(false) => {
+                target.extensions = false;
+                target.no_extensions = true;
+            }
+            None => {}
+        }
+    }
+    let mut prepared = load_review_extensions_with_notifications(
+        cwd,
+        &mut review,
+        &raw_review,
+        notifications.clone(),
+        None,
+        Some(current_catalog),
+    )?;
+    let mut replacement = ProvisionalLoadedExtensions::new(prepared.extensions);
+    let replacement_catalog = compose_review_vcs_catalog(replacement.extensions());
+    let mut loaded = load_dynamic_review_input(
+        input,
+        cwd,
+        Some(&replacement_catalog),
+        replacement.extensions(),
+    )?;
+    let mut extension_notices = Vec::new();
+    extension_notices.append(&mut prepared.application_notices);
+    extension_notices.append(&mut prepared.load_notices);
+    loaded
+        .host_options
+        .startup_notices
+        .extend(extension_notices);
+    loaded.host_options.pending_extension_trust_repo_root = Some(prepared.pending_trust_repo_root);
+    loaded.replacement_extensions = Some(replacement.adopt());
+    loaded.replacement_vcs_catalog = Some(replacement_catalog);
+    Ok(loaded)
+}
+
+fn resolve_input_path(cwd: &Path, path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        path.to_owned()
+    } else {
+        cwd.join(path)
+    }
 }
 
 fn prepare_piped_review_input(command: Option<&Command>) -> Result<Option<PreparedPipedInput>> {
@@ -6444,11 +6869,7 @@ fn run_app_bootstrap(
         input.options().prompt_save_view_preferences.unwrap_or(true);
     options.transient_view_preferences = transient_view_preferences;
     options.pending_extension_trust_repo_root = pending_trust_repo_root;
-    options.extension_trust_handler = Some(review_extension_trust_handler(
-        &cwd,
-        &review,
-        &notifications,
-    ));
+    options.extension_trust_handler = Some(review_extension_trust_handler());
     options.command_cwd = Some(cwd.clone());
     options.repo = Some(resolve_review_repo_root(
         &cwd,
@@ -6467,41 +6888,35 @@ fn run_app_bootstrap(
     })
     .map_err(anyhow::Error::msg)
     .context("failed to install interactive review shutdown handler")?;
-    let result = if let Some(reloader) = reloader {
-        let agent_context = review.agent_context.clone();
-        let mut reload_extensions = extensions.clone();
-        let mut decorated_reload = || {
-            let mut changeset = reloader()?;
-            apply_agent_context(&cwd, agent_context.as_deref(), &mut changeset)?;
-            apply_review_extensions(changeset, &mut reload_extensions)
-        };
-        match vcs_catalog {
-            None => workdeck_tui::run_review_with_extensions_input_reload_with_signature(
-                changeset,
-                options,
-                extensions,
-                workdeck_tui::ReviewWatchInput {
-                    input,
-                    cwd: cwd.clone(),
-                    initial_signature: initial_watch_signature,
-                },
-                &mut decorated_reload,
-            ),
-            Some(catalog) => {
-                workdeck_tui::run_review_with_extensions_catalog_input_reload_with_signature(
-                    changeset,
-                    options,
-                    extensions,
-                    workdeck_tui::ReviewWatchInput {
-                        input,
-                        cwd: cwd.clone(),
-                        initial_signature: initial_watch_signature,
-                    },
-                    catalog,
-                    &mut decorated_reload,
+    let result = if reloader.is_some() {
+        let dynamic_notifications = notifications.clone();
+        let mut dynamic_reload =
+            |next_input: &CliInput,
+             next_cwd: &Path,
+             reload_extensions: bool,
+             current_catalog: &VcsCatalog,
+             current_extensions: &[LoadedExtension]| {
+                load_dynamic_review_session(
+                    next_input,
+                    next_cwd,
+                    reload_extensions,
+                    current_catalog,
+                    current_extensions,
+                    &dynamic_notifications,
                 )
-            }
-        }
+            };
+        workdeck_tui::run_review_with_dynamic_input_reload_with_signature(
+            changeset,
+            options,
+            extensions,
+            workdeck_tui::ReviewWatchInput {
+                input,
+                cwd: cwd.clone(),
+                initial_signature: initial_watch_signature,
+            },
+            vcs_catalog,
+            &mut dynamic_reload,
+        )
     } else {
         workdeck_tui::run_review_with_extensions(changeset, options, extensions)
     };
@@ -6766,15 +7181,8 @@ fn load_review_extension_pass(
     .map_err(anyhow::Error::from)
 }
 
-fn review_extension_trust_handler(
-    cwd: &Path,
-    review: &ReviewCliOptions,
-    notifications: &ExtensionNotificationHub,
-) -> ExtensionTrustHandler {
-    let cwd = cwd.to_owned();
-    let review = review.clone();
-    let notifications = notifications.clone();
-    ExtensionTrustHandler::new(move |repo_root, decision, load_extensions| {
+fn review_extension_trust_handler() -> ExtensionTrustHandler {
+    ExtensionTrustHandler::new(move |repo_root, decision| {
         let state_path = resolve_app_state_path().ok_or_else(|| {
             ExtensionTrustHostError::Write(ExtensionTrustWriteError::Message(
                 "could not resolve the Workdeck app-state path".into(),
@@ -6787,27 +7195,7 @@ fn review_extension_trust_handler(
                 ExtensionTrustHostError::Write(ExtensionTrustWriteError::Message(error.to_string()))
             },
         )?;
-        if !load_extensions {
-            return Ok(Vec::new());
-        }
-        let mut review = review.clone();
-        let raw_review = review.clone();
-        let mut prepared = load_review_extensions_with_notifications(
-            &cwd,
-            &mut review,
-            &raw_review,
-            notifications.clone(),
-            None,
-            None,
-        )
-        .map_err(|_| ExtensionTrustHostError::Reload)?;
-        if prepared.pending_trust_repo_root.is_some() {
-            return Err(ExtensionTrustHostError::Reload);
-        }
-        for notice in take_review_startup_notices(&mut prepared, Vec::new()) {
-            notifications.notify(notice.message, ExtensionNotifyType::Warning);
-        }
-        Ok(prepared.extensions)
+        Ok(())
     })
 }
 

@@ -48,32 +48,55 @@ fn typed_server_message(
     }
 }
 
+/// Route one generic broker envelope through the typed Workdeck handlers.
+///
+/// The direct helper lets an event-loop owner apply a queued request on its
+/// mutable UI thread without requiring that UI state itself be `Send + Sync`.
+pub fn dispatch_workdeck_session_command<H>(
+    handlers: &H,
+    message: SessionServerMessage<String, WorkdeckSessionCommandInput>,
+) -> Result<WorkdeckSessionCommandResult, String>
+where
+    H: WorkdeckSessionBridgeHandlers,
+{
+    WorkdeckSessionBridge { handlers }.dispatch_command(&typed_server_message(message))
+}
+
 pub trait WorkdeckSessionBridgeHandlers {
     fn add_live_comment(
         &self,
         input: &CommentToolInput,
         comment_id: &str,
         reveal: bool,
-    ) -> AppliedCommentResult;
+    ) -> Result<AppliedCommentResult, String>;
 
     fn add_live_comment_batch(
         &self,
         comments: &[CommentTargetInput],
         request_id: &str,
         reveal_first: bool,
-    ) -> AppliedCommentBatchResult;
+    ) -> Result<AppliedCommentBatchResult, String>;
 
     fn clear_live_comments(
         &self,
         file_path: Option<&str>,
         include_user: Option<bool>,
-    ) -> ClearedCommentsResult;
+    ) -> Result<ClearedCommentsResult, String>;
 
-    fn navigate_to_location(&self, input: &NavigateToHunkToolInput) -> NavigatedSelectionResult;
+    fn navigate_to_location(
+        &self,
+        input: &NavigateToHunkToolInput,
+    ) -> Result<NavigatedSelectionResult, String>;
 
-    fn add_agent_line_highlight(&self, input: &HighlightToolInput) -> AppliedHighlightResult;
+    fn add_agent_line_highlight(
+        &self,
+        input: &HighlightToolInput,
+    ) -> Result<AppliedHighlightResult, String>;
 
-    fn clear_agent_line_highlights(&self, file_path: Option<&str>) -> ClearedHighlightsResult;
+    fn clear_agent_line_highlights(
+        &self,
+        file_path: Option<&str>,
+    ) -> Result<ClearedHighlightsResult, String>;
 
     fn open_agent_notes(&self);
 
@@ -81,12 +104,84 @@ pub trait WorkdeckSessionBridgeHandlers {
         &self,
         next_input: &Value,
         options: ReloadSessionOptions,
-    ) -> ReloadedSessionResult;
+    ) -> Result<ReloadedSessionResult, String>;
 
-    fn remove_live_comment(&self, comment_id: &str) -> RemovedCommentResult;
+    fn remove_live_comment(&self, comment_id: &str) -> Result<RemovedCommentResult, String>;
 
     fn review_producer(&self) -> Option<ReviewProducer> {
         None
+    }
+}
+
+impl<T> WorkdeckSessionBridgeHandlers for &T
+where
+    T: WorkdeckSessionBridgeHandlers + ?Sized,
+{
+    fn add_live_comment(
+        &self,
+        input: &CommentToolInput,
+        comment_id: &str,
+        reveal: bool,
+    ) -> Result<AppliedCommentResult, String> {
+        (**self).add_live_comment(input, comment_id, reveal)
+    }
+
+    fn add_live_comment_batch(
+        &self,
+        comments: &[CommentTargetInput],
+        request_id: &str,
+        reveal_first: bool,
+    ) -> Result<AppliedCommentBatchResult, String> {
+        (**self).add_live_comment_batch(comments, request_id, reveal_first)
+    }
+
+    fn clear_live_comments(
+        &self,
+        file_path: Option<&str>,
+        include_user: Option<bool>,
+    ) -> Result<ClearedCommentsResult, String> {
+        (**self).clear_live_comments(file_path, include_user)
+    }
+
+    fn navigate_to_location(
+        &self,
+        input: &NavigateToHunkToolInput,
+    ) -> Result<NavigatedSelectionResult, String> {
+        (**self).navigate_to_location(input)
+    }
+
+    fn add_agent_line_highlight(
+        &self,
+        input: &HighlightToolInput,
+    ) -> Result<AppliedHighlightResult, String> {
+        (**self).add_agent_line_highlight(input)
+    }
+
+    fn clear_agent_line_highlights(
+        &self,
+        file_path: Option<&str>,
+    ) -> Result<ClearedHighlightsResult, String> {
+        (**self).clear_agent_line_highlights(file_path)
+    }
+
+    fn open_agent_notes(&self) {
+        (**self).open_agent_notes();
+    }
+
+    fn reload_session(
+        &self,
+        next_input: &Value,
+        options: ReloadSessionOptions,
+    ) -> Result<ReloadedSessionResult, String> {
+        (**self).reload_session(next_input, options)
+    }
+
+    fn remove_live_comment(&self, comment_id: &str) -> Result<RemovedCommentResult, String> {
+        (**self).remove_live_comment(comment_id)
+    }
+
+    fn review_producer(&self) -> Option<ReviewProducer> {
+        (**self).review_producer()
     }
 }
 
@@ -124,15 +219,15 @@ where
     pub fn dispatch_command(
         &self,
         message: &WorkdeckSessionServerMessage,
-    ) -> WorkdeckSessionCommandResult {
-        match message {
+    ) -> Result<WorkdeckSessionCommandResult, String> {
+        Ok(match message {
             WorkdeckSessionServerMessage::Comment(message) => {
                 let reveal = message.input.reveal.unwrap_or(false);
                 let result = self.handlers.add_live_comment(
                     &message.input,
                     &format!("mcp:{}", message.request_id),
                     reveal,
-                );
+                )?;
                 if reveal {
                     self.handlers.open_agent_notes();
                 }
@@ -147,7 +242,7 @@ where
                     &message.input.comments,
                     &message.request_id,
                     reveal_first,
-                );
+                )?;
                 if reveal_first && !result.applied.is_empty() {
                     self.handlers.open_agent_notes();
                 }
@@ -155,18 +250,18 @@ where
             }
             WorkdeckSessionServerMessage::NavigateToHunk(message) => {
                 WorkdeckSessionCommandResult::NavigatedSelection(
-                    self.handlers.navigate_to_location(&message.input),
+                    self.handlers.navigate_to_location(&message.input)?,
                 )
             }
             WorkdeckSessionServerMessage::Highlight(message) => {
                 WorkdeckSessionCommandResult::AppliedHighlight(
-                    self.handlers.add_agent_line_highlight(&message.input),
+                    self.handlers.add_agent_line_highlight(&message.input)?,
                 )
             }
             WorkdeckSessionServerMessage::ClearHighlights(message) => {
                 WorkdeckSessionCommandResult::ClearedHighlights(
                     self.handlers
-                        .clear_agent_line_highlights(message.input.file_path.as_deref()),
+                        .clear_agent_line_highlights(message.input.file_path.as_deref())?,
                 )
             }
             WorkdeckSessionServerMessage::ReloadSession(message) => {
@@ -177,18 +272,19 @@ where
                         source_path: message.input.source_path.clone(),
                         ..ReloadSessionOptions::default()
                     },
-                ))
+                )?)
             }
             WorkdeckSessionServerMessage::RemoveComment(message) => {
                 WorkdeckSessionCommandResult::RemovedComment(
-                    self.handlers.remove_live_comment(&message.input.comment_id),
+                    self.handlers
+                        .remove_live_comment(&message.input.comment_id)?,
                 )
             }
             WorkdeckSessionServerMessage::ClearComments(message) => {
                 WorkdeckSessionCommandResult::ClearedComments(self.handlers.clear_live_comments(
                     message.input.file_path.as_deref(),
                     message.input.include_user,
-                ))
+                )?)
             }
             WorkdeckSessionServerMessage::ReadReviewResource(message) => {
                 let result = self.handlers.review_producer().map_or_else(
@@ -204,7 +300,7 @@ where
                 );
                 WorkdeckSessionCommandResult::ReviewAction(result)
             }
-        }
+        })
     }
 }
 
@@ -217,8 +313,7 @@ where
         &self,
         message: SessionServerMessage<String, WorkdeckSessionCommandInput>,
     ) -> Result<WorkdeckSessionCommandResult, String> {
-        let message = typed_server_message(message);
-        Ok(WorkdeckSessionBridge::dispatch_command(self, &message))
+        dispatch_workdeck_session_command(&self.handlers, message)
     }
 }
 
@@ -255,6 +350,7 @@ mod tests {
     struct Handlers {
         calls: Arc<Mutex<Calls>>,
         producer: Option<ReviewProducer>,
+        reload_error: Option<String>,
     }
 
     impl WorkdeckSessionBridgeHandlers for Handlers {
@@ -263,13 +359,13 @@ mod tests {
             input: &CommentToolInput,
             comment_id: &str,
             reveal: bool,
-        ) -> AppliedCommentResult {
+        ) -> Result<AppliedCommentResult, String> {
             self.calls
                 .lock()
                 .unwrap()
                 .comments
                 .push((comment_id.into(), reveal));
-            AppliedCommentResult {
+            Ok(AppliedCommentResult {
                 comment_id: comment_id.into(),
                 file_id: "file-1".into(),
                 file_path: input.target.file_path.clone(),
@@ -278,7 +374,7 @@ mod tests {
                 line: input.target.line.unwrap_or(1),
                 markup_width: None,
                 markup_notes: None,
-            }
+            })
         }
 
         fn add_live_comment_batch(
@@ -286,13 +382,13 @@ mod tests {
             comments: &[CommentTargetInput],
             request_id: &str,
             reveal_first: bool,
-        ) -> AppliedCommentBatchResult {
+        ) -> Result<AppliedCommentBatchResult, String> {
             self.calls.lock().unwrap().batches.push((
                 request_id.into(),
                 comments.len(),
                 reveal_first,
             ));
-            AppliedCommentBatchResult {
+            Ok(AppliedCommentBatchResult {
                 applied: comments
                     .iter()
                     .enumerate()
@@ -307,20 +403,20 @@ mod tests {
                         markup_notes: None,
                     })
                     .collect(),
-            }
+            })
         }
 
         fn clear_live_comments(
             &self,
             file_path: Option<&str>,
             include_user: Option<bool>,
-        ) -> ClearedCommentsResult {
+        ) -> Result<ClearedCommentsResult, String> {
             self.calls
                 .lock()
                 .unwrap()
                 .clears
                 .push((file_path.map(str::to_owned), include_user));
-            ClearedCommentsResult {
+            Ok(ClearedCommentsResult {
                 removed_count: u64::from(file_path.is_some()),
                 remaining_comment_count: 0,
                 file_path: file_path.map(str::to_owned),
@@ -329,15 +425,15 @@ mod tests {
                 removed_user_note_count: None,
                 remaining_live_comment_count: None,
                 remaining_user_note_count: None,
-            }
+            })
         }
 
         fn navigate_to_location(
             &self,
             input: &NavigateToHunkToolInput,
-        ) -> NavigatedSelectionResult {
+        ) -> Result<NavigatedSelectionResult, String> {
             self.calls.lock().unwrap().navigations += 1;
-            NavigatedSelectionResult {
+            Ok(NavigatedSelectionResult {
                 file_id: "file-1".into(),
                 file_path: input.file_path.clone().unwrap_or_else(|| "a.rs".into()),
                 hunk_index: input.hunk_index.unwrap_or(0),
@@ -345,12 +441,15 @@ mod tests {
                 revealed: None,
                 side: input.side,
                 line: input.line,
-            }
+            })
         }
 
-        fn add_agent_line_highlight(&self, input: &HighlightToolInput) -> AppliedHighlightResult {
+        fn add_agent_line_highlight(
+            &self,
+            input: &HighlightToolInput,
+        ) -> Result<AppliedHighlightResult, String> {
             self.calls.lock().unwrap().highlights += 1;
-            AppliedHighlightResult {
+            Ok(AppliedHighlightResult {
                 file_id: "file-1".into(),
                 file_path: input.file_path.clone(),
                 hunk_index: 0,
@@ -361,20 +460,23 @@ mod tests {
                 tone: input.tone.unwrap_or(SessionLineHighlightTone::Match),
                 file_mark_count: 1,
                 revealed: None,
-            }
+            })
         }
 
-        fn clear_agent_line_highlights(&self, file_path: Option<&str>) -> ClearedHighlightsResult {
+        fn clear_agent_line_highlights(
+            &self,
+            file_path: Option<&str>,
+        ) -> Result<ClearedHighlightsResult, String> {
             self.calls
                 .lock()
                 .unwrap()
                 .highlight_clears
                 .push(file_path.map(str::to_owned));
-            ClearedHighlightsResult {
+            Ok(ClearedHighlightsResult {
                 removed_count: 1,
                 remaining_count: 0,
                 file_path: file_path.map(str::to_owned),
-            }
+            })
         }
 
         fn open_agent_notes(&self) {
@@ -385,13 +487,16 @@ mod tests {
             &self,
             next_input: &Value,
             options: ReloadSessionOptions,
-        ) -> ReloadedSessionResult {
+        ) -> Result<ReloadedSessionResult, String> {
+            if let Some(error) = &self.reload_error {
+                return Err(error.clone());
+            }
             self.calls
                 .lock()
                 .unwrap()
                 .reloads
                 .push((next_input.clone(), options));
-            ReloadedSessionResult {
+            Ok(ReloadedSessionResult {
                 session_id: "session-1".into(),
                 input_kind: WorkdeckSessionInputKind::Vcs,
                 title: "reloaded".into(),
@@ -399,17 +504,17 @@ mod tests {
                 file_count: 1,
                 selected_file_path: None,
                 selected_hunk_index: 0,
-            }
+            })
         }
 
-        fn remove_live_comment(&self, comment_id: &str) -> RemovedCommentResult {
+        fn remove_live_comment(&self, comment_id: &str) -> Result<RemovedCommentResult, String> {
             self.calls.lock().unwrap().removed.push(comment_id.into());
-            RemovedCommentResult {
+            Ok(RemovedCommentResult {
                 comment_id: comment_id.into(),
                 removed: true,
                 remaining_comment_count: 0,
                 source: None,
-            }
+            })
         }
 
         fn review_producer(&self) -> Option<ReviewProducer> {
@@ -459,7 +564,7 @@ mod tests {
             },
         ));
         let WorkdeckSessionCommandResult::AppliedComment(result) =
-            bridge.dispatch_command(&comment)
+            bridge.dispatch_command(&comment).unwrap()
         else {
             panic!("comment was not routed")
         };
@@ -475,7 +580,7 @@ mod tests {
             },
         ));
         let WorkdeckSessionCommandResult::AppliedCommentBatch(result) =
-            bridge.dispatch_command(&batch)
+            bridge.dispatch_command(&batch).unwrap()
         else {
             panic!("batch was not routed")
         };
@@ -492,7 +597,7 @@ mod tests {
                 reveal_mode: Some(CommentBatchRevealMode::First),
             },
         ));
-        bridge.dispatch_command(&empty);
+        bridge.dispatch_command(&empty).unwrap();
         assert_eq!(bridge.handlers().calls.lock().unwrap().opened, 2);
     }
 
@@ -562,7 +667,7 @@ mod tests {
             )),
         ];
         for command in &commands {
-            bridge.dispatch_command(command);
+            bridge.dispatch_command(command).unwrap();
         }
         let calls = bridge.handlers().calls.lock().unwrap();
         assert_eq!(calls.navigations, 1);
@@ -604,7 +709,7 @@ mod tests {
         ));
         let WorkdeckSessionCommandResult::ReviewAction(
             crate::WorkdeckReviewActionResultV1::Failed(failure),
-        ) = headless.dispatch_command(&action)
+        ) = headless.dispatch_command(&action).unwrap()
         else {
             panic!("headless review command did not refuse")
         };
@@ -634,7 +739,7 @@ mod tests {
         ));
         let WorkdeckSessionCommandResult::ReviewAction(
             crate::WorkdeckReviewActionResultV1::Failed(failure),
-        ) = bridge.dispatch_command(&action)
+        ) = bridge.dispatch_command(&action).unwrap()
         else {
             panic!("producer-backed command did not delegate")
         };
@@ -663,7 +768,7 @@ mod tests {
         ));
         let WorkdeckSessionCommandResult::ReviewResource(
             WorkdeckReviewResourceReadResultV1::Failed(failure),
-        ) = bridge.dispatch_command(&read)
+        ) = bridge.dispatch_command(&read).unwrap()
         else {
             panic!("producer-backed read did not delegate")
         };
@@ -696,5 +801,30 @@ mod tests {
             calls.lock().unwrap().highlight_clears,
             [Some("src/example.ts".into())]
         );
+    }
+
+    #[test]
+    fn generic_dispatch_preserves_handler_errors_verbatim() {
+        let handlers = Handlers {
+            reload_error: Some("replacement publication was refused".into()),
+            ..Handlers::default()
+        };
+        let error = dispatch_workdeck_session_command(
+            &handlers,
+            SessionServerMessage {
+                request_id: "failed-reload".into(),
+                command: "reload_session".into(),
+                command_version: None,
+                input: WorkdeckSessionCommandInput::ReloadSession(ReloadSessionToolInput {
+                    target_session: SessionSelector::default(),
+                    next_input: serde_json::json!({"kind":"vcs","staged":false,"options":{}}),
+                    source_path: Some("/repo".into()),
+                }),
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error, "replacement publication was refused");
+        assert!(handlers.calls.lock().unwrap().reloads.is_empty());
     }
 }
