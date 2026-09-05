@@ -39,6 +39,7 @@ mod extension_pane_controller;
 mod extension_pane_host;
 mod extension_panes;
 mod extension_review_events;
+pub mod extension_runtime_bridge;
 mod extension_trust_controller;
 mod extension_trust_prompt;
 mod extension_workspace;
@@ -244,11 +245,11 @@ use workdeck_extension_host::{
     ExtensionRequestCancellation, FileViewSelectionState, HostError, KeyboardModeActionAuthority,
     KeyboardModeControllerState, LineHighlightRefreshResult, LineHighlightsController,
     LoadedExtension, RegisteredFileView, RegisteredKeyboardMode, RegisteredLineHighlighter,
-    create_file_view_input, create_file_view_input_snapshot, format_keyboard_mode_failure,
-    project_extension_changeset, project_extension_diff_file, reconcile_file_view_selections,
-    registered_file_view_key, resolve_loaded_extension_registrations, select_file_view,
-    session_keyboard_mode_display_title, session_keyboard_mode_status_hint,
-    session_keyboard_mode_still_valid,
+    build_extension_review_selection_from_snapshot, create_file_view_input,
+    create_file_view_input_snapshot, format_keyboard_mode_failure, project_extension_changeset,
+    project_extension_diff_file, reconcile_file_view_selections, registered_file_view_key,
+    resolve_loaded_extension_registrations, select_file_view, session_keyboard_mode_display_title,
+    session_keyboard_mode_status_hint, session_keyboard_mode_still_valid,
 };
 use workdeck_review::{
     CommentAnchor, ExpandedSourceError, ExpandedSourceStatus, LayoutMode, ReviewComment,
@@ -262,6 +263,10 @@ use workdeck_review::{
 };
 use workdeck_session::{ReviewSessionServer, default_discovery_directory};
 use workdeck_vcs::bundled_vcs_catalog;
+
+use crate::extension_runtime_bridge::{
+    ExtensionRuntimeBridge, ExtensionRuntimeCommit, ExtensionRuntimeNavigation,
+};
 
 #[derive(Debug, Clone)]
 pub struct ReviewOptions {
@@ -459,6 +464,7 @@ struct PendingExtensionCommand {
     command_id: String,
     title: String,
     review_generation: u64,
+    navigation: ExtensionRuntimeNavigation,
 }
 
 #[derive(Debug, Clone)]
@@ -839,6 +845,7 @@ pub struct ReviewApp {
     mouse_scroll_acceleration: ReviewMouseWheelScrollAcceleration,
     mouse_scroll_accumulator: f64,
     extension_pane_runtime: Mutex<ExtensionPaneRuntime>,
+    extension_runtime_bridge: ExtensionRuntimeBridge,
     extension_event_context_provider: ExtensionEventContextProviderSlot,
     extension_event_context_installation: Option<ExtensionEventContextProviderInstallation>,
     extension_event_dispatch_depth: usize,
@@ -983,6 +990,28 @@ impl ReviewApp {
         let extension_event_context_provider = ExtensionEventContextProviderSlot::default();
         let show_menu_bar = options.show_menu_bar;
         let copy_decorations = options.copy_decorations;
+        let initial_snapshot = state.snapshot();
+        let initial_files = initial_snapshot
+            .changeset
+            .files
+            .iter()
+            .map(project_extension_diff_file)
+            .collect::<Vec<_>>();
+        let initial_selected_file_id = initial_snapshot
+            .changeset
+            .files
+            .get(initial_snapshot.selection.file_index)
+            .map(|file| file.runtime_id.clone());
+        let extension_runtime_bridge = ExtensionRuntimeBridge::new(ExtensionRuntimeCommit {
+            registry_generation: 1,
+            review_generation: 1,
+            review: build_extension_review_snapshot(&state),
+            selection: build_extension_review_selection_from_snapshot(&initial_snapshot),
+            snapshot: initial_snapshot,
+            files: initial_files,
+            selected_file_id: initial_selected_file_id,
+            commands: ExtensionCommandAvailability::default(),
+        });
         let mut app = Self {
             state: Arc::new(Mutex::new(state)),
             options,
@@ -1032,6 +1061,7 @@ impl ReviewApp {
             mouse_scroll_acceleration: ReviewMouseWheelScrollAcceleration::default(),
             mouse_scroll_accumulator: 0.0,
             extension_pane_runtime: Mutex::new(extension_pane_runtime),
+            extension_runtime_bridge,
             extension_event_context_provider,
             extension_event_context_installation: None,
             extension_event_dispatch_depth: 0,
@@ -1049,6 +1079,7 @@ impl ReviewApp {
             extension_trust_request: None,
             extension_trust_prompt_hits: Cell::new(None),
         };
+        app.commit_extension_runtime_bridge();
         app.install_extension_event_context_provider();
         let initial_events = app.update_extension_review_events(Instant::now());
         debug_assert!(initial_events.is_empty());
@@ -1338,6 +1369,8 @@ impl ReviewApp {
     ) {
         self.extension_command_epoch = self.extension_command_epoch.saturating_add(1);
         self.review_projection_generation = self.review_projection_generation.saturating_add(1);
+        // Revoke retained review controls synchronously, before reload cleanup or lifecycle work.
+        self.commit_extension_runtime_bridge();
         self.cancel_extension_dialogs_for_reload();
         self.exit_active_keyboard_mode();
         self.exit_active_file_view_mode();
@@ -1388,6 +1421,7 @@ impl ReviewApp {
                 .cached_renders
                 .clear();
         }
+        self.commit_extension_runtime_bridge();
         let immediate = self.update_extension_review_events(Instant::now());
         self.publish_extension_lifecycle_events(immediate);
         if emit_startup {
@@ -2270,6 +2304,43 @@ impl ReviewApp {
         }
     }
 
+    /// Publish one internally consistent review/selection/command projection before native code
+    /// can observe it. This is Ratatui's synchronous counterpart to Hunk's layout-effect commit.
+    fn commit_extension_runtime_bridge(&self) {
+        let (snapshot, review, files, selected_file_id) = self.with_state(|state| {
+            let snapshot = state.snapshot();
+            let files = state
+                .changeset()
+                .files
+                .iter()
+                .map(project_extension_diff_file)
+                .collect::<Vec<_>>();
+            let selected_file_id = state
+                .changeset()
+                .files
+                .get(state.selection().file_index)
+                .map(|file| file.runtime_id.clone());
+            (
+                snapshot,
+                build_extension_review_snapshot(state),
+                files,
+                selected_file_id,
+            )
+        });
+        let selection = build_extension_review_selection_from_snapshot(&snapshot);
+        self.extension_runtime_bridge
+            .commit(ExtensionRuntimeCommit {
+                registry_generation: self.extension_registry_generation,
+                review_generation: self.extension_command_epoch,
+                snapshot,
+                review,
+                files,
+                selection,
+                selected_file_id,
+                commands: self.extension_command_availability(),
+            });
+    }
+
     fn app_menus(&self) -> AppMenus {
         let builtins = self.builtin_commands();
         let mut commands = builtins
@@ -2725,11 +2796,13 @@ impl ReviewApp {
     }
 
     fn invoke_registered_extension_command(&mut self, command: RegisteredExtensionCommand) {
+        self.commit_extension_runtime_bridge();
         let command_id = command.full_id();
         let command_epoch = self.extension_command_epoch;
-        let (snapshot, review, workspace) = self.with_state(|state| {
-            let workspace = self
-                .options
+        let committed = self.extension_runtime_bridge.committed_review();
+        let review_controls = self.extension_runtime_bridge.create_review_controls();
+        let workspace = self.with_state(|state| {
+            self.options
                 .review_input
                 .as_ref()
                 .zip(self.options.repo.as_deref())
@@ -2740,15 +2813,18 @@ impl ReviewApp {
                         root,
                         command_epoch,
                     )
-                });
-            (
-                state.snapshot(),
-                build_extension_review_snapshot(state),
-                workspace,
-            )
+                })
         });
+        let snapshot = committed.snapshot;
+        let review = review_controls.snapshot().unwrap_or(committed.review);
         let cwd = self.extension_command_cwd();
-        let commands = self.extension_command_availability();
+        let commands = self
+            .extension_runtime_bridge
+            .command_controls()
+            .availability();
+        let navigation = self
+            .extension_runtime_bridge
+            .create_navigation(command.extension_id.clone());
         {
             let mut runtime = self
                 .extension_pane_runtime
@@ -2776,6 +2852,7 @@ impl ReviewApp {
                         command_id: command.command.id.clone(),
                         title: command.command.title.clone(),
                         review_generation: command_epoch,
+                        navigation,
                     },
                     snapshot,
                     open_panes,
@@ -3001,9 +3078,11 @@ impl ReviewApp {
         actions: Vec<ExtensionHostAction>,
     ) {
         let current_generation = self.extension_command_epoch;
+        let review_authority_live =
+            pending.navigation.is_live() && current_generation == pending.review_generation;
         let mut live_actions = Vec::with_capacity(actions.len());
         for action in actions {
-            if current_generation != pending.review_generation {
+            if !review_authority_live {
                 let stale_method = match &action {
                     ExtensionHostAction::SelectReviewFile { .. } => Some("selectFile"),
                     ExtensionHostAction::SelectReviewHunk { .. } => Some("selectHunk"),
@@ -3017,7 +3096,7 @@ impl ReviewApp {
                     continue;
                 }
             }
-            if current_generation != pending.review_generation
+            if !review_authority_live
                 && let ExtensionHostAction::RequestWorkspaceWrite { request_id, .. } = action
             {
                 self.complete_extension_workspace_write(
@@ -3453,6 +3532,7 @@ impl ReviewApp {
             ));
             return;
         }
+        self.commit_extension_runtime_bridge();
         #[cfg(test)]
         self.observed_extension_events.push((
             self.extension_registry_generation,
@@ -3587,6 +3667,9 @@ impl ReviewApp {
     }
 
     fn publish_extension_selection_events(&mut self) {
+        // Committed extension projections advance even when no current extension subscribes to
+        // the resulting lifecycle events; retained controls must never observe stale selection.
+        self.commit_extension_runtime_bridge();
         let events = self.update_extension_review_events(Instant::now());
         self.publish_extension_lifecycle_events(events);
     }
@@ -6256,6 +6339,7 @@ impl ReviewApp {
 
 impl Drop for ReviewApp {
     fn drop(&mut self) {
+        self.extension_runtime_bridge.retire_mount();
         self.exit_active_keyboard_mode();
         self.exit_active_file_view_mode();
         let mut runtime = self
@@ -12595,12 +12679,14 @@ mod tests {
     fn async_navigation_from_a_retired_review_generation_is_discarded() {
         let mut app = ReviewApp::new(two_file_changeset(), ReviewOptions::default());
         let second_file_id = app.with_state(|state| state.changeset().files[1].runtime_id.clone());
+        let navigation = app.extension_runtime_bridge.create_navigation("triage");
         let pending = PendingExtensionCommand {
             extension_index: 0,
             extension_id: "triage".into(),
             command_id: "jump".into(),
             title: "Jump".into(),
             review_generation: app.extension_command_epoch,
+            navigation,
         };
         app.extension_command_epoch = app.extension_command_epoch.saturating_add(1);
 
@@ -12615,6 +12701,51 @@ mod tests {
         assert_eq!(
             app.status.as_deref(),
             Some("Extension triage selectFile ignored — the review session was reloaded")
+        );
+    }
+
+    #[test]
+    fn review_app_commits_extension_runtime_authority_across_selection_reload_and_registry_change()
+    {
+        let mut app = ReviewApp::new(two_file_changeset(), ReviewOptions::default());
+        let controls = app.extension_runtime_bridge.command_controls();
+        let command_id = controls.availability().enabled[0].clone();
+        let review_controls = app.extension_runtime_bridge.create_review_controls();
+        let navigation = app.extension_runtime_bridge.create_navigation("probe");
+        let frozen_selection = app.extension_runtime_bridge.get_selection();
+        let second_file_id = app.with_state(|state| state.changeset().files[1].runtime_id.clone());
+
+        app.select_extension_review_file("probe", &second_file_id);
+
+        assert_ne!(
+            frozen_selection.file.as_ref().map(|file| file.id.as_str()),
+            Some(second_file_id.as_str())
+        );
+        let resolved = navigation.select_file(&second_file_id).unwrap();
+        assert_eq!(
+            resolved.selected_file_id.as_deref(),
+            Some(second_file_id.as_str())
+        );
+        assert_eq!(
+            app.extension_runtime_bridge
+                .get_selected_file_id()
+                .as_deref(),
+            Some(second_file_id.as_str())
+        );
+
+        app.reload(two_file_changeset());
+
+        assert!(controls.is_enabled(&command_id));
+        assert!(review_controls.snapshot().is_none());
+        assert!(!navigation.is_live());
+
+        app.extension_registry_generation = app.extension_registry_generation.saturating_add(1);
+        app.commit_extension_runtime_bridge();
+        assert!(!controls.is_enabled(&command_id));
+        assert!(
+            app.extension_runtime_bridge
+                .command_controls()
+                .is_enabled(&command_id)
         );
     }
 
