@@ -271,10 +271,11 @@ use workdeck_extension_host::{
 use workdeck_review::{
     CommentAnchor, ExpandedSourceError, ExpandedSourceStatus, LayoutMode, PlannedFileViewRow,
     ReviewComment, ReviewGapAddress, ReviewLineTarget, ReviewNavigationFile, ReviewNavigationModel,
-    ReviewNoteResolution, ReviewSelectionMove, ReviewSelectionScope, ReviewState,
-    SemanticReviewAnnotationIndex, SemanticReviewSelection, VisibleFileViewNote,
-    build_extension_review_snapshot, build_file_view_render_plan, plan_expanded_gap,
-    plan_review_selection_move, project_extension_review_notes, review_annotated_hunk_indices,
+    ReviewNoteResolution, ReviewRevealAnchor, ReviewRevealNoteCandidate, ReviewRevealRequest,
+    ReviewSelectionMove, ReviewSelectionScope, ReviewState, SemanticReviewAnnotationIndex,
+    SemanticReviewSelection, VisibleFileViewNote, build_extension_review_snapshot,
+    build_file_view_render_plan, plan_expanded_gap, plan_review_selection_move,
+    project_extension_review_notes, resolve_review_reveal_note_id, review_annotated_hunk_indices,
     review_default_hunk_line_target, review_expansion_side, review_file_matches_filter,
     review_gap_source_for_file, review_leading_gap, review_line_anchor, review_trailing_gap,
 };
@@ -3716,7 +3717,7 @@ impl ReviewApp {
         }) else {
             return;
         };
-        self.navigate(|state| {
+        let changed = self.with_state(|state| {
             let previous = state.selection();
             let changed = if state
                 .changeset()
@@ -3730,6 +3731,11 @@ impl ReviewApp {
             };
             changed && state.selection() != previous
         });
+        if changed {
+            self.reconcile_active_file_view_mode();
+            self.scroll_to_reveal(target.reveal);
+            self.publish_extension_selection_events();
+        }
     }
 
     fn invoke_extension_command(&mut self, key: &KeyEvent) -> bool {
@@ -6071,7 +6077,7 @@ impl ReviewApp {
             return;
         }
         self.reconcile_active_file_view_mode();
-        self.scroll_to_selection();
+        self.scroll_to_reveal(workdeck_review::REVIEW_FILE_JUMP_REVEAL);
         self.publish_extension_selection_events();
     }
 
@@ -7444,11 +7450,50 @@ impl ReviewApp {
     }
 
     fn scroll_to_selection(&mut self) {
+        self.scroll_to_reveal(ReviewRevealRequest {
+            anchor: ReviewRevealAnchor::Hunk,
+            scroll_to_note: false,
+        });
+    }
+
+    fn scroll_to_reveal(&mut self, reveal: ReviewRevealRequest) {
+        if reveal.anchor == ReviewRevealAnchor::None {
+            return;
+        }
         let state = self
             .state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let selected = state.selection();
+        let reveal_note_id = reveal.scroll_to_note.then(|| {
+            let file = state.changeset().files.get(selected.file_index)?;
+            let hunk_index = selected.hunk_index?;
+            let candidates = state
+                .comments()
+                .iter()
+                .filter(|comment| {
+                    comment.resolution == ReviewNoteResolution::Active
+                        && comment.anchor.file_key == file.key
+                        && (comment.anchor.owner_hunk_index == Some(hunk_index)
+                            || comment
+                                .anchor
+                                .intersecting_hunk_indices
+                                .contains(&hunk_index))
+                        && (self.options.agent_notes || comment.source == "user")
+                })
+                .map(|comment| ReviewRevealNoteCandidate {
+                    id: comment.id.clone(),
+                    line: comment
+                        .line
+                        .or(comment.anchor.preferred_line)
+                        .or_else(|| comment.anchor.new_range.map(|range| range.start))
+                        .or_else(|| comment.anchor.old_range.map(|range| range.start))
+                        .unwrap_or(u32::MAX),
+                    draft: false,
+                })
+                .collect::<Vec<_>>();
+            resolve_review_reveal_note_id(&candidates)
+        });
         let width = self.review_width.get();
         let layout = state.resolved_layout(width);
         let file_view_layouts = self.prepare_extension_file_view_layouts(state.changeset(), width);
@@ -7479,15 +7524,39 @@ impl ReviewApp {
             self.options.extension_notifications.as_ref(),
             &self.filter,
         );
-        self.scroll = selected
-            .hunk_index
-            .and_then(|hunk_index| {
-                rows.hunk_tops
-                    .get(&(selected.file_index, hunk_index))
-                    .copied()
-            })
-            .or_else(|| rows.file_tops.get(&selected.file_index).copied())
+        let viewport = usize::from(self.review_height.get().saturating_sub(1).max(1));
+        let max_scroll = rows.lines.len().saturating_sub(viewport);
+        let file_top = rows
+            .file_tops
+            .get(&selected.file_index)
+            .copied()
             .unwrap_or(0);
+        self.scroll = match reveal.anchor {
+            ReviewRevealAnchor::FileTop => file_top,
+            ReviewRevealAnchor::Hunk => {
+                let hunk_key = (selected.file_index, selected.hunk_index.unwrap_or(0));
+                let (top, height) = reveal_note_id
+                    .flatten()
+                    .and_then(|note_id| rows.note_bounds.get(&note_id).copied())
+                    .or_else(|| {
+                        rows.hunk_tops.get(&hunk_key).copied().map(|top| {
+                            (top, rows.hunk_heights.get(&hunk_key).copied().unwrap_or(1))
+                        })
+                    })
+                    .unwrap_or((file_top, 1));
+                let padding = 2_usize.max(viewport / 4);
+                usize::try_from(compute_hunk_reveal_scroll_top(
+                    i64::try_from(top).unwrap_or(i64::MAX),
+                    i64::try_from(height).unwrap_or(i64::MAX),
+                    i64::try_from(padding).unwrap_or(i64::MAX),
+                    i64::try_from(viewport).unwrap_or(i64::MAX),
+                ))
+                .unwrap_or(usize::MAX)
+                .max(file_top)
+            }
+            ReviewRevealAnchor::None => self.scroll,
+        }
+        .min(max_scroll);
     }
 
     fn navigate(&mut self, action: impl FnOnce(&mut ReviewState) -> bool) {
@@ -7918,7 +7987,7 @@ impl ReviewApp {
                         .is_ok()
                 {
                     self.reconcile_active_file_view_mode();
-                    self.scroll_to_selection();
+                    self.scroll_to_reveal(workdeck_review::REVIEW_FILE_JUMP_REVEAL);
                     self.publish_extension_selection_events();
                 }
                 true
@@ -11356,10 +11425,12 @@ fn render_vertical_review_scrollbar(
 struct ReviewRows {
     lines: Vec<Line<'static>>,
     note_targets: BTreeMap<usize, ReviewNoteTarget>,
+    note_bounds: std::collections::HashMap<String, (usize, usize)>,
     line_cursors: Vec<ReviewLineCursor>,
     file_tops: BTreeMap<usize, usize>,
     file_header_rows: Vec<(usize, usize)>,
     hunk_tops: std::collections::HashMap<(usize, usize), usize>,
+    hunk_heights: std::collections::HashMap<(usize, usize), usize>,
     file_view_component_hits: Vec<FileViewComponentLogicalHit>,
 }
 
@@ -11466,6 +11537,13 @@ struct TargetedHunkRows {
     lines: Vec<Line<'static>>,
     targets: Vec<Option<ReviewNoteTarget>>,
     cursor_targets: Vec<(usize, ReviewNoteTarget)>,
+    note_bounds: Vec<(String, usize, usize)>,
+}
+
+#[derive(Debug)]
+struct RenderedCommentRows {
+    lines: Vec<Line<'static>>,
+    note_bounds: Vec<(String, usize, usize)>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -11574,8 +11652,10 @@ fn build_review_rows_with_chrome(
     let mut file_tops = BTreeMap::new();
     let mut file_header_rows = Vec::with_capacity(changeset.files.len());
     let mut hunk_tops = std::collections::HashMap::new();
+    let mut hunk_heights = std::collections::HashMap::new();
     let mut file_view_component_hits = Vec::new();
     let mut note_targets = BTreeMap::new();
+    let mut note_bounds = std::collections::HashMap::new();
     let mut line_cursors = Vec::new();
     let visible = |file_index: usize, file: &DiffFile| {
         filter.is_none_or(|filter| {
@@ -11645,6 +11725,8 @@ fn build_review_rows_with_chrome(
             && append_extension_file_view_rows(
                 &mut rows,
                 &mut hunk_tops,
+                &mut hunk_heights,
+                &mut note_bounds,
                 file,
                 file_index,
                 file_selection,
@@ -11819,7 +11901,23 @@ fn build_review_rows_with_chrome(
                         target.map(|target| (row_start + offset, target))
                     }),
             );
+            note_bounds.extend(
+                rendered
+                    .note_bounds
+                    .into_iter()
+                    .map(|(note_id, top, height)| {
+                        (note_id, (row_start.saturating_add(top), height))
+                    }),
+            );
             rows.extend(rendered.lines);
+            hunk_heights.insert(
+                (file_index, hunk_index),
+                rows.len().saturating_sub(
+                    *hunk_tops
+                        .get(&(file_index, hunk_index))
+                        .expect("hunk top was recorded before its rows"),
+                ),
+            );
         }
         if let Some(address) = review_trailing_gap(&gap_source) {
             rows.extend(source_gap_rows(
@@ -11838,10 +11936,12 @@ fn build_review_rows_with_chrome(
     ReviewRows {
         lines: rows,
         note_targets,
+        note_bounds,
         line_cursors,
         file_tops,
         file_header_rows,
         hunk_tops,
+        hunk_heights,
         file_view_component_hits,
     }
 }
@@ -11850,6 +11950,8 @@ fn build_review_rows_with_chrome(
 fn append_extension_file_view_rows(
     rows: &mut Vec<Line<'static>>,
     hunk_tops: &mut std::collections::HashMap<(usize, usize), usize>,
+    hunk_heights: &mut std::collections::HashMap<(usize, usize), usize>,
+    note_bounds: &mut std::collections::HashMap<String, (usize, usize)>,
     file: &DiffFile,
     file_index: usize,
     selection: ReviewSelection,
@@ -11940,6 +12042,19 @@ fn append_extension_file_view_rows(
     }
     for (hunk_index, top) in &geometry.hunk_anchor_rows {
         hunk_tops.insert((file_index, *hunk_index), body_top.saturating_add(*top));
+    }
+    for (hunk_index, bounds) in &geometry.hunk_bounds {
+        hunk_heights.insert((file_index, *hunk_index), bounds.height);
+    }
+    for note in &notes {
+        if let Some(bounds) =
+            geometry.bounds_for_stable_key(&workdeck_review::inline_note_stable_key(&note.id))
+        {
+            note_bounds.insert(
+                note.id.clone(),
+                (body_top.saturating_add(bounds.top), bounds.height),
+            );
+        }
     }
     let expanded_row_ids = component_expanded
         .iter()
@@ -12344,6 +12459,7 @@ fn stack_hunk_rows(
     let mut rows = Vec::new();
     let mut targets = Vec::new();
     let mut cursor_targets = Vec::new();
+    let mut note_bounds = Vec::new();
     let mut emphasis = vec![Vec::new(); hunk.lines.len()];
     for pair in plan_split_line_pairs(&hunk.lines) {
         let (Some(old_index), Some(new_index)) = (pair.old_index, pair.new_index) else {
@@ -12375,14 +12491,25 @@ fn stack_hunk_rows(
         cursor_targets.push((rows.len(), target));
         targets.extend(std::iter::repeat_n(Some(target), line_rows.len()));
         rows.extend(line_rows);
-        let note_rows = comment_rows(file, line, comments, &options.theme, width);
-        targets.extend(std::iter::repeat_n(Some(target), note_rows.len()));
-        rows.extend(note_rows);
+        let rendered_notes = comment_rows(file, line, comments, &options.theme, width);
+        let note_start = rows.len();
+        note_bounds.extend(
+            rendered_notes
+                .note_bounds
+                .into_iter()
+                .map(|(note_id, top, height)| (note_id, note_start.saturating_add(top), height)),
+        );
+        targets.extend(std::iter::repeat_n(
+            Some(target),
+            rendered_notes.lines.len(),
+        ));
+        rows.extend(rendered_notes.lines);
     }
     TargetedHunkRows {
         lines: rows,
         targets,
         cursor_targets,
+        note_bounds,
     }
 }
 
@@ -12527,6 +12654,7 @@ fn split_hunk_rows(
     let mut rows = Vec::new();
     let mut targets = Vec::new();
     let mut cursor_targets = Vec::new();
+    let mut note_bounds = Vec::new();
     let pane_widths = resolve_diff_split_pane_widths(usize::from(width));
     let left_width = pane_widths.left_width;
     let right_width = pane_widths.right_width;
@@ -12596,28 +12724,47 @@ fn split_hunk_rows(
         targets.extend(std::iter::repeat_n(pair_target, pair_rows.len()));
         rows.extend(pair_rows);
         if let Some(line) = old {
-            let note_rows = comment_rows(file, line, comments, &options.theme, width);
+            let rendered_notes = comment_rows(file, line, comments, &options.theme, width);
+            let note_start = rows.len();
+            note_bounds.extend(
+                rendered_notes
+                    .note_bounds
+                    .into_iter()
+                    .map(|(note_id, top, height)| {
+                        (note_id, note_start.saturating_add(top), height)
+                    }),
+            );
             targets.extend(std::iter::repeat_n(
                 Some(diff_line_note_target(file_index, hunk_index, line)),
-                note_rows.len(),
+                rendered_notes.lines.len(),
             ));
-            rows.extend(note_rows);
+            rows.extend(rendered_notes.lines);
         }
         if pair.new_index != pair.old_index
             && let Some(line) = new
         {
-            let note_rows = comment_rows(file, line, comments, &options.theme, width);
+            let rendered_notes = comment_rows(file, line, comments, &options.theme, width);
+            let note_start = rows.len();
+            note_bounds.extend(
+                rendered_notes
+                    .note_bounds
+                    .into_iter()
+                    .map(|(note_id, top, height)| {
+                        (note_id, note_start.saturating_add(top), height)
+                    }),
+            );
             targets.extend(std::iter::repeat_n(
                 Some(diff_line_note_target(file_index, hunk_index, line)),
-                note_rows.len(),
+                rendered_notes.lines.len(),
             ));
-            rows.extend(note_rows);
+            rows.extend(rendered_notes.lines);
         }
     }
     TargetedHunkRows {
         lines: rows,
         targets,
         cursor_targets,
+        note_bounds,
     }
 }
 
@@ -12645,13 +12792,15 @@ fn comment_rows(
     comments: &[ReviewComment],
     theme: &AppTheme,
     width: u16,
-) -> Vec<Line<'static>> {
+) -> RenderedCommentRows {
     let mut rows = Vec::new();
+    let mut note_bounds = Vec::new();
     for comment in comments
         .iter()
         .filter(|comment| comment.anchor.file_key == file.key)
         .filter(|comment| comment_matches_line(comment, line))
     {
+        let note_top = rows.len();
         let title = if comment.source == "user" {
             "Your note".to_owned()
         } else {
@@ -12685,8 +12834,16 @@ fn comment_rows(
                 Style::default().fg(Color::DarkGray),
             ));
         }
+        note_bounds.push((
+            comment.id.clone(),
+            note_top,
+            rows.len().saturating_sub(note_top),
+        ));
     }
-    rows
+    RenderedCommentRows {
+        lines: rows,
+        note_bounds,
+    }
 }
 
 fn line_is_selected(line: &DiffLine, selection: ReviewSelection) -> bool {
@@ -13229,7 +13386,7 @@ mod tests {
         AgentAnnotation, AgentFileContext, ChangesetSource, CliInput, CommonOptions,
         FileSourceSnapshots, LineRange, SourceOrigin, SourceSnapshot, VcsDiffCommandInput,
     };
-    use workdeck_diff::parse_patch;
+    use workdeck_diff::{create_two_files_patch, parse_patch};
     use workdeck_review::{CommentAnchor, ReviewComment};
 
     fn changeset() -> Changeset {
@@ -13553,6 +13710,169 @@ mod tests {
             ChangesetSource::WorkingTree { staged: false },
         )
         .unwrap()
+    }
+
+    fn navigation_changeset(files: Vec<(String, String, String)>) -> Changeset {
+        let patch = files
+            .iter()
+            .map(|(path, before, after)| create_two_files_patch(path, before, after, 3))
+            .collect::<String>();
+        parse_patch(
+            &patch,
+            "pty-navigation",
+            "Working tree",
+            ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap()
+    }
+
+    fn numbered_exports(start: usize, count: usize, offset: usize, padded: bool) -> String {
+        (start..start.saturating_add(count))
+            .map(|line| {
+                let label = if padded {
+                    format!("{line:02}")
+                } else {
+                    line.to_string()
+                };
+                format!(
+                    "export const line{label} = {};",
+                    line.saturating_add(offset)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n"
+    }
+
+    fn multi_hunk_navigation_changeset() -> Changeset {
+        let before = numbered_exports(1, 80, 0, false);
+        let mut after = before.lines().map(str::to_owned).collect::<Vec<_>>();
+        after[0] = "export const line1 = 100;".into();
+        for line in 60..=65 {
+            after[line - 1] = format!("export const line{line} = {line}00;");
+        }
+        navigation_changeset(vec![("after.ts".into(), before, after.join("\n") + "\n")])
+    }
+
+    fn agent_navigation_changeset() -> Changeset {
+        let alpha_before = numbered_exports(1, 80, 0, false);
+        let mut alpha_after = alpha_before.lines().map(str::to_owned).collect::<Vec<_>>();
+        alpha_after[0] = "export const line1 = 1001;".into();
+        alpha_after[59] = "export const line60 = 6000;".into();
+
+        let beta_before = numbered_exports(81, 20, 0, false);
+        let mut beta_after = beta_before.lines().map(str::to_owned).collect::<Vec<_>>();
+        beta_after[0] = "export const line81 = 8100;".into();
+
+        let gamma_before = numbered_exports(101, 80, 0, false);
+        let mut gamma_after = gamma_before.lines().map(str::to_owned).collect::<Vec<_>>();
+        gamma_after[0] = "export const line101 = 10100;".into();
+        gamma_after[59] = "export const line160 = 16000;".into();
+
+        navigation_changeset(vec![
+            (
+                "alpha.ts".into(),
+                alpha_before,
+                alpha_after.join("\n") + "\n",
+            ),
+            ("beta.ts".into(), beta_before, beta_after.join("\n") + "\n"),
+            (
+                "gamma.ts".into(),
+                gamma_before,
+                gamma_after.join("\n") + "\n",
+            ),
+        ])
+    }
+
+    fn navigation_comment(
+        file_key: &str,
+        id: &str,
+        hunk_index: usize,
+        line: u32,
+        summary: &str,
+    ) -> ReviewComment {
+        let mut comment = saved_comment(file_key, id, summary);
+        comment.hunk_index = Some(hunk_index);
+        comment.line = Some(line);
+        comment.anchor.new_range = Some(LineRange {
+            start: line,
+            end: line,
+        });
+        comment.anchor.preferred_line = Some(line);
+        comment.anchor.intersecting_hunk_indices = vec![hunk_index];
+        comment.anchor.owner_hunk_index = Some(hunk_index);
+        comment
+    }
+
+    fn cross_file_hunk_navigation_changeset() -> Changeset {
+        let long_before = (1..=342)
+            .map(|line| format!("line {line:03}"))
+            .collect::<Vec<_>>();
+        let mut long_after = long_before.clone();
+        for line in [
+            2, 21, 41, 61, 81, 101, 121, 141, 161, 181, 201, 221, 241, 261, 281, 301, 321, 341,
+        ] {
+            long_after[line - 1] = format!("line {line:03} changed");
+        }
+        let short_before = [
+            "// hunk 0 - at the very top of the file".to_owned(),
+            "export const top = 1;".to_owned(),
+            String::new(),
+            String::new(),
+        ]
+        .into_iter()
+        .chain((1..=25).map(|line| format!("// filler {line}")))
+        .chain([
+            "// hunk 1 - mid-file".to_owned(),
+            "export const mid = 3;".to_owned(),
+        ])
+        .collect::<Vec<_>>();
+        let mut short_after = short_before.clone();
+        short_after[1] = "export const top = 2;".into();
+        short_after[30] = "export const mid = 4;".into();
+
+        navigation_changeset(vec![
+            (
+                "long-file.txt".into(),
+                long_before.join("\n") + "\n",
+                long_after.join("\n") + "\n",
+            ),
+            (
+                "short-file.ts".into(),
+                short_before.join("\n") + "\n",
+                short_after.join("\n") + "\n",
+            ),
+        ])
+    }
+
+    fn sidebar_jump_navigation_changeset() -> Changeset {
+        navigation_changeset(
+            ["alpha", "beta", "gamma", "delta", "epsilon"]
+                .into_iter()
+                .map(|name| {
+                    (
+                        format!("{name}.ts"),
+                        format!("export const {name} = 1;\n"),
+                        format!("export const {name}Value = 2;\nexport const {name}Only = true;\n"),
+                    )
+                })
+                .collect(),
+        )
+    }
+
+    fn pinned_header_navigation_changeset() -> Changeset {
+        navigation_changeset(vec![
+            (
+                "first.ts".into(),
+                numbered_exports(1, 16, 0, true),
+                numbered_exports(1, 16, 100, true),
+            ),
+            (
+                "second.ts".into(),
+                numbered_exports(17, 16, 0, true),
+                numbered_exports(17, 16, 100, true),
+            ),
+        ])
     }
 
     fn overflowing_changeset(file_count: usize) -> Changeset {
@@ -16266,6 +16586,325 @@ mod tests {
         assert!(!app.options.sidebar);
         app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
         assert!(app.show_help);
+    }
+
+    #[test]
+    fn pty_comment_navigation_resumes_from_an_unannotated_hunk_in_stream_order() {
+        let review = agent_navigation_changeset();
+        let alpha_key = review.files[0].key.clone();
+        let gamma_key = review.files[2].key.clone();
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                agent_notes: true,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        app.with_state(|state| {
+            state
+                .add_comment(navigation_comment(
+                    &alpha_key,
+                    "alpha-navigation",
+                    1,
+                    60,
+                    "Alpha note for navigation.",
+                ))
+                .unwrap();
+            state
+                .add_comment(navigation_comment(
+                    &gamma_key,
+                    "gamma-navigation",
+                    1,
+                    60,
+                    "Gamma note for navigation.",
+                ))
+                .unwrap();
+        });
+        let mut terminal = Terminal::new(TestBackend::new(160, 14)).unwrap();
+        let initial = rendered_review_frame(&mut terminal, &app);
+        for label in ["View", "Navigate", "Agent", "Help"] {
+            assert!(initial.contains(label), "{initial}");
+        }
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('}'), KeyModifiers::NONE));
+        let alpha = rendered_review_frame(&mut terminal, &app);
+        assert!(alpha.contains("Alpha note for navigation."), "{alpha}");
+        assert!(!alpha.contains("Maximum update depth exceeded"));
+        let alpha_rows = app.current_review_rows();
+        let (alpha_note_top, _) = alpha_rows.note_bounds["alpha-navigation"];
+        let viewport = usize::from(app.review_height.get().saturating_sub(1).max(1));
+        assert_eq!(
+            alpha_note_top.saturating_sub(app.review_scroll()),
+            2_usize.max(viewport / 4)
+        );
+        assert_eq!(
+            app.with_state(|state| state.selection()),
+            ReviewSelection {
+                file_index: 0,
+                hunk_index: Some(1),
+                side: None,
+                line: None,
+            }
+        );
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('.'), KeyModifiers::NONE));
+        rendered_review_frame(&mut terminal, &app);
+        assert_eq!(app.with_state(|state| state.selection().file_index), 1);
+        app.handle_key(KeyEvent::new(KeyCode::Char('}'), KeyModifiers::NONE));
+        let gamma = rendered_review_frame(&mut terminal, &app);
+        assert!(gamma.contains("Gamma note for navigation."), "{gamma}");
+        assert!(!gamma.contains("Alpha note for navigation."), "{gamma}");
+        assert!(!gamma.contains("Maximum update depth exceeded"));
+        assert_eq!(
+            app.with_state(|state| state.selection()),
+            ReviewSelection {
+                file_index: 2,
+                hunk_index: Some(1),
+                side: None,
+                line: None,
+            }
+        );
+    }
+
+    #[test]
+    fn pty_real_hunk_navigation_jumps_to_later_hunks_in_the_review_stream() {
+        let mut app = ReviewApp::new(
+            multi_hunk_navigation_changeset(),
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(104, 12)).unwrap();
+        let initial = rendered_review_frame(&mut terminal, &app);
+        assert!(initial.contains("line1 = 100"), "{initial}");
+        assert!(!initial.contains("line60 = 6000"), "{initial}");
+
+        app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+        let second = rendered_review_frame(&mut terminal, &app);
+        assert!(second.contains("line60 = 6000"), "{second}");
+        assert!(!second.contains("line1 = 100"), "{second}");
+        assert_eq!(
+            app.with_state(|state| state.selection().hunk_index),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn pty_backward_cross_file_hunk_navigation_reveals_the_immediate_predecessor() {
+        let mut app = ReviewApp::new(
+            cross_file_hunk_navigation_changeset(),
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(120, 16)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        let mut reached_short_file_top_hunk = false;
+        let mut reached_short_file_mid_hunk = false;
+        for _ in 0..24 {
+            app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+            let frame = rendered_review_frame(&mut terminal, &app);
+            let selection = app.with_state(|state| state.selection());
+            if selection.file_index == 1 && selection.hunk_index == Some(0) {
+                reached_short_file_top_hunk = true;
+                assert!(frame.contains("export const top = 2;"), "{frame}");
+                assert!(!frame.contains("export const mid = 4;"), "{frame}");
+            }
+            if frame.contains("export const mid = 4;") {
+                reached_short_file_mid_hunk = true;
+                break;
+            }
+        }
+        assert!(reached_short_file_top_hunk);
+        assert!(reached_short_file_mid_hunk);
+        assert_eq!(
+            app.with_state(|state| state.selection()),
+            ReviewSelection {
+                file_index: 1,
+                hunk_index: Some(1),
+                side: None,
+                line: None,
+            }
+        );
+
+        for _ in 0..2 {
+            app.handle_key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE));
+        }
+        let backward = rendered_review_frame(&mut terminal, &app);
+        assert!(backward.contains("line 341 changed"), "{backward}");
+        assert!(!backward.contains("line 002 changed"), "{backward}");
+        assert_eq!(app.with_state(|state| state.selection().file_index), 0);
+        assert_eq!(
+            app.with_state(|state| state.selection().hunk_index),
+            Some(17)
+        );
+    }
+
+    #[test]
+    fn pty_hunk_navigation_round_trips_between_distant_hunks() {
+        let mut app = ReviewApp::new(
+            multi_hunk_navigation_changeset(),
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(104, 12)).unwrap();
+        let initial = rendered_review_frame(&mut terminal, &app);
+        assert!(initial.contains("line1 = 100"), "{initial}");
+        assert!(!initial.contains("line60 = 6000"), "{initial}");
+
+        app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+        let second = rendered_review_frame(&mut terminal, &app);
+        assert!(second.contains("line60 = 6000"), "{second}");
+        assert!(!second.contains("line1 = 100"), "{second}");
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE));
+        let first = rendered_review_frame(&mut terminal, &app);
+        assert!(first.contains("line1 = 100"), "{first}");
+        assert!(!first.contains("line60 = 6000"), "{first}");
+    }
+
+    #[test]
+    fn pty_sidebar_selection_jumps_the_main_pane_without_collapsing_the_stream() {
+        let mut app = ReviewApp::new(
+            sidebar_jump_navigation_changeset(),
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(220, 12)).unwrap();
+        let initial = rendered_review_frame(&mut terminal, &app);
+        assert!(initial.contains("alphaOnly = true"), "{initial}");
+        assert!(initial.contains("betaValue = 2"), "{initial}");
+        assert!(!initial.contains("deltaOnly = true"), "{initial}");
+
+        let delta = app
+            .sidebar_file_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .find(|hit| hit.file_index == 3)
+            .copied()
+            .expect("delta sidebar hit");
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: delta.bounds.x,
+            row: delta.bounds.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        let jumped = rendered_review_frame(&mut terminal, &app);
+        assert!(jumped.contains("deltaValue = 2"), "{jumped}");
+        assert!(jumped.contains("deltaOnly = true"), "{jumped}");
+        assert!(!jumped.contains("alphaOnly = true"), "{jumped}");
+        assert!(jumped.match_indices("epsilon.ts").count() >= 2, "{jumped}");
+        assert_eq!(app.with_state(|state| state.selection().file_index), 3);
+        assert_eq!(app.with_state(|state| state.changeset().files.len()), 5);
+    }
+
+    #[test]
+    fn pty_sidebar_file_click_pins_that_file_header_to_the_review_top() {
+        let mut app = ReviewApp::new(
+            pinned_header_navigation_changeset(),
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(220, 10)).unwrap();
+        let initial = rendered_review_frame(&mut terminal, &app);
+        assert!(initial.contains("first.ts"));
+        assert!(initial.contains("second.ts"));
+
+        for _ in 0..16 {
+            app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        }
+        let scrolled = rendered_review_frame(&mut terminal, &app);
+        assert!(scrolled.contains("line08 = 108"), "{scrolled}");
+        assert!(scrolled.contains("first.ts"), "{scrolled}");
+
+        let second = app
+            .sidebar_file_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .find(|hit| hit.file_index == 1)
+            .copied()
+            .expect("second sidebar hit");
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: second.bounds.x,
+            row: second.bounds.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        let pinned = rendered_review_frame(&mut terminal, &app);
+        assert!(pinned.contains("second.ts"), "{pinned}");
+        assert!(pinned.contains("line17 = 117"), "{pinned}");
+        assert_eq!(pinned.match_indices("first.ts").count(), 1, "{pinned}");
+        assert_eq!(app.with_state(|state| state.selection().file_index), 1);
+    }
+
+    #[test]
+    fn frozen_hunk_pty_navigation_oracle_maps_both_pins_and_every_source_test() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/pty-navigation.json"
+        ))
+        .unwrap();
+        assert_eq!(oracle["runtime"], "Bun 1.3.14");
+        assert_eq!(
+            oracle["source"]["baseline"],
+            serde_json::json!({
+                "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+                "blob": "c66db15e3344541a1420f56d059772ce38f1a526",
+                "sha256": "c195e80a6c96ab6d21d3cfb3033f74edf51bd7413534f8f8c6c6651ce93741e8",
+                "bytes": 7_994,
+                "lines": 257
+            })
+        );
+        assert_eq!(
+            oracle["source"]["stable"],
+            serde_json::json!({
+                "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+                "blob": "3a2dd989ad4d6b44d9137f19b49e3f38d8954f9e",
+                "sha256": "7d4130b3fa8ec97a4ced7946a31e605ca9fd7088de33aed16502764780743b1f",
+                "bytes": 7_972,
+                "lines": 257
+            })
+        );
+        for pin in ["baseline", "stable"] {
+            assert_eq!(oracle["oracle_runs"][pin]["passed"], 6);
+            assert_eq!(oracle["oracle_runs"][pin]["failed"], 0);
+            assert_eq!(oracle["oracle_runs"][pin]["expect_calls"], 31);
+        }
+        assert_eq!(oracle["pin_delta"].as_array().unwrap().len(), 1);
+
+        let implementation = include_str!("lib.rs");
+        let mappings = oracle["test_mapping"].as_array().unwrap();
+        assert_eq!(mappings.len(), 6);
+        let mut source_tests = BTreeSet::new();
+        for mapping in mappings {
+            assert!(source_tests.insert(mapping["source_test"].as_str().unwrap()));
+            let evidence = mapping["evidence"].as_array().unwrap();
+            assert!(!evidence.is_empty());
+            for item in evidence {
+                assert_eq!(item["file"], "crates/workdeck-tui/src/lib.rs");
+                let test = item["test"].as_str().unwrap();
+                let function = test
+                    .strip_prefix("tests::")
+                    .expect("TUI evidence names the test module");
+                assert!(implementation.contains(&format!("fn {function}()")));
+            }
+        }
     }
 
     #[test]
