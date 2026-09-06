@@ -41,10 +41,18 @@ lets an outgoing callback hand off to a replacement mode without the old callbac
 that replacement down. Activation ids apply the same ownership rule to `exit` key results. Native
 lifecycle handoffs are limited to 32 nested transitions to contain accidental recursion.
 
-Workspace mutation stays host-owned. A mode with the `workspace-write` capability may return
-`request-workspace-write`, but it cannot touch the filesystem through the protocol. Workdeck shows
-an `ext <extension-id>` consent prompt, then accepts a replacement only when all of these facts are
-still true:
+Command invocations receive an immutable workspace snapshot for immediate reads and optimistic
+`can_write_document` probes. A command with the `workspace-read` capability that must preserve
+Hunk's asynchronous lease semantics returns `request-workspace-read` with a request id, file id,
+and `old` or `new` side. Workdeck resolves it only while that command's review generation is live
+and answers through `workdeck/workspace/read-complete`; `value` is `null` when the file or side does
+not exist or a reload retired the operation. Actions returned by the completion may continue the
+operation, including a consented write, without reviving stale review authority.
+
+Workspace mutation stays host-owned. A command or mode with the `workspace-write` capability may
+return `request-workspace-write`, but it cannot touch the filesystem through the protocol.
+Workdeck shows an `ext <extension-id>` consent prompt, then accepts a replacement only when all of
+these facts are still true:
 
 - the review is an unstaged working-tree changeset;
 - the file has an attested working-tree source snapshot;
@@ -52,11 +60,11 @@ still true:
 - neither the target nor its canonical parent escapes through a symlink;
 - the current text still equals the source snapshot shown by the review.
 
-The result is returned through `workdeck/workspace/write-complete` as `written`, `cancelled`, or
-`failed`. Cancellation is not an error. A successful write reloads the review and exits the mode;
-failed and cancelled writes retain the edit buffer. Message and action limits, request deadlines,
-process crash isolation, capability checks, and terminal sanitization remain enforced by the native
-host.
+The result is returned through `workdeck/workspace/write-complete` as `written`, `cancelled`,
+`unavailable`, or `failed`. Cancellation is not an error. A successful write reloads the review and
+exits the mode; failed and cancelled writes retain the edit buffer. Message and action limits,
+request deadlines, process crash isolation, capability checks, and terminal sanitization remain
+enforced by the native host.
 
 The complete executable reference is
 [`examples/extensions/inline-edit/`](../examples/extensions/inline-edit/). Its oracle and Rust tests

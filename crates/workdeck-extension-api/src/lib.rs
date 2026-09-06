@@ -1299,6 +1299,12 @@ pub enum ExtensionHostAction {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         file_id: Option<String>,
     },
+    /// Ask the host to resolve one document side while the invoking review generation is live.
+    RequestWorkspaceRead {
+        request_id: String,
+        file_id: String,
+        side: ExtensionFileSide,
+    },
     /// Ask the host to confirm and perform a working-tree document replacement.
     RequestWorkspaceWrite {
         request_id: String,
@@ -1429,6 +1435,15 @@ pub enum ExtensionWorkspaceWriteResult {
 pub struct ExtensionWorkspaceWriteCompletion {
     pub request_id: String,
     pub result: ExtensionWorkspaceWriteResult,
+}
+
+/// Generation-checked result of one host-mediated reviewed-document read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionWorkspaceReadCompletion {
+    pub request_id: String,
+    #[serde(default)]
+    pub value: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2307,6 +2322,28 @@ mod tests {
         );
         assert!(workspace.can_write_document("alpha"));
         assert!(!workspace.can_write_document("missing"));
+        assert_eq!(
+            serde_json::to_value(ExtensionHostAction::RequestWorkspaceRead {
+                request_id: "read-1".into(),
+                file_id: "alpha".into(),
+                side: ExtensionFileSide::New,
+            })
+            .unwrap(),
+            serde_json::json!({
+                "kind": "request-workspace-read",
+                "request_id": "read-1",
+                "file_id": "alpha",
+                "side": "new"
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(ExtensionWorkspaceReadCompletion {
+                request_id: "read-1".into(),
+                value: None,
+            })
+            .unwrap(),
+            serde_json::json!({ "requestId": "read-1", "value": null })
+        );
         assert_eq!(
             serde_json::to_value(ExtensionWorkspaceWriteResult::Cancelled {
                 detail: "The write to src/alpha.rs was declined.".into(),

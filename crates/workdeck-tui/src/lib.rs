@@ -242,9 +242,9 @@ use workdeck_extension_api::{
     ExtensionCommandAvailability, ExtensionHostAction, ExtensionKeyEvent, ExtensionLayoutMode,
     ExtensionLifecycleEvent, ExtensionNotification, ExtensionNotificationHub,
     ExtensionNotificationSubscription, ExtensionNotifyType, ExtensionPaintTheme, ExtensionPaneView,
-    ExtensionResolvedLayout, ExtensionReviewNote, ExtensionWorkspaceWriteCompletion,
-    ExtensionWorkspaceWriteResult, FileLanguageGlobTarget, FileLanguageMatcher,
-    FileViewModeKeyRequest, FileViewModeLifecycleRequest, KeyRoutingResult,
+    ExtensionResolvedLayout, ExtensionReviewNote, ExtensionWorkspaceReadCompletion,
+    ExtensionWorkspaceWriteCompletion, ExtensionWorkspaceWriteResult, FileLanguageGlobTarget,
+    FileLanguageMatcher, FileViewModeKeyRequest, FileViewModeLifecycleRequest, KeyRoutingResult,
     KeyboardModeRegistration, PaneActionInvocation, PaneInputInvocation, PanePlacement,
     PaneRegistration, PaneRenderRequest, Registration, ReviewEvent, SessionReloadReason, ViewNode,
     ViewStyle, WORKDECK_FILES_PANE_KEY, bundled_files_pane, extension_pane_size,
@@ -3890,6 +3890,17 @@ impl ReviewApp {
                 }
             }
             if !review_authority_live
+                && let ExtensionHostAction::RequestWorkspaceRead { request_id, .. } = action
+            {
+                self.complete_extension_workspace_read(
+                    pending.extension_index,
+                    &pending.extension_id,
+                    request_id,
+                    None,
+                );
+                continue;
+            }
+            if !review_authority_live
                 && let ExtensionHostAction::RequestWorkspaceWrite { request_id, .. } = action
             {
                 self.complete_extension_workspace_write(
@@ -4332,6 +4343,22 @@ impl ReviewApp {
                         LineHighlightRefreshResult::Refreshed
                         | LineHighlightRefreshResult::StaleFile => {}
                     }
+                }
+                ExtensionHostAction::RequestWorkspaceRead {
+                    request_id,
+                    file_id,
+                    side,
+                } => {
+                    let value = self.with_state(|state| {
+                        resolve_extension_workspace_read(&file_id, &state.changeset().files, side)
+                            .map(str::to_owned)
+                    });
+                    self.complete_extension_workspace_read(
+                        extension_index,
+                        extension_id,
+                        request_id,
+                        value,
+                    );
                 }
                 ExtensionHostAction::RequestWorkspaceWrite {
                     request_id,
@@ -5106,6 +5133,31 @@ impl ReviewApp {
             Err(error) => {
                 self.status = Some(format!(
                     "extension {extension_id} workspace write completion failed: {error}"
+                ));
+            }
+        }
+    }
+
+    fn complete_extension_workspace_read(
+        &mut self,
+        extension_index: usize,
+        extension_id: &str,
+        request_id: String,
+        value: Option<String>,
+    ) {
+        let execution = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .extensions[extension_index]
+            .complete_workspace_read(ExtensionWorkspaceReadCompletion { request_id, value });
+        match execution {
+            Ok(execution) => {
+                self.apply_extension_actions(extension_index, extension_id, execution.actions)
+            }
+            Err(error) => {
+                self.status = Some(format!(
+                    "extension {extension_id} workspace read completion failed: {error}"
                 ));
             }
         }

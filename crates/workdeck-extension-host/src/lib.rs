@@ -61,16 +61,16 @@ use workdeck_extension_api::{
     ExtensionVcsAdapterRegistration, ExtensionVcsDetectRequest, ExtensionVcsFileSourceInvocation,
     ExtensionVcsFileSourceRequest, ExtensionVcsFileSourceResult, ExtensionVcsOperationKind,
     ExtensionVcsOperationRequest, ExtensionVcsPatchResult, ExtensionVcsReviewInput,
-    ExtensionVcsWatchPlan, ExtensionWorkspaceSnapshot, ExtensionWorkspaceWriteCompletion,
-    FileViewLayoutRequest, FileViewMatchRequest, FileViewModeKeyRequest,
-    FileViewModeLifecycleExecution, FileViewModeLifecycleRequest, HandshakeRequest,
-    HandshakeResponse, InputDialogSubmission, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
-    KeyboardModeExecution, KeyboardModeKeyRequest, KeyboardModeLifecycleRequest,
-    LineHighlightRequest, MAX_CLI_STDIN_CHUNK_BYTES, MAX_MESSAGE_BYTES, MAX_PANE_INPUT_BYTES,
-    ManifestError, PaneActionInvocation, PaneAvailabilityRequest, PaneAvailabilityResponse,
-    PaneInputInvocation, PaneRenderRequest, PaneRenderResponse, Registration, ReviewEvent,
-    SelectDialogSubmission, TransformRequest, TransformResponse, ValidatedFileViewLayout,
-    validate_view,
+    ExtensionVcsWatchPlan, ExtensionWorkspaceReadCompletion, ExtensionWorkspaceSnapshot,
+    ExtensionWorkspaceWriteCompletion, FileViewLayoutRequest, FileViewMatchRequest,
+    FileViewModeKeyRequest, FileViewModeLifecycleExecution, FileViewModeLifecycleRequest,
+    HandshakeRequest, HandshakeResponse, InputDialogSubmission, JsonRpcNotification,
+    JsonRpcRequest, JsonRpcResponse, KeyboardModeExecution, KeyboardModeKeyRequest,
+    KeyboardModeLifecycleRequest, LineHighlightRequest, MAX_CLI_STDIN_CHUNK_BYTES,
+    MAX_MESSAGE_BYTES, MAX_PANE_INPUT_BYTES, ManifestError, PaneActionInvocation,
+    PaneAvailabilityRequest, PaneAvailabilityResponse, PaneInputInvocation, PaneRenderRequest,
+    PaneRenderResponse, Registration, ReviewEvent, SelectDialogSubmission, TransformRequest,
+    TransformResponse, ValidatedFileViewLayout, validate_view,
 };
 
 #[derive(Debug, Error)]
@@ -1906,6 +1906,26 @@ impl LoadedExtension {
         Ok(execution)
     }
 
+    /// Return one generation-checked document read to a native extension.
+    pub fn complete_workspace_read(
+        &mut self,
+        completion: ExtensionWorkspaceReadCompletion,
+    ) -> Result<CommandExecution, HostError> {
+        let value = self.request(
+            "workdeck/workspace/read-complete",
+            completion,
+            Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+        )?;
+        let execution: CommandExecution =
+            serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "workspace read completion",
+                message: error.to_string(),
+            })?;
+        self.validate_host_actions(&execution.actions, "workspace read completion")?;
+        Ok(execution)
+    }
+
     /// Invoke one registered pane's synchronous availability callback.
     pub fn pane_available(&mut self, request: PaneAvailabilityRequest) -> Result<bool, HostError> {
         let pane = self
@@ -2854,6 +2874,18 @@ impl LoadedExtension {
                     .manifest
                     .capabilities
                     .contains(&workdeck_extension_api::Capability::LineHighlighters),
+                ExtensionHostAction::RequestWorkspaceRead {
+                    request_id,
+                    file_id,
+                    ..
+                } => {
+                    self.manifest
+                        .capabilities
+                        .contains(&workdeck_extension_api::Capability::WorkspaceRead)
+                        && !request_id.trim().is_empty()
+                        && !file_id.trim().is_empty()
+                        && matches!(kind, "command" | "workspace read completion")
+                }
                 ExtensionHostAction::RequestWorkspaceWrite {
                     request_id,
                     file_id,
@@ -2864,7 +2896,10 @@ impl LoadedExtension {
                         .contains(&workdeck_extension_api::Capability::WorkspaceWrite)
                         && !request_id.trim().is_empty()
                         && !file_id.trim().is_empty()
-                        && matches!(kind, "command" | "file view mode key")
+                        && matches!(
+                            kind,
+                            "command" | "file view mode key" | "workspace read completion"
+                        )
                 }
                 ExtensionHostAction::OpenInputDialog { id, title, .. } => {
                     self.manifest

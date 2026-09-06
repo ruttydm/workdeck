@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "path": "src/ui/AppHost.workspace.test.tsx",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "dee65d146be0cdbfda137c0aeaa4576016eff7b6",
+      "sha256": "dbaef5cffb19e55a1ebb34489e475c3b477458b7ae07daf3bf3be0d3f6f448a1",
+      "bytes": 32073,
+      "lines": 904
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "f79c70a8dc871c4a90fdd63efa31015cc1baaa47",
+      "sha256": "bc6e5ce9fb052d2ada21b832b1d49d11edde11b85c174d2af8be0a675b9f66c7",
+      "bytes": 32041,
+      "lines": 904
+    }
+  },
+  "oracleRuns": {
+    "baseline": {
+      "runtime": "bun 1.3.14",
+      "command": "bun test src/ui/AppHost.workspace.test.tsx",
+      "passed": 13,
+      "failed": 0,
+      "expectCalls": 43,
+      "elapsedMilliseconds": 4110,
+      "caseMilliseconds": [
+        458.25,
+        252.17,
+        212.08,
+        234.56,
+        334.5,
+        328.47,
+        472.88,
+        253.87,
+        232.9,
+        240.94,
+        246.04,
+        214.1,
+        179.16
+      ]
+    },
+    "stable": {
+      "runtime": "bun 1.3.5",
+      "command": "bun test src/ui/AppHost.workspace.test.tsx",
+      "passed": 13,
+      "failed": 0,
+      "expectCalls": 43,
+      "elapsedMilliseconds": 4070,
+      "caseMilliseconds": [
+        475.44,
+        241.28,
+        207.34,
+        233.38,
+        332.36,
+        328.13,
+        466.86,
+        250.03,
+        231.85,
+        236.89,
+        254.49,
+        216.94,
+        181.01
+      ]
+    }
+  },
+  "testMappings": [
+    {
+      "upstream": "returns null when a deferred read finishes after the review reloads",
+      "rust": "deferred_read_resolves_null_after_the_review_generation_reloads"
+    },
+    {
+      "upstream": "reads the working tree's current document for a working-tree review",
+      "rust": "working_tree_read_returns_both_sides_unknown_null_and_a_true_write_probe"
+    },
+    {
+      "upstream": "reads a revision's document in a review that refuses writes",
+      "rust": "revision_read_returns_the_commit_side_but_refuses_workspace_writes"
+    },
+    {
+      "upstream": "resolves null for a file id no review carries",
+      "rust": "working_tree_read_returns_both_sides_unknown_null_and_a_true_write_probe"
+    },
+    {
+      "upstream": "reads a document, transforms it, and writes it back",
+      "rust": "read_transform_write_replaces_the_whole_document_with_consent"
+    },
+    {
+      "upstream": "a confirmed write replaces the reviewed file and reloads the review",
+      "rust": "confirmed_write_is_attributed_replaces_the_file_and_requests_review_reload"
+    },
+    {
+      "upstream": "reports a deferred write truthfully and reconciles after a competing reload",
+      "rust": "workdeck_tui::tests::extension_workspace_write_reports_io_failure_and_started_result_across_reload"
+    },
+    {
+      "upstream": "graceful quit waits for a write that already crossed the start boundary",
+      "rust": "workdeck_tui::tests::extension_workspace_write_reports_io_failure_and_started_result_across_reload"
+    },
+    {
+      "upstream": "refuses when the reviewed file disappears while consent is pending",
+      "rust": "disappearing_target_after_consent_is_refused_without_recreation"
+    },
+    {
+      "upstream": "refuses when the reviewed file becomes a symlink while consent is pending",
+      "rust": "symlink_swap_after_consent_is_refused_without_following_the_link"
+    },
+    {
+      "upstream": "a declined write resolves cancelled and leaves the file alone",
+      "rust": "declined_write_reports_cancelled_and_leaves_the_file_untouched"
+    },
+    {
+      "upstream": "a reviewed symlink refuses the write without asking the user",
+      "rust": "reviewed_symlink_is_refused_before_consent_without_following_the_link"
+    },
+    {
+      "upstream": "a revision review refuses the write without asking the user",
+      "rust": "revision_write_is_refused_before_consent_and_preserves_the_working_tree"
+    }
+  ],
+  "adaptations": [
+    "Native extensions request generation-checked document reads through JSON-RPC completion messages. This preserves Hunk's observable asynchronous lease behavior without embedding a JavaScript runtime in the host.",
+    "Ratatui cells replace OpenTUI frames and Workdeck attribution replaces Hunk branding. File contents, consent state, refusal details, reload ownership, and extension results remain acceptance data.",
+    "The stable file differs only because WorkspaceFileWriter still lived in App.tsx before the baseline refactor moved it to useExtensionWorkspaceControls.ts; both source suites execute the same 13 behaviors."
+  ]
+}

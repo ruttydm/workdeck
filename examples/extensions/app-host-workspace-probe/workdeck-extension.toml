@@ -1,0 +1,7 @@
+id = "app-host-workspace-probe"
+name = "AppHost workspace parity probe"
+version = "0.1.0"
+api_version = 1
+executable = "bin/workdeck-example-app-host-workspace-probe-extension"
+capabilities = ["commands", "configuration", "notifications", "workspace-read", "workspace-write"]
+description = "Compiled fixture for generation-bound document reads and host-consented workspace writes"
