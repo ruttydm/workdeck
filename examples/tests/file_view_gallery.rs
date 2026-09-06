@@ -26,7 +26,7 @@ use workdeck_extension_host::{
     ExtensionRequestCancellation, LoadedExtension, create_file_view_input,
     create_file_view_input_snapshot, validate_file_view_layout,
 };
-use workdeck_tui::{ReviewApp, ReviewOptions, render};
+use workdeck_tui::{CursorLineMode, ReviewApp, ReviewOptions, render};
 
 fn settle_extension_commands(app: &mut ReviewApp) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
@@ -747,8 +747,13 @@ fn ratatui_paints_selection_sensitive_atlas_and_exact_css_swatches() {
     let (_directory, manifest_path) = staged_extension();
     let loaded = LoadedExtension::spawn(&manifest_path, "test").unwrap();
     let (file, _) = request_from_sources(CSS_BEFORE, CSS_AFTER, "theme.css", PALETTE_DELTA_VIEW_ID);
-    let mut app =
-        ReviewApp::new_with_extensions(changeset(file), ReviewOptions::default(), vec![loaded]);
+    // Cursor-line painting deliberately blends explicit backgrounds on the selected row. Disable
+    // that independent overlay so this assertion measures the extension's literal swatches.
+    let options = ReviewOptions {
+        cursor_line: CursorLineMode::Off,
+        ..ReviewOptions::default()
+    };
+    let mut app = ReviewApp::new_with_extensions(changeset(file), options, vec![loaded]);
     let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
     app.handle_key(KeyEvent::new(KeyCode::F(8), KeyModifiers::NONE));
     settle_extension_commands(&mut app);
