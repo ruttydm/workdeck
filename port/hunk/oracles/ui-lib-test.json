@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "path": "src/ui/lib/ui-lib.test.ts",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "1292f255de36843329783d6d7143dd25c512d500",
+      "sha256": "17eee96f70ec4e8cfbff7ef8d71a779a888a6e977c5e45d25f99cd5e5fc3f9b8",
+      "bytes": 23737,
+      "lines": 609
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "1292f255de36843329783d6d7143dd25c512d500",
+      "sha256": "17eee96f70ec4e8cfbff7ef8d71a779a888a6e977c5e45d25f99cd5e5fc3f9b8",
+      "bytes": 23737,
+      "lines": 609
+    }
+  },
+  "oracleRuns": {
+    "baseline": {
+      "runtime": "bun 1.3.14",
+      "command": "bun test src/ui/lib/ui-lib.test.ts",
+      "passed": 23,
+      "failed": 0,
+      "expectCalls": 460,
+      "elapsedMilliseconds": 476
+    },
+    "stable": {
+      "runtime": "bun 1.3.14",
+      "command": "bun test src/ui/lib/ui-lib.test.ts",
+      "passed": 23,
+      "failed": 0,
+      "expectCalls": 460,
+      "elapsedMilliseconds": 352
+    }
+  },
+  "sourceCoverage": [
+    { "lines": [1, 84], "responsibility": "test imports plus exact key-event and two-snapshot diff fixtures", "rust": ["crates/workdeck-tui/src/ui_lib_parity_tests.rs", "crates/workdeck-tui/src/diff_section_geometry.rs"] },
+    { "lines": [85, 104], "responsibility": "stable menu order and packed bar geometry", "rust": ["crates/workdeck-tui/src/menu.rs"] },
+    { "lines": [105, 126], "responsibility": "conditional Extensions menu placement", "rust": ["crates/workdeck-tui/src/menu.rs"] },
+    { "lines": [127, 140], "responsibility": "separator-skipping cyclic menu selection", "rust": ["crates/workdeck-tui/src/menu.rs"] },
+    { "lines": [141, 163], "responsibility": "checked-item and hint-aware dropdown sizing", "rust": ["crates/workdeck-tui/src/menu.rs"] },
+    { "lines": [164, 173], "responsibility": "terminal-cell menu width for CJK labels", "rust": ["crates/workdeck-tui/src/menu.rs"] },
+    { "lines": [174, 190], "responsibility": "title width ceded to all visible menus", "rust": ["crates/workdeck-tui/src/menu.rs"] },
+    { "lines": [191, 196], "responsibility": "Escape aliases", "rust": ["crates/workdeck-tui/src/keyboard.rs"] },
+    { "lines": [197, 214], "responsibility": "Ctrl-S raw, decoded, CSI-u, and tmux draft-save encodings", "rust": ["crates/workdeck-tui/src/keyboard.rs"] },
+    { "lines": [215, 222], "responsibility": "cell-aware fit and pad overflow marker", "rust": ["crates/workdeck-tui/src/text.rs"] },
+    { "lines": [223, 236], "responsibility": "wide and composed grapheme measurement and slicing", "rust": ["crates/workdeck-tui/src/text.rs"] },
+    { "lines": [237, 266], "responsibility": "grapheme-safe wrapping with first-line capacity", "rust": ["crates/workdeck-tui/src/text.rs"] },
+    { "lines": [267, 293], "responsibility": "inclusive cell ranges mapped to UTF-16 slice bounds", "rust": ["crates/workdeck-tui/src/text.rs"] },
+    { "lines": [294, 329], "responsibility": "cluster widths across scalar, emoji, combining, and Hangul shapes", "rust": ["crates/workdeck-tui/src/text.rs"] },
+    { "lines": [330, 352], "responsibility": "bounded FIFO cluster-width cache", "rust": ["crates/workdeck-tui/src/text.rs"] },
+    { "lines": [353, 371], "responsibility": "exact width after more unique clusters than the cache retains", "rust": ["crates/workdeck-tui/src/text.rs"] },
+    { "lines": [372, 392], "responsibility": "safe repeated-scalar fast path", "rust": ["crates/workdeck-tui/src/text.rs"] },
+    { "lines": [393, 467], "responsibility": "word/grapheme wrapping plus measured and clamped note popover placement", "rust": ["crates/workdeck-tui/src/text.rs", "crates/workdeck-tui/src/agent_popover.rs"] },
+    { "lines": [468, 473], "responsibility": "sidebar resize delta and clamps", "rust": ["crates/workdeck-tui/src/ui_geometry.rs"] },
+    { "lines": [474, 486], "responsibility": "split, stack, and hidden-header body-row estimates", "rust": ["crates/workdeck-tui/src/diff_section_geometry.rs"] },
+    { "lines": [487, 530], "responsibility": "multiple hidden-header hunk anchors and bounds", "rust": ["crates/workdeck-tui/src/diff_section_geometry.rs"] },
+    { "lines": [531, 556], "responsibility": "inline-note height without moving the owning hunk anchor", "rust": ["crates/workdeck-tui/src/diff_section_geometry.rs"] },
+    { "lines": [557, 575], "responsibility": "full-hunk reveal with preferred top padding", "rust": ["crates/workdeck-tui/src/hunk_scroll.rs"] },
+    { "lines": [576, 609], "responsibility": "theme fallback, auto appearance, custom semantics, and exact syntax scopes", "rust": ["crates/workdeck-tui/src/theme.rs"] }
+  ],
+  "testMappings": [
+    { "upstream": "buildMenuSpecs lays out the menus a session has", "rust": ["menu::tests::specs_pack_present_menus_in_stable_order"], "assertion": "The same five ids, labels, left offsets, and widths are asserted in order." },
+    { "upstream": "buildMenuSpecs seats an Extensions menu before Help and skips it when empty", "rust": ["menu::tests::specs_pack_present_menus_in_stable_order"], "assertion": "Extensions occupies the exact 30/12 slot, moves Help to 42, and disappears when empty." },
+    { "upstream": "nextMenuItemIndex skips separators in both directions", "rust": ["menu::tests::keyboard_selection_skips_separators_in_both_directions"], "assertion": "Forward, reverse, wraparound, and empty-list indices match the source vectors." },
+    { "upstream": "menuWidth and menuBoxHeight account for checks and hints", "rust": ["menu::tests::dropdown_geometry_accounts_for_checks_hints_and_wide_cells"], "assertion": "Checked/hinted entries retain minimum width 18 and framed height 5." },
+    { "upstream": "menuWidth measures terminal cells, so wide characters are not clipped", "rust": ["menu::tests::dropdown_geometry_accounts_for_checks_hints_and_wide_cells"], "assertion": "The identical CJK label is exactly ten terminal cells wider than the equal-character-count ASCII label." },
+    { "upstream": "menuBarTitleWidth cedes title space to the menus the bar shows", "rust": ["menu::tests::title_width_cedes_exact_space_to_visible_menus"], "assertion": "Widths are exactly 39, 27, and zero at the source terminal sizes." },
+    { "upstream": "escape aliases normalize across terminal input paths", "rust": ["keyboard::tests::escape_accepts_only_hunks_named_and_raw_aliases"], "assertion": "escape and esc aliases match while q does not; the native boundary also covers raw ESC." },
+    { "upstream": "save-draft-note shortcut matches Ctrl-S across raw, CSI-u, and tmux encodings", "rust": ["keyboard::tests::save_draft_accepts_decoded_c0_raw_c0_and_csi_u"], "assertion": "Named, sequence, raw C0, and CSI-u forms match while plain s and Ctrl-X do not." },
+    { "upstream": "fitText and padText clamp using the terminal fallback marker", "rust": ["text::tests::fit_pad_measure_and_slice_by_terminal_cells"], "assertion": "Zero, one, and four-cell fitting plus exact padding reproduce every source value." },
+    { "upstream": "text helpers measure and slice wide characters by terminal cells", "rust": ["text::tests::fit_pad_measure_and_slice_by_terminal_cells"], "assertion": "CJK, emoji modifiers, ZWJ, combining, variation-selector, partial-glyph, fit, and pad vectors match exactly." },
+    { "upstream": "wrapTextByWidth traverses wide graphemes once while honoring remaining line cells", "rust": ["text::tests::width_wrapping_keeps_graphemes_and_remaining_line_capacity"], "assertion": "Every chunk text, width, and starts-new-line flag is asserted for all source clusters." },
+    { "upstream": "cellRangeToCharRange maps inclusive cell ranges onto code-unit slice bounds", "rust": ["text::tests::cell_ranges_return_exact_utf16_slice_bounds"], "assertion": "All ASCII, CJK, emoji, ZWJ, partial-cluster, zero-width, and out-of-range UTF-16 bounds match." },
+    { "upstream": "cluster width measurement matches string-width across terminal text shapes", "rust": ["text::tests::cluster_width_measurement_matches_unicode_width_across_terminal_text_shapes"], "assertion": "Every representable scalar and cluster vector matches the terminal-width authority; Rust rejects lone surrogate input at its UTF-8 boundary." },
+    { "upstream": "bounded cluster cache evicts FIFO entries and rejects oversized keys", "rust": ["text::tests::cache_is_fifo_and_rejects_oversized_utf16_keys"], "assertion": "Reads preserve FIFO order, the oldest entry is evicted, and oversized UTF-16 keys are not retained." },
+    { "upstream": "complex cluster widths stay exact across bounded-cache churn", "rust": ["text::tests::complex_cluster_widths_stay_exact_across_bounded_cache_churn"], "assertion": "All 300 unique combining clusters plus the oversized cluster remain exact across eviction churn." },
+    { "upstream": "repeated single-character runs use the fast width path without losing correctness", "rust": ["text::tests::repeated_and_complex_cluster_widths_stay_exact"], "assertion": "ASCII-like chrome, CJK, emoji, combining, Hangul, and composition-sensitive runs retain exact widths and fits." },
+    { "upstream": "agent popover helpers wrap text and right-align the card within the viewport", "rust": ["text::tests::prose_wrapping_prefers_words_and_never_splits_clusters", "agent_popover::tests::content_wraps_and_measures_the_exact_frame_rows", "agent_popover::tests::placement_right_aligns_and_clamps_at_the_content_bottom"], "assertion": "All prose vectors, frame rows, one-based title, and both exact right/left placement results are asserted." },
+    { "upstream": "resizeSidebarWidth clamps drag updates into the allowed sidebar range", "rust": ["ui_geometry::tests::sidebar_drag_delta_clamps_at_both_layout_boundaries"], "assertion": "The exact 61, 22, and 80 source results are retained alongside reversed-boundary coverage." },
+    { "upstream": "estimateDiffSectionBodyRows matches split and stack row counts from the render plan", "rust": ["diff_section_geometry::tests::measures_split_and_stack_layouts_from_the_render_plan"], "assertion": "Native geometry asserts split and stack counts, relative height, and header contribution from the shared row plan." },
+    { "upstream": "measureDiffSectionGeometry tracks hidden-header anchor rows across multiple hunks", "rust": ["diff_section_geometry::tests::hidden_hunk_headers_preserve_exact_ui_lib_anchor_rows"], "assertion": "The same twelve-line two-hunk fixture yields exact anchors and bounds at rows 1 and 3." },
+    { "upstream": "measureDiffSectionGeometry includes visible inline note rows in split mode", "rust": ["diff_section_geometry::tests::accounts_for_visible_inline_notes_without_moving_the_hunk_anchor"], "assertion": "The inline note increases body height while the first hunk anchor remains unchanged." },
+    { "upstream": "computeHunkRevealScrollTop keeps a hunk fully visible when it fits", "rust": ["hunk_scroll::tests::fitting_hunks_remain_wholly_visible_with_as_much_padding_as_possible"], "assertion": "The exact 18 and 16 reveal targets match, with additional degenerate geometry vectors." },
+    { "upstream": "resolveTheme falls back to GitHub defaults while exposing semantic syntax colors", "rust": ["theme::tests::defaults_and_auto_choose_github_dark_or_light", "theme::tests::ui_lib_custom_theme_preserves_semantic_syntax_projection"], "assertion": "Dracula, missing light/dark, auto light/dark, custom label/accent/appearance/scope/default syntax color, and absent-custom fallback semantics are executable." }
+  ],
+  "adaptations": [
+    "Ratatui and Crossterm use UTF-8 Rust strings. The JavaScript lone-surrogate width vector has no valid Rust string representation and is rejected before these helpers; every valid scalar and grapheme vector remains exact.",
+    "Rust reports UTF-16 indices only at the Hunk-compatible selection boundary while retaining byte-safe UTF-8 internally.",
+    "Hunk's React memoization and OpenTUI layout calls are represented by immutable native plans and value-keyed caches; the asserted content, widths, rows, anchors, and bounds are unchanged."
+  ]
+}

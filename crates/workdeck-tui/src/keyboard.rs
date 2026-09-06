@@ -69,6 +69,10 @@ mod tests {
             name: Some("ESCAPE"),
             ..TerminalKeyEvent::default()
         }));
+        assert!(!is_escape_key(TerminalKeyEvent {
+            name: Some("q"),
+            ..TerminalKeyEvent::default()
+        }));
     }
 
     #[test]
@@ -110,6 +114,11 @@ mod tests {
         }
         assert!(!is_save_draft_note_key(TerminalKeyEvent {
             name: Some("s"),
+            ..TerminalKeyEvent::default()
+        }));
+        assert!(!is_save_draft_note_key(TerminalKeyEvent {
+            name: Some("x"),
+            ctrl: true,
             ..TerminalKeyEvent::default()
         }));
     }

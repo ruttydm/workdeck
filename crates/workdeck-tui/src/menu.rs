@@ -362,6 +362,11 @@ mod tests {
         let with_extensions = build_menu_specs(&menus);
         assert_eq!(menu_bar_title_width(&without_extensions, 80), 39);
         assert_eq!(menu_bar_title_width(&with_extensions, 80), 27);
+        assert!(
+            with_extensions.iter().map(|spec| spec.width).sum::<usize>()
+                + menu_bar_title_width(&with_extensions, 80)
+                <= 80 - 3
+        );
         assert_eq!(menu_bar_title_width(&with_extensions, 40), 0);
     }
 

@@ -809,8 +809,12 @@ mod tests {
             LayoutMode::Stack,
             &theme,
         ));
+        let mut hidden_options = DiffSectionGeometryOptions::new(&file, LayoutMode::Split, &theme);
+        hidden_options.show_hunk_headers = false;
+        let hidden = cache.measure(hidden_options);
         assert_eq!(split.body_height, 6);
         assert_eq!(stack.body_height, 8);
+        assert_eq!(hidden.body_height, split.body_height - file.hunks.len());
         assert_eq!(split.hunk_bounds[&0].height, 2);
         assert_eq!(stack.hunk_bounds[&0].height, 3);
     }
@@ -942,6 +946,30 @@ mod tests {
                 .iter()
                 .any(|row| row.key.starts_with("inline-note:"))
         );
+    }
+
+    #[test]
+    fn hidden_hunk_headers_preserve_exact_ui_lib_anchor_rows() {
+        let before = (1..=12)
+            .map(|line| format!("const line{line} = {line};\n"))
+            .collect::<String>();
+        let after = before
+            .replace("const line2 = 2;\n", "const line2 = 200;\n")
+            .replace("const line11 = 11;\n", "const line11 = 1100;\n");
+        let file = test_file(&before, &after, "example", "example.ts");
+        let theme = resolve_theme(Some("github-dark-default"), None, &[]);
+        let mut cache = DiffSectionGeometryCache::default();
+        let mut options = DiffSectionGeometryOptions::new(&file, LayoutMode::Split, &theme);
+        options.show_hunk_headers = false;
+        let geometry = cache.measure(options);
+
+        assert!(geometry.body_height > 0);
+        assert_eq!(geometry.hunk_anchor_rows[&0], 1);
+        assert_eq!(geometry.hunk_anchor_rows[&1], 3);
+        assert_eq!(geometry.hunk_bounds[&0].top, 1);
+        assert_eq!(geometry.hunk_bounds[&0].height, 1);
+        assert_eq!(geometry.hunk_bounds[&1].top, 3);
+        assert_eq!(geometry.hunk_bounds[&1].height, 1);
     }
 
     #[test]

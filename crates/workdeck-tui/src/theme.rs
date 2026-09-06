@@ -681,6 +681,40 @@ mod tests {
             resolve_theme(Some("auto"), Some(ThemeAppearance::Light), &[]).id,
             DEFAULT_LIGHT_THEME_ID
         );
+        assert_eq!(
+            resolve_theme(Some("missing"), Some(ThemeAppearance::Light), &[]).id,
+            DEFAULT_LIGHT_THEME_ID
+        );
+        assert_eq!(
+            resolve_theme(Some("missing"), Some(ThemeAppearance::Dark), &[]).id,
+            DEFAULT_DARK_THEME_ID
+        );
+    }
+
+    #[test]
+    fn ui_lib_custom_theme_preserves_semantic_syntax_projection() {
+        assert_eq!(resolve_theme(Some("dracula"), None, &[]).id, "dracula");
+        let mut custom = custom_theme("custom", Some("github-light-default"));
+        custom.label = Some("My Theme".into());
+        custom.accent = Some("#7755aa".into());
+        custom
+            .syntax_scopes
+            .insert("keyword.control".into(), "#123456".into());
+        let theme = resolve_theme(Some("custom"), None, &[custom]);
+
+        assert_eq!(theme.id, "custom");
+        assert_eq!(theme.label, "My Theme");
+        assert_eq!(theme.appearance, ThemeAppearance::Light);
+        assert_eq!(theme.accent, "#7755aa");
+        assert_eq!(
+            theme.syntax_scope_overrides,
+            [("keyword.control".into(), "#123456".into())]
+        );
+        assert_eq!(theme.syntax_colors.default, "#1f2328");
+        assert_eq!(
+            resolve_theme(Some("custom"), None, &[]).id,
+            DEFAULT_DARK_THEME_ID
+        );
     }
 
     #[test]

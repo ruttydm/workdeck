@@ -93,6 +93,8 @@ mod theme_selector_controller;
 mod theme_selector_dialog;
 mod timed_notice;
 mod ui_geometry;
+#[cfg(test)]
+mod ui_lib_parity_tests;
 mod user_note_composer;
 mod vertical_scrollbar;
 mod view_preference_quit_controller;

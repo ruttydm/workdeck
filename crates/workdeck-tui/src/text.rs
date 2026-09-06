@@ -594,16 +594,96 @@ mod tests {
                 },
             ]
         );
-        assert_eq!(wrap_text_by_width("e\u{301}x", 1, None, false).len(), 2);
-        assert_eq!(slice("🇯🇵", 0, 1).width, 0);
+        assert_eq!(
+            wrap_text_by_width("e\u{301}x", 1, None, false),
+            [
+                WrappedTextChunk {
+                    text: "e\u{301}".into(),
+                    width: 1,
+                    starts_new_line: false,
+                },
+                WrappedTextChunk {
+                    text: "x".into(),
+                    width: 1,
+                    starts_new_line: true,
+                },
+            ]
+        );
+        assert_eq!(
+            slice("🇯🇵", 0, 1),
+            TextWidthSlice {
+                text: String::new(),
+                width: 0,
+            }
+        );
         assert!(wrap_text_by_width("🇯🇵", 1, None, false).is_empty());
-        assert_eq!(slice("\u{d4e}കx", 0, 1).text, "\u{d4e}ക");
-        assert_eq!(wrap_text_by_width("\u{d4e}കx", 1, None, false).len(), 2);
+        assert_eq!(
+            slice("\u{d4e}കx", 0, 1),
+            TextWidthSlice {
+                text: "\u{d4e}ക".into(),
+                width: 1,
+            }
+        );
+        assert_eq!(
+            wrap_text_by_width("\u{d4e}കx", 1, None, false),
+            [
+                WrappedTextChunk {
+                    text: "\u{d4e}ക".into(),
+                    width: 1,
+                    starts_new_line: false,
+                },
+                WrappedTextChunk {
+                    text: "x".into(),
+                    width: 1,
+                    starts_new_line: true,
+                },
+            ]
+        );
         for cluster in ["กำ", "ກຳ", "ｶﾞ", "ｶﾟ"] {
             let width = cluster.width();
             assert_eq!(measure_text_width(cluster), width);
-            assert_eq!(slice(cluster, 0, width).text, cluster);
-            assert_eq!(wrap_text_by_width(cluster, width, None, false).len(), 1);
+            assert_eq!(
+                slice(cluster, 0, width),
+                TextWidthSlice {
+                    text: cluster.into(),
+                    width,
+                }
+            );
+            assert_eq!(
+                wrap_text_by_width(cluster, width, None, false),
+                [WrappedTextChunk {
+                    text: cluster.into(),
+                    width,
+                    starts_new_line: false,
+                }]
+            );
+        }
+    }
+
+    #[test]
+    fn cluster_width_measurement_matches_unicode_width_across_terminal_text_shapes() {
+        // Rust strings cannot contain JavaScript's lone-surrogate test value;
+        // every valid Unicode scalar and multi-scalar cluster from that vector
+        // is preserved here. Invalid UTF-16 is rejected at the Rust boundary.
+        for cluster in [
+            "",
+            "\0",
+            "\u{200b}",
+            "\u{301}",
+            "─",
+            "·",
+            "日",
+            "👍",
+            "e\u{301}",
+            "1\u{20e3}",
+            "🧑‍💻",
+            "\u{1100}\u{1161}\u{11a8}",
+        ] {
+            assert_eq!(
+                measure_cluster_width(cluster),
+                cluster.width(),
+                "{cluster:?}"
+            );
         }
     }
 
@@ -721,6 +801,30 @@ mod tests {
     }
 
     #[test]
+    fn complex_cluster_widths_stay_exact_across_bounded_cache_churn() {
+        let clusters = (0..300)
+            .map(|index| {
+                format!(
+                    "{}{}{}",
+                    char::from_u32(0x61 + index % 26).unwrap(),
+                    char::from_u32(0x300 + index % 112).unwrap(),
+                    char::from_u32(0x300 + (index / 112) % 112).unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+        for cluster in &clusters {
+            assert_eq!(measure_text_width(cluster), cluster.width(), "{cluster:?}");
+        }
+
+        let oversized_cluster = format!("a{}", "\u{301}".repeat(64));
+        assert_eq!(
+            measure_text_width(&oversized_cluster),
+            oversized_cluster.width()
+        );
+        assert_eq!(measure_text_width(&clusters[0]), clusters[0].width());
+    }
+
+    #[test]
     fn repeated_and_complex_cluster_widths_stay_exact() {
         assert_eq!(measure_text_width(&"─".repeat(240)), 240);
         assert_eq!(fit_text(&"─".repeat(240), 240, None), "─".repeat(240));
@@ -733,6 +837,10 @@ mod tests {
         assert_eq!(measure_text_width(&"👍".repeat(3)), 6);
         assert_eq!(measure_text_width(&"\u{301}".repeat(4)), 0);
         assert_eq!(measure_text_width("e\u{301}"), 1);
+        for scalar in ["\u{d4e}", "ำ", "ຳ"] {
+            let repeated = scalar.repeat(2);
+            assert_eq!(measure_text_width(&repeated), repeated.width());
+        }
         for line in [
             "日本語 scalar text 👍 🚀",
             "🧑‍💻 👩‍🔬 terminal tools",

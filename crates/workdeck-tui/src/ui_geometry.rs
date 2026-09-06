@@ -237,6 +237,9 @@ mod tests {
 
     #[test]
     fn sidebar_drag_delta_clamps_at_both_layout_boundaries() {
+        assert_eq!(resize_sidebar_width(34, 33, 60, 22, 80), 61);
+        assert_eq!(resize_sidebar_width(34, 33, 0, 22, 80), 22);
+        assert_eq!(resize_sidebar_width(34, 33, 120, 22, 80), 80);
         assert_eq!(resize_sidebar_width(30, 40, 47, 20, 50), 37);
         assert_eq!(resize_sidebar_width(30, 40, 5, 20, 50), 20);
         assert_eq!(resize_sidebar_width(30, 40, 100, 20, 50), 50);
