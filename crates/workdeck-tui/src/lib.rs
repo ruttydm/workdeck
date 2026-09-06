@@ -13354,6 +13354,95 @@ mod tests {
     }
 
     #[test]
+    fn provisional_extension_runtime_cannot_publish_event_context_before_commit() {
+        let app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                command_cwd: Some(PathBuf::from("/repo/committed")),
+                ..ReviewOptions::default()
+            },
+        );
+        let slot = app.extension_event_context_provider.clone();
+        assert_eq!(
+            slot.context(Vec::new()).unwrap().cwd,
+            PathBuf::from("/repo/committed")
+        );
+
+        let prospective = changeset();
+        let provisional = ProvisionalExtensionPaneRuntime::new(ExtensionPaneRuntime::new(
+            Vec::new(),
+            &prospective.files,
+        ));
+        assert_eq!(
+            slot.context(Vec::new()).unwrap().cwd,
+            PathBuf::from("/repo/committed")
+        );
+        drop(provisional);
+        assert_eq!(
+            slot.context(Vec::new()).unwrap().cwd,
+            PathBuf::from("/repo/committed")
+        );
+    }
+
+    #[test]
+    fn frozen_app_extension_runtime_and_command_control_oracles_map_every_case() {
+        let runtime: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/app-extension-runtime.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            runtime["source"]["baseline"]["commit"],
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2"
+        );
+        assert_eq!(runtime["source"]["baseline"]["bytes"], 3_800);
+        assert_eq!(runtime["source"]["baseline"]["lines"], 111);
+        assert_eq!(runtime["source"]["stable"]["presence"], "absent");
+        assert_eq!(runtime["oracleRuns"]["baseline"]["passed"], 2);
+        assert_eq!(runtime["oracleRuns"]["baseline"]["failed"], 0);
+        assert_eq!(runtime["testMappings"].as_array().unwrap().len(), 2);
+
+        let controls: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/app-extension-command-controls.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            controls["source"]["baseline"]["blob"],
+            "cb89d00d4a0b2b7d750afa8bb57f5dae6b3c238a"
+        );
+        assert_eq!(
+            controls["source"]["stable"]["blob"],
+            controls["source"]["baseline"]["blob"]
+        );
+        for pin in ["baseline", "stable"] {
+            assert_eq!(controls["oracleRuns"][pin]["passed"], 1);
+            assert_eq!(controls["oracleRuns"][pin]["failed"], 0);
+            assert_eq!(controls["oracleRuns"][pin]["expectCalls"], 9);
+        }
+        assert_eq!(controls["testMappings"].as_array().unwrap().len(), 1);
+
+        for oracle in [&runtime, &controls] {
+            assert!(
+                oracle["testMappings"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|mapping| {
+                        mapping["upstream"]
+                            .as_str()
+                            .is_some_and(|name| !name.is_empty())
+                            && mapping["rustTests"].as_array().is_some_and(|tests| {
+                                !tests.is_empty()
+                                    && tests.iter().all(|test| {
+                                        test.as_str()
+                                            .is_some_and(|selector| selector.contains(".rs#"))
+                                    })
+                            })
+                    })
+            );
+        }
+    }
+
+    #[test]
     fn extension_runtime_replacement_installs_a_successor_event_context() {
         let mut app = ReviewApp::new(
             changeset(),

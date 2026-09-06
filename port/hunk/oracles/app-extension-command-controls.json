@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "path": "src/ui/App.extension-command-controls.test.tsx",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "cb89d00d4a0b2b7d750afa8bb57f5dae6b3c238a",
+      "sha256": "1c11170ae075f14c598be8b0709b665c990858d994b4b2f173d924d8f0a16bba",
+      "bytes": 4635,
+      "lines": 123
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "cb89d00d4a0b2b7d750afa8bb57f5dae6b3c238a",
+      "sha256": "1c11170ae075f14c598be8b0709b665c990858d994b4b2f173d924d8f0a16bba",
+      "bytes": 4635,
+      "lines": 123
+    }
+  },
+  "oracleRuns": {
+    "baseline": {
+      "runtime": "bun 1.3.14",
+      "command": "TMPDIR=$(cd ${TMPDIR:-/tmp} && pwd -P) bun test src/ui/App.extension-command-controls.test.tsx",
+      "passed": 1,
+      "failed": 0,
+      "expectCalls": 9,
+      "elapsedMilliseconds": 461,
+      "caseMilliseconds": [205.02]
+    },
+    "stable": {
+      "runtime": "bun 1.3.14",
+      "command": "TMPDIR=$(cd ${TMPDIR:-/tmp} && pwd -P) bun test src/ui/App.extension-command-controls.test.tsx",
+      "passed": 1,
+      "failed": 0,
+      "expectCalls": 9,
+      "elapsedMilliseconds": 723,
+      "caseMilliseconds": [230.09]
+    }
+  },
+  "testMappings": [
+    {
+      "upstream": "retires captured controls only when a soft reload replaces the extension registry",
+      "rustTests": [
+        "crates/workdeck-tui/src/extension_runtime_bridge.rs#tests::runtime_commands_survive_content_reload_while_review_controls_expire",
+        "crates/workdeck-tui/src/extension_runtime_bridge.rs#tests::replacing_registry_retires_predecessor_controls_without_driving_successor",
+        "crates/workdeck-tui/src/lib.rs#tests::review_app_commits_extension_runtime_authority_across_selection_reload_and_registry_change",
+        "crates/workdeck-tui/src/extension_command_controls.rs#tests::unknown_disabled_private_extension_owned_and_stale_commands_are_refused",
+        "examples/tests/inline_edit.rs#ratatui_host_retires_a_pending_workspace_write_when_the_review_reloads"
+      ]
+    }
+  ],
+  "relatedOracle": "port/hunk/oracles/extension-command-controls.json",
+  "adaptations": [
+    "Retained native controls use weak generation-scoped capability leases instead of JavaScript closures. Runtime command authority survives content generations, while workspace, review, and navigation authority is tied to the captured review generation.",
+    "A registry generation change invalidates old command leases before successor commands become observable; a stale lease can never dispatch through the successor table."
+  ]
+}
