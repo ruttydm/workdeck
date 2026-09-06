@@ -15127,6 +15127,143 @@ mod tests {
     }
 
     #[test]
+    fn moved_line_tints_reach_final_cells_in_every_layout_and_wrap_mode() {
+        fn colored_text(buffer: &Buffer, background: Color) -> String {
+            let mut output = String::new();
+            for y in buffer.area.y..buffer.area.bottom() {
+                for x in buffer.area.x..buffer.area.right() {
+                    let cell = buffer.cell((x, y)).unwrap();
+                    if cell.bg == background {
+                        output.push_str(cell.symbol());
+                    }
+                }
+                output.push('\n');
+            }
+            output
+        }
+
+        let oracle: serde_json::Value =
+            serde_json::from_str(include_str!("../../../port/hunk/oracles/moved-lines.json"))
+                .unwrap();
+        assert_eq!(
+            oracle["source"],
+            serde_json::json!({
+                "path": "test/pty/moved-lines.test.ts",
+                "blob": "3a78c2b73e50701e8311979274a40c3da46b6639",
+                "sha256": "b49979219e63ded4e109e9732e7b87bffed6d300838c8839450b6f0f5916131b",
+                "bytes": 2_463,
+                "lines": 65,
+                "baseline_commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+                "stable_commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+                "pins_identical": true
+            })
+        );
+        for pin in ["baseline", "stable"] {
+            assert_eq!(oracle["oracle_runs"][pin]["passed"], 4);
+            assert_eq!(oracle["oracle_runs"][pin]["failed"], 0);
+            assert_eq!(oracle["oracle_runs"][pin]["expect_calls"], 32);
+        }
+        assert_eq!(
+            oracle["terminal"],
+            serde_json::json!({"columns": 160, "rows": 40})
+        );
+        assert_eq!(oracle["matrix"].as_array().unwrap().len(), 4);
+        assert_eq!(oracle["source_tests"].as_array().unwrap().len(), 4);
+
+        let moved_block = [
+            "MOVED BLOCK ALPHA",
+            "MOVED BLOCK BRAVO",
+            "MOVED BLOCK CHARLIE",
+            "MOVED BLOCK DELTA",
+        ];
+        let plain_addition = "brand new destination line";
+        let mut changeset = parse_patch(
+            concat!(
+                "diff --git a/source.txt b/source.txt\n",
+                "--- a/source.txt\n",
+                "+++ b/source.txt\n",
+                "@@ -1,7 +1,3 @@\n",
+                " source header one\n",
+                " source header two\n",
+                "-MOVED BLOCK ALPHA\n",
+                "-MOVED BLOCK BRAVO\n",
+                "-MOVED BLOCK CHARLIE\n",
+                "-MOVED BLOCK DELTA\n",
+                " source footer\n",
+                "diff --git a/destination.txt b/destination.txt\n",
+                "--- a/destination.txt\n",
+                "+++ b/destination.txt\n",
+                "@@ -1,2 +1,7 @@\n",
+                " destination header one\n",
+                " destination header two\n",
+                "+MOVED BLOCK ALPHA\n",
+                "+MOVED BLOCK BRAVO\n",
+                "+MOVED BLOCK CHARLIE\n",
+                "+MOVED BLOCK DELTA\n",
+                "+brand new destination line\n",
+            ),
+            "moved-lines",
+            "Moved lines",
+            ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap();
+        for line in changeset
+            .files
+            .iter_mut()
+            .flat_map(|file| &mut file.hunks)
+            .flat_map(|hunk| &mut hunk.lines)
+        {
+            line.moved = line.content.starts_with("MOVED BLOCK");
+        }
+        changeset.refresh_review_identities();
+
+        for (layout, wrap_lines) in [
+            (LayoutMode::Stack, true),
+            (LayoutMode::Stack, false),
+            (LayoutMode::Split, true),
+            (LayoutMode::Split, false),
+        ] {
+            let app = ReviewApp::new(
+                changeset.clone(),
+                ReviewOptions {
+                    layout,
+                    wrap_lines,
+                    highlight: false,
+                    cursor_line: CursorLineMode::Off,
+                    ..ReviewOptions::default()
+                },
+            );
+            let mut terminal = Terminal::new(TestBackend::new(160, 40)).unwrap();
+            terminal
+                .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+                .unwrap();
+            let theme = &app.options.theme;
+            let moved = colored_text(
+                terminal.backend().buffer(),
+                ratatui_theme_color(&theme.moved_added_bg),
+            );
+            let added = colored_text(
+                terminal.backend().buffer(),
+                ratatui_theme_color(&theme.added_bg),
+            );
+            let removed = colored_text(
+                terminal.backend().buffer(),
+                ratatui_theme_color(&theme.removed_bg),
+            );
+            for line in moved_block {
+                assert!(
+                    moved.contains(line),
+                    "{layout:?} wrap={wrap_lines}: {moved}"
+                );
+            }
+            assert!(!added.contains("MOVED BLOCK"));
+            assert!(!removed.contains("MOVED BLOCK"));
+            assert!(added.contains(plain_addition));
+            assert!(!moved.contains(plain_addition));
+        }
+    }
+
+    #[test]
     fn native_cursor_paint_blends_each_ratatui_surface_and_number_mode_stops_at_the_gutter() {
         let theme = resolve_theme(Some("github-dark-default"), None, &[]);
         let prefix = Style::default().bg(ratatui_theme_color(&theme.panel));

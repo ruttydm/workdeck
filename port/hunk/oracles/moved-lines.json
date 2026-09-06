@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "source": {
+    "path": "test/pty/moved-lines.test.ts",
+    "blob": "3a78c2b73e50701e8311979274a40c3da46b6639",
+    "sha256": "b49979219e63ded4e109e9732e7b87bffed6d300838c8839450b6f0f5916131b",
+    "bytes": 2463,
+    "lines": 65,
+    "baseline_commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "stable_commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+    "pins_identical": true
+  },
+  "oracle_runs": {
+    "runtime": "Bun 1.3.14",
+    "date": "2026-09-06",
+    "baseline": { "passed": 4, "failed": 0, "expect_calls": 32 },
+    "stable": { "passed": 4, "failed": 0, "expect_calls": 32 }
+  },
+  "terminal": { "columns": 160, "rows": 40 },
+  "matrix": [
+    { "layout": "stack", "wrap": true },
+    { "layout": "stack", "wrap": false },
+    { "layout": "split", "wrap": true },
+    { "layout": "split", "wrap": false }
+  ],
+  "source_tests": [
+    "tints moved rows apart from ordinary added rows in stack with --wrap",
+    "tints moved rows apart from ordinary added rows in stack with --no-wrap",
+    "tints moved rows apart from ordinary added rows in split with --wrap",
+    "tints moved rows apart from ordinary added rows in split with --no-wrap"
+  ],
+  "native_test": {
+    "file": "crates/workdeck-tui/src/lib.rs",
+    "test": "tests::moved_line_tints_reach_final_cells_in_every_layout_and_wrap_mode"
+  }
+}
