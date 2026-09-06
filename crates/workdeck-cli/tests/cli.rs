@@ -1,6 +1,7 @@
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
 use serde_json::Value;
+use std::collections::BTreeSet;
 use std::fs;
 use std::process::Command;
 use tempfile::tempdir;
@@ -20,6 +21,22 @@ fn write_native_extension(directory: &std::path::Path, id: &str) {
         ),
     )
     .unwrap();
+}
+
+fn assert_entrypoint_evidence(workspace: &std::path::Path, evidence: &Value) {
+    let evidence = evidence.as_array().unwrap();
+    assert!(!evidence.is_empty());
+    for item in evidence {
+        let relative = item["file"].as_str().unwrap();
+        let test = item["test"].as_str().unwrap();
+        let source = fs::read_to_string(workspace.join(relative))
+            .unwrap_or_else(|error| panic!("missing entrypoint evidence {relative}: {error}"));
+        let function = test.rsplit("::").next().unwrap();
+        assert!(
+            source.contains(&format!("fn {function}(")),
+            "{relative} does not define {test}"
+        );
+    }
 }
 
 #[test]
@@ -53,6 +70,112 @@ fn version_renders() {
         .assert()
         .success()
         .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")));
+}
+
+#[test]
+fn frozen_hunk_entrypoint_oracle_covers_every_source_byte_and_source_test() {
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let oracle: Value =
+        serde_json::from_str(include_str!("../../../port/hunk/oracles/entrypoint.json")).unwrap();
+    assert_eq!(oracle["runtime"]["version"], "1.3.14");
+    assert_eq!(
+        oracle["baselines"][0],
+        serde_json::json!({
+            "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+            "source_path": "src/main.tsx",
+            "source_blob": "848f1f9053fbbf2f282887a9e378a1ba5412e2db",
+            "source_sha256": "b691366af78e26c7a37bea8bf0eb6f33655f50bf0f982707e2cfa6f5837ea62f",
+            "source_bytes": 4_592,
+            "source_lines": 136,
+            "test_path": "test/cli/entrypoint.test.ts",
+            "test_blob": "758bf0ff9d70095d6a8f6a66320623ddf42ca04f",
+            "test_sha256": "5d3f16d75660f976772681d612af912ee3b41d8b2fe0ce5d92f69f190dc0143f",
+            "test_bytes": 26_820,
+            "test_lines": 758,
+            "suite_passed": 26,
+            "suite_failed": 0,
+            "suite_expect_calls": 114
+        })
+    );
+    assert_eq!(
+        oracle["baselines"][1],
+        serde_json::json!({
+            "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+            "source_path": "src/main.tsx",
+            "source_blob": "23ab6c3b760aef43dc90b54a1337cbc887ba20e9",
+            "source_sha256": "1fab8ccf65d655c313d503ddac44ee81cb34726dabb011d2f1fbcfbaf9cbc1be",
+            "source_bytes": 4_253,
+            "source_lines": 123,
+            "test_path": "test/cli/entrypoint.test.ts",
+            "test_blob": "b00a0efa227e65d641a602e3d04a8d0cbf9b4d17",
+            "test_sha256": "37ad8a8715d526bb72a0a22c3225b3897aebea46dbcd3d9094d6a11df08865d4",
+            "test_bytes": 12_684,
+            "test_lines": 351,
+            "suite_passed": 15,
+            "suite_failed": 0,
+            "suite_expect_calls": 82
+        })
+    );
+    assert_eq!(oracle["baselines"][0]["source_bytes"], 4_592);
+    assert_eq!(oracle["baselines"][0]["source_lines"], 136);
+    assert_eq!(oracle["baselines"][0]["suite_passed"], 26);
+    assert_eq!(oracle["baselines"][0]["suite_failed"], 0);
+    assert_eq!(oracle["baselines"][0]["suite_expect_calls"], 114);
+    assert_eq!(oracle["baselines"][1]["source_bytes"], 4_253);
+    assert_eq!(oracle["baselines"][1]["source_lines"], 123);
+    assert_eq!(oracle["baselines"][1]["suite_passed"], 15);
+    assert_eq!(oracle["baselines"][1]["suite_failed"], 0);
+    assert_eq!(oracle["baselines"][1]["suite_expect_calls"], 82);
+
+    let mut next_byte = 0;
+    let mut next_line = 1;
+    for section in oracle["source_sections"].as_array().unwrap() {
+        let bytes = section["bytes"].as_array().unwrap();
+        let lines = section["lines"].as_array().unwrap();
+        assert_eq!(bytes[0].as_u64().unwrap(), next_byte);
+        assert_eq!(lines[0].as_u64().unwrap(), next_line);
+        next_byte = bytes[1].as_u64().unwrap();
+        next_line = lines[1].as_u64().unwrap() + 1;
+        assert!(!section["role"].as_str().unwrap().is_empty());
+        assert_entrypoint_evidence(&workspace, &section["evidence"]);
+    }
+    assert_eq!(next_byte, 4_592);
+    assert_eq!(next_line, 137);
+
+    let process_oracles = oracle["process_oracles"].as_array().unwrap();
+    assert_eq!(process_oracles.len(), 2);
+    let mut expected_case_names = None;
+    for (index, process_oracle) in process_oracles.iter().enumerate() {
+        assert_eq!(
+            process_oracle["commit"],
+            oracle["baselines"][index]["commit"]
+        );
+        let cases = process_oracle["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 8);
+        let names = cases
+            .iter()
+            .map(|case| case["name"].as_str().unwrap())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(names.len(), cases.len());
+        if let Some(expected) = &expected_case_names {
+            assert_eq!(&names, expected);
+        } else {
+            expected_case_names = Some(names);
+        }
+        assert!(cases.iter().all(|case| {
+            case["exit"].as_i64().is_some()
+                && case["stdout_bytes"].as_u64().is_some()
+                && case["stderr_bytes"].as_u64().is_some()
+        }));
+    }
+
+    let mappings = oracle["test_mapping"].as_array().unwrap();
+    assert_eq!(mappings.len(), 26);
+    let mut source_tests = BTreeSet::new();
+    for mapping in mappings {
+        assert!(source_tests.insert(mapping["source_test"].as_str().unwrap()));
+        assert_entrypoint_evidence(&workspace, &mapping["evidence"]);
+    }
 }
 
 #[test]
@@ -736,6 +859,42 @@ fn extension_help_exposes_complete_native_management_lifecycle() {
 }
 
 #[test]
+fn invalid_extension_cli_syntax_and_hard_disable_never_start_a_provider() {
+    let root = tempdir().unwrap();
+    let extension = root.path().join("provider");
+    write_native_extension(&extension, "provider");
+
+    for args in [
+        vec![
+            "--extension".to_owned(),
+            extension.display().to_string(),
+            "--bogus".to_owned(),
+        ],
+        vec![
+            "--extension".to_owned(),
+            "--no-extensions".to_owned(),
+            "--extension".to_owned(),
+            extension.display().to_string(),
+            "provider".to_owned(),
+        ],
+        vec![
+            "--no-extensions".to_owned(),
+            "--extension".to_owned(),
+            extension.display().to_string(),
+            "provider".to_owned(),
+        ],
+    ] {
+        let output = workdeck().args(args).output().unwrap();
+        assert!(!output.status.success());
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(
+            !stderr.contains("extension executable does not exist"),
+            "provider discovery ran before syntax or hard-disable rejection: {stderr}"
+        );
+    }
+}
+
+#[test]
 fn pager_plain_text_fallback_is_headless_sanitized_and_read_only() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init"]);
@@ -950,6 +1109,36 @@ fn outside_git_repo_prints_actionable_error() {
         ))
         .stderr(predicate::str::contains("workdeck --cwd <repo-path>"))
         .stderr(predicate::str::contains("git init"));
+}
+
+#[test]
+fn invalid_show_ref_is_friendly_and_has_no_runtime_backtrace() {
+    let repo = tempdir().unwrap();
+    git(repo.path(), &["init"]);
+    git(repo.path(), &["config", "user.name", "Workdeck Test"]);
+    git(
+        repo.path(),
+        &["config", "user.email", "workdeck@example.test"],
+    );
+    fs::write(repo.path().join("alpha.rs"), "pub const ALPHA: u8 = 1;\n").unwrap();
+    git(repo.path(), &["add", "alpha.rs"]);
+    git(repo.path(), &["commit", "-m", "initial"]);
+
+    workdeck()
+        .arg("--cwd")
+        .arg(repo.path())
+        .args(["show", "HEAD~999"])
+        .assert()
+        .code(1)
+        .stdout(predicate::str::is_empty())
+        .stderr(predicate::str::contains(
+            "workdeck: `workdeck show HEAD~999` could not resolve Git ref `HEAD~999`.",
+        ))
+        .stderr(predicate::str::contains(
+            "Check the ref name and try again.",
+        ))
+        .stderr(predicate::str::contains("panicked at").not())
+        .stderr(predicate::str::contains("stack backtrace").not());
 }
 
 #[test]

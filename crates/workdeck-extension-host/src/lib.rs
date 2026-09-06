@@ -41,7 +41,7 @@ pub use synchronous_callbacks::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -121,6 +121,28 @@ pub enum HostError {
     },
     #[error("repository extension {0} has no current trust grant")]
     Untrusted(PathBuf),
+}
+
+/// Pollable host-owned stdin used by extension CLI commands.
+///
+/// Returning `None` means no bytes are ready yet. `Some(Vec::new())` is EOF. This lets the host
+/// continue processing the extension response stream while a lazily requested stdin read is
+/// pending, so a handler that starts a read and immediately exits cannot deadlock the process.
+pub trait ExtensionCliStdin {
+    fn try_read(&mut self, max_bytes: usize) -> io::Result<Option<Vec<u8>>>;
+}
+
+struct BlockingExtensionCliStdin<'a> {
+    source: &'a mut dyn Read,
+}
+
+impl ExtensionCliStdin for BlockingExtensionCliStdin<'_> {
+    fn try_read(&mut self, max_bytes: usize) -> io::Result<Option<Vec<u8>>> {
+        let mut bytes = vec![0; max_bytes];
+        let count = self.source.read(&mut bytes)?;
+        bytes.truncate(count);
+        Ok(Some(bytes))
+    }
 }
 
 /// Hunk resolves a bare file-view id inside the caller's extension and a
@@ -1572,6 +1594,32 @@ impl LoadedExtension {
         stdout: &mut dyn Write,
         stderr: &mut dyn Write,
     ) -> Result<CliCommandExecution, HostError> {
+        let mut stdin = BlockingExtensionCliStdin { source: stdin };
+        self.invoke_cli_command_cancellable_with_stdin(
+            command_name,
+            args,
+            cwd,
+            timeout,
+            cancelled,
+            &mut stdin,
+            stdout,
+            stderr,
+        )
+    }
+
+    /// Invoke a CLI command while polling a host-owned stdin lease alongside protocol responses.
+    #[allow(clippy::too_many_arguments)]
+    pub fn invoke_cli_command_cancellable_with_stdin(
+        &mut self,
+        command_name: &str,
+        args: Vec<String>,
+        cwd: &Path,
+        timeout: Duration,
+        cancelled: &AtomicBool,
+        stdin: &mut dyn ExtensionCliStdin,
+        stdout: &mut dyn Write,
+        stderr: &mut dyn Write,
+    ) -> Result<CliCommandExecution, HostError> {
         if !self.handshake.registrations.iter().any(|registration| {
             matches!(registration, Registration::CliCommand(command) if command.name == command_name)
         }) {
@@ -1603,6 +1651,7 @@ impl LoadedExtension {
         let mut stdin_done = false;
         let mut seen_stdin_reads = BTreeSet::new();
         let mut deferred_io_error = None;
+        let mut pending_stdin_read: Option<CliStdinReadRequest> = None;
 
         let value = loop {
             if cancelled.load(Ordering::Acquire) && !cancellation_sent {
@@ -1612,6 +1661,58 @@ impl LoadedExtension {
                     serde_json::json!({ "id": id }),
                 )?;
                 cancellation_sent = true;
+            }
+            if let Some(read) = pending_stdin_read.take() {
+                match stdin.try_read(read.max_bytes) {
+                    Ok(Some(mut bytes)) => {
+                        if bytes.len() > read.max_bytes {
+                            return Err(HostError::InvalidPayload {
+                                id: self.manifest.id.clone(),
+                                kind: "CLI stdin",
+                                message: format!(
+                                    "stdin source returned {} bytes for a {} byte request",
+                                    bytes.len(),
+                                    read.max_bytes
+                                ),
+                            });
+                        }
+                        let done = bytes.is_empty();
+                        stdin_consumed |= !done;
+                        stdin_done |= done;
+                        self.send_notification_on(
+                            &mut connection,
+                            "workdeck/cli/stdin/chunk",
+                            CliStdinChunk {
+                                request_id: id,
+                                read_id: read.read_id,
+                                bytes: std::mem::take(&mut bytes),
+                                done,
+                                error: None,
+                            },
+                        )?;
+                        continue;
+                    }
+                    Ok(None) => pending_stdin_read = Some(read),
+                    Err(source) => {
+                        let message = source.to_string();
+                        if deferred_io_error.is_none() {
+                            deferred_io_error = Some(source);
+                        }
+                        stdin_done = true;
+                        self.send_notification_on(
+                            &mut connection,
+                            "workdeck/cli/stdin/chunk",
+                            CliStdinChunk {
+                                request_id: id,
+                                read_id: read.read_id,
+                                bytes: Vec::new(),
+                                done: true,
+                                error: Some(message),
+                            },
+                        )?;
+                        continue;
+                    }
+                }
             }
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
@@ -1688,35 +1789,28 @@ impl LoadedExtension {
                     });
                 }
                 stdin_read_started = true;
-                let mut bytes = vec![0; read.max_bytes];
-                let (count, error) = if stdin_done {
-                    (0, None)
+                if pending_stdin_read.is_some() {
+                    return Err(HostError::InvalidPayload {
+                        id: self.manifest.id.clone(),
+                        kind: "CLI stdin",
+                        message: "extension requested more than one concurrent stdin read".into(),
+                    });
+                }
+                if stdin_done {
+                    self.send_notification_on(
+                        &mut connection,
+                        "workdeck/cli/stdin/chunk",
+                        CliStdinChunk {
+                            request_id: id,
+                            read_id: read.read_id,
+                            bytes: Vec::new(),
+                            done: true,
+                            error: None,
+                        },
+                    )?;
                 } else {
-                    match stdin.read(&mut bytes) {
-                        Ok(count) => (count, None),
-                        Err(source) => {
-                            let message = source.to_string();
-                            if deferred_io_error.is_none() {
-                                deferred_io_error = Some(source);
-                            }
-                            (0, Some(message))
-                        }
-                    }
-                };
-                bytes.truncate(count);
-                stdin_consumed |= count > 0;
-                stdin_done |= count == 0;
-                self.send_notification_on(
-                    &mut connection,
-                    "workdeck/cli/stdin/chunk",
-                    CliStdinChunk {
-                        request_id: id,
-                        read_id: read.read_id,
-                        bytes,
-                        done: stdin_done,
-                        error,
-                    },
-                )?;
+                    pending_stdin_read = Some(read);
+                }
                 continue;
             }
             if json_rpc_response_id(&line).is_some_and(|response_id| response_id < id) {

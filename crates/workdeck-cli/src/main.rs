@@ -35,8 +35,8 @@ use workdeck_core::{
     SessionCommandInput, SessionCommandOutput, SessionCommentApplyItemInput,
     SessionCommentListType, SessionSelectorInput, SidebarVisibility, StartupNotice,
     TerminalThemeMode, UserKeyBindingEntry, VcsDiffCommandInput, VcsRangeEndpoints,
-    VcsShowCommandInput, VcsStashShowCommandInput, collect_session_custom_themes,
-    resolve_app_state_path,
+    VcsShowCommandInput, VcsStashShowCommandInput, WorkdeckExtensionUserError, WorkdeckUserError,
+    collect_session_custom_themes, format_cli_error_from_environment, resolve_app_state_path,
 };
 use workdeck_diff::{
     LanguageMatcher, LanguageRegistration, LanguageRegistry, sanitize_terminal_line,
@@ -46,8 +46,9 @@ use workdeck_extension_api::{
     FileLanguageMatcher, Registration,
 };
 use workdeck_extension_host::{
-    EXTENSION_SHUTDOWN_TIMEOUT, ExtensionLoadResult, LoadStartupExtensionsOptions, LoadedExtension,
-    TrustDecision, TrustStore, create_empty_extension_load_result, create_extension_apply_notices,
+    EXTENSION_SHUTDOWN_TIMEOUT, ExtensionCliStdin, ExtensionLoadResult,
+    LoadStartupExtensionsOptions, LoadedExtension, TrustDecision, TrustStore,
+    create_empty_extension_load_result, create_extension_apply_notices,
     create_extension_load_notices, discover_manifests_with_config, load_startup_extensions,
     resolve_loaded_extension_registrations, resolved_native_vcs_adapters,
     uses_transient_view_preferences,
@@ -66,9 +67,9 @@ use workdeck_tui::{
     ReviewOptions, ThemeProbeInput,
 };
 use workdeck_vcs::{
-    AnyProvider, NativeWatchRuntime, ProviderPreference, VcsAdapter, VcsCatalog, VcsLoadContext,
-    VcsReviewInput, WatchSignatureContext, bundled_vcs_catalog, compute_watch_signature,
-    detect_vcs, extend_vcs_catalog, find_project_root_candidate,
+    AnyProvider, NativeWatchRuntime, ProviderPreference, VcsAdapter, VcsCatalog, VcsCatalogError,
+    VcsLoadContext, VcsReviewInput, WatchSignatureContext, bundled_vcs_catalog,
+    compute_watch_signature, detect_vcs, extend_vcs_catalog, find_project_root_candidate,
     find_project_root_candidate_with_catalog, get_default_vcs_adapter, get_vcs_adapter,
     load_difftool_comparison, load_file_comparison, load_vcs_review, materialize_vcs_patch_result,
     operation_from_input, parse_patch_input,
@@ -5144,6 +5145,82 @@ enum LabelCommand {
 #[error("command exited with status {0}")]
 struct CommandExit(i32);
 
+struct ProcessExtensionCliStdin {
+    source: std::io::Stdin,
+}
+
+impl ProcessExtensionCliStdin {
+    fn current() -> Self {
+        Self {
+            source: std::io::stdin(),
+        }
+    }
+}
+
+impl ExtensionCliStdin for ProcessExtensionCliStdin {
+    fn try_read(&mut self, max_bytes: usize) -> std::io::Result<Option<Vec<u8>>> {
+        if !process_stdin_is_ready(&self.source)? {
+            return Ok(None);
+        }
+        let mut bytes = vec![0; max_bytes];
+        let count = self.source.read(&mut bytes)?;
+        bytes.truncate(count);
+        Ok(Some(bytes))
+    }
+}
+
+#[cfg(unix)]
+fn process_stdin_is_ready(source: &std::io::Stdin) -> std::io::Result<bool> {
+    use std::os::fd::AsRawFd;
+
+    let mut descriptor = libc::pollfd {
+        fd: source.as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    // SAFETY: descriptor points to one initialized pollfd for the duration of this zero-timeout
+    // readiness probe.
+    let result = unsafe { libc::poll(&mut descriptor, 1, 0) };
+    if result < 0 {
+        let error = std::io::Error::last_os_error();
+        return if error.kind() == std::io::ErrorKind::Interrupted {
+            Ok(false)
+        } else {
+            Err(error)
+        };
+    }
+    if descriptor.revents & libc::POLLNVAL != 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "extension CLI stdin is not a valid descriptor",
+        ));
+    }
+    if descriptor.revents & libc::POLLERR != 0 {
+        return Err(std::io::Error::other(
+            "extension CLI stdin reported an error",
+        ));
+    }
+    Ok(result > 0 && descriptor.revents & (libc::POLLIN | libc::POLLHUP) != 0)
+}
+
+#[cfg(windows)]
+fn process_stdin_is_ready(source: &std::io::Stdin) -> std::io::Result<bool> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Foundation::{WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT};
+    use windows_sys::Win32::System::Threading::WaitForSingleObject;
+
+    // SAFETY: stdin owns a live process input handle for the duration of this zero-timeout probe.
+    let result = unsafe { WaitForSingleObject(source.as_raw_handle() as _, 0) };
+    match result {
+        WAIT_OBJECT_0 => Ok(true),
+        WAIT_TIMEOUT => Ok(false),
+        WAIT_FAILED => Err(std::io::Error::last_os_error()),
+        result => Err(std::io::Error::other(format!(
+            "extension CLI stdin readiness returned status {result}"
+        ))),
+    }
+}
+
 fn main() -> ExitCode {
     let argv = std::env::args_os().collect::<Vec<_>>();
     let hunk_compat_exit = uses_hunk_compat_exit_semantics(&argv);
@@ -5173,6 +5250,39 @@ fn main() -> ExitCode {
                 // The command printed a structured JSON error with command-specific details.
             } else if wants_json {
                 let _ = print_json_error(&error);
+            } else if let Some(user) = error.chain().find_map(|cause| {
+                let catalog = cause.downcast_ref::<VcsCatalogError>()?;
+                match catalog {
+                    VcsCatalogError::User(user) => Some(user),
+                    _ => None,
+                }
+            }) {
+                eprint!(
+                    "{}",
+                    format_cli_error_from_environment(&workdeck_core::CliFailure::User(
+                        user.clone()
+                    ))
+                );
+            } else if let Some(user) = error
+                .chain()
+                .find_map(|cause| cause.downcast_ref::<WorkdeckUserError>())
+            {
+                eprint!(
+                    "{}",
+                    format_cli_error_from_environment(&workdeck_core::CliFailure::User(
+                        user.clone()
+                    ))
+                );
+            } else if let Some(published) = error
+                .chain()
+                .find_map(|cause| cause.downcast_ref::<WorkdeckExtensionUserError>())
+            {
+                eprint!(
+                    "{}",
+                    format_cli_error_from_environment(&workdeck_core::CliFailure::Published(
+                        published.clone()
+                    ))
+                );
             } else if hunk_compat_exit {
                 eprintln!("workdeck: {error:#}");
             } else {
@@ -7837,11 +7947,11 @@ fn handle_extension_cli_command(
     .map_err(anyhow::Error::msg)
     .context("failed to install extension CLI cancellation handler")?;
     let execution = {
-        let mut stdin = std::io::stdin().lock();
+        let mut stdin = ProcessExtensionCliStdin::current();
         let mut stdout = std::io::stdout().lock();
         let mut stderr = std::io::stderr().lock();
         extension_bootstrap.load_mut().extensions[extension_index]
-            .invoke_cli_command_cancellable_with_input(
+            .invoke_cli_command_cancellable_with_stdin(
                 command_name,
                 command_args.to_vec(),
                 &command_cwd,

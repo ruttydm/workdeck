@@ -205,38 +205,50 @@ where
                     let emit_late_output =
                         invocation.args.first().map(String::as_str) == Some("late-output");
                     let mut next_read_id = 1_u64;
-                    let result = execute_cli_tools(
-                        &invocation,
-                        &cancelled,
-                        |stream, bytes| write_cli_output(&output, request.id, stream, bytes),
-                        |max_bytes| {
-                            let read_id = next_read_id;
-                            next_read_id = next_read_id.saturating_add(1);
-                            write_cli_stdin_read(&output, request.id, read_id, max_bytes)
-                                .map_err(output_error)?;
-                            let chunk = stdin_responses
-                                .recv_timeout(Duration::from_secs(30))
-                                .map_err(|error| CliToolsUserError {
+                    let result = if invocation.args.first().map(String::as_str)
+                        == Some("pending-stdin")
+                    {
+                        write_cli_stdin_read(&output, request.id, next_read_id, 8 * 1024)
+                            .map_err(output_error)
+                            .map(|()| CliCommandExecution {
+                                result: CliCommandResult::Exit { code: 0 },
+                                stdin_read_started: true,
+                                stdin_consumed: false,
+                            })
+                    } else {
+                        execute_cli_tools(
+                            &invocation,
+                            &cancelled,
+                            |stream, bytes| write_cli_output(&output, request.id, stream, bytes),
+                            |max_bytes| {
+                                let read_id = next_read_id;
+                                next_read_id = next_read_id.saturating_add(1);
+                                write_cli_stdin_read(&output, request.id, read_id, max_bytes)
+                                    .map_err(output_error)?;
+                                let chunk = stdin_responses
+                                    .recv_timeout(Duration::from_secs(30))
+                                    .map_err(|error| CliToolsUserError {
                                     message: format!("CLI stdin failed: {error}"),
                                     suggestions: Vec::new(),
                                 })?;
-                            if chunk.request_id != request.id || chunk.read_id != read_id {
-                                return Err(CliToolsUserError {
-                                    message:
-                                        "CLI stdin response identity did not match its request."
-                                            .into(),
-                                    suggestions: Vec::new(),
-                                });
-                            }
-                            if let Some(error) = chunk.error {
-                                return Err(CliToolsUserError {
-                                    message: format!("CLI stdin failed: {error}"),
-                                    suggestions: Vec::new(),
-                                });
-                            }
-                            Ok((!chunk.done).then_some(chunk.bytes))
-                        },
-                    );
+                                if chunk.request_id != request.id || chunk.read_id != read_id {
+                                    return Err(CliToolsUserError {
+                                        message:
+                                            "CLI stdin response identity did not match its request."
+                                                .into(),
+                                        suggestions: Vec::new(),
+                                    });
+                                }
+                                if let Some(error) = chunk.error {
+                                    return Err(CliToolsUserError {
+                                        message: format!("CLI stdin failed: {error}"),
+                                        suggestions: Vec::new(),
+                                    });
+                                }
+                                Ok((!chunk.done).then_some(chunk.bytes))
+                            },
+                        )
+                    };
                     match result {
                         Ok(execution) => {
                             let _ = write_result(&output, request.id, &execution);

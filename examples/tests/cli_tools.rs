@@ -6,7 +6,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
 use workdeck_extension_api::{CliCommandResult, Registration};
-use workdeck_extension_host::{HostError, LoadedExtension};
+use workdeck_extension_host::{ExtensionCliStdin, HostError, LoadedExtension};
 
 fn staged_extension() -> (TempDir, std::path::PathBuf) {
     let directory = TempDir::new().unwrap();
@@ -175,6 +175,44 @@ fn compiled_extension_leases_stdin_lazily_and_tracks_host_owned_consumption() {
         )
         .unwrap_err();
     assert!(touched.to_string().contains("read stdin before delegating"));
+}
+
+#[derive(Default)]
+struct NeverReadyStdin {
+    polls: usize,
+}
+
+impl ExtensionCliStdin for NeverReadyStdin {
+    fn try_read(&mut self, _max_bytes: usize) -> io::Result<Option<Vec<u8>>> {
+        self.polls += 1;
+        Ok(None)
+    }
+}
+
+#[test]
+fn pending_stdin_read_is_revoked_when_the_command_exits_without_consuming_input() {
+    let (_directory, manifest) = staged_extension();
+    let mut extension = LoadedExtension::spawn(&manifest, "test-host").unwrap();
+    let mut stdin = NeverReadyStdin::default();
+    let started = Instant::now();
+    let execution = extension
+        .invoke_cli_command_cancellable_with_stdin(
+            "cli-tools",
+            vec!["pending-stdin".into()],
+            std::path::Path::new("/tmp/work deck"),
+            Duration::from_secs(1),
+            &AtomicBool::new(false),
+            &mut stdin,
+            &mut Vec::new(),
+            &mut Vec::new(),
+        )
+        .unwrap();
+
+    assert!(started.elapsed() < Duration::from_millis(500));
+    assert_eq!(execution.result, CliCommandResult::Exit { code: 0 });
+    assert!(execution.stdin_read_started);
+    assert!(!execution.stdin_consumed);
+    assert!(stdin.polls > 0);
 }
 
 #[test]
