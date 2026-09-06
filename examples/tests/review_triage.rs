@@ -104,6 +104,7 @@ fn command_invocation(command_id: &str) -> CommandInvocation {
         commands: ExtensionCommandAvailability {
             enabled: vec!["workdeck.review.align-current-line-center".into()],
         },
+        file_views: Default::default(),
         selection,
     }
 }
@@ -157,7 +158,7 @@ fn flatten_text(node: &ViewNode, output: &mut String) {
         } else {
             value
         }),
-        ViewNode::Divider | ViewNode::Empty => {}
+        ViewNode::CurrentLine { .. } | ViewNode::Divider | ViewNode::Empty => {}
     }
 }
 
@@ -182,7 +183,7 @@ fn text_rows(node: &ViewNode, output: &mut Vec<String>) {
         } else {
             value.clone()
         }),
-        ViewNode::Divider | ViewNode::Empty => {}
+        ViewNode::CurrentLine { .. } | ViewNode::Divider | ViewNode::Empty => {}
     }
 }
 

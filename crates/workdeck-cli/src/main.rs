@@ -1551,7 +1551,7 @@ mod review_cli_option_tests {
                 "    *workdeck/vcs/detect*) result='{{\"id\":\"custom\",\"repoRoot\":{quoted_repo}}}' ;;\n",
                 "    *workdeck/vcs/load*) result='{{\"repoRoot\":{quoted_repo},\"sourceLabel\":{quoted_repo},\"title\":\"Custom working copy\",\"patchText\":\"\",\"readFileSource\":false}}' ;;\n",
                 "    *workdeck/cli/invoke*) result='{{\"result\":{{\"kind\":\"exit\",\"code\":6}},\"stdin_read_started\":false,\"stdin_consumed\":false}}' ;;\n",
-                "    *workdeck/changeset/transform*) result='{{\"changeset\":{{\"id\":\"changeset:test\",\"source_label\":\"test\",\"title\":\"after\",\"source\":{{\"kind\":\"working-tree\",\"staged\":false}},\"files\":[]}}}}' ;;\n",
+                "    *workdeck/changeset/transform*) result='{{\"changeset\":{{\"id\":\"changeset:test\",\"sourceLabel\":\"test\",\"title\":\"after\",\"files\":[]}}}}' ;;\n",
                 "    *workdeck/shutdown*) printf 'shutdown\\n' >> \"$factory_log\"; exit 0 ;;\n",
                 "    *) continue ;;\n",
                 "  esac\n",

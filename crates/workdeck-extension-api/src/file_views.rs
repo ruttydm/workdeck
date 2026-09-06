@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
-use crate::ViewNode;
+use crate::{ExtensionVcsFileChangeType, ViewNode};
 use workdeck_core::AgentFileContext;
 
 /// One parsed hunk summarized without exposing renderer-specific metadata.
@@ -35,11 +36,14 @@ pub struct ExtensionDiffFile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
     pub stats: ExtensionDiffStats,
-    pub change_type: String,
+    /// Opaque host renderer state. Changeset transforms must carry this value through untouched.
+    pub metadata: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change_type: Option<ExtensionVcsFileChangeType>,
     #[serde(default)]
     pub stats_truncated: bool,
+    #[serde(default)]
     pub hunks: Vec<ExtensionDiffHunk>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<AgentFileContext>,
     #[serde(default)]
     pub is_untracked: bool,
@@ -271,7 +275,8 @@ mod tests {
                 additions: 1,
                 deletions: 1,
             },
-            change_type: "modified".into(),
+            metadata: serde_json::json!({ "hunks": [] }),
+            change_type: Some(ExtensionVcsFileChangeType::Change),
             stats_truncated: false,
             hunks: vec![ExtensionDiffHunk {
                 index: 0,

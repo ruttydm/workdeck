@@ -8,7 +8,7 @@ use workdeck_extension_api::{
     ExtensionFileSide, ExtensionFileViewHunkRows, ExtensionFileViewLayout, ExtensionFileViewRow,
     ExtensionFileViewRowComponent, ExtensionFileViewSelectionPrefix, ExtensionFileViewSourceRange,
     ExtensionFileViewSpan, ExtensionFileViewTone, ExtensionTextAttribute, ValidatedFileViewLayout,
-    ViewNode, validate_view, view_contains_input,
+    ViewNode, validate_current_line_view_nodes, validate_view, view_contains_input,
 };
 
 pub const FILE_VIEW_MAX_ROWS: usize = 10_000;
@@ -205,6 +205,8 @@ fn parse_component(
     }
     validate_view(&content)
         .map_err(|issue| format!("rows[{row_index}].component.content {issue}"))?;
+    validate_current_line_view_nodes(&content, false, 0)
+        .map_err(|issue| format!("rows[{row_index}].component.content {issue}"))?;
     let selected_content = component
         .get("selectedContent")
         .cloned()
@@ -218,6 +220,8 @@ fn parse_component(
                 ));
             }
             validate_view(&content)
+                .map_err(|issue| format!("rows[{row_index}].component.selectedContent {issue}"))?;
+            validate_current_line_view_nodes(&content, false, 0)
                 .map_err(|issue| format!("rows[{row_index}].component.selectedContent {issue}"))?;
             Ok::<_, String>(content)
         })
@@ -235,6 +239,8 @@ fn parse_component(
                 ));
             }
             validate_view(&content)
+                .map_err(|issue| format!("rows[{row_index}].component.expandedContent {issue}"))?;
+            validate_current_line_view_nodes(&content, false, 0)
                 .map_err(|issue| format!("rows[{row_index}].component.expandedContent {issue}"))?;
             Ok::<_, String>(content)
         })
@@ -254,6 +260,9 @@ fn parse_component(
                 ));
             }
             validate_view(&content).map_err(|issue| {
+                format!("rows[{row_index}].component.selectedExpandedContent {issue}")
+            })?;
+            validate_current_line_view_nodes(&content, false, 0).map_err(|issue| {
                 format!("rows[{row_index}].component.selectedExpandedContent {issue}")
             })?;
             Ok::<_, String>(content)

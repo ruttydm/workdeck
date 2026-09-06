@@ -236,18 +236,19 @@ use workdeck_core::{
 use workdeck_diff::{
     DIFF_RAIL_PREFIX_WIDTH, HighlightedDiffLine, LanguageMatcher, LanguageRegistration,
     LanguageRegistry, SyntaxToken, TextSegment, clip_segments, expand_diff_tabs,
-    plan_split_line_pairs, resolve_split_cell_geometry,
+    find_max_line_number, plan_split_line_pairs, resolve_split_cell_geometry,
     resolve_split_pane_widths as resolve_diff_split_pane_widths, resolve_stack_cell_geometry,
     sanitize_terminal_line, slice_segments_window, word_diff_ranges, wrap_segments,
 };
 use workdeck_extension_api::{
-    ExtensionCommandAvailability, ExtensionHostAction, ExtensionKeyEvent, ExtensionLayoutMode,
-    ExtensionLifecycleEvent, ExtensionNotification, ExtensionNotificationHub,
+    ExtensionCommandAvailability, ExtensionCurrentLinePaint as ExtensionCurrentLinePaintContext,
+    ExtensionFileSide, ExtensionFileViewContext, ExtensionHostAction, ExtensionKeyEvent,
+    ExtensionLayoutMode, ExtensionLifecycleEvent, ExtensionNotification, ExtensionNotificationHub,
     ExtensionNotificationSubscription, ExtensionNotifyType, ExtensionPaintTheme, ExtensionPaneView,
     ExtensionResolvedKeybindings, ExtensionResolvedLayout, ExtensionReviewNote,
-    ExtensionReviewSnapshotLineAddress, ExtensionWorkspaceReadCompletion,
-    ExtensionWorkspaceWriteCompletion, ExtensionWorkspaceWriteResult, FileLanguageGlobTarget,
-    FileLanguageMatcher, FileViewModeKeyRequest, FileViewModeLifecycleRequest, KeyRoutingResult,
+    ExtensionWorkspaceReadCompletion, ExtensionWorkspaceWriteCompletion,
+    ExtensionWorkspaceWriteResult, FileLanguageGlobTarget, FileLanguageMatcher,
+    FileViewModeKeyRequest, FileViewModeLifecycleRequest, KeyRoutingResult,
     KeyboardModeRegistration, PaneActionInvocation, PaneAvailabilityRequest, PaneInputInvocation,
     PanePlacement, PaneRegistration, PaneRenderRequest, Registration, ReviewEvent,
     SessionReloadReason, ViewNode, ViewStyle, WORKDECK_FILES_PANE_KEY, bundled_files_pane,
@@ -623,6 +624,7 @@ struct QueuedExtensionCommand {
     review: workdeck_extension_api::ExtensionReviewSnapshot,
     commands: ExtensionCommandAvailability,
     workspace: Option<workdeck_extension_api::ExtensionWorkspaceSnapshot>,
+    file_views: ExtensionFileViewContext,
 }
 
 #[derive(Debug, Clone)]
@@ -697,7 +699,7 @@ struct PaneRenderSignature {
     files: Vec<workdeck_extension_api::ExtensionDiffFile>,
     selected_file_id: Option<String>,
     selected_hunk_index: Option<usize>,
-    current_line: Option<ExtensionReviewSnapshotLineAddress>,
+    current_line: Option<ExtensionCurrentLinePaintContext>,
     keybindings: ExtensionResolvedKeybindings,
     placement: PanePlacement,
     width: u16,
@@ -717,7 +719,7 @@ struct PaneAvailabilitySignature {
     files: Vec<workdeck_extension_api::ExtensionDiffFile>,
     selected_file_id: Option<String>,
     selected_hunk_index: Option<usize>,
-    current_line: Option<ExtensionReviewSnapshotLineAddress>,
+    current_line: Option<ExtensionCurrentLinePaintContext>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -3383,6 +3385,85 @@ impl ReviewApp {
         self.current_review_line_cursor_in(&cursors)
     }
 
+    /// Rebuild Hunk's selected split-row painter from the canonical Rust row plan.
+    fn current_extension_line_paint(&self) -> Option<ExtensionCurrentLinePaint> {
+        if self.options.cursor_line == CursorLineMode::Off {
+            return None;
+        }
+        let cursor = self.current_review_line_cursor()?;
+        let file = self.with_state(|state| {
+            state
+                .changeset()
+                .files
+                .get(cursor.target.file_index)
+                .cloned()
+        })?;
+        let highlighted = if self.options.highlight {
+            self.highlights
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .prefetch_highlighted_diff(&file, &self.options.theme, false)
+        } else {
+            None
+        };
+        let rows = build_split_rows(
+            &file,
+            highlighted.as_ref(),
+            &self.options.theme,
+            self.options.tab_width,
+        );
+        let planned_rows = build_review_render_plan(ReviewRenderPlanOptions {
+            file_id: review_file_id(&file),
+            rows: &rows,
+            show_hunk_headers: self.options.hunk_headers,
+            visible_agent_notes: &[],
+            selected_hunk_index: Some(cursor.target.hunk_index),
+            hunk_gap: usize::from(self.options.hunk_gap),
+        })
+        .into_iter()
+        .filter_map(|planned| match planned {
+            PlannedReviewRow::DiffRow {
+                stable_key,
+                stable_alias_keys,
+                row,
+                ..
+            } => Some(CurrentLinePlannedRow {
+                stable_key,
+                stable_alias_keys,
+                row,
+            }),
+            PlannedReviewRow::InlineNote { .. } | PlannedReviewRow::HunkGap { .. } => None,
+        })
+        .collect();
+        let cursor = LineCursor {
+            file_id: review_file_id(&file).to_owned(),
+            hunk_index: cursor.target.hunk_index,
+            stable_key: line_stable_key(
+                cursor.target.hunk_index,
+                cursor.target.side,
+                usize::try_from(cursor.target.line).unwrap_or(usize::MAX),
+            ),
+            target: LineCursorTarget {
+                side: cursor.target.side,
+                line: cursor.target.line,
+            },
+            expanded_gap_key: None,
+        };
+        create_extension_current_line_paint(
+            &cursor,
+            &CurrentLineRowPlan {
+                planned_rows,
+                line_number_digits: self
+                    .options
+                    .line_number_digits
+                    .unwrap_or_else(|| find_max_line_number(&file).to_string().len()),
+            },
+            self.options.line_numbers,
+            self.options.horizontal_offset,
+            &self.options.theme,
+        )
+    }
+
     fn current_review_line_cursor_in(
         &self,
         cursors: &[ReviewLineCursor],
@@ -3697,6 +3778,9 @@ impl ReviewApp {
         let navigation = self
             .extension_runtime_bridge
             .create_navigation(command.extension_id.clone());
+        let selected_file_id = selection.file.as_ref().map(|file| file.id.as_str());
+        let presented_file_view =
+            selected_file_id.and_then(|file_id| self.presented_extension_file_view(file_id));
         {
             let mut runtime = self
                 .extension_pane_runtime
@@ -3713,6 +3797,18 @@ impl ReviewApp {
                         .as_ref()
                         .map(|active| format!("{}:{}", active.extension_id, active.view_id))
                 });
+            let own_view_prefix = format!("{}:", command.extension_id);
+            let file_views = ExtensionFileViewContext {
+                active_view_id: presented_file_view
+                    .as_deref()
+                    .and_then(|key| key.strip_prefix(&own_view_prefix))
+                    .map(str::to_owned),
+                active_mode_id: runtime
+                    .active_file_view_mode
+                    .as_ref()
+                    .filter(|active| active.extension_id == command.extension_id)
+                    .map(|active| active.view_id.clone()),
+            };
             runtime
                 .request_queues
                 .entry(command.extension_index)
@@ -3735,6 +3831,7 @@ impl ReviewApp {
                         review,
                         commands,
                         workspace,
+                        file_views,
                     },
                 )));
         }
@@ -3857,7 +3954,7 @@ impl ReviewApp {
                 match queued {
                     QueuedExtensionRequest::Command(queued) => {
                         let started = runtime.extensions[extension_index]
-                            .begin_command_with_selection_context(
+                            .begin_command_with_complete_context(
                                 &queued.pending.command_id,
                                 queued.snapshot,
                                 queued.selection,
@@ -3867,6 +3964,7 @@ impl ReviewApp {
                                 Some(queued.review),
                                 queued.commands,
                                 queued.workspace,
+                                queued.file_views,
                             );
                         match started {
                             Ok(()) => {
@@ -4321,6 +4419,25 @@ impl ReviewApp {
                         continue;
                     };
                     runtime.open.remove(&pane_key);
+                    runtime.cached_renders.remove(&pane_key);
+                }
+                ExtensionHostAction::TogglePane { id } => {
+                    let mut runtime = self
+                        .extension_pane_runtime
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    let Some(pane_key) =
+                        resolve_pane_key(&runtime.session_panes, extension_id, &id)
+                    else {
+                        drop(runtime);
+                        self.status = Some(format!(
+                            "extension {extension_id}: warning: unknown pane {id:?}"
+                        ));
+                        continue;
+                    };
+                    if !runtime.open.remove(&pane_key) {
+                        runtime.open.insert(pane_key.clone());
+                    }
                     runtime.cached_renders.remove(&pane_key);
                 }
                 ExtensionHostAction::RefreshPane { id } => {
@@ -9779,13 +9896,17 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             runtime.open.contains(&registration.key) && registration.pane.current_line
         })
     };
-    let current_line = (pane_requests_current_line
-        && app.options.cursor_line != CursorLineMode::Off)
-        .then(|| app.current_review_line_cursor())
-        .flatten()
-        .map(|cursor| ExtensionReviewSnapshotLineAddress {
-            side: cursor.target.side,
-            line: cursor.target.line,
+    let current_line_paint = pane_requests_current_line
+        .then(|| app.current_extension_line_paint())
+        .flatten();
+    let current_line = current_line_paint
+        .as_ref()
+        .map(|paint| ExtensionCurrentLinePaintContext {
+            side: match paint.side {
+                ReviewSide::Old => ExtensionFileSide::Old,
+                ReviewSide::New => ExtensionFileSide::New,
+            },
+            line: paint.line,
         });
     let (
         generation,
@@ -9991,6 +10112,11 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 planned.bounds,
                 planned.divider,
                 None,
+                app.options.extension_panes[index]
+                    .pane
+                    .current_line
+                    .then(|| current_line_paint.clone())
+                    .flatten(),
             ));
             continue;
         }
@@ -10093,6 +10219,11 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 registration.pane.id,
                 registration.registered.identity,
             )),
+            registration
+                .pane
+                .current_line
+                .then(|| current_line_paint.clone())
+                .flatten(),
         ));
     }
     drop(runtime);
@@ -10117,14 +10248,30 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             .clear();
     }
     let mut focused_pane_input = None;
-    for (key, pane, pane_area, divider, owner) in rendered_panes {
+    for (key, pane, pane_area, divider, owner, current_line_paint) in rendered_panes {
         if let Some(divider) = divider {
             render_extension_pane_divider(divider, buffer, &key, pane.pane.placement, app);
         }
         if focused_pane_input.is_none() {
-            focused_pane_input = render_extension_pane(pane_area, buffer, &key, &pane, owner, app);
+            focused_pane_input = render_extension_pane(
+                pane_area,
+                buffer,
+                &key,
+                &pane,
+                owner,
+                current_line_paint.as_ref(),
+                app,
+            );
         } else {
-            let _ = render_extension_pane(pane_area, buffer, &key, &pane, owner, app);
+            let _ = render_extension_pane(
+                pane_area,
+                buffer,
+                &key,
+                &pane,
+                owner,
+                current_line_paint.as_ref(),
+                app,
+            );
         }
     }
     let mut runtime = app
@@ -10198,6 +10345,7 @@ fn render_extension_pane(
     pane_key: &str,
     pane: &ExtensionPaneView,
     owner: Option<(usize, String, String, u64)>,
+    current_line_paint: Option<&ExtensionCurrentLinePaint>,
     app: &ReviewApp,
 ) -> Option<FocusedExtensionPaneInputCandidate> {
     let mut lines = Vec::new();
@@ -10210,6 +10358,7 @@ fn render_extension_pane(
         &mut lines,
         &mut actions,
         &mut inputs,
+        current_line_paint,
     );
     let scroll_top = extension_pane_scroll_top(&pane.content, &lines, area.width, area.height);
     Block::default()
@@ -10289,6 +10438,7 @@ fn extension_pane_selected_line_range(node: &ViewNode) -> Option<Range<usize>> {
             ViewNode::Text { .. }
             | ViewNode::Row { .. }
             | ViewNode::Input { .. }
+            | ViewNode::CurrentLine { .. }
             | ViewNode::Divider => *line = line.saturating_add(1),
             ViewNode::Column { children, gap } => {
                 for (index, child) in children.iter().enumerate() {
@@ -10398,6 +10548,7 @@ fn flatten_view(
     lines: &mut Vec<Line<'static>>,
     actions: &mut Vec<Option<String>>,
     inputs: &mut Vec<Option<FlattenedPaneInput>>,
+    current_line_paint: Option<&ExtensionCurrentLinePaint>,
 ) {
     match node {
         ViewNode::Text { text, style } => {
@@ -10445,6 +10596,10 @@ fn flatten_view(
                             row_input = Some(candidate);
                         }
                     }
+                    ViewNode::CurrentLine { side, width } => {
+                        spans
+                            .extend(current_line_pane_row(current_line_paint, *side, *width).spans);
+                    }
                     _ => spans.push(Span::raw("…")),
                 }
             }
@@ -10461,7 +10616,15 @@ fn flatten_view(
                         inputs.push(None);
                     }
                 }
-                flatten_view(child, indent, action_id, lines, actions, inputs);
+                flatten_view(
+                    child,
+                    indent,
+                    action_id,
+                    lines,
+                    actions,
+                    inputs,
+                    current_line_paint,
+                );
             }
         }
         ViewNode::List { items, selected } => {
@@ -10477,11 +10640,27 @@ fn flatten_view(
                 ));
                 actions.push(action_id.map(str::to_owned));
                 inputs.push(None);
-                flatten_view(item, indent + 2, action_id, lines, actions, inputs);
+                flatten_view(
+                    item,
+                    indent + 2,
+                    action_id,
+                    lines,
+                    actions,
+                    inputs,
+                    current_line_paint,
+                );
             }
         }
         ViewNode::Action { id, child } => {
-            flatten_view(child, indent, Some(id), lines, actions, inputs);
+            flatten_view(
+                child,
+                indent,
+                Some(id),
+                lines,
+                actions,
+                inputs,
+                current_line_paint,
+            );
         }
         ViewNode::Input {
             id,
@@ -10504,6 +10683,15 @@ fn flatten_view(
                 prefix_cells: u16::try_from(indent).unwrap_or(u16::MAX),
             }));
         }
+        ViewNode::CurrentLine { side, width } => {
+            let mut line = current_line_pane_row(current_line_paint, *side, *width);
+            if indent > 0 {
+                line.spans.insert(0, Span::raw(" ".repeat(indent)));
+            }
+            lines.push(line);
+            actions.push(action_id.map(str::to_owned));
+            inputs.push(None);
+        }
         ViewNode::Divider => {
             lines.push(Line::styled(
                 format!("{}────────", " ".repeat(indent)),
@@ -10514,6 +10702,45 @@ fn flatten_view(
         }
         ViewNode::Empty => {}
     }
+}
+
+fn current_line_pane_row(
+    paint: Option<&ExtensionCurrentLinePaint>,
+    side: ExtensionFileSide,
+    width: u16,
+) -> Line<'static> {
+    let Some(paint) = paint else {
+        return Line::default();
+    };
+    let rendered = paint.render(
+        match side {
+            ExtensionFileSide::Old => ReviewSide::Old,
+            ExtensionFileSide::New => ReviewSide::New,
+        },
+        usize::from(width),
+    );
+    paint_diff_row(DiffRowViewOptions {
+        planned_row: None,
+        row: Some(&rendered.row),
+        width: rendered.width,
+        line_number_digits: rendered.line_number_digits,
+        show_line_numbers: rendered.show_line_numbers,
+        show_hunk_headers: rendered.show_hunk_headers,
+        wrap_lines: rendered.wrap_lines,
+        code_horizontal_offset: rendered.code_horizontal_offset,
+        theme: &rendered.theme,
+        selected: rendered.selected,
+        copy_selected_row_range: None,
+        copy_selected_side: None,
+        cursor_highlight: None,
+        line_highlights: None,
+        anchor_id: None,
+        note_guide_side: None,
+        show_add_note_badge: false,
+        interactions: DiffRowInteractionIdentity::default(),
+    })
+    .and_then(|row| row.lines().first().map(PaintedCodeCellLine::ratatui_line))
+    .unwrap_or_default()
 }
 
 fn flatten_file_view_component(
@@ -10579,6 +10806,7 @@ fn flatten_file_view_component(
                     .add_modifier(Modifier::UNDERLINED),
             ),
         ])),
+        ViewNode::CurrentLine { .. } => lines.push(Line::raw("…")),
         ViewNode::Divider => lines.push(Line::styled(
             format!("{}────────", " ".repeat(indent)),
             Style::default().fg(ratatui_theme_color(&theme.border)),
@@ -15542,6 +15770,60 @@ mod tests {
     }
 
     #[test]
+    fn opted_in_pane_renders_both_sides_of_the_live_host_owned_current_line() {
+        let backend = TestBackend::new(100, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                sidebar: false,
+                highlight: false,
+                extension_panes: vec![ExtensionPaneView {
+                    extension_id: "current-line".into(),
+                    pane: PaneRegistration {
+                        id: "inspect".into(),
+                        title: "Current line".into(),
+                        placement: PanePlacement::Right,
+                        default_open: true,
+                        preferred_size: Some(30),
+                        width: None,
+                        height: None,
+                        replaces: None,
+                        current_line: true,
+                        available: false,
+                    },
+                    content: ViewNode::Column {
+                        children: vec![
+                            ViewNode::CurrentLine {
+                                side: ExtensionFileSide::Old,
+                                width: 24,
+                            },
+                            ViewNode::CurrentLine {
+                                side: ExtensionFileSide::New,
+                                width: 24,
+                            },
+                        ],
+                        gap: 0,
+                    },
+                }],
+                ..ReviewOptions::default()
+            },
+        );
+        terminal
+            .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+            .unwrap();
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(rendered.contains("old"), "pane frame: {rendered:?}");
+        assert!(rendered.contains("new"), "pane frame: {rendered:?}");
+    }
+
+    #[test]
     fn live_pane_failure_quarantines_one_identity_and_restores_a_replaced_files_slot() {
         let mut pane = bundled_files_pane().clone();
         pane.id = "replacement".into();
@@ -15681,7 +15963,7 @@ mod tests {
         let mut lines = Vec::new();
         let mut actions = Vec::new();
         let mut inputs = Vec::new();
-        flatten_view(&view, 0, None, &mut lines, &mut actions, &mut inputs);
+        flatten_view(&view, 0, None, &mut lines, &mut actions, &mut inputs, None);
 
         assert_eq!(lines[0].to_string(), "prompt:  first 界");
         assert_eq!(inputs[0].as_ref().unwrap().input_id, "active");

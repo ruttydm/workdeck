@@ -5,6 +5,7 @@ use workdeck_core::{DiffFile, DiffLineKind, FileChangeKind};
 use workdeck_extension_api::{
     ExtensionChangeset, ExtensionDiffFile, ExtensionDiffHunk, ExtensionDiffStats,
     ExtensionFileChangeKind, ExtensionFileChangeRange, ExtensionFileSide,
+    ExtensionVcsFileChangeType,
 };
 
 use crate::{ExtensionDocumentReader, ExtensionRequestCancellation};
@@ -174,7 +175,8 @@ pub fn project_extension_diff_file(file: &DiffFile) -> ExtensionDiffFile {
             additions: file.stats.additions,
             deletions: file.stats.deletions,
         },
-        change_type: extension_change_type(file).into(),
+        metadata: project_extension_diff_metadata(file),
+        change_type: Some(extension_change_type(file)),
         stats_truncated: file.stats.truncated,
         hunks: file
             .hunks
@@ -192,6 +194,21 @@ pub fn project_extension_diff_file(file: &DiffFile) -> ExtensionDiffFile {
         is_binary: file.flags.binary,
         is_too_large: file.flags.too_large,
     }
+}
+
+/// Serialize the renderer-critical portion of one file as an opaque carry token.
+///
+/// Exact-source snapshots are deliberately removed: Hunk's metadata is readable but does not
+/// grant whole-document access, and Workdeck exposes those documents through explicit host
+/// capabilities. A transform response must return this object byte-for-byte equivalent to one
+/// input file before the host will reuse its parsed hunks.
+#[must_use]
+pub fn project_extension_diff_metadata(file: &DiffFile) -> serde_json::Value {
+    let mut metadata = serde_json::to_value(file).expect("DiffFile is JSON serializable");
+    if let Some(object) = metadata.as_object_mut() {
+        object.remove("sources");
+    }
+    metadata
 }
 
 /// Project one provider-neutral changeset without exposing renderer or source-reader internals.
@@ -215,16 +232,18 @@ fn inclusive_range(start: u32, count: u32) -> Option<[u32; 2]> {
     (count > 0).then(|| [start, start.saturating_add(count).saturating_sub(1)])
 }
 
-fn extension_change_type(file: &DiffFile) -> &'static str {
+fn extension_change_type(file: &DiffFile) -> ExtensionVcsFileChangeType {
     match file.change_kind {
         FileChangeKind::Renamed if file.stats.additions == 0 && file.stats.deletions == 0 => {
-            "rename-pure"
+            ExtensionVcsFileChangeType::RenamePure
         }
-        FileChangeKind::Renamed => "rename-changed",
-        FileChangeKind::Added | FileChangeKind::Untracked | FileChangeKind::Copied => "new",
-        FileChangeKind::Deleted => "deleted",
+        FileChangeKind::Renamed => ExtensionVcsFileChangeType::RenameChanged,
+        FileChangeKind::Added | FileChangeKind::Untracked | FileChangeKind::Copied => {
+            ExtensionVcsFileChangeType::New
+        }
+        FileChangeKind::Deleted => ExtensionVcsFileChangeType::Deleted,
         FileChangeKind::Modified | FileChangeKind::TypeChanged | FileChangeKind::Conflicted => {
-            "change"
+            ExtensionVcsFileChangeType::Change
         }
     }
 }
@@ -299,7 +318,9 @@ mod tests {
             annotations: Vec::new(),
         });
         let mut public = project_extension_diff_file(&source);
-        assert_eq!(public.change_type, "change");
+        assert_eq!(public.change_type, Some(ExtensionVcsFileChangeType::Change));
+        assert_eq!(public.metadata["runtime_id"], source.runtime_id);
+        assert!(public.metadata.get("sources").is_none());
         assert_eq!(public.hunks.len(), 1);
         assert_eq!(public.hunks[0].index, 0);
         assert_eq!(public.hunks[0].header, "@@ -1,3 +1,3 @@");

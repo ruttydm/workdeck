@@ -29,8 +29,7 @@ use std::sync::{Arc, Mutex};
 use thiserror::Error;
 pub use workdeck_core::{AgentAnnotation, AgentFileContext, NamedCustomThemeConfig};
 use workdeck_core::{
-    AgentAnnotationConfidence, Changeset, ReviewFileChangeKind, ReviewNoteSource, ReviewSide,
-    ReviewSnapshot,
+    AgentAnnotationConfidence, ReviewFileChangeKind, ReviewNoteSource, ReviewSide, ReviewSnapshot,
 };
 
 pub use workdeck_core::{WORKDECK_EXTENSION_USER_ERROR_NAME, WorkdeckExtensionUserError};
@@ -919,6 +918,11 @@ pub enum ViewNode {
         #[serde(default)]
         focused: bool,
     },
+    /// Resolve one side of the pane request's opted-in current-line painter.
+    CurrentLine {
+        side: ExtensionFileSide,
+        width: u16,
+    },
     Divider,
     Empty,
 }
@@ -990,6 +994,33 @@ pub struct ExtensionPaneContext {
     /// Extension-local pane ids that are open in the committed host layout.
     #[serde(default)]
     pub open: Vec<String>,
+}
+
+/// Frozen file-presentation state exposed to one native command callback.
+///
+/// Hunk's in-process controls answer `isActive` and `isModeActive` synchronously. A native
+/// subprocess cannot borrow the live review controller, so the host sends the equivalent
+/// extension-local view ids with every invocation and validates returned actions against the
+/// current generation again.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionFileViewContext {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_view_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_mode_id: Option<String>,
+}
+
+impl ExtensionFileViewContext {
+    #[must_use]
+    pub fn is_active(&self, view_id: &str) -> bool {
+        self.active_view_id.as_deref() == Some(view_id)
+    }
+
+    #[must_use]
+    pub fn is_mode_active(&self, view_id: &str) -> bool {
+        self.active_mode_id.as_deref() == Some(view_id)
+    }
 }
 
 /// Frozen view of the public product commands enabled for one native callback.
@@ -1091,12 +1122,14 @@ pub struct ReviewEvent {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TransformRequest {
     pub transform_id: String,
-    pub changeset: Changeset,
+    pub changeset: ExtensionChangeset,
+    /// Session working directory from Hunk's shared `ExtensionContext`.
+    pub cwd: PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransformResponse {
-    pub changeset: Changeset,
+    pub changeset: ExtensionChangeset,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1115,7 +1148,7 @@ pub struct PaneRenderRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_hunk_index: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub current_line: Option<ExtensionReviewSnapshotLineAddress>,
+    pub current_line: Option<ExtensionCurrentLinePaint>,
     #[serde(default)]
     pub keybindings: ExtensionResolvedKeybindings,
 }
@@ -1129,7 +1162,26 @@ pub struct PaneAvailabilityRequest {
     pub files: Vec<ExtensionDiffFile>,
     pub selected_file_id: Option<String>,
     pub selected_hunk_index: Option<usize>,
-    pub current_line: Option<ExtensionReviewSnapshotLineAddress>,
+    pub current_line: Option<ExtensionCurrentLinePaint>,
+}
+
+/// Address and declarative renderer for the selected review row.
+///
+/// Native extensions cannot receive a callable Ratatui object across stdio. Calling `render`
+/// returns a host-owned view node that is resolved only while painting the pane that received
+/// this snapshot, preserving Hunk's synchronous side/width choice without exposing renderer data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionCurrentLinePaint {
+    pub side: ExtensionFileSide,
+    pub line: u32,
+}
+
+impl ExtensionCurrentLinePaint {
+    #[must_use]
+    pub const fn render(self, side: ExtensionFileSide, width: u16) -> ViewNode {
+        ViewNode::CurrentLine { side, width }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1195,6 +1247,9 @@ pub struct CommandInvocation {
     /// Public product commands enabled when this invocation crossed the host boundary.
     #[serde(default)]
     pub commands: ExtensionCommandAvailability,
+    /// Synchronous `ctx.fileViews` state for views owned by this command's extension.
+    #[serde(default)]
+    pub file_views: ExtensionFileViewContext,
 }
 
 /// One reviewed file exposed through a native command's workspace capability.
@@ -1250,6 +1305,9 @@ pub enum ExtensionHostAction {
         id: String,
     },
     ClosePane {
+        id: String,
+    },
+    TogglePane {
         id: String,
     },
     /// Invalidate one extension-owned pane without changing its open state.
@@ -1366,6 +1424,8 @@ pub struct CommandExecution {
 pub struct KeyboardModeLifecycleRequest {
     pub mode_id: String,
     pub snapshot: ReviewSnapshot,
+    /// Session working directory from Hunk's shared `ExtensionContext`.
+    pub cwd: PathBuf,
     #[serde(default)]
     pub commands: ExtensionCommandAvailability,
 }
@@ -1375,6 +1435,8 @@ pub struct KeyboardModeKeyRequest {
     pub mode_id: String,
     pub key: ExtensionKeyEvent,
     pub snapshot: ReviewSnapshot,
+    /// Session working directory from Hunk's shared `ExtensionContext`.
+    pub cwd: PathBuf,
     #[serde(default)]
     pub commands: ExtensionCommandAvailability,
 }
@@ -1699,10 +1761,50 @@ pub fn validate_view(root: &ViewNode) -> Result<(), String> {
                     return Err("view contains more than one focused input".into());
                 }
             }
+            ViewNode::CurrentLine { width, .. } => {
+                if *width == 0 {
+                    return Err("current-line paint width must be positive".into());
+                }
+            }
             ViewNode::Divider | ViewNode::Empty => {}
         }
         if text_bytes > MAX_MESSAGE_BYTES {
             return Err(format!("view text exceeds {MAX_MESSAGE_BYTES} bytes"));
+        }
+    }
+    Ok(())
+}
+
+/// Restrict current-line paint nodes to an opted-in pane and its exact host rectangle.
+pub fn validate_current_line_view_nodes(
+    root: &ViewNode,
+    current_line_available: bool,
+    pane_width: u16,
+) -> Result<(), String> {
+    let mut pending = vec![root];
+    while let Some(node) = pending.pop() {
+        match node {
+            ViewNode::CurrentLine { width, .. } => {
+                if !current_line_available {
+                    return Err(
+                        "current-line paint requires an available opted-in pane context".into(),
+                    );
+                }
+                if *width > pane_width {
+                    return Err(format!(
+                        "current-line paint width {width} exceeds pane width {pane_width}"
+                    ));
+                }
+            }
+            ViewNode::Row { children, .. } | ViewNode::Column { children, .. } => {
+                pending.extend(children);
+            }
+            ViewNode::List { items, .. } => pending.extend(items),
+            ViewNode::Action { child, .. } => pending.push(child),
+            ViewNode::Text { .. }
+            | ViewNode::Input { .. }
+            | ViewNode::Divider
+            | ViewNode::Empty => {}
         }
     }
     Ok(())
@@ -1720,7 +1822,10 @@ pub fn view_contains_input(root: &ViewNode) -> bool {
             }
             ViewNode::List { items, .. } => pending.extend(items),
             ViewNode::Action { child, .. } => pending.push(child),
-            ViewNode::Text { .. } | ViewNode::Divider | ViewNode::Empty => {}
+            ViewNode::Text { .. }
+            | ViewNode::CurrentLine { .. }
+            | ViewNode::Divider
+            | ViewNode::Empty => {}
         }
     }
     false
@@ -1729,6 +1834,7 @@ pub fn view_contains_input(root: &ViewNode) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use workdeck_core::Changeset;
 
     #[test]
     fn extension_cli_names_share_hunks_grammar_and_cannot_shadow_workdeck() {
@@ -2033,6 +2139,77 @@ mod tests {
             registration.required_capability(),
             Capability::KeyboardModes
         );
+
+        let commands = ExtensionCommandAvailability {
+            enabled: vec!["workdeck.review.nextHunk".into()],
+        };
+        let lifecycle = KeyboardModeLifecycleRequest {
+            mode_id: "normal".into(),
+            snapshot: ReviewSnapshot {
+                generation: 1,
+                changeset: Changeset {
+                    id: "review".into(),
+                    source_label: "working tree".into(),
+                    title: "Review".into(),
+                    summary: None,
+                    agent_summary: None,
+                    source: workdeck_core::ChangesetSource::WorkingTree { staged: false },
+                    files: Vec::new(),
+                },
+                selection: workdeck_core::ReviewSelection::default(),
+            },
+            cwd: PathBuf::from("/repo"),
+            commands: commands.clone(),
+        };
+        let key = KeyboardModeKeyRequest {
+            mode_id: "normal".into(),
+            key: ExtensionKeyEvent {
+                name: "j".into(),
+                sequence: "j".into(),
+                ..ExtensionKeyEvent::default()
+            },
+            snapshot: lifecycle.snapshot.clone(),
+            cwd: lifecycle.cwd.clone(),
+            commands,
+        };
+        assert_eq!(serde_json::to_value(&lifecycle).unwrap()["cwd"], "/repo");
+        assert_eq!(serde_json::to_value(&key).unwrap()["cwd"], "/repo");
+        assert_eq!(
+            serde_json::from_value::<KeyboardModeLifecycleRequest>(
+                serde_json::to_value(&lifecycle).unwrap()
+            )
+            .unwrap(),
+            lifecycle
+        );
+        assert_eq!(
+            serde_json::from_value::<KeyboardModeKeyRequest>(serde_json::to_value(&key).unwrap())
+                .unwrap(),
+            key
+        );
+    }
+
+    #[test]
+    fn transform_protocol_exposes_only_the_public_changeset_and_opaque_metadata_contract() {
+        let request = TransformRequest {
+            transform_id: "filter".into(),
+            changeset: ExtensionChangeset {
+                id: "review".into(),
+                source_label: "working tree".into(),
+                title: "Review".into(),
+                summary: None,
+                agent_summary: None,
+                files: Vec::new(),
+            },
+            cwd: PathBuf::from("/repo"),
+        };
+        let value = serde_json::to_value(&request).unwrap();
+        assert_eq!(value["cwd"], "/repo");
+        assert_eq!(value["changeset"]["sourceLabel"], "working tree");
+        assert!(value["changeset"].get("source").is_none());
+        assert_eq!(
+            serde_json::from_value::<TransformRequest>(value).unwrap(),
+            request
+        );
     }
 
     #[test]
@@ -2289,8 +2466,8 @@ mod tests {
             files: Vec::new(),
             selected_file_id: Some("alpha".into()),
             selected_hunk_index: Some(2),
-            current_line: Some(ExtensionReviewSnapshotLineAddress {
-                side: ReviewSide::New,
+            current_line: Some(ExtensionCurrentLinePaint {
+                side: ExtensionFileSide::New,
                 line: 41,
             }),
         };
@@ -2300,6 +2477,21 @@ mod tests {
         assert_eq!(value["selectedHunkIndex"], 2);
         assert_eq!(value["currentLine"]["side"], "new");
         assert_eq!(value["currentLine"]["line"], 41);
+        let rendered = request
+            .current_line
+            .unwrap()
+            .render(ExtensionFileSide::Old, 24);
+        assert_eq!(
+            rendered,
+            ViewNode::CurrentLine {
+                side: ExtensionFileSide::Old,
+                width: 24,
+            }
+        );
+        assert!(validate_view(&rendered).is_ok());
+        assert!(validate_current_line_view_nodes(&rendered, true, 24).is_ok());
+        assert!(validate_current_line_view_nodes(&rendered, false, 24).is_err());
+        assert!(validate_current_line_view_nodes(&rendered, true, 23).is_err());
         assert_eq!(
             serde_json::from_value::<PaneAvailabilityRequest>(value).unwrap(),
             request
@@ -2417,6 +2609,10 @@ mod tests {
                     "workdeck.review.next-hunk".into(),
                 ],
             },
+            file_views: ExtensionFileViewContext {
+                active_view_id: Some("outline".into()),
+                active_mode_id: Some("outline".into()),
+            },
             selection: ExtensionReviewSelection::default(),
         };
         live_selection.file_index = 9;
@@ -2431,12 +2627,17 @@ mod tests {
         assert_eq!(encoded["open_panes"], serde_json::json!(["probe:summary"]));
         assert_eq!(encoded["active_keyboard_mode"], "probe:normal");
         assert_eq!(encoded["workspace"]["reviewGeneration"], 11);
+        assert_eq!(encoded["file_views"]["activeViewId"], "outline");
+        assert_eq!(encoded["file_views"]["activeModeId"], "outline");
         assert_eq!(encoded["selection"], serde_json::json!({}));
         assert_eq!(
             encoded["commands"]["enabled"],
             serde_json::json!(["workdeck.review.nextHunk", "workdeck.review.next-hunk"])
         );
         assert!(invocation.commands.is_enabled("workdeck.review.nextHunk"));
+        assert!(invocation.file_views.is_active("outline"));
+        assert!(invocation.file_views.is_mode_active("outline"));
+        assert!(!invocation.file_views.is_active("other"));
         assert!(
             !invocation
                 .commands
@@ -2469,6 +2670,13 @@ mod tests {
                 .execute("workdeck.review.nextHunk", Some(0))
                 .unwrap_err(),
             ExtensionCommandExecutionError::CountRange
+        );
+        assert_eq!(
+            serde_json::to_value(ExtensionHostAction::TogglePane {
+                id: "summary".into()
+            })
+            .unwrap(),
+            serde_json::json!({ "kind": "toggle-pane", "id": "summary" })
         );
         assert_eq!(
             serde_json::from_value::<CommandInvocation>(encoded).unwrap(),
@@ -2606,5 +2814,238 @@ mod tests {
         hub.notify_info("still fine");
         hub.notify_info("also fine");
         assert_eq!(attempts.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn pinned_public_api_oracle_covers_every_export_and_source_byte_once() {
+        const EXPECTED_EXPORTS: &[&str] = &[
+            "AgentAnnotation",
+            "AgentFileContext",
+            "ChangesetTransform",
+            "CustomSyntaxColorsConfig",
+            "CustomSyntaxScopesConfig",
+            "CustomThemeConfig",
+            "ExtensionChangeset",
+            "ExtensionCliCommand",
+            "ExtensionCliCommandContext",
+            "ExtensionCliCommandHandler",
+            "ExtensionCliCommandResult",
+            "ExtensionCliDelegateResult",
+            "ExtensionCliExitResult",
+            "ExtensionCliWriter",
+            "ExtensionCommand",
+            "ExtensionCommandContext",
+            "ExtensionCommandControls",
+            "ExtensionCommandExecutionOptions",
+            "ExtensionCommandHandler",
+            "ExtensionConfirmOptions",
+            "ExtensionContext",
+            "ExtensionCurrentLinePaint",
+            "ExtensionCustomEventHandler",
+            "ExtensionDialogs",
+            "ExtensionDiffFile",
+            "ExtensionDiffHunk",
+            "ExtensionEventBus",
+            "ExtensionEventContext",
+            "ExtensionEventHandler",
+            "ExtensionEventName",
+            "ExtensionEventPayloads",
+            "ExtensionFactory",
+            "ExtensionFileChangeRange",
+            "ExtensionFileLanguageMatcher",
+            "ExtensionFileSide",
+            "ExtensionFileView",
+            "ExtensionFileViewControls",
+            "ExtensionFileViewInput",
+            "ExtensionFileViewLayout",
+            "ExtensionFileViewMode",
+            "ExtensionFileViewModeContext",
+            "ExtensionFileViewModeKeyResult",
+            "ExtensionFileViewRow",
+            "ExtensionFileViewRowComponentProps",
+            "ExtensionFileViewSourceRange",
+            "ExtensionFileViewSpan",
+            "ExtensionHorizontalPane",
+            "ExtensionInputOptions",
+            "ExtensionKeyEvent",
+            "ExtensionKeyboardMode",
+            "ExtensionKeyboardModeContext",
+            "ExtensionKeyboardModeControls",
+            "ExtensionKeyboardModeKeyResult",
+            "ExtensionLayoutMode",
+            "ExtensionLineHighlight",
+            "ExtensionLineHighlightControls",
+            "ExtensionLineHighlightInput",
+            "ExtensionLineHighlightTone",
+            "ExtensionLineHighlighter",
+            "ExtensionNoteChangeKind",
+            "ExtensionNotifyType",
+            "ExtensionPaintTheme",
+            "ExtensionPane",
+            "ExtensionPaneActions",
+            "ExtensionPaneAvailabilityContext",
+            "ExtensionPaneComponent",
+            "ExtensionPaneControls",
+            "ExtensionPaneKeybindings",
+            "ExtensionPanePlacement",
+            "ExtensionPaneProps",
+            "ExtensionPaneSize",
+            "ExtensionPaneTheme",
+            "ExtensionResolvedLayout",
+            "ExtensionReviewControls",
+            "ExtensionReviewNavigation",
+            "ExtensionReviewNote",
+            "ExtensionReviewSelection",
+            "ExtensionReviewSnapshot",
+            "ExtensionReviewSnapshotFile",
+            "ExtensionReviewSnapshotLineAddress",
+            "ExtensionReviewSnapshotNote",
+            "ExtensionReviewSnapshotNoteAnchor",
+            "ExtensionSelectOptions",
+            "ExtensionSessionOptions",
+            "ExtensionSidebarActions",
+            "ExtensionSidebarComponent",
+            "ExtensionSidebarControls",
+            "ExtensionSidebarKeybindings",
+            "ExtensionSidebarPlacement",
+            "ExtensionSidebarTheme",
+            "ExtensionSidebarView",
+            "ExtensionSidebarViewProps",
+            "ExtensionThemeConfig",
+            "ExtensionVcsAdapter",
+            "ExtensionVcsDetection",
+            "ExtensionVcsDiffInput",
+            "ExtensionVcsDirectoryEntriesWatchTarget",
+            "ExtensionVcsDirectoryTreeWatchTarget",
+            "ExtensionVcsExtraFile",
+            "ExtensionVcsExtraPatchFile",
+            "ExtensionVcsFileChangeType",
+            "ExtensionVcsFileSide",
+            "ExtensionVcsFileSourceReader",
+            "ExtensionVcsFileSourceRequest",
+            "ExtensionVcsFileSourceResult",
+            "ExtensionVcsFileSourceTooLarge",
+            "ExtensionVcsFileStats",
+            "ExtensionVcsLoadContext",
+            "ExtensionVcsOperation",
+            "ExtensionVcsOperations",
+            "ExtensionVcsPatchResult",
+            "ExtensionVcsRangeEndpoints",
+            "ExtensionVcsReviewOptions",
+            "ExtensionVcsShowInput",
+            "ExtensionVcsSkippedFile",
+            "ExtensionVcsSkippedFileReason",
+            "ExtensionVcsStashShowInput",
+            "ExtensionVcsWatchPlan",
+            "ExtensionVcsWatchTarget",
+            "ExtensionVcsWatchTargetSource",
+            "ExtensionVerticalPane",
+            "ExtensionWorkspace",
+            "ExtensionWorkspaceWriteRequest",
+            "ExtensionWorkspaceWriteResult",
+            "HUNK_CORE_VCS_DETECTION_PRIORITY",
+            "HUNK_DEFAULT_VCS_DETECTION_PRIORITY",
+            "HUNK_EXTENSION_API_VERSION",
+            "HUNK_EXTENSION_USER_ERROR_NAME",
+            "HUNK_VCS_DETECTION_BASELINE_PRIORITY",
+            "HunkExtensionAPI",
+            "HunkExtensionApiVersion",
+            "HunkExtensionUserError",
+            "HunkExtensionUserErrorOptions",
+            "NamedCustomThemeConfig",
+            "SessionReloadReason",
+        ];
+
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let oracle_path = workspace.join("port/hunk/oracles/extension-api-contract.json");
+        let oracle: Value = serde_json::from_slice(&std::fs::read(&oracle_path).unwrap()).unwrap();
+        assert_eq!(
+            oracle["baselines"],
+            serde_json::json!([
+                {
+                    "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+                    "types_blob": "345d298206d9110ab3c6ad4ec4cae933ddd02bf5",
+                    "types_sha256": "4dcb1fa0d8b71673ccdad9282e7d65140f16e6eec05cd8c826dd3242d55dbaef",
+                    "types_bytes": 87576,
+                    "types_lines": 2053,
+                    "types_exports": 135,
+                    "index_blob": "dbc86e2fe74d3edc344bbff1fd4c234d11dc0f02",
+                    "index_sha256": "63558f4c3995067c3ff2b613af07738d33d3d6e8005423cc1560a346920891e0",
+                    "index_bytes": 4941,
+                    "index_lines": 165,
+                    "index_exports": 139
+                },
+                {
+                    "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+                    "types_blob": "c5134664a92bb6e933a165869ae816e467fc2283",
+                    "types_sha256": "b3427a40e5379b0a0c78d4ef3a497c74706a7191c55f0777a429fbb87391437b",
+                    "types_bytes": 82417,
+                    "types_lines": 1924,
+                    "types_exports": 125,
+                    "index_blob": "e7038a7fad9df6b23b20eaee83c0c6de7b6805f5",
+                    "index_sha256": "e109a24f72f3a5d19a9cdfecf071e300039ff58e55e7d1d58ec05f4c6efe4e1a",
+                    "index_bytes": 4662,
+                    "index_lines": 155,
+                    "index_exports": 129
+                }
+            ])
+        );
+
+        let sections = oracle["types_sections"].as_array().unwrap();
+        assert_eq!(sections.len(), 17);
+        let mut next_byte = 0;
+        let mut next_line = 1;
+        let mut exports = Vec::new();
+        for section in sections {
+            assert_eq!(section["byte_start"].as_u64().unwrap(), next_byte);
+            assert_eq!(section["line_start"].as_u64().unwrap(), next_line);
+            next_byte = section["byte_end"].as_u64().unwrap();
+            next_line = section["line_end"].as_u64().unwrap().saturating_add(1);
+            assert!(!section["native_surfaces"].as_array().unwrap().is_empty());
+            assert!(!section["adaptation"].as_str().unwrap().is_empty());
+            for evidence in section["evidence"].as_array().unwrap() {
+                let evidence = evidence.as_str().unwrap();
+                assert!(
+                    workspace.join(evidence).exists(),
+                    "missing evidence {evidence}"
+                );
+            }
+            exports.extend(
+                section["exports"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|name| name.as_str().unwrap().to_owned()),
+            );
+        }
+        assert_eq!(next_byte, 87_576);
+        assert_eq!(next_line, 2_054);
+        assert_eq!(exports.len(), 135);
+        exports.sort();
+        assert_eq!(
+            exports.iter().map(String::as_str).collect::<Vec<_>>(),
+            EXPECTED_EXPORTS
+        );
+        assert_eq!(exports.iter().collect::<BTreeSet<_>>().len(), exports.len());
+        assert_eq!(
+            oracle["index_contract"]["key_exports"],
+            serde_json::json!([
+                "ParsedKeyChord",
+                "matchesKey",
+                "matchesKeyChord",
+                "parseKeyChord"
+            ])
+        );
+        assert_eq!(oracle["index_contract"]["total_exports"], 139);
+        for evidence in oracle["index_contract"]["native_surfaces"]
+            .as_array()
+            .unwrap()
+        {
+            let evidence = evidence.as_str().unwrap();
+            assert!(
+                workspace.join(evidence).exists(),
+                "missing evidence {evidence}"
+            );
+        }
     }
 }

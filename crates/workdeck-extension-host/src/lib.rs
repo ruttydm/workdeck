@@ -49,19 +49,20 @@ use std::sync::{Arc, Mutex, MutexGuard, TryLockError, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 use thiserror::Error;
-use workdeck_core::{Changeset, DiffFile, ReviewSnapshot};
+use workdeck_core::{Changeset, DiffFile, FileChangeKind, ReviewSnapshot};
 use workdeck_diff::{SanitizeOptions, sanitize_terminal_text};
 use workdeck_extension_api::{
     API_VERSION, CliCommandExecution, CliCommandInvocation, CliCommandResult,
     CliOutputNotification, CliOutputStream, CliStdinChunk, CliStdinReadRequest, CommandExecution,
     CommandInvocation, ConfirmDialogSubmission, DEFAULT_HANDSHAKE_TIMEOUT_MS,
-    DEFAULT_REQUEST_TIMEOUT_MS, ExtensionCommandAvailability, ExtensionDiffFile,
-    ExtensionEventContext, ExtensionFileSide, ExtensionHostAction, ExtensionKeyEvent,
-    ExtensionManifest, ExtensionNotificationHub, ExtensionNotifyType, ExtensionPaneView,
-    ExtensionVcsAdapterRegistration, ExtensionVcsDetectRequest, ExtensionVcsFileSourceInvocation,
-    ExtensionVcsFileSourceRequest, ExtensionVcsFileSourceResult, ExtensionVcsOperationKind,
-    ExtensionVcsOperationRequest, ExtensionVcsPatchResult, ExtensionVcsReviewInput,
-    ExtensionVcsWatchPlan, ExtensionWorkspaceReadCompletion, ExtensionWorkspaceSnapshot,
+    DEFAULT_REQUEST_TIMEOUT_MS, ExtensionChangeset, ExtensionCommandAvailability,
+    ExtensionDiffFile, ExtensionEventContext, ExtensionFileSide, ExtensionHostAction,
+    ExtensionKeyEvent, ExtensionManifest, ExtensionNotificationHub, ExtensionNotifyType,
+    ExtensionPaneView, ExtensionVcsAdapterRegistration, ExtensionVcsDetectRequest,
+    ExtensionVcsFileChangeType, ExtensionVcsFileSourceInvocation, ExtensionVcsFileSourceRequest,
+    ExtensionVcsFileSourceResult, ExtensionVcsOperationKind, ExtensionVcsOperationRequest,
+    ExtensionVcsPatchResult, ExtensionVcsReviewInput, ExtensionVcsWatchPlan,
+    ExtensionWorkspaceReadCompletion, ExtensionWorkspaceSnapshot,
     ExtensionWorkspaceWriteCompletion, FileViewLayoutRequest, FileViewMatchRequest,
     FileViewModeKeyRequest, FileViewModeLifecycleExecution, FileViewModeLifecycleRequest,
     HandshakeRequest, HandshakeResponse, InputDialogSubmission, JsonRpcNotification,
@@ -70,7 +71,7 @@ use workdeck_extension_api::{
     MAX_MESSAGE_BYTES, MAX_PANE_INPUT_BYTES, ManifestError, PaneActionInvocation,
     PaneAvailabilityRequest, PaneAvailabilityResponse, PaneInputInvocation, PaneRenderRequest,
     PaneRenderResponse, Registration, ReviewEvent, SelectDialogSubmission, TransformRequest,
-    TransformResponse, ValidatedFileViewLayout, validate_view,
+    TransformResponse, ValidatedFileViewLayout, validate_current_line_view_nodes, validate_view,
 };
 
 #[derive(Debug, Error)]
@@ -515,6 +516,8 @@ pub struct LoadedExtension {
     pub manifest_path: PathBuf,
     pub origin: ManifestOrigin,
     pub handshake: HandshakeResponse,
+    /// Session working directory supplied to every public extension context.
+    cwd: PathBuf,
     connection: Arc<Mutex<ExtensionConnection>>,
     registry: Arc<ExtensionRuntimeRegistry>,
     notifications: ExtensionNotificationHub,
@@ -581,19 +584,112 @@ pub fn validate_transformed_changeset(changeset: &Changeset) -> Result<(), Strin
     Ok(())
 }
 
-fn decode_transform_response(value: Value) -> Result<Changeset, String> {
+fn transformed_change_kind(change_type: Option<ExtensionVcsFileChangeType>) -> FileChangeKind {
+    match change_type.unwrap_or(ExtensionVcsFileChangeType::Change) {
+        ExtensionVcsFileChangeType::Change => FileChangeKind::Modified,
+        ExtensionVcsFileChangeType::RenamePure | ExtensionVcsFileChangeType::RenameChanged => {
+            FileChangeKind::Renamed
+        }
+        ExtensionVcsFileChangeType::New => FileChangeKind::Added,
+        ExtensionVcsFileChangeType::Deleted => FileChangeKind::Deleted,
+    }
+}
+
+/// Reattach public transform output to the exact opaque renderer metadata it received.
+///
+/// This is the native equivalent of Hunk requiring a usable `metadata.hunks` object. The
+/// subprocess may filter, reorder, and edit public file facts, but it cannot invent private
+/// renderer state or smuggle the exact-source snapshots intentionally excluded from metadata.
+fn materialize_transformed_changeset(
+    transformed: &ExtensionChangeset,
+    previous: &Changeset,
+    previous_public: &ExtensionChangeset,
+) -> Result<Changeset, String> {
+    let mut files = Vec::with_capacity(transformed.files.len());
+    let mut claimed_ids = BTreeSet::new();
+    for (index, public) in transformed.files.iter().enumerate() {
+        if public.id.is_empty() {
+            return Err(format!("files[{index}].id is not a non-empty string"));
+        }
+        if !claimed_ids.insert(public.id.clone()) {
+            return Err(format!("duplicate file id {:?}", public.id));
+        }
+        let source_public = previous_public
+            .files
+            .iter()
+            .filter(|source| source.metadata == public.metadata)
+            .find(|source| source.id == public.id)
+            .or_else(|| {
+                previous_public
+                    .files
+                    .iter()
+                    .find(|source| source.metadata == public.metadata)
+            });
+        let Some(source_public) = source_public else {
+            return Err(format!(
+                "files[{index}].metadata is not an unchanged opaque renderer object"
+            ));
+        };
+        let Some(source) = previous
+            .files
+            .iter()
+            .find(|source| source.runtime_id == source_public.id)
+        else {
+            return Err(format!(
+                "files[{index}].metadata no longer names a live renderer file"
+            ));
+        };
+
+        let mut file = source.clone();
+        file.runtime_id.clone_from(&public.id);
+        file.path.clone_from(&public.path);
+        file.previous_path.clone_from(&public.previous_path);
+        file.patch.clone_from(&public.patch);
+        file.language.clone_from(&public.language);
+        file.stats.additions = public.stats.additions;
+        file.stats.deletions = public.stats.deletions;
+        file.stats.truncated = public.stats_truncated;
+        file.change_kind = transformed_change_kind(public.change_type);
+        file.agent.clone_from(&public.agent);
+        file.flags.untracked = public.is_untracked;
+        file.flags.binary = public.is_binary;
+        file.flags.too_large = public.is_too_large;
+        files.push(file);
+    }
+
+    let mut changeset = Changeset {
+        id: transformed.id.clone(),
+        source_label: transformed.source_label.clone(),
+        title: transformed.title.clone(),
+        summary: transformed.summary.clone(),
+        agent_summary: transformed.agent_summary.clone(),
+        source: previous.source.clone(),
+        files,
+    };
+    changeset.refresh_review_identities();
+    validate_transformed_changeset(&changeset)?;
+    Ok(changeset)
+}
+
+fn decode_transform_response(
+    value: Value,
+    previous: &Changeset,
+    previous_public: &ExtensionChangeset,
+) -> Result<(Changeset, ExtensionChangeset), String> {
     let response: TransformResponse =
         serde_json::from_value(value).map_err(|error| error.to_string())?;
-    validate_transformed_changeset(&response.changeset)?;
-    Ok(response.changeset)
+    let changeset =
+        materialize_transformed_changeset(&response.changeset, previous, previous_public)?;
+    Ok((changeset, response.changeset))
 }
 
 fn settle_transform_attempt(
     extension_id: &str,
     notifications: &ExtensionNotificationHub,
     previous: Changeset,
+    previous_public: ExtensionChangeset,
     attempt: Result<Value, String>,
-) -> Changeset {
+) -> (Changeset, ExtensionChangeset) {
     let value = match attempt {
         Ok(value) => value,
         Err(error) => {
@@ -601,11 +697,11 @@ fn settle_transform_attempt(
                 format!("Extension {extension_id} failed transforming the changeset • {error}"),
                 ExtensionNotifyType::Warning,
             );
-            return previous;
+            return (previous, previous_public);
         }
     };
-    match decode_transform_response(value) {
-        Ok(changeset) => changeset,
+    match decode_transform_response(value, &previous, &previous_public) {
+        Ok(next) => next,
         Err(error) => {
             notifications.notify(
                 format!(
@@ -613,7 +709,7 @@ fn settle_transform_attempt(
                 ),
                 ExtensionNotifyType::Warning,
             );
-            previous
+            (previous, previous_public)
         }
     }
 }
@@ -826,6 +922,7 @@ impl LoadedExtension {
                 extension_version: String::new(),
                 registrations: Vec::new(),
             },
+            cwd: cwd.clone(),
             connection: Arc::new(Mutex::new(ExtensionConnection {
                 child,
                 stdin,
@@ -1656,21 +1753,24 @@ impl LoadedExtension {
 
     pub fn apply_changeset_transforms(&mut self, mut changeset: Changeset) -> Changeset {
         let transforms = changeset_transform_ids(&self.handshake);
+        let mut public = project_extension_changeset(&changeset);
         for transform_id in transforms {
             let attempt = self
                 .request(
                     "workdeck/changeset/transform",
                     TransformRequest {
                         transform_id,
-                        changeset: changeset.clone(),
+                        changeset: public.clone(),
+                        cwd: self.cwd.clone(),
                     },
                     Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
                 )
                 .map_err(|error| error.to_string());
-            changeset = settle_transform_attempt(
+            (changeset, public) = settle_transform_attempt(
                 &self.manifest.id,
                 &self.notifications,
                 changeset,
+                public,
                 attempt,
             );
         }
@@ -2010,6 +2110,8 @@ impl LoadedExtension {
                 message: "pane render rectangles must be non-empty".into(),
             });
         }
+        let current_line_available = request.current_line.is_some();
+        let pane_width = request.width;
         let value = self.request(
             "workdeck/pane/render",
             request,
@@ -2026,6 +2128,12 @@ impl LoadedExtension {
             kind: "pane",
             message,
         })?;
+        validate_current_line_view_nodes(&response.content, current_line_available, pane_width)
+            .map_err(|message| HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "pane",
+                message,
+            })?;
         Ok(ExtensionPaneView {
             extension_id: self.manifest.id.clone(),
             pane,
@@ -2276,6 +2384,7 @@ impl LoadedExtension {
                 active_keyboard_mode,
                 workspace,
                 commands,
+                file_views: Default::default(),
             },
             Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
         )?;
@@ -2337,6 +2446,35 @@ impl LoadedExtension {
         commands: ExtensionCommandAvailability,
         workspace: Option<ExtensionWorkspaceSnapshot>,
     ) -> Result<(), HostError> {
+        self.begin_command_with_complete_context(
+            command_id,
+            snapshot,
+            selection,
+            open_panes,
+            active_keyboard_mode,
+            cwd,
+            review,
+            commands,
+            workspace,
+            Default::default(),
+        )
+    }
+
+    /// Start a command with every synchronous public control projection captured atomically.
+    #[allow(clippy::too_many_arguments)]
+    pub fn begin_command_with_complete_context(
+        &mut self,
+        command_id: &str,
+        snapshot: ReviewSnapshot,
+        selection: workdeck_extension_api::ExtensionReviewSelection,
+        open_panes: Vec<String>,
+        active_keyboard_mode: Option<String>,
+        cwd: PathBuf,
+        review: Option<workdeck_extension_api::ExtensionReviewSnapshot>,
+        commands: ExtensionCommandAvailability,
+        workspace: Option<ExtensionWorkspaceSnapshot>,
+        file_views: workdeck_extension_api::ExtensionFileViewContext,
+    ) -> Result<(), HostError> {
         if self.registry.phase() != ExtensionEventBusPhase::Ready {
             return Err(HostError::Closed(self.manifest.id.clone()));
         }
@@ -2366,6 +2504,7 @@ impl LoadedExtension {
                 active_keyboard_mode,
                 workspace,
                 commands,
+                file_views,
             },
         )?;
         connection.pending_request = Some(PendingExecutionRequest {
@@ -2539,6 +2678,7 @@ impl LoadedExtension {
             KeyboardModeLifecycleRequest {
                 mode_id: mode_id.to_owned(),
                 snapshot,
+                cwd: self.cwd.clone(),
                 commands,
             },
             Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
@@ -2581,6 +2721,7 @@ impl LoadedExtension {
                 mode_id: mode_id.to_owned(),
                 key,
                 snapshot,
+                cwd: self.cwd.clone(),
                 commands,
             },
             Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
@@ -2808,6 +2949,7 @@ impl LoadedExtension {
             let valid = match action {
                 ExtensionHostAction::OpenPane { id }
                 | ExtensionHostAction::ClosePane { id }
+                | ExtensionHostAction::TogglePane { id }
                 | ExtensionHostAction::RefreshPane { id } => {
                     self.manifest
                         .capabilities
@@ -3813,10 +3955,13 @@ mod tests {
     #[test]
     fn transform_response_validation_rejects_every_renderer_critical_near_miss() {
         let original = transform_fixture();
-        let mut duplicate = original.clone();
-        duplicate.files[1].runtime_id = duplicate.files[0].runtime_id.clone();
-        let mut empty = original.clone();
-        empty.files[0].runtime_id.clear();
+        let original_public = project_extension_changeset(&original);
+        let mut duplicate = original_public.clone();
+        duplicate.files[1].id = duplicate.files[0].id.clone();
+        let mut empty = original_public.clone();
+        empty.files[0].id.clear();
+        let mut invented_metadata = original_public.clone();
+        invented_metadata.files[0].metadata["hunks"] = serde_json::json!([]);
 
         for value in [
             Value::Null,
@@ -3829,39 +3974,65 @@ mod tests {
             })
             .unwrap(),
             serde_json::to_value(TransformResponse { changeset: empty }).unwrap(),
+            serde_json::to_value(TransformResponse {
+                changeset: invented_metadata,
+            })
+            .unwrap(),
         ] {
-            assert!(decode_transform_response(value).is_err());
+            assert!(decode_transform_response(value, &original, &original_public).is_err());
         }
 
         let mut malformed = serde_json::to_value(TransformResponse {
-            changeset: original,
+            changeset: project_extension_changeset(&original),
         })
         .unwrap();
         malformed["changeset"]["files"][0]["stats"] = Value::Null;
-        assert!(decode_transform_response(malformed).is_err());
+        assert!(decode_transform_response(malformed, &original, &original_public).is_err());
     }
 
     #[test]
     fn valid_transform_responses_can_filter_reorder_and_compose() {
-        let mut first = transform_fixture();
-        first.files.reverse();
-        first.title = "reordered".into();
-        let first = decode_transform_response(
-            serde_json::to_value(TransformResponse { changeset: first }).unwrap(),
+        let original = transform_fixture();
+        let mut first_public = project_extension_changeset(&original);
+        let original_metadata = first_public.files[1].metadata.clone();
+        first_public.files.reverse();
+        first_public.title = "reordered".into();
+        first_public.files[0].path = "renamed-b.rs".into();
+        let (first, first_public) = decode_transform_response(
+            serde_json::to_value(TransformResponse {
+                changeset: first_public,
+            })
+            .unwrap(),
+            &original,
+            &project_extension_changeset(&original),
         )
         .unwrap();
-        assert_eq!(first.files[0].path, "b.rs");
+        assert_eq!(first.files[0].path, "renamed-b.rs");
+        assert_eq!(first.source, original.source);
 
-        let mut second = first;
-        second.files.truncate(1);
-        second.title = "filtered".into();
-        let second = decode_transform_response(
-            serde_json::to_value(TransformResponse { changeset: second }).unwrap(),
+        assert_eq!(first_public.files[0].metadata, original_metadata);
+        let mut second_public = first_public.clone();
+        second_public.files.truncate(1);
+        second_public.title = "filtered".into();
+        let (second, second_public) = decode_transform_response(
+            serde_json::to_value(TransformResponse {
+                changeset: second_public,
+            })
+            .unwrap(),
+            &first,
+            &first_public,
         )
         .unwrap();
         assert_eq!(second.title, "filtered");
         assert_eq!(second.files.len(), 1);
-        assert_eq!(second.files[0].path, "b.rs");
+        assert_eq!(second.files[0].path, "renamed-b.rs");
+        assert_eq!(second_public.files[0].metadata, original_metadata);
+        assert!(
+            serde_json::to_value(project_extension_changeset(&second))
+                .unwrap()
+                .get("source")
+                .is_none()
+        );
     }
 
     #[test]
@@ -3876,16 +4047,18 @@ mod tests {
             "broken",
             &hub,
             original.clone(),
+            project_extension_changeset(&original),
             Err("sync or async failure".into()),
         );
-        assert_eq!(after_failure, original);
+        assert_eq!(after_failure.0, original);
         let after_invalid = settle_transform_attempt(
             "near-miss",
             &hub,
-            after_failure,
+            after_failure.0,
+            after_failure.1,
             Ok(serde_json::json!({ "changeset": { "files": null } })),
         );
-        assert_eq!(after_invalid, original);
+        assert_eq!(after_invalid.0, original);
 
         let messages = received.lock().unwrap();
         assert_eq!(messages.len(), 2);

@@ -33,7 +33,12 @@ fn oracle() -> Value {
 }
 
 fn oracle_file() -> ExtensionDiffFile {
-    serde_json::from_value(oracle()["input"].clone()).unwrap()
+    let mut input = oracle()["input"].clone();
+    input["metadata"] = serde_json::json!({
+        "oracle": "port/hunk/oracles/jsx-file-view.json",
+        "source": input.clone(),
+    });
+    serde_json::from_value(input).unwrap()
 }
 
 fn hunk_serializable_projection(layout: &Value) -> Value {

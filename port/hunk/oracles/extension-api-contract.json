@@ -1,0 +1,610 @@
+{
+  "schema_version": 1,
+  "captured_with": "git show from untouched pinned Hunk trees; export declarations and byte boundaries derived without importing the TypeScript runtime",
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "types_blob": "345d298206d9110ab3c6ad4ec4cae933ddd02bf5",
+      "types_sha256": "4dcb1fa0d8b71673ccdad9282e7d65140f16e6eec05cd8c826dd3242d55dbaef",
+      "types_bytes": 87576,
+      "types_lines": 2053,
+      "types_exports": 135,
+      "index_blob": "dbc86e2fe74d3edc344bbff1fd4c234d11dc0f02",
+      "index_sha256": "63558f4c3995067c3ff2b613af07738d33d3d6e8005423cc1560a346920891e0",
+      "index_bytes": 4941,
+      "index_lines": 165,
+      "index_exports": 139
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "types_blob": "c5134664a92bb6e933a165869ae816e467fc2283",
+      "types_sha256": "b3427a40e5379b0a0c78d4ef3a497c74706a7191c55f0777a429fbb87391437b",
+      "types_bytes": 82417,
+      "types_lines": 1924,
+      "types_exports": 125,
+      "index_blob": "e7038a7fad9df6b23b20eaee83c0c6de7b6805f5",
+      "index_sha256": "e109a24f72f3a5d19a9cdfecf071e300039ff58e55e7d1d58ec05f4c6efe4e1a",
+      "index_bytes": 4662,
+      "index_lines": 155,
+      "index_exports": 129
+    }
+  ],
+  "baseline_additions_after_stable": [
+    "ExtensionCliCommand",
+    "ExtensionCliCommandContext",
+    "ExtensionCliCommandHandler",
+    "ExtensionCliCommandResult",
+    "ExtensionCliDelegateResult",
+    "ExtensionCliExitResult",
+    "ExtensionCliWriter",
+    "ExtensionFileLanguageMatcher",
+    "ExtensionNoteChangeKind",
+    "ExtensionVcsRangeEndpoints"
+  ],
+  "types_sections": [
+    {
+      "id": "prelude-context",
+      "byte_start": 0,
+      "byte_end": 1853,
+      "line_start": 1,
+      "line_end": 44,
+      "exports": [
+        "HUNK_EXTENSION_API_VERSION",
+        "HunkExtensionApiVersion",
+        "ExtensionNotifyType",
+        "ExtensionFileLanguageMatcher",
+        "ExtensionContext"
+      ],
+      "native_surfaces": [
+        "workdeck_extension_api::API_VERSION",
+        "workdeck_extension_api::ExtensionNotifyType",
+        "workdeck_extension_api::FileLanguageMatcher",
+        "workdeck_extension_api::HandshakeRequest",
+        "workdeck/notify"
+      ],
+      "evidence": [
+        "crates/workdeck-extension-api/src/lib.rs",
+        "crates/workdeck-extension-host/src/lib.rs",
+        "crates/workdeck-extension-host/src/runtime_boundary.rs"
+      ],
+      "adaptation": "Workdeck deliberately versions the native NDJSON API as v1; cwd is owned data and notify is an attributed out-of-band JSON-RPC notification."
+    },
+    {
+      "id": "user-errors",
+      "byte_start": 1853,
+      "byte_end": 3479,
+      "line_start": 45,
+      "line_end": 86,
+      "exports": [
+        "HUNK_EXTENSION_USER_ERROR_NAME",
+        "HunkExtensionUserErrorOptions",
+        "HunkExtensionUserError"
+      ],
+      "native_surfaces": [
+        "workdeck_core::WORKDECK_EXTENSION_USER_ERROR_NAME",
+        "workdeck_core::WorkdeckExtensionUserError",
+        "workdeck_core::ExtensionOperationError"
+      ],
+      "evidence": [
+        "crates/workdeck-core/src/run_errors.rs",
+        "crates/workdeck-extension-host/src/native_vcs.rs"
+      ],
+      "adaptation": "The structural user-error contract and suggestions are preserved with Workdeck branding."
+    },
+    {
+      "id": "agent-sidecars",
+      "byte_start": 3479,
+      "byte_end": 4434,
+      "line_start": 87,
+      "line_end": 116,
+      "exports": [
+        "AgentAnnotation",
+        "AgentFileContext"
+      ],
+      "native_surfaces": [
+        "workdeck_core::AgentAnnotation",
+        "workdeck_core::AgentFileContext"
+      ],
+      "evidence": [
+        "crates/workdeck-core/src/lib.rs",
+        "crates/workdeck-extension-api/src/lib.rs"
+      ],
+      "adaptation": "The shared provider-neutral Rust records remain the single definition used by reviews and extensions."
+    },
+    {
+      "id": "changesets",
+      "byte_start": 4434,
+      "byte_end": 8505,
+      "line_start": 117,
+      "line_end": 222,
+      "exports": [
+        "ExtensionDiffHunk",
+        "ExtensionDiffFile",
+        "ExtensionChangeset",
+        "ChangesetTransform"
+      ],
+      "native_surfaces": [
+        "workdeck_extension_api::ExtensionDiffHunk",
+        "workdeck_extension_api::ExtensionDiffFile",
+        "workdeck_extension_api::ExtensionChangeset",
+        "workdeck_extension_api::TransformRequest",
+        "workdeck_extension_api::TransformResponse",
+        "workdeck/changeset/transform"
+      ],
+      "evidence": [
+        "crates/workdeck-extension-api/src/authoring.rs",
+        "crates/workdeck-extension-api/src/file_views.rs",
+        "crates/workdeck-extension-host/src/file_view_host.rs",
+        "crates/workdeck-extension-host/src/lib.rs"
+      ],
+      "adaptation": "Owned Serde values replace frozen JavaScript objects; renderer-critical transform state stays host validated and invalid output retains the previous changeset."
+    },
+    {
+      "id": "terminal-keys",
+      "byte_start": 8505,
+      "byte_end": 9290,
+      "line_start": 223,
+      "line_end": 244,
+      "exports": [
+        "ExtensionKeyEvent"
+      ],
+      "native_surfaces": [
+        "workdeck_extension_api::ExtensionKeyEvent"
+      ],
+      "evidence": [
+        "crates/workdeck-extension-api/src/lib.rs",
+        "crates/workdeck-extension-api/src/keys.rs"
+      ],
+      "adaptation": "Absent optional terminal fields deserialize to the same structural empty values used by Hunk matchers."
+    },
+    {
+      "id": "keyboard-modes",
+      "byte_start": 9290,
+      "byte_end": 11481,
+      "line_start": 245,
+      "line_end": 287,
+      "exports": [
+        "ExtensionKeyboardModeKeyResult",
+        "ExtensionKeyboardModeContext",
+        "ExtensionKeyboardMode"
+      ],
+      "native_surfaces": [
+        "workdeck_extension_api::KeyRoutingResult",
+        "workdeck_extension_api::KeyboardModeRegistration",
+        "workdeck_extension_api::KeyboardModeLifecycleRequest",
+        "workdeck_extension_api::KeyboardModeKeyRequest",
+        "workdeck_extension_api::KeyboardModeExecution",
+        "workdeck/keyboard-mode/on-enter",
+        "workdeck/keyboard-mode/on-key",
+        "workdeck/keyboard-mode/on-exit"
+      ],
+      "evidence": [
+        "crates/workdeck-extension-api/src/lib.rs",
+        "crates/workdeck-extension-host/src/lib.rs",
+        "crates/workdeck-tui/src/lib.rs"
+      ],
+      "adaptation": "Synchronous routing becomes a bounded request carrying cwd and command state; activation-scoped action batches preserve ownership and lifecycle ordering."
+    },
+    {
+      "id": "file-views",
+      "byte_start": 11481,
+      "byte_end": 18873,
+      "line_start": 288,
+      "line_end": 451,
+      "exports": [
+        "ExtensionFileSide",
+        "ExtensionFileChangeRange",
+        "ExtensionFileViewSourceRange",
+        "ExtensionFileViewSpan",
+        "ExtensionFileViewRowComponentProps",
+        "ExtensionFileViewRow",
+        "ExtensionFileViewLayout",
+        "ExtensionFileViewInput",
+        "ExtensionFileViewModeKeyResult",
+        "ExtensionFileViewModeContext",
+        "ExtensionFileViewMode",
+        "ExtensionFileView"
+      ],
+      "native_surfaces": [
+        "workdeck_extension_api::ExtensionFileSide",
+        "workdeck_extension_api::ExtensionFileViewLayout",
+        "workdeck_extension_api::FileViewMatchRequest",
+        "workdeck_extension_api::FileViewLayoutRequest",
+        "workdeck_extension_api::FileViewModeLifecycleRequest",
+        "workdeck_extension_api::FileViewModeKeyRequest",
+        "workdeck_extension_api::ExtensionFileViewContext"
+      ],
+      "evidence": [
+        "crates/workdeck-extension-api/src/file_views.rs",
+        "crates/workdeck-extension-host/src/file_views.rs",
+        "crates/workdeck-extension-host/src/file_view_mode.rs",
+        "crates/workdeck-tui/src/file_view_view.rs",
+        "crates/workdeck-tui/src/lib.rs",
+        "examples/tests/inline_edit.rs",
+        "examples/tests/file_view_gallery.rs"
+      ],
+      "adaptation": "Ratatui owns rows and geometry; fixed-height React painters become validated declarative ViewNode trees, source reads become frozen document snapshots, and active view/mode ids are callback snapshots."
+    },
+    {
+      "id": "line-highlights",
+      "byte_start": 18873,
+      "byte_end": 23702,
+      "line_start": 452,
+      "line_end": 552,
+      "exports": [
+        "ExtensionLineHighlightTone",
+        "ExtensionLineHighlight",
+        "ExtensionLineHighlightInput",
+        "ExtensionLineHighlighter",
+        "ExtensionLineHighlightControls"
+      ],
+      "native_surfaces": [
+        "workdeck_extension_api::HighlightTone",
+        "workdeck_extension_api::ValidatedLineHighlight",
+        "workdeck_extension_api::LineHighlightRequest",
+        "workdeck_extension_api::ExtensionHostAction::RefreshLineHighlights",
+        "workdeck/line-highlighter/highlight"
+      ],
+      "evidence": [
+        "crates/workdeck-extension-api/src/lib.rs",
+        "crates/workdeck-extension-host/src/line_highlights.rs",
+        "crates/workdeck-tui/src/line_highlights.rs",
+        "crates/workdeck-tui/src/line_highlight_paint.rs",
+        "examples/extensions/line-highlighter/extension.rs"
+      ],
+      "adaptation": "UTF-16 source ranges, tone defaults, cancellation, scoped invalidation, contrast-aware paint, and failure containment remain host owned."
+    },
+    {
+      "id": "themes",
+      "byte_start": 23702,
+      "byte_end": 26194,
+      "line_start": 553,
+      "line_end": 635,
+      "exports": [
+        "CustomSyntaxColorsConfig",
+        "CustomSyntaxScopesConfig",
+        "CustomThemeConfig",
+        "NamedCustomThemeConfig",
+        "ExtensionThemeConfig"
+      ],
+      "native_surfaces": [
+        "workdeck_core::NamedCustomThemeConfig",
+        "workdeck_core::legacy_custom_syntax_colors_to_scopes",
+        "workdeck_core::resolve_custom_syntax_scope_overrides",
+        "workdeck_extension_api::ThemeRegistration"
+      ],
+      "evidence": [
+        "crates/workdeck-core/src/theme.rs",
+        "crates/workdeck-extension-api/src/lib.rs",
+        "crates/workdeck-tui/src/theme.rs"
+      ],
+      "adaptation": "All theme slots and ordered TextMate overrides are retained; native registrations normalize through the same theme model as TOML configuration."
+    },
+    {
+      "id": "vcs-operations",
+      "byte_start": 26194,
+      "byte_end": 29793,
+      "line_start": 636,
+      "line_end": 736,
+      "exports": [
+        "HUNK_VCS_DETECTION_BASELINE_PRIORITY",
+        "HUNK_CORE_VCS_DETECTION_PRIORITY",
+        "HUNK_DEFAULT_VCS_DETECTION_PRIORITY",
+        "ExtensionVcsDetection",
+        "ExtensionVcsLoadContext",
+        "ExtensionVcsReviewOptions",
+        "ExtensionVcsRangeEndpoints",
+        "ExtensionVcsDiffInput",
+        "ExtensionVcsShowInput",
+        "ExtensionVcsStashShowInput"
+      ],
+      "native_surfaces": [
+        "workdeck_extension_api::WORKDECK_VCS_DETECTION_BASELINE_PRIORITY",
+        "workdeck_extension_api::WORKDECK_CORE_VCS_DETECTION_PRIORITY",
+        "workdeck_extension_api::WORKDECK_DEFAULT_VCS_DETECTION_PRIORITY",
+        "workdeck_extension_api::ExtensionVcsReviewInput",
+        "workdeck_extension_api::ExtensionVcsRangeEndpoints",
+        "workdeck_extension_api::ExtensionVcsOperationRequest"
+      ],
+      "evidence": [
+        "crates/workdeck-extension-api/src/authoring.rs",
+        "crates/workdeck-extension-api/src/vcs.rs",
+        "crates/workdeck-extension-host/src/native_vcs.rs",
+        "examples/tests/native_vcs_extension.rs"
+      ],
+      "adaptation": "The three operation kinds and two-endpoint range are closed Serde enums; native deadlines replace JavaScript promise boundaries."
+    },
+    {
+      "id": "vcs-file-sources",
+      "byte_start": 29793,
+      "byte_end": 32402,
+      "line_start": 737,
+      "line_end": 799,
+      "exports": [
+        "ExtensionVcsFileChangeType",
+        "ExtensionVcsFileSide",
+        "ExtensionVcsFileSourceRequest",
+        "ExtensionVcsFileSourceTooLarge",
+        "ExtensionVcsFileSourceResult",
+        "ExtensionVcsFileSourceReader"
+      ],
+      "native_surfaces": [
+        "workdeck_extension_api::ExtensionVcsFileChangeType",
+        "workdeck_extension_api::ExtensionVcsFileSide",
+        "workdeck_extension_api::ExtensionVcsFileSourceRequest",
+        "workdeck_extension_api::ExtensionVcsFileSourceInvocation",
+        "workdeck_extension_api::ExtensionVcsFileSourceResult",
+        "workdeck/vcs/source/read"
+      ],
+      "evidence": [
+        "crates/workdeck-extension-api/src/vcs.rs",
+        "crates/workdeck-extension-host/src/native_vcs.rs",
+        "crates/workdeck-vcs/src/materialize.rs"
+      ],
+      "adaptation": "Text, null, and too-large remain distinct wire results; load tokens bind reads to the immutable operation state that produced the patch."
+    },
+    {
+      "id": "vcs-extra-files",
+      "byte_start": 32402,
+      "byte_end": 36010,
+      "line_start": 800,
+      "line_end": 895,
+      "exports": [
+        "ExtensionVcsFileStats",
+        "ExtensionVcsExtraPatchFile",
+        "ExtensionVcsSkippedFileReason",
+        "ExtensionVcsSkippedFile",
+        "ExtensionVcsExtraFile",
+        "ExtensionVcsPatchResult"
+      ],
+      "native_surfaces": [
+        "workdeck_extension_api::ExtensionVcsFileStats",
+        "workdeck_extension_api::ExtensionVcsExtraFile",
+        "workdeck_extension_api::ExtensionVcsSkippedFileReason",
+        "workdeck_extension_api::ExtensionVcsPatchResult"
+      ],
+      "evidence": [
+        "crates/workdeck-extension-api/src/vcs.rs",
+        "crates/workdeck-extension-host/src/native_vcs.rs",
+        "crates/workdeck-vcs/src/materialize.rs",
+        "port/hunk/oracles/extension-vcs-patch-result.json"
+      ],
+      "adaptation": "Patch and skipped variants, line-count truncation, untracked paths, source identity, and declared order are represented without renderer objects."
+    },
+    {
+      "id": "vcs-watch",
+      "byte_start": 36010,
+      "byte_end": 39571,
+      "line_start": 896,
+      "line_end": 986,
+      "exports": [
+        "ExtensionVcsWatchTargetSource",
+        "ExtensionVcsDirectoryEntriesWatchTarget",
+        "ExtensionVcsDirectoryTreeWatchTarget",
+        "ExtensionVcsWatchTarget",
+        "ExtensionVcsWatchPlan",
+        "ExtensionVcsOperation",
+        "ExtensionVcsOperations",
+        "ExtensionVcsAdapter"
+      ],
+      "native_surfaces": [
+        "workdeck_extension_api::ExtensionVcsWatchTargetSource",
+        "workdeck_extension_api::ExtensionVcsWatchTarget",
+        "workdeck_extension_api::ExtensionVcsWatchPlan",
+        "workdeck_extension_api::ExtensionVcsOperationRegistration",
+        "workdeck_extension_api::ExtensionVcsAdapterRegistration"
+      ],
+      "evidence": [
+        "crates/workdeck-extension-api/src/vcs.rs",
+        "crates/workdeck-extension-host/src/native_vcs.rs",
+        "crates/workdeck-vcs/src/catalog.rs"
+      ],
+      "adaptation": "Hybrid and poll-only coverage, directory-entry/tree targets, source classes, optional operations, priorities, and registration order are preserved."
+    },
+    {
+      "id": "panes",
+      "byte_start": 39571,
+      "byte_end": 49735,
+      "line_start": 987,
+      "line_end": 1243,
+      "exports": [
+        "ExtensionPaintTheme",
+        "ExtensionPaneTheme",
+        "ExtensionSidebarTheme",
+        "ExtensionReviewNavigation",
+        "ExtensionPaneActions",
+        "ExtensionSidebarActions",
+        "ExtensionPaneKeybindings",
+        "ExtensionPanePlacement",
+        "ExtensionPaneSize",
+        "ExtensionCurrentLinePaint",
+        "ExtensionPaneAvailabilityContext",
+        "ExtensionPaneProps",
+        "ExtensionPaneComponent",
+        "ExtensionVerticalPane",
+        "ExtensionHorizontalPane",
+        "ExtensionPane",
+        "ExtensionSidebarKeybindings",
+        "ExtensionSidebarPlacement",
+        "ExtensionSidebarViewProps",
+        "ExtensionSidebarComponent",
+        "ExtensionSidebarView"
+      ],
+      "native_surfaces": [
+        "workdeck_extension_api::ExtensionPaintTheme",
+        "workdeck_extension_api::ExtensionResolvedKeybindings",
+        "workdeck_extension_api::PanePlacement",
+        "workdeck_extension_api::ExtensionPaneSize",
+        "workdeck_extension_api::PaneRegistration",
+        "workdeck_extension_api::PaneAvailabilityRequest",
+        "workdeck_extension_api::PaneRenderRequest",
+        "workdeck_extension_api::PaneRenderResponse",
+        "workdeck_tui::ExtensionCurrentLinePaint",
+        "workdeck_extension_api::ExtensionHostAction"
+      ],
+      "evidence": [
+        "crates/workdeck-extension-api/src/lib.rs",
+        "crates/workdeck-extension-api/src/panes.rs",
+        "crates/workdeck-extension-host/src/lib.rs",
+        "crates/workdeck-tui/src/extension_current_line.rs",
+        "crates/workdeck-tui/src/extension_panes.rs",
+        "crates/workdeck-tui/src/lib.rs",
+        "examples/tests/pane_layout.rs"
+      ],
+      "adaptation": "Declarative panes replace React components; the host owns exact rectangles, four-edge sizing, current-line paint, key resolution, navigation, notification, replacement, availability, and deprecated sidebar compatibility."
+    },
+    {
+      "id": "commands-review-dialogs-workspace",
+      "byte_start": 49735,
+      "byte_end": 79740,
+      "line_start": 1244,
+      "line_end": 1886,
+      "exports": [
+        "ExtensionCliCommand",
+        "ExtensionCliWriter",
+        "ExtensionCliCommandContext",
+        "ExtensionCliExitResult",
+        "ExtensionCliDelegateResult",
+        "ExtensionCliCommandResult",
+        "ExtensionCliCommandHandler",
+        "ExtensionCommand",
+        "ExtensionCommandExecutionOptions",
+        "ExtensionCommandControls",
+        "ExtensionKeyboardModeControls",
+        "ExtensionPaneControls",
+        "ExtensionSidebarControls",
+        "ExtensionFileViewControls",
+        "ExtensionReviewSelection",
+        "ExtensionReviewSnapshotFile",
+        "ExtensionReviewSnapshotLineAddress",
+        "ExtensionReviewSnapshotNoteAnchor",
+        "ExtensionReviewSnapshotNote",
+        "ExtensionReviewSnapshot",
+        "ExtensionReviewControls",
+        "ExtensionConfirmOptions",
+        "ExtensionSelectOptions",
+        "ExtensionInputOptions",
+        "ExtensionDialogs",
+        "ExtensionWorkspaceWriteRequest",
+        "ExtensionWorkspaceWriteResult",
+        "ExtensionWorkspace",
+        "ExtensionSessionOptions",
+        "ExtensionCommandContext",
+        "ExtensionCommandHandler",
+        "ExtensionCustomEventHandler",
+        "ExtensionEventBus",
+        "ExtensionEventContext"
+      ],
+      "native_surfaces": [
+        "workdeck_extension_api::CliCommandRegistration",
+        "workdeck_extension_api::CliCommandInvocation",
+        "workdeck_extension_api::CliOutputNotification",
+        "workdeck_extension_api::CliStdinReadRequest",
+        "workdeck_extension_api::CliCommandResult",
+        "workdeck_extension_api::CommandRegistration",
+        "workdeck_extension_api::CommandInvocation",
+        "workdeck_extension_api::ExtensionCommandAvailability",
+        "workdeck_extension_api::ExtensionPaneContext",
+        "workdeck_extension_api::ExtensionFileViewContext",
+        "workdeck_extension_api::ExtensionReviewSelection",
+        "workdeck_extension_api::ExtensionReviewSnapshot",
+        "workdeck_extension_api::ExtensionWorkspaceSnapshot",
+        "workdeck_extension_api::ExtensionWorkspaceWriteResult",
+        "workdeck_extension_api::SessionOptionsRegistration",
+        "workdeck_extension_api::ExtensionEventContext",
+        "workdeck_extension_api::ExtensionHostAction"
+      ],
+      "evidence": [
+        "crates/workdeck-extension-api/src/lib.rs",
+        "crates/workdeck-extension-host/src/lib.rs",
+        "crates/workdeck-cli/src/extension_cli_commands.rs",
+        "crates/workdeck-tui/src/extension_dialogs.rs",
+        "crates/workdeck-tui/src/extension_workspace.rs",
+        "crates/workdeck-tui/src/extension_runtime_bridge.rs",
+        "crates/workdeck-tui/src/lib.rs",
+        "examples/tests/cli_tools.rs",
+        "examples/tests/inline_edit.rs",
+        "examples/tests/review_snapshot_export.rs"
+      ],
+      "adaptation": "Method-bearing controls become immutable callback snapshots plus generation-checked declarative actions. CLI output remains byte exact and backpressured; dialogs are attributed FIFO host modals; workspace writes remain confirmed, path-safe, atomic, and reload-reconciled."
+    },
+    {
+      "id": "lifecycle",
+      "byte_start": 79740,
+      "byte_end": 83358,
+      "line_start": 1887,
+      "line_end": 1967,
+      "exports": [
+        "SessionReloadReason",
+        "ExtensionLayoutMode",
+        "ExtensionResolvedLayout",
+        "ExtensionReviewNote",
+        "ExtensionNoteChangeKind",
+        "ExtensionEventPayloads",
+        "ExtensionEventName",
+        "ExtensionEventHandler"
+      ],
+      "native_surfaces": [
+        "workdeck_extension_api::SessionReloadReason",
+        "workdeck_extension_api::ExtensionLayoutMode",
+        "workdeck_extension_api::ExtensionResolvedLayout",
+        "workdeck_extension_api::ExtensionReviewNote",
+        "workdeck_extension_api::ExtensionReviewNoteChangeKind",
+        "workdeck_extension_api::ExtensionLifecycleEvent",
+        "workdeck_extension_api::LIFECYCLE_EVENT_NAMES",
+        "workdeck_extension_api::ReviewEvent"
+      ],
+      "evidence": [
+        "crates/workdeck-extension-api/src/authoring.rs",
+        "crates/workdeck-extension-api/src/lib.rs",
+        "crates/workdeck-extension-host/src/lib.rs",
+        "crates/workdeck-tui/src/extension_review_events.rs",
+        "crates/workdeck-tui/src/lib.rs",
+        "port/hunk/oracles/extension-events.json"
+      ],
+      "adaptation": "The exact fifteen-event baseline namespace, payloads, reload reasons, layout modes, note kinds, serialized per-extension ordering, and isolated fire-and-forget delivery are closed Rust values."
+    },
+    {
+      "id": "root-api-factory",
+      "byte_start": 83358,
+      "byte_end": 87576,
+      "line_start": 1968,
+      "line_end": 2053,
+      "exports": [
+        "HunkExtensionAPI",
+        "ExtensionFactory"
+      ],
+      "native_surfaces": [
+        "workdeck_extension_api::HandshakeRequest",
+        "workdeck_extension_api::HandshakeResponse",
+        "workdeck_extension_api::Registration",
+        "workdeck_extension_api::Capability",
+        "workdeck_extension_host::LoadedExtension"
+      ],
+      "evidence": [
+        "crates/workdeck-extension-api/src/lib.rs",
+        "crates/workdeck-extension-host/src/extension_registration.rs",
+        "crates/workdeck-extension-host/src/startup.rs",
+        "crates/workdeck-extension-host/src/lib.rs",
+        "docs/native-extension-runtime-boundary.md",
+        "docs/native-extension-type-boundary.md"
+      ],
+      "adaptation": "The factory is one atomic native handshake. Typed registrations cover every Hunk capability while manifest grants, size limits, deadlines, cancellation, crash isolation, config, logs, and repository trust are host enforced."
+    }
+  ],
+  "index_contract": {
+    "types_export_source": "all 135 entries in types_sections.exports",
+    "key_exports": [
+      "ParsedKeyChord",
+      "matchesKey",
+      "matchesKeyChord",
+      "parseKeyChord"
+    ],
+    "total_exports": 139,
+    "native_surfaces": [
+      "crates/workdeck-extension-api/src/lib.rs",
+      "crates/workdeck-extension-api/src/keys.rs"
+    ],
+    "adaptation": "Rust module exports replace the NodeNext .js declaration barrel; Workdeck ships no npm package or JavaScript runtime."
+  }
+}

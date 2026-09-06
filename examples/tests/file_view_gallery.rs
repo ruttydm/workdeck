@@ -153,7 +153,8 @@ fn atlas_oracle_request(value: &Value) -> FileViewLayoutRequest {
                 additions: fixture["file"]["stats"]["additions"].as_u64().unwrap() as usize,
                 deletions: fixture["file"]["stats"]["deletions"].as_u64().unwrap() as usize,
             },
-            change_type: "change".into(),
+            metadata: serde_json::json!({ "hunks": [] }),
+            change_type: Some(workdeck_extension_api::ExtensionVcsFileChangeType::Change),
             stats_truncated: false,
             hunks,
             agent: None,
@@ -220,7 +221,7 @@ fn view_text(node: &ViewNode, output: &mut String) {
         } else {
             value
         }),
-        ViewNode::Divider | ViewNode::Empty => {}
+        ViewNode::CurrentLine { .. } | ViewNode::Divider | ViewNode::Empty => {}
     }
 }
 
@@ -299,6 +300,7 @@ fn invocation(file: workdeck_core::DiffFile, command_id: &str) -> CommandInvocat
         active_keyboard_mode: None,
         workspace: None,
         commands: Default::default(),
+        file_views: Default::default(),
         selection: Default::default(),
     }
 }

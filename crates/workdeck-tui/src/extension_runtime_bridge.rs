@@ -395,7 +395,8 @@ mod tests {
                 additions: hunk_count,
                 deletions: hunk_count,
             },
-            change_type: "change".into(),
+            metadata: serde_json::json!({ "hunks": [] }),
+            change_type: Some(workdeck_extension_api::ExtensionVcsFileChangeType::Change),
             stats_truncated: false,
             hunks: (0..hunk_count)
                 .map(|index| ExtensionDiffHunk {
