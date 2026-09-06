@@ -268,3 +268,19 @@ fn focused_extension_pane_input_edits_unicode_at_the_host_cursor() {
     let rendered = frame(&app);
     assert!(rendered.contains("xaz"), "{rendered}");
 }
+
+#[test]
+fn focused_extension_pane_input_swallows_modified_shortcuts_and_job_control() {
+    let (_directory, mut app) = extension_app("pane");
+    let rendered = wait_for_pane_input(&mut app);
+    assert!(
+        app.extension_pane_input_cursor_position().is_some(),
+        "{rendered}"
+    );
+
+    app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+    settle(&mut app);
+
+    assert!(!app.take_quit_requested());
+    assert!(app.extension_pane_input_cursor_position().is_some());
+}

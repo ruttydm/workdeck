@@ -2245,13 +2245,6 @@ impl ReviewApp {
         if self.handle_save_config_prompt_key(&key) {
             return;
         }
-        if self.handle_note_composer_key(&key) {
-            return;
-        }
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
-            self.request_quit();
-            return;
-        }
         if self.handle_workspace_write_key(&key)
             || self.handle_extension_confirm_key(&key)
             || self.handle_extension_select_key(&key)
@@ -2259,30 +2252,42 @@ impl ReviewApp {
         {
             return;
         }
+
+        // A note editor owns menu-toggle keys without opening chrome over the
+        // draft. Other focused editors are intentionally below the toggle,
+        // matching Hunk's app-level ownership chain.
+        if self.note_composer.is_some() && Self::is_app_menu_toggle_key(&key) {
+            return;
+        }
+        if self.handle_app_menu_toggle_key(&key) {
+            return;
+        }
+
+        if self.show_agent_skill && key.code == KeyCode::Esc {
+            self.show_agent_skill = false;
+            self.agent_skill_dialog_hits.set(None);
+            return;
+        }
+        if self.show_help
+            && matches!(
+                key.code,
+                KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q')
+            )
+        {
+            self.show_help = false;
+            self.help_dialog_hits.set(None);
+            return;
+        }
         if self.handle_theme_selector_key(&key) {
-            return;
-        }
-        if self.show_agent_skill {
-            if key.code == KeyCode::Esc {
-                self.show_agent_skill = false;
-                self.agent_skill_dialog_hits.set(None);
-            }
-            return;
-        }
-        if self.handle_filter_key(&key) {
             return;
         }
         if self.handle_app_menu_key(&key) {
             return;
         }
-        if self.show_help {
-            if matches!(
-                key.code,
-                KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q')
-            ) {
-                self.show_help = false;
-                self.help_dialog_hits.set(None);
-            }
+        if self.handle_filter_key(&key) {
+            return;
+        }
+        if self.handle_note_composer_key(&key) {
             return;
         }
         if self.handle_focused_extension_pane_input(&key) {
@@ -2292,6 +2297,10 @@ impl ReviewApp {
             return;
         }
         if self.route_active_keyboard_mode(&key) {
+            return;
+        }
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+            self.request_quit();
             return;
         }
         let live_key = to_live_extension_key_event(&key);
@@ -4100,7 +4109,11 @@ impl ReviewApp {
                 cursor = value.chars().count();
                 false
             }
-            _ => return false,
+            // The live pane input remains the focus authority for modified
+            // shortcuts too. It may not edit its one-line value for this key,
+            // but no review command, extension mode, or job-control handler may
+            // act behind it.
+            _ => return true,
         };
 
         if !changed {
@@ -7160,29 +7173,38 @@ impl ReviewApp {
         drop(predecessor);
     }
 
+    fn is_app_menu_toggle_key(key: &KeyEvent) -> bool {
+        key.code == KeyCode::F(10)
+            || key.code == KeyCode::Menu
+            || (key.code == KeyCode::Char('e') && key.modifiers == KeyModifiers::ALT)
+    }
+
+    fn handle_app_menu_toggle_key(&mut self, key: &KeyEvent) -> bool {
+        if !Self::is_app_menu_toggle_key(key) {
+            return false;
+        }
+        let menus = self.app_menus();
+        let target = if key.code == KeyCode::F(10) {
+            MenuId::File
+        } else if menus.contains_key(&MenuId::Extensions) {
+            MenuId::Extensions
+        } else {
+            MenuId::File
+        };
+        self.extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .menu
+            .toggle(&menus, target);
+        true
+    }
+
     fn handle_app_menu_key(&mut self, key: &KeyEvent) -> bool {
         let menus = self.app_menus();
-        let shortcut_target = if key.code == KeyCode::F(10) {
-            Some(MenuId::File)
-        } else if key.code == KeyCode::Menu
-            || (key.code == KeyCode::Char('e') && key.modifiers == KeyModifiers::ALT)
-        {
-            Some(if menus.contains_key(&MenuId::Extensions) {
-                MenuId::Extensions
-            } else {
-                MenuId::File
-            })
-        } else {
-            None
-        };
         let mut runtime = self
             .extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(target) = shortcut_target {
-            runtime.menu.toggle(&menus, target);
-            return true;
-        }
         if runtime.menu.active_menu_id(&menus).is_none() {
             return false;
         }
@@ -7250,7 +7272,7 @@ impl ReviewApp {
             return true;
         }
 
-        // Unbound keys continue to the layered extension modes.
+        // Unbound keys continue to the focused editor and layered extension modes.
         false
     }
 
@@ -17332,6 +17354,90 @@ mod tests {
         assert_eq!(app.focus, Focus::Filter);
         assert!(frame.contains("filter:"));
         assert!(frame.contains('q'));
+    }
+
+    #[test]
+    fn menu_toggle_precedes_filter_and_agent_overlay_but_not_note_or_modal_ownership() {
+        fn active_menu(app: &ReviewApp) -> Option<MenuId> {
+            let menus = app.app_menus();
+            app.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .menu
+                .active_menu_id(&menus)
+        }
+
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        app.focus = Focus::Filter;
+        app.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE));
+        assert_eq!(active_menu(&app), Some(MenuId::File));
+        app.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE));
+        assert_eq!(active_menu(&app), None);
+
+        app.show_agent_skill = true;
+        app.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE));
+        assert_eq!(active_menu(&app), Some(MenuId::File));
+        assert!(app.show_agent_skill);
+        app.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE));
+        app.show_agent_skill = false;
+
+        app.focus = Focus::Review;
+        app.open_note_composer();
+        assert!(app.note_composer.is_some());
+        app.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE));
+        assert_eq!(active_menu(&app), None);
+
+        app.apply_extension_actions(
+            0,
+            "probe",
+            vec![ExtensionHostAction::OpenConfirmDialog {
+                id: "modal".into(),
+                title: "Modal".into(),
+                body: "Own every key".into(),
+                confirm_label: "yes".into(),
+                cancel_label: Some("no".into()),
+            }],
+        );
+        app.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert!(app.has_extension_confirm_dialog());
+        assert_eq!(active_menu(&app), None);
+        assert!(!app.should_quit);
+    }
+
+    #[test]
+    fn frozen_use_app_keyboard_shortcuts_oracle_covers_every_source_line_and_both_pins() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/use-app-keyboard-shortcuts.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            oracle["source"]["baseline"]["commit"],
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2"
+        );
+        assert_eq!(
+            oracle["source"]["baseline"]["blob"],
+            "23327df904a5ba3a0234efc9b92da9610b8500a7"
+        );
+        assert_eq!(oracle["source"]["baseline"]["bytes"], 20_985);
+        assert_eq!(oracle["source"]["baseline"]["lines"], 624);
+        assert_eq!(
+            oracle["source"]["stable"]["commit"],
+            "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+        );
+        assert_eq!(oracle["source"]["stable"]["bytes"], 20_684);
+        assert_eq!(oracle["source"]["stable"]["lines"], 620);
+
+        let mut next_line = 1;
+        for interval in oracle["sourceCoverage"].as_array().unwrap() {
+            let lines = interval["lines"].as_array().unwrap();
+            assert_eq!(lines[0].as_u64().unwrap(), next_line);
+            assert!(!interval["rust"].as_array().unwrap().is_empty());
+            next_line = lines[1].as_u64().unwrap() + 1;
+        }
+        assert_eq!(next_line, 625);
+        assert!(oracle["nativeTests"].as_array().unwrap().len() >= 26);
+        assert_eq!(oracle["baselineDelta"].as_array().unwrap().len(), 1);
     }
 
     #[test]
