@@ -86,6 +86,9 @@ pub mod app_host_extension_dialogs_probe_extension;
 #[path = "../extensions/app-host-workspace-probe/extension.rs"]
 pub mod app_host_workspace_probe_extension;
 
+#[path = "../extensions/app-host-extension-sidebar-probe/extension.rs"]
+pub mod app_host_extension_sidebar_probe_extension;
+
 #[path = "../extensions/review-snapshot-export/extension.rs"]
 pub mod review_snapshot_export_extension;
 

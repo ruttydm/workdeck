@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
-use workdeck_core::{Changeset, ChangesetSource};
+use workdeck_core::{Changeset, ChangesetSource, SidebarVisibility};
 use workdeck_diff::parse_patch;
 use workdeck_examples::review_triage_extension::{
     ReviewTriageState, TriageDecision, TriageStatus, handle_event, hunk_key, invoke_command,
@@ -126,6 +126,11 @@ fn pane_request() -> PaneRenderRequest {
         width: 32,
         height: 20,
         theme: to_extension_paint_theme(&ReviewOptions::default().theme),
+        files: Vec::new(),
+        selected_file_id: None,
+        selected_hunk_index: None,
+        current_line: None,
+        keybindings: Default::default(),
     }
 }
 
@@ -915,8 +920,13 @@ fn ratatui_replays_factory_events_after_every_native_subscription_is_registered(
 fn ratatui_routes_clicks_dialogs_lifecycle_and_note_events_end_to_end() {
     let (_directory, manifest) = staged_extension();
     let extension = LoadedExtension::spawn(&manifest, "test-host").unwrap();
-    let mut app =
-        ReviewApp::new_with_extensions(changeset(), ReviewOptions::default(), vec![extension]);
+    // This exercises an open right pane at fixed coordinates, independent of responsive hiding.
+    let options = ReviewOptions {
+        sidebar: false,
+        sidebar_visibility: SidebarVisibility::Visible,
+        ..ReviewOptions::default()
+    };
+    let mut app = ReviewApp::new_with_extensions(changeset(), options, vec![extension]);
     let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
 
     press(&mut app, KeyCode::Char('y'));

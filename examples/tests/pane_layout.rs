@@ -2,7 +2,9 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent,
 use ratatui::{Terminal, backend::TestBackend};
 use std::fs;
 use tempfile::TempDir;
-use workdeck_core::{Changeset, ChangesetSource, ReviewSelection, ReviewSnapshot};
+use workdeck_core::{
+    Changeset, ChangesetSource, ReviewSelection, ReviewSnapshot, SidebarVisibility,
+};
 use workdeck_diff::parse_patch;
 use workdeck_extension_api::{ExtensionHostAction, PanePlacement, PaneRenderRequest, Registration};
 use workdeck_extension_host::LoadedExtension;
@@ -126,6 +128,11 @@ fn compiled_extension_receives_exact_geometry_selection_and_theme() {
             width: 28,
             height: 21,
             theme: to_extension_paint_theme(&options.theme),
+            files: Vec::new(),
+            selected_file_id: None,
+            selected_hunk_index: None,
+            current_line: None,
+            keybindings: Default::default(),
         })
         .unwrap();
     let encoded = serde_json::to_string(&view.content).unwrap();
@@ -139,8 +146,13 @@ fn compiled_extension_receives_exact_geometry_selection_and_theme() {
 fn review_shell_routes_ctrl_p_and_resizes_the_right_pane() {
     let (_directory, manifest) = staged_extension();
     let extension = LoadedExtension::spawn(&manifest, "test-host").unwrap();
-    let mut app =
-        ReviewApp::new_with_extensions(changeset(), ReviewOptions::default(), vec![extension]);
+    // Keep this geometry test independent from Hunk's automatic narrow-terminal sidebar hiding.
+    let options = ReviewOptions {
+        sidebar: false,
+        sidebar_visibility: SidebarVisibility::Visible,
+        ..ReviewOptions::default()
+    };
+    let mut app = ReviewApp::new_with_extensions(changeset(), options, vec![extension]);
     let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
     terminal
         .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
@@ -154,25 +166,25 @@ fn review_shell_routes_ctrl_p_and_resizes_the_right_pane() {
         .unwrap();
     let opened = rendered_text(&terminal);
     assert!(opened.contains("RIGHT PANE · 28×22"), "{opened}");
-    assert!(opened.contains("TOP PANE · 71×2"));
-    assert!(opened.contains("BOTTOM PANE · 71×2"));
+    assert!(opened.contains("TOP PANE · 69×2"), "{opened}");
+    assert!(opened.contains("BOTTOM PANE · 69×2"), "{opened}");
     assert!(opened.contains("src/lib.rs"));
 
     app.handle_mouse_event(MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),
-        column: 71,
+        column: 70,
         row: 10,
         modifiers: KeyModifiers::NONE,
     });
     app.handle_mouse_event(MouseEvent {
         kind: MouseEventKind::Drag(MouseButton::Left),
-        column: 61,
+        column: 60,
         row: 10,
         modifiers: KeyModifiers::NONE,
     });
     app.handle_mouse_event(MouseEvent {
         kind: MouseEventKind::Up(MouseButton::Left),
-        column: 61,
+        column: 60,
         row: 10,
         modifiers: KeyModifiers::NONE,
     });

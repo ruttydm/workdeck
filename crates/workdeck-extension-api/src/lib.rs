@@ -1107,6 +1107,17 @@ pub struct PaneRenderRequest {
     pub width: u16,
     pub height: u16,
     pub theme: ExtensionPaintTheme,
+    /// Filtered files visible to the mounted review pane, in review order.
+    #[serde(default)]
+    pub files: Vec<ExtensionDiffFile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_file_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_hunk_index: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_line: Option<ExtensionReviewSnapshotLineAddress>,
+    #[serde(default)]
+    pub keybindings: ExtensionResolvedKeybindings,
 }
 
 /// Synchronous native equivalent of Hunk's pane `available(context)` callback.

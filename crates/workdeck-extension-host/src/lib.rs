@@ -2305,6 +2305,38 @@ impl LoadedExtension {
         commands: ExtensionCommandAvailability,
         workspace: Option<ExtensionWorkspaceSnapshot>,
     ) -> Result<(), HostError> {
+        let selection = build_extension_review_selection_from_snapshot(&snapshot);
+        self.begin_command_with_selection_context(
+            command_id,
+            snapshot,
+            selection,
+            open_panes,
+            active_keyboard_mode,
+            cwd,
+            review,
+            commands,
+            workspace,
+        )
+    }
+
+    /// Start a command with the host's exact committed selection projection.
+    ///
+    /// The explicit value matters when the visible current-line marker is off:
+    /// semantic file/hunk selection remains in the snapshot while the public
+    /// command context must expose a null current line.
+    #[allow(clippy::too_many_arguments)]
+    pub fn begin_command_with_selection_context(
+        &mut self,
+        command_id: &str,
+        snapshot: ReviewSnapshot,
+        selection: workdeck_extension_api::ExtensionReviewSelection,
+        open_panes: Vec<String>,
+        active_keyboard_mode: Option<String>,
+        cwd: PathBuf,
+        review: Option<workdeck_extension_api::ExtensionReviewSnapshot>,
+        commands: ExtensionCommandAvailability,
+        workspace: Option<ExtensionWorkspaceSnapshot>,
+    ) -> Result<(), HostError> {
         if self.registry.phase() != ExtensionEventBusPhase::Ready {
             return Err(HostError::Closed(self.manifest.id.clone()));
         }
@@ -2321,7 +2353,6 @@ impl LoadedExtension {
                 message: format!("command {command_id:?} is not registered"),
             });
         }
-        let selection = build_extension_review_selection_from_snapshot(&snapshot);
         let id = self.send_request_on(
             &mut connection,
             "workdeck/command/invoke",

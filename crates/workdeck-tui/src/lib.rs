@@ -242,13 +242,14 @@ use workdeck_extension_api::{
     ExtensionCommandAvailability, ExtensionHostAction, ExtensionKeyEvent, ExtensionLayoutMode,
     ExtensionLifecycleEvent, ExtensionNotification, ExtensionNotificationHub,
     ExtensionNotificationSubscription, ExtensionNotifyType, ExtensionPaintTheme, ExtensionPaneView,
-    ExtensionResolvedLayout, ExtensionReviewNote, ExtensionWorkspaceReadCompletion,
+    ExtensionResolvedKeybindings, ExtensionResolvedLayout, ExtensionReviewNote,
+    ExtensionReviewSnapshotLineAddress, ExtensionWorkspaceReadCompletion,
     ExtensionWorkspaceWriteCompletion, ExtensionWorkspaceWriteResult, FileLanguageGlobTarget,
     FileLanguageMatcher, FileViewModeKeyRequest, FileViewModeLifecycleRequest, KeyRoutingResult,
-    KeyboardModeRegistration, PaneActionInvocation, PaneInputInvocation, PanePlacement,
-    PaneRegistration, PaneRenderRequest, Registration, ReviewEvent, SessionReloadReason, ViewNode,
-    ViewStyle, WORKDECK_FILES_PANE_KEY, bundled_files_pane, extension_pane_size,
-    file_view_unavailable_reason,
+    KeyboardModeRegistration, PaneActionInvocation, PaneAvailabilityRequest, PaneInputInvocation,
+    PanePlacement, PaneRegistration, PaneRenderRequest, Registration, ReviewEvent,
+    SessionReloadReason, ViewNode, ViewStyle, WORKDECK_FILES_PANE_KEY, bundled_files_pane,
+    extension_pane_size, file_view_unavailable_reason,
 };
 use workdeck_extension_host::{
     ActiveSessionKeyboardMode, EXTENSION_SHUTDOWN_TIMEOUT,
@@ -613,6 +614,7 @@ struct QueuedExtensionEvent {
 struct QueuedExtensionCommand {
     pending: PendingExtensionCommand,
     snapshot: workdeck_core::ReviewSnapshot,
+    selection: workdeck_extension_api::ExtensionReviewSelection,
     open_panes: Vec<String>,
     active_keyboard_mode: Option<String>,
     cwd: PathBuf,
@@ -623,8 +625,8 @@ struct QueuedExtensionCommand {
 
 #[derive(Debug, Clone)]
 enum QueuedExtensionRequest {
-    Command(QueuedExtensionCommand),
-    Event(QueuedExtensionEvent),
+    Command(Box<QueuedExtensionCommand>),
+    Event(Box<QueuedExtensionEvent>),
 }
 
 #[derive(Debug, Clone)]
@@ -690,10 +692,30 @@ struct PaneRenderSignature {
     registration_identity: u64,
     generation: u64,
     selection: ReviewSelection,
+    files: Vec<workdeck_extension_api::ExtensionDiffFile>,
+    selected_file_id: Option<String>,
+    selected_hunk_index: Option<usize>,
+    current_line: Option<ExtensionReviewSnapshotLineAddress>,
+    keybindings: ExtensionResolvedKeybindings,
     placement: PanePlacement,
     width: u16,
     height: u16,
     theme: ExtensionPaintTheme,
+}
+
+#[derive(Debug, Clone)]
+struct CachedPaneAvailability {
+    signature: PaneAvailabilitySignature,
+    available: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PaneAvailabilitySignature {
+    registration_identity: u64,
+    files: Vec<workdeck_extension_api::ExtensionDiffFile>,
+    selected_file_id: Option<String>,
+    selected_hunk_index: Option<usize>,
+    current_line: Option<ExtensionReviewSnapshotLineAddress>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -737,6 +759,7 @@ struct ExtensionPaneRuntime {
     focused_pane_input: Option<FocusedExtensionPaneInput>,
     open: BTreeSet<String>,
     failed_pane_registration_ids: BTreeSet<u64>,
+    cached_availability: BTreeMap<u64, CachedPaneAvailability>,
     force_builtin_files_sidebar: bool,
     size_overrides: BTreeMap<String, u16>,
     cached_renders: BTreeMap<String, CachedPaneRender>,
@@ -982,6 +1005,30 @@ impl ExtensionPaneRuntime {
         ))
     }
 
+    fn contain_pane_availability_failure(
+        &mut self,
+        registration: &LivePaneRegistration,
+        error: impl std::fmt::Display,
+    ) -> Option<String> {
+        if !self
+            .failed_pane_registration_ids
+            .insert(registration.registered.identity)
+        {
+            return None;
+        }
+        self.open.remove(&registration.key);
+        self.cached_renders.remove(&registration.key);
+        self.cached_availability
+            .remove(&registration.registered.identity);
+        if registration.pane.replaces.as_deref() == Some(WORKDECK_FILES_PANE_KEY) {
+            self.force_builtin_files_sidebar = true;
+        }
+        Some(format!(
+            "Extension {} pane \"{}\" availability failed • {error}",
+            registration.extension_id, registration.pane.id
+        ))
+    }
+
     fn cached_file_view_matches(
         &mut self,
         registration: &LiveFileViewRegistration,
@@ -1212,10 +1259,16 @@ impl ReviewApp {
                 });
         let mut extension_pane_runtime =
             ExtensionPaneRuntime::new(extensions, state.changeset().files.as_slice());
+        let initial_files_key = resolve_pane_slot_key(
+            &extension_pane_runtime.session_panes,
+            WORKDECK_FILES_PANE_KEY,
+            &extension_pane_runtime.open,
+            &BTreeSet::new(),
+        );
         if !extension_pane_runtime
             .session_panes
             .iter()
-            .find(|pane| pane.key == WORKDECK_FILES_PANE_KEY)
+            .find(|pane| pane.key == initial_files_key)
             .is_some_and(|pane| pane.default_open)
         {
             options.sidebar = false;
@@ -1305,11 +1358,16 @@ impl ReviewApp {
             .files
             .get(initial_snapshot.selection.file_index)
             .map(|file| file.runtime_id.clone());
+        let mut initial_extension_selection =
+            build_extension_review_selection_from_snapshot(&initial_snapshot);
+        if options.cursor_line == CursorLineMode::Off {
+            initial_extension_selection.current_line = None;
+        }
         let extension_runtime_bridge = ExtensionRuntimeBridge::new(ExtensionRuntimeCommit {
             registry_generation: 1,
             review_generation: 1,
             review: build_extension_review_snapshot(&state),
-            selection: build_extension_review_selection_from_snapshot(&initial_snapshot),
+            selection: initial_extension_selection,
             snapshot: initial_snapshot,
             files: initial_files,
             selected_file_id: initial_selected_file_id,
@@ -2833,7 +2891,10 @@ impl ReviewApp {
                 selected_file_id,
             )
         });
-        let selection = build_extension_review_selection_from_snapshot(&snapshot);
+        let mut selection = build_extension_review_selection_from_snapshot(&snapshot);
+        if self.options.cursor_line == CursorLineMode::Off {
+            selection.current_line = None;
+        }
         self.extension_runtime_bridge
             .commit(ExtensionRuntimeCommit {
                 registry_generation: self.extension_registry_generation,
@@ -3218,14 +3279,22 @@ impl ReviewApp {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut open = runtime.open.clone();
-        if self.options.sidebar || runtime.force_builtin_files_sidebar {
+        let has_live_files_replacement = runtime.session_panes.iter().any(|pane| {
+            pane.registered.pane.replaces.as_deref() == Some(WORKDECK_FILES_PANE_KEY)
+                && !runtime
+                    .failed_pane_registration_ids
+                    .contains(&pane.registered.identity)
+        });
+        if (!has_live_files_replacement && self.options.sidebar)
+            || runtime.force_builtin_files_sidebar
+        {
             open.insert(WORKDECK_FILES_PANE_KEY.into());
         }
         let key = resolve_pane_slot_key(
             &runtime.session_panes,
             WORKDECK_FILES_PANE_KEY,
             &open,
-            &BTreeSet::new(),
+            &runtime.failed_pane_registration_ids,
         );
         if key == WORKDECK_FILES_PANE_KEY {
             if runtime.force_builtin_files_sidebar {
@@ -3253,6 +3322,7 @@ impl ReviewApp {
             runtime.open.insert(key.clone());
             self.options.sidebar_visibility = SidebarVisibility::Visible;
         } else {
+            self.options.sidebar = false;
             self.options.sidebar_visibility = SidebarVisibility::Hidden;
         }
         runtime.cached_renders.remove(&key);
@@ -3590,6 +3660,7 @@ impl ReviewApp {
         self.commit_extension_runtime_bridge();
         let command_epoch = self.extension_command_epoch;
         let committed = self.extension_runtime_bridge.committed_review();
+        let selection = self.extension_runtime_bridge.get_selection();
         let review_controls = self.extension_runtime_bridge.create_review_controls();
         let workspace = self.with_state(|state| {
             self.options
@@ -3635,23 +3706,26 @@ impl ReviewApp {
                 .request_queues
                 .entry(command.extension_index)
                 .or_default()
-                .push_back(QueuedExtensionRequest::Command(QueuedExtensionCommand {
-                    pending: PendingExtensionCommand {
-                        extension_index: command.extension_index,
-                        extension_id: command.extension_id.clone(),
-                        command_id: command.command.id.clone(),
-                        title: command.command.title.clone(),
-                        review_generation: command_epoch,
-                        navigation,
+                .push_back(QueuedExtensionRequest::Command(Box::new(
+                    QueuedExtensionCommand {
+                        pending: PendingExtensionCommand {
+                            extension_index: command.extension_index,
+                            extension_id: command.extension_id.clone(),
+                            command_id: command.command.id.clone(),
+                            title: command.command.title.clone(),
+                            review_generation: command_epoch,
+                            navigation,
+                        },
+                        snapshot,
+                        selection,
+                        open_panes,
+                        active_keyboard_mode,
+                        cwd,
+                        review,
+                        commands,
+                        workspace,
                     },
-                    snapshot,
-                    open_panes,
-                    active_keyboard_mode,
-                    cwd,
-                    review,
-                    commands,
-                    workspace,
-                }));
+                )));
         }
         self.status = Some(command.command.title);
         self.start_queued_extension_requests(Some(command.extension_index));
@@ -3772,9 +3846,10 @@ impl ReviewApp {
                 match queued {
                     QueuedExtensionRequest::Command(queued) => {
                         let started = runtime.extensions[extension_index]
-                            .begin_command_with_workspace_context(
+                            .begin_command_with_selection_context(
                                 &queued.pending.command_id,
                                 queued.snapshot,
+                                queued.selection,
                                 queued.open_panes,
                                 queued.active_keyboard_mode,
                                 queued.cwd,
@@ -4532,10 +4607,12 @@ impl ReviewApp {
                 .request_queues
                 .entry(extension_index)
                 .or_default()
-                .push_back(QueuedExtensionRequest::Event(QueuedExtensionEvent {
-                    event,
-                    dispatch_depth: self.extension_event_dispatch_depth,
-                }));
+                .push_back(QueuedExtensionRequest::Event(Box::new(
+                    QueuedExtensionEvent {
+                        event,
+                        dispatch_depth: self.extension_event_dispatch_depth,
+                    },
+                )));
         }
         self.start_queued_extension_requests(None);
     }
@@ -9669,18 +9746,70 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         })
         .collect::<Vec<_>>();
     let theme = to_extension_paint_theme(&app.options.theme);
-    let (generation, selection, has_changes, responsive_shows_sidebar) = app.with_state(|state| {
+    let pane_requests_current_line = static_specs.iter().any(|spec| spec.pane.current_line) || {
+        let runtime = app
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        runtime.panes.iter().any(|registration| {
+            runtime.open.contains(&registration.key) && registration.pane.current_line
+        })
+    };
+    let current_line = (pane_requests_current_line
+        && app.options.cursor_line != CursorLineMode::Off)
+        .then(|| app.current_review_line_cursor())
+        .flatten()
+        .map(|cursor| ExtensionReviewSnapshotLineAddress {
+            side: cursor.target.side,
+            line: cursor.target.line,
+        });
+    let (
+        generation,
+        selection,
+        has_changes,
+        responsive_shows_sidebar,
+        visible_files,
+        selected_file_id,
+        selected_hunk_index,
+    ) = app.with_state(|state| {
+        let selection = state.selection();
+        let files = &state.changeset().files;
+        let visible_files = files
+            .iter()
+            .enumerate()
+            .filter(|(file_index, file)| {
+                review_file_matches_filter(
+                    &project_review_file(file, "terminal-review", *file_index),
+                    &app.filter,
+                )
+            })
+            .map(|(_, file)| project_extension_diff_file(file))
+            .collect::<Vec<_>>();
         (
             state.generation(),
-            state.selection(),
-            !state.changeset().is_empty(),
+            selection,
+            !files.is_empty(),
             state.responsive_layout(area.width).show_sidebar,
+            visible_files,
+            files
+                .get(selection.file_index)
+                .map(project_extension_diff_file)
+                .map(|file| file.id),
+            selection.hunk_index,
         )
     });
+    let mut keybindings = ExtensionResolvedKeybindings {
+        keys: app.resolved_command_keys.keys.clone(),
+    };
     let mut runtime = app
         .extension_pane_runtime
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    for command in &runtime.app_commands {
+        keybindings
+            .keys
+            .insert(command.id.clone(), command.keys.clone());
+    }
     runtime.pane_action_hits.clear();
     let mut specs = static_specs.clone();
     specs.extend(runtime.session_panes.iter().map(ExtensionPaneSpec::from));
@@ -9696,6 +9825,89 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                     .contains(&registration.registered.identity)
             })
     });
+    let availability_candidates = runtime
+        .panes
+        .iter()
+        .filter(|registration| open.contains(&registration.key) && registration.pane.available)
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut unavailable_keys = BTreeSet::new();
+    for registration in availability_candidates {
+        let pane_current_line = registration
+            .pane
+            .current_line
+            .then_some(current_line)
+            .flatten();
+        let signature = PaneAvailabilitySignature {
+            registration_identity: registration.registered.identity,
+            files: visible_files.clone(),
+            selected_file_id: selected_file_id.clone(),
+            selected_hunk_index,
+            current_line: pane_current_line,
+        };
+        let cached = runtime
+            .cached_availability
+            .get(&registration.registered.identity)
+            .filter(|cached| cached.signature == signature)
+            .map(|cached| cached.available);
+        let available = if let Some(cached) = cached {
+            Some(cached)
+        } else if runtime.extensions[registration.extension_index].request_pending() {
+            runtime
+                .cached_availability
+                .get(&registration.registered.identity)
+                .map(|cached| cached.available)
+                .or(Some(true))
+        } else {
+            match runtime.extensions[registration.extension_index].pane_available(
+                PaneAvailabilityRequest {
+                    pane_id: registration.pane.id.clone(),
+                    placement: registration.pane.placement,
+                    files: visible_files.clone(),
+                    selected_file_id: selected_file_id.clone(),
+                    selected_hunk_index,
+                    current_line: pane_current_line,
+                },
+            ) {
+                Ok(available) => {
+                    runtime.cached_availability.insert(
+                        registration.registered.identity,
+                        CachedPaneAvailability {
+                            signature,
+                            available,
+                        },
+                    );
+                    Some(available)
+                }
+                Err(error) => {
+                    if let Some(warning) =
+                        runtime.contain_pane_availability_failure(&registration, error)
+                        && let Some(notifications) = app.options.extension_notifications.as_ref()
+                    {
+                        notifications.notify(warning, ExtensionNotifyType::Warning);
+                    }
+                    None
+                }
+            }
+        };
+        if available != Some(true) {
+            unavailable_keys.insert(registration.key);
+        }
+    }
+    open.retain(|key| !unavailable_keys.contains(key));
+    let logical_files_replacement_open = runtime.session_panes.iter().any(|pane| {
+        runtime.open.contains(&pane.key)
+            && pane.registered.pane.replaces.as_deref() == Some(WORKDECK_FILES_PANE_KEY)
+            && !runtime
+                .failed_pane_registration_ids
+                .contains(&pane.registered.identity)
+    });
+    let has_live_files_replacement = runtime.session_panes.iter().any(|pane| {
+        pane.registered.pane.replaces.as_deref() == Some(WORKDECK_FILES_PANE_KEY)
+            && !runtime
+                .failed_pane_registration_ids
+                .contains(&pane.registered.identity)
+    });
     let open_files_replacement = runtime.session_panes.iter().any(|pane| {
         open.contains(&pane.key)
             && pane.registered.pane.replaces.as_deref() == Some(WORKDECK_FILES_PANE_KEY)
@@ -9704,7 +9916,10 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 .contains(&pane.registered.identity)
     });
     if has_changes
-        && ((app.options.sidebar && !open_files_replacement) || runtime.force_builtin_files_sidebar)
+        && (runtime.force_builtin_files_sidebar
+            || (app.options.sidebar
+                && !open_files_replacement
+                && (!has_live_files_replacement || logical_files_replacement_open)))
     {
         open.insert(WORKDECK_FILES_PANE_KEY.into());
     }
@@ -9767,6 +9982,15 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             registration_identity: registration.registered.identity,
             generation,
             selection,
+            files: visible_files.clone(),
+            selected_file_id: selected_file_id.clone(),
+            selected_hunk_index,
+            current_line: registration
+                .pane
+                .current_line
+                .then_some(current_line)
+                .flatten(),
+            keybindings: keybindings.clone(),
             placement: registration.pane.placement,
             width: planned.bounds.width,
             height: planned.bounds.height,
@@ -9807,6 +10031,11 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 width: signature.width,
                 height: signature.height,
                 theme: signature.theme.clone(),
+                files: signature.files.clone(),
+                selected_file_id: signature.selected_file_id.clone(),
+                selected_hunk_index: signature.selected_hunk_index,
+                current_line: signature.current_line,
+                keybindings: signature.keybindings.clone(),
             };
             let result = match runtime.extensions[registration.extension_index].render_pane(request)
             {
@@ -9958,21 +10187,36 @@ fn render_extension_pane(
         &mut actions,
         &mut inputs,
     );
+    let scroll_top = extension_pane_scroll_top(&pane.content, &lines, area.width, area.height);
     Block::default()
         .style(Style::default().bg(ratatui_theme_color(&app.options.theme.panel)))
         .render(area, buffer);
     let mut focused = None;
     if let Some((extension_index, extension_id, pane_id, registration_identity)) = owner {
-        let mut y = area.y;
+        let mut physical_y = 0_usize;
+        let viewport_start = scroll_top;
+        let viewport_end = scroll_top.saturating_add(usize::from(area.height));
         let mut hits = Vec::new();
         for ((line, action_id), input) in lines.iter().zip(&actions).zip(&inputs) {
-            let height = extension_pane_line_height(line, area.width);
-            let visible_height = height.min(area.bottom().saturating_sub(y));
+            let height = usize::from(extension_pane_line_height(line, area.width));
+            let line_start = physical_y;
+            let line_end = physical_y.saturating_add(height);
+            let visible_start = line_start.max(viewport_start);
+            let visible_end = line_end.min(viewport_end);
+            let visible_height = visible_end.saturating_sub(visible_start);
+            let y = area.y.saturating_add(
+                u16::try_from(visible_start.saturating_sub(viewport_start)).unwrap_or(u16::MAX),
+            );
             if let Some(action_id) = action_id
                 && visible_height > 0
             {
                 hits.push(ExtensionPaneActionHit {
-                    bounds: Rect::new(area.x, y, area.width, visible_height),
+                    bounds: Rect::new(
+                        area.x,
+                        y,
+                        area.width,
+                        u16::try_from(visible_height).unwrap_or(u16::MAX),
+                    ),
                     extension_index,
                     extension_id: extension_id.clone(),
                     pane_id: pane_id.clone(),
@@ -9991,14 +10235,16 @@ fn render_extension_pane(
                     pane_id: pane_id.clone(),
                     input_id: input.input_id.clone(),
                     value: input.value.clone(),
-                    bounds: Rect::new(area.x, y, area.width, visible_height),
+                    bounds: Rect::new(
+                        area.x,
+                        y,
+                        area.width,
+                        u16::try_from(visible_height).unwrap_or(u16::MAX),
+                    ),
                     prefix_cells: input.prefix_cells,
                 });
             }
-            y = y.saturating_add(height);
-            if y >= area.bottom() {
-                break;
-            }
+            physical_y = line_end;
         }
         app.extension_pane_runtime
             .lock()
@@ -10008,8 +10254,75 @@ fn render_extension_pane(
     }
     Paragraph::new(lines)
         .wrap(Wrap { trim: false })
+        .scroll((u16::try_from(scroll_top).unwrap_or(u16::MAX), 0))
         .render(area, buffer);
     focused
+}
+
+fn extension_pane_selected_line_range(node: &ViewNode) -> Option<Range<usize>> {
+    fn visit(node: &ViewNode, line: &mut usize, selected: &mut Option<Range<usize>>) {
+        match node {
+            ViewNode::Text { .. }
+            | ViewNode::Row { .. }
+            | ViewNode::Input { .. }
+            | ViewNode::Divider => *line = line.saturating_add(1),
+            ViewNode::Column { children, gap } => {
+                for (index, child) in children.iter().enumerate() {
+                    if index > 0 {
+                        *line = line.saturating_add(usize::from(*gap));
+                    }
+                    visit(child, line, selected);
+                }
+            }
+            ViewNode::List {
+                items,
+                selected: selected_index,
+            } => {
+                for (index, item) in items.iter().enumerate() {
+                    let start = *line;
+                    *line = line.saturating_add(1);
+                    visit(item, line, selected);
+                    if selected.is_none() && *selected_index == Some(index) {
+                        *selected = Some(start..*line);
+                    }
+                }
+            }
+            ViewNode::Action { child, .. } => visit(child, line, selected),
+            ViewNode::Empty => {}
+        }
+    }
+
+    let mut line = 0;
+    let mut selected = None;
+    visit(node, &mut line, &mut selected);
+    selected
+}
+
+fn extension_pane_scroll_top(
+    content: &ViewNode,
+    lines: &[Line<'_>],
+    width: u16,
+    height: u16,
+) -> usize {
+    let Some(selected) = extension_pane_selected_line_range(content) else {
+        return 0;
+    };
+    let heights = lines
+        .iter()
+        .map(|line| usize::from(extension_pane_line_height(line, width)))
+        .collect::<Vec<_>>();
+    let selected_start = heights.iter().take(selected.start).sum::<usize>();
+    let selected_end = heights.iter().take(selected.end).sum::<usize>();
+    let total = heights.iter().sum::<usize>();
+    let viewport = usize::from(height);
+    if selected_end <= viewport {
+        0
+    } else {
+        selected_end
+            .saturating_sub(viewport)
+            .max(selected_start.saturating_sub(viewport.saturating_sub(1)))
+            .min(total.saturating_sub(viewport))
+    }
 }
 
 fn extension_pane_line_height(line: &Line<'_>, width: u16) -> u16 {

@@ -2,7 +2,37 @@
 
 use crate::ExtensionKeyEvent;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fmt;
+
+/// Host-resolved command bindings exposed to declarative native panes.
+///
+/// This is the subprocess-safe counterpart of Hunk's pane `keybindings`
+/// helper. Invalid and shadowed user declarations have already been removed by
+/// the host, so extensions observe the exact keys used by live dispatch.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionResolvedKeybindings {
+    #[serde(default)]
+    pub keys: BTreeMap<String, Vec<String>>,
+}
+
+impl ExtensionResolvedKeybindings {
+    #[must_use]
+    pub fn get_keys(&self, command_id: &str) -> &[String] {
+        self.keys
+            .get(command_id)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+    }
+
+    #[must_use]
+    pub fn matches(&self, key: &ExtensionKeyEvent, command_id: &str) -> bool {
+        self.get_keys(command_id)
+            .iter()
+            .any(|chord| matches_key(chord, key))
+    }
+}
 
 /// Modifier-normalized description of one parsed chord.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -285,6 +315,28 @@ mod tests {
         );
         assert!(parsed("shift+tab").shift);
         assert!(parsed("shift+g").shift);
+    }
+
+    #[test]
+    fn resolved_pane_keybindings_round_trip_and_match_the_host_chords() {
+        let keybindings = ExtensionResolvedKeybindings {
+            keys: BTreeMap::from([
+                ("workdeck.review.nextFile".into(), vec!["ctrl+n".into()]),
+                ("probe.blocked".into(), Vec::new()),
+            ]),
+        };
+        let encoded = serde_json::to_value(&keybindings).unwrap();
+        let decoded: ExtensionResolvedKeybindings = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded.get_keys("workdeck.review.nextFile"), ["ctrl+n"]);
+        assert!(decoded.get_keys("probe.blocked").is_empty());
+        assert!(decoded.matches(
+            &ExtensionKeyEvent {
+                name: "n".into(),
+                ctrl: true,
+                ..ExtensionKeyEvent::default()
+            },
+            "workdeck.review.nextFile"
+        ));
     }
 
     #[test]
