@@ -707,7 +707,10 @@ mod tests {
         files: &[DiffFile],
         mut complete: impl FnMut(&LineHighlightPreparationController) -> bool,
     ) {
-        let deadline = Instant::now() + Duration::from_secs(5);
+        // The 600-file stress case shares a debug test process with renderer, subprocess, and
+        // highlighter workloads. Keep this as a deadlock deadline with scheduler headroom; exact
+        // throughput belongs to the same-host release benchmarks rather than a wall-clock unit.
+        let deadline = Instant::now() + Duration::from_secs(15);
         loop {
             controller.reconcile(extensions, registrations, epochs, files);
             if complete(controller) {
