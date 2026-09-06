@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "runtime": "Bun 1.3.14",
+  "captured_at": "2026-09-06",
+  "source": {
+    "path": "test/pty/watch.test.ts",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "5b671504d11a731e4c31d9b37dfbaa1adb71d0b0",
+      "sha256": "f99474213fbb1afaf0680c3b460630a7ff865b3bee8e231ba8a4a4d88fbb797f",
+      "bytes": 2366,
+      "lines": 72
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "e46c10c7a76e641cdfb64fa0f9c8607ea4e92090",
+      "sha256": "3a114b345b65b34a4b0673e328ac9bcb0b79ef00d4c35e1424185d3c5f8c2a90",
+      "bytes": 2355,
+      "lines": 72
+    }
+  },
+  "oracle_runs": {
+    "baseline": {
+      "command": "bun test test/pty/watch.test.ts",
+      "passed": 2,
+      "failed": 0,
+      "expect_calls": 4
+    },
+    "stable": {
+      "command": "bun test test/pty/watch.test.ts",
+      "passed": 2,
+      "failed": 0,
+      "expect_calls": 4
+    }
+  },
+  "baseline_delta": [
+    "the direct-file invocation uses provider-neutral --files spelling"
+  ],
+  "test_mapping": [
+    {
+      "source_test": "passively refreshes direct files after an atomic save",
+      "evidence": [
+        {
+          "file": "crates/workdeck-tui/src/watched_input/tests.rs",
+          "test": "watched_input::tests::native_direct_file_driver_refreshes_the_loaded_diff_after_an_atomic_save"
+        },
+        {
+          "file": "crates/workdeck-tui/src/lib.rs",
+          "test": "tests::mounted_watch_reload_preserves_filter_theme_and_refreshes_agent_note"
+        }
+      ]
+    },
+    {
+      "source_test": "passively refreshes a tracked file in a linked Git worktree",
+      "evidence": [
+        {
+          "file": "crates/workdeck-tui/src/watched_input/tests.rs",
+          "test": "watched_input::tests::native_git_driver_refreshes_a_tracked_file_inside_a_linked_worktree"
+        },
+        {
+          "file": "crates/workdeck-tui/src/lib.rs",
+          "test": "tests::mounted_watch_reload_preserves_filter_theme_and_refreshes_agent_note"
+        }
+      ]
+    }
+  ],
+  "adaptations": [
+    "The native tests pass the exact pre-load signature into the mounted driver, require a real observer event, and allow at most five seconds for one debounced refresh.",
+    "The direct-file test atomically replaces the watched path and reloads the complete file comparison, proving the initial changed line is absent from the refreshed patch.",
+    "The linked-worktree test creates a real Git common directory and linked worktree, then reloads the complete bundled-Git review after changing its tracked file.",
+    "A separate Ratatui TestBackend contract proves a watch reload reaches the visible terminal cells while mounted review state is preserved."
+  ]
+}
