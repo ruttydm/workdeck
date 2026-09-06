@@ -1034,4 +1034,75 @@ mod tests {
         assert_eq!(next_line, 539);
         assert_eq!(next_byte, 23_127);
     }
+
+    #[test]
+    fn frozen_app_host_extensions_oracle_maps_both_pins_and_every_source_test() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/app-host-extensions.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            oracle["source"]["baseline"]["commit"],
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2"
+        );
+        assert_eq!(oracle["source"]["baseline"]["bytes"], 52_443);
+        assert_eq!(oracle["source"]["baseline"]["lines"], 1_382);
+        assert_eq!(
+            oracle["source"]["stable"]["commit"],
+            "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+        );
+        assert_eq!(oracle["source"]["stable"]["bytes"], 51_599);
+        assert_eq!(oracle["source"]["stable"]["lines"], 1_368);
+        for pin in ["baseline", "stable"] {
+            assert_eq!(oracle["oracleRuns"][pin]["passed"], 19);
+            assert_eq!(oracle["oracleRuns"][pin]["failed"], 0);
+            assert_eq!(
+                oracle["oracleRuns"][pin]["caseMilliseconds"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                19
+            );
+        }
+
+        let expected = [
+            "--no-extensions still disables extensions when a reload re-runs discovery",
+            "a failed replacement keeps the visible extension instance running",
+            "a reloaded files replacement does not take toggle control from the open fallback",
+            "retires a prepared replacement when broker commit preparation throws",
+            "refuses a queued replacement reload after quit becomes terminal",
+            "owns and retires a replacement still inside its asynchronous factory",
+            "retires an in-flight replacement instead of adopting it after quit",
+            "waits for an adopted runtime's in-flight retirement before quit",
+            "serializes concurrent reloads so every replacement receives a full lifecycle",
+            "--extension paths survive a reload that re-runs discovery",
+            "delivers same-runtime reload events after the new review commits",
+            "fires again when a soft reload replaces the selected file with the same id",
+            "fires when granting trust loads a repo extension for the first time",
+            "fires when the session was launched through a non-canonical repo path",
+            "starts a replacement only after its mounted sidebar controls are ready",
+            "revokes retained panes and dialogs before a soft replacement shuts down",
+            "shuts down and starts each replacement extension instance",
+            "an extension backend keeps a checkout no built-in recognizes",
+            "a nearer extension checkout inside a Git repository survives reload",
+        ];
+        let mappings = oracle["testMappings"].as_array().unwrap();
+        assert_eq!(
+            mappings
+                .iter()
+                .map(|mapping| mapping["upstream"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert!(mappings.iter().all(|mapping| {
+            mapping["rustTests"].as_array().is_some_and(|tests| {
+                !tests.is_empty()
+                    && tests.iter().all(|test| {
+                        test.as_str()
+                            .is_some_and(|selector| selector.contains(".rs#"))
+                    })
+            })
+        }));
+        assert_eq!(oracle["baselineDelta"].as_array().unwrap().len(), 2);
+    }
 }

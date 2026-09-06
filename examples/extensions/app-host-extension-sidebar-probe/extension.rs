@@ -33,6 +33,7 @@ enum Scenario {
     AvailabilityFailure,
     FilteredAvailability,
     Scroll,
+    Startup,
 }
 
 impl Scenario {
@@ -53,6 +54,7 @@ impl Scenario {
             "availability-failure" => Ok(Self::AvailabilityFailure),
             "filtered-availability" => Ok(Self::FilteredAvailability),
             "scroll" => Ok(Self::Scroll),
+            "startup" => Ok(Self::Startup),
             value => Err(io::Error::other(format!("Unknown scenario: {value}"))),
         }
     }
@@ -187,6 +189,12 @@ fn registrations(scenario: Scenario) -> Vec<Registration> {
             vec![pane("two-files", PanePlacement::Bottom, true, None, true)]
         }
         Scenario::Scroll => vec![pane("reflist", PanePlacement::Right, true, None, false)],
+        Scenario::Startup => vec![
+            pane("startup", PanePlacement::Right, false, None, false),
+            Registration::EventSubscription {
+                names: vec!["startup".into()],
+            },
+        ],
     }
 }
 
@@ -258,6 +266,7 @@ fn render_pane(scenario: Scenario, request: PaneRenderRequest) -> io::Result<Pan
                 selected,
             }
         }
+        Scenario::Startup => text("MOUNTED STARTUP SIDEBAR"),
         Scenario::Selection | Scenario::ReviewSnapshot | Scenario::LineOff => ViewNode::Empty,
     };
     Ok(PaneRenderResponse { content })
@@ -368,6 +377,13 @@ fn invoke(scenario: Scenario, invocation: CommandInvocation) -> io::Result<Comma
 }
 
 fn event(scenario: Scenario, event: ReviewEvent) -> CommandExecution {
+    if scenario == Scenario::Startup && event.name == "startup" {
+        return CommandExecution {
+            actions: vec![ExtensionHostAction::OpenPane {
+                id: "startup".into(),
+            }],
+        };
+    }
     if scenario == Scenario::Extra && event.name == "selection_changed" {
         return CommandExecution {
             actions: vec![notify(format!(

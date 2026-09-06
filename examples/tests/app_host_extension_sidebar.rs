@@ -189,6 +189,19 @@ fn frozen_app_host_extension_sidebar_oracle_maps_both_pins_and_all_source_tests(
 }
 
 #[test]
+fn startup_event_opens_a_pane_after_native_controls_are_mounted() {
+    let mut fixture = Fixture::standard("startup");
+    fixture.settle();
+    let frame = fixture.draw();
+    assert!(frame.contains("MOUNTED STARTUP SIDEBAR"));
+    assert!(
+        fixture.notice().is_empty(),
+        "startup targeted an unmounted control: {:?}",
+        fixture.notice()
+    );
+}
+
+#[test]
 fn command_key_opens_an_additive_native_pane_and_its_action_publishes_selection() {
     let mut fixture = Fixture::standard("extra");
     let initial = fixture.draw();

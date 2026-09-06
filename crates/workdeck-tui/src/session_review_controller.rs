@@ -1340,6 +1340,62 @@ mod tests {
     }
 
     #[test]
+    fn same_runtime_lifecycle_observes_the_committed_review_without_a_second_startup() {
+        let initial_input = patch_input("before.patch");
+        let mut app = ReviewApp::new(
+            changeset("before.rs", "old", "before"),
+            ReviewOptions {
+                review_input: Some(initial_input),
+                command_cwd: Some("/repo".into()),
+                ..ReviewOptions::default()
+            },
+        );
+        app.observed_extension_events.clear();
+        let registry_generation = app.extension_registry_generation;
+        let next_input = patch_input("after.patch");
+        let mut broker_committed = false;
+
+        app.session_commit_reload_with(
+            &next_input,
+            changeset("after.rs", "old", "after"),
+            &ReloadSessionOptions {
+                reason: Some(workdeck_session::SessionReloadReason::Daemon),
+                reset_app: Some(false),
+                ..ReloadSessionOptions::default()
+            },
+            |bootstrap, publication, snapshot| {
+                assert_eq!(bootstrap.changeset.files[0].path, "after.rs");
+                assert_eq!(publication.document.files[0].path, "after.rs");
+                assert_eq!(
+                    snapshot.state.selected_file_path.as_deref(),
+                    Some("after.rs")
+                );
+                broker_committed = true;
+                Ok("session-1".into())
+            },
+        )
+        .unwrap();
+
+        assert!(broker_committed);
+        assert_eq!(app.extension_registry_generation, registry_generation);
+        assert_eq!(
+            app.with_state(|state| state.changeset().files[0].path.clone()),
+            "after.rs"
+        );
+        assert_eq!(
+            app.observed_extension_events
+                .iter()
+                .map(|(generation, name, _)| (*generation, name.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                (registry_generation, "changeset_loaded"),
+                (registry_generation, "session_reload")
+            ]
+        );
+        assert_eq!(app.observed_extension_events[1].2["reason"], "daemon");
+    }
+
+    #[test]
     fn reset_app_false_preserves_view_state_while_default_reload_resets_it() {
         let mut app = ReviewApp::new(
             changeset("before.rs", "old", "before"),
