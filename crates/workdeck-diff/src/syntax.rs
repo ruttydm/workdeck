@@ -21,13 +21,13 @@ use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::{Arc, OnceLock};
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{
     Color as SyntectColor, FontStyle, ScopeSelectors, StyleModifier, Theme, ThemeItem, ThemeSet,
 };
-use syntect::parsing::SyntaxSet;
+use syntect::parsing::{SyntaxDefinition, SyntaxSet};
 use workdeck_core::{
     DiffFile, DiffHunk, DiffLineKind, FileChangeKind, FileFlags, FileSourceSnapshots, FileStats,
     SemanticReviewFile, bundled_shiki_theme_is_light, project_review_file, resolve_legacy_theme_id,
@@ -630,7 +630,7 @@ pub struct HighlightCache {
 impl Default for HighlightCache {
     fn default() -> Self {
         Self {
-            syntaxes: Arc::new(SyntaxSet::load_defaults_newlines()),
+            syntaxes: bundled_syntax_set(),
             themes: ThemeSet::load_defaults(),
             textmate_themes: HashMap::new(),
             theme_appearances: HashMap::new(),
@@ -647,6 +647,21 @@ impl Default for HighlightCache {
             pending_source_keys: HashSet::new(),
         }
     }
+}
+
+fn bundled_syntax_set() -> Arc<SyntaxSet> {
+    static SYNTAXES: OnceLock<Arc<SyntaxSet>> = OnceLock::new();
+    Arc::clone(SYNTAXES.get_or_init(|| {
+        let mut builder = SyntaxSet::load_defaults_newlines().into_builder();
+        let elixir = SyntaxDefinition::load_from_str(
+            include_str!("../assets/syntaxes/Elixir.sublime-syntax"),
+            true,
+            Some("Elixir"),
+        )
+        .expect("bundled Elixir syntax is valid");
+        builder.add(elixir);
+        Arc::new(builder.build())
+    }))
 }
 
 impl HighlightCache {
@@ -2336,6 +2351,160 @@ mod tests {
         file.set_sources(FileSourceSnapshots::default());
         let fragment = cache.highlight(&file, "base16-ocean.dark");
         assert_eq!(fragment[0][0].deletion, fragment[0][0].addition);
+    }
+
+    #[test]
+    fn hidden_elixir_heredoc_opener_preserves_comment_and_keyword_token_states() {
+        let before = concat!(
+            "defmodule Repro do\n",
+            "  @doc \"\"\"\n",
+            "  Line one.\n",
+            "  Line two.\n",
+            "  Line three.\n",
+            "  Line four.\n",
+            "  Line five.\n",
+            "  \"\"\"\n",
+            "  def hello do\n",
+            "    :world\n",
+            "  end\n",
+            "end\n",
+        );
+        let after = before.replace("Line five.", "Line five, edited.");
+        let mut file = parse_patch(
+            concat!(
+                "diff --git a/repro.ex b/repro.ex\n",
+                "--- a/repro.ex\n",
+                "+++ b/repro.ex\n",
+                "@@ -4,7 +4,7 @@\n",
+                "   Line two.\n",
+                "   Line three.\n",
+                "   Line four.\n",
+                "-  Line five.\n",
+                "+  Line five, edited.\n",
+                "   \"\"\"\n",
+                "   def hello do\n",
+                "     :world\n",
+            ),
+            "elixir-heredoc",
+            "Elixir heredoc",
+            ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap()
+        .files
+        .remove(0);
+        file.set_sources(FileSourceSnapshots {
+            old: Some(SourceSnapshot::new(
+                before.into(),
+                SourceOrigin::Revision {
+                    revision: "HEAD".into(),
+                },
+                true,
+            )),
+            new: Some(SourceSnapshot::new(after, SourceOrigin::WorkingTree, true)),
+        });
+
+        let highlighted = HighlightCache::default().highlight(&file, "github-dark-default");
+        let spans = highlighted[0]
+            .iter()
+            .flat_map(|line| line.addition.as_deref().unwrap_or_default())
+            .collect::<Vec<_>>();
+        let tokens_with = |needle: &str| {
+            spans
+                .iter()
+                .copied()
+                .filter(|token| token.text.contains(needle))
+                .collect::<Vec<_>>()
+        };
+        assert!(
+            tokens_with("Line five, edited.").iter().any(|token| {
+                token.foreground
+                    == SyntaxColor {
+                        red: 0x8b,
+                        green: 0x94,
+                        blue: 0x9e,
+                    }
+            }),
+            "highlighted Elixir spans: {spans:#?}"
+        );
+        assert!(tokens_with("\"\"\"").iter().any(|token| {
+            token.foreground
+                == SyntaxColor {
+                    red: 0x8b,
+                    green: 0x94,
+                    blue: 0x9e,
+                }
+        }));
+        assert!(tokens_with("def").iter().any(|token| {
+            token.foreground
+                == SyntaxColor {
+                    red: 0xff,
+                    green: 0x7b,
+                    blue: 0x72,
+                }
+        }));
+        assert!(tokens_with("def hello").iter().all(|token| {
+            token.foreground
+                != SyntaxColor {
+                    red: 0xa5,
+                    green: 0xd6,
+                    blue: 0xff,
+                }
+        }));
+    }
+
+    #[test]
+    fn frozen_hunk_pty_highlighting_oracle_maps_both_pins_and_each_source_test() {
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/pty-highlighting.json"
+        ))
+        .unwrap();
+        assert_eq!(oracle["runtime"], "Bun 1.3.14");
+        assert_eq!(
+            oracle["source"]["baseline"],
+            serde_json::json!({
+                "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+                "blob": "93eeea5bd75681a897368f81fe6afea8246523fe",
+                "sha256": "0c11341e81688af3bc6ce758925e87e9d1dc7542c462632e4d8f2a79481064f0",
+                "bytes": 4_125,
+                "lines": 112
+            })
+        );
+        assert_eq!(
+            oracle["source"]["stable"],
+            serde_json::json!({
+                "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+                "blob": "1fcbc21704f85a2821b1b4a5ecf091ac3bad2af6",
+                "sha256": "4f267cac9a75640b3040e5f7eeaf3c9fe3497ed36fb534970701dc88e67872d0",
+                "bytes": 3_464,
+                "lines": 97
+            })
+        );
+        for pin in ["baseline", "stable"] {
+            assert_eq!(oracle["oracle_runs"][pin]["passed"], 2);
+            assert_eq!(oracle["oracle_runs"][pin]["failed"], 0);
+            assert_eq!(oracle["oracle_runs"][pin]["expect_calls"], 6);
+        }
+        assert_eq!(oracle["baseline_delta"].as_array().unwrap().len(), 3);
+
+        let mappings = oracle["test_mapping"].as_array().unwrap();
+        assert_eq!(mappings.len(), 2);
+        let mut source_tests = HashSet::new();
+        for mapping in mappings {
+            assert!(source_tests.insert(mapping["source_test"].as_str().unwrap()));
+            let evidence = mapping["evidence"].as_array().unwrap();
+            assert!(!evidence.is_empty());
+            for item in evidence {
+                let relative = item["file"].as_str().unwrap();
+                let test = item["test"].as_str().unwrap();
+                let source = std::fs::read_to_string(workspace.join(relative)).unwrap();
+                let function = test.rsplit("::").next().unwrap();
+                assert!(
+                    source.contains(&format!("fn {function}(")),
+                    "{relative} does not define {test}"
+                );
+            }
+        }
     }
 
     #[test]

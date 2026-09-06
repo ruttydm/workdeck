@@ -1242,6 +1242,10 @@ fn release_entries<'a>(
             "third-party/themes/pierre-theme-NOTICE.md",
             "third_party/themes/pierre-theme-NOTICE.md",
         ),
+        (
+            "third-party/grammars/shikijs-langs-LICENSE",
+            "third_party/grammars/shikijs-langs-LICENSE",
+        ),
     ] {
         entries.push((
             format!("{root}/{archive_name}"),
@@ -2328,10 +2332,11 @@ mod tests {
     }
 
     #[test]
-    fn release_entries_retain_every_complete_theme_notice() {
+    fn release_entries_retain_every_complete_syntax_notice() {
         let scratch = tempfile::tempdir().unwrap();
         let root = scratch.path();
         fs::create_dir_all(root.join("third_party/themes")).unwrap();
+        fs::create_dir_all(root.join("third_party/grammars")).unwrap();
         fs::write(root.join("LICENSE"), b"license").unwrap();
         fs::write(root.join("THIRD_PARTY_NOTICES"), b"notices").unwrap();
         let binary = root.join("workdeck");
@@ -2344,6 +2349,11 @@ mod tests {
         ] {
             fs::write(root.join("third_party/themes").join(notice), notice).unwrap();
         }
+        fs::write(
+            root.join("third_party/grammars/shikijs-langs-LICENSE"),
+            b"shiki license",
+        )
+        .unwrap();
 
         let entries = release_entries(
             "workdeck-test",
@@ -2366,5 +2376,6 @@ mod tests {
         ] {
             assert!(names.contains(&format!("workdeck-test/third-party/themes/{notice}")));
         }
+        assert!(names.contains("workdeck-test/third-party/grammars/shikijs-langs-LICENSE"));
     }
 }

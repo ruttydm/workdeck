@@ -169,6 +169,11 @@ License: MIT plus each source theme's permissive license
 Complete notices: third_party/themes/tm-themes-LICENSE and
 third_party/themes/tm-themes-NOTICE
 
+Shiki grammar source package: @shikijs/langs 3.23.0
+License: MIT
+The currently imported Elixir compatibility syntax is a native Sublime-syntax translation of the
+Hunk-pinned TextMate grammar. Complete license: third_party/grammars/shikijs-langs-LICENSE
+
 Pierre default theme source package: @pierre/theme 2.0.0
 License: Apache-2.0 with Primer MIT attribution
 Complete notices: third_party/themes/pierre-theme-LICENSE and

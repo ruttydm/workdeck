@@ -15264,6 +15264,101 @@ mod tests {
     }
 
     #[test]
+    fn large_live_highlight_keeps_page_navigation_responsive_and_settles_colored() {
+        fn visible_worker_line_indexes(frame: &str) -> Vec<usize> {
+            frame
+                .match_indices("workerLine")
+                .filter_map(|(start, _)| {
+                    let suffix = &frame[start + "workerLine".len()..];
+                    let digits = suffix
+                        .chars()
+                        .take_while(char::is_ascii_digit)
+                        .collect::<String>();
+                    (!digits.is_empty()).then(|| digits.parse().unwrap())
+                })
+                .collect()
+        }
+
+        let mut patch = concat!(
+            "diff --git a/after.ts b/after.ts\n",
+            "new file mode 100644\n",
+            "--- /dev/null\n",
+            "+++ b/after.ts\n",
+            "@@ -0,0 +1,8000 @@\n",
+        )
+        .to_owned();
+        for index in 0..8_000 {
+            patch.push_str(&format!("+export const workerLine{index} = {index};\n"));
+        }
+        let changeset = parse_patch(
+            &patch,
+            "large-highlight",
+            "Large highlight",
+            ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap();
+        let mut app = ReviewApp::new(
+            changeset,
+            ReviewOptions {
+                layout: LayoutMode::Stack,
+                sidebar: false,
+                cursor_line: CursorLineMode::Off,
+                ..ReviewOptions::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(120, 24)).unwrap();
+        let initial = rendered_review_frame(&mut terminal, &app);
+        let last_initial = visible_worker_line_indexes(&initial)
+            .into_iter()
+            .max()
+            .expect("initial plain-text worker row");
+
+        let started = Instant::now();
+        app.handle_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+        let navigated = rendered_review_frame(&mut terminal, &app);
+        let navigation_elapsed = started.elapsed();
+        // Hunk's one-second threshold measures its production Bun build. Keep that exact gate for
+        // optimized Rust while allowing instrumentation-heavy debug row construction to prove the
+        // same nonblocking transition without turning compiler mode into the behavior under test.
+        let navigation_budget = if cfg!(debug_assertions) {
+            Duration::from_secs(3)
+        } else {
+            Duration::from_secs(1)
+        };
+        assert!(
+            navigation_elapsed < navigation_budget,
+            "PageDown repaint took {navigation_elapsed:?}"
+        );
+        assert!(
+            visible_worker_line_indexes(&navigated)
+                .into_iter()
+                .any(|index| index > last_initial)
+        );
+
+        let keyword = Color::Rgb(0xff, 0x7b, 0x72);
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            rendered_review_frame(&mut terminal, &app);
+            let colored = terminal
+                .backend()
+                .buffer()
+                .content()
+                .iter()
+                .filter(|cell| cell.fg == keyword)
+                .map(|cell| cell.symbol())
+                .collect::<String>();
+            if colored.contains("export") {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "native highlighting did not settle"
+            );
+            std::thread::yield_now();
+        }
+    }
+
+    #[test]
     fn native_cursor_paint_blends_each_ratatui_surface_and_number_mode_stops_at_the_gutter() {
         let theme = resolve_theme(Some("github-dark-default"), None, &[]);
         let prefix = Style::default().bg(ratatui_theme_color(&theme.panel));
