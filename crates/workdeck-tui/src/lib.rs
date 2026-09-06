@@ -11084,6 +11084,17 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     );
     drop(state);
     let viewport = area.height.saturating_sub(1) as usize;
+    if rows.lines.is_empty() {
+        rows.lines
+            .extend(std::iter::repeat_with(Line::default).take(viewport.saturating_sub(1) / 2));
+        rows.lines.push(
+            Line::styled(
+                "No files match the current filter.",
+                Style::default().fg(ratatui_theme_color(&app.options.theme.muted)),
+            )
+            .alignment(Alignment::Center),
+        );
+    }
     let max_scroll = rows.lines.len().saturating_sub(viewport);
     let scroll = if app.scroll == usize::MAX {
         max_scroll
@@ -18948,8 +18959,37 @@ mod tests {
     }
 
     #[test]
-    fn focused_status_filter_owns_editing_and_escape_clears_before_exit() {
+    fn repeated_escape_clears_each_retyped_no_match_filter_before_exiting() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/filter-escape.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            oracle["source"],
+            serde_json::json!({
+                "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+                "path": "test/pty/filter-escape.test.ts",
+                "blob": "b386d05a6575ae0f0ee1e31b10034bb5fe02b369",
+                "sha256": "f8d8d8bba4f1b0ac34471a69e2ae9563da9b4a83858b652e56bc123de4338a5a",
+                "bytes": 2_054,
+                "lines": 63,
+                "stable_v0_20_1": "absent"
+            })
+        );
+        assert_eq!(oracle["execution"]["runtime"], "Bun 1.3.14");
+        assert_eq!(oracle["execution"]["passed"], 1);
+        assert_eq!(oracle["execution"]["failed"], 0);
+        assert_eq!(oracle["execution"]["expect_calls"], 3);
+        assert_eq!(oracle["terminal"]["columns"], 220);
+        assert_eq!(oracle["terminal"]["rows"], 12);
+        assert_eq!(oracle["source_tests"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            oracle["native_test"]["test"],
+            "tests::repeated_escape_clears_each_retyped_no_match_filter_before_exiting"
+        );
+
         let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        let mut terminal = Terminal::new(TestBackend::new(220, 12)).unwrap();
         app.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
         assert_eq!(app.focus, Focus::Filter);
         for character in ['b', '界'] {
@@ -18965,6 +19005,27 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(app.filter.is_empty());
         assert_eq!(app.focus, Focus::Filter);
+        let first_clear = rendered_review_frame(&mut terminal, &app);
+        assert!(first_clear.contains("filter: type to filter files"));
+        assert!(first_clear.contains("a.rs"));
+        assert!(!first_clear.contains("No files match"));
+
+        for character in "zzz".chars() {
+            app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+        let no_match = rendered_review_frame(&mut terminal, &app);
+        assert_eq!(app.filter, "zzz");
+        assert_eq!(app.focus, Focus::Filter);
+        assert!(no_match.contains("No files match the current filter."));
+
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.filter.is_empty());
+        assert_eq!(app.focus, Focus::Filter);
+        let second_clear = rendered_review_frame(&mut terminal, &app);
+        assert!(second_clear.contains("filter: type to filter files"));
+        assert!(second_clear.contains("a.rs"));
+        assert!(!second_clear.contains("No files match"));
+
         app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert_eq!(app.focus, Focus::Review);
 
