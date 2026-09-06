@@ -265,6 +265,12 @@ mod tests {
         );
         let profile = environment(None, None, Some("/tmp/windows-profile"));
         assert_eq!(
+            resolve_global_config_path_with(&profile),
+            Some(PathBuf::from(
+                "/tmp/windows-profile/.config/workdeck/config.toml"
+            ))
+        );
+        assert_eq!(
             resolve_app_state_path_with(&profile),
             Some(PathBuf::from(
                 "/tmp/windows-profile/.config/workdeck/state.json"

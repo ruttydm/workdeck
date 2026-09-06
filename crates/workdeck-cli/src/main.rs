@@ -723,6 +723,8 @@ enum CursorLineArg {
 #[derive(Debug, Clone, Default, ClapArgs)]
 struct ReviewCliOptions {
     #[arg(skip)]
+    config_command_section: Option<&'static str>,
+    #[arg(skip)]
     experimental: bool,
     #[arg(skip)]
     fast: bool,
@@ -821,9 +823,10 @@ struct ReviewCliOptions {
 impl ReviewCliOptions {
     fn from_config(config: &Config) -> Self {
         Self {
+            config_command_section: None,
             experimental: false,
             fast: false,
-            vcs: Some(config.review.vcs.clone()),
+            vcs: config.explicit_vcs_id.clone(),
             mode: Some(match config.review.mode.as_str() {
                 "split" => ReviewLayoutArg::Split,
                 "stack" => ReviewLayoutArg::Stack,
@@ -2499,6 +2502,222 @@ mod review_cli_option_tests {
         assert!(!configured_tui.show_menu_bar);
         assert!(configured_tui.copy_decorations);
         assert!(!configured_tui.sidebar);
+    }
+
+    #[test]
+    fn review_configuration_uses_command_and_pager_context() {
+        let cases: &[(&[&str], Option<&str>, bool)] = &[
+            (&["workdeck", "diff"], Some("vcs"), false),
+            (
+                &["workdeck", "diff", "--files", "before", "after"],
+                Some("diff"),
+                false,
+            ),
+            (&["workdeck", "show"], Some("show"), false),
+            (&["workdeck", "stash", "show"], Some("stash-show"), false),
+            (&["workdeck", "patch"], Some("patch"), false),
+            (
+                &["workdeck", "difftool", "before", "after"],
+                Some("difftool"),
+                false,
+            ),
+            (&["workdeck", "pager"], Some("patch"), true),
+            (&["workdeck", "show", "--pager"], Some("show"), true),
+        ];
+        for (arguments, section, pager) in cases {
+            let parsed = Args::try_parse_from(*arguments).unwrap();
+            let command = parsed.command.unwrap();
+            assert_eq!(command.review_config_section(), *section, "{arguments:?}");
+            assert_eq!(command.is_pager_review(), *pager, "{arguments:?}");
+        }
+    }
+
+    #[test]
+    fn config_and_cli_precedence_matches_the_pinned_patch_pager_case() {
+        let directory = tempfile::tempdir().unwrap();
+        let user_config = directory.path().join("user.toml");
+        let repo_config = directory.path().join("repo.toml");
+        std::fs::write(
+            &user_config,
+            concat!(
+                "theme = 'github-dark-default'\n",
+                "line_numbers = false\n",
+                "tab_width = 8\n",
+                "transparentBackground = true\n",
+                "color_moved = true\n",
+                "prompt_save_view_preferences = false\n",
+                "[patch]\nmode = 'split'\n",
+                "[pager]\nmode = 'stack'\n",
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            &repo_config,
+            concat!(
+                "theme = 'github-light-default'\n",
+                "wrap_lines = true\n",
+                "menu_bar = false\n",
+                "[pager]\nhunk_headers = false\n",
+            ),
+        )
+        .unwrap();
+        let config = Config::load_from_paths_for_review(
+            &repo_config,
+            Some(&user_config),
+            Some("patch"),
+            true,
+        )
+        .unwrap();
+        let parsed = Args::try_parse_from([
+            "workdeck",
+            "patch",
+            "-",
+            "--pager",
+            "--agent-notes",
+            "--tab-width",
+            "6",
+        ])
+        .unwrap();
+        let Some(Command::Patch { mut review, .. }) = parsed.command else {
+            panic!("expected patch command");
+        };
+        review.apply_config_defaults(&config);
+        let options = review.common_options();
+
+        assert_eq!(options.pager, Some(true));
+        assert_eq!(options.mode, Some(InputLayoutMode::Stack));
+        assert_eq!(options.theme.as_deref(), Some("github-light-default"));
+        assert_eq!(options.line_numbers, Some(false));
+        assert_eq!(options.tab_width, Some(6));
+        assert_eq!(options.wrap_lines, Some(true));
+        assert_eq!(options.menu_bar, Some(false));
+        assert_eq!(options.hunk_headers, Some(false));
+        assert_eq!(options.agent_notes, Some(true));
+        assert_eq!(options.prompt_save_view_preferences, Some(false));
+        assert_eq!(options.transparent_background, Some(true));
+        assert_eq!(options.color_moved, Some(true));
+    }
+
+    #[test]
+    fn launch_only_flags_and_explicit_scalar_flags_outrank_config() {
+        let directory = tempfile::tempdir().unwrap();
+        let user_config = directory.path().join("user.toml");
+        let repo_config = directory.path().join("missing.toml");
+        std::fs::write(
+            &user_config,
+            concat!(
+                "fast = true\n",
+                "experimental = true\n",
+                "cursor_line = 'number'\n",
+                "watch = true\n",
+                "sidebar = false\n",
+                "transparent_background = true\n",
+                "exclude_untracked = true\n",
+            ),
+        )
+        .unwrap();
+        let config = Config::load_from_paths_for_review(
+            &repo_config,
+            Some(&user_config),
+            Some("vcs"),
+            false,
+        )
+        .unwrap();
+        let parsed = Args::try_parse_from([
+            "workdeck",
+            "--fast",
+            "--experimental",
+            "diff",
+            "--cursor-line",
+            "off",
+            "--no-watch",
+            "--sidebar",
+            "--opaque-bg",
+            "--include-untracked",
+        ])
+        .unwrap();
+        let Some(Command::Diff {
+            exclude_untracked,
+            include_untracked,
+            mut review,
+            ..
+        }) = parsed.command
+        else {
+            panic!("expected diff command");
+        };
+        assert!(!review.fast);
+        assert!(!review.experimental);
+        review.fast = parsed.fast;
+        review.experimental = parsed.experimental;
+        review.apply_config_defaults(&config);
+        let options = review.common_options();
+        assert_eq!(options.fast, Some(true));
+        assert_eq!(options.experimental, Some(true));
+        assert_eq!(options.cursor_line, Some(InputCursorLine::Off));
+        assert_eq!(options.watch, Some(false));
+        assert_eq!(options.sidebar, Some(SidebarVisibility::Visible));
+        assert_eq!(options.transparent_background, Some(false));
+        assert!(include_untracked);
+        assert!(review.config_exclude_untracked);
+        let resolved_exclude =
+            !include_untracked && (exclude_untracked || review.config_exclude_untracked);
+        assert!(!resolved_exclude);
+    }
+
+    #[test]
+    fn bundled_vcs_detection_and_explicit_override_match_config_resolution() {
+        let directory = tempfile::tempdir().unwrap();
+        let jj_repo = directory.path().join("jj");
+        let colocated = directory.path().join("colocated");
+        let parent_jj = directory.path().join("parent-jj");
+        let nested_git = parent_jj.join("git-project");
+        let plain = directory.path().join("plain");
+        for path in [&jj_repo, &colocated, &nested_git, &plain] {
+            std::fs::create_dir_all(path).unwrap();
+        }
+        std::fs::create_dir(jj_repo.join(".jj")).unwrap();
+        std::fs::create_dir(colocated.join(".jj")).unwrap();
+        std::fs::create_dir(colocated.join(".git")).unwrap();
+        std::fs::create_dir(parent_jj.join(".jj")).unwrap();
+        std::fs::create_dir(nested_git.join(".git")).unwrap();
+
+        let detected = |path: &Path| {
+            select_review_vcs_adapter(path, None, bundled_vcs_catalog())
+                .unwrap()
+                .adapter
+                .id
+        };
+        assert_eq!(detected(&jj_repo), "jj");
+        assert_eq!(detected(&colocated), "jj");
+        assert_eq!(detected(&nested_git), "git");
+        assert_eq!(detected(&plain), "git");
+
+        let repo_config = jj_repo.join("config.toml");
+        std::fs::write(&repo_config, "vcs = 'git'\n").unwrap();
+        let config = Config::load_from_paths(&repo_config, None).unwrap();
+        let review = ReviewCliOptions::from_config(&config);
+        assert_eq!(review.configured_vcs_id(), Some("git"));
+        assert_eq!(
+            select_review_vcs_adapter(&jj_repo, review.configured_vcs_id(), bundled_vcs_catalog(),)
+                .unwrap()
+                .adapter
+                .id,
+            "git"
+        );
+    }
+
+    #[test]
+    fn fallback_vcs_is_detected_while_configured_vcs_remains_explicit() {
+        let default_review = ReviewCliOptions::from_config(&Config::default());
+        assert_eq!(default_review.configured_vcs_id(), None);
+        assert_eq!(default_review.preference(), ProviderPreference::Auto);
+
+        let mut configured = Config::default();
+        configured.review.vcs = "hg".into();
+        configured.explicit_vcs_id = Some("hg".into());
+        let configured_review = ReviewCliOptions::from_config(&configured);
+        assert_eq!(configured_review.configured_vcs_id(), Some("hg"));
+        assert_eq!(configured_review.preference(), ProviderPreference::Auto);
     }
 
     #[test]
@@ -5206,6 +5425,15 @@ fn run_with_preloaded_extensions(
             .is_some_and(Command::is_review_command)
     {
         let mut command = args.command.take().expect("review command was present");
+        let config_command_section = command.review_config_section();
+        let pager_review = command.is_pager_review();
+        {
+            let review = command
+                .review_options_mut()
+                .expect("review command has review options");
+            review.config_command_section = config_command_section;
+            review.pager = pager_review;
+        }
         let raw_review = command
             .review_options()
             .expect("review command has review options")
@@ -5218,7 +5446,7 @@ fn run_with_preloaded_extensions(
             .unwrap_or_else(|| bundled_vcs_catalog());
         let config_root = find_project_root_candidate_with_catalog(&args.cwd, Some(config_catalog))
             .unwrap_or_else(|| args.cwd.clone());
-        let config = Config::load(&config_root)?;
+        let config = Config::load_for_review(&config_root, config_command_section, pager_review)?;
         command
             .review_options_mut()
             .expect("review command has review options")
@@ -5457,6 +5685,25 @@ impl Command {
             } => Some(review),
             _ => None,
         }
+    }
+
+    fn review_config_section(&self) -> Option<&'static str> {
+        match self {
+            Self::Diff { files, .. } if files.is_empty() => Some("vcs"),
+            Self::Diff { .. } => Some("diff"),
+            Self::Show { .. } => Some("show"),
+            Self::Stash {
+                command: Some(StashCommand::Show { .. }),
+            } => Some("stash-show"),
+            Self::Patch { .. } | Self::Pager { .. } => Some("patch"),
+            Self::Difftool { .. } => Some("difftool"),
+            _ => None,
+        }
+    }
+
+    fn is_pager_review(&self) -> bool {
+        matches!(self, Self::Pager { .. })
+            || self.review_options().is_some_and(|review| review.pager)
     }
 
     fn is_global_command(&self) -> bool {
@@ -5859,6 +6106,18 @@ fn load_selected_vcs_changeset(
 /// Load any already-validated session input at its requested working
 /// directory. Extension transforms remain owned by the mounted TUI so they run
 /// exactly once after the content candidate has loaded successfully.
+fn review_config_context_for_input(input: &CliInput) -> (Option<&'static str>, bool) {
+    let command_section = match input {
+        CliInput::Vcs(_) => Some("vcs"),
+        CliInput::Show(_) => Some("show"),
+        CliInput::StashShow(_) => Some("stash-show"),
+        CliInput::Files(_) => Some("diff"),
+        CliInput::Patch(_) => Some("patch"),
+        CliInput::DiffTool(_) => Some("difftool"),
+    };
+    (command_section, input.options().pager.unwrap_or(false))
+}
+
 fn resolve_dynamic_review_input(
     input: &CliInput,
     cwd: &Path,
@@ -5866,7 +6125,8 @@ fn resolve_dynamic_review_input(
 ) -> Result<CliInput> {
     let config_root = find_project_root_candidate_with_catalog(cwd, Some(vcs_catalog))
         .unwrap_or_else(|| cwd.to_owned());
-    let config = Config::load(&config_root)?;
+    let (command_section, pager) = review_config_context_for_input(input);
+    let config = Config::load_for_review(&config_root, command_section, pager)?;
     let mut configured = ReviewCliOptions::from_config(&config).common_options();
     let requested = input.options();
     macro_rules! overlay {
@@ -5930,7 +6190,8 @@ fn load_dynamic_review_input(
     };
     let config_root = find_project_root_candidate_with_catalog(cwd, Some(catalog))
         .unwrap_or_else(|| cwd.to_owned());
-    let config = Config::load(&config_root)?;
+    let (command_section, pager) = review_config_context_for_input(input);
+    let config = Config::load_for_review(&config_root, command_section, pager)?;
     let review = ReviewCliOptions::from_config(&config);
     let session_themes = collect_review_custom_themes(&review, current_extensions);
     let mut startup_notices = review.startup_notices.clone();
@@ -6050,10 +6311,13 @@ fn load_dynamic_review_session(
 
     let config_root = find_project_root_candidate_with_catalog(cwd, Some(current_catalog))
         .unwrap_or_else(|| cwd.to_owned());
-    let config = Config::load(&config_root)?;
+    let (command_section, pager) = review_config_context_for_input(input);
+    let config = Config::load_for_review(&config_root, command_section, pager)?;
     let mut review = ReviewCliOptions::from_config(&config);
     let mut raw_review = ReviewCliOptions::default();
     for target in [&mut review, &mut raw_review] {
+        target.config_command_section = command_section;
+        target.pager = pager;
         target.experimental = input.options().experimental.unwrap_or(false);
         target.fast = input.options().fast.unwrap_or(false);
         target.extension = input
@@ -7221,6 +7485,8 @@ fn load_review_extensions_with_notifications(
     previous_load: Option<ExtensionLoadResult>,
     discovery_catalog: Option<&VcsCatalog>,
 ) -> Result<PreparedReviewExtensions> {
+    let command_section = review.config_command_section;
+    let pager = review.pager;
     load_review_extensions_with_config_loader(
         cwd,
         review,
@@ -7228,7 +7494,7 @@ fn load_review_extensions_with_notifications(
         notifications,
         previous_load,
         discovery_catalog,
-        Config::load,
+        move |repo_root| Config::load_for_review(repo_root, command_section, pager),
     )
 }
 
@@ -7359,7 +7625,7 @@ fn load_cli_extensions(
     disabled: bool,
 ) -> Result<PreloadedExtensionBootstrap> {
     let initial_repo = find_project_root_candidate_with_catalog(cwd, Some(bundled_vcs_catalog()));
-    let mut configured = Config::load(initial_repo.as_deref().unwrap_or(cwd))?;
+    let mut configured = Config::load_extension_bootstrap(initial_repo.as_deref().unwrap_or(cwd))?;
     let notifications = ExtensionNotificationHub::new();
     let first = load_cli_extension_pass(
         cwd,
@@ -7380,7 +7646,7 @@ fn load_cli_extensions(
     let discovery_catalog = extend_vcs_catalog(bundled_vcs_catalog(), adapters);
     let extension_repo = find_project_root_candidate_with_catalog(cwd, Some(&discovery_catalog));
     if has_extension_vcs && extension_repo != initial_repo {
-        configured = Config::load(extension_repo.as_deref().unwrap_or(cwd))?;
+        configured = Config::load_extension_bootstrap(extension_repo.as_deref().unwrap_or(cwd))?;
         let previous = provisional.take();
         let final_result = load_cli_extension_pass(
             cwd,

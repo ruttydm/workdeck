@@ -1,0 +1,245 @@
+{
+  "schema_version": 1,
+  "capture": {
+    "command": "env TMPDIR=/private/tmp bun test src/core/run/config.test.ts",
+    "runtime": "Bun 1.3.14",
+    "method": "executed the untouched test file in disposable worktrees at both pinned commits",
+    "normalization": "Hunk paths and command ids become Workdeck paths and command ids; no behavioral values are normalized"
+  },
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "source_blob": "68ebc02b234a5ebcae4881aeaded9a8bc557cf93",
+      "source_bytes": 48848,
+      "source_lines": 1357,
+      "source_sha256": "bd85b898204fbf23fc7dce60ff297660dd2fb0fb5a6e6437646f198d52eb616b",
+      "test_blob": "9b5f312e7fc85568d5d1aa129f1a3b3283254540",
+      "test_bytes": 48592,
+      "test_lines": 1483,
+      "test_sha256": "a970b4f62e83b24abef206745f8d57210ecf63741c83f4c918ccd99e8b5434b6",
+      "passed": 56,
+      "failed": 0,
+      "expect_calls": 124
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "source_blob": "d04fc614d43387c4ed2a3cbdeda27b01542ad8f3",
+      "source_bytes": 44944,
+      "source_lines": 1240,
+      "source_sha256": "f049a680a1b9dc3b4fddaae139ed880f3675697615fe9692a91bf2bd4222f6d2",
+      "test_blob": "5ebe1adc00708774aab871cf86741263f2e88c2b",
+      "test_bytes": 45419,
+      "test_lines": 1384,
+      "test_sha256": "729e80add2d991c738d1e0042f365543187ee46c69c658ec271ece7aebb42f76",
+      "passed": 54,
+      "failed": 0,
+      "expect_calls": 110
+    }
+  ],
+  "new_source_mapping": [
+    {
+      "bytes": [2549, 5320],
+      "lines": [73, 145],
+      "semantics": "persisted view models, built-in/default preferences, config resolution result, and source provenance",
+      "destinations": ["crates/workdeck-core/src/view_preferences.rs", "crates/workdeck-cli/src/config.rs", "crates/workdeck-cli/src/main.rs"]
+    },
+    {
+      "bytes": [5645, 19036],
+      "lines": [154, 529],
+      "semantics": "TOML upsert behavior, scalar and bounded normalization, authoritative option/command/theme/extension catalogs",
+      "destinations": ["crates/workdeck-core/src/view_preferences.rs", "crates/workdeck-cli/src/config.rs"]
+    },
+    {
+      "bytes": [32998, 43321],
+      "lines": [949, 1237],
+      "semantics": "catalog-driven preference parsing, defaults, per-layer command/pager precedence, source paths, persistence, and extension-only bootstrap",
+      "destinations": ["crates/workdeck-cli/src/config.rs", "crates/workdeck-cli/src/main.rs", "crates/workdeck-core/src/paths.rs", "crates/workdeck-core/src/view_preferences.rs", "crates/workdeck-vcs/src/catalog.rs"]
+    },
+    {
+      "bytes": [43475, 44068],
+      "lines": [1241, 1253],
+      "semantics": "initial defaults, pager menu default, and launch-only preference authority",
+      "destinations": ["crates/workdeck-cli/src/config.rs", "crates/workdeck-cli/src/main.rs"]
+    },
+    {
+      "bytes": [44455, 44924],
+      "lines": [1262, 1271],
+      "semantics": "explicit VCS provenance and global layer resolution",
+      "destinations": ["crates/workdeck-cli/src/config.rs", "crates/workdeck-cli/src/main.rs"]
+    },
+    {
+      "bytes": [44981, 45368],
+      "lines": [1273, 1281],
+      "semantics": "global extension/keybinding resolution and repository layer precedence",
+      "destinations": ["crates/workdeck-cli/src/config.rs", "crates/workdeck-cli/src/main.rs"]
+    },
+    {
+      "bytes": [45425, 47082],
+      "lines": [1283, 1313],
+      "semantics": "repository extensions, CLI-last merge, launch-only flags, and concrete option defaults",
+      "destinations": ["crates/workdeck-cli/src/config.rs", "crates/workdeck-cli/src/main.rs"]
+    },
+    {
+      "bytes": [47529, 48141],
+      "lines": [1322, 1339],
+      "semantics": "extension hard-off resolution, config notices, and resolved input projection",
+      "destinations": ["crates/workdeck-cli/src/config.rs", "crates/workdeck-cli/src/main.rs"]
+    },
+    {
+      "bytes": [48181, 48522],
+      "lines": [1341, 1351],
+      "semantics": "extension/keybinding/VCS provenance and selected config paths in the resolution result",
+      "destinations": ["crates/workdeck-cli/src/config.rs", "crates/workdeck-cli/src/main.rs", "crates/workdeck-core/src/paths.rs"]
+    },
+    {
+      "bytes": [48841, 48848],
+      "lines": [1356, 1357],
+      "semantics": "completed provider-neutral resolution value",
+      "destinations": ["crates/workdeck-cli/src/config.rs", "crates/workdeck-cli/src/main.rs"]
+    }
+  ],
+  "new_test_intervals": [
+    { "bytes": [0, 12392], "lines": [1, 386] },
+    { "bytes": [23668, 36599], "lines": [736, 1115] },
+    { "bytes": [38008, 40280], "lines": [1166, 1237] }
+  ],
+  "source_tests": [
+    { "number": 1, "title": "writes accepted view preferences to user config without disturbing tables" },
+    { "number": 2, "title": "writes the view preferences prompt setting without disturbing tables" },
+    { "number": 3, "title": "diffs view preference snapshots as the TOML assignments a save would rewrite" },
+    { "number": 4, "title": "merges global, repo, pager, command, and CLI overrides in the right order" },
+    { "number": 5, "title": "keeps fast highlighting launch-only instead of reading it from config" },
+    { "number": 6, "title": "reads the current-line style from config and lets CLI flags outrank it" },
+    { "number": 7, "title": "falls back to the built-in current-line style when config names an unknown one" },
+    { "number": 8, "title": "starts pager mode with the menu bar hidden unless a later layer asks for it" },
+    { "number": 9, "title": "defaults tab width to 4 and rejects invalid configured widths" },
+    { "number": 10, "title": "defaults file and hunk gaps and rejects invalid configured values", "stable_present": false },
+    { "number": 11, "title": "resolves the sidebar preference from config, CLI flags, and the auto default" },
+    { "number": 12, "title": "merges custom theme overrides from global and repo config" },
+    { "number": 13, "title": "reads named [themes.<id>] tables in declaration order after [custom_theme]" },
+    { "number": 14, "title": "layers named themes so repo config overrides the user layer per theme id" },
+    { "number": 15, "title": "keeps [custom_theme] as the custom id and reports the shadowed [themes.custom] table" },
+    { "number": 16, "title": "skips named themes with unusable ids instead of failing startup" },
+    { "number": 17, "title": "reports named theme validation errors against the key the user wrote" },
+    { "number": 18, "title": "accepts every supported custom theme base", "case_count": 4 },
+    { "number": 19, "title": "normalizes legacy custom theme base ids" },
+    { "number": 20, "title": "rejects invalid custom theme base ids" },
+    { "number": 21, "title": "rejects invalid custom theme color values" },
+    { "number": 22, "title": "rejects invalid Shiki scope colors" },
+    { "number": 23, "title": "temporarily translates the deprecated semantic syntax table into exact scopes" },
+    { "number": 24, "title": "rejects theme = custom when no [custom_theme] table is configured" },
+    { "number": 25, "title": "requires experimental features to be enabled by the launch CLI" },
+    { "number": 26, "title": "accepts transparent background config and CLI overrides" },
+    { "number": 27, "title": "loads global config from USERPROFILE when HOME is unavailable" },
+    { "number": 28, "title": "defaults unspecified themes to github-dark-default, including piped pager-style patch input" },
+    { "number": 29, "title": "command-specific config sections also apply to show mode" },
+    { "number": 30, "title": "defaults git diff to include untracked files and honors config plus CLI overrides" },
+    { "number": 31, "title": "resolves watch", "case_count": 5 },
+    { "number": 32, "title": "carries an unrecognized vcs id through for extensions to claim" },
+    { "number": 33, "title": "reports whether the resolved vcs id was chosen or detected" },
+    { "number": 34, "title": "ignores a non-string vcs value" },
+    { "number": 35, "title": "defaults to git VCS mode and accepts registered VCS modes from config" },
+    { "number": 36, "title": "auto-detects registered VCS checkouts before falling back to git mode" },
+    { "number": 37, "title": "explicit config overrides auto-detected jj mode" },
+    { "number": 38, "title": "loadAppBootstrap exposes resolved initial preferences to the UI" },
+    { "number": 39, "title": "loadAppBootstrap carries the configured custom theme into the UI bootstrap" },
+    { "number": 40, "title": "loadAppBootstrap exposes github-dark-default when no theme is configured" },
+    { "number": 41, "title": "defaults to enabled with no configured paths or per-extension tables" },
+    { "number": 42, "title": "reads [extensions] and keeps repo paths separate from user paths" },
+    { "number": 43, "title": "reads [keybindings] from the user layer only" },
+    { "number": 44, "title": "lets repo config disable extensions and --no-extensions win over both layers" },
+    { "number": 45, "title": "passes [extension.<id>] tables through with repo keys overriding user keys" },
+    { "number": 46, "title": "says nothing when the repo config configures no extensions" },
+    { "number": 47, "title": "lists every extension id the repo config sets options for" },
+    { "number": 48, "title": "resolves extension bootstrap config without review-only theme validation", "stable_present": false },
+    { "number": 49, "title": "rejects malformed extension sections" }
+  ],
+  "test_mapping": [
+    {
+      "source_numbers": [1, 2, 3],
+      "rust_tests": [
+        "save_preserves_comments_and_tables_and_replaces_only_top_level_values",
+        "prompt_save_changes_only_the_policy_key",
+        "diff_uses_persistence_order_and_toml_values"
+      ]
+    },
+    {
+      "source_numbers": [4],
+      "rust_tests": ["config_and_cli_precedence_matches_the_pinned_patch_pager_case"]
+    },
+    {
+      "source_numbers": [5, 25, 26, 30, 31],
+      "rust_tests": ["launch_only_flags_and_explicit_scalar_flags_outrank_config", "fast_shorthand_and_prefixed_review_flags_reach_the_diff_parser"]
+    },
+    {
+      "source_numbers": [6, 7, 8, 9, 10, 11, 28, 29],
+      "rust_tests": [
+        "review_config_layers_root_command_pager_and_repository_in_order",
+        "flat_scalar_preferences_ignore_invalid_values_but_keep_nested_schema_strict",
+        "flat_numeric_preferences_reject_wrong_types_and_bounds_at_every_level",
+        "review_configuration_uses_command_and_pager_context"
+      ]
+    },
+    {
+      "source_numbers": [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24],
+      "rust_tests": [
+        "custom_theme_config_matches_both_pinned_hunk_oracles",
+        "custom_theme_config_errors_match_the_pinned_hunk_oracle",
+        "custom_theme_bases_accept_every_oracle_case_and_normalize_legacy_ids"
+      ]
+    },
+    {
+      "source_numbers": [27],
+      "rust_tests": ["resolves_xdg_home_and_profile_paths_under_workdeck"]
+    },
+    {
+      "source_numbers": [32, 33, 34, 35, 36, 37],
+      "rust_tests": [
+        "explicit_vcs_provenance_is_distinct_from_the_git_fallback",
+        "loads_an_extension_owned_vcs_id_before_the_extension_catalog_exists",
+        "fallback_vcs_is_detected_while_configured_vcs_remains_explicit",
+        "bundled_vcs_detection_and_explicit_override_match_config_resolution"
+      ]
+    },
+    {
+      "source_numbers": [38, 39, 40],
+      "rust_tests": [
+        "config_and_cli_precedence_matches_the_pinned_patch_pager_case",
+        "composed_bootstrap_crosses_the_core_boundary_with_exact_initial_state",
+        "composed_bootstrap_carries_config_themes_and_view_preference_destination"
+      ]
+    },
+    {
+      "source_numbers": [41, 42],
+      "rust_tests": [
+        "native_extension_config_resolution_matches_both_pinned_hunk_oracles",
+        "extension_discovery_paths_retain_user_and_repository_provenance",
+        "extension_discovery_paths_ignore_empty_and_non_string_entries"
+      ]
+    },
+    {
+      "source_numbers": [43],
+      "rust_tests": ["command_keybindings_load_from_user_layer_only_in_declaration_order", "user_command_bindings_flow_from_config_into_review_options"]
+    },
+    {
+      "source_numbers": [44],
+      "rust_tests": ["repository_extension_enablement_overrides_user_and_defaults_true", "explicit_no_extensions_remains_a_hard_off_after_enabled_config"]
+    },
+    {
+      "source_numbers": [45, 46, 47],
+      "rust_tests": [
+        "extension_configuration_merges_top_level_keys_without_interpreting_nested_values",
+        "empty_repo_extension_table_does_not_emit_an_override_notice",
+        "repository_extension_notice_lists_every_nonempty_id_in_sorted_order"
+      ]
+    },
+    {
+      "source_numbers": [48],
+      "rust_tests": ["extension_bootstrap_ignores_unrelated_legacy_custom_theme_failure", "extension_cli_bootstrap_refines_root_reuses_prefix_and_defers_event_bus"]
+    },
+    {
+      "source_numbers": [49],
+      "rust_tests": ["malformed_extension_sections_are_rejected"]
+    }
+  ]
+}

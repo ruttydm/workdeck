@@ -5,10 +5,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use workdeck_core::{
     BUNDLED_SHIKI_THEME_IDS, CUSTOM_THEME_COLOR_KEYS, LEGACY_CUSTOM_SYNTAX_COLOR_KEYS,
-    LEGACY_CUSTOM_SYNTAX_NOTICE, LEGACY_CUSTOM_THEME_ID, NamedCustomThemeConfig, StartupNotice,
-    UserKeyBinding, UserKeyBindingEntry, create_invalid_theme_id_notice,
-    create_theme_collision_notice, describe_custom_theme_id_issue, describe_theme_color_issue,
-    normalize_theme_color_value, resolve_bundled_shiki_theme_id,
+    LEGACY_CUSTOM_SYNTAX_NOTICE, LEGACY_CUSTOM_THEME_ID, LEGACY_THEME_ID_ALIASES,
+    NamedCustomThemeConfig, StartupNotice, UserKeyBinding, UserKeyBindingEntry,
+    create_invalid_theme_id_notice, create_theme_collision_notice, describe_custom_theme_id_issue,
+    describe_theme_color_issue, normalize_theme_color_value, resolve_bundled_shiki_theme_id,
     resolve_custom_syntax_scope_overrides,
 };
 use workdeck_diff::sanitize_terminal_line;
@@ -25,6 +25,328 @@ pub struct ExtensionsConfig {
     pub repo_paths: Vec<PathBuf>,
     pub extension_configs: BTreeMap<String, serde_json::Value>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigReferenceDefault {
+    String(&'static str),
+    Integer(u16),
+    Boolean(bool),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConfigReferenceAlias {
+    pub key: &'static str,
+    pub deprecated: bool,
+}
+
+/// One Hunk-compatible flat preference shared by runtime parsing and generated
+/// configuration-reference documentation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConfigReferenceOption {
+    pub key: &'static str,
+    pub property: &'static str,
+    pub value_type: &'static str,
+    pub accepted: &'static str,
+    pub runtime_default: Option<ConfigReferenceDefault>,
+    pub default_value: Option<&'static str>,
+    pub description: &'static str,
+    pub aliases: &'static [ConfigReferenceAlias],
+    /// Ordered keys preserve the historical precedence of deprecated aliases.
+    pub runtime_keys: &'static [&'static str],
+}
+
+const NO_ALIASES: &[ConfigReferenceAlias] = &[];
+
+/// Authoritative catalog for Hunk-compatible root, command, and pager options.
+pub const CONFIG_REFERENCE_OPTIONS: &[ConfigReferenceOption] = &[
+    ConfigReferenceOption {
+        key: "mode",
+        property: "mode",
+        value_type: "string",
+        accepted: "auto, split, or stack",
+        runtime_default: Some(ConfigReferenceDefault::String("auto")),
+        default_value: None,
+        description: "Choose responsive, side-by-side, or stacked diff layout.",
+        aliases: NO_ALIASES,
+        runtime_keys: &["mode"],
+    },
+    ConfigReferenceOption {
+        key: "cursor_line",
+        property: "cursor_line",
+        value_type: "string",
+        accepted: "row, number, or off",
+        runtime_default: Some(ConfigReferenceDefault::String("row")),
+        default_value: None,
+        description: "Mark the current line by row or line number, or disable the marker.",
+        aliases: NO_ALIASES,
+        runtime_keys: &["cursor_line"],
+    },
+    ConfigReferenceOption {
+        key: "vcs",
+        property: "vcs",
+        value_type: "string",
+        accepted: "git, jj, sl, or an id registered by a loaded extension",
+        runtime_default: None,
+        default_value: Some("detected from the checkout (Git fallback)"),
+        description: "Select a version-control adapter explicitly.",
+        aliases: NO_ALIASES,
+        runtime_keys: &["vcs"],
+    },
+    ConfigReferenceOption {
+        key: "theme",
+        property: "theme",
+        value_type: "string",
+        accepted: "a built-in theme id, a native-extension theme id, or custom",
+        runtime_default: Some(ConfigReferenceDefault::String("github-dark-default")),
+        default_value: None,
+        description: "Select the active color theme.",
+        aliases: NO_ALIASES,
+        runtime_keys: &["theme"],
+    },
+    ConfigReferenceOption {
+        key: "watch",
+        property: "watch",
+        value_type: "boolean",
+        accepted: "true or false",
+        runtime_default: Some(ConfigReferenceDefault::Boolean(false)),
+        default_value: None,
+        description: "Reload supported review inputs when their source changes.",
+        aliases: NO_ALIASES,
+        runtime_keys: &["watch"],
+    },
+    ConfigReferenceOption {
+        key: "exclude_untracked",
+        property: "exclude_untracked",
+        value_type: "boolean",
+        accepted: "true or false",
+        runtime_default: Some(ConfigReferenceDefault::Boolean(false)),
+        default_value: None,
+        description: "Hide untracked files from working-tree reviews.",
+        aliases: NO_ALIASES,
+        runtime_keys: &["exclude_untracked"],
+    },
+    ConfigReferenceOption {
+        key: "line_numbers",
+        property: "line_numbers",
+        value_type: "boolean",
+        accepted: "true or false",
+        runtime_default: Some(ConfigReferenceDefault::Boolean(true)),
+        default_value: None,
+        description: "Show old and new line-number columns.",
+        aliases: NO_ALIASES,
+        runtime_keys: &["line_numbers"],
+    },
+    ConfigReferenceOption {
+        key: "tab_width",
+        property: "tab_width",
+        value_type: "integer",
+        accepted: "1 through 16",
+        runtime_default: Some(ConfigReferenceDefault::Integer(4)),
+        default_value: None,
+        description: "Set terminal-cell tab stops used for display and wrapping.",
+        aliases: NO_ALIASES,
+        runtime_keys: &["tab_width"],
+    },
+    ConfigReferenceOption {
+        key: "file_gap",
+        property: "file_gap",
+        value_type: "integer",
+        accepted: "0 through 8",
+        runtime_default: Some(ConfigReferenceDefault::Integer(1)),
+        default_value: None,
+        description: "Set the rows between files in the continuous review stream.",
+        aliases: NO_ALIASES,
+        runtime_keys: &["file_gap"],
+    },
+    ConfigReferenceOption {
+        key: "hunk_gap",
+        property: "hunk_gap",
+        value_type: "integer",
+        accepted: "0 through 8",
+        runtime_default: Some(ConfigReferenceDefault::Integer(0)),
+        default_value: None,
+        description: "Set blank rows before hunks after the first hunk in a file.",
+        aliases: NO_ALIASES,
+        runtime_keys: &["hunk_gap"],
+    },
+    ConfigReferenceOption {
+        key: "wrap_lines",
+        property: "wrap_lines",
+        value_type: "boolean",
+        accepted: "true or false",
+        runtime_default: Some(ConfigReferenceDefault::Boolean(false)),
+        default_value: None,
+        description: "Wrap long diff lines instead of keeping one visual row.",
+        aliases: NO_ALIASES,
+        runtime_keys: &["wrap_lines"],
+    },
+    ConfigReferenceOption {
+        key: "hunk_headers",
+        property: "hunk_headers",
+        value_type: "boolean",
+        accepted: "true or false",
+        runtime_default: Some(ConfigReferenceDefault::Boolean(true)),
+        default_value: None,
+        description: "Show hunk metadata rows in the review stream.",
+        aliases: NO_ALIASES,
+        runtime_keys: &["hunk_headers"],
+    },
+    ConfigReferenceOption {
+        key: "menu_bar",
+        property: "menu_bar",
+        value_type: "boolean",
+        accepted: "true or false",
+        runtime_default: Some(ConfigReferenceDefault::Boolean(true)),
+        default_value: None,
+        description: "Show the top application menu bar.",
+        aliases: NO_ALIASES,
+        runtime_keys: &["menu_bar"],
+    },
+    ConfigReferenceOption {
+        key: "sidebar",
+        property: "sidebar",
+        value_type: "string or boolean",
+        accepted: "auto, true, or false",
+        runtime_default: Some(ConfigReferenceDefault::String("auto")),
+        default_value: None,
+        description: "Show, hide, or responsively select the files pane.",
+        aliases: NO_ALIASES,
+        runtime_keys: &["sidebar"],
+    },
+    ConfigReferenceOption {
+        key: "agent_notes",
+        property: "agent_notes",
+        value_type: "boolean",
+        accepted: "true or false",
+        runtime_default: Some(ConfigReferenceDefault::Boolean(false)),
+        default_value: None,
+        description: "Show agent notes when a review opens.",
+        aliases: NO_ALIASES,
+        runtime_keys: &["agent_notes"],
+    },
+    ConfigReferenceOption {
+        key: "copy_decorations",
+        property: "copy_decorations",
+        value_type: "boolean",
+        accepted: "true or false",
+        runtime_default: Some(ConfigReferenceDefault::Boolean(false)),
+        default_value: None,
+        description: "Include diff signs and line numbers in copied selections.",
+        aliases: NO_ALIASES,
+        runtime_keys: &["copy_decorations"],
+    },
+    ConfigReferenceOption {
+        key: "prompt_save_view_preferences",
+        property: "prompt_save_view_preferences",
+        value_type: "boolean",
+        accepted: "true or false",
+        runtime_default: Some(ConfigReferenceDefault::Boolean(true)),
+        default_value: None,
+        description: "Ask before discarding view changes that can be persisted.",
+        aliases: NO_ALIASES,
+        runtime_keys: &["prompt_save_view_preferences"],
+    },
+    ConfigReferenceOption {
+        key: "transparent_background",
+        property: "transparent_background",
+        value_type: "boolean",
+        accepted: "true or false",
+        runtime_default: Some(ConfigReferenceDefault::Boolean(false)),
+        default_value: None,
+        description: "Let the terminal background show through Workdeck surfaces.",
+        aliases: &[ConfigReferenceAlias {
+            key: "transparentBackground",
+            deprecated: true,
+        }],
+        runtime_keys: &["transparentBackground", "transparent_background"],
+    },
+    ConfigReferenceOption {
+        key: "color_moved",
+        property: "color_moved",
+        value_type: "boolean",
+        accepted: "true or false",
+        runtime_default: None,
+        default_value: None,
+        description: "Enable moved-line coloring when the renderer supports it.",
+        aliases: NO_ALIASES,
+        runtime_keys: &["color_moved"],
+    },
+];
+
+/// Command-specific TOML tables accepted by the runtime resolver.
+pub const CONFIG_COMMAND_SECTIONS: &[(&str, &str)] = &[
+    ("vcs", "working-tree and target reviews (workdeck diff)"),
+    ("show", "commit and target display reviews (workdeck show)"),
+    ("stash-show", "stash reviews (workdeck stash show)"),
+    ("diff", "two-file comparisons (workdeck diff --files)"),
+    (
+        "patch",
+        "patch-file and pager reviews (workdeck patch/pager)",
+    ),
+    ("difftool", "Git difftool pair reviews (workdeck difftool)"),
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConfigReferenceCustomTheme {
+    pub table: &'static str,
+    pub base_values: &'static [&'static str],
+    pub default_base: &'static str,
+    pub legacy_base_aliases: &'static [(&'static str, &'static str)],
+    pub color_keys: &'static [&'static str],
+    pub legacy_syntax_color_keys: &'static [&'static str],
+    pub syntax_scopes_table: &'static str,
+    pub legacy_syntax_table: &'static str,
+    pub named_theme_table: &'static str,
+}
+
+pub const CONFIG_REFERENCE_CUSTOM_THEME: ConfigReferenceCustomTheme = ConfigReferenceCustomTheme {
+    table: "custom_theme",
+    base_values: BUNDLED_SHIKI_THEME_IDS,
+    default_base: "github-dark-default",
+    legacy_base_aliases: LEGACY_THEME_ID_ALIASES,
+    color_keys: CUSTOM_THEME_COLOR_KEYS,
+    legacy_syntax_color_keys: LEGACY_CUSTOM_SYNTAX_COLOR_KEYS,
+    syntax_scopes_table: "custom_theme.syntax_scopes",
+    legacy_syntax_table: "custom_theme.syntax",
+    named_theme_table: "themes",
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConfigReferenceSectionKey {
+    pub key: &'static str,
+    pub value_type: &'static str,
+    pub accepted: &'static str,
+    pub default_value: Option<&'static str>,
+    pub description: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConfigReferenceExtensions {
+    pub table: &'static str,
+    pub per_extension_table: &'static str,
+    pub keys: &'static [ConfigReferenceSectionKey],
+}
+
+pub const CONFIG_REFERENCE_EXTENSIONS: ConfigReferenceExtensions = ConfigReferenceExtensions {
+    table: "extensions",
+    per_extension_table: "extension",
+    keys: &[
+        ConfigReferenceSectionKey {
+            key: "extensions.enabled",
+            value_type: "boolean",
+            accepted: "true or false",
+            default_value: Some("true"),
+            description: "Load user-native extensions; bundled VCS adapters remain loaded.",
+        },
+        ConfigReferenceSectionKey {
+            key: "extensions.paths",
+            value_type: "array of strings",
+            accepted: "native extension manifest, executable, or directory paths",
+            default_value: Some("[]"),
+            description: "Extension entry points loaded at startup; repository paths are trust-gated.",
+        },
+    ],
+};
 
 impl Default for ExtensionsConfig {
     fn default() -> Self {
@@ -74,6 +396,9 @@ pub struct Config {
     /// Existing repository config, otherwise the global config path, for view persistence.
     #[serde(skip)]
     pub view_preferences_config_path: Option<PathBuf>,
+    /// A VCS id named by configuration, distinct from the detected/default adapter.
+    #[serde(skip)]
+    pub explicit_vcs_id: Option<String>,
 }
 
 impl Default for Config {
@@ -93,6 +418,7 @@ impl Default for Config {
             keybinding_notices: Vec::new(),
             custom_themes: Vec::new(),
             view_preferences_config_path: None,
+            explicit_vcs_id: None,
         }
     }
 }
@@ -361,9 +687,27 @@ impl Default for KeyConfig {
 
 impl Config {
     pub fn load(repo_root: &Path) -> Result<Self> {
-        Self::load_from_paths(
+        Self::load_from_paths_with_review_context(
             &repo_root.join(default_data_dir()).join("config.toml"),
             user_config_path().as_deref(),
+            None,
+            false,
+        )
+    }
+
+    /// Load configuration for one review input. Within each user/repository
+    /// layer, flat root options are followed by the command section and then
+    /// the pager section, matching Hunk's resolution order.
+    pub fn load_for_review(
+        repo_root: &Path,
+        command_section: Option<&str>,
+        pager: bool,
+    ) -> Result<Self> {
+        Self::load_from_paths_with_review_context(
+            &repo_root.join(default_data_dir()).join("config.toml"),
+            user_config_path().as_deref(),
+            command_section,
+            pager,
         )
     }
 
@@ -371,7 +715,46 @@ impl Config {
         repo_config_path: &Path,
         user_config_path: Option<&Path>,
     ) -> Result<Self> {
+        Self::load_from_paths_with_review_context(repo_config_path, user_config_path, None, false)
+    }
+
+    pub fn load_from_paths_for_review(
+        repo_config_path: &Path,
+        user_config_path: Option<&Path>,
+        command_section: Option<&str>,
+        pager: bool,
+    ) -> Result<Self> {
+        Self::load_from_paths_with_review_context(
+            repo_config_path,
+            user_config_path,
+            command_section,
+            pager,
+        )
+    }
+
+    fn load_from_paths_with_review_context(
+        repo_config_path: &Path,
+        user_config_path: Option<&Path>,
+        command_section: Option<&str>,
+        pager: bool,
+    ) -> Result<Self> {
         let mut merged = toml::Value::Table(Default::default());
+        set_config_preference(
+            merged
+                .as_table_mut()
+                .expect("a TOML document root is always a table"),
+            "theme",
+            toml::Value::String("github-dark-default".into()),
+        );
+        if pager {
+            set_config_preference(
+                merged
+                    .as_table_mut()
+                    .expect("a TOML document root is always a table"),
+                "menu_bar",
+                toml::Value::Boolean(false),
+            );
+        }
         let mut keybindings = Vec::new();
         let mut keybinding_notices = Vec::new();
         let mut user_extensions = ExtensionsLayer::default();
@@ -383,7 +766,7 @@ impl Config {
         if let Some(path) = user_config_path.filter(|path| path.exists()) {
             (keybindings, keybinding_notices) = read_user_keybindings(path)?;
             let mut user = read_config_value(path)?;
-            apply_top_level_view_preferences(&mut user);
+            apply_layered_review_preferences(&mut user, command_section, pager)?;
             user_extensions = read_extensions_layer(&user)?;
             let themes = read_custom_themes(&user)?;
             merge_custom_theme_layer(&mut custom_themes, themes.themes);
@@ -394,7 +777,7 @@ impl Config {
 
         if repo_config_path.exists() {
             let mut repo = read_config_value(repo_config_path)?;
-            apply_top_level_view_preferences(&mut repo);
+            apply_layered_review_preferences(&mut repo, command_section, pager)?;
             repo_extensions = read_extensions_layer(&repo)?;
             let themes = read_custom_themes(&repo)?;
             merge_custom_theme_layer(&mut custom_themes, themes.themes);
@@ -415,8 +798,15 @@ impl Config {
             .expect("a TOML document root is always a table")
             .insert("extension".into(), toml::Value::Table(extension_configs));
         let mut config: Self = merged
+            .clone()
             .try_into()
             .with_context(|| "failed to parse merged config")?;
+        config.explicit_vcs_id = merged
+            .get("review")
+            .and_then(toml::Value::as_table)
+            .and_then(|review| review.get("vcs"))
+            .and_then(toml::Value::as_str)
+            .map(str::to_owned);
         config.keybindings = keybindings;
         config.keybinding_notices = keybinding_notices;
         config.custom_themes = custom_themes;
@@ -453,6 +843,61 @@ impl Config {
         config
             .validate()
             .with_context(|| "invalid Workdeck config")?;
+        Ok(config)
+    }
+
+    /// Load only extension discovery/configuration. Review theme and preference
+    /// validation is intentionally skipped so an extension-owned CLI command
+    /// can bootstrap even when unrelated review configuration is incomplete.
+    pub fn load_extension_bootstrap(repo_root: &Path) -> Result<Self> {
+        Self::load_extension_bootstrap_from_paths(
+            &repo_root.join(default_data_dir()).join("config.toml"),
+            user_config_path().as_deref(),
+        )
+    }
+
+    pub fn load_extension_bootstrap_from_paths(
+        repo_config_path: &Path,
+        user_config_path: Option<&Path>,
+    ) -> Result<Self> {
+        let user_extensions = match user_config_path.filter(|path| path.exists()) {
+            Some(path) => read_extensions_layer(&read_config_value(path)?)?,
+            None => ExtensionsLayer::default(),
+        };
+        let repo_extensions = if repo_config_path.exists() {
+            read_extensions_layer(&read_config_value(repo_config_path)?)?
+        } else {
+            ExtensionsLayer::default()
+        };
+        let extension_configs = merge_extension_configs(
+            &user_extensions.extension_configs,
+            &repo_extensions.extension_configs,
+        );
+        let resolved_extension_configs = extension_configs
+            .iter()
+            .map(|(id, value)| (id.clone(), toml_value_as_json(value)))
+            .collect::<BTreeMap<_, _>>();
+        let mut config = Self {
+            extension: resolved_extension_configs.clone(),
+            resolved_extensions: ExtensionsConfig {
+                enabled: repo_extensions
+                    .enabled
+                    .or(user_extensions.enabled)
+                    .unwrap_or(true),
+                paths: user_extensions.paths,
+                repo_paths: repo_extensions.paths,
+                extension_configs: resolved_extension_configs,
+            },
+            startup_notices: repo_extension_config_notice(&repo_extensions.extension_configs)
+                .into_iter()
+                .collect(),
+            ..Self::default()
+        };
+        config.view_preferences_config_path = if repo_config_path.exists() {
+            Some(repo_config_path.to_owned())
+        } else {
+            user_config_path.map(Path::to_owned)
+        };
         Ok(config)
     }
 
@@ -512,45 +957,139 @@ impl Config {
     }
 }
 
-/// Apply the flat Hunk-compatible view keys written by the interactive quit flow to
-/// Workdeck's canonical nested runtime model. A saved flat key is an explicit later
-/// choice and therefore overrides an older nested value in the same merged document.
-fn apply_top_level_view_preferences(root: &mut toml::Value) {
-    const REVIEW_KEYS: &[&str] = &[
-        "mode",
-        "line_numbers",
-        "wrap_lines",
-        "hunk_headers",
-        "menu_bar",
-        "agent_notes",
-        "copy_decorations",
-        "cursor_line",
-    ];
-    let Some(root) = root.as_table_mut() else {
-        return;
+/// Apply one Hunk-compatible source layer to Workdeck's canonical nested model.
+/// The source is cloned before mutation so command and pager sections cannot be
+/// affected by values projected from an earlier level.
+fn apply_layered_review_preferences(
+    root: &mut toml::Value,
+    command_section: Option<&str>,
+    pager: bool,
+) -> Result<()> {
+    let source = root
+        .as_table()
+        .context("Expected Workdeck config to contain a TOML table.")?
+        .clone();
+    let destination = root
+        .as_table_mut()
+        .expect("the source was verified as a TOML table");
+
+    // This key is part of Workdeck's canonical root model as well as the flat
+    // compatibility model. Remove it first so an invalid scalar is ignored in
+    // the same way Hunk ignores invalid non-numeric preference values.
+    destination.remove("prompt_save_view_preferences");
+    apply_flat_review_preferences(destination, &source)?;
+    if let Some(section) = command_section
+        .and_then(|section| source.get(section))
+        .and_then(toml::Value::as_table)
+    {
+        apply_flat_review_preferences(destination, section)?;
+    }
+    if pager && let Some(section) = source.get("pager").and_then(toml::Value::as_table) {
+        apply_flat_review_preferences(destination, section)?;
+    }
+    Ok(())
+}
+
+fn apply_flat_review_preferences(
+    destination: &mut toml::map::Map<String, toml::Value>,
+    source: &toml::map::Map<String, toml::Value>,
+) -> Result<()> {
+    for option in CONFIG_REFERENCE_OPTIONS {
+        let mut normalized = None;
+        for key in option.runtime_keys {
+            if let Some(value) =
+                normalize_config_reference_value(option.property, source.get(*key))?
+            {
+                normalized = Some(value);
+                break;
+            }
+        }
+        if let Some(value) = normalized {
+            set_config_preference(destination, option.property, value);
+        }
+    }
+    Ok(())
+}
+
+fn normalize_config_reference_value(
+    property: &str,
+    value: Option<&toml::Value>,
+) -> Result<Option<toml::Value>> {
+    let Some(value) = value else {
+        return Ok(None);
     };
-    if let Some(theme) = root.get("theme").cloned() {
-        let ui = root
-            .entry("ui")
-            .or_insert_with(|| toml::Value::Table(Default::default()));
-        if let Some(ui) = ui.as_table_mut() {
-            ui.insert("theme".into(), theme);
+    let normalized = match property {
+        "mode" => value
+            .as_str()
+            .filter(|value| matches!(*value, "auto" | "split" | "stack"))
+            .map(|value| toml::Value::String(value.to_owned())),
+        "cursor_line" => value
+            .as_str()
+            .filter(|value| matches!(*value, "row" | "number" | "off"))
+            .map(|value| toml::Value::String(value.to_owned())),
+        "vcs" => value
+            .as_str()
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| toml::Value::String(value.to_owned())),
+        "theme" => value
+            .as_str()
+            .filter(|value| !value.is_empty())
+            .map(|value| toml::Value::String(value.to_owned())),
+        "sidebar" => match value {
+            toml::Value::Boolean(value) => Some(toml::Value::Boolean(*value)),
+            toml::Value::String(value) if value == "auto" => {
+                Some(toml::Value::String(value.clone()))
+            }
+            _ => None,
+        },
+        "tab_width" => Some(normalize_bounded_integer(value, "tab_width", 1, 16)?),
+        "file_gap" => Some(normalize_bounded_integer(value, "file_gap", 0, 8)?),
+        "hunk_gap" => Some(normalize_bounded_integer(value, "hunk_gap", 0, 8)?),
+        _ => value.as_bool().map(toml::Value::Boolean),
+    };
+    Ok(normalized)
+}
+
+fn normalize_bounded_integer(
+    value: &toml::Value,
+    key: &str,
+    minimum: i64,
+    maximum: i64,
+) -> Result<toml::Value> {
+    let Some(value) = value.as_integer() else {
+        bail!("Expected {key} to be an integer from {minimum} to {maximum}.");
+    };
+    if !(minimum..=maximum).contains(&value) {
+        bail!("Expected {key} to be an integer from {minimum} to {maximum}.");
+    }
+    Ok(toml::Value::Integer(value))
+}
+
+fn set_config_preference(
+    destination: &mut toml::map::Map<String, toml::Value>,
+    property: &str,
+    value: toml::Value,
+) {
+    match property {
+        "theme" => set_config_table_value(destination, "ui", "theme", value),
+        "prompt_save_view_preferences" => {
+            destination.insert(property.to_owned(), value);
         }
+        property => set_config_table_value(destination, "review", property, value),
     }
-    let review_values = REVIEW_KEYS
-        .iter()
-        .filter_map(|key| root.get(*key).cloned().map(|value| (*key, value)))
-        .collect::<Vec<_>>();
-    if review_values.is_empty() {
-        return;
-    }
-    let review = root
-        .entry("review")
+}
+
+fn set_config_table_value(
+    destination: &mut toml::map::Map<String, toml::Value>,
+    table: &str,
+    key: &str,
+    value: toml::Value,
+) {
+    let table = destination
+        .entry(table)
         .or_insert_with(|| toml::Value::Table(Default::default()));
-    if let Some(review) = review.as_table_mut() {
-        for (key, value) in review_values {
-            review.insert(key.into(), value);
-        }
+    if let Some(table) = table.as_table_mut() {
+        table.insert(key.to_owned(), value);
     }
 }
 
@@ -1185,6 +1724,124 @@ fn key_pull_requests() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn frozen_config_resolution_oracle_maps_both_pins_and_every_source_test() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/config-resolution.json"
+        ))
+        .unwrap();
+        let baselines = oracle["baselines"].as_array().unwrap();
+        assert_eq!(baselines.len(), 2);
+        assert_eq!(
+            baselines[0]["commit"],
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2"
+        );
+        assert_eq!(
+            baselines[0]["source_blob"],
+            "68ebc02b234a5ebcae4881aeaded9a8bc557cf93"
+        );
+        assert_eq!(baselines[0]["source_bytes"], 48_848);
+        assert_eq!(baselines[0]["source_lines"], 1_357);
+        assert_eq!(
+            baselines[0]["test_blob"],
+            "9b5f312e7fc85568d5d1aa129f1a3b3283254540"
+        );
+        assert_eq!(baselines[0]["test_bytes"], 48_592);
+        assert_eq!(baselines[0]["test_lines"], 1_483);
+        assert_eq!(baselines[0]["passed"], 56);
+        assert_eq!(baselines[0]["failed"], 0);
+        assert_eq!(baselines[0]["expect_calls"], 124);
+        assert_eq!(baselines[1]["passed"], 54);
+        assert_eq!(baselines[1]["failed"], 0);
+        assert_eq!(baselines[1]["expect_calls"], 110);
+
+        let expected_source_intervals = [
+            (2_549, 5_320, 73, 145),
+            (5_645, 19_036, 154, 529),
+            (32_998, 43_321, 949, 1_237),
+            (43_475, 44_068, 1_241, 1_253),
+            (44_455, 44_924, 1_262, 1_271),
+            (44_981, 45_368, 1_273, 1_281),
+            (45_425, 47_082, 1_283, 1_313),
+            (47_529, 48_141, 1_322, 1_339),
+            (48_181, 48_522, 1_341, 1_351),
+            (48_841, 48_848, 1_356, 1_357),
+        ];
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let source_mapping = oracle["new_source_mapping"].as_array().unwrap();
+        assert_eq!(source_mapping.len(), expected_source_intervals.len());
+        for (mapping, (byte_start, byte_end, line_start, line_end)) in
+            source_mapping.iter().zip(expected_source_intervals)
+        {
+            assert_eq!(mapping["bytes"], serde_json::json!([byte_start, byte_end]));
+            assert_eq!(mapping["lines"], serde_json::json!([line_start, line_end]));
+            assert!(!mapping["semantics"].as_str().unwrap().is_empty());
+            for destination in mapping["destinations"].as_array().unwrap() {
+                let destination = destination.as_str().unwrap();
+                assert!(
+                    repo_root.join(destination).is_file(),
+                    "missing {destination}"
+                );
+            }
+        }
+
+        assert_eq!(
+            oracle["new_test_intervals"],
+            serde_json::json!([
+                { "bytes": [0, 12392], "lines": [1, 386] },
+                { "bytes": [23668, 36599], "lines": [736, 1115] },
+                { "bytes": [38008, 40280], "lines": [1166, 1237] },
+            ])
+        );
+        let source_tests = oracle["source_tests"].as_array().unwrap();
+        assert_eq!(source_tests.len(), 49);
+        let mut baseline_cases = 0_u64;
+        let mut stable_cases = 0_u64;
+        let mut source_numbers = BTreeSet::new();
+        let mut titles = BTreeSet::new();
+        for (index, source_test) in source_tests.iter().enumerate() {
+            let number = source_test["number"].as_u64().unwrap();
+            assert_eq!(number, index as u64 + 1);
+            assert!(source_numbers.insert(number));
+            assert!(titles.insert(source_test["title"].as_str().unwrap()));
+            let cases = source_test["case_count"].as_u64().unwrap_or(1);
+            baseline_cases += cases;
+            if source_test["stable_present"].as_bool().unwrap_or(true) {
+                stable_cases += cases;
+            }
+        }
+        assert_eq!(baseline_cases, 56);
+        assert_eq!(stable_cases, 54);
+
+        let rust_sources = [
+            include_str!("config.rs"),
+            include_str!("main.rs"),
+            include_str!("../../workdeck-core/src/view_preferences.rs"),
+            include_str!("../../workdeck-core/src/paths.rs"),
+            include_str!("../../workdeck-vcs/src/catalog.rs"),
+        ];
+        let mut mapped_numbers = BTreeSet::new();
+        for mapping in oracle["test_mapping"].as_array().unwrap() {
+            for number in mapping["source_numbers"].as_array().unwrap() {
+                let number = number.as_u64().unwrap();
+                assert!(source_numbers.contains(&number));
+                assert!(mapped_numbers.insert(number), "test {number} mapped twice");
+            }
+            let rust_tests = mapping["rust_tests"].as_array().unwrap();
+            assert!(!rust_tests.is_empty());
+            for rust_test in rust_tests {
+                let name = rust_test.as_str().unwrap();
+                let needle = format!("fn {name}(");
+                assert!(
+                    rust_sources.iter().any(|source| source.contains(&needle)),
+                    "missing mapped Rust test {name}"
+                );
+            }
+        }
+        assert_eq!(mapped_numbers, source_numbers);
+    }
 
     #[test]
     fn defaults_to_agents_workdeck() {
@@ -1281,6 +1938,279 @@ mod tests {
         let layered = Config::load_from_paths(&repo_config, Some(&user_config)).unwrap();
         assert!(!layered.review.wrap_lines);
         assert_eq!(layered.review.mode, "stack");
+    }
+
+    #[test]
+    fn config_reference_catalog_matches_the_pinned_runtime_surface() {
+        assert_eq!(
+            CONFIG_REFERENCE_OPTIONS
+                .iter()
+                .map(|option| option.key)
+                .collect::<Vec<_>>(),
+            [
+                "mode",
+                "cursor_line",
+                "vcs",
+                "theme",
+                "watch",
+                "exclude_untracked",
+                "line_numbers",
+                "tab_width",
+                "file_gap",
+                "hunk_gap",
+                "wrap_lines",
+                "hunk_headers",
+                "menu_bar",
+                "sidebar",
+                "agent_notes",
+                "copy_decorations",
+                "prompt_save_view_preferences",
+                "transparent_background",
+                "color_moved",
+            ]
+        );
+        assert_eq!(
+            CONFIG_COMMAND_SECTIONS
+                .iter()
+                .map(|(section, _)| *section)
+                .collect::<Vec<_>>(),
+            ["vcs", "show", "stash-show", "diff", "patch", "difftool"]
+        );
+        let transparent = CONFIG_REFERENCE_OPTIONS
+            .iter()
+            .find(|option| option.key == "transparent_background")
+            .unwrap();
+        assert_eq!(
+            transparent.runtime_keys,
+            ["transparentBackground", "transparent_background"]
+        );
+        assert_eq!(
+            transparent.aliases,
+            [ConfigReferenceAlias {
+                key: "transparentBackground",
+                deprecated: true,
+            }]
+        );
+        assert_eq!(CONFIG_REFERENCE_CUSTOM_THEME.table, "custom_theme");
+        assert_eq!(CONFIG_REFERENCE_CUSTOM_THEME.named_theme_table, "themes");
+        assert_eq!(
+            CONFIG_REFERENCE_CUSTOM_THEME.default_base,
+            "github-dark-default"
+        );
+        assert_eq!(
+            CONFIG_REFERENCE_CUSTOM_THEME.base_values,
+            BUNDLED_SHIKI_THEME_IDS
+        );
+        assert_eq!(CONFIG_REFERENCE_EXTENSIONS.table, "extensions");
+        assert_eq!(CONFIG_REFERENCE_EXTENSIONS.per_extension_table, "extension");
+        assert_eq!(
+            CONFIG_REFERENCE_EXTENSIONS
+                .keys
+                .iter()
+                .map(|key| key.key)
+                .collect::<Vec<_>>(),
+            ["extensions.enabled", "extensions.paths"]
+        );
+    }
+
+    #[test]
+    fn review_config_layers_root_command_pager_and_repository_in_order() {
+        let directory = tempfile::tempdir().unwrap();
+        let user_config = directory.path().join("user.toml");
+        let repo_config = directory.path().join("repo.toml");
+        fs::write(
+            &user_config,
+            concat!(
+                "mode = 'split'\n",
+                "line_numbers = false\n",
+                "watch = true\n",
+                "[show]\nmode = 'stack'\ntab_width = 8\n",
+                "[pager]\nmode = 'auto'\nmenu_bar = true\n",
+            ),
+        )
+        .unwrap();
+        fs::write(
+            &repo_config,
+            concat!(
+                "mode = 'stack'\n",
+                "[show]\nline_numbers = true\n",
+                "[pager]\nmode = 'split'\n",
+            ),
+        )
+        .unwrap();
+
+        let config = Config::load_from_paths_for_review(
+            &repo_config,
+            Some(&user_config),
+            Some("show"),
+            true,
+        )
+        .unwrap();
+        assert_eq!(config.review.mode, "split");
+        assert!(config.review.line_numbers);
+        assert!(config.review.watch);
+        assert_eq!(config.review.tab_width, 8);
+        assert!(config.review.menu_bar);
+
+        let plain = Config::load_from_paths_for_review(
+            &directory.path().join("missing.toml"),
+            None,
+            Some("patch"),
+            false,
+        )
+        .unwrap();
+        let pager = Config::load_from_paths_for_review(
+            &directory.path().join("missing.toml"),
+            None,
+            Some("patch"),
+            true,
+        )
+        .unwrap();
+        assert!(plain.review.menu_bar);
+        assert_eq!(plain.ui.theme, "github-dark-default");
+        assert!(!pager.review.menu_bar);
+    }
+
+    #[test]
+    fn flat_scalar_preferences_ignore_invalid_values_but_keep_nested_schema_strict() {
+        let directory = tempfile::tempdir().unwrap();
+        let user_config = directory.path().join("user.toml");
+        let repo_config = directory.path().join("missing.toml");
+        fs::write(
+            &user_config,
+            concat!(
+                "mode = 7\n",
+                "cursor_line = false\n",
+                "vcs = 7\n",
+                "theme = false\n",
+                "watch = 'yes'\n",
+                "sidebar = 'always'\n",
+                "prompt_save_view_preferences = 'yes'\n",
+                "transparent_background = 'yes'\n",
+            ),
+        )
+        .unwrap();
+        let config = Config::load_from_paths(&repo_config, Some(&user_config)).unwrap();
+        assert_eq!(config.review.mode, "auto");
+        assert_eq!(config.review.cursor_line, "row");
+        assert_eq!(config.review.vcs, "auto");
+        assert_eq!(config.explicit_vcs_id, None);
+        assert_eq!(config.ui.theme, "github-dark-default");
+        assert!(!config.review.watch);
+        assert_eq!(config.review.sidebar, ReviewSidebar::Auto);
+        assert!(config.prompt_save_view_preferences);
+        assert!(!config.review.transparent_background);
+
+        fs::write(&user_config, "[review]\nmode = 7\n").unwrap();
+        assert!(Config::load_from_paths(&repo_config, Some(&user_config)).is_err());
+    }
+
+    #[test]
+    fn flat_numeric_preferences_reject_wrong_types_and_bounds_at_every_level() {
+        let directory = tempfile::tempdir().unwrap();
+        let user_config = directory.path().join("user.toml");
+        let repo_config = directory.path().join("missing.toml");
+        for (source, key) in [
+            ("tab_width = 0\n", "tab_width"),
+            ("tab_width = 17\n", "tab_width"),
+            ("tab_width = '4'\n", "tab_width"),
+            ("file_gap = -1\n", "file_gap"),
+            ("file_gap = 9\n", "file_gap"),
+            ("hunk_gap = '2'\n", "hunk_gap"),
+            ("[show]\nhunk_gap = 9\n", "hunk_gap"),
+            ("[pager]\nfile_gap = '2'\n", "file_gap"),
+        ] {
+            fs::write(&user_config, source).unwrap();
+            let error = Config::load_from_paths_for_review(
+                &repo_config,
+                Some(&user_config),
+                Some("show"),
+                true,
+            )
+            .unwrap_err()
+            .to_string();
+            assert!(error.contains(key), "{source:?}: {error}");
+        }
+    }
+
+    #[test]
+    fn deprecated_transparent_background_alias_keeps_historical_precedence() {
+        let directory = tempfile::tempdir().unwrap();
+        let user_config = directory.path().join("user.toml");
+        let repo_config = directory.path().join("missing.toml");
+        fs::write(
+            &user_config,
+            "transparentBackground = true\ntransparent_background = false\n",
+        )
+        .unwrap();
+        let legacy = Config::load_from_paths(&repo_config, Some(&user_config)).unwrap();
+        assert!(legacy.review.transparent_background);
+
+        fs::write(
+            &user_config,
+            "transparentBackground = 'invalid'\ntransparent_background = false\n",
+        )
+        .unwrap();
+        let current = Config::load_from_paths(&repo_config, Some(&user_config)).unwrap();
+        assert!(!current.review.transparent_background);
+    }
+
+    #[test]
+    fn explicit_vcs_provenance_is_distinct_from_the_git_fallback() {
+        let directory = tempfile::tempdir().unwrap();
+        let user_config = directory.path().join("user.toml");
+        let repo_config = directory.path().join("repo.toml");
+
+        let detected = Config::load_from_paths(&repo_config, None).unwrap();
+        assert_eq!(detected.review.vcs, "auto");
+        assert_eq!(detected.explicit_vcs_id, None);
+
+        fs::write(&user_config, "vcs = 'hg'\n").unwrap();
+        fs::write(&repo_config, "vcs = 7\n").unwrap();
+        let configured = Config::load_from_paths(&repo_config, Some(&user_config)).unwrap();
+        assert_eq!(configured.review.vcs, "hg");
+        assert_eq!(configured.explicit_vcs_id.as_deref(), Some("hg"));
+    }
+
+    #[test]
+    fn extension_bootstrap_ignores_unrelated_legacy_custom_theme_failure() {
+        let directory = tempfile::tempdir().unwrap();
+        let user_config = directory.path().join("user.toml");
+        let repo_config = directory.path().join("repo.toml");
+        fs::write(
+            &user_config,
+            concat!(
+                "theme = 'custom'\n",
+                "[extensions]\npaths = ['/user/tools']\n",
+                "[extension.tools]\ntoken = 'user'\n",
+            ),
+        )
+        .unwrap();
+        fs::write(
+            &repo_config,
+            concat!(
+                "[extensions]\nenabled = true\npaths = ['./repo-tools']\n",
+                "[extension.tools]\ntoken = 'repo'\n",
+            ),
+        )
+        .unwrap();
+
+        let bootstrap =
+            Config::load_extension_bootstrap_from_paths(&repo_config, Some(&user_config)).unwrap();
+        assert!(bootstrap.resolved_extensions.enabled);
+        assert_eq!(
+            bootstrap.resolved_extensions.paths,
+            [PathBuf::from("/user/tools")]
+        );
+        assert_eq!(
+            bootstrap.resolved_extensions.repo_paths,
+            [PathBuf::from("./repo-tools")]
+        );
+        assert_eq!(
+            bootstrap.extension_config("tools"),
+            serde_json::json!({ "token": "repo" })
+        );
+        assert!(Config::load_from_paths(&repo_config, Some(&user_config)).is_err());
     }
 
     #[test]

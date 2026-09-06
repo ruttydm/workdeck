@@ -324,35 +324,65 @@ mod tests {
         let path = directory.path().join("config.toml");
         fs::write(
             &path,
-            "# keep me\ntheme = \"old\"\n\n[review]\nwrap_lines = false\n",
+            concat!(
+                "# personal defaults\n",
+                "theme = \"github-dark-default\"\n",
+                "wrap_lines = false\n",
+                "\n",
+                "[custom_theme]\n",
+                "label = \"Keep me\"",
+            ),
         )
         .unwrap();
         let preferences = PersistedViewPreferences {
-            theme: Some("new".into()),
+            mode: InputLayoutMode::Split,
+            theme: Some("dracula".into()),
+            show_line_numbers: false,
             wrap_lines: true,
-            ..PersistedViewPreferences::default()
+            show_hunk_headers: false,
+            show_menu_bar: false,
+            show_agent_notes: true,
+            copy_decorations: true,
+            cursor_line: InputCursorLine::Row,
         };
         assert_eq!(
             save_global_view_preferences(&preferences, Some(&path)).unwrap(),
             path
         );
-        let source = fs::read_to_string(&path).unwrap();
-        assert!(source.contains("# keep me"));
-        assert!(source.contains("theme = \"new\""));
-        assert!(source.contains("wrap_lines = true"));
-        assert!(source.contains("cursor_line = \"row\"\n\n[review]"));
-        assert!(source.contains("[review]\nwrap_lines = false"));
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            concat!(
+                "# personal defaults\n",
+                "theme = \"dracula\"\n",
+                "wrap_lines = true\n",
+                "mode = \"split\"\n",
+                "line_numbers = false\n",
+                "hunk_headers = false\n",
+                "menu_bar = false\n",
+                "agent_notes = true\n",
+                "copy_decorations = true\n",
+                "cursor_line = \"row\"\n",
+                "\n",
+                "[custom_theme]\n",
+                "label = \"Keep me\"\n",
+            )
+        );
     }
 
     #[test]
     fn prompt_save_changes_only_the_policy_key() {
         let directory = TempDir::new().unwrap();
         let path = directory.path().join("config.toml");
-        fs::write(&path, "# keep me\n").unwrap();
+        fs::write(&path, "# personal defaults\n\n[custom_theme]").unwrap();
         save_view_preferences_prompt_preference(false, Some(&path)).unwrap();
-        let source = fs::read_to_string(path).unwrap();
-        assert!(source.contains("# keep me"));
-        assert!(source.contains("prompt_save_view_preferences = false"));
-        assert!(!source.contains("theme ="));
+        assert_eq!(
+            fs::read_to_string(path).unwrap(),
+            concat!(
+                "# personal defaults\n",
+                "prompt_save_view_preferences = false\n",
+                "\n",
+                "[custom_theme]\n",
+            )
+        );
     }
 }
