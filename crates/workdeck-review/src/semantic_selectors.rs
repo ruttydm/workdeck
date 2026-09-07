@@ -68,28 +68,48 @@ fn normalized_diff_path(path: &str) -> &str {
 
 #[must_use]
 pub fn review_file_matches_filter(file: &SemanticReviewFile, filter: &str) -> bool {
-    let query = filter.trim().to_lowercase();
+    review_file_fields_match_filter(
+        &file.path,
+        file.previous_path.as_deref(),
+        file.agent_summary.as_deref(),
+        filter,
+    )
+}
+
+/// Match the only three fields used by the review filter without projecting hunk/source data.
+/// Native renderers can borrow these fields directly; semantic clients retain the same predicate.
+#[must_use]
+pub fn review_file_fields_match_filter(
+    path: &str,
+    previous_path: Option<&str>,
+    agent_summary: Option<&str>,
+    filter: &str,
+) -> bool {
+    // Match the source String.trim set: FEFF is whitespace, but U+0085 is not.
+    let query = filter
+        .trim_matches(|character| {
+            matches!(character,
+                '\u{0009}'..='\u{000d}' | '\u{0020}' | '\u{00a0}' | '\u{1680}' |
+                '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' |
+                '\u{205f}' | '\u{3000}' | '\u{feff}'
+            )
+        })
+        .to_lowercase();
     if query.is_empty() {
         return true;
     }
     let mut fields = Vec::new();
-    let path = normalized_diff_path(&file.path);
+    let path = normalized_diff_path(path);
     if !path.is_empty() {
         fields.push(path);
     }
-    if let Some(previous_path) = file
-        .previous_path
-        .as_deref()
+    if let Some(previous_path) = previous_path
         .map(normalized_diff_path)
         .filter(|path| !path.is_empty())
     {
         fields.push(previous_path);
     }
-    if let Some(summary) = file
-        .agent_summary
-        .as_deref()
-        .filter(|summary| !summary.is_empty())
-    {
+    if let Some(summary) = agent_summary.filter(|summary| !summary.is_empty()) {
         fields.push(summary);
     }
     fields.join(" ").to_lowercase().contains(&query)
@@ -690,6 +710,28 @@ mod tests {
                 hunk_count: 2
             }]
         );
+    }
+
+    #[test]
+    fn filter_whitespace_matches_both_pinned_oracles() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/review-filter-whitespace.json"
+        ))
+        .unwrap();
+        let file = &oracle["file"];
+        for case in oracle["cases"].as_array().unwrap() {
+            let query = case["query"].as_str().unwrap();
+            assert_eq!(
+                review_file_fields_match_filter(
+                    file["path"].as_str().unwrap(),
+                    file["previousPath"].as_str(),
+                    file["agentSummary"].as_str(),
+                    query,
+                ),
+                case["matches"].as_bool().unwrap(),
+                "{query:?}"
+            );
+        }
     }
 
     #[test]

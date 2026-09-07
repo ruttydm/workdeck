@@ -233,7 +233,7 @@ use unicode_width::UnicodeWidthStr;
 use workdeck_core::{
     AgentAnnotation, Changeset, ChangesetSource, DiffFile, DiffLine, DiffLineKind, InputCursorLine,
     InputLayoutMode, NamedCustomThemeConfig, PersistedViewPreferences, ReviewSelection, ReviewSide,
-    SidebarVisibility, SourceOrigin, StartupNotice, project_review_file,
+    SidebarVisibility, SourceOrigin, StartupNotice,
 };
 use workdeck_diff::{
     DIFF_RAIL_PREFIX_WIDTH, HighlightedDiffLine, LanguageMatcher, LanguageRegistration,
@@ -278,7 +278,7 @@ use workdeck_review::{
     SemanticReviewSelection, VisibleFileViewNote, build_extension_review_snapshot,
     build_file_view_render_plan, plan_expanded_gap, plan_review_selection_move,
     project_extension_review_notes, resolve_review_reveal_note_id, review_annotated_hunk_indices,
-    review_default_hunk_line_target, review_expansion_side, review_file_matches_filter,
+    review_default_hunk_line_target, review_expansion_side, review_file_fields_match_filter,
     review_gap_source_for_file, review_leading_gap, review_line_anchor, review_trailing_gap,
 };
 use workdeck_session::{ReviewSessionServer, default_discovery_directory};
@@ -3089,12 +3089,7 @@ impl ReviewApp {
         files
             .iter()
             .position(|candidate| candidate.runtime_id == file.runtime_id)
-            .is_some_and(|index| {
-                review_file_matches_filter(
-                    &project_review_file(file, "terminal-review", index),
-                    &self.filter,
-                )
-            })
+            .is_some_and(|_| diff_file_matches_filter(file, &self.filter))
     }
 
     fn file_presentation_menu_projection(&self) -> FilePresentationMenuProjection {
@@ -6871,11 +6866,8 @@ impl ReviewApp {
         let selections = runtime.file_view_selections.entries().clone();
         let registrations = runtime.file_views.clone();
         let mut candidates = BTreeMap::new();
-        for (file_index, file) in changeset.files.iter().enumerate() {
-            if !review_file_matches_filter(
-                &project_review_file(file, "terminal-review", file_index),
-                &self.filter,
-            ) {
+        for file in &changeset.files {
+            if !diff_file_matches_filter(file, &self.filter) {
                 continue;
             }
             if draft_file_id.as_deref() == Some(file.runtime_id.as_str()) {
@@ -7189,12 +7181,7 @@ impl ReviewApp {
             .files
             .iter()
             .enumerate()
-            .filter(|(file_index, file)| {
-                review_file_matches_filter(
-                    &project_review_file(file, "terminal-review", *file_index),
-                    &self.filter,
-                )
-            })
+            .filter(|(_, file)| diff_file_matches_filter(file, &self.filter))
             .collect::<Vec<_>>();
         if visible_files.is_empty() {
             return None;
@@ -10464,12 +10451,7 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         let visible_files = files
             .iter()
             .enumerate()
-            .filter(|(file_index, file)| {
-                review_file_matches_filter(
-                    &project_review_file(file, "terminal-review", *file_index),
-                    &app.filter,
-                )
-            })
+            .filter(|(_, file)| diff_file_matches_filter(file, &app.filter))
             .map(|(_, file)| project_extension_diff_file(file))
             .collect::<Vec<_>>();
         (
@@ -11483,12 +11465,7 @@ fn render_sidebar(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     let visible_files = files
         .iter()
         .enumerate()
-        .filter(|(file_index, file)| {
-            review_file_matches_filter(
-                &project_review_file(file, "terminal-review", *file_index),
-                &app.filter,
-            )
-        })
+        .filter(|(_, file)| diff_file_matches_filter(file, &app.filter))
         .map(|(_, file)| file.clone())
         .collect::<Vec<_>>();
     let entries = match mode {
@@ -12331,6 +12308,17 @@ fn build_review_rows(
     )
 }
 
+fn diff_file_matches_filter(file: &DiffFile, filter: &str) -> bool {
+    review_file_fields_match_filter(
+        &file.path,
+        file.previous_path.as_deref(),
+        file.agent
+            .as_ref()
+            .and_then(|agent| agent.summary.as_deref()),
+        filter,
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 fn build_live_review_rows(
     changeset: &Changeset,
@@ -12399,13 +12387,8 @@ fn build_review_rows_with_chrome(
     let mut note_targets = BTreeMap::new();
     let mut note_bounds = std::collections::HashMap::new();
     let mut line_cursors = Vec::new();
-    let visible = |file_index: usize, file: &DiffFile| {
-        filter.is_none_or(|filter| {
-            review_file_matches_filter(
-                &project_review_file(file, "terminal-review", file_index),
-                filter,
-            )
-        })
+    let visible = |_file_index: usize, file: &DiffFile| {
+        filter.is_none_or(|filter| diff_file_matches_filter(file, filter))
     };
     let header_stats_width = changeset
         .files
@@ -14498,6 +14481,45 @@ mod tests {
             ChangesetSource::WorkingTree { staged: false },
         )
         .unwrap()
+    }
+
+    #[test]
+    fn borrowed_filter_fields_match_semantic_projection_without_render_metadata() {
+        let mut file = changeset().files.remove(0);
+        file.path = "src/Current.ts\r\n".into();
+        file.previous_path = Some("old/Öld.ts\r\n".into());
+        file.agent = Some(AgentFileContext {
+            path: file.path.clone(),
+            summary: Some("Rewrites note policy".into()),
+            annotations: vec![],
+        });
+        let semantic = workdeck_core::project_review_file(&file, "filter-test", 17);
+        for (query, expected) in [
+            ("", true),
+            (" \t", true),
+            ("CURRENT", true),
+            ("öLD", true),
+            ("note policy", true),
+            ("Current.ts old/Öld", true),
+            ("Öld.ts Rewrites", true),
+            ("unrelated", false),
+            ("current.ts rewrites", false),
+        ] {
+            assert_eq!(
+                diff_file_matches_filter(&file, query),
+                expected,
+                "{query:?}"
+            );
+            assert_eq!(
+                diff_file_matches_filter(&file, query),
+                workdeck_review::review_file_matches_filter(&semantic, query)
+            );
+        }
+        file.agent = None;
+        file.previous_path = None;
+        assert!(!diff_file_matches_filter(&file, "note policy"));
+        assert!(!diff_file_matches_filter(&file, "öld"));
+        assert!(diff_file_matches_filter(&file, "current"));
     }
 
     #[test]

@@ -1,0 +1,17 @@
+{
+  "source": "src/core/review/selectors.ts#reviewFileMatchesFilter",
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "runtime": "Bun 1.3.14",
+  "capture": "Imported and executed the original selector from each disposable pinned checkout; both produced every result below.",
+  "file": {"path": "alpha.ts", "previousPath": "old.ts", "agentSummary": "Summary"},
+  "cases": [
+    {"query": "", "matches": true},
+    {"query": "\u0085", "matches": false},
+    {"query": "\u0085alpha\u0085", "matches": false},
+    {"query": "\ufeffalpha\ufeff", "matches": true},
+    {"query": "\u00a0alpha\u2029", "matches": true},
+    {"query": "\u200balpha\u200b", "matches": false},
+    {"query": "ALPHA.TS OLD.TS", "matches": true}
+  ]
+}
