@@ -53,7 +53,12 @@ field, including duplicate metric resolution and zero baselines. JSON parsing us
 round-tripping so oracle precision is not silently rounded away. Historical acceptance annotations
 are reporting compatibility only and cannot satisfy the stricter final performance gate.
 
-Benchmark execution, same-host measurements, automatic baseline selection, Markdown reporting,
+`cargo xtask benchmark compare-markdown BASE_JSON HEAD_JSON` renders the historical report,
+including failure counts, metric statuses, percentage deltas and absolute threshold units.
+The full report and 24 decimal-rounding cases are frozen from both pins; exact binary-value
+rounding avoids changing displayed values through intermediate floating-point multiplication.
+
+Benchmark execution, same-host measurements, automatic baseline selection,
 and strict release enforcement remain incomplete. These tests are not performance measurements,
 and the containing source records remain unmapped.
 

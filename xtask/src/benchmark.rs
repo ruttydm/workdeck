@@ -155,7 +155,139 @@ fn compare(base: &Run, head: &Run, generated_at: String) -> Comparison {
     }
 }
 
-fn compare_files(mut args: impl Iterator<Item = String>) -> Result<()> {
+// Number.toFixed rounds the exact binary value, with ties away from zero. Scaling an f64
+// first can introduce a second rounding (for example 2.55 * 10), so use its integer significand.
+fn fixed(value: f64, digits: u32) -> String {
+    assert!(digits <= 2);
+    if value.is_nan() {
+        return "NaN".into();
+    }
+    if value.is_infinite() {
+        return if value.is_sign_negative() {
+            "-Infinity"
+        } else {
+            "Infinity"
+        }
+        .into();
+    }
+    if value.abs() >= 1e21 {
+        let result = format!("{value:e}");
+        return if result.contains("e-") {
+            result
+        } else {
+            result.replace('e', "e+")
+        };
+    }
+    let absolute = value.abs();
+    let bits = absolute.to_bits();
+    let exponent_bits = ((bits >> 52) & 0x7ff) as i32;
+    let fraction = bits & ((1_u64 << 52) - 1);
+    let (significand, exponent) = if exponent_bits == 0 {
+        (fraction, -1074)
+    } else {
+        (fraction | (1_u64 << 52), exponent_bits - 1023 - 52)
+    };
+    let scaled = u128::from(significand) * 10_u128.pow(digits);
+    let rounded = if exponent >= 0 {
+        scaled << exponent
+    } else if -exponent >= 128 {
+        0
+    } else {
+        let shift = -exponent as u32;
+        let quotient = scaled >> shift;
+        let remainder = scaled & ((1_u128 << shift) - 1);
+        quotient + u128::from(remainder >= (1_u128 << (shift - 1)))
+    };
+    let sign = if value < 0.0 { "-" } else { "" };
+    if digits == 0 {
+        return format!("{sign}{rounded}");
+    }
+    let divisor = 10_u128.pow(digits);
+    format!(
+        "{sign}{}.{:0width$}",
+        rounded / divisor,
+        rounded % divisor,
+        width = digits as usize
+    )
+}
+
+fn number(value: f64) -> String {
+    if !value.is_finite() {
+        return "∞".into();
+    }
+    fixed(value, if value.abs() >= 100.0 { 1 } else { 2 })
+}
+
+fn markdown(comparison: &Comparison, base: &str, head: &str) -> String {
+    let failures = comparison
+        .rows
+        .iter()
+        .filter(|r| matches!(r.status, "fail" | "missing-head"))
+        .count();
+    let result = if comparison.failed {
+        format!(
+            "❌ {failures} material benchmark regression{} found.",
+            if failures == 1 { "" } else { "s" }
+        )
+    } else {
+        "✅ No unaccepted material benchmark regressions found.".into()
+    };
+    let mut lines = vec![
+        "## Release benchmark gate".into(),
+        String::new(),
+        result,
+        String::new(),
+        format!("Base: `{base}`  "),
+        format!("Head: `{head}`"),
+        String::new(),
+        "| Status | Metric | Base median | Head median | Δ | Threshold |".into(),
+        "| --- | --- | ---: | ---: | ---: | --- |".into(),
+    ];
+    for row in &comparison.rows {
+        let unit = if row.unit == "bytes" { "B" } else { &row.unit };
+        let icon = match row.status {
+            "fail" | "missing-head" => "❌",
+            "accepted" => "⚠️",
+            _ => "✅",
+        };
+        let delta = if !row.relative_delta.is_finite() {
+            "+∞".into()
+        } else {
+            format!(
+                "{}{}%",
+                if row.relative_delta > 0.0 { "+" } else { "" },
+                fixed(row.relative_delta * 100.0, 1)
+            )
+        };
+        let threshold = row.threshold.as_ref().map_or_else(
+            || "—".into(),
+            |t| {
+                let absolute = if row.unit == "bytes" {
+                    format!(
+                        "{} MiB",
+                        number(t.min_absolute_regression / (1024.0 * 1024.0))
+                    )
+                } else {
+                    format!("{} {unit}", number(t.min_absolute_regression))
+                };
+                format!(
+                    "+{}% and +{absolute}",
+                    fixed((t.max_regression_ratio - 1.0) * 100.0, 0)
+                )
+            },
+        );
+        lines.push(format!(
+            "| {icon} {} | `{}` | {} {unit} | {} {unit} | {delta} | {threshold} |",
+            row.status,
+            row.name,
+            number(row.base_median),
+            number(row.head_median)
+        ));
+    }
+    format!("{}\n", lines.join("\n"))
+}
+
+fn compare_files(mut args: impl Iterator<Item = String>, as_markdown: bool) -> Result<()> {
     let (Some(base), Some(head)) = (args.next(), args.next()) else {
         bail!("benchmark compare-json requires BASE_JSON HEAD_JSON");
     };
@@ -174,7 +306,11 @@ fn compare_files(mut args: impl Iterator<Item = String>) -> Result<()> {
         &load(&head)?,
         chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
     );
-    println!("{}", serde_json::to_string_pretty(&comparison)?);
+    if as_markdown {
+        print!("{}", markdown(&comparison, &base, &head));
+    } else {
+        println!("{}", serde_json::to_string_pretty(&comparison)?);
+    }
     if comparison.failed {
         bail!(
             "Historical benchmark comparison failed; this command is not the strict semantic-port performance gate"
@@ -275,7 +411,10 @@ fn aggregate(source: &str, name: &str, samples: Vec<f64>) -> Metric {
 pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     let command = args.next();
     if command.as_deref() == Some("compare-json") {
-        return compare_files(args);
+        return compare_files(args, false);
+    }
+    if command.as_deref() == Some("compare-markdown") {
+        return compare_files(args, true);
     }
     if command.as_deref() != Some("aggregate") {
         bail!("benchmark requires aggregate SOURCE METRIC SAMPLES_JSON");
@@ -300,6 +439,33 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frozen_dual_pin_markdown_and_decimal_rounding_match_exactly() {
+        assert_eq!(fixed(f64::INFINITY, 1), "Infinity");
+        assert_eq!(fixed(f64::NEG_INFINITY, 1), "-Infinity");
+        assert_eq!(fixed(f64::NAN, 1), "NaN");
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../port/hunk/oracles/benchmark-markdown.json"
+        ))
+        .unwrap();
+        let base = serde_json::from_value(oracle["base"].clone()).unwrap();
+        let head = serde_json::from_value(oracle["head"].clone()).unwrap();
+        let rendered = markdown(&compare(&base, &head, "frozen".into()), "base", "head");
+        assert_eq!(rendered, oracle["markdown"].as_str().unwrap());
+        assert!(rendered.contains("+15% and +5.00 ms"));
+        assert!(rendered.contains("+20% and +8.00 MiB"));
+        for case in oracle["fixed"].as_array().unwrap() {
+            assert_eq!(
+                fixed(
+                    case["value"].as_f64().unwrap(),
+                    case["digits"].as_u64().unwrap() as u32
+                ),
+                case["expected"].as_str().unwrap(),
+                "{case}"
+            );
+        }
+    }
 
     #[test]
     fn frozen_dual_pin_comparisons_preserve_all_statuses_and_duplicate_resolution() {
@@ -369,22 +535,23 @@ mod tests {
             ]
             .into_iter()
         };
-        compare_files(args()).unwrap();
+        compare_files(args(), false).unwrap();
+        compare_files(args(), true).unwrap();
         std::fs::write(&head, serde_json::to_vec(&document(120.0)).unwrap()).unwrap();
         assert!(
-            compare_files(args())
+            compare_files(args(), false)
                 .unwrap_err()
                 .to_string()
                 .contains("Historical benchmark comparison failed")
         );
         std::fs::write(&head, b"{\"version\":2,\"results\":[]}").unwrap();
         assert!(
-            compare_files(args())
+            compare_files(args(), false)
                 .unwrap_err()
                 .to_string()
                 .contains("Invalid benchmark result file")
         );
-        assert!(compare_files(std::iter::empty()).is_err());
+        assert!(compare_files(std::iter::empty(), false).is_err());
         assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 2);
     }
 
