@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 mod bootstrap;
+mod changeset_parse;
 mod fixtures;
 mod release;
 mod render_layout;
@@ -664,6 +665,9 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     let command = args.next();
     if command.as_deref() == Some("bootstrap-load") {
         return bootstrap::run(args);
+    }
+    if command.as_deref() == Some("changeset-parse") {
+        return changeset_parse::run(args);
     }
     if command.as_deref() == Some("run") {
         return runner::run_command(args);

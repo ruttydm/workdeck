@@ -63,7 +63,7 @@ workload. The default suite still reports `executionAvailable: false`.
 `cargo xtask benchmark run --script render-layout.ts --samples 1 --out REPORT.json` executes
 the completed render-layout workload in a native child process, drains both output pipes,
 aggregates repeated samples and writes a versioned report with Git/Cargo/native-platform metadata.
-`bootstrap-load.ts`, `working-tree-load.ts` and `render-layout.ts` are currently admitted.
+`bootstrap-load.ts`, `working-tree-load.ts`, `changeset-parse.ts` and `render-layout.ts` are currently admitted.
 Every selected workload is checked before execution
 or output-directory creation; default, huge, competitor and other incomplete selections fail.
 Fractional sample counts retain the source loop semantics, and repeated workload selections append
@@ -106,13 +106,21 @@ excluded from the same-host performance acceptance evidence.
 
 `cargo xtask benchmark bootstrap-load` reproduces the 64-file/420-line fixture, direct-file pair,
 Git subprocess, parsing and patch-chunk probes. Complete source hashes for ordinary and pair files
-match both pins, as do all structural counts. The native parser probe returns the Rust changeset
-model rather than Pierre metadata; it retains the same file-count check. Explicit cwd arguments
+match both pins, as do all structural counts. The native parser probe uses the production metadata
+stage without constructing review files, retaining the same file-count check. Explicit cwd arguments
 preserve source/reload context without temporarily changing the process-global cwd. Fixtures disable
 Git signing, preserve committed-before/current-after bytes and remove their owned directory on drop.
 The shared constructor owns input-derived defaults; the CLI still attaches its configured themes,
 extension state, notices, keybindings and preference destination afterward. This refactor does not
 move agent/process ownership or bypass extension preparation in the actual product.
+
+`cargo xtask benchmark changeset-parse` measures normalization, metadata parsing, chunk splitting
+and review-file construction separately for 240 small files, 96 balanced files and one large file.
+The production parser shares its metadata and construction stages with this workload; construction
+still resolves language, counts additions/deletions, detects binary patches and assigns identity.
+All patches are prepared before measurements. Both pinned oracles agree on file and sanitized-byte
+counts, and native tests compare complete resulting files with the production changeset path.
+Diagnostic oracle timings are not performance acceptance evidence.
 
 The shared fixture generator is native in `xtask/src/benchmark/fixtures.rs`: it supports configurable
 line counts/change regions, patch prefixes/extensions, committed-before/modified-after repositories,

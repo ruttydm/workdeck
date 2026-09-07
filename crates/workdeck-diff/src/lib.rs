@@ -109,6 +109,31 @@ struct DiffLineMoveKinds {
     deletion_lines: Vec<bool>,
 }
 
+/// Parsed paths and hunk geometry, before attaching review identity, language and patch text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedDiffMetadata {
+    pub path: String,
+    pub previous_path: Option<String>,
+    pub change_kind: FileChangeKind,
+    pub hunks: Vec<DiffHunk>,
+    pub split_row_count: usize,
+    pub stack_row_count: usize,
+}
+
+/// Parse an already sanitized patch without constructing review files.
+/// Callers processing terminal output should use [`parse_patch`] to retain moved-line classes
+/// and exact paths captured during sanitization.
+pub fn parse_sanitized_patch_metadata(patch: &str) -> Result<Vec<ParsedDiffMetadata>, PatchError> {
+    let chunks = split_patch_into_file_chunks(patch);
+    if chunks.is_empty() {
+        return Err(PatchError::NoFiles);
+    }
+    chunks
+        .iter()
+        .map(|chunk| parse_file_metadata(chunk, None, None))
+        .collect()
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum PatchError {
     #[error("patch contains no file headers")]
@@ -143,13 +168,12 @@ pub fn parse_patch(
         .iter()
         .enumerate()
         .map(|(index, chunk)| {
-            parse_file_chunk(
+            let metadata = parse_file_metadata(
                 chunk,
-                index,
-                &source_prefix,
                 sanitized.file_paths.get(index).and_then(Option::as_ref),
                 line_move_kinds.get(index),
-            )
+            )?;
+            Ok(build_diff_file(metadata, chunk, index, &source_prefix))
         })
         .collect::<Result<Vec<_>, _>>()?;
     let mut changeset = Changeset {
@@ -504,13 +528,11 @@ fn flush_chunk(chunks: &mut Vec<String>, current: &mut Vec<&str>) {
     current.clear();
 }
 
-fn parse_file_chunk(
+fn parse_file_metadata(
     chunk: &str,
-    index: usize,
-    source_prefix: &str,
     exact_paths: Option<&SanitizedGitPatchFilePaths>,
     line_move_kinds: Option<&DiffLineMoveKinds>,
-) -> Result<DiffFile, PatchError> {
+) -> Result<ParsedDiffMetadata, PatchError> {
     let lines = chunk.lines().collect::<Vec<_>>();
     let header_pair = lines.iter().find_map(|line| {
         line.strip_prefix("diff --git ")
@@ -581,8 +603,6 @@ fn parse_file_chunk(
     let mut cursor = 0;
     let mut split_rows = 0;
     let mut stack_rows = 0;
-    let mut additions = 0;
-    let mut deletions = 0;
     let mut addition_line_index = 0;
     let mut deletion_line_index = 0;
     while cursor < lines.len() {
@@ -630,7 +650,6 @@ fn parse_file_chunk(
                         no_newline_at_eof: false,
                     });
                     old_line = old_line.saturating_add(1);
-                    deletions += 1;
                     deletion_line_index += 1;
                 }
                 Some(b'+') => {
@@ -646,7 +665,6 @@ fn parse_file_chunk(
                         no_newline_at_eof: false,
                     });
                     new_line = new_line.saturating_add(1);
-                    additions += 1;
                     addition_line_index += 1;
                 }
                 Some(b'\\') if line == "\\ No newline at end of file" => {
@@ -680,8 +698,44 @@ fn parse_file_chunk(
         stack_rows += hunk_stack_rows;
     }
 
-    let binary = lines.iter().any(|line| {
-        line == &"GIT binary patch"
+    Ok(ParsedDiffMetadata {
+        path,
+        previous_path,
+        change_kind,
+        hunks,
+        split_row_count: split_rows,
+        stack_row_count: stack_rows,
+    })
+}
+
+/// Construct the review model from parsed metadata using the same path as production loading.
+#[must_use]
+pub fn build_diff_file(
+    metadata: ParsedDiffMetadata,
+    patch: &str,
+    index: usize,
+    source_prefix: &str,
+) -> DiffFile {
+    let ParsedDiffMetadata {
+        path,
+        previous_path,
+        change_kind,
+        hunks,
+        split_row_count,
+        stack_row_count,
+    } = metadata;
+    let additions = hunks
+        .iter()
+        .flat_map(|hunk| &hunk.lines)
+        .filter(|line| line.kind == DiffLineKind::Addition)
+        .count();
+    let deletions = hunks
+        .iter()
+        .flat_map(|hunk| &hunk.lines)
+        .filter(|line| line.kind == DiffLineKind::Deletion)
+        .count();
+    let binary = patch.lines().any(|line| {
+        line == "GIT binary patch"
             || line.starts_with("Binary files ")
             || line.starts_with("Binary file ")
     });
@@ -703,9 +757,9 @@ fn parse_file_chunk(
             partial: true,
             ..FileFlags::default()
         },
-        patch: chunk.to_owned(),
-        split_row_count: split_rows,
-        stack_row_count: stack_rows,
+        patch: patch.to_owned(),
+        split_row_count,
+        stack_row_count,
         hunks,
         content_identity: String::new(),
         sources: workdeck_core::FileSourceSnapshots::default(),
@@ -714,7 +768,7 @@ fn parse_file_chunk(
         agent: None,
     };
     file.refresh_identity();
-    Ok(file)
+    file
 }
 
 /// Capture Git's deterministic color-moved classes before the terminal sanitizer removes SGR.
@@ -1017,6 +1071,31 @@ mod tests {
     use super::*;
 
     const PATCH: &str = "diff --git a/src/main.rs b/src/main.rs\nindex 111..222 100644\n--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,3 +1,4 @@ fn main() {\n context\n-old\n+new\n+later\n tail\n";
+
+    #[test]
+    fn metadata_and_review_construction_are_separate_production_stages() {
+        let mut parsed = parse_sanitized_patch_metadata(PATCH).unwrap();
+        assert_eq!(parsed.len(), 1);
+        let metadata = parsed.remove(0);
+        assert_eq!(metadata.path, "src/main.rs");
+        assert_eq!(metadata.change_kind, FileChangeKind::Modified);
+        assert_eq!(metadata.hunks.len(), 1);
+        assert_eq!((metadata.split_row_count, metadata.stack_row_count), (4, 5));
+        let file = build_diff_file(metadata, PATCH, 2, "probe");
+        assert_eq!(file.runtime_id, "probe:2:src/main.rs");
+        assert_eq!((file.stats.additions, file.stats.deletions), (2, 1));
+        assert_eq!(file.language.as_deref(), Some("rust"));
+        assert_eq!(file.patch, PATCH);
+        assert!(!file.content_identity.is_empty());
+        assert_eq!(
+            parse_sanitized_patch_metadata("not a patch"),
+            Err(PatchError::NoFiles)
+        );
+        assert!(matches!(
+            parse_sanitized_patch_metadata(&PATCH.replace("@@ -1,3 +1,4 @@", "@@ invalid @@")),
+            Err(PatchError::InvalidHunkHeader(_))
+        ));
+    }
 
     #[test]
     fn splits_git_and_plain_unified_patches() {

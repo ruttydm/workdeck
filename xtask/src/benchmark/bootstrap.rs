@@ -3,8 +3,8 @@
 use super::*;
 use std::time::Instant;
 use workdeck_core::{
-    AppBootstrap, ChangesetSource, CliInput, CommonOptions, FileCommandInput, InputLayoutMode,
-    ReloadContext, VcsDiffCommandInput,
+    AppBootstrap, CliInput, CommonOptions, FileCommandInput, InputLayoutMode, ReloadContext,
+    VcsDiffCommandInput,
 };
 use workdeck_vcs::{
     VcsCatalog, VcsReviewInput, bundled_vcs_catalog, get_vcs_adapter, load_file_comparison,
@@ -101,14 +101,7 @@ fn measure(root: &Path) -> Result<Measurement> {
     )?;
     let git_diff_subprocess_ms = started.elapsed().as_secs_f64() * 1000.0;
     let started = Instant::now();
-    let parsed = workdeck_diff::parse_patch(
-        &patch,
-        "patch",
-        "patch",
-        ChangesetSource::Patch {
-            label: "patch".into(),
-        },
-    )?;
+    let parsed = workdeck_diff::parse_sanitized_patch_metadata(&patch)?;
     let git_parse_patch_ms = started.elapsed().as_secs_f64() * 1000.0;
     let started = Instant::now();
     let chunks = workdeck_diff::split_patch_into_file_chunks(&patch);
@@ -146,7 +139,7 @@ fn measure(root: &Path) -> Result<Measurement> {
         git_split_patch_chunks_ms,
         file_pair_bootstrap_ms,
         files: bootstrap.changeset.files.len(),
-        parsed_files: parsed.files.len(),
+        parsed_files: parsed.len(),
         patch_chunks: chunks.len(),
         pair_files: pair.changeset.files.len(),
     })
