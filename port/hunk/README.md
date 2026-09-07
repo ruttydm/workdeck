@@ -147,6 +147,12 @@ Unix extension children use their own process groups so the reviewer can deliver
 instead of foreground SIGINT killing them first. Extension reveal uses live measured line rows,
 not the hunk anchor. Notifications retain the source `ext` surface and expire without a persistent
 status copy. These assertions do not waive Windows lifecycle or full terminal-cell parity gates.
+The native trust fixture commits its compiled extension and manifest before changing the two
+source files, matching the source harness's tracked-extension baseline. Its alpha/beta contents
+now match that factory rather than borrowing the distinct layout fixture. A shared repository
+factory verifies committed pre-change bytes, retained prepared entries, exact changed paths,
+source author/message metadata, and owned temporary-directory cleanup. No compiled fixture is
+added to Workdeck's own tracked tree; the binary lives only in a disposable test repository.
 
 Lifecycle capture now retains a separate stderr pipe for failures after terminal revocation and
 continues draining output while revoking. A zero-byte terminal write is classified as disconnect

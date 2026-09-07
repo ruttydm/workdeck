@@ -16,24 +16,7 @@ fn git(root: &Path, args: &[&str]) {
 }
 
 pub(super) fn repository(files: &[(&str, &str, &str)]) -> tempfile::TempDir {
-    let root = tempfile::tempdir().unwrap();
-    git(root.path(), &["init", "-q"]);
-    git(root.path(), &["config", "user.name", "PTY fixture"]);
-    git(
-        root.path(),
-        &["config", "user.email", "pty@example.invalid"],
-    );
-    for (path, before, _) in files {
-        let path = root.path().join(path);
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(path, before).unwrap();
-    }
-    git(root.path(), &["add", "."]);
-    git(root.path(), &["commit", "-qm", "baseline"]);
-    for (path, _, after) in files {
-        fs::write(root.path().join(path), after).unwrap();
-    }
-    root
+    super::harness::repository(files, |_| {})
 }
 
 pub(super) fn two_files(nested: bool) -> tempfile::TempDir {

@@ -351,17 +351,28 @@ fn startup_notification_renders_and_retires_without_changing_the_review() {
 }
 
 fn trusted_fixture(kind: &str) -> (tempfile::TempDir, tempfile::TempDir) {
-    let root = super::layout::two_files(false);
-    fs::write(
-        root.path().join(".git/info/exclude"),
-        ".agents/\n.workdeck-shutdown.log\n",
-    )
-    .unwrap();
-    let extension = super::file_views::example(
-        &root.path().join(".agents/workdeck/extensions"),
-        "pty-extension-probe",
+    let root = super::harness::repository(
+        &[
+            (
+                "alpha.ts",
+                "export const alpha = 1;\n",
+                "export const alphaValue = 2;\n",
+            ),
+            (
+                "beta.ts",
+                "export const beta = 1;\n",
+                "export const betaValue = 2;\n",
+            ),
+        ],
+        |root| {
+            let extension = super::file_views::example(
+                &root.join(".agents/workdeck/extensions"),
+                "pty-extension-probe",
+            );
+            fs::write(extension.join("fixture-kind"), kind).unwrap();
+            fs::write(root.join(".git/info/exclude"), ".workdeck-shutdown.log\n").unwrap();
+        },
     );
-    fs::write(extension.join("fixture-kind"), kind).unwrap();
     (root, tempfile::tempdir().unwrap())
 }
 
