@@ -5,7 +5,8 @@
   ],
   "runtime": "Bun 1.3.14, disposable pinned checkouts",
   "source_test_runs": {"baseline":{"passed":9,"failed":0,"expect_calls":18},"stable":{"passed":9,"failed":0,"expect_calls":18}},
-  "remaining_source_test_cases": ["selects the latest lower stable release benchmark", "keeps an explicit output path when --version appears later"],
+  "remaining_source_test_cases": ["keeps an explicit output path when --version appears later"],
+  "previous_release_native_test": "selects_latest_lower_stable_release_and_skips_prereleases_and_unrelated_names",
   "markdown_evidence": "port/hunk/oracles/benchmark-markdown.json",
   "normalization": "generatedAt frozen; no measured performance claims",
   "cases": [

@@ -5,6 +5,99 @@ use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+
+struct ReleaseVersion {
+    parts: [f64; 3],
+    prerelease: Option<String>,
+}
+
+fn release_version(version: &str) -> Result<ReleaseVersion> {
+    let (stable, prerelease) = version
+        .split_once('-')
+        .map_or((version, None), |(stable, pre)| (stable, Some(pre)));
+    let parts: Vec<_> = stable.split('.').collect();
+    if parts.len() != 3
+        || parts
+            .iter()
+            .any(|s| s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()))
+        || prerelease.is_some_and(|s| {
+            s.is_empty()
+                || !s
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-'))
+        })
+    {
+        bail!("Invalid release benchmark version: {version}");
+    }
+    Ok(ReleaseVersion {
+        parts: [parts[0].parse()?, parts[1].parse()?, parts[2].parse()?],
+        prerelease: prerelease.map(str::to_owned),
+    })
+}
+
+fn stable_difference(left: &ReleaseVersion, right: &ReleaseVersion) -> f64 {
+    for (left, right) in left.parts.iter().zip(right.parts) {
+        let delta = left - right;
+        if delta != 0.0 {
+            return delta;
+        }
+    }
+    // Used only with a stable left operand when selecting a previous stable snapshot.
+    if right.prerelease.is_some() { 1.0 } else { 0.0 }
+}
+
+fn previous_release(version: &str, directory: &Path) -> Result<Option<(String, PathBuf)>> {
+    let current = release_version(version)?;
+    if !directory.exists() {
+        return Ok(None);
+    }
+    let mut names = std::fs::read_dir(directory)?
+        .map(|entry| entry.map(|entry| entry.file_name()))
+        .collect::<std::io::Result<Vec<_>>>()?;
+    names.sort();
+    let mut candidates = Vec::new();
+    for name in names {
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let Some(raw) = name
+            .strip_prefix("bench-")
+            .and_then(|s| s.strip_suffix(".json"))
+        else {
+            continue;
+        };
+        let Ok(candidate) = release_version(raw) else {
+            continue;
+        };
+        if candidate.prerelease.is_some() || stable_difference(&candidate, &current) >= 0.0 {
+            continue;
+        }
+        candidates.push((raw.to_owned(), directory.join(name), candidate));
+    }
+    candidates.sort_by(|left, right| {
+        stable_difference(&right.2, &left.2)
+            .partial_cmp(&0.0)
+            .unwrap_or(Ordering::Equal)
+    });
+    Ok(candidates
+        .into_iter()
+        .next()
+        .map(|(version, path, _)| (version, path)))
+}
+
+fn previous_command(mut args: impl Iterator<Item = String>) -> Result<()> {
+    let (Some(version), Some(directory)) = (args.next(), args.next()) else {
+        bail!("benchmark previous requires VERSION RELEASE_DIRECTORY");
+    };
+    if args.next().is_some() {
+        bail!("unexpected benchmark previous argument");
+    }
+    let result = previous_release(&version, Path::new(&directory))?
+        .map(|(version, path)| serde_json::json!({"version":version,"path":path}));
+    println!("{}", serde_json::to_string(&result)?);
+    Ok(())
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -410,6 +503,9 @@ fn aggregate(source: &str, name: &str, samples: Vec<f64>) -> Metric {
 
 pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     let command = args.next();
+    if command.as_deref() == Some("previous") {
+        return previous_command(args);
+    }
     if command.as_deref() == Some("compare-json") {
         return compare_files(args, false);
     }
@@ -439,6 +535,39 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn selects_latest_lower_stable_release_and_skips_prereleases_and_unrelated_names() {
+        let root = tempfile::tempdir().unwrap();
+        for version in ["0.14.1", "0.15.0", "0.15.3-beta.1", "0.15.3"] {
+            std::fs::write(root.path().join(format!("bench-{version}.json")), b"{}\n").unwrap();
+        }
+        std::fs::write(root.path().join("bench-invalid.json"), b"{}").unwrap();
+        assert_eq!(
+            previous_release("0.15.4", root.path()).unwrap().unwrap().0,
+            "0.15.3"
+        );
+        assert_eq!(
+            previous_release("0.15.3-beta.2", root.path())
+                .unwrap()
+                .unwrap()
+                .0,
+            "0.15.0"
+        );
+        assert!(previous_release("0.14.1", root.path()).unwrap().is_none());
+        assert!(
+            previous_release("0.20.0", &root.path().join("missing"))
+                .unwrap()
+                .is_none()
+        );
+        assert!(previous_release("bad", &root.path().join("missing")).is_err());
+        for invalid in ["v1.2.3", "1.2", "1.2.3+build", "1.2.3-", "１.2.3"] {
+            assert!(release_version(invalid).is_err());
+        }
+        for valid in ["01.2.3", "1.2.3-beta.01", "1.2.3--"] {
+            assert!(release_version(valid).is_ok());
+        }
+    }
 
     #[test]
     fn frozen_dual_pin_markdown_and_decimal_rounding_match_exactly() {

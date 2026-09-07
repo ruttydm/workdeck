@@ -58,7 +58,11 @@ including failure counts, metric statuses, percentage deltas and absolute thresh
 The full report and 24 decimal-rounding cases are frozen from both pins; exact binary-value
 rounding avoids changing displayed values through intermediate floating-point multiplication.
 
-Benchmark execution, same-host measurements, automatic baseline selection,
+`cargo xtask benchmark previous VERSION RELEASE_DIRECTORY` finds the latest stable snapshot
+lower than the requested release, ignoring prerelease and unrelated filenames. A missing
+directory or absent lower snapshot produces JSON `null`; invalid versions fail before lookup.
+
+Benchmark execution, same-host measurements, automatic comparison-command integration,
 and strict release enforcement remain incomplete. These tests are not performance measurements,
 and the containing source records remain unmapped.
 
