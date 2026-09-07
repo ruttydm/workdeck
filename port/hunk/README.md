@@ -55,3 +55,11 @@ frame/state tests (`cargo test -p workdeck-tui pty_key_routing`). They preserve 
 under menus and theme navigation, filter text/focus under Escape and menu Enter, and note-editor
 ownership of F10. The theme controller carries forward its last rendered window before keyboard or
 hover preview transitions, avoiding unintended list recentering.
+
+Cursor-line work remains partial in `oracles/pty-cursor-line.json`: both upstream pins pass all
+11 cases; seven have native frame/state translations. Paging now updates the semantic selection,
+not just its screen row. Drafts use the existing inline-note painter and insert real review rows
+after their target, retaining downstream file/hunk/note geometry. Expanded source rows receive
+cursor/note targets; selecting them validates the retained source snapshot through an explicit
+review API without relaxing ordinary changed-hunk `reveal_line` validation. Gap expansion remembers
+and restores the previous cursor target. The lens fixture and four mouse/lens cases remain unmapped.

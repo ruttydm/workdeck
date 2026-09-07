@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "runtime": "Bun 1.3.14",
+  "captured_at": "2026-09-07",
+  "source": {
+    "path": "test/pty/cursor-line.test.ts",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "493e2a4839e7d9d5340e7860b1377922de876b80",
+      "sha256": "a8136c0439825db9fc0832676131643b44a0c509bccd97e433db5cc9663955c6",
+      "bytes": 14590,
+      "lines": 406
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "91b2154c1768795abdc8d71dfc0f950d8fae3b06",
+      "sha256": "3a8b2b7021d04c86a8dd04ee9827d706d8791f9df154353eabfa17493ffe3d6e",
+      "bytes": 14500,
+      "lines": 403
+    }
+  },
+  "oracle_runs": {
+    "baseline": { "command": "bun test test/pty/cursor-line.test.ts", "passed": 11, "failed": 0, "expect_calls": 40 },
+    "stable": { "command": "bun test test/pty/cursor-line.test.ts", "passed": 11, "failed": 0, "expect_calls": 40 }
+  },
+  "translation_status": "partial-unmapped",
+  "native_evidence": "crates/workdeck-tui/src/lib.rs",
+  "test_module": "tests::pty_cursor_line",
+  "translated_tests": [
+    "stepping_moves_cursor_before_viewport_and_then_one_row_per_press",
+    "held_step_burst_advances_five_rows_without_intermediate_frames",
+    "page_navigation_keeps_cursor_visible",
+    "note_after_paging_preserves_the_visible_review_anchor",
+    "note_anchor_follows_cursor_instead_of_hunk_start",
+    "expanded_gap_rows_are_reachable_by_cursor_and_note",
+    "expanding_moves_cursor_into_gap_and_collapsing_restores_anchor"
+  ],
+  "remaining_source_tests": [
+    "one-cell mouse jitter still selects the exact clicked line",
+    "multi-row copy drag keeps extending after highlighted rows repaint",
+    "a current-line pane pins old above new and hides in stack mode",
+    "stepping updates lens content without moving its fixed rectangle"
+  ],
+  "remaining_fixture": "test/pty/fixtures/current-line-lens/index.tsx"
+}

@@ -1155,6 +1155,7 @@ pub struct ReviewApp {
     review_file_header_hits: Mutex<Vec<SidebarFileHit>>,
     current_line_row: usize,
     expanded_gaps: BTreeSet<(String, usize)>,
+    gap_cursor_restore: BTreeMap<(String, usize), ReviewNoteTarget>,
     agent_line_highlights: LineHighlightMap,
     highlights: Mutex<HighlightedDiffRuntime>,
     themes: ThemeController,
@@ -1425,6 +1426,7 @@ impl ReviewApp {
             review_file_header_hits: Mutex::new(Vec::new()),
             current_line_row: 0,
             expanded_gaps: BTreeSet::new(),
+            gap_cursor_restore: BTreeMap::new(),
             agent_line_highlights: LineHighlightMap::default(),
             highlights: Mutex::new(HighlightedDiffRuntime::default()),
             themes,
@@ -1920,6 +1922,7 @@ impl ReviewApp {
             self.filter_cursor = 0;
             self.filter_scroll.set(0);
             self.expanded_gaps.clear();
+            self.gap_cursor_restore.clear();
             self.options.horizontal_offset = 0;
         }
         self.commit_extension_runtime_bridge();
@@ -3279,6 +3282,7 @@ impl ReviewApp {
                 self.current_line_row = last;
                 self.scroll = last.saturating_sub(viewport.saturating_sub(1));
             }
+            self.synchronize_cursor_to_scrolled_viewport(&rows);
             return;
         }
         let rows_per_step = match unit {
@@ -3301,6 +3305,22 @@ impl ReviewApp {
             .saturating_add_signed(movement)
             .min(max_scroll);
         self.current_line_row = self.scroll.min(last);
+        self.synchronize_cursor_to_scrolled_viewport(&rows);
+    }
+
+    fn synchronize_cursor_to_scrolled_viewport(&mut self, rows: &ReviewRows) {
+        if self.options.cursor_line == CursorLineMode::Off {
+            return;
+        }
+        let cursors = review_line_cursors(rows);
+        if let Some(cursor) = cursors
+            .iter()
+            .copied()
+            .find(|cursor| cursor.row >= self.current_line_row)
+            .or_else(|| cursors.last().copied())
+        {
+            self.apply_review_line_cursor(cursor);
+        }
     }
 
     fn toggle_files_pane_role(&mut self) {
@@ -3530,6 +3550,14 @@ impl ReviewApp {
         self.with_state(|state| {
             state
                 .reveal_line(target.file_index, target.side, target.line)
+                .or_else(|_| {
+                    state.reveal_source_line(
+                        target.file_index,
+                        target.hunk_index,
+                        target.side,
+                        target.line,
+                    )
+                })
                 .expect("measured review cursor names a rendered diff line");
         });
     }
@@ -7012,7 +7040,7 @@ impl ReviewApp {
             .highlights
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        build_live_review_rows(
+        let mut rows = build_live_review_rows(
             state.changeset(),
             state.comments(),
             state.selection(),
@@ -7027,7 +7055,11 @@ impl ReviewApp {
             &self.file_presentation_rendering,
             self.options.extension_notifications.as_ref(),
             &self.filter,
-        )
+        );
+        if let Some(composer) = &self.note_composer {
+            rows.insert_composer(composer, width, layout, &self.options.theme);
+        }
+        rows
     }
 
     fn live_copy_selection_snapshot(&self) -> Option<LiveCopySelectionSnapshot> {
@@ -7692,26 +7724,63 @@ impl ReviewApp {
             let file = state.selected_file()?;
             let source = review_gap_source_for_file(file);
             let hunk_index = selection.hunk_index.unwrap_or(0);
-            let gap_slot = review_leading_gap(&source, hunk_index)
-                .map(|_| hunk_index)
+            let (gap_slot, address) = review_leading_gap(&source, hunk_index)
+                .map(|gap| (hunk_index, gap))
                 .or_else(|| {
                     review_trailing_gap(&source)
                         .filter(|gap| gap.hunk_index == hunk_index)
-                        .map(|_| file.hunks.len())
+                        .map(|gap| (file.hunks.len(), gap))
                 })?;
-            Some((file.key.clone(), gap_slot))
+            Some((
+                (file.key.clone(), gap_slot),
+                selection.file_index,
+                address,
+                review_expansion_side(file.change_kind),
+            ))
         });
-        let Some(key) = target else {
+        let Some((key, file_index, address, side)) = target else {
             self.status = Some("source expansion is unavailable for this file".into());
             return;
         };
-        if !self.expanded_gaps.remove(&key) {
-            self.expanded_gaps.insert(key);
+        let previous = self
+            .current_review_line_cursor()
+            .map(|cursor| cursor.target);
+        let expanded = !self.expanded_gaps.remove(&key);
+        let target = if expanded {
+            if let Some(previous) = previous {
+                self.gap_cursor_restore.insert(key.clone(), previous);
+            }
+            self.expanded_gaps.insert(key.clone());
             self.status = Some("source gap expanded".into());
+            Some(ReviewNoteTarget {
+                file_index,
+                hunk_index: address.hunk_index,
+                side,
+                line: match side {
+                    ReviewSide::Old => address.old_range.start,
+                    ReviewSide::New => address.new_range.start,
+                },
+            })
         } else {
             self.status = Some("source gap collapsed".into());
+            self.gap_cursor_restore.remove(&key)
+        };
+        let rows = self.current_review_rows();
+        if let Some(cursor) = review_line_cursors(&rows)
+            .into_iter()
+            .find(|cursor| Some(cursor.target) == target)
+        {
+            self.apply_review_line_cursor(cursor);
+        } else {
+            self.seed_current_line_cursor();
         }
-        self.scroll_to_selection();
+        let viewport = usize::from(
+            self.review_height
+                .get()
+                .saturating_sub(2 + u16::from(!self.options.pager))
+                .max(1),
+        );
+        self.keep_current_line_visible(viewport, rows.lines.len().saturating_sub(1));
     }
 
     fn with_state<T>(&self, action: impl FnOnce(&mut ReviewState) -> T) -> T {
@@ -11270,6 +11339,9 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         app.options.extension_notifications.as_ref(),
         &app.filter,
     );
+    if let Some(composer) = &app.note_composer {
+        rows.insert_composer(composer, area.width, layout, &app.options.theme);
+    }
     let viewport = area
         .height
         .saturating_sub(2 + u16::from(!app.options.pager)) as usize;
@@ -11597,6 +11669,116 @@ struct ReviewRows {
     hunk_tops: std::collections::HashMap<(usize, usize), usize>,
     hunk_heights: std::collections::HashMap<(usize, usize), usize>,
     file_view_component_hits: Vec<FileViewComponentLogicalHit>,
+}
+
+fn paint_note_composer(
+    composer: &ReviewNoteComposer,
+    width: u16,
+    layout: LayoutMode,
+    theme: &AppTheme,
+) -> PaintedAgentInlineNote {
+    let range = workdeck_core::LineRange {
+        start: composer.target.line,
+        end: composer.target.line,
+    };
+    let annotation = AgentAnnotation {
+        id: Some(composer.id.clone()),
+        old_range: (composer.target.side == ReviewSide::Old).then_some(range),
+        new_range: (composer.target.side == ReviewSide::New).then_some(range),
+        summary: composer.body.clone(),
+        rationale: None,
+        markup: None,
+        tags: Vec::new(),
+        confidence: None,
+        source: Some("user-draft".into()),
+        title: match &composer.kind {
+            ReviewNoteComposerKind::Create => None,
+            ReviewNoteComposerKind::Edit { .. } => Some("Edit note".into()),
+            ReviewNoteComposerKind::Reply { .. } => Some("Reply to note".into()),
+        },
+        author: None,
+        created_at: None,
+        updated_at: None,
+        editable: true,
+    };
+    let mut options =
+        AgentInlineNoteViewOptions::new(&annotation, layout, theme, usize::from(width));
+    options.anchor_side = Some(composer.target.side);
+    options.draft = Some(AgentInlineNoteDraft {
+        body: &composer.body,
+        focused: true,
+        notify_focus: false,
+        notify_blur: false,
+    });
+    paint_agent_inline_note(&AgentInlineNoteViewState::default(), options)
+}
+
+impl ReviewRows {
+    fn insert_composer(
+        &mut self,
+        composer: &ReviewNoteComposer,
+        width: u16,
+        layout: LayoutMode,
+        theme: &AppTheme,
+    ) {
+        let Some(anchor) = self
+            .note_targets
+            .iter()
+            .filter(|(_, target)| **target == composer.target)
+            .map(|(row, _)| *row)
+            .max()
+        else {
+            return;
+        };
+        let start = anchor.saturating_add(1);
+        let painted = paint_note_composer(composer, width, layout, theme);
+        let lines = painted.ratatui_lines();
+        let height = lines.len();
+        self.lines.splice(start..start, lines);
+        let shift = |row: &mut usize| {
+            if *row >= start {
+                *row = row.saturating_add(height);
+            }
+        };
+        self.note_targets = std::mem::take(&mut self.note_targets)
+            .into_iter()
+            .map(|(mut row, target)| {
+                shift(&mut row);
+                (row, target)
+            })
+            .collect();
+        for cursor in &mut self.line_cursors {
+            shift(&mut cursor.row);
+        }
+        for top in self
+            .file_tops
+            .values_mut()
+            .chain(self.file_header_tops.values_mut())
+            .chain(self.file_body_tops.values_mut())
+        {
+            shift(top);
+        }
+        for (_, top) in &mut self.file_header_rows {
+            shift(top);
+        }
+        for top in self.hunk_tops.values_mut() {
+            shift(top);
+        }
+        if let Some(hunk_height) = self
+            .hunk_heights
+            .get_mut(&(composer.target.file_index, composer.target.hunk_index))
+        {
+            *hunk_height = hunk_height.saturating_add(height);
+        }
+        for (top, _) in self.note_bounds.values_mut() {
+            shift(top);
+        }
+        for hit in &mut self.file_view_component_hits {
+            shift(&mut hit.top);
+        }
+        self.note_bounds
+            .insert(composer.id.clone(), (start, height));
+    }
 }
 
 #[derive(Debug)]
@@ -12011,6 +12193,10 @@ fn build_review_rows_with_chrome(
                     expanded_gaps,
                     highlighted_source.as_ref(),
                     line_highlight_paint.as_ref(),
+                    file_index,
+                    rows.len(),
+                    &mut note_targets,
+                    &mut line_cursors,
                 ));
             }
             if hunk_index > 0 {
@@ -12104,6 +12290,10 @@ fn build_review_rows_with_chrome(
                 expanded_gaps,
                 highlighted_source.as_ref(),
                 line_highlight_paint.as_ref(),
+                file_index,
+                rows.len(),
+                &mut note_targets,
+                &mut line_cursors,
             ));
         }
     }
@@ -12413,6 +12603,10 @@ fn source_gap_rows(
     expanded_gaps: &BTreeSet<(String, usize)>,
     highlighted_source: Option<&workdeck_diff::HighlightedSourceCode>,
     line_highlights: Option<&LineHighlightPaintIndex>,
+    file_index: usize,
+    row_base: usize,
+    note_targets: &mut BTreeMap<usize, ReviewNoteTarget>,
+    line_cursors: &mut Vec<ReviewLineCursor>,
 ) -> Vec<Line<'static>> {
     let side = review_expansion_side(file.change_kind);
     let source = match side {
@@ -12428,6 +12622,7 @@ fn source_gap_rows(
     let mut rows = Vec::with_capacity(plan.lines.len().saturating_add(1));
     rows.push(source_gap_label(&plan.label, width));
     for expanded_line in plan.lines {
+        let start = rows.len();
         let highlighted = highlighted_source
             .and_then(|source| source.lines.get(expanded_line.source_line_index))
             .and_then(Option::as_ref)
@@ -12473,6 +12668,20 @@ fn source_gap_rows(
                     false,
                 ));
             }
+        }
+        let target = ReviewNoteTarget {
+            file_index,
+            hunk_index: address.hunk_index,
+            side,
+            line: match side {
+                ReviewSide::Old => expanded_line.old_line,
+                ReviewSide::New => expanded_line.new_line,
+            },
+        };
+        for row in start..rows.len() {
+            let row = row_base.saturating_add(row);
+            note_targets.insert(row, target);
+            line_cursors.push(ReviewLineCursor { row, target });
         }
     }
     rows
@@ -13484,42 +13693,37 @@ fn render_help(
     render_help_dialog(area, buffer, commands, theme, vertical_offset)
 }
 
-fn render_note_composer(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+fn render_note_composer(_area: Rect, _buffer: &mut Buffer, app: &ReviewApp) {
     let Some(composer) = app.note_composer.as_ref() else {
         app.note_composer_bounds.set(None);
         return;
     };
-    let requested_height =
-        u16::try_from(composer.body.lines().count().saturating_add(4).clamp(7, 14)).unwrap_or(14);
-    let geometry = resolve_modal_geometry(78, requested_height, area.width, area.height);
-    let popup = Rect {
-        x: area.x.saturating_add(geometry.left),
-        y: area.y.saturating_add(geometry.top),
-        width: geometry.width,
-        height: geometry.height,
+    app.note_composer_bounds.set(None);
+    let Some(area) = app.review_bounds.get() else {
+        return;
     };
-    app.note_composer_bounds.set(Some(popup));
-    Clear.render(popup, buffer);
-    let title = match &composer.kind {
-        ReviewNoteComposerKind::Create => " Draft note ",
-        ReviewNoteComposerKind::Edit { .. } => " Edit note ",
-        ReviewNoteComposerKind::Reply { .. } => " Reply to note ",
+    let rows = app.current_review_rows();
+    let Some(&(top, height)) = rows.note_bounds.get(&composer.id) else {
+        return;
     };
-    Paragraph::new(composer.body.as_str())
-        .wrap(Wrap { trim: false })
-        .style(
-            Style::default()
-                .fg(ratatui_theme_color(&app.options.theme.text))
-                .bg(ratatui_theme_color(&app.options.theme.panel)),
-        )
-        .block(
-            Block::default()
-                .title(title)
-                .title_bottom(" Ctrl+S save · Esc cancel ")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(ratatui_theme_color(&app.options.theme.accent))),
-        )
-        .render(popup, buffer);
+    let viewport = usize::from(
+        area.height
+            .saturating_sub(2 + u16::from(!app.options.pager)),
+    );
+    let scroll = app.scroll.min(rows.lines.len().saturating_sub(viewport));
+    if top < scroll || top >= scroll.saturating_add(viewport) {
+        return;
+    }
+    let layout = app.with_state(|state| state.resolved_layout(area.width));
+    let painted = paint_note_composer(composer, area.width, layout, &app.options.theme);
+    app.note_composer_bounds.set(Some(Rect::new(
+        area.x.saturating_add(painted.box_left as u16),
+        area.y
+            .saturating_add(2)
+            .saturating_add((top - scroll) as u16),
+        painted.box_width as u16,
+        height.min(viewport.saturating_sub(top - scroll)) as u16,
+    )));
 }
 
 fn note_composer_cursor_cell(
@@ -18875,6 +19079,180 @@ mod tests {
                 selected,
                 "menu selection did not move"
             );
+        }
+    }
+
+    // Hunk MIT: test/pty/cursor-line.test.ts. Partial until lens and mouse cases land.
+    mod pty_cursor_line {
+        use super::*;
+
+        fn press(app: &mut ReviewApp, key: char) {
+            app.handle_key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE));
+        }
+
+        fn setup(gap: bool) -> (ReviewApp, Terminal<TestBackend>) {
+            let mut review = if gap {
+                parse_patch("diff --git a/gap.ts b/gap.ts\n--- a/gap.ts\n+++ b/gap.ts\n@@ -4 +4 @@\n-old\n+new\n", "cursor-gap", "Gap", ChangesetSource::WorkingTree { staged: false }).unwrap()
+            } else {
+                navigation_changeset(vec![(
+                    "scroll.ts".into(),
+                    numbered_exports(1, 60, 0, true),
+                    numbered_exports(1, 60, 100, true),
+                )])
+            };
+            if gap {
+                review.files[0].set_sources(FileSourceSnapshots {
+                    old: Some(SourceSnapshot::new(
+                        "hiddenLine01\nhiddenLine02\nhiddenLine03\nold\n".into(),
+                        SourceOrigin::Revision {
+                            revision: "HEAD".into(),
+                        },
+                        true,
+                    )),
+                    new: Some(SourceSnapshot::new(
+                        "hiddenLine01\nhiddenLine02\nhiddenLine03\nnew\n".into(),
+                        SourceOrigin::WorkingTree,
+                        false,
+                    )),
+                });
+                review.files[0].flags.partial = false;
+            }
+            let app = ReviewApp::new(
+                review,
+                ReviewOptions {
+                    layout: LayoutMode::Stack,
+                    highlight: false,
+                    ..ReviewOptions::default()
+                },
+            );
+            let mut terminal = Terminal::new(TestBackend::new(
+                if gap { 140 } else { 120 },
+                if gap { 16 } else { 24 },
+            ))
+            .unwrap();
+            rendered_review_frame(&mut terminal, &app);
+            (app, terminal)
+        }
+
+        fn row(frame: &str, needle: &str) -> usize {
+            frame
+                .lines()
+                .position(|line| line.contains(needle))
+                .unwrap_or_else(|| panic!("missing {needle}: {frame}"))
+        }
+
+        #[test]
+        fn stepping_moves_cursor_before_viewport_and_then_one_row_per_press() {
+            let (mut app, mut terminal) = setup(false);
+            press(&mut app, 'j');
+            rendered_review_frame(&mut terminal, &app);
+            assert_eq!(app.scroll, 0);
+            let mut steps = 1;
+            while app.scroll == 0 && steps < 40 {
+                press(&mut app, 'j');
+                rendered_review_frame(&mut terminal, &app);
+                steps += 1;
+            }
+            assert!(steps > 5 && app.scroll > 0);
+            for _ in 0..2 {
+                let before = app.scroll;
+                press(&mut app, 'j');
+                rendered_review_frame(&mut terminal, &app);
+                assert_eq!(app.scroll, before + 1);
+            }
+            let before = app.scroll;
+            press(&mut app, 'k');
+            rendered_review_frame(&mut terminal, &app);
+            assert_eq!(app.scroll, before);
+        }
+
+        #[test]
+        fn held_step_burst_advances_five_rows_without_intermediate_frames() {
+            let (mut app, mut terminal) = setup(false);
+            for _ in 0..40 {
+                if app.scroll > 0 {
+                    break;
+                }
+                press(&mut app, 'j');
+                rendered_review_frame(&mut terminal, &app);
+            }
+            assert!(app.scroll > 0);
+            let before = rendered_review_frame(&mut terminal, &app);
+            let anchor = before.lines().nth(12).unwrap().trim();
+            assert!(!anchor.is_empty());
+            for _ in 0..5 {
+                press(&mut app, 'j');
+            }
+            let after = rendered_review_frame(&mut terminal, &app);
+            assert_eq!(row(&after, anchor), 7);
+        }
+
+        #[test]
+        fn page_navigation_keeps_cursor_visible() {
+            let (mut app, mut terminal) = setup(false);
+            press(&mut app, ' ');
+            rendered_review_frame(&mut terminal, &app);
+            let before = app.scroll;
+            press(&mut app, 'j');
+            rendered_review_frame(&mut terminal, &app);
+            assert!(app.scroll.abs_diff(before) <= 1);
+        }
+
+        #[test]
+        fn note_after_paging_preserves_the_visible_review_anchor() {
+            let (mut app, mut terminal) = setup(false);
+            press(&mut app, ' ');
+            let paged = rendered_review_frame(&mut terminal, &app);
+            let anchor = paged.lines().nth(12).unwrap().trim();
+            assert!(!anchor.is_empty());
+            press(&mut app, 'c');
+            let draft = rendered_review_frame(&mut terminal, &app);
+            assert!(draft.contains("Draft note"));
+            assert!(draft.contains(anchor));
+        }
+
+        #[test]
+        fn note_anchor_follows_cursor_instead_of_hunk_start() {
+            let (mut app, mut terminal) = setup(false);
+            press(&mut app, 'c');
+            let initial = row(&rendered_review_frame(&mut terminal, &app), "Draft note");
+            app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+            for _ in 0..4 {
+                press(&mut app, 'j');
+                rendered_review_frame(&mut terminal, &app);
+            }
+            press(&mut app, 'c');
+            assert!(row(&rendered_review_frame(&mut terminal, &app), "Draft note") > initial);
+        }
+
+        #[test]
+        fn expanded_gap_rows_are_reachable_by_cursor_and_note() {
+            let (mut app, mut terminal) = setup(true);
+            press(&mut app, 'z');
+            assert!(rendered_review_frame(&mut terminal, &app).contains("hiddenLine01"));
+            press(&mut app, 'k');
+            press(&mut app, 'c');
+            let draft = rendered_review_frame(&mut terminal, &app);
+            assert_eq!(row(&draft, "Draft note"), row(&draft, "hiddenLine01") + 1);
+        }
+
+        #[test]
+        fn expanding_moves_cursor_into_gap_and_collapsing_restores_anchor() {
+            let (mut app, mut terminal) = setup(true);
+            press(&mut app, 'c');
+            let target = app.note_composer.as_ref().unwrap().target;
+            app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+            press(&mut app, 'z');
+            rendered_review_frame(&mut terminal, &app);
+            press(&mut app, 'c');
+            let draft = rendered_review_frame(&mut terminal, &app);
+            assert!(draft.contains("R1 "));
+            assert_eq!(row(&draft, "Draft note"), row(&draft, "hiddenLine01") + 1);
+            app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+            press(&mut app, 'z');
+            assert!(!rendered_review_frame(&mut terminal, &app).contains("hiddenLine01"));
+            press(&mut app, 'c');
+            assert_eq!(app.note_composer.as_ref().unwrap().target, target);
         }
     }
 

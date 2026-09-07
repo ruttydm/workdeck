@@ -361,6 +361,47 @@ impl ReviewState {
         Ok(())
     }
 
+    /// Select an expanded source row with an explicit owning hunk. Ordinary
+    /// `reveal_line` retains its changed-hunk validation contract.
+    pub fn reveal_source_line(
+        &mut self,
+        file_index: usize,
+        hunk_index: usize,
+        side: ReviewSide,
+        line: u32,
+    ) -> Result<(), ReviewError> {
+        let file = self
+            .changeset
+            .files
+            .get(file_index)
+            .ok_or(ReviewError::FileOutOfRange(file_index))?;
+        if hunk_index >= file.hunks.len() {
+            return Err(ReviewError::HunkOutOfRange {
+                file: file_index,
+                hunk: hunk_index,
+            });
+        }
+        let source = match side {
+            ReviewSide::Old => file.sources.old.as_ref(),
+            ReviewSide::New => file.sources.new.as_ref(),
+        };
+        if line == 0 || source.is_none_or(|source| (line as usize) > source.content.lines().count())
+        {
+            return Err(ReviewError::LineNotInHunk { side, line });
+        }
+        let selection = ReviewSelection {
+            file_index,
+            hunk_index: Some(hunk_index),
+            side: Some(side),
+            line: Some(line),
+        };
+        if self.selection != selection {
+            self.selection = selection;
+            self.state_revision = self.state_revision.saturating_add(1);
+        }
+        Ok(())
+    }
+
     pub fn reload(&mut self, changeset: Changeset) {
         let previous_file = self.selected_file().map(|file| {
             (
@@ -675,6 +716,35 @@ mod tests {
             agent_summary: None,
             source: ChangesetSource::WorkingTree { staged: false },
             files,
+        }
+    }
+
+    #[test]
+    fn source_line_selection_validates_snapshot_and_retains_changed_line_contract() {
+        let mut source_file = file("source.rs", "source", 1);
+        source_file.sources.new = Some(workdeck_core::SourceSnapshot::new(
+            "first\nsecond\nthird\n".into(),
+            workdeck_core::SourceOrigin::WorkingTree,
+            false,
+        ));
+        let mut state = ReviewState::new(changeset(vec![source_file]));
+        assert!(state.reveal_line(0, ReviewSide::New, 3).is_err());
+        let revision = state.state_revision();
+        state.reveal_source_line(0, 0, ReviewSide::New, 3).unwrap();
+        assert_eq!(state.selection().line, Some(3));
+        assert_eq!(state.state_revision(), revision + 1);
+        state.reveal_source_line(0, 0, ReviewSide::New, 3).unwrap();
+        assert_eq!(state.state_revision(), revision + 1);
+        for (file, hunk, side, line) in [
+            (1, 0, ReviewSide::New, 1),
+            (0, 1, ReviewSide::New, 1),
+            (0, 0, ReviewSide::Old, 1),
+            (0, 0, ReviewSide::New, 0),
+            (0, 0, ReviewSide::New, 4),
+        ] {
+            assert!(state.reveal_source_line(file, hunk, side, line).is_err());
+            assert_eq!(state.selection().line, Some(3));
+            assert_eq!(state.state_revision(), revision + 1);
         }
     }
 
