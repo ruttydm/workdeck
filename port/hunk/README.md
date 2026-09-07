@@ -99,8 +99,11 @@ backgrounds, clear counts, and navigation back to line 25. Terminal output conti
 session CLI exchanges. Color tests explicitly enable truecolor without inheriting `NO_COLOR`.
 
 Notes are still partial and unmapped. `oracles/pty-notes.json` records all 19 baseline and 18 stable
-oracle passes (the threaded-action test is baseline-only), six native keyboard-focused translations,
-and remaining cases. Draft titles receive the owning file, LF/Ctrl+J inserts a newline, cursor-off
+oracle passes (the threaded-action test is baseline-only), 18 passing native translations,
+and the remaining threaded-action case. Live pointer movement controls add-note affordances;
+composer Save/Cancel hit areas own their mouse events. Agent annotations use the shared note painter
+after their source anchor, including collapsed-gap ownership and experimental STML bodies.
+Draft titles receive the owning file, LF/Ctrl+J inserts a newline, cursor-off
 drafts reveal the default hunk target, and split composer insertion recognizes either side of a
 paired row. These checks do not complete the notes source interval.
 
@@ -108,3 +111,6 @@ Lifecycle capture now retains a separate stderr pipe for failures after terminal
 continues draining output while revoking. A zero-byte terminal write is classified as disconnect
 alongside EIO and broken pipes; it is not swallowed for unrelated I/O. Five consecutive native
 lifecycle suite runs passed after this correction.
+Lifecycle fixtures now also run sequentially, matching the source suite: Darwin terminal revocation
+can otherwise hold terminal subsystem locks across independent fixtures. Original exit deadlines
+remain unchanged.

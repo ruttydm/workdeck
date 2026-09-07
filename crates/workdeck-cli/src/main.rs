@@ -985,6 +985,7 @@ impl ReviewCliOptions {
             pager: self.pager,
             watch: self.watch && !self.no_watch,
             agent_notes: self.agent_notes && !self.no_agent_notes,
+            experimental: self.experimental,
             show_menu_bar: self.show_menu_bar,
             copy_decorations: self.copy_decorations,
             view_preferences_config_path: self.view_preferences_config_path.clone(),

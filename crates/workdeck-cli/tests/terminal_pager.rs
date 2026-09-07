@@ -172,6 +172,30 @@ impl Session {
         self.master.as_mut().unwrap().flush().unwrap();
     }
 
+    fn move_mouse(&mut self, column: usize, row: usize) {
+        self.write(format!("\x1b[<35;{};{}M", column + 1, row + 1).as_bytes());
+    }
+
+    fn click_label(&mut self, label: &str) {
+        let frame = self.wait(|text| text.contains(label));
+        let (row, line, offset) = frame
+            .lines()
+            .enumerate()
+            .find_map(|(row, line)| line.find(label).map(|offset| (row, line, offset)))
+            .unwrap();
+        let column = line[..offset].chars().count();
+        self.write(
+            format!(
+                "\x1b[<0;{};{}M\x1b[<0;{};{}m",
+                column + 1,
+                row + 1,
+                column + 1,
+                row + 1
+            )
+            .as_bytes(),
+        );
+    }
+
     fn wait(&mut self, predicate: impl Fn(&str) -> bool) -> String {
         self.wait_for(Duration::from_secs(20), predicate)
             .unwrap_or_else(|| {
@@ -510,6 +534,140 @@ mod notes {
             .unwrap_or_else(|| panic!("missing {needle}:\n{text}"))
     }
 
+    fn agent_note_visibility(experimental: bool) {
+        let sidecar = tempfile::tempdir().unwrap();
+        let path = sidecar.path().join("agent.json");
+        fs::write(&path, serde_json::json!({"version":1,"files":[{"path":"after.ts","annotations":[{"newRange":[2,2],"summary":"Adds bonus export.","rationale":"Highlights the follow-up addition for review.","markup":"<badge color=\"success\">STML ACTIVE</badge>"}]}]}).to_string()).unwrap();
+        let mut extra = vec!["--agent-context", path.to_str().unwrap()];
+        if experimental {
+            extra.push("--experimental");
+        }
+        let (_fixture, mut session) = pair(
+            "export const answer = 41;\n",
+            "export const answer = 42;\nexport const added = true;\n",
+            "split",
+            140,
+            20,
+            &extra,
+        );
+        let initial = session.wait(|text| text.contains("export const added"));
+        assert!(!initial.contains("Adds bonus export."));
+        session.write(b"a");
+        if experimental {
+            let shown = session.wait(|text| text.contains("STML ACTIVE"));
+            assert!(!shown.contains("Highlights the follow-up addition for review."));
+        } else {
+            let shown = session.wait(|text| {
+                text.contains("Adds bonus export.")
+                    && text.contains("Highlights the follow-up addition for review.")
+            });
+            assert!(!shown.contains("STML ACTIVE"));
+        }
+        session.write(b"a");
+        session.wait(|text| !text.contains("Adds bonus export.") && !text.contains("STML ACTIVE"));
+        session.quit();
+    }
+
+    #[test]
+    fn agent_notes_reveal_and_hide_without_experimental_markup() {
+        agent_note_visibility(false);
+    }
+
+    #[test]
+    fn experimental_agent_notes_render_stml_instead_of_rationale() {
+        agent_note_visibility(true);
+    }
+
+    #[test]
+    fn collapsed_gap_note_is_inside_owning_hunk_after_first_row() {
+        let sidecar = tempfile::tempdir().unwrap();
+        let path = sidecar.path().join("agent.json");
+        fs::write(&path, serde_json::json!({"version":1,"files":[{"path":"after.ts","annotations":[{"newRange":[6,7],"summary":"GAP NOTE","rationale":"Anchored to lines the patch collapsed away."}]}]}).to_string()).unwrap();
+        let before = (1..=12)
+            .map(|line| format!("export const line{line} = {line};\n"))
+            .collect::<String>();
+        let after = before
+            .replace("line2 = 2;", "line2 = 200;")
+            .replace("line11 = 11;", "line11 = 1100;");
+        let (_fixture, mut session) = pair(
+            &before,
+            &after,
+            "split",
+            140,
+            30,
+            &["--agent-context", path.to_str().unwrap()],
+        );
+        session.wait(|text| text.contains("line11"));
+        session.write(b"a");
+        let shown = session.wait(|text| text.contains("GAP NOTE") && text.contains("line9 = 9;"));
+        assert!(
+            row(&shown, "GAP NOTE") > row(&shown, "line8 = 8;"),
+            "{shown}"
+        );
+        assert!(
+            row(&shown, "GAP NOTE") < row(&shown, "line9 = 9;"),
+            "{shown}"
+        );
+        session.write(b"a");
+        session.wait(|text| !text.contains("GAP NOTE"));
+        session.quit();
+    }
+
+    #[test]
+    fn draft_focus_blocks_app_hunk_shortcut_until_cancelled() {
+        let before = (1..=80)
+            .map(|line| format!("export const line{line} = {line};\n"))
+            .collect::<String>();
+        let mut after = before.replace("line1 = 1;", "line1 = 100;");
+        for line in 60..=65 {
+            after = after.replace(
+                &format!("line{line} = {line};"),
+                &format!("line{line} = {line}00;"),
+            );
+        }
+        let (_fixture, mut session) = pair(&before, &after, "split", 104, 12, &[]);
+        let initial = session.wait(|text| text.contains("line1 = 100"));
+        assert!(!initial.contains("line60 = 6000"));
+        session.write(b"c");
+        session.wait(|text| text.contains("Draft note"));
+        session.write(b"Keep focus here]");
+        let focused = session.wait(|text| text.contains("Keep focus here]"));
+        assert!(focused.contains("Draft note"));
+        assert!(!focused.contains("line60 = 6000"));
+        session.write(b"\x1b");
+        session.wait(|text| !text.contains("Draft note"));
+        session.write(b"]");
+        let after = session.wait(|text| text.contains("line60 = 6000"));
+        assert!(!after.contains("Keep focus here]"));
+        session.quit();
+    }
+
+    #[test]
+    fn draft_focus_blocks_pager_sidebar_shortcut_until_cancelled() {
+        let mut session = Session::launch(
+            &patch(40),
+            &["patch", "input.patch", "--pager"],
+            false,
+            120,
+            20,
+        );
+        let initial = session.wait(|text| text.contains("before_01"));
+        assert!(!initial.contains("M scroll.ts"));
+        open_on_row(&mut session, row(&initial, "before_01"));
+        session.write(b"sidebar-trigger text");
+        let focused = session
+            .wait(|text| text.contains("sidebar-trigger text") && text.contains("Draft note"));
+        assert!(!focused.contains("M scroll.ts"));
+        session.click_label("Esc cancel");
+        session.wait(|text| !text.contains("Draft note"));
+        session.write(b"s");
+        session.wait(|text| {
+            text.lines()
+                .any(|line| line.contains("M scroll.ts") && line.contains("+40 -40"))
+        });
+        session.quit();
+    }
+
     #[test]
     fn user_notes_draft_and_save_inline_with_newline_geometry() {
         let (_fixture, mut session) = long_wrap(20);
@@ -589,6 +747,182 @@ mod notes {
         session.wait(|text| text.contains("Draft note"));
         session.write(b"\x1b");
         session.wait(|text| !text.contains("Draft note") && text.contains("this is a very long"));
+        session.quit();
+    }
+
+    #[test]
+    fn clicked_add_note_can_cancel_and_save_with_mouse_controls() {
+        let (_fixture, mut session) = long_wrap(20);
+        let initial = session.wait(|text| text.contains("this is a very long"));
+        let target_row = row(&initial, "this is a very long");
+        for (body, save) in [
+            ("Cancel this draft.", false),
+            ("Save this clicked draft.", true),
+        ] {
+            session.move_mouse(0, 0);
+            session.move_mouse(8, target_row);
+            session.click_label("[+]");
+            session.wait(|text| text.contains("Draft note"));
+            session.write(body.as_bytes());
+            session.wait(|text| text.contains(body));
+            session.click_label(if save { "^S save" } else { "Esc cancel" });
+            if save {
+                session.wait(|text| {
+                    text.contains("Your note")
+                        && text.contains(body)
+                        && !text.contains("Draft note")
+                });
+            } else {
+                let cancelled =
+                    session.wait(|text| !text.contains("Draft note") && !text.contains(body));
+                assert!(!cancelled.contains("Your note"));
+            }
+        }
+        session.quit();
+    }
+
+    fn open_on_row(session: &mut Session, target_row: usize) {
+        session.move_mouse(0, 0);
+        session.move_mouse(8, target_row);
+        session.click_label("[+]");
+        session.wait(|text| text.contains("Draft note"));
+    }
+
+    #[test]
+    fn clicked_add_note_owns_keyboard_cancel_and_save() {
+        let (_fixture, mut session) = long_wrap(20);
+        let initial = session.wait(|text| text.contains("this is a very long"));
+        let target_row = row(&initial, "this is a very long");
+        open_on_row(&mut session, target_row);
+        session.write(b"Cancel this shortcut draft.\x1b");
+        let cancelled = session.wait(|text| {
+            !text.contains("Draft note") && !text.contains("Cancel this shortcut draft.")
+        });
+        assert!(!cancelled.contains("Your note"));
+        open_on_row(&mut session, target_row);
+        session.write(b"Save this shortcut draft.\x13");
+        session.wait(|text| {
+            text.contains("Your note")
+                && text.contains("Save this shortcut draft.")
+                && !text.contains("Draft note")
+        });
+        session.quit();
+    }
+
+    #[test]
+    fn stack_add_note_affordance_saves_clicked_target() {
+        let (_fixture, mut session) = pair(
+            "export const message = 'short';\n",
+            "export const message = 'this is a very long wrapped line for tuistory integration coverage';\n",
+            "stack",
+            100,
+            20,
+            &[],
+        );
+        let initial = session.wait(|text| text.contains("this is a very long"));
+        open_on_row(&mut session, row(&initial, "this is a very long"));
+        session.write(b"Save this stack draft.\x13");
+        session.wait(|text| {
+            text.contains("Your note")
+                && text.contains("Save this stack draft.")
+                && !text.contains("Draft note")
+        });
+        session.quit();
+    }
+
+    fn deletion_pair(height: u16) -> (tempfile::TempDir, Session) {
+        pair(
+            "export const keep = true;\nexport const removeMe = true;\n",
+            "export const keep = true;\n",
+            "split",
+            120,
+            height,
+            &[],
+        )
+    }
+
+    #[test]
+    fn deletion_only_add_note_affordance_saves_old_side() {
+        let (_fixture, mut session) = deletion_pair(16);
+        let initial = session.wait(|text| text.contains("removeMe"));
+        open_on_row(&mut session, row(&initial, "removeMe"));
+        session.write(b"Save this deletion draft.\x13");
+        session.wait(|text| {
+            text.contains("Your note")
+                && text.contains("Save this deletion draft.")
+                && !text.contains("Draft note")
+        });
+        session.quit();
+    }
+
+    #[test]
+    fn context_click_overrides_keyboard_cursor_without_moving_target_row() {
+        let (_fixture, mut session) = deletion_pair(16);
+        session.wait(|text| text.contains("keep = true") && text.contains("removeMe"));
+        session.write(b"\x1b[B");
+        session.wait_for(Duration::from_millis(100), |_| false);
+        let initial = session.parser.terminal().plain_string();
+        let target_row = row(&initial, "keep = true");
+        open_on_row(&mut session, target_row);
+        session.wait_for(Duration::from_millis(100), |_| false);
+        let draft = session.parser.terminal().plain_string();
+        assert_eq!(row(&draft, "keep = true"), target_row, "{draft}");
+        assert!(row(&draft, "Draft note") > target_row);
+        session.write(b"Save this context draft.\x13");
+        session.wait(|text| {
+            text.contains("Your note")
+                && text.contains("Save this context draft.")
+                && !text.contains("Draft note")
+        });
+        session.quit();
+    }
+
+    #[test]
+    fn multiple_clicked_notes_survive_on_one_hunk() {
+        let (_fixture, mut session) = deletion_pair(20);
+        let initial = session.wait(|text| text.contains("keep = true"));
+        open_on_row(&mut session, row(&initial, "keep = true"));
+        session.write(b"First note on the context row.\x13");
+        let first = session.wait(|text| {
+            text.contains("First note on the context row.")
+                && text.contains("Your note")
+                && !text.contains("Draft note")
+                && text.contains("removeMe")
+        });
+        open_on_row(&mut session, row(&first, "removeMe"));
+        session.write(b"Second note on the deletion row.\x13");
+        let second = session.wait(|text| {
+            text.contains("Second note on the deletion row.") && !text.contains("Draft note")
+        });
+        assert!(
+            second.contains("First note on the context row."),
+            "{second}"
+        );
+        session.quit();
+    }
+
+    #[test]
+    fn mouse_movement_is_required_to_restore_affordance_after_wheel_or_key() {
+        let before = (1..=18)
+            .map(|line| format!("export const line{line:02} = {line};\n"))
+            .collect::<String>();
+        let after = (1..=18)
+            .map(|line| format!("export const line{line:02} = {};\n", line + 100))
+            .collect::<String>();
+        let (_fixture, mut session) = pair(&before, &after, "split", 120, 12, &[]);
+        session.wait(|text| text.contains("line01"));
+        session.move_mouse(8, 5);
+        session.wait(|text| text.contains("[+]"));
+        session.write(b"\x1b[<65;60;6M\x1b[<65;60;6M");
+        session.wait(|text| !text.contains("[+]"));
+        session.wait_for(Duration::from_millis(250), |_| false);
+        assert!(!session.parser.terminal().plain_string().contains("[+]"));
+        session.move_mouse(9, 5);
+        session.wait(|text| text.contains("[+]"));
+        session.write(b"\x1b[B");
+        session.wait(|text| !text.contains("[+]"));
+        session.wait_for(Duration::from_millis(250), |_| false);
+        assert!(!session.parser.terminal().plain_string().contains("[+]"));
         session.quit();
     }
 

@@ -310,6 +310,7 @@ pub struct ReviewOptions {
     pub pager: bool,
     pub watch: bool,
     pub agent_notes: bool,
+    pub experimental: bool,
     pub show_menu_bar: bool,
     pub copy_decorations: bool,
     /// Existing repository config, otherwise the global config path, for view persistence.
@@ -363,6 +364,7 @@ impl Default for ReviewOptions {
             pager: false,
             watch: false,
             agent_notes: false,
+            experimental: false,
             show_menu_bar: true,
             copy_decorations: false,
             view_preferences_config_path: None,
@@ -1138,6 +1140,11 @@ pub struct ReviewApp {
     status: Option<String>,
     note_composer: Option<ReviewNoteComposer>,
     note_composer_bounds: Cell<Option<Rect>>,
+    note_composer_actions: Mutex<Vec<(Rect, AgentInlineNoteAction)>>,
+    note_hover_state: DiffSectionBodyState,
+    note_hover_epoch: Instant,
+    note_hover: Option<(usize, ReviewNoteTarget)>,
+    note_hover_hit: Cell<Option<(Rect, ReviewNoteTarget)>>,
     note_sequence: u64,
     filter: String,
     filter_cursor: usize,
@@ -1414,6 +1421,11 @@ impl ReviewApp {
             status: keymap_status,
             note_composer: None,
             note_composer_bounds: Cell::new(None),
+            note_composer_actions: Mutex::new(Vec::new()),
+            note_hover_state: DiffSectionBodyState::default(),
+            note_hover_epoch: Instant::now(),
+            note_hover: None,
+            note_hover_hit: Cell::new(None),
             note_sequence: 0,
             filter: String::new(),
             filter_cursor: 0,
@@ -2023,6 +2035,14 @@ impl ReviewApp {
     }
 
     pub fn tick_extension_notifications(&mut self, now: Instant) {
+        if self.note_hover_state.advance_time(
+            now.saturating_duration_since(self.note_hover_epoch)
+                .as_millis() as u64,
+        ) == AddNoteAffordanceUpdate::Clear
+        {
+            self.note_hover = None;
+            self.note_hover_hit.set(None);
+        }
         if self.view_preference_quit.poll_quit(now) {
             self.should_quit = true;
         }
@@ -2254,6 +2274,7 @@ impl ReviewApp {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
+        self.clear_note_hover();
         if self.handle_extension_trust_prompt_key(&key) {
             return;
         }
@@ -7940,6 +7961,9 @@ impl ReviewApp {
             }
             return;
         }
+        if self.handle_note_mouse(&event, now) {
+            return;
+        }
         if self.copy_selection_drag.is_some() && self.handle_copy_selection_mouse_at(&event, now) {
             return;
         }
@@ -7959,6 +7983,113 @@ impl ReviewApp {
             return;
         }
         self.handle_mouse_at(event.kind, now);
+    }
+
+    fn clear_note_hover(&mut self) {
+        self.note_hover_state.terminal_blur();
+        self.note_hover = None;
+        self.note_hover_hit.set(None);
+    }
+
+    fn handle_note_mouse(&mut self, event: &MouseEvent, now: Instant) -> bool {
+        if self.note_composer.is_some() {
+            if event.kind == MouseEventKind::Up(MouseButton::Left) {
+                let action = self
+                    .note_composer_actions
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .iter()
+                    .find(|(bounds, _)| rect_contains(*bounds, event.column, event.row))
+                    .map(|(_, action)| *action);
+                match action {
+                    Some(AgentInlineNoteAction::Save) => self.save_note_composer(),
+                    Some(AgentInlineNoteAction::Cancel) => {
+                        self.handle_note_composer_key(&KeyEvent::new(
+                            KeyCode::Esc,
+                            KeyModifiers::NONE,
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+            return true;
+        }
+        if let Some((bounds, target)) = self.note_hover_hit.get()
+            && rect_contains(bounds, event.column, event.row)
+            && matches!(
+                event.kind,
+                MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Up(MouseButton::Left)
+            )
+        {
+            if event.kind == MouseEventKind::Up(MouseButton::Left) {
+                let rows = self.current_review_rows();
+                if let Some(cursor) = rows
+                    .line_cursors
+                    .iter()
+                    .find(|cursor| cursor.target == target)
+                    .copied()
+                {
+                    self.apply_review_line_cursor(cursor);
+                }
+                self.open_note_composer();
+                // A pointer anchor must win even when keyboard cursor highlighting is off.
+                if let Some(composer) = self.note_composer.as_mut() {
+                    composer.target = target;
+                }
+                self.clear_note_hover();
+            }
+            return true;
+        }
+        if matches!(
+            event.kind,
+            MouseEventKind::ScrollDown | MouseEventKind::ScrollUp | MouseEventKind::Drag(_)
+        ) {
+            self.clear_note_hover();
+            return false;
+        }
+        if event.kind != MouseEventKind::Moved {
+            return false;
+        }
+        let Some(area) = self.review_bounds.get().filter(|area| {
+            rect_contains(*area, event.column, event.row) && event.row >= area.y.saturating_add(2)
+        }) else {
+            self.clear_note_hover();
+            return false;
+        };
+        let rows = self.current_review_rows();
+        let visual_row = self
+            .scroll
+            .saturating_add(usize::from(event.row - area.y - 2));
+        let target = rows
+            .line_cursors
+            .iter()
+            .filter(|cursor| cursor.row == visual_row)
+            .max_by_key(|cursor| cursor.target.side == ReviewSide::New)
+            .map(|cursor| cursor.target);
+        let Some(target) = target else {
+            self.clear_note_hover();
+            return false;
+        };
+        let key = format!("{}:{visual_row}", target.file_index);
+        let affordances = std::collections::HashMap::from([(
+            key.clone(),
+            ActiveAddNoteAffordance {
+                hunk_index: target.hunk_index,
+                target: Some(CodeRowLineTarget {
+                    side: target.side,
+                    line: target.line as usize,
+                }),
+            },
+        )]);
+        self.note_hover_state.hover_row(
+            &key,
+            &affordances,
+            now.saturating_duration_since(self.note_hover_epoch)
+                .as_millis() as u64,
+            true,
+        );
+        self.note_hover = Some((visual_row, target));
+        false
     }
 
     fn handle_review_scrollbar_mouse(&mut self, event: &MouseEvent, now: Instant) -> bool {
@@ -11540,6 +11671,34 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         )
         .render(area, buffer);
     paint_live_copy_selection(area, buffer, app);
+    app.note_hover_hit.set(None);
+    if app.note_composer.is_none()
+        && let Some((row, target)) = app.note_hover
+        && row >= scroll
+        && row < scroll.saturating_add(viewport)
+    {
+        let width = CODE_ROW_ADD_NOTE_BADGE_WIDTH.min(area.width);
+        let bounds = Rect::new(
+            area.right().saturating_sub(width),
+            area.y
+                .saturating_add(2)
+                .saturating_add((row - scroll) as u16),
+            width,
+            1,
+        );
+        if bounds.y < area.bottom() {
+            Paragraph::new(CODE_ROW_ADD_NOTE_BADGE_TEXT)
+                .style(
+                    Style::default()
+                        .fg(ratatui_theme_color(&app.options.theme.note_title_text))
+                        .bg(ratatui_theme_color(
+                            &app.options.theme.note_title_background,
+                        )),
+                )
+                .render(bounds, buffer);
+            app.note_hover_hit.set(Some((bounds, target)));
+        }
+    }
     let presentation = {
         let mut scrollbar = app
             .review_scrollbar
@@ -12290,7 +12449,7 @@ fn build_review_rows_with_chrome(
                     },
                 ));
             }
-            let rendered = match layout {
+            let mut rendered = match layout {
                 LayoutMode::Split => split_hunk_rows(
                     file,
                     file_index,
@@ -12318,6 +12477,16 @@ fn build_review_rows_with_chrome(
                     line_highlight_paint.as_ref(),
                 ),
             };
+            if options.agent_notes {
+                insert_agent_annotation_rows(
+                    file,
+                    hunk_index,
+                    &mut rendered,
+                    layout,
+                    options,
+                    width,
+                );
+            }
             let row_start = rows.len();
             line_cursors.extend(rendered.cursor_targets.iter().map(|(offset, target)| {
                 ReviewLineCursor {
@@ -12787,6 +12956,93 @@ fn source_gap_label(label: &str, width: u16) -> Line<'static> {
     Line::from(spans)
 }
 
+fn insert_agent_annotation_rows(
+    file: &DiffFile,
+    hunk_index: usize,
+    rows: &mut TargetedHunkRows,
+    layout: LayoutMode,
+    options: &ReviewOptions,
+    width: u16,
+) {
+    let Some(context) = &file.agent else { return };
+    let mut insertions = Vec::new();
+    for annotation in &context.annotations {
+        let preferred =
+            annotation_anchor(annotation).map(|anchor| workdeck_review::ReviewPreferredLine {
+                side: anchor.side,
+                line: anchor.line_number,
+            });
+        let anchor = workdeck_review::resolve_review_note_anchor(
+            &file.hunks,
+            workdeck_review::ReviewNoteAnchorInput {
+                old_range: annotation.old_range,
+                new_range: annotation.new_range,
+                preferred,
+                fallback_owner_hunk_index: preferred.and_then(|target| {
+                    workdeck_review::review_gap_owner_hunk_index(
+                        &file.hunks,
+                        target.side,
+                        target.line,
+                    )
+                }),
+            },
+        );
+        if anchor.owner_hunk_index != Some(hunk_index) {
+            continue;
+        }
+        let selected = preferred
+            .and_then(|preferred| {
+                rows.cursor_targets.iter().find(|(_, target)| {
+                    target.side == preferred.side && target.line == preferred.line
+                })
+            })
+            .or_else(|| rows.cursor_targets.first());
+        let Some((selected_row, _)) = selected else {
+            continue;
+        };
+        // Include wrapped continuations in the target's code block.
+        let at = rows
+            .cursor_targets
+            .iter()
+            .filter_map(|(row, _)| (*row > *selected_row).then_some(*row))
+            .min()
+            .unwrap_or(rows.lines.len());
+        let mut annotation = annotation.clone();
+        if !options.experimental {
+            annotation.markup = None;
+        }
+        let mut view = AgentInlineNoteViewOptions::new(
+            &annotation,
+            layout,
+            &options.theme,
+            usize::from(width),
+        );
+        view.file = Some(file);
+        view.anchor_side = preferred.map(|target| target.side);
+        let painted = paint_agent_inline_note(&AgentInlineNoteViewState::default(), view);
+        insertions.push((at, painted.ratatui_lines()));
+    }
+    // Reverse insertion preserves annotation order at shared anchors and leaves
+    // yet-to-be-inserted source offsets valid.
+    insertions.sort_by_key(|(at, _)| *at);
+    for (at, lines) in insertions.into_iter().rev() {
+        let height = lines.len();
+        for (row, _) in &mut rows.cursor_targets {
+            if *row >= at {
+                *row += height;
+            }
+        }
+        for (_, top, _) in &mut rows.note_bounds {
+            if *top >= at {
+                *top += height;
+            }
+        }
+        rows.targets
+            .splice(at..at, std::iter::repeat_n(None, height));
+        rows.lines.splice(at..at, lines);
+    }
+}
+
 fn agent_rows(file: &DiffFile, layout: LayoutMode, width: usize) -> Vec<Line<'static>> {
     let Some(context) = &file.agent else {
         return Vec::new();
@@ -12808,7 +13064,7 @@ fn agent_rows(file: &DiffFile, layout: LayoutMode, width: usize) -> Vec<Line<'st
         spans.extend(summary);
         rows.push(Line::from(spans));
     }
-    for annotation in &context.annotations {
+    for annotation in context.annotations.iter().filter(|_| file.hunks.is_empty()) {
         let anchor_side = if annotation.new_range.is_some() {
             Some(ReviewSide::New)
         } else if annotation.old_range.is_some() {
@@ -13767,6 +14023,10 @@ fn render_help(
 }
 
 fn render_note_composer(_area: Rect, _buffer: &mut Buffer, app: &ReviewApp) {
+    app.note_composer_actions
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clear();
     let Some(composer) = app.note_composer.as_ref() else {
         app.note_composer_bounds.set(None);
         return;
@@ -13805,6 +14065,23 @@ fn render_note_composer(_area: Rect, _buffer: &mut Buffer, app: &ReviewApp) {
         painted.box_width as u16,
         height.min(viewport.saturating_sub(top - scroll)) as u16,
     )));
+    let mut actions = app
+        .note_composer_actions
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    for hit in painted.action_hits {
+        let bounds = Rect::new(
+            area.x.saturating_add(hit.column_start as u16),
+            area.y
+                .saturating_add(2)
+                .saturating_add((top - scroll + hit.row) as u16),
+            hit.width as u16,
+            1,
+        );
+        if bounds.y < area.bottom() {
+            actions.push((bounds, hit.action));
+        }
+    }
 }
 
 fn note_composer_cursor_cell(
