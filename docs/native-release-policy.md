@@ -69,9 +69,18 @@ An explicit output survives later version options; relative output paths resolve
 current directory. Fractional positive sample counts retain the source parser's behavior.
 This planning command is not a replacement for the still-unfinished suite execution boundary.
 
-Benchmark execution, same-host measurements, automatic comparison-command integration,
+`cargo xtask benchmark compare-release` uses the executable's Cargo version and
+`benchmarks/release/bench-VERSION.json`, selecting the previous lower stable snapshot unless
+`--base` is supplied. `--head`, `--version`, and `--release-dir` override those inputs. Optional
+`--out` writes comparison JSON (creating its parent directory); `--summary` appends the Markdown
+report to an existing or new file without creating its parent directory. Failed comparisons still
+write the requested evidence and report before returning failure. These are historical report
+semantics, not authorization to accept a regression at the final semantic-port gate.
+
+Benchmark execution, same-host measurements, complete source model and exported-helper parity,
 and strict release enforcement remain incomplete. These tests are not performance measurements,
-and the containing source records remain unmapped.
+and the runtime source records remain unmapped. The complete nine-case comparison test file has
+a translated-test mapping; this does not mark its runtime implementation or performance gate complete.
 
 ## Generated state and PR routing
 

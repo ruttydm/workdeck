@@ -2227,6 +2227,9 @@ fn print_help() {
     println!("cargo xtask benchmark aggregate SOURCE METRIC SAMPLES_JSON");
     println!("cargo xtask benchmark compare-json BASE_JSON HEAD_JSON");
     println!("cargo xtask benchmark compare-markdown BASE_JSON HEAD_JSON");
+    println!(
+        "cargo xtask benchmark compare-release [--version VERSION] [--release-dir DIR] [--base PATH] [--head PATH] [--out PATH] [--summary PATH]"
+    );
     println!("cargo xtask benchmark previous VERSION RELEASE_DIRECTORY");
     println!("cargo xtask benchmark release-plan [--version VERSION] [--samples N] [--out PATH]");
     println!(
