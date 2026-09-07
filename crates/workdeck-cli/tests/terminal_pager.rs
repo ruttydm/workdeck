@@ -84,6 +84,8 @@ impl Session {
         let patch_path = directory.path().join("input.patch");
         fs::write(&patch_path, patch).unwrap();
         let broker = port.map(|port| {
+            let log_path = directory.path().join("broker.log");
+            let log = File::create(&log_path).unwrap();
             let mut broker = Broker(
                 Command::new(env!("CARGO_BIN_EXE_workdeck"))
                     .args(["daemon", "serve"])
@@ -93,17 +95,22 @@ impl Session {
                     .env("WORKDECK_MCP_PORT", port.to_string())
                     .env("WORKDECK_MCP_DISABLE", "0")
                     .stdin(Stdio::null())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
+                    .stdout(Stdio::from(log.try_clone().unwrap()))
+                    .stderr(Stdio::from(log))
                     .spawn()
                     .unwrap(),
             );
             let deadline = Instant::now() + Duration::from_secs(5);
             while std::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port)).is_err() {
-                assert!(broker.0.try_wait().unwrap().is_none());
+                assert!(
+                    broker.0.try_wait().unwrap().is_none(),
+                    "private broker exited: {}",
+                    fs::read_to_string(&log_path).unwrap_or_default()
+                );
                 assert!(
                     Instant::now() < deadline,
-                    "private broker did not become ready"
+                    "private broker did not become ready: {}",
+                    fs::read_to_string(&log_path).unwrap_or_default()
                 );
                 std::thread::sleep(Duration::from_millis(10));
             }
@@ -1197,7 +1204,7 @@ fn session_attention_highlight_reveals_and_paints_exact_range_then_clears_and_na
         let worker = std::thread::spawn(move || {
             let output = Command::new(env!("CARGO_BIN_EXE_workdeck"))
                 .arg("session")
-                .args(args)
+                .args(&args)
                 .current_dir(&config_directory)
                 .env("XDG_CONFIG_HOME", config_directory.join("config"))
                 .env("XDG_RUNTIME_DIR", config_directory.join("runtime"))
@@ -1209,7 +1216,7 @@ fn session_attention_highlight_reveals_and_paints_exact_range_then_clears_and_na
             assert_eq!(
                 output.status.code(),
                 Some(0),
-                "stdout={} stderr={}",
+                "session {args:?}: stdout={} stderr={}",
                 String::from_utf8_lossy(&output.stdout),
                 String::from_utf8_lossy(&output.stderr)
             );

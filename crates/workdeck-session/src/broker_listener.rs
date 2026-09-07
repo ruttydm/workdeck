@@ -685,6 +685,12 @@ fn peek_http_head(socket: &TcpStream) -> io::Result<Vec<u8>> {
     let mut buffer = vec![0_u8; MAX_HTTP_HEAD_BYTES];
     loop {
         let read = socket.peek(&mut buffer)?;
+        if read == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "connection closed before HTTP request headers",
+            ));
+        }
         if let Some(end) = find_head_end(&buffer[..read]) {
             buffer.truncate(end);
             return Ok(buffer);
@@ -1413,6 +1419,24 @@ fn block_on_response(future: NativeSessionBrokerResponseFuture) -> Option<Broker
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn closed_header_probe_releases_its_connection_without_waiting_for_timeout() {
+        let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, _) = listener.accept().unwrap();
+        drop(client);
+        let (send, receive) = std::sync::mpsc::channel();
+        let worker = thread::spawn(move || {
+            let result = peek_http_head(&server);
+            let _ = send.send(result.map_err(|error| error.kind()));
+        });
+        assert_eq!(
+            receive.recv_timeout(Duration::from_secs(1)).unwrap(),
+            Err(io::ErrorKind::UnexpectedEof)
+        );
+        worker.join().unwrap();
+    }
 
     #[test]
     fn parses_strict_origin_form_http_heads() {

@@ -132,6 +132,17 @@ not the owning hunk's start; the test checks line 111's near-top landing, real w
 backgrounds, clear counts, and navigation back to line 25. Terminal output continues draining during
 session CLI exchanges. Color tests explicitly enable truecolor without inheriting `NO_COLOR`.
 
+Verification follow-up (2026-09-08): a workspace run reported an intermittent broker authentication
+failure in this attention test (87/88 terminal tests passed). An isolated rerun and the next
+workspace terminal run passed; the cause is not established and a retry is not a resolution.
+Another freshly rebuilt isolated run hit the five-second private-daemon readiness deadline, then
+passed on retry. Failure diagnostics now identify the exact session subcommand and include the
+private daemon's startup output on readiness failure; neither deadline has been increased.
+Separately, a new listener test reproduced empty connections retaining a worker until the
+five-second HTTP-header deadline; EOF
+now retires those connections immediately. That fix is not asserted to explain the authentication
+failure. No parity or release gate is waived by these observations.
+
 `oracles/pty-notes.json` records all 19 baseline and 18 stable oracle passes (the threaded-action
 test is baseline-only), with nineteen passing native translations. Live pointer movement controls add-note affordances;
 composer Save/Cancel hit areas own their mouse events. Agent annotations use the shared note painter
