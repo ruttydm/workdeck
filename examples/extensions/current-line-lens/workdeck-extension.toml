@@ -1,0 +1,7 @@
+id = "test.current-line-lens"
+name = "Current-line test fixture"
+version = "0.1.0"
+api_version = 1
+executable = "bin/workdeck-example-current-line-lens-extension"
+capabilities = ["panes"]
+description = "Pins the host-owned old/new current-line renderers in a three-row bottom pane"

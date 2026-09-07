@@ -23,7 +23,7 @@
     "baseline": { "command": "bun test test/pty/cursor-line.test.ts", "passed": 11, "failed": 0, "expect_calls": 40 },
     "stable": { "command": "bun test test/pty/cursor-line.test.ts", "passed": 11, "failed": 0, "expect_calls": 40 }
   },
-  "translation_status": "partial-unmapped",
+  "translation_status": "translated-test",
   "native_evidence": "crates/workdeck-tui/src/lib.rs",
   "test_module": "tests::pty_cursor_line",
   "translated_tests": [
@@ -35,11 +35,20 @@
     "expanded_gap_rows_are_reachable_by_cursor_and_note",
     "expanding_moves_cursor_into_gap_and_collapsing_restores_anchor"
   ],
-  "remaining_source_tests": [
-    "one-cell mouse jitter still selects the exact clicked line",
-    "multi-row copy drag keeps extending after highlighted rows repaint",
-    "a current-line pane pins old above new and hides in stack mode",
-    "stepping updates lens content without moving its fixed rectangle"
+  "native_extension_evidence": "examples/tests/current_line_lens.rs",
+  "native_extension_test_mapping": [
+    { "source_test": "one-cell mouse jitter still selects the exact clicked line", "test": "one_cell_mouse_jitter_selects_exact_line_before_and_after_paging" },
+    { "source_test": "multi-row copy drag keeps extending after highlighted rows repaint", "test": "copy_drag_extends_across_repainted_highlighted_rows" },
+    { "source_test": "a current-line pane pins old above new and hides in stack mode", "test": "current_line_pane_pins_old_above_new_and_hides_in_stack" },
+    { "source_test": "stepping updates lens content without moving its fixed rectangle", "test": "stepping_updates_unicode_lens_without_moving_fixed_rectangle" }
   ],
-  "remaining_fixture": "test/pty/fixtures/current-line-lens/index.tsx"
+  "fixture": {
+    "path": "test/pty/fixtures/current-line-lens/index.tsx",
+    "blob_on_both_pins": "d4906566fe6fac843294e7bc760b3e53bcf05b02",
+    "bytes": 1243,
+    "lines": 33,
+    "destination": "examples/extensions/current-line-lens/extension.rs",
+    "additional_tests": ["lens_fixture_retains_fixed_registration_clipped_rule_and_empty_state", "lens_availability_protocol_requires_a_host_current_line"]
+  },
+  "verification_scope": "Native Ratatui frame, cell-background and state assertions plus compiled JSON-RPC extension integration; not a claim of complete cross-renderer visual parity."
 }

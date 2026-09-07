@@ -3438,7 +3438,10 @@ impl ReviewApp {
 
     /// Rebuild Hunk's selected split-row painter from the canonical Rust row plan.
     fn current_extension_line_paint(&self) -> Option<ExtensionCurrentLinePaint> {
-        if self.options.cursor_line == CursorLineMode::Off {
+        if self.options.cursor_line == CursorLineMode::Off
+            || self.with_state(|state| state.resolved_layout(self.review_width.get()))
+                != LayoutMode::Split
+        {
             return None;
         }
         let cursor = self.current_review_line_cursor()?;
@@ -19082,7 +19085,7 @@ mod tests {
         }
     }
 
-    // Hunk MIT: test/pty/cursor-line.test.ts. Partial until lens and mouse cases land.
+    // Hunk MIT: test/pty/cursor-line.test.ts; lens/mouse cases live in examples/tests/current_line_lens.rs.
     mod pty_cursor_line {
         use super::*;
 

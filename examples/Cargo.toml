@@ -9,6 +9,10 @@ publish = false
 path = "src/lib.rs"
 
 [[bin]]
+name = "workdeck-example-current-line-lens-extension"
+path = "extensions/current-line-lens/main.rs"
+
+[[bin]]
 name = "workdeck-example-cli-tools-extension"
 path = "extensions/cli-tools/main.rs"
 
