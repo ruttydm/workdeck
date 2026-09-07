@@ -63,7 +63,24 @@ impl Session {
         port: Option<u16>,
         cwd: Option<&std::path::Path>,
     ) -> Self {
+        Self::launch_in_config(patch, args, file_stdin, cols, rows, port, cwd, None)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn launch_in_config(
+        patch: &str,
+        args: &[&str],
+        file_stdin: bool,
+        cols: u16,
+        rows: u16,
+        port: Option<u16>,
+        cwd: Option<&std::path::Path>,
+        config: Option<&std::path::Path>,
+    ) -> Self {
         let directory = tempfile::tempdir().unwrap();
+        let config = config
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(|| directory.path().join("config"));
         let patch_path = directory.path().join("input.patch");
         fs::write(&patch_path, patch).unwrap();
         let broker = port.map(|port| {
@@ -71,7 +88,7 @@ impl Session {
                 Command::new(env!("CARGO_BIN_EXE_workdeck"))
                     .args(["daemon", "serve"])
                     .current_dir(directory.path())
-                    .env("XDG_CONFIG_HOME", directory.path().join("config"))
+                    .env("XDG_CONFIG_HOME", &config)
                     .env("XDG_RUNTIME_DIR", directory.path().join("runtime"))
                     .env("WORKDECK_MCP_PORT", port.to_string())
                     .env("WORKDECK_MCP_DISABLE", "0")
@@ -129,7 +146,7 @@ impl Session {
             .env("TERM", "xterm-256color")
             .env("COLORTERM", "truecolor")
             .env_remove("NO_COLOR")
-            .env("XDG_CONFIG_HOME", directory.path().join("config"))
+            .env("XDG_CONFIG_HOME", &config)
             .env("XDG_RUNTIME_DIR", directory.path().join("runtime"))
             .env("WORKDECK_MCP_DISABLE", "1")
             .stdin(if pipe_stdin {
@@ -324,6 +341,9 @@ mod layout;
 
 #[path = "terminal_pager/file_views.rs"]
 mod file_views;
+
+#[path = "terminal_pager/extensions.rs"]
+mod extensions;
 
 fn patch(lines: usize) -> String {
     let mut patch = format!(

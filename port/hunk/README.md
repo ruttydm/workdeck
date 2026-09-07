@@ -130,6 +130,16 @@ include agent-context annotations and exclude virtual thread drafts. Example tit
 upstream visible text; no JSX or JavaScript runtime is used. Full cell-buffer differential parity
 remains a separate release gate.
 
+`oracles/pty-extensions.json` records seventeen tests and 69 assertions passing at each pin,
+with all seventeen native PTY translations. Coverage includes repository trust acceptance,
+dismissal and persistent denial; native Ctrl-C shutdown; pane command/menu routing, replacement
+slots and edge resize geometry; compact confirmation dialogs; bundled note navigation, snapshot
+export, triage and Vim; line-highlight refresh; measured line reveal and transient notifications.
+Unix extension children use their own process groups so the reviewer can deliver ordered shutdown
+instead of foreground SIGINT killing them first. Extension reveal uses live measured line rows,
+not the hunk anchor. Notifications retain the source `ext` surface and expire without a persistent
+status copy. These assertions do not waive Windows lifecycle or full terminal-cell parity gates.
+
 Lifecycle capture now retains a separate stderr pipe for failures after terminal revocation and
 continues draining output while revoking. A zero-byte terminal write is classified as disconnect
 alongside EIO and broken pipes; it is not swallowed for unrelated I/O. Five consecutive native

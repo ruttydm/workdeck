@@ -862,7 +862,15 @@ impl LoadedExtension {
             directory,
             executable,
         } = entrypoint;
-        let mut child = Command::new(&executable)
+        let mut command = Command::new(&executable);
+        // The host receives terminal interrupts and delivers ordered shutdown.
+        // Keep native children alive to consume that notification.
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
+        let mut child = command
             .current_dir(&directory)
             .env("WORKDECK_EXTENSION_API_VERSION", API_VERSION.to_string())
             .stdin(Stdio::piped())

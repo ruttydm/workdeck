@@ -9,6 +9,10 @@ publish = false
 path = "src/lib.rs"
 
 [[bin]]
+name = "workdeck-example-pty-extension-probe-extension"
+path = "extensions/pty-extension-probe/main.rs"
+
+[[bin]]
 name = "workdeck-example-cursor-mode-extension"
 path = "extensions/cursor-mode/main.rs"
 

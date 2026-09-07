@@ -4831,16 +4831,16 @@ impl ReviewApp {
                     notification_type,
                 } => {
                     let message = sanitize_terminal_line(&message);
-                    let notification = format!("{extension_id}: {message}");
                     if let Some(notifications) = self.options.extension_notifications.as_ref() {
-                        notifications.notify(notification, notification_type);
+                        notifications.notify(message, notification_type);
+                    } else {
+                        let severity = match notification_type {
+                            ExtensionNotifyType::Info => "",
+                            ExtensionNotifyType::Warning => "warning: ",
+                            ExtensionNotifyType::Error => "error: ",
+                        };
+                        self.status = Some(format!("{extension_id}: {severity}{message}"));
                     }
-                    let severity = match notification_type {
-                        ExtensionNotifyType::Info => "",
-                        ExtensionNotifyType::Warning => "warning: ",
-                        ExtensionNotifyType::Error => "error: ",
-                    };
-                    self.status = Some(format!("{extension_id}: {severity}{message}"));
                 }
             }
         }
@@ -7107,7 +7107,7 @@ impl ReviewApp {
             );
             return;
         }
-        self.scroll_to_selection();
+        self.scroll_to_selected_line();
         self.publish_extension_selection_events();
     }
 
@@ -9856,7 +9856,7 @@ pub fn render_extension_trust_prompt(area: Rect, buffer: &mut Buffer, app: &Revi
         .alignment(Alignment::Right)
         .render(close, buffer);
     Paragraph::new(Line::styled(
-        "This repository contains extensions in .agents/workdeck/extensions.",
+        "Repository extensions: .agents/workdeck/extensions.",
         Style::default().fg(muted),
     ))
     .render(row(2), buffer);
@@ -18845,7 +18845,7 @@ mod tests {
     }
 
     #[test]
-    fn extension_pane_notifications_prefix_the_owner_without_mutating_the_typed_message() {
+    fn extension_notifications_keep_the_message_transient_without_a_stale_status_copy() {
         let notifications = ExtensionNotificationHub::new();
         let mut app = ReviewApp::new(
             changeset(),
@@ -18862,10 +18862,15 @@ mod tests {
                 notification_type: ExtensionNotifyType::Warning,
             }],
         );
-        assert_eq!(app.status.as_deref(), Some("probe: warning: carefulnow"));
+        assert_eq!(app.status.as_deref(), None);
         let notification = app.active_extension_notification().unwrap();
-        assert_eq!(notification.message, "probe: carefulnow");
+        assert_eq!(notification.message, "carefulnow");
         assert_eq!(notification.notification_type, ExtensionNotifyType::Warning);
+        let started = Instant::now();
+        app.tick_extension_notifications(started);
+        app.tick_extension_notifications(started + Duration::from_millis(4_001));
+        assert!(app.active_extension_notification().is_none());
+        assert!(app.status.is_none());
     }
 
     #[test]

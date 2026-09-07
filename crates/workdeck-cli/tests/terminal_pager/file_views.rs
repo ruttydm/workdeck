@@ -3,7 +3,7 @@ use super::*;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-fn example(root: &Path, name: &str) -> PathBuf {
+pub(super) fn example(root: &Path, name: &str) -> PathBuf {
     static BUILT: OnceLock<()> = OnceLock::new();
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -26,6 +26,16 @@ fn example(root: &Path, name: &str) -> PathBuf {
                 "workdeck-example-file-view-gallery-extension",
                 "--bin",
                 "workdeck-example-cursor-mode-extension",
+                "--bin",
+                "workdeck-example-review-note-navigator-extension",
+                "--bin",
+                "workdeck-example-review-snapshot-export-extension",
+                "--bin",
+                "workdeck-example-review-triage-extension",
+                "--bin",
+                "workdeck-example-vim-navigation-extension",
+                "--bin",
+                "workdeck-example-pty-extension-probe-extension",
             ])
             .current_dir(workspace)
             .output()
