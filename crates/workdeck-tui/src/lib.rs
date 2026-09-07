@@ -3623,6 +3623,7 @@ impl ReviewApp {
 
     fn move_theme_selector(&mut self, delta: isize) {
         let catalog = self.theme_catalog();
+        self.retain_rendered_theme_window(&catalog);
         self.clear_theme_hover_preview();
         if let Some(theme_id) = self.themes.move_selector(&catalog, delta) {
             self.apply_theme_id(&theme_id);
@@ -3631,8 +3632,24 @@ impl ReviewApp {
 
     fn preview_theme_selector_item(&mut self, index: usize) {
         let catalog = self.theme_catalog();
+        self.retain_rendered_theme_window(&catalog);
         if let Some(theme_id) = self.themes.preview_index(&catalog, index) {
             self.apply_theme_id(&theme_id);
+        }
+    }
+
+    fn retain_rendered_theme_window(&mut self, catalog: &[AppTheme]) {
+        let plan = self
+            .theme_selector_dialog_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(plan) = plan.as_ref()
+            && plan.window.selected_index == self.themes.selected_index(catalog)
+            && plan.window.item_count == catalog.len()
+        {
+            // Render takes an immutable app reference. Carry its actual window
+            // into the next transition instead of recentering on every key.
+            self.themes.window = Some(plan.window);
         }
     }
 
@@ -18685,6 +18702,180 @@ mod tests {
         assert_eq!(app.focus, Focus::Filter);
         assert!(frame.contains("filter:"));
         assert!(frame.contains('q'));
+    }
+
+    // Hunk MIT: test/pty/key-routing.test.ts, baseline 2c00f435.
+    mod pty_key_routing {
+        use super::*;
+
+        fn press(app: &mut ReviewApp, key: KeyCode) {
+            app.handle_key(KeyEvent::new(key, KeyModifiers::NONE));
+        }
+
+        fn setup(pager: bool, width: u16) -> (ReviewApp, Terminal<TestBackend>) {
+            let review = if pager {
+                navigation_changeset(vec![(
+                    "scroll.ts".into(),
+                    numbered_exports(1, 60, 0, true),
+                    numbered_exports(1, 60, 100, true),
+                )])
+            } else {
+                responsive_changeset()
+            };
+            let app = ReviewApp::new(
+                review,
+                ReviewOptions {
+                    layout: LayoutMode::Split,
+                    pager,
+                    cursor_line: CursorLineMode::Off,
+                    highlight: false,
+                    ..ReviewOptions::default()
+                },
+            );
+            let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
+            rendered_review_frame(&mut terminal, &app);
+            (app, terminal)
+        }
+
+        fn type_filter(app: &mut ReviewApp) {
+            press(app, KeyCode::Char('/'));
+            for ch in "beta".chars() {
+                press(app, KeyCode::Char(ch));
+            }
+        }
+
+        #[test]
+        fn escape_closes_help_without_erasing_filter() {
+            let (mut app, mut terminal) = setup(false, 220);
+            press(&mut app, KeyCode::Char('?'));
+            assert!(rendered_review_frame(&mut terminal, &app).contains("Controls help"));
+            type_filter(&mut app);
+            assert!(rendered_review_frame(&mut terminal, &app).contains("filter: beta"));
+            press(&mut app, KeyCode::Esc);
+            let frame = rendered_review_frame(&mut terminal, &app);
+            assert!(!frame.contains("Controls help"));
+            assert!(frame.contains("filter: beta"));
+            assert!(!frame.contains("filter: type to filter files"));
+            assert_eq!(app.focus, Focus::Filter);
+        }
+
+        #[test]
+        fn enter_runs_menu_item_without_submitting_filter() {
+            let (mut app, mut terminal) = setup(false, 220);
+            type_filter(&mut app);
+            let filtered = rendered_review_frame(&mut terminal, &app);
+            assert!(filtered.contains("filter: beta"));
+            assert!(!filtered.contains("alpha.ts"));
+            for key in [
+                KeyCode::F(10),
+                KeyCode::Right,
+                KeyCode::Down,
+                KeyCode::Enter,
+            ] {
+                press(&mut app, key);
+            }
+            let frame = rendered_review_frame(&mut terminal, &app);
+            assert_eq!(app.layout(), LayoutMode::Stack);
+            assert!(frame.contains("export const beta = 1;"));
+            assert!(frame.contains("filter: beta"));
+            assert!(!frame.contains("filter=beta"));
+            assert_eq!(app.focus, Focus::Filter);
+        }
+
+        #[test]
+        fn note_draft_owns_f10_and_keeps_accepting_text() {
+            let (mut app, mut terminal) = setup(false, 120);
+            press(&mut app, KeyCode::Char('c'));
+            assert!(rendered_review_frame(&mut terminal, &app).contains("Draft note"));
+            press(&mut app, KeyCode::F(10));
+            let frame = rendered_review_frame(&mut terminal, &app);
+            assert!(frame.contains("Draft note"));
+            assert!(!frame.contains("Reload"));
+            for ch in "menu stays closed".chars() {
+                press(&mut app, KeyCode::Char(ch));
+            }
+            assert!(rendered_review_frame(&mut terminal, &app).contains("menu stays closed"));
+        }
+
+        #[test]
+        fn menu_arrows_do_not_scroll_pager_behind_menu() {
+            let (mut app, mut terminal) = setup(true, 140);
+            press(&mut app, KeyCode::F(10));
+            let before = rendered_review_frame(&mut terminal, &app);
+            assert!(before.contains("Quit"));
+            let anchor = before.lines().nth(20).unwrap().to_owned();
+            assert!(!anchor.trim().is_empty());
+            let scroll = app.scroll;
+            for _ in 0..3 {
+                press(&mut app, KeyCode::Down);
+                rendered_review_frame(&mut terminal, &app);
+            }
+            let after = rendered_review_frame(&mut terminal, &app);
+            assert_eq!(after.lines().nth(20).unwrap(), anchor);
+            assert_eq!(app.scroll, scroll);
+        }
+
+        #[test]
+        fn theme_vertical_keys_change_selection_without_scrolling_pager() {
+            let (mut app, mut terminal) = setup(true, 140);
+            press(&mut app, KeyCode::Char('t'));
+            let before = rendered_review_frame(&mut terminal, &app);
+            assert!(before.contains("Theme selector"));
+            let anchor = before.lines().nth(20).unwrap().to_owned();
+            assert!(!anchor.trim().is_empty());
+            let selected = app.themes.selected_index(&app.theme_catalog());
+            let scroll = app.scroll;
+            press(&mut app, KeyCode::Char('j'));
+            let after = rendered_review_frame(&mut terminal, &app);
+            assert!(after.contains("Theme selector"));
+            assert_eq!(after.lines().nth(20).unwrap(), anchor);
+            assert_eq!(app.scroll, scroll);
+            assert_ne!(app.themes.selected_index(&app.theme_catalog()), selected);
+        }
+
+        #[test]
+        fn menu_accelerator_opens_help_and_closes_menu() {
+            let (mut app, mut terminal) = setup(false, 120);
+            press(&mut app, KeyCode::F(10));
+            assert!(rendered_review_frame(&mut terminal, &app).contains("Reload"));
+            press(&mut app, KeyCode::Char('?'));
+            let after = rendered_review_frame(&mut terminal, &app);
+            assert!(after.contains("Controls help"));
+            assert!(!after.contains("Reload"));
+        }
+
+        #[test]
+        fn vertical_review_key_moves_menu_without_scrolling_stream() {
+            let (mut app, mut terminal) = setup(true, 120);
+            app.options.pager = false;
+            rendered_review_frame(&mut terminal, &app);
+            press(&mut app, KeyCode::F(10));
+            let before = rendered_review_frame(&mut terminal, &app);
+            assert!(before.contains("Reload"));
+            let anchor = before.lines().nth(20).unwrap().to_owned();
+            assert!(!anchor.trim().is_empty());
+            let scroll = app.scroll;
+            let menus = app.app_menus();
+            let selected = app
+                .extension_pane_runtime
+                .lock()
+                .unwrap()
+                .menu
+                .selected_index(&menus);
+            press(&mut app, KeyCode::Char('j'));
+            let after = rendered_review_frame(&mut terminal, &app);
+            assert_eq!(after.lines().nth(20).unwrap(), anchor);
+            assert_eq!(app.scroll, scroll);
+            assert_ne!(
+                app.extension_pane_runtime
+                    .lock()
+                    .unwrap()
+                    .menu
+                    .selected_index(&menus),
+                selected,
+                "menu selection did not move"
+            );
+        }
     }
 
     #[test]

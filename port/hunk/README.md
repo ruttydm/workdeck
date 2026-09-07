@@ -49,3 +49,9 @@ deadline. Additional tests cover terminal signals and redirected arrow/quit inpu
 assertions do not establish broader cell-buffer visual parity or complete the surrounding UI files.
 
 Run the current native coverage with `cargo test -p workdeck-cli --test terminal_lifecycle`.
+
+`oracles/pty-key-routing.json` maps all seven key-ownership cases from both pins to Ratatui
+frame/state tests (`cargo test -p workdeck-tui pty_key_routing`). They preserve row-20 review anchors
+under menus and theme navigation, filter text/focus under Escape and menu Enter, and note-editor
+ownership of F10. The theme controller carries forward its last rendered window before keyboard or
+hover preview transitions, avoiding unintended list recentering.
