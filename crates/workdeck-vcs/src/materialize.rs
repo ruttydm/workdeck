@@ -1,11 +1,83 @@
 //! Convert provider-neutral patch results into the core changeset rendered by Workdeck.
 
 use crate::{
-    VcsCatalogError, VcsFileSourceRequest, VcsFileSourceResult, VcsPatchResult,
-    build_filesystem_untracked_diff_file,
+    VcsAdapter, VcsCatalog, VcsCatalogError, VcsFileSourceRequest, VcsFileSourceResult,
+    VcsLoadContext, VcsPatchResult, VcsReviewInput, build_filesystem_untracked_diff_file,
+    load_vcs_review, operation_from_input,
 };
+use std::path::{Path, PathBuf};
 use workdeck_core::{Changeset, ChangesetSource, FileSourceSnapshots, ReviewSide};
 use workdeck_diff::changeset_from_patch;
+
+/// Loaded provider content together with the authoritative root needed for reloads.
+pub struct LoadedVcsChangeset {
+    pub changeset: Changeset,
+    pub repo_root: PathBuf,
+}
+
+/// Production load-and-materialize boundary shared by the CLI and native benchmarks.
+pub fn load_selected_vcs_changeset(
+    cwd: &Path,
+    adapter: &VcsAdapter,
+    catalog: &VcsCatalog,
+    input: &VcsReviewInput,
+) -> Result<LoadedVcsChangeset, VcsCatalogError> {
+    let operation = operation_from_input(input.clone());
+    let result = load_vcs_review(
+        adapter,
+        &operation,
+        &VcsLoadContext {
+            cwd: cwd.to_owned(),
+        },
+        catalog,
+    )?;
+    let (suffix, source) = match input {
+        VcsReviewInput::Diff(input) => {
+            let source = if let Some(endpoints) = &input.range_endpoints {
+                ChangesetSource::Revision {
+                    from: Some(endpoints.from.clone()),
+                    to: endpoints.to.clone(),
+                }
+            } else if let Some(range) = &input.range {
+                ChangesetSource::Revision {
+                    from: Some(range.clone()),
+                    to: "WORKTREE".into(),
+                }
+            } else {
+                ChangesetSource::WorkingTree {
+                    staged: input.staged,
+                }
+            };
+            ("working".to_owned(), source)
+        }
+        VcsReviewInput::Show(input) => {
+            let reference = input.reference.as_deref().unwrap_or("HEAD");
+            (
+                format!("show:{reference}"),
+                ChangesetSource::Revision {
+                    from: None,
+                    to: reference.into(),
+                },
+            )
+        }
+        VcsReviewInput::StashShow(input) => {
+            let reference = input.reference.as_deref().unwrap_or("stash@{0}");
+            (
+                format!("stash:{reference}"),
+                ChangesetSource::Stash {
+                    reference: reference.into(),
+                },
+            )
+        }
+    };
+    let repo_root = result.repo_root.clone();
+    let changeset =
+        materialize_vcs_patch_result(result, format!("{}:{suffix}", adapter.id), source)?;
+    Ok(LoadedVcsChangeset {
+        changeset,
+        repo_root,
+    })
+}
 
 pub fn materialize_vcs_patch_result(
     result: VcsPatchResult,

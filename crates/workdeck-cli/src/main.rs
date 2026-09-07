@@ -27,16 +27,18 @@ use workdeck_cli::store::{
     AgentSession, AgentTouchedFile, Cycle, Issue, IssueStatus, IssueUpdate, Label, Priority,
     Project, ReferenceData, StoreEvent, WorkdeckStore,
 };
+#[cfg(test)]
+use workdeck_core::ChangesetSource;
 use workdeck_core::{
-    AgentContext, AppBootstrap, Changeset, ChangesetSource, CliInput, CommonOptions,
-    DiffToolCommandInput, FileCommandInput, HighlightTone, InputCursorLine, InputLayoutMode,
-    NamedCustomThemeConfig, NavigationDirection, PatchCommandInput, RegisteredCustomTheme,
-    ReloadContext, RevealMode, ReviewNoteSource, ReviewSide, SelfUpdateCommandInput,
-    SessionCommandInput, SessionCommandOutput, SessionCommentApplyItemInput,
-    SessionCommentListType, SessionSelectorInput, SidebarVisibility, StartupNotice,
-    TerminalThemeMode, UserKeyBindingEntry, VcsDiffCommandInput, VcsRangeEndpoints,
-    VcsShowCommandInput, VcsStashShowCommandInput, WorkdeckExtensionUserError, WorkdeckUserError,
-    collect_session_custom_themes, format_cli_error_from_environment, resolve_app_state_path,
+    AgentContext, AppBootstrap, Changeset, CliInput, CommonOptions, DiffToolCommandInput,
+    FileCommandInput, HighlightTone, InputCursorLine, InputLayoutMode, NamedCustomThemeConfig,
+    NavigationDirection, PatchCommandInput, RegisteredCustomTheme, ReloadContext, RevealMode,
+    ReviewNoteSource, ReviewSide, SelfUpdateCommandInput, SessionCommandInput,
+    SessionCommandOutput, SessionCommentApplyItemInput, SessionCommentListType,
+    SessionSelectorInput, SidebarVisibility, StartupNotice, TerminalThemeMode, UserKeyBindingEntry,
+    VcsDiffCommandInput, VcsRangeEndpoints, VcsShowCommandInput, VcsStashShowCommandInput,
+    WorkdeckExtensionUserError, WorkdeckUserError, collect_session_custom_themes,
+    format_cli_error_from_environment, resolve_app_state_path,
 };
 use workdeck_diff::{
     LanguageMatcher, LanguageRegistration, LanguageRegistry, sanitize_terminal_line,
@@ -68,11 +70,10 @@ use workdeck_tui::{
 };
 use workdeck_vcs::{
     AnyProvider, NativeWatchRuntime, ProviderPreference, VcsAdapter, VcsCatalog, VcsCatalogError,
-    VcsLoadContext, VcsReviewInput, WatchSignatureContext, bundled_vcs_catalog,
-    compute_watch_signature, detect_vcs, extend_vcs_catalog, find_project_root_candidate,
+    VcsReviewInput, WatchSignatureContext, bundled_vcs_catalog, compute_watch_signature,
+    detect_vcs, extend_vcs_catalog, find_project_root_candidate,
     find_project_root_candidate_with_catalog, get_default_vcs_adapter, get_vcs_adapter,
-    load_difftool_comparison, load_file_comparison, load_vcs_review, materialize_vcs_patch_result,
-    operation_from_input, parse_patch_input,
+    load_difftool_comparison, load_file_comparison, parse_patch_input,
 };
 
 use crate::extension_cli_commands::{
@@ -6095,11 +6096,6 @@ struct SelectedVcsAdapter {
     unknown_id_notice: Option<StartupNotice>,
 }
 
-struct LoadedVcsChangeset {
-    changeset: Changeset,
-    repo_root: PathBuf,
-}
-
 struct LoadedReviewChangeset {
     changeset: Changeset,
     repo_root: Option<PathBuf>,
@@ -6180,63 +6176,8 @@ fn load_selected_vcs_changeset(
     adapter: &VcsAdapter,
     catalog: &VcsCatalog,
     input: &VcsReviewInput,
-) -> Result<LoadedVcsChangeset> {
-    let operation = operation_from_input(input.clone());
-    let result = load_vcs_review(
-        adapter,
-        &operation,
-        &VcsLoadContext {
-            cwd: cwd.to_owned(),
-        },
-        catalog,
-    )?;
-    let (suffix, source) = match input {
-        VcsReviewInput::Diff(input) => {
-            let source = if let Some(endpoints) = &input.range_endpoints {
-                ChangesetSource::Revision {
-                    from: Some(endpoints.from.clone()),
-                    to: endpoints.to.clone(),
-                }
-            } else if let Some(range) = &input.range {
-                ChangesetSource::Revision {
-                    from: Some(range.clone()),
-                    to: "WORKTREE".into(),
-                }
-            } else {
-                ChangesetSource::WorkingTree {
-                    staged: input.staged,
-                }
-            };
-            ("working".to_owned(), source)
-        }
-        VcsReviewInput::Show(input) => {
-            let reference = input.reference.as_deref().unwrap_or("HEAD");
-            (
-                format!("show:{reference}"),
-                ChangesetSource::Revision {
-                    from: None,
-                    to: reference.into(),
-                },
-            )
-        }
-        VcsReviewInput::StashShow(input) => {
-            let reference = input.reference.as_deref().unwrap_or("stash@{0}");
-            (
-                format!("stash:{reference}"),
-                ChangesetSource::Stash {
-                    reference: reference.into(),
-                },
-            )
-        }
-    };
-    let repo_root = result.repo_root.clone();
-    let changeset =
-        materialize_vcs_patch_result(result, format!("{}:{suffix}", adapter.id), source)
-            .map_err(anyhow::Error::from)?;
-    Ok(LoadedVcsChangeset {
-        changeset,
-        repo_root,
-    })
+) -> Result<workdeck_vcs::LoadedVcsChangeset> {
+    workdeck_vcs::load_selected_vcs_changeset(cwd, adapter, catalog, input).map_err(Into::into)
 }
 
 /// Load any already-validated session input at its requested working
@@ -7220,55 +7161,29 @@ fn build_app_bootstrap(
     initial_watch_signature: Option<String>,
     mut prepared_extensions: PreparedReviewExtensions,
 ) -> WorkdeckAppBootstrap {
-    let options = input.options();
-    let initial_mode = options.mode.unwrap_or_default();
-    let initial_theme = options.theme.clone();
-    let initial_show_line_numbers = options.line_numbers.unwrap_or(true);
-    let initial_tab_width = options.tab_width.unwrap_or(4);
-    let initial_file_gap = options.file_gap.unwrap_or(1);
-    let initial_hunk_gap = options.hunk_gap.unwrap_or(0);
-    let initial_wrap_lines = options.wrap_lines.unwrap_or(false);
-    let initial_show_hunk_headers = options.hunk_headers.unwrap_or(true);
-    let initial_show_menu_bar = options.menu_bar.unwrap_or(true);
-    let initial_sidebar = options.sidebar.unwrap_or_default();
-    let initial_show_agent_notes = options.agent_notes.unwrap_or(false);
-    let initial_copy_decorations = options.copy_decorations.unwrap_or(false);
-    let initial_cursor_line = options.cursor_line.unwrap_or_default();
     let vcs_catalog = prepared_extensions.vcs_catalog.take();
     let session_themes = collect_review_custom_themes(review, &prepared_extensions.extensions);
     let startup_notices =
         take_review_startup_notices(&mut prepared_extensions, session_themes.notices);
 
-    AppBootstrap {
+    let mut bootstrap = AppBootstrap::new(
         input,
-        reload_context: ReloadContext {
+        ReloadContext {
             cwd: cwd.to_owned(),
             repo_root,
             initial_watch_signature,
             vcs_catalog,
         },
         changeset,
-        initial_mode,
-        initial_theme,
-        initial_theme_mode: review.initial_theme_mode,
-        custom_themes: session_themes.themes,
-        initial_show_line_numbers,
-        initial_tab_width,
-        initial_file_gap,
-        initial_hunk_gap,
-        initial_wrap_lines,
-        initial_show_hunk_headers,
-        initial_show_menu_bar,
-        initial_sidebar,
-        initial_show_agent_notes,
-        initial_copy_decorations,
-        initial_cursor_line,
-        startup_notices,
-        view_preferences_config_path: review.view_preferences_config_path.clone(),
-        keybindings: review.keybindings.clone(),
-        keybinding_notices: review.keybinding_notices.clone(),
-        extensions: Some(prepared_extensions),
-    }
+    );
+    bootstrap.initial_theme_mode = review.initial_theme_mode;
+    bootstrap.custom_themes = session_themes.themes;
+    bootstrap.startup_notices = startup_notices;
+    bootstrap.view_preferences_config_path = review.view_preferences_config_path.clone();
+    bootstrap.keybindings = review.keybindings.clone();
+    bootstrap.keybinding_notices = review.keybinding_notices.clone();
+    bootstrap.extensions = Some(prepared_extensions);
+    bootstrap
 }
 
 fn take_review_startup_notices(

@@ -137,8 +137,8 @@ pub(super) fn giant_file(index: usize, lines: usize, start: usize, end: usize) -
 }
 
 fn bootstrap(cwd: PathBuf, files: Vec<DiffFile>, id: String) -> AppBootstrap {
-    AppBootstrap {
-        input: CliInput::Vcs(VcsDiffCommandInput {
+    let mut bootstrap = AppBootstrap::new(
+        CliInput::Vcs(VcsDiffCommandInput {
             range: None,
             range_endpoints: None,
             staged: false,
@@ -148,13 +148,13 @@ fn bootstrap(cwd: PathBuf, files: Vec<DiffFile>, id: String) -> AppBootstrap {
                 ..CommonOptions::default()
             },
         }),
-        reload_context: ReloadContext {
+        ReloadContext {
             cwd,
             repo_root: None,
             initial_watch_signature: None,
             vcs_catalog: None,
         },
-        changeset: Changeset {
+        Changeset {
             id,
             source_label: "repo".into(),
             title: "repo working tree".into(),
@@ -163,27 +163,10 @@ fn bootstrap(cwd: PathBuf, files: Vec<DiffFile>, id: String) -> AppBootstrap {
             source: ChangesetSource::WorkingTree { staged: false },
             files,
         },
-        initial_mode: InputLayoutMode::Split,
-        initial_theme: Some("midnight".into()),
-        initial_theme_mode: None,
-        custom_themes: vec![],
-        initial_show_line_numbers: true,
-        initial_tab_width: 4,
-        initial_file_gap: 1,
-        initial_hunk_gap: 0,
-        initial_wrap_lines: false,
-        initial_show_hunk_headers: true,
-        initial_show_menu_bar: true,
-        initial_sidebar: Default::default(),
-        initial_show_agent_notes: false,
-        initial_copy_decorations: false,
-        initial_cursor_line: Default::default(),
-        startup_notices: vec![],
-        view_preferences_config_path: None,
-        keybindings: vec![],
-        keybinding_notices: vec![],
-        extensions: None,
-    }
+    );
+    bootstrap.initial_mode = InputLayoutMode::Split;
+    bootstrap.initial_theme = Some("midnight".into());
+    bootstrap
 }
 
 pub(super) fn large_bootstrap(
