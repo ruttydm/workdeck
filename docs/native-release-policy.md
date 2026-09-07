@@ -67,6 +67,10 @@ Only `render-layout.ts` is currently admitted. Every selected workload is checke
 or output-directory creation; default, huge, competitor and other incomplete selections fail.
 Fractional sample counts retain the source loop semantics, and repeated workload selections append
 samples rather than replacing them. Historical metric thresholds remain compatibility metadata.
+Child stdout/stderr use replacement UTF-8 decoding with one initial BOM removed, matching the
+pinned runtime's text decoding. Unix signal exits use `128 + signal` (SIGTERM is 143); normal
+nonzero exits retain their numeric status, emit trimmed stderr and do not forward failed stdout.
+Frozen runtime-primitive cases and an actual signal-terminated child test cover these paths.
 The complete runner remains unmapped: other workloads and general locale-sensitive report ordering
 are not yet implemented, and this diagnostic execution does not satisfy the strict performance gate.
 

@@ -4,6 +4,25 @@ use super::*;
 use std::io::Write;
 use std::process::{Command, Stdio};
 
+fn decoded_output(bytes: &[u8]) -> std::borrow::Cow<'_, str> {
+    // Response.text() uses replacement decoding and strips exactly one initial UTF-8 BOM.
+    String::from_utf8_lossy(bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(bytes))
+}
+
+fn process_exit_code(status: std::process::ExitStatus) -> i32 {
+    if let Some(code) = status.code() {
+        return code;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signal) = status.signal() {
+            return 128 + signal;
+        }
+    }
+    -1
+}
+
 fn workload_command(name: &str) -> Result<&'static str> {
     match name {
         "render-layout.ts" => Ok("render-layout"),
@@ -23,20 +42,18 @@ fn execute(
     }
     // std::process drains stdout and stderr concurrently, including when either pipe fills.
     let output = command.output()?;
-    let diagnostic = String::from_utf8_lossy(&output.stderr);
+    let diagnostic = decoded_output(&output.stderr);
     let trimmed = super::super::release_channel::trim_source_whitespace(&diagnostic);
     if !trimmed.is_empty() {
         writeln!(stderr, "{trimmed}")?;
     }
     if !output.status.success() {
-        let code = output
-            .status
-            .code()
-            .map_or_else(|| "signal".into(), |code| code.to_string());
+        let code = process_exit_code(output.status);
         bail!("{label} failed with exit code {code}\n{diagnostic}");
     }
-    stdout.write_all(&output.stdout)?;
-    Ok(parse_metrics(&String::from_utf8_lossy(&output.stdout)))
+    let text = decoded_output(&output.stdout);
+    stdout.write_all(text.as_bytes())?;
+    Ok(parse_metrics(&text))
 }
 
 fn collect(
@@ -289,6 +306,33 @@ pub(super) fn parse_command(mut args: impl Iterator<Item = String>) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn process_text_matches_pinned_runtime_bom_and_replacement_decoding() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/benchmark-process-output.json"
+        ))
+        .unwrap();
+        for case in oracle["decoding"].as_array().unwrap() {
+            let bytes: Vec<u8> = serde_json::from_value(case["bytes"].clone()).unwrap();
+            assert_eq!(decoded_output(&bytes), case["text"].as_str().unwrap());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn signal_termination_uses_the_pinned_runtime_exit_code() {
+        let mut stdout = vec![];
+        let mut stderr = vec![];
+        let mut command = Command::new("sh");
+        command.args(["-c", "kill -TERM $$"]);
+        let error = execute(&mut command, "signal-probe", &mut stdout, &mut stderr).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "signal-probe failed with exit code 143\n"
+        );
+        assert!(stdout.is_empty() && stderr.is_empty());
+    }
 
     #[test]
     fn native_runner_child_probe() {
