@@ -1,0 +1,17 @@
+{
+  "baseline":"2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable":"4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source":"benchmarks/run.ts",
+  "capture":"Pinned readArgValue and parseArgs extracted with git show and transpiled/executed in memory with Bun 1.3.14 and an injected environment object. Both pins produced identical results. No workload or performance gate was executed.",
+  "cases":[
+    {"args":[],"env":{},"result":{"samples":3,"includeCompetitors":false,"includeHuge":false,"scripts":[]}},
+    {"args":[],"env":{"HUNK_BENCHMARK_SAMPLES":"2.5","HUNK_BENCH_INCLUDE_HUGE":"1"},"result":{"samples":2.5,"includeCompetitors":false,"includeHuge":true,"scripts":[]}},
+    {"args":["--script","render-layout.ts","--script","working-tree-load.ts","--include-huge","--include-competitors","--samples","0x3","--out","./result.json"],"env":{},"result":{"samples":3,"includeCompetitors":true,"includeHuge":true,"scripts":["render-layout.ts","working-tree-load.ts"],"out":"./result.json"}},
+    {"args":["--samples","2","--samples","4.5","--out","a","--out","b"],"env":{},"result":{"samples":4.5,"includeCompetitors":false,"includeHuge":false,"scripts":[],"out":"b"}},
+    {"args":["--samples","0"],"env":{},"error":"--samples must be a positive number"},
+    {"args":["--out"],"env":{},"error":"Missing value for --out"},
+    {"args":["--script",""],"env":{},"error":"Missing value for --script"},
+    {"args":["--unknown"],"env":{},"error":"Unknown benchmark runner argument: --unknown"},
+    {"args":[],"env":{"HUNK_BENCHMARK_SAMPLES":"","HUNK_BENCH_INCLUDE_HUGE":"true"},"error":"--samples must be a positive number"}
+  ]
+}

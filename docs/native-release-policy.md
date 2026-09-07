@@ -51,6 +51,15 @@ The benchmark-result source mapping covers thresholds, metrics, runtime metadata
 explanations, run/comparison records, classification and nearest-rank aggregation. It does not
 cover the separate runner, workload execution, or the final same-host performance gate.
 
+`cargo xtask benchmark runner-plan` parses the runner's `--samples`, `--out`, repeatable `--script`,
+`--include-huge` and `--include-competitors` options. Native defaults use
+`WORKDECK_BENCHMARK_SAMPLES` and `WORKDECK_BENCH_INCLUDE_HUGE`. Nine dual-pin cases cover defaults,
+fractional/radix sample counts, repeated values and errors. The plan preserves source workload
+identifiers (including their historical `.ts` suffix), ordered defaults and appended opt-ins;
+these identifiers do not name executable source files in Workdeck. It prints
+`executionAvailable: false`, creates no output directory and executes no workload. The complete
+runner remains unmapped until its native process execution and report pipeline are implemented.
+
 `cargo xtask benchmark render-layout` measures split rows, stack rows, section geometry and
 review plans for the three pinned size/shape scenarios. Native row counts match both oracles,
 including the 18,000-line single-file case. Stream content retains the source's declared statistics
