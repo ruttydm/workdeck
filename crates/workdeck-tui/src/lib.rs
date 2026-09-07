@@ -8848,6 +8848,9 @@ fn run_loop(
     let mut next_reload = Instant::now() + Duration::from_millis(250);
     let job_control = JobControlSupport::default();
     while !app.should_quit && !session_stop.is_some_and(|stop| stop.load(Ordering::Relaxed)) {
+        if terminal.host_disconnected() {
+            break;
+        }
         if app.process_external_quit_signal() {
             break;
         }
@@ -8884,24 +8887,43 @@ fn run_loop(
         if let Err(error) = app_host.publish_snapshot(app) {
             app.status = Some(format!("failed to publish session snapshot: {error}"));
         }
-        terminal.terminal_mut().draw(|frame| {
-            let area = frame.area();
-            render(area, frame.buffer_mut(), app);
-            let footer = Rect::new(
-                area.x,
-                area.bottom().saturating_sub(1),
-                area.width,
-                u16::from(area.height > 0),
-            );
-            if let Some(position) = app
-                .extension_pane_input_cursor_position()
-                .or_else(|| app.status_filter_cursor_position(footer))
-            {
-                frame.set_cursor_position(position);
+        let draw_result = terminal
+            .terminal_mut()
+            .draw(|frame| {
+                let area = frame.area();
+                render(area, frame.buffer_mut(), app);
+                let footer = Rect::new(
+                    area.x,
+                    area.bottom().saturating_sub(1),
+                    area.width,
+                    u16::from(area.height > 0),
+                );
+                if let Some(position) = app
+                    .extension_pane_input_cursor_position()
+                    .or_else(|| app.status_filter_cursor_position(footer))
+                {
+                    frame.set_cursor_position(position);
+                }
+            })
+            .map(|_| ());
+        if let Err(error) = draw_result {
+            if terminal.disconnected_during_io(&error) {
+                return Ok(());
             }
-        })?;
-        if event::poll(Duration::from_millis(100))? {
-            match event::read()? {
+            return Err(error.into());
+        }
+        let has_event = match event::poll(Duration::from_millis(100)) {
+            Ok(ready) => ready,
+            Err(error) if terminal.disconnected_during_io(&error) => return Ok(()),
+            Err(error) => return Err(error.into()),
+        };
+        if has_event {
+            let event = match event::read() {
+                Ok(event) => event,
+                Err(error) if terminal.disconnected_during_io(&error) => return Ok(()),
+                Err(error) => return Err(error.into()),
+            };
+            match event {
                 Event::Key(key) => {
                     match job_control.action(key, JobControlPlatform::current(), false) {
                         Some(JobControlAction::Interrupt) => app.should_quit = true,

@@ -1,5 +1,7 @@
 //! Failure-safe ownership of an interactive Crossterm session.
 
+#[cfg(unix)]
+use std::io::IsTerminal;
 use std::io::{self, Stdout, Write};
 use std::panic;
 
@@ -197,11 +199,75 @@ fn restore_output(output: &mut impl Write, mouse: bool) -> Result<()> {
 /// RAII owner for raw mode, the alternate screen, mouse capture, and cursor restoration.
 pub struct InteractiveTerminalSession {
     inner: ManagedTerminal<CrosstermRuntime>,
+    #[cfg(unix)]
+    terminal_descriptors: [bool; 2],
 }
 
 impl InteractiveTerminalSession {
+    /// Classify errors from terminal I/O only. macOS PTYs can return EIO while
+    /// poll and tcgetattr still succeed after their master is closed.
+    pub fn disconnected_during_io(&self, error: &io::Error) -> bool {
+        if self.host_disconnected() {
+            return true;
+        }
+        #[cfg(unix)]
+        if self.terminal_descriptors.iter().any(|terminal| *terminal) {
+            return matches!(error.raw_os_error(), Some(libc::EIO | libc::ENXIO))
+                || matches!(
+                    error.kind(),
+                    io::ErrorKind::BrokenPipe | io::ErrorKind::UnexpectedEof
+                );
+        }
+        let _ = error;
+        false
+    }
+
+    /// A vanished PTY is a normal host shutdown, not a rendering failure.
+    #[cfg(unix)]
+    pub fn host_disconnected(&self) -> bool {
+        let mut descriptors = [libc::STDIN_FILENO, libc::STDOUT_FILENO].map(|fd| libc::pollfd {
+            fd,
+            events: 0,
+            revents: 0,
+        });
+        // SAFETY: the array contains two initialized pollfd values and lives through the call.
+        let result = unsafe { libc::poll(descriptors.as_mut_ptr(), descriptors.len() as _, 0) };
+        (result > 0
+            && descriptors.iter().zip(self.terminal_descriptors).any(
+                |(descriptor, was_terminal)| {
+                    was_terminal
+                        && descriptor.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL)
+                            != 0
+                },
+            ))
+            || descriptors.iter().zip(self.terminal_descriptors).any(
+                |(descriptor, was_terminal)| {
+                    if !was_terminal {
+                        return false;
+                    }
+                    let mut attributes = std::mem::MaybeUninit::<libc::termios>::uninit();
+                    // SAFETY: tcgetattr writes into a properly sized allocation; it is never read.
+                    let result = unsafe { libc::tcgetattr(descriptor.fd, attributes.as_mut_ptr()) };
+                    result < 0
+                        && matches!(
+                            io::Error::last_os_error().raw_os_error(),
+                            Some(
+                                libc::EIO | libc::ENXIO | libc::ENODEV | libc::EBADF | libc::ENOTTY
+                            )
+                        )
+                },
+            )
+    }
+
+    #[cfg(not(unix))]
+    pub fn host_disconnected(&self) -> bool {
+        false
+    }
+
     pub fn enter(mouse: bool) -> Result<Self> {
         Ok(Self {
+            #[cfg(unix)]
+            terminal_descriptors: [io::stdin().is_terminal(), io::stdout().is_terminal()],
             inner: ManagedTerminal::enter(CrosstermRuntime::new(), mouse)?,
         })
     }

@@ -28,3 +28,17 @@ carry `Hunk-Upstream:` trailers. An unmapped record is visible work, never an im
 The five commits unique to Hunk `v0.20.1` are tracked separately in
 `port/hunk/stable-fixes.jsonl`; the four functional regressions have Rust implementations and
 named tests. They do not falsely mark the larger baseline blobs containing those files as ported.
+
+## Terminal lifecycle work in progress
+
+`oracles/pty-lifecycle.json` records the five passing baseline oracle cases and the test file's
+absence from the stable pin. Native CLI subprocess tests now cover private PTY closure, macOS
+controlling-terminal revocation, and the three shutdown signals with terminal streams. A dropped
+terminal returns success after session retirement, while non-terminal-I/O errors remain failures.
+The test harness owns and reaps its children and closes inherited PTY handles explicitly.
+
+This is **not** complete lifecycle parity: the source's signal cases use pipes with brokering
+enabled. Workdeck still rejects redirected interactive review output. The lifecycle source remains
+unmapped until that behavior and its broker cleanup have genuine executable coverage.
+
+Run the current native coverage with `cargo test -p workdeck-cli --test terminal_lifecycle`.
