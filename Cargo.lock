@@ -3380,6 +3380,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "cargo_metadata",
+ "chrono",
  "flate2",
  "png",
  "portable-pty",

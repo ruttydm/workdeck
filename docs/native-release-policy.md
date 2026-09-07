@@ -46,9 +46,16 @@ classification. Frozen aggregation outputs from both pinned runtimes are checked
 in `xtask/src/benchmark.rs`. The recorded historical thresholds (15% timing with a 5 ms floor;
 20% memory with an 8 MiB floor) are compatibility metadata, **not** the semantic-port release
 gate. They do not relax its 10% latency limit or zero peak-memory regression requirement.
-Benchmark execution, same-host measurements, comparison/reporting, and strict release enforcement
-remain incomplete. Aggregation tests are not performance measurements, and the containing source
-record remains unmapped.
+`cargo xtask benchmark compare-json BASE_JSON HEAD_JSON` compares explicit version-1 snapshots
+without writing files. It preserves historical missing-metric, informational, accepted-regression,
+and failure statuses; failures return a nonzero exit. Ten dual-pin oracle cases check every result
+field, including duplicate metric resolution and zero baselines. JSON parsing uses exact float
+round-tripping so oracle precision is not silently rounded away. Historical acceptance annotations
+are reporting compatibility only and cannot satisfy the stricter final performance gate.
+
+Benchmark execution, same-host measurements, automatic baseline selection, Markdown reporting,
+and strict release enforcement remain incomplete. These tests are not performance measurements,
+and the containing source records remain unmapped.
 
 ## Generated state and PR routing
 

@@ -1937,7 +1937,19 @@ fn read_ledger(path: &Path) -> Result<Vec<LedgerRecord>> {
 
 /// Keep a stable lock inode separate from the atomically replaced ledger inode.
 /// Do not unlink this sidecar: doing so lets another writer lock a different inode.
-fn lock_ledger_for_write(path: &Path) -> Result<File> {
+#[derive(Debug)]
+struct LedgerWriteGuard(File);
+
+impl Drop for LedgerWriteGuard {
+    fn drop(&mut self) {
+        // Release explicitly: a concurrent fork may briefly retain the open file description
+        // before exec closes its inherited descriptor. Closing only our descriptor can then
+        // leave the advisory lock held after the writer has finished.
+        let _ = self.0.unlock();
+    }
+}
+
+fn lock_ledger_for_write(path: &Path) -> Result<LedgerWriteGuard> {
     let parent = path
         .parent()
         .context("ledger requires a parent directory")?;
@@ -1955,7 +1967,7 @@ fn lock_ledger_for_write(path: &Path) -> Result<File> {
             path.display()
         )
     })?;
-    Ok(lock)
+    Ok(LedgerWriteGuard(lock))
 }
 
 fn write_ledger_atomic(path: &Path, records: &[LedgerRecord]) -> Result<()> {
@@ -2213,6 +2225,7 @@ fn relative_to(repo: &Path, path: &Path) -> String {
 
 fn print_help() {
     println!("cargo xtask benchmark aggregate SOURCE METRIC SAMPLES_JSON");
+    println!("cargo xtask benchmark compare-json BASE_JSON HEAD_JSON");
     println!(
         "cargo xtask port <fetch|inventory|reclassify|map|materialize-assets|audit|status> [port options]"
     );
@@ -2368,6 +2381,19 @@ mod tests {
         let second = lock_ledger_for_write(&path).unwrap();
         assert!(path.with_extension("jsonl.lock").exists());
         drop(second);
+    }
+
+    #[test]
+    fn ledger_guard_releases_lock_even_while_a_duplicate_descriptor_survives() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("ledger.jsonl");
+        let guard = lock_ledger_for_write(&path).unwrap();
+        let duplicate = guard.0.try_clone().unwrap();
+        assert!(lock_ledger_for_write(&path).is_err());
+        drop(guard);
+        let next = lock_ledger_for_write(&path).unwrap();
+        drop(next);
+        drop(duplicate);
     }
 
     #[test]
