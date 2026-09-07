@@ -3108,6 +3108,7 @@ dependencies = [
  "indexmap",
  "libc",
  "predicates",
+ "qwertty-term-vt",
  "ratatui",
  "semver",
  "serde",

@@ -130,7 +130,7 @@ impl TerminalRuntime for CrosstermRuntime {
     type Terminal = Terminal<CrosstermBackend<Stdout>>;
 
     fn enable_raw_mode(&mut self) -> Result<()> {
-        if io::stdin().is_terminal() {
+        if io::stdin().is_terminal() || crate::open_controlling_terminal().is_some() {
             enable_raw_mode()?;
         }
         Ok(())
@@ -279,7 +279,8 @@ impl InteractiveTerminalSession {
     }
 
     pub fn enter(mouse: bool) -> Result<Self> {
-        let mouse = mouse && io::stdin().is_terminal();
+        let mouse =
+            mouse && (io::stdin().is_terminal() || crate::open_controlling_terminal().is_some());
         #[cfg(unix)]
         let piped_input = if !io::stdin().is_terminal() && !io::stdout().is_terminal() {
             Some(crate::piped_input::PipedInputBridge::start()?)

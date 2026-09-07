@@ -2529,8 +2529,26 @@ mod review_cli_option_tests {
             let parsed = Args::try_parse_from(*arguments).unwrap();
             let command = parsed.command.unwrap();
             assert_eq!(command.review_config_section(), *section, "{arguments:?}");
-            assert_eq!(command.is_pager_review(), *pager, "{arguments:?}");
+            assert_eq!(
+                command.is_pager_review_with_stdin(true),
+                *pager,
+                "{arguments:?}"
+            );
         }
+    }
+
+    #[test]
+    fn redirected_patch_stdin_selects_pager_configuration_before_terminal_attachment() {
+        for arguments in [vec!["workdeck", "patch"], vec!["workdeck", "patch", "-"]] {
+            let command = Args::try_parse_from(arguments).unwrap().command.unwrap();
+            assert!(command.is_pager_review_with_stdin(false));
+            assert!(!command.is_pager_review_with_stdin(true));
+        }
+        let command = Args::try_parse_from(["workdeck", "patch", "input.patch"])
+            .unwrap()
+            .command
+            .unwrap();
+        assert!(!command.is_pager_review_with_stdin(false));
     }
 
     #[test]
@@ -5812,7 +5830,14 @@ impl Command {
     }
 
     fn is_pager_review(&self) -> bool {
+        self.is_pager_review_with_stdin(std::io::stdin().is_terminal())
+    }
+
+    fn is_pager_review_with_stdin(&self, stdin_is_terminal: bool) -> bool {
         matches!(self, Self::Pager { .. })
+            || matches!(self, Self::Patch { file, .. }
+                if file.as_deref().is_none_or(|file| file == Path::new("-"))
+                    && !stdin_is_terminal)
             || self.review_options().is_some_and(|review| review.pager)
     }
 

@@ -90,7 +90,7 @@ fn wait_for_stdin_input(stdin: &Stdin, timeout: Duration) -> io::Result<()> {
     wait_for_unix_input(stdin.as_raw_fd(), timeout)
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn wait_for_unix_input(fd: std::os::fd::RawFd, timeout: Duration) -> io::Result<()> {
     let mut descriptor = libc::pollfd {
         fd,
@@ -117,6 +117,47 @@ fn wait_for_unix_input(fd: std::os::fd::RawFd, timeout: Duration) -> io::Result<
     }
     if descriptor.revents & libc::POLLERR != 0 {
         return Err(io::Error::other("terminal probe input reported an error"));
+    }
+    Ok(())
+}
+
+// Darwin's /dev/tty alias may report POLLNVAL through poll despite being a valid
+// controlling-terminal descriptor. select supports that descriptor as well as stdin.
+#[cfg(target_os = "macos")]
+fn wait_for_unix_input(fd: std::os::fd::RawFd, timeout: Duration) -> io::Result<()> {
+    if fd < 0 || fd as usize >= libc::FD_SETSIZE {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "terminal probe descriptor is out of range",
+        ));
+    }
+    // SAFETY: fd_set is initialized before FD_SET, and fd is within its supported range.
+    let mut descriptors = unsafe { std::mem::zeroed::<libc::fd_set>() };
+    unsafe {
+        libc::FD_SET(fd, &mut descriptors);
+    }
+    let mut interval = libc::timeval {
+        tv_sec: timeout.as_secs().min(libc::time_t::MAX as u64) as libc::time_t,
+        tv_usec: timeout.subsec_micros() as libc::suseconds_t,
+    };
+    // SAFETY: all pointers remain valid through this bounded select call.
+    let ready = unsafe {
+        libc::select(
+            fd + 1,
+            &mut descriptors,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut interval,
+        )
+    };
+    if ready < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if ready == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "terminal probe timed out",
+        ));
     }
     Ok(())
 }

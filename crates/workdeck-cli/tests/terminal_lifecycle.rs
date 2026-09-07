@@ -328,9 +328,19 @@ fn exercise_pty_shutdown(action: Shutdown) {
         #[cfg(target_os = "macos")]
         Shutdown::Revoke => {
             assert!(tty_path.to_bytes().starts_with(b"/dev/tty"));
+            // The source harness continuously drains output. Darwin revoke can block
+            // behind an in-flight tty write if capture stops midway through a frame.
+            let drain = std::thread::spawn(move || {
+                let mut buffer = [0; 8192];
+                while let Ok(count) = master.read(&mut buffer) {
+                    if count == 0 {
+                        break;
+                    }
+                }
+            });
             // SAFETY: tty_path is the NUL-terminated name of this test's private slave.
             assert_eq!(unsafe { revoke(tty_path.as_ptr()) }, 0);
-            None
+            Some(drain)
         }
     };
     child.wait_clean();

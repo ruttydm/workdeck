@@ -80,3 +80,13 @@ filter focus, controls help, and outer-cell gutter colors. Live rows now derive 
 per file instead of reserving four digits; measurement uses the same default. Exact stacked gutter
 text remains an assertion, not an allowed visual normalization. Broader UI source files and full
 cross-renderer cell-buffer/performance parity remain incomplete.
+
+Pager evidence is in `oracles/pty-pager.json`: both pins pass 11 tests and 61 upstream assertions.
+`cargo test -p workdeck-cli --test terminal_pager` runs the compiled executable in owned Unix PTYs
+with a Rust VT parser, real keyboard/mouse bytes, file-backed patch stdin and a separate real-pipe
+input case. Pager defaults are applied at the shared live/frame constructor, including an initially
+hidden sidebar despite `--sidebar`; users can reveal both sidebar and menu. Redirected stdin uses
+the controlling terminal for raw input and mouse capture. Darwin automatic-theme probing uses
+`select` for the `/dev/tty` alias. Harness cleanup closes the PTY master before reaping a killed
+child and drains restoration output during normal quit. Windows native validation remains a
+separate release gate; this translation does not claim complete terminal-cell differential parity.

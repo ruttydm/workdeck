@@ -1222,6 +1222,11 @@ impl ReviewApp {
         review_producer: workdeck_review::ReviewProducer,
         session_broker_client: Option<workdeck_session::WorkdeckSessionBrokerClient>,
     ) -> Self {
+        if options.pager {
+            options.sidebar = false;
+            options.sidebar_visibility = SidebarVisibility::Hidden;
+            options.show_menu_bar = false;
+        }
         // Native factories encode events emitted during handshake as provisional declarations.
         // Drain them only after every extension has registered, matching Hunk's bind-and-replay
         // boundary and preventing a second ReviewApp from replaying the same factory event.
@@ -9324,7 +9329,7 @@ pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     Block::default()
         .style(Style::default().bg(background))
         .render(area, buffer);
-    let menu_bar_visible = app.show_menu_bar && !app.options.pager;
+    let menu_bar_visible = app.show_menu_bar;
     let footer_visible = !app.options.pager;
     let outer = Layout::default()
         .direction(Direction::Vertical)
