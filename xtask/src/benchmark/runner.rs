@@ -28,6 +28,7 @@ fn workload_command(name: &str) -> Result<&'static str> {
         "bootstrap-load.ts" => Ok("bootstrap-load"),
         "changeset-parse.ts" => Ok("changeset-parse"),
         "highlight-prefetch.ts" => Ok("highlight-prefetch"),
+        "large-stream.ts" => Ok("large-stream"),
         "working-tree-load.ts" => Ok("working-tree"),
         "render-layout.ts" => Ok("render-layout"),
         _ => bail!("Native benchmark workload is not yet fully ported: {name}"),
@@ -429,7 +430,7 @@ mod tests {
             .into_iter(),
         )
         .unwrap_err();
-        assert!(error.to_string().contains("large-stream.ts"));
+        assert!(error.to_string().contains("interaction-latency.ts"));
         assert!(!out.parent().unwrap().exists());
         let mut calls = 0;
         let result = collect(&["render-layout.ts".into()], 3.0, &mut vec![], |_, _| {

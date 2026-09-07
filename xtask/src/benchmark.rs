@@ -11,6 +11,7 @@ mod bootstrap;
 mod changeset_parse;
 mod fixtures;
 mod highlight_prefetch;
+mod large_stream;
 mod release;
 mod render_layout;
 mod runner;
@@ -672,6 +673,9 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     }
     if command.as_deref() == Some("highlight-prefetch") {
         return highlight_prefetch::run(args);
+    }
+    if command.as_deref() == Some("large-stream") {
+        return large_stream::run(args);
     }
     if command.as_deref() == Some("run") {
         return runner::run_command(args);

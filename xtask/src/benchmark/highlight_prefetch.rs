@@ -69,7 +69,7 @@ fn app() -> Result<ReviewApp> {
 
 /// Reconstruct contiguous styled spans from the authoritative cells, then apply the source's
 /// marker-segmentation heuristic. Never infer highlighting from raw text presence alone.
-fn highlighted_marker(frame: &Buffer, marker: &str) -> bool {
+pub(super) fn highlighted_marker(frame: &Buffer, marker: &str) -> bool {
     frame
         .content
         .chunks(usize::from(frame.area.width))

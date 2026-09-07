@@ -2234,6 +2234,7 @@ fn print_help() {
     println!("cargo xtask benchmark bootstrap-load");
     println!("cargo xtask benchmark changeset-parse");
     println!("cargo xtask benchmark highlight-prefetch");
+    println!("cargo xtask benchmark large-stream");
     println!("cargo xtask benchmark render-layout");
     println!("cargo xtask benchmark stream-fixture [--huge | --non-ascii]");
     println!("cargo xtask benchmark synthetic-patch OPTIONS_JSON");

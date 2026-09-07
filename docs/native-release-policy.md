@@ -63,7 +63,7 @@ workload. The default suite still reports `executionAvailable: false`.
 `cargo xtask benchmark run --script render-layout.ts --samples 1 --out REPORT.json` executes
 the completed render-layout workload in a native child process, drains both output pipes,
 aggregates repeated samples and writes a versioned report with Git/Cargo/native-platform metadata.
-`bootstrap-load.ts`, `working-tree-load.ts`, `changeset-parse.ts`, `highlight-prefetch.ts`
+`bootstrap-load.ts`, `working-tree-load.ts`, `changeset-parse.ts`, `highlight-prefetch.ts`, `large-stream.ts`
 and `render-layout.ts` are currently admitted.
 Every selected workload is checked before execution
 or output-directory creation; default, huge, competitor and other incomplete selections fail.
@@ -132,6 +132,14 @@ Native tests verify complete fixture sources and geometry, selected/adjacent hig
 non-no-op selection input, and rejection of plain unsegmented marker text. Scheduling uses the
 native renderer and thread yield; diagnostic timings and observed iteration counts are not fixed
 scheduler contracts or performance acceptance evidence.
+
+`cargo xtask benchmark large-stream` uses fresh 180-file/120-line production apps for cold and warm
+first frames and four wheel ticks at (170,12), in a 240×28 viewport. Fixture/app setup is outside
+each timer. Scroll timing retains the source's 17 ms coalescing pause per event; selected-marker
+highlight settlement (up to 200 frames) and app retirement are outside the measured intervals.
+There is no React test scheduler in this native rendering path. Tests require highlighted first
+frames and actual viewport movement. Debug execution of the full workload is currently expensive;
+functional coverage must not be interpreted as satisfying the optimized latency/memory gates.
 
 The shared fixture generator is native in `xtask/src/benchmark/fixtures.rs`: it supports configurable
 line counts/change regions, patch prefixes/extensions, committed-before/modified-after repositories,
