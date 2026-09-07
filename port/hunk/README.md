@@ -119,6 +119,14 @@ rows reserve the canonical three-cell add-note lane; wrap toggles reset horizont
 compact sidebar group headers retain their padding. Continuation rows preserve both diff rails.
 These source assertions do not replace the full terminal-cell oracle comparison release gate.
 
+The shared native PTY harness is being translated separately and remains unmapped. Review frames
+now carry synchronized-output boundaries, and snapshot predicates wait until an update is complete.
+The shared drag helper emits the source's press, five interpolated motion steps, and release rather
+than collapsing a drag into one motion. Its coordinate tests cover both directions, rounding,
+and stationary input; existing sidebar drag tests exercise it against the executable. Polling is
+capped by the remaining wait deadline so short motion intervals are not expanded to a fixed 50 ms.
+Fixture factories and the rest of `test/pty/harness.ts` still require complete source accounting.
+
 `oracles/pty-file-views.json` records thirteen baseline passes, the stable suite's initial
 menu timeout, isolated retry, and full thirteen-case passing retry. Native tests exercise compiled
 Rust examples against pinned input blobs, including three retained presentations in a mixed-file

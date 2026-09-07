@@ -416,11 +416,7 @@ fn rightmost(text: &str, needle: &str) -> usize {
 }
 
 fn drag(session: &mut Session, from: usize, to: usize) {
-    session.write(format!("\x1b[<0;{};7M", from + 1).as_bytes());
-    session.wait_for(Duration::from_millis(20), |_| false);
-    session.write(format!("\x1b[<32;{};7M", to + 1).as_bytes());
-    session.wait_for(Duration::from_millis(20), |_| false);
-    session.write(format!("\x1b[<0;{};7m", to + 1).as_bytes());
+    super::harness::drag_mouse(session, (from, 6), (to, 6));
 }
 
 #[test]

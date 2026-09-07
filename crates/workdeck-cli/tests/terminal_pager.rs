@@ -261,8 +261,10 @@ impl Session {
                 events: libc::POLLIN,
                 revents: 0,
             };
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let poll_ms = remaining.as_millis().clamp(1, 50) as i32;
             // SAFETY: one initialized pollfd references our owned master descriptor.
-            let ready = unsafe { libc::poll(&mut fd, 1, 50) };
+            let ready = unsafe { libc::poll(&mut fd, 1, poll_ms) };
             assert!(ready >= 0);
             if ready == 0 {
                 continue;
@@ -344,6 +346,9 @@ impl Session {
 
 #[path = "terminal_pager/layout.rs"]
 mod layout;
+
+#[path = "terminal_pager/harness.rs"]
+mod harness;
 
 #[path = "terminal_pager/file_views.rs"]
 mod file_views;
