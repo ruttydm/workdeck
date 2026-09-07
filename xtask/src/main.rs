@@ -2227,6 +2227,7 @@ fn print_help() {
     println!("cargo xtask benchmark aggregate SOURCE METRIC SAMPLES_JSON");
     println!("cargo xtask benchmark working-tree");
     println!("cargo xtask benchmark render-layout");
+    println!("cargo xtask benchmark stream-fixture [--huge | --non-ascii]");
     println!("cargo xtask benchmark synthetic-patch OPTIONS_JSON");
     println!("cargo xtask benchmark compare-json BASE_JSON HEAD_JSON");
     println!("cargo xtask benchmark compare-markdown BASE_JSON HEAD_JSON");

@@ -1,0 +1,198 @@
+{
+  "baselines": [
+    "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+  ],
+  "runtime": "Bun 1.3.14, disposable pinned checkouts; identical outputs",
+  "source": "benchmarks/large-stream-fixture.ts",
+  "cases": [
+    {
+      "index": 1,
+      "options": {},
+      "id": "stream:1",
+      "path": "src/stream1.ts",
+      "language": "typescript",
+      "patch": "",
+      "stats": {
+        "additions": 48,
+        "deletions": 48
+      },
+      "isPartial": false,
+      "beforeSha256": "8c3e683a1da493120c9164dfa48264f72229322c6296d4576858576aedf587e7",
+      "afterSha256": "09c92d93dd9eb051245696c5e573c7d4f83bb4ba5cbe751ec3b90513aa810c44",
+      "hunks": [
+        {
+          "oldStart": 34,
+          "oldCount": 54,
+          "newStart": 34,
+          "newCount": 54
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "options": {
+        "linesPerFile": 48
+      },
+      "id": "stream:2",
+      "path": "src/stream2.ts",
+      "language": "typescript",
+      "patch": "",
+      "stats": {
+        "additions": 48,
+        "deletions": 48
+      },
+      "isPartial": false,
+      "beforeSha256": "6d971da562d0419c0130af197d144cb291292ec33509a9ab0d3550d672dd6f6d",
+      "afterSha256": "cb26d5f0a50843d55993b1629c4134c7e52117051225a4563da62e251cb7af07",
+      "hunks": [
+        {
+          "oldStart": 34,
+          "oldCount": 15,
+          "newStart": 34,
+          "newCount": 15
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "options": {
+        "linesPerFile": 10,
+        "changedStartLine": 1,
+        "changedEndLine": 10
+      },
+      "id": "stream:3",
+      "path": "src/stream3.ts",
+      "language": "typescript",
+      "patch": "",
+      "stats": {
+        "additions": 10,
+        "deletions": 10
+      },
+      "isPartial": false,
+      "beforeSha256": "74560c5979fe9e82693874090fa42a457f5970eea39a17a32a68130dc41eeff4",
+      "afterSha256": "de6764f9c8a61e508fb870a85b86f1b51f8205c33e782f591505cc6c0a0d1d7e",
+      "hunks": [
+        {
+          "oldStart": 1,
+          "oldCount": 10,
+          "newStart": 1,
+          "newCount": 10
+        }
+      ]
+    },
+    {
+      "index": 4,
+      "options": {
+        "linesPerFile": 10,
+        "changedStartLine": 2,
+        "changedEndLine": 5
+      },
+      "id": "stream:4",
+      "path": "src/stream4.ts",
+      "language": "typescript",
+      "patch": "",
+      "stats": {
+        "additions": 4,
+        "deletions": 4
+      },
+      "isPartial": false,
+      "beforeSha256": "c50e5c9cb5ab878e07540d975fb6802cdb31a6492f90addaea9c582ae7b52627",
+      "afterSha256": "6000b3905984f39db3d61b78b0058a34099b853b2594c9658cdefd38f612470f",
+      "hunks": [
+        {
+          "oldStart": 1,
+          "oldCount": 8,
+          "newStart": 1,
+          "newCount": 8
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "options": {
+        "linesPerFile": 0
+      },
+      "id": "stream:5",
+      "path": "src/stream5.ts",
+      "language": "typescript",
+      "patch": "",
+      "stats": {
+        "additions": 48,
+        "deletions": 48
+      },
+      "isPartial": false,
+      "beforeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "afterSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "hunks": []
+    },
+    {
+      "index": 6,
+      "options": {
+        "linesPerFile": 3,
+        "changedStartLine": 7,
+        "changedEndLine": 9
+      },
+      "id": "stream:6",
+      "path": "src/stream6.ts",
+      "language": "typescript",
+      "patch": "",
+      "stats": {
+        "additions": 3,
+        "deletions": 3
+      },
+      "isPartial": false,
+      "beforeSha256": "c460d5d960e5b98a1f3f4fa36781df1424a9d740e6170040ed7acf920e811671",
+      "afterSha256": "c460d5d960e5b98a1f3f4fa36781df1424a9d740e6170040ed7acf920e811671",
+      "hunks": []
+    },
+    {
+      "index": 7,
+      "options": {
+        "linesPerFile": 12,
+        "changedStartLine": 2,
+        "changedEndLine": 8,
+        "contentVariant": "non-ascii"
+      },
+      "id": "stream:7",
+      "path": "src/stream7.ts",
+      "language": "typescript",
+      "patch": "",
+      "stats": {
+        "additions": 7,
+        "deletions": 7
+      },
+      "isPartial": false,
+      "beforeSha256": "c479088d9be1bf74f0b4e1cde37fb3021440e4ba717570473d6a2ca196b54377",
+      "afterSha256": "2505cb21688e467a7a9f2d96f0000282bbf4f43b2d0f59068ebb2a105f3f6f69",
+      "hunks": [
+        {
+          "oldStart": 1,
+          "oldCount": 11,
+          "newStart": 1,
+          "newCount": 11
+        }
+      ]
+    },
+    {
+      "index": 8,
+      "options": {
+        "linesPerFile": 1,
+        "changedStartLine": 0,
+        "changedEndLine": 0
+      },
+      "id": "stream:8",
+      "path": "src/stream8.ts",
+      "language": "typescript",
+      "patch": "",
+      "stats": {
+        "additions": 1,
+        "deletions": 1
+      },
+      "isPartial": false,
+      "beforeSha256": "ada8f5ff8edc179dd9cbd3f82e1ecddff676084b9bb495febd805cb3cf9e499f",
+      "afterSha256": "ada8f5ff8edc179dd9cbd3f82e1ecddff676084b9bb495febd805cb3cf9e499f",
+      "hunks": []
+    }
+  ]
+}

@@ -1,87 +1,15 @@
 //! Native row-planning workloads from Hunk's MIT render-layout benchmark.
-//! The containing stream fixture remains partial until huge/bootstrap helpers are translated.
+//! Uses the shared native stream fixtures, including full-source gap geometry.
 
+#[cfg(test)]
+use super::stream::file;
 use super::*;
 use std::time::Instant;
-use workdeck_core::{DiffFile, FileSourceSnapshots, SourceOrigin, SourceSnapshot};
-use workdeck_diff::{FileComparisonOptions, FileSnapshot, diff_from_file_snapshots};
 use workdeck_review::LayoutMode;
 use workdeck_tui::{
     DiffSectionGeometryCache, DiffSectionGeometryOptions, ReviewRenderPlanOptions,
     build_review_render_plan, build_split_rows, build_stack_rows, resolve_theme,
 };
-
-const DECORATIONS: [&str; 6] = [
-    "日本語のコメント",
-    "中文注释内容",
-    "한국어 주석",
-    "🚀✨🔧💡",
-    "┌──┬──┐│▌▾│└──┴──┘",
-    "héllo wörld — naïve café",
-];
-
-fn line(index: usize, line: usize, changed: bool, non_ascii: bool) -> String {
-    let body = if changed {
-        format!(
-            "export function stream{index}_{line}(value: number) {{ return value * {line} + {index}; }}"
-        )
-    } else {
-        format!("export function stream{index}_{line}(value: number) {{ return value + {line}; }}")
-    };
-    if non_ascii {
-        format!(
-            "{body} // {}\n",
-            DECORATIONS[(index + line) % DECORATIONS.len()]
-        )
-    } else {
-        format!("{body}\n")
-    }
-}
-
-fn file(index: usize, lines: usize, start: usize, end: usize, non_ascii: bool) -> Result<DiffFile> {
-    let path = format!("src/stream{index}.ts");
-    let before: String = (1..=lines)
-        .map(|n| line(index, n, false, non_ascii))
-        .collect();
-    let after: String = (1..=lines)
-        .map(|n| line(index, n, (start..=end).contains(&n), non_ascii))
-        .collect();
-    let variant = if non_ascii { "non-ascii" } else { "ascii" };
-    let before_key = format!("stream:{index}:before:{lines}:{variant}");
-    let after_key = format!("stream:{index}:after:{lines}:{variant}");
-    let mut file = diff_from_file_snapshots(
-        FileSnapshot {
-            name: &path,
-            contents: &before,
-            cache_key: &before_key,
-        },
-        FileSnapshot {
-            name: &path,
-            contents: &after,
-            cache_key: &after_key,
-        },
-        FileComparisonOptions { context_radius: 3 },
-    )?;
-    file.runtime_id = format!("stream:{index}");
-    file.patch.clear();
-    file.language = Some("typescript".into());
-    // Preserve the fixture's declared range statistics even when its range exceeds the source.
-    file.stats.additions = end.saturating_add(1).saturating_sub(start);
-    file.stats.deletions = file.stats.additions;
-    file.set_sources(FileSourceSnapshots {
-        old: Some(SourceSnapshot::new(
-            before,
-            SourceOrigin::File { path: path.clone() },
-            true,
-        )),
-        new: Some(SourceSnapshot::new(
-            after,
-            SourceOrigin::File { path },
-            true,
-        )),
-    });
-    Ok(file)
-}
 
 #[derive(Clone, Copy)]
 struct Scenario {
@@ -128,9 +56,13 @@ struct Measurement {
 }
 
 fn measure(scenario: Scenario) -> Result<Measurement> {
-    let files = (1..=scenario.files)
-        .map(|index| file(index, scenario.lines, scenario.start, scenario.end, false))
-        .collect::<Result<Vec<_>>>()?;
+    let files = super::stream::files(
+        scenario.files,
+        scenario.lines,
+        scenario.start,
+        scenario.end,
+        false,
+    )?;
     let theme = resolve_theme(Some("midnight"), None, &[]);
     let started = Instant::now();
     let split_rows = files

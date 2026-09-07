@@ -43,8 +43,17 @@ cross-platform CI, or the remaining release gates. See [the semantic-port ledger
 `cargo xtask benchmark render-layout` measures split rows, stack rows, section geometry and
 review plans for the three pinned size/shape scenarios. Native row counts match both oracles,
 including the 18,000-line single-file case. Stream content retains the source's declared statistics
-and full before/after snapshots. The broader huge-stream and application-bootstrap fixture helpers
-remain incomplete; no same-host latency or memory acceptance is inferred from these count tests.
+and full before/after snapshots. No same-host latency or memory acceptance is inferred from these
+count tests.
+
+`cargo xtask benchmark stream-fixture [--huge | --non-ascii]` constructs native fixture bootstraps
+and prints their summaries without creating repository state. The default is 180 files of 120
+lines; huge mode combines 1,000 files of 300 lines with one directly synthesized 50,000-line file.
+The giant patch avoids a large diff calculation and remains partial metadata, while ordinary
+stream files retain complete sources. Eight custom-file cases verify source hashes, statistics
+and hunk geometry against both pins; normal, non-ASCII and complete huge bootstrap summaries are
+also checked. These fixture constructors are separate from the unfinished production bootstrap
+benchmark and strict performance acceptance gate.
 
 This workload exposed and fixed a product-level snapshot bug: `diff_from_file_snapshots` now marks
 complete text comparisons non-partial and retains both full sources, so trailing collapsed gaps

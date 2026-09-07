@@ -10,7 +10,7 @@
     {"name":"balanced_stream","files":180,"split_rows":10260,"stack_rows":18900,"planned_rows":10260,"baseline_ms":{"split_rows":4.18,"stack_rows":4.45,"geometry":11.81,"review_plan":8.66},"stable_ms":{"split_rows":4.33,"stack_rows":4.60,"geometry":13.11,"review_plan":9.35}},
     {"name":"large_single_file","files":1,"split_rows":16010,"stack_rows":32011,"planned_rows":16010,"baseline_ms":{"split_rows":7.19,"stack_rows":6.44,"geometry":20.25,"review_plan":11.52},"stable_ms":{"split_rows":8.42,"stack_rows":5.94,"geometry":18.84,"review_plan":10.95}}
   ],
-  "ledger_status": "The render-layout workload has a native mapping; the containing large-stream fixture remains unmapped until its huge/bootstrap helpers are complete.",
+  "ledger_status": "The render-layout workload has a native mapping; shared stream fixture evidence is in benchmark-stream-bootstrap.json and benchmark-stream-files.json.",
   "native_test": "benchmark::render_layout::tests::all_native_row_counts_match_both_pinned_workloads",
   "snapshot_regressions": ["workdeck_diff::tests::compares_text_snapshots_with_pierre_compatible_explicit_hunk_counts", "diff_section_body::tests::source_capability_gates_gap_toggle_and_highlight_readiness"]
 }
