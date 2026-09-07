@@ -90,3 +90,10 @@ the controlling terminal for raw input and mouse capture. Darwin automatic-theme
 `select` for the `/dev/tty` alias. Harness cleanup closes the PTY master before reaping a killed
 child and drains restoration output during normal quit. Windows native validation remains a
 separate release gate; this translation does not claim complete terminal-cell differential parity.
+
+`oracles/pty-session-attention.json` captures the single end-to-end attention test from both pins
+(15 upstream assertions each). Its native test lives alongside the pager PTY harness and owns a
+private loopback daemon. Session highlight/navigate now scroll to the selected line's rendered row,
+not the owning hunk's start; the test checks line 111's near-top landing, real warning-mark cell
+backgrounds, clear counts, and navigation back to line 25. Terminal output continues draining during
+session CLI exchanges. Color tests explicitly enable truecolor without inheriting `NO_COLOR`.

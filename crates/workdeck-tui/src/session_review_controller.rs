@@ -718,7 +718,7 @@ impl ReviewApp {
                     .with_state(|state| state.reveal_line(file_index, side, line))
                     .is_ok()
             {
-                self.scroll_to_selection();
+                self.scroll_to_selected_line();
                 self.publish_extension_selection_events();
                 let selected_hunk = selected_hunk(&file, hunk_index);
                 return Ok(NavigatedSelectionResult {
@@ -824,7 +824,7 @@ impl ReviewApp {
                     .with_state(|state| state.reveal_line(file_index, input.side, line))
                     .is_ok()
             {
-                self.scroll_to_selection();
+                self.scroll_to_selected_line();
                 self.publish_extension_selection_events();
                 Some(RevealedTarget::Line)
             } else {

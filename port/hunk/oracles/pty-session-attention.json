@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "runtime": "Bun 1.3.14",
+  "captured_at": "2026-09-07",
+  "source": {
+    "path": "test/pty/session-attention-integration.test.ts",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "31e000adac280bbe16f2562435d9bbdbe76b11e2",
+      "sha256": "e3123a9b3bc7e4245cad7868c0dd609490975129bff7a178d46f739330267406",
+      "bytes": 8586,
+      "lines": 269
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "c84754681aaf4b00015011eb49eb8d4fc087155f",
+      "sha256": "f6323b9ebfdc29fcce127db4b04dd662b2f00de743500198cbb147d480f690cd",
+      "bytes": 8575,
+      "lines": 269
+    }
+  },
+  "oracle_runs": {
+    "baseline": { "command": "bun test test/pty/session-attention-integration.test.ts", "passed": 1, "failed": 0, "expect_calls": 15 },
+    "stable": { "command": "bun test test/pty/session-attention-integration.test.ts", "passed": 1, "failed": 0, "expect_calls": 15 }
+  },
+  "native_evidence": "crates/workdeck-cli/tests/terminal_pager.rs",
+  "test_mapping": [
+    {
+      "source_test": "a session CLI highlight paints the range and reveals the deep line",
+      "test": "session_attention_highlight_reveals_and_paints_exact_range_then_clears_and_navigates"
+    }
+  ],
+  "verification": [
+    "The compiled CLI starts an owned loopback daemon and a real 140-by-24 PTY review of the source's 130-line before/after fixture.",
+    "Session list discovers registration; highlight add focuses new line 111, range [13,19), with warning tone. JSON fields, empty stderr and exit status are asserted.",
+    "The needle must appear below row zero and above row twelve, and its actual VT cell background must differ from the unmarked token on that row.",
+    "Highlight clear reports removedCount 1 and remainingCount 0. Navigate targets new line 25, verifies exact JSON fields and the same near-top screen landing with the old needle absent.",
+    "The harness continuously drains terminal output during CLI exchanges, isolates configuration/runtime paths, owns all child cleanup, and explicitly enables truecolor independently of ambient NO_COLOR.",
+    "Broader session implementation, cross-platform execution and complete cell-buffer differential parity are separate gates."
+  ]
+}

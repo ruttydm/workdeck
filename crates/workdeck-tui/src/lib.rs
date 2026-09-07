@@ -7563,6 +7563,31 @@ impl ReviewApp {
         }
     }
 
+    fn scroll_to_selected_line(&mut self) {
+        let rows = self.current_review_rows();
+        let Some(cursor) = self.current_review_line_cursor_in(&rows.line_cursors) else {
+            self.scroll_to_selection();
+            return;
+        };
+        self.apply_review_line_cursor(cursor);
+        let viewport = usize::from(
+            self.review_height
+                .get()
+                .saturating_sub(2 + u16::from(!self.options.pager))
+                .max(1),
+        );
+        let file_top = rows
+            .file_body_tops
+            .get(&cursor.target.file_index)
+            .copied()
+            .unwrap_or(0);
+        self.scroll = cursor
+            .row
+            .saturating_sub(2_usize.max(viewport / 4))
+            .max(file_top)
+            .min(rows.lines.len().saturating_sub(viewport));
+    }
+
     fn scroll_to_selection(&mut self) {
         self.scroll_to_reveal(ReviewRevealRequest {
             anchor: ReviewRevealAnchor::Hunk,

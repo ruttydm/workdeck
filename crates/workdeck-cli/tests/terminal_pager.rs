@@ -16,6 +16,16 @@ struct Session {
     master: Option<File>,
     parser: Stream<TerminalHandler>,
     directory: tempfile::TempDir,
+    broker: Option<Broker>,
+}
+
+struct Broker(Child);
+
+impl Drop for Broker {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
 }
 
 impl Drop for Session {
@@ -24,14 +34,52 @@ impl Drop for Session {
         // Closing the last master releases macOS tty teardown before waitpid.
         self.master.take();
         let _ = self.child.wait();
+        self.broker.take();
     }
 }
 
 impl Session {
     fn launch(patch: &str, args: &[&str], file_stdin: bool, cols: u16, rows: u16) -> Self {
+        Self::launch_with_broker(patch, args, file_stdin, cols, rows, None)
+    }
+
+    fn launch_with_broker(
+        patch: &str,
+        args: &[&str],
+        file_stdin: bool,
+        cols: u16,
+        rows: u16,
+        port: Option<u16>,
+    ) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let patch_path = directory.path().join("input.patch");
         fs::write(&patch_path, patch).unwrap();
+        let broker = port.map(|port| {
+            let mut broker = Broker(
+                Command::new(env!("CARGO_BIN_EXE_workdeck"))
+                    .args(["daemon", "serve"])
+                    .current_dir(directory.path())
+                    .env("XDG_CONFIG_HOME", directory.path().join("config"))
+                    .env("XDG_RUNTIME_DIR", directory.path().join("runtime"))
+                    .env("WORKDECK_MCP_PORT", port.to_string())
+                    .env("WORKDECK_MCP_DISABLE", "0")
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                    .unwrap(),
+            );
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while std::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port)).is_err() {
+                assert!(broker.0.try_wait().unwrap().is_none());
+                assert!(
+                    Instant::now() < deadline,
+                    "private broker did not become ready"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            broker
+        });
         let (mut master, mut slave) = (-1, -1);
         let mut size = libc::winsize {
             ws_row: rows,
@@ -67,6 +115,8 @@ impl Session {
             .args(args)
             .current_dir(directory.path())
             .env("TERM", "xterm-256color")
+            .env("COLORTERM", "truecolor")
+            .env_remove("NO_COLOR")
             .env("XDG_CONFIG_HOME", directory.path().join("config"))
             .env("XDG_RUNTIME_DIR", directory.path().join("runtime"))
             .env("WORKDECK_MCP_DISABLE", "1")
@@ -79,6 +129,11 @@ impl Session {
             })
             .stdout(Stdio::from(slave.try_clone().unwrap()))
             .stderr(Stdio::from(slave));
+        if let Some(port) = port {
+            command
+                .env("WORKDECK_MCP_DISABLE", "0")
+                .env("WORKDECK_MCP_PORT", port.to_string());
+        }
         // SAFETY: only async-signal-safe operations run before exec. Stdout is the PTY
         // even when stdin contains patch bytes; establish that PTY as controlling terminal.
         unsafe {
@@ -103,6 +158,7 @@ impl Session {
             child,
             master: Some(master),
             directory,
+            broker,
             parser: Stream::new(TerminalHandler::new(Terminal::new(Options {
                 cols,
                 rows,
@@ -371,7 +427,8 @@ fn general_pager_switches_layout_and_reveals_menu_on_demand() {
     session.write(b"1");
     session.wait(split);
     session.write(b"M");
-    let menu = session.wait(|text| text.contains("View  Navigate  Agent  Help"));
+    let menu = session
+        .wait(|text| text.contains("View  Navigate  Agent  Help") && text.contains("first.ts"));
     assert!(menu.contains("first.ts"));
     // Pager view changes remain transient and do not prompt to persist preferences.
     session.quit();
@@ -403,5 +460,172 @@ fn piped_stdin_still_allows_concrete_theme_app_terminal_input() {
     session.wait(|text| {
         text.contains("View  Navigate  Agent  Help") && text.contains("export const alpha")
     });
+    session.quit();
+}
+
+// Hunk MIT: test/pty/session-attention-integration.test.ts.
+#[test]
+fn session_attention_highlight_reveals_and_paints_exact_range_then_clears_and_navigates() {
+    let fixture = tempfile::tempdir().unwrap();
+    let before = fixture.path().join("before.ts");
+    let after = fixture.path().join("after.ts");
+    let mut old = String::new();
+    let mut new = String::new();
+    for line in 1..=130 {
+        old.push_str(&format!("export const line{line:03} = {line};\n"));
+        if line == 111 {
+            new.push_str("export const needle = \"ATTENTIONNEEDLE\";\n");
+        } else {
+            new.push_str(&format!("export const line{line:03} = {};\n", line + 1000));
+        }
+    }
+    fs::write(&before, old).unwrap();
+    fs::write(&after, new).unwrap();
+    let reservation = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let port = reservation.local_addr().unwrap().port();
+    drop(reservation);
+    let mut session = Session::launch_with_broker(
+        "",
+        &[
+            "diff",
+            "--files",
+            before.to_str().unwrap(),
+            after.to_str().unwrap(),
+            "--mode",
+            "stack",
+        ],
+        false,
+        140,
+        24,
+        Some(port),
+    );
+    let initial = session.wait(|text| text.contains("line001"));
+    assert!(!initial.contains("ATTENTIONNEEDLE"));
+    let run_cli = |session: &mut Session, args: &[&str]| {
+        let config_directory = session.directory.path().to_owned();
+        let args = args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+        let worker = std::thread::spawn(move || {
+            let output = Command::new(env!("CARGO_BIN_EXE_workdeck"))
+                .arg("session")
+                .args(args)
+                .current_dir(&config_directory)
+                .env("XDG_CONFIG_HOME", config_directory.join("config"))
+                .env("XDG_RUNTIME_DIR", config_directory.join("runtime"))
+                .env("WORKDECK_MCP_PORT", port.to_string())
+                .env("WORKDECK_MCP_DISABLE", "0")
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+            assert_eq!(
+                output.status.code(),
+                Some(0),
+                "stdout={} stderr={}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(
+                output.stderr.is_empty(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
+        });
+        // Like the source harness, keep capturing terminal output while the daemon
+        // forwards a request and the review repaints before returning its response.
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while !worker.is_finished() {
+            assert!(
+                Instant::now() < deadline,
+                "session CLI exceeded its deadline"
+            );
+            session.wait_for(Duration::from_millis(25), |_| false);
+        }
+        worker.join().unwrap()
+    };
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let session_id = loop {
+        let listed = run_cli(&mut session, &["list", "--json"]);
+        if let Some(id) = listed["sessions"][0]["sessionId"].as_str() {
+            break id.to_owned();
+        }
+        assert!(
+            Instant::now() < deadline,
+            "review did not register: {listed}"
+        );
+        std::thread::sleep(Duration::from_millis(150));
+    };
+    let highlighted = run_cli(
+        &mut session,
+        &[
+            "highlight",
+            "add",
+            &session_id,
+            "--file",
+            "after.ts",
+            "--new-line",
+            "111",
+            "--start",
+            "13",
+            "--end",
+            "19",
+            "--tone",
+            "warning",
+            "--focus",
+            "--json",
+        ],
+    );
+    for (key, expected) in serde_json::json!({"filePath":"after.ts", "side":"new", "line":111, "start":13, "end":19, "tone":"warning", "fileMarkCount":1, "revealed":"line"}).as_object().unwrap() {
+        assert_eq!(&highlighted["result"][key], expected, "{highlighted}");
+    }
+    let cleared_command = ["highlight", "clear", &session_id, "--json"];
+    let revealed = session.wait(|text| text.contains("ATTENTIONNEEDLE"));
+    let row = revealed
+        .lines()
+        .position(|line| line.contains("ATTENTIONNEEDLE"))
+        .unwrap();
+    assert!(row > 0 && row < 12, "{revealed}");
+    let text = revealed.lines().nth(row).unwrap();
+    let marked = text.find("needle").unwrap();
+    let unmarked = text.find("ATTENTIONNEEDLE").unwrap();
+    // All text preceding these tokens is ASCII except the leading rail. Count cells,
+    // not UTF-8 bytes, to address the actual terminal background colors.
+    let marked = text[..marked].chars().count();
+    let unmarked = text[..unmarked].chars().count();
+    let snapshot = session.parser.terminal().snapshot();
+    let rows = snapshot.visible_window(0);
+    assert_eq!(rows[row].cells[marked].ch, 'n', "{revealed}");
+    assert_eq!(rows[row].cells[unmarked].ch, 'A', "{revealed}");
+    assert_ne!(
+        rows[row].cells[marked].style.bg,
+        rows[row].cells[unmarked].style.bg
+    );
+    let cleared = run_cli(&mut session, &cleared_command);
+    assert_eq!(cleared["result"]["removedCount"], 1);
+    assert_eq!(cleared["result"]["remainingCount"], 0);
+    let navigated = run_cli(
+        &mut session,
+        &[
+            "navigate",
+            &session_id,
+            "--file",
+            "after.ts",
+            "--new-line",
+            "25",
+            "--json",
+        ],
+    );
+    for (key, expected) in
+        serde_json::json!({"filePath":"after.ts", "revealed":"line", "side":"new", "line":25})
+            .as_object()
+            .unwrap()
+    {
+        assert_eq!(&navigated["result"][key], expected, "{navigated}");
+    }
+    let frame = session.wait(|text| text.contains("line025") && !text.contains("ATTENTIONNEEDLE"));
+    let row = frame
+        .lines()
+        .position(|line| line.contains("line025"))
+        .unwrap();
+    assert!(row > 0 && row < 12, "{frame}");
     session.quit();
 }
