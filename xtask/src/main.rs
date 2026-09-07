@@ -16,6 +16,7 @@ mod architecture;
 mod changelog;
 mod nix;
 mod release_channel;
+mod release_notes;
 mod skill;
 mod term_video;
 
@@ -209,7 +210,8 @@ fn run() -> Result<()> {
             Some("package") => package_release(parse_package_options(args)?),
             Some("channel") => release_channel::channel(args),
             Some("check-version") => release_channel::check_version(&repo_root()?, args),
-            _ => bail!("release requires package, channel, or check-version"),
+            Some("validate-prerelease") => release_notes::validate_local(&repo_root()?, args),
+            _ => bail!("release requires package, channel, check-version, or validate-prerelease"),
         },
         _ => {
             print_help();
@@ -2223,6 +2225,7 @@ fn print_help() {
         "cargo xtask release channel --event EVENT --ref REF [--requested-tag CHANNEL] [--current-latest VERSION]"
     );
     println!("cargo xtask release check-version TAG");
+    println!("cargo xtask release validate-prerelease");
     println!(
         "cargo xtask media plan --storyboard FILE --output FILE [--fps N] [--caption-animation-seconds N]"
     );

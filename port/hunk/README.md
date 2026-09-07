@@ -58,6 +58,10 @@ latest/beta/backport/manual selection while returning native `channel` metadata 
 npm publication tag; the latter verifies the exact tag against the executable's Cargo version.
 All seven source channel tests are translated, and `oracles/release-channel.json` records 18
 matching differential cases from both pinned runtimes. No command publishes or mutates a release.
+Generated prerelease state can be checked separately with `cargo xtask release validate-prerelease`.
+Seven source validation cases and additional malformed-input/read-only fixture tests are native;
+`oracles/pr-release-notes.json` records both complete upstream runs and names the eight remaining
+path-classification/PR-routing cases. The source verifier and its test file remain unmapped.
 
 ## Terminal lifecycle verification
 

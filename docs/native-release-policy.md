@@ -37,3 +37,19 @@ passed seven tests and ten assertions. Attribution is retained in
 
 These helpers do not complete native release preparation, installation tests, artifact signing,
 cross-platform CI, or the remaining release gates. See [the semantic-port ledger](../port/hunk/README.md).
+
+## Generated prerelease validation
+
+`cargo xtask release validate-prerelease` reads the current executable's Cargo version,
+`release/prerelease.json`, `CHANGELOG.md`, and regular Markdown files in `release/fragments/`.
+It does not create those files. Prerelease JSON retains `mode`, `tag`, `initialVersions`, and
+`changesets`; the initial version is keyed by `workdeck-cli`. Validation requires pre mode, a
+nonempty channel tag, the highest stable changelog version as the initial version, agreement
+between the current package version and channel, unique valid consumed fragment IDs still
+present on disk, and the exact current-version changelog heading.
+
+This explicit validator is only the generated-state portion of pull-request release-note checking.
+Ordinary-PR fragment status and metadata-only PR routing remain unfinished and are not bypassed
+by this command. The containing upstream verifier and its test file remain unmapped until their
+remaining cases are implemented. Historical migrated fragments under `port/hunk/` are not active
+Workdeck release fragments or consumed prerelease state.
