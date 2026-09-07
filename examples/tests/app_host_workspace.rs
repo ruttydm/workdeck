@@ -263,7 +263,7 @@ fn deferred_read_resolves_null_after_the_review_generation_reloads() {
         .app
         .reload(working_tree_changeset("alpha.txt", false));
     fixture.settle();
-    assert_eq!(fixture.notice(), "app-host-workspace-probe: read null");
+    assert_eq!(fixture.notice(), "read null");
 }
 
 #[test]
@@ -279,7 +279,7 @@ fn working_tree_read_returns_both_sides_unknown_null_and_a_true_write_probe() {
     fixture.press(KeyCode::Char('y'));
     assert_eq!(
         fixture.notice(),
-        "app-host-workspace-probe: reads new=\"one\\ntwo\\n\" old=\"one\\n\" unknown=null can=true"
+        "reads new=\"one\\ntwo\\n\" old=\"one\\n\" unknown=null can=true"
     );
     assert!(!fixture.draw().contains("Write alpha.txt?"));
 }
@@ -297,7 +297,7 @@ fn revision_read_returns_the_commit_side_but_refuses_workspace_writes() {
     fixture.press(KeyCode::Char('y'));
     assert_eq!(
         fixture.notice(),
-        "app-host-workspace-probe: reads new=\"one\\n\" old=null unknown=null can=false"
+        "reads new=\"one\\n\" old=null unknown=null can=false"
     );
 }
 
@@ -316,10 +316,7 @@ fn read_transform_write_replaces_the_whole_document_with_consent() {
     assert!(fixture.draw().contains("Write alpha.txt?"));
     fixture.press(KeyCode::Enter);
     assert_eq!(fs::read_to_string(path).unwrap(), "ONE\nTWO\n");
-    assert_eq!(
-        fixture.notice(),
-        "app-host-workspace-probe: result {\"kind\":\"written\"}"
-    );
+    assert_eq!(fixture.notice(), "result {\"kind\":\"written\"}");
 }
 
 #[test]
@@ -344,10 +341,7 @@ fn confirmed_write_is_attributed_replaces_the_file_and_requests_review_reload() 
     assert_eq!(fs::read_to_string(&path).unwrap(), "rewritten\n");
     assert!(fixture.app.take_reload_requested());
     fixture.advance_notice();
-    assert_eq!(
-        fixture.notice(),
-        "app-host-workspace-probe: result {\"kind\":\"written\"}"
-    );
+    assert_eq!(fixture.notice(), "result {\"kind\":\"written\"}");
     fixture
         .app
         .reload(working_tree_changeset("alpha.txt", true));
@@ -437,7 +431,7 @@ fn reviewed_symlink_is_refused_before_consent_without_following_the_link() {
     fixture.press(KeyCode::Char('y'));
     assert!(!fixture.app.has_extension_dialog());
     assert!(!fixture.draw().contains("Write linked.txt?"));
-    assert_eq!(fixture.notice(), "app-host-workspace-probe: can true");
+    assert_eq!(fixture.notice(), "can true");
     fixture.advance_notice();
     assert!(fixture.notice().contains("is a symlink"));
     assert_eq!(fs::read_to_string(secret).unwrap(), "secret\n");
@@ -457,7 +451,7 @@ fn revision_write_is_refused_before_consent_and_preserves_the_working_tree() {
     fixture.press(KeyCode::Char('y'));
     assert!(!fixture.app.has_extension_dialog());
     assert!(!fixture.draw().contains("Write alpha.txt?"));
-    assert_eq!(fixture.notice(), "app-host-workspace-probe: can false");
+    assert_eq!(fixture.notice(), "can false");
     fixture.advance_notice();
     assert!(fixture.notice().contains("working-tree only"));
     assert_eq!(fs::read_to_string(path).unwrap(), "one\ntwo\n");

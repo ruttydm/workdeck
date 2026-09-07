@@ -202,10 +202,7 @@ fn confirm_dialog_is_attributed_modal_owns_quit_and_enter_resolves_true() {
     assert!(!fixture.app.take_quit_requested());
     assert!(fixture.draw().contains("Reformat the file?"));
     fixture.press(KeyCode::Enter);
-    assert_eq!(
-        fixture.notice().as_deref(),
-        Some("app-host-extension-dialogs-probe: answer true")
-    );
+    assert_eq!(fixture.notice().as_deref(), Some("answer true"));
     assert!(!fixture.app.has_extension_dialog());
 }
 
@@ -225,10 +222,7 @@ fn escape_resolves_confirm_false_and_returns_keyboard_to_review() {
     fixture.press(KeyCode::Char('y'));
     assert!(fixture.draw().contains("Discard the draft?"));
     fixture.press(KeyCode::Esc);
-    assert_eq!(
-        fixture.notice().as_deref(),
-        Some("app-host-extension-dialogs-probe: answer false")
-    );
+    assert_eq!(fixture.notice().as_deref(), Some("answer false"));
     assert!(!fixture.app.has_extension_dialog());
 }
 
@@ -240,19 +234,13 @@ fn select_dialog_resolves_keyboard_highlight_and_exact_clicked_row() {
     assert!(dialog.contains("Where to?"));
     keyboard.press(KeyCode::Down);
     keyboard.press(KeyCode::Enter);
-    assert_eq!(
-        keyboard.notice().as_deref(),
-        Some("app-host-extension-dialogs-probe: answer production")
-    );
+    assert_eq!(keyboard.notice().as_deref(), Some("answer production"));
 
     let mut mouse = Fixture::launch("select", 140, 30);
     mouse.press(KeyCode::Char('y'));
     mouse.wait_for(|frame| frame.contains("production"));
     mouse.click_text("production");
-    assert_eq!(
-        mouse.notice().as_deref(),
-        Some("app-host-extension-dialogs-probe: answer production")
-    );
+    assert_eq!(mouse.notice().as_deref(), Some("answer production"));
 }
 
 #[test]
@@ -265,10 +253,7 @@ fn input_dialog_owns_typing_and_mouse_submit_returns_exact_text() {
     assert!(!fixture.app.take_quit_requested());
     assert!(fixture.draw().contains("quick-fix"));
     fixture.click_text("submit");
-    assert_eq!(
-        fixture.notice().as_deref(),
-        Some("app-host-extension-dialogs-probe: answer quick-fix")
-    );
+    assert_eq!(fixture.notice().as_deref(), Some("answer quick-fix"));
     assert!(!fixture.app.has_extension_dialog());
 }
 
@@ -282,10 +267,7 @@ fn soft_reload_cancels_the_old_dialog_and_submits_false() {
     let replacement = fixture.draw();
     assert!(replacement.contains("reloaded"));
     assert!(!replacement.contains("Still relevant?"));
-    assert_eq!(
-        fixture.notice().as_deref(),
-        Some("app-host-extension-dialogs-probe: answer false")
-    );
+    assert_eq!(fixture.notice().as_deref(), Some("answer false"));
 }
 
 #[test]
@@ -299,9 +281,6 @@ fn replacement_reload_event_dialog_survives_old_generation_retirement() {
     assert!(fixture.notice().is_none());
 
     fixture.press(KeyCode::Enter);
-    assert_eq!(
-        fixture.notice().as_deref(),
-        Some("app-host-extension-dialogs-probe: answer true")
-    );
+    assert_eq!(fixture.notice().as_deref(), Some("answer true"));
     assert!(!fixture.app.has_extension_dialog());
 }
