@@ -2,7 +2,7 @@
   "schema_version": 1,
   "runtime": "Bun 1.3.14",
   "captured_at": "2026-09-07",
-  "translation_status": "partial; source ledger record remains unmapped",
+  "translation_status": "complete source test translation; broader runtime and cell-frame parity remain separate gates",
   "source": {
     "path": "test/pty/notes.test.ts",
     "baseline": {
@@ -44,9 +44,8 @@
     { "source_test": "draft note focus blocks app shortcuts until cancelled", "test": "draft_focus_blocks_app_hunk_shortcut_until_cancelled" },
     { "source_test": "draft note focus blocks pager shortcuts until cancelled", "test": "draft_focus_blocks_pager_sidebar_shortcut_until_cancelled" },
     { "source_test": "multiple add-note drafts can be saved on one hunk", "test": "multiple_clicked_notes_survive_on_one_hunk" },
-    { "source_test": "clicking diff add-note affordances can cancel and save draft notes", "test": "clicked_add_note_can_cancel_and_save_with_mouse_controls" }
+    { "source_test": "clicking diff add-note affordances can cancel and save draft notes", "test": "clicked_add_note_can_cancel_and_save_with_mouse_controls" },
+    { "source_test": "saved notes can be edited and replied to through clickable threaded actions", "test": "saved_notes_support_clickable_threaded_edit_reply_and_delete", "baseline_only": true }
   ],
-  "remaining": [
-    "Threaded edit, reply, nested/sibling reply, keyboard actions and leaf deletion (baseline-only test)"
-  ]
+  "remaining": []
 }

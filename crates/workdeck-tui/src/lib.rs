@@ -1145,6 +1145,8 @@ pub struct ReviewApp {
     note_hover_epoch: Instant,
     note_hover: Option<(usize, ReviewNoteTarget)>,
     note_hover_hit: Cell<Option<(Rect, ReviewNoteTarget)>>,
+    saved_note_hover: Option<String>,
+    saved_note_actions: Mutex<Vec<(Rect, AgentInlineNoteAction)>>,
     note_sequence: u64,
     filter: String,
     filter_cursor: usize,
@@ -1426,6 +1428,8 @@ impl ReviewApp {
             note_hover_epoch: Instant::now(),
             note_hover: None,
             note_hover_hit: Cell::new(None),
+            saved_note_hover: None,
+            saved_note_actions: Mutex::new(Vec::new()),
             note_sequence: 0,
             filter: String::new(),
             filter_cursor: 0,
@@ -2502,6 +2506,7 @@ impl ReviewApp {
         self.note_composer = Some(ReviewNoteComposer {
             id: format!("user-note-{}", self.note_sequence),
             kind: ReviewNoteComposerKind::Create,
+            thread: None,
             target,
             body: String::new(),
             cursor: 0,
@@ -2539,9 +2544,12 @@ impl ReviewApp {
                         && (!editable_only || (comment.source == "user" && comment.editable))
                 })
                 .min_by_key(|comment| {
+                    if self.saved_note_hover.as_deref() == Some(comment.id.as_str()) {
+                        return 0;
+                    }
                     let side = comment.side.or(comment.anchor.preferred_side);
                     let line = comment.line.or(comment.anchor.preferred_line);
-                    usize::from(current_target.is_none_or(|target| {
+                    1 + usize::from(current_target.is_none_or(|target| {
                         side != Some(target.side) || line != Some(target.line)
                     }))
                 })
@@ -2570,14 +2578,16 @@ impl ReviewApp {
             return;
         };
         self.note_sequence = self.note_sequence.saturating_add(1);
+        let thread = self.with_state(|state| saved_comment_thread(&note, state.comments()));
         let body = note.summary;
-        let cursor = body.chars().count();
+        let cursor = 0;
         self.note_composer = Some(ReviewNoteComposer {
             id: format!("user-note-draft-{}", self.note_sequence),
             kind: ReviewNoteComposerKind::Edit {
                 target_note_id: note.id,
                 parent_id: note.parent_id,
             },
+            thread: Some(thread),
             target,
             body,
             cursor,
@@ -2593,9 +2603,24 @@ impl ReviewApp {
             return;
         };
         self.note_sequence = self.note_sequence.saturating_add(1);
+        let thread = self.with_state(|state| {
+            let parent = saved_comment_thread(&note, state.comments());
+            let mut ancestors = parent.ancestor_has_next_sibling;
+            if parent.depth > 0 {
+                ancestors.push(parent.has_next_sibling.unwrap_or(false));
+            }
+            VisibleAgentNoteThread {
+                note_id: format!("user-note-{}", self.note_sequence),
+                parent_id: Some(note.id.clone()),
+                depth: parent.depth + 1,
+                has_next_sibling: Some(false),
+                ancestor_has_next_sibling: ancestors,
+            }
+        });
         self.note_composer = Some(ReviewNoteComposer {
             id: format!("user-note-{}", self.note_sequence),
             kind: ReviewNoteComposerKind::Reply { parent_id: note.id },
+            thread: Some(thread),
             target,
             body: String::new(),
             cursor: 0,
@@ -7082,9 +7107,10 @@ impl ReviewApp {
             .highlights
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let comments = comments_with_thread_draft(state.comments(), self.note_composer.as_ref());
         let mut rows = build_live_review_rows(
             state.changeset(),
-            state.comments(),
+            &comments,
             state.selection(),
             layout,
             &self.options,
@@ -7993,6 +8019,9 @@ impl ReviewApp {
 
     fn handle_note_mouse(&mut self, event: &MouseEvent, now: Instant) -> bool {
         if self.note_composer.is_some() {
+            if event.kind == MouseEventKind::Moved {
+                self.saved_note_hover = None;
+            }
             if event.kind == MouseEventKind::Up(MouseButton::Left) {
                 let action = self
                     .note_composer_actions
@@ -8013,6 +8042,34 @@ impl ReviewApp {
                 }
             }
             return true;
+        }
+        if matches!(
+            event.kind,
+            MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Up(MouseButton::Left)
+        ) {
+            let action = self
+                .saved_note_actions
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .iter()
+                .find(|(bounds, _)| rect_contains(*bounds, event.column, event.row))
+                .map(|(_, action)| *action);
+            if let Some(action) = action {
+                if event.kind == MouseEventKind::Up(MouseButton::Left) {
+                    match action {
+                        AgentInlineNoteAction::Edit => self.open_active_note_edit(),
+                        AgentInlineNoteAction::Reply => self.open_active_note_reply(),
+                        AgentInlineNoteAction::Delete => {
+                            if let Some((comment, _)) = self.active_note_for_composer(true) {
+                                self.with_state(|state| state.remove_comment(&comment.id));
+                            }
+                            self.saved_note_hover = None;
+                        }
+                        _ => {}
+                    }
+                }
+                return true;
+            }
         }
         if let Some((bounds, target)) = self.note_hover_hit.get()
             && rect_contains(bounds, event.column, event.row)
@@ -8053,6 +8110,7 @@ impl ReviewApp {
         let Some(area) = self.review_bounds.get().filter(|area| {
             rect_contains(*area, event.column, event.row) && event.row >= area.y.saturating_add(2)
         }) else {
+            self.saved_note_hover = None;
             self.clear_note_hover();
             return false;
         };
@@ -8060,6 +8118,9 @@ impl ReviewApp {
         let visual_row = self
             .scroll
             .saturating_add(usize::from(event.row - area.y - 2));
+        self.saved_note_hover = rows.note_bounds.iter().find_map(|(id, (top, height))| {
+            (visual_row >= *top && visual_row < top.saturating_add(*height)).then(|| id.clone())
+        });
         let target = rows
             .line_cursors
             .iter()
@@ -11505,9 +11566,10 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .highlights
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let comments = comments_with_thread_draft(state.comments(), app.note_composer.as_ref());
     let mut rows = build_live_review_rows(
         state.changeset(),
-        state.comments(),
+        &comments,
         state.selection(),
         layout,
         &app.options,
@@ -11572,6 +11634,54 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             )
         })
     });
+    let mut note_actions = app
+        .saved_note_actions
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    note_actions.clear();
+    if app.note_composer.is_none()
+        && let Some(id) = &app.saved_note_hover
+        && let Some((top, height)) = rows.note_bounds.get(id)
+        && let Some(comment) = state.comments().iter().find(|comment| &comment.id == id)
+        && let Some(file) = state
+            .changeset()
+            .files
+            .iter()
+            .find(|file| file.key == comment.anchor.file_key)
+    {
+        let painted = paint_saved_comment(
+            comment,
+            state.comments(),
+            file,
+            layout,
+            &app.options.theme,
+            area.width,
+            true,
+        );
+        for (offset, line) in painted
+            .ratatui_lines()
+            .into_iter()
+            .take(*height)
+            .enumerate()
+        {
+            rows.lines[*top + offset] = line;
+        }
+        for hit in painted.action_hits {
+            let row = top.saturating_add(hit.row);
+            if row >= scroll && row < scroll.saturating_add(viewport) {
+                note_actions.push((
+                    Rect::new(
+                        area.x + hit.column_start as u16,
+                        area.y + 2 + (row - scroll) as u16,
+                        hit.width as u16,
+                        1,
+                    ),
+                    hit.action,
+                ));
+            }
+        }
+    }
+    drop(note_actions);
     drop(state);
     let viewport_bottom = scroll.saturating_add(viewport);
     *app.review_file_header_hits
@@ -11911,7 +12021,7 @@ fn paint_note_composer(
         title: match &composer.kind {
             ReviewNoteComposerKind::Create => None,
             ReviewNoteComposerKind::Edit { .. } => Some("Edit note".into()),
-            ReviewNoteComposerKind::Reply { .. } => Some("Reply to note".into()),
+            ReviewNoteComposerKind::Reply { .. } => Some("Reply".into()),
         },
         author: None,
         created_at: None,
@@ -11922,6 +12032,7 @@ fn paint_note_composer(
         AgentInlineNoteViewOptions::new(&annotation, layout, theme, usize::from(width));
     options.anchor_side = Some(composer.target.side);
     options.file = file;
+    options.thread = composer.thread.as_ref();
     options.draft = Some(AgentInlineNoteDraft {
         body: &composer.body,
         focused: true,
@@ -11955,14 +12066,24 @@ impl ReviewRows {
         else {
             return;
         };
-        let start = anchor.saturating_add(1);
+        let (start, removed) = match &composer.kind {
+            ReviewNoteComposerKind::Edit { target_note_id, .. } => self
+                .note_bounds
+                .remove(target_note_id)
+                .unwrap_or((anchor.saturating_add(1), 0)),
+            _ => (anchor.saturating_add(1), 0),
+        };
         let painted = paint_note_composer(composer, width, layout, theme, file);
         let lines = painted.ratatui_lines();
         let height = lines.len();
-        self.lines.splice(start..start, lines);
+        self.lines
+            .splice(start..start.saturating_add(removed), lines);
         let shift = |row: &mut usize| {
             if *row >= start {
-                *row = row.saturating_add(height);
+                *row = row
+                    .saturating_sub(removed)
+                    .saturating_add(height)
+                    .max(start);
             }
         };
         self.note_targets = std::mem::take(&mut self.note_targets)
@@ -11993,7 +12114,7 @@ impl ReviewRows {
             .hunk_heights
             .get_mut(&(composer.target.file_index, composer.target.hunk_index))
         {
-            *hunk_height = hunk_height.saturating_add(height);
+            *hunk_height = hunk_height.saturating_sub(removed).saturating_add(height);
         }
         for (top, _) in self.note_bounds.values_mut() {
             shift(top);
@@ -12072,6 +12193,7 @@ fn review_line_cursors(rows: &ReviewRows) -> Vec<ReviewLineCursor> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ReviewNoteComposer {
+    thread: Option<VisibleAgentNoteThread>,
     id: String,
     kind: ReviewNoteComposerKind,
     target: ReviewNoteTarget,
@@ -13206,7 +13328,14 @@ fn stack_hunk_rows(
         cursor_targets.push((rows.len(), target));
         targets.extend(std::iter::repeat_n(Some(target), line_rows.len()));
         rows.extend(line_rows);
-        let rendered_notes = comment_rows(file, line, comments, &options.theme, width);
+        let rendered_notes = comment_rows(
+            file,
+            line,
+            comments,
+            &options.theme,
+            width,
+            LayoutMode::Stack,
+        );
         let note_start = rows.len();
         note_bounds.extend(
             rendered_notes
@@ -13439,7 +13568,14 @@ fn split_hunk_rows(
         targets.extend(std::iter::repeat_n(pair_target, pair_rows.len()));
         rows.extend(pair_rows);
         if let Some(line) = old {
-            let rendered_notes = comment_rows(file, line, comments, &options.theme, width);
+            let rendered_notes = comment_rows(
+                file,
+                line,
+                comments,
+                &options.theme,
+                width,
+                LayoutMode::Split,
+            );
             let note_start = rows.len();
             note_bounds.extend(
                 rendered_notes
@@ -13458,7 +13594,14 @@ fn split_hunk_rows(
         if pair.new_index != pair.old_index
             && let Some(line) = new
         {
-            let rendered_notes = comment_rows(file, line, comments, &options.theme, width);
+            let rendered_notes = comment_rows(
+                file,
+                line,
+                comments,
+                &options.theme,
+                width,
+                LayoutMode::Split,
+            );
             let note_start = rows.len();
             note_bounds.extend(
                 rendered_notes
@@ -13501,21 +13644,138 @@ fn diff_line_note_target(
     }
 }
 
+fn comments_with_thread_draft(
+    comments: &[ReviewComment],
+    composer: Option<&ReviewNoteComposer>,
+) -> Vec<ReviewComment> {
+    let mut projected = comments.to_vec();
+    if let Some(composer) = composer
+        && let ReviewNoteComposerKind::Reply { parent_id } = &composer.kind
+        && let Some(parent) = comments.iter().find(|comment| &comment.id == parent_id)
+    {
+        // Only sibling-guide projection sees this pending child; its editor is
+        // inserted separately and it never enters the persistent review store.
+        let mut draft = parent.clone();
+        draft.id = composer.id.clone();
+        draft.parent_id = Some(parent_id.clone());
+        draft.source = "user-draft".into();
+        projected.push(draft);
+    }
+    projected
+}
+
+fn saved_comment_thread(
+    comment: &ReviewComment,
+    comments: &[ReviewComment],
+) -> VisibleAgentNoteThread {
+    let mut state = workdeck_review::SemanticReviewState::new(
+        Arc::new(workdeck_core::SemanticReviewDocument { files: Vec::new() }),
+        true,
+    );
+    state.live_notes = comments
+        .iter()
+        .filter_map(|comment| {
+            let mut normalized = comment.clone();
+            normalized.hunk_index = comment.hunk_index.or(comment.anchor.owner_hunk_index);
+            normalized.side = comment.side.or(comment.anchor.preferred_side);
+            normalized.line = comment.line.or(comment.anchor.preferred_line);
+            let mut stored = workdeck_review::live_comment_to_stored_note(
+                &normalized,
+                &comment.anchor.file_key,
+                &[],
+            )
+            .ok()?;
+            stored.note.parent_id = comment.parent_id.clone();
+            stored.resolution = comment.resolution;
+            Some(stored)
+        })
+        .collect();
+    let selected = workdeck_review::select_visible_threaded_stored_review_notes(&state)
+        .into_iter()
+        .find(|note| note.threaded.entry.note.id == comment.id);
+    VisibleAgentNoteThread {
+        note_id: comment.id.clone(),
+        parent_id: selected
+            .as_ref()
+            .and_then(|note| note.visible_parent_id.clone()),
+        depth: selected.as_ref().map_or(0, |note| note.visible_depth),
+        has_next_sibling: Some(
+            selected
+                .as_ref()
+                .is_some_and(|note| note.has_next_visible_sibling),
+        ),
+        ancestor_has_next_sibling: selected
+            .map_or_else(Vec::new, |note| note.visible_ancestor_has_next_sibling),
+    }
+}
+
+fn paint_saved_comment(
+    comment: &ReviewComment,
+    comments: &[ReviewComment],
+    file: &DiffFile,
+    layout: LayoutMode,
+    theme: &AppTheme,
+    width: u16,
+    hovered: bool,
+) -> PaintedAgentInlineNote {
+    let annotation = AgentAnnotation {
+        id: Some(comment.id.clone()),
+        old_range: comment.anchor.old_range,
+        new_range: comment.anchor.new_range,
+        summary: comment.summary.clone(),
+        rationale: comment.rationale.clone(),
+        markup: comment.markup.clone(),
+        tags: comment.tags.clone(),
+        confidence: comment.confidence,
+        source: Some(comment.source.clone()),
+        title: comment.title.clone(),
+        author: comment.author.clone(),
+        created_at: comment.created_at.clone(),
+        updated_at: comment.updated_at.clone(),
+        editable: comment.editable,
+    };
+    let mut view = AgentInlineNoteViewOptions::new(&annotation, layout, theme, usize::from(width));
+    view.file = Some(file);
+    let thread = saved_comment_thread(comment, comments);
+    view.thread = Some(&thread);
+    view.anchor_side = comment.side.or(comment.anchor.preferred_side);
+    view.actions = Some(VisibleAgentNoteActions {
+        reply: true,
+        edit: comment.editable,
+        delete: comment.editable,
+    });
+    let mut state = AgentInlineNoteViewState::default();
+    if hovered {
+        state.enter_card();
+    }
+    paint_agent_inline_note(&state, view)
+}
+
 fn comment_rows(
     file: &DiffFile,
     line: &DiffLine,
     comments: &[ReviewComment],
     theme: &AppTheme,
     width: u16,
+    layout: LayoutMode,
 ) -> RenderedCommentRows {
     let mut rows = Vec::new();
     let mut note_bounds = Vec::new();
     for comment in comments
         .iter()
+        .filter(|comment| comment.source != "user-draft")
         .filter(|comment| comment.anchor.file_key == file.key)
         .filter(|comment| comment_matches_line(comment, line))
     {
         let note_top = rows.len();
+        if comment.source == "user" {
+            rows.extend(
+                paint_saved_comment(comment, comments, file, layout, theme, width, false)
+                    .ratatui_lines(),
+            );
+            note_bounds.push((comment.id.clone(), note_top, rows.len() - note_top));
+            continue;
+        }
         let title = if comment.source == "user" {
             "Your note".to_owned()
         } else {
@@ -17854,6 +18114,7 @@ mod tests {
         let key = install_cached_test_file_view(&app, &file_id);
         app.note_composer = Some(ReviewNoteComposer {
             id: "draft".into(),
+            thread: None,
             kind: ReviewNoteComposerKind::Create,
             target: ReviewNoteTarget {
                 file_index: 0,

@@ -98,14 +98,17 @@ not the owning hunk's start; the test checks line 111's near-top landing, real w
 backgrounds, clear counts, and navigation back to line 25. Terminal output continues draining during
 session CLI exchanges. Color tests explicitly enable truecolor without inheriting `NO_COLOR`.
 
-Notes are still partial and unmapped. `oracles/pty-notes.json` records all 19 baseline and 18 stable
-oracle passes (the threaded-action test is baseline-only), 18 passing native translations,
-and the remaining threaded-action case. Live pointer movement controls add-note affordances;
+`oracles/pty-notes.json` records all 19 baseline and 18 stable oracle passes (the threaded-action
+test is baseline-only), with nineteen passing native translations. Live pointer movement controls add-note affordances;
 composer Save/Cancel hit areas own their mouse events. Agent annotations use the shared note painter
 after their source anchor, including collapsed-gap ownership and experimental STML bodies.
 Draft titles receive the owning file, LF/Ctrl+J inserts a newline, cursor-off
 drafts reveal the default hunk target, and split composer insertion recognizes either side of a
-paired row. These checks do not complete the notes source interval.
+paired row. Saved user cards share the note painter, expose hover-only action hit areas, and edit
+in place with a cursor at the beginning. Replies use the shared visible-thread selector;
+pending sibling drafts update branch guides without entering the persistent store. The native test
+covers nested/sibling replies, keyboard edit/reply and leaf deletion. This completes the notes test
+file, not the broader renderer implementation or full terminal-cell differential gate.
 
 Lifecycle capture now retains a separate stderr pipe for failures after terminal revocation and
 continues draining output while revoking. A zero-byte terminal write is classified as disconnect

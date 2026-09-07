@@ -487,7 +487,7 @@ fn piped_stdin_still_allows_concrete_theme_app_terminal_input() {
     session.quit();
 }
 
-// Hunk MIT: test/pty/notes.test.ts. Partial translation: the source remains unmapped.
+// Hunk MIT: test/pty/notes.test.ts. All nineteen baseline cases; eighteen in stable.
 mod notes {
     use super::*;
 
@@ -565,6 +565,96 @@ mod notes {
         }
         session.write(b"a");
         session.wait(|text| !text.contains("Adds bonus export.") && !text.contains("STML ACTIVE"));
+        session.quit();
+    }
+
+    fn reveal_note_actions(session: &mut Session, body: &str) -> String {
+        let snapshot = session.wait(|text| text.contains(body));
+        let target_row = row(&snapshot, body);
+        let line = snapshot.lines().nth(target_row).unwrap();
+        let column = line[..line.find(body).unwrap()].chars().count() + 1;
+        session.move_mouse(0, 0);
+        session.wait(|text| !text.contains("r reply e edit"));
+        session.move_mouse(column, target_row);
+        session.wait(|text| text.contains("r reply e edit"))
+    }
+
+    #[test]
+    fn saved_notes_support_clickable_threaded_edit_reply_and_delete() {
+        let (_fixture, mut session) = pair(
+            "export const message = 'short';\n",
+            "export const message = 'this is a very long wrapped line for tuistory integration coverage';\n",
+            "stack",
+            100,
+            30,
+            &[],
+        );
+        session.wait(|text| text.contains("export const message"));
+        session.write(b"c");
+        session.wait(|text| text.contains("Draft note"));
+        session.write(b"Root review note.\x13");
+        let root =
+            session.wait(|text| text.contains("Your note") && text.contains("Root review note."));
+        assert!(!root.contains("r reply"));
+        assert!(
+            root.contains("before.ts -> after.ts L1") || root.contains("before.ts -> after.ts R1")
+        );
+        let hovered = reveal_note_actions(&mut session, "Root review note.");
+        let footer = hovered
+            .lines()
+            .find(|line| line.contains("r reply e edit d delete"))
+            .unwrap();
+        assert!(footer.trim_start().starts_with('╰') && footer.trim_end().ends_with('╯'));
+        let original_row = row(&hovered, "Root review note.");
+        session.click_label("e edit");
+        let editing =
+            session.wait(|text| text.contains("Edit note") && text.contains("Root review note."));
+        assert_eq!(row(&editing, "Root review note."), original_row);
+        session.write(b"Updated. ");
+        session.wait(|text| text.contains("Updated. Root review note."));
+        session.move_mouse(0, 0);
+        session.write(b"\x13");
+        let edited = session.wait(|text| {
+            !text.contains("Edit note") && text.contains("Updated. Root review note.")
+        });
+        assert_eq!(edited.matches("Your note").count(), 1);
+        assert!(!edited.contains("r reply"));
+        let hovered = reveal_note_actions(&mut session, "Updated. Root review note.");
+        let parent_row = row(&hovered, "Updated. Root review note.");
+        session.click_label("r reply");
+        let draft = session.wait(|text| text.contains("╰─╭─ Reply -"));
+        assert_eq!(row(&draft, "Updated. Root review note."), parent_row);
+        session.write(b"First reply.\x13");
+        session.wait(|text| text.contains("First reply.") && text.contains("╰─╭─ Your note"));
+        reveal_note_actions(&mut session, "First reply.");
+        session.click_label("r reply");
+        session.wait(|text| text.contains("╰─╭─ Reply -"));
+        session.write(b"Nested reply.\x13");
+        session.wait(|text| text.contains("Nested reply.") && !text.contains("╭─ Reply -"));
+        reveal_note_actions(&mut session, "Updated. Root review note.");
+        session.click_label("r reply");
+        let siblings = session.wait(|text| text.contains("╰─╭─ Reply -"));
+        assert!(siblings.contains("├─╭─ Your note"), "{siblings}");
+        assert!(siblings.contains("│ ╰─╭─ Your note"), "{siblings}");
+        session.click_label("Esc cancel");
+        session.wait(|text| !text.contains("╭─ Reply -"));
+        session.write(b"E");
+        session.wait(|text| text.contains("╭─ Edit note -"));
+        session.click_label("Esc cancel");
+        session.wait(|text| !text.contains("╭─ Edit note -"));
+        session.write(b"R");
+        let keyboard = session.wait(|text| text.contains("╭─ Reply -"));
+        let titles = keyboard
+            .lines()
+            .filter(|line| line.contains("╭─ Your note"))
+            .collect::<Vec<_>>();
+        assert!(titles.len() >= 3);
+        assert!(titles[1].find('╭').unwrap() > titles[0].find('╭').unwrap());
+        session.click_label("Esc cancel");
+        session.wait(|text| !text.contains("╭─ Reply -"));
+        reveal_note_actions(&mut session, "Nested reply.");
+        session.click_label("d delete");
+        session.wait(|text| !text.contains("Nested reply."));
         session.quit();
     }
 
@@ -741,12 +831,22 @@ mod notes {
 
     #[test]
     fn first_escape_cancels_an_empty_draft() {
-        let (_fixture, mut session) = long_wrap(20);
-        session.wait(|text| text.contains("this is a very long"));
+        let before = (1..=80)
+            .map(|line| format!("export const line{line} = {line};\n"))
+            .collect::<String>();
+        let mut after = before.replace("line1 = 1;", "line1 = 100;");
+        for line in 60..=65 {
+            after = after.replace(
+                &format!("line{line} = {line};"),
+                &format!("line{line} = {line}00;"),
+            );
+        }
+        let (_fixture, mut session) = pair(&before, &after, "split", 120, 20, &[]);
+        session.wait(|text| text.contains("line1 = 100"));
         session.write(b"c");
         session.wait(|text| text.contains("Draft note"));
         session.write(b"\x1b");
-        session.wait(|text| !text.contains("Draft note") && text.contains("this is a very long"));
+        session.wait(|text| !text.contains("Draft note") && text.contains("line1 = 100"));
         session.quit();
     }
 
