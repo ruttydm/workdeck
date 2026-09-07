@@ -3263,7 +3263,12 @@ impl ReviewApp {
     fn scroll_diff(&mut self, delta: isize, unit: ScrollUnit) {
         let rows = self.current_review_rows();
         let last = rows.lines.len().saturating_sub(1);
-        let viewport = usize::from(self.review_height.get().saturating_sub(1).max(1));
+        let viewport = usize::from(
+            self.review_height
+                .get()
+                .saturating_sub(2 + u16::from(!self.options.pager))
+                .max(1),
+        );
         if unit == ScrollUnit::Content {
             if delta < 0 {
                 self.scroll = 0;
@@ -3283,7 +3288,16 @@ impl ReviewApp {
         let movement = isize::try_from(rows_per_step)
             .unwrap_or(isize::MAX)
             .saturating_mul(delta);
-        self.scroll = self.scroll.saturating_add_signed(movement).min(last);
+        let max_scroll = if self.review_geometry_published.get() {
+            rows.lines.len().saturating_sub(viewport)
+        } else {
+            last
+        };
+        self.scroll = self
+            .scroll
+            .min(max_scroll)
+            .saturating_add_signed(movement)
+            .min(max_scroll);
         self.current_line_row = self.scroll.min(last);
     }
 
@@ -3343,12 +3357,21 @@ impl ReviewApp {
     }
 
     fn step_diff_line(&mut self, delta: isize) {
+        if self.options.cursor_line == CursorLineMode::Off {
+            self.scroll_diff(delta, ScrollUnit::Step);
+            return;
+        }
         let rows = self.current_review_rows();
         let last = rows.lines.len().saturating_sub(1);
         let cursors = review_line_cursors(&rows);
         if cursors.is_empty() {
             self.current_line_row = self.current_line_row.saturating_add_signed(delta).min(last);
-            let viewport = usize::from(self.review_height.get().saturating_sub(1).max(1));
+            let viewport = usize::from(
+                self.review_height
+                    .get()
+                    .saturating_sub(2 + u16::from(!self.options.pager))
+                    .max(1),
+            );
             self.keep_current_line_visible(viewport, last);
             return;
         }
@@ -3373,7 +3396,12 @@ impl ReviewApp {
         );
         let changed = current != Some(next);
         self.apply_review_line_cursor(next);
-        let viewport = usize::from(self.review_height.get().saturating_sub(1).max(1));
+        let viewport = usize::from(
+            self.review_height
+                .get()
+                .saturating_sub(2 + u16::from(!self.options.pager))
+                .max(1),
+        );
         self.keep_current_line_visible(viewport, last);
         if changed {
             self.publish_extension_selection_events();
@@ -3528,7 +3556,12 @@ impl ReviewApp {
     }
 
     fn align_current_line(&mut self, alignment: AppCommandLineAlignment) {
-        let viewport = usize::from(self.review_height.get().saturating_sub(1).max(1));
+        let viewport = usize::from(
+            self.review_height
+                .get()
+                .saturating_sub(2 + u16::from(!self.options.pager))
+                .max(1),
+        );
         self.scroll = match alignment {
             AppCommandLineAlignment::Top => self.current_line_row,
             AppCommandLineAlignment::Center => self.current_line_row.saturating_sub(viewport / 2),
@@ -7030,10 +7063,7 @@ impl ReviewApp {
             .iter()
             .map(|geometry| i64::try_from(geometry.body_height).unwrap_or(i64::MAX))
             .collect::<Vec<_>>();
-        // The compact Ratatui renderer keeps every file header in the review
-        // stream, including the first. Its top border already occupies the
-        // separate chrome row.
-        let header_heights = vec![1_i64; files.len()];
+        let header_heights = build_in_stream_file_header_heights(&files);
         let file_section_layouts = build_file_section_layouts(
             &files,
             &body_heights,
@@ -7041,16 +7071,26 @@ impl ReviewApp {
             i64::from(self.options.file_gap),
         );
         let header_stats_width = max_file_header_stats_width(&files);
-        let viewport = usize::from(self.review_height.get().saturating_sub(1));
+        let viewport = usize::from(
+            self.review_height
+                .get()
+                .saturating_sub(2 + u16::from(!self.options.pager)),
+        );
         let max_scroll = rows.lines.len().saturating_sub(viewport);
         let scroll = if self.scroll == usize::MAX {
             max_scroll
         } else {
             self.scroll.min(max_scroll)
         };
+        let pinned_file_index = find_header_owning_file_section(
+            &file_section_layouts,
+            i64::try_from(scroll.saturating_sub(1)).unwrap_or(i64::MAX),
+        )
+        .map(|section| section.section_index);
 
         Some(LiveCopySelectionSnapshot {
             files,
+            pinned_file_index,
             file_section_layouts,
             section_geometry,
             line_cursors: rows.line_cursors,
@@ -7074,8 +7114,24 @@ impl ReviewApp {
         event: &MouseEvent,
     ) -> Option<CopySelectionPoint> {
         let bounds = self.review_bounds.get()?;
-        let content_top = bounds.y.saturating_add(1);
-        let content_height = bounds.height.saturating_sub(1);
+        let content_top = bounds.y.saturating_add(2);
+        let content_height = bounds
+            .height
+            .saturating_sub(2 + u16::from(!self.options.pager));
+        if snapshot.copy_decorations
+            && event.row == content_top.saturating_sub(1)
+            && event.column >= bounds.x
+            && event.column < bounds.right()
+            && let Some(file) = snapshot
+                .pinned_file_index
+                .and_then(|index| snapshot.files.get(index))
+        {
+            return Some(CopySelectionPoint::PinnedHeader {
+                column: usize::from(event.column.saturating_sub(bounds.x)),
+                file_id: review_file_id(file).to_owned(),
+                next_visual_row: i64::try_from(snapshot.scroll).ok()?,
+            });
+        }
         if event.column < bounds.x
             || event.column >= bounds.right()
             || event.row < content_top
@@ -7524,15 +7580,25 @@ impl ReviewApp {
             self.options.extension_notifications.as_ref(),
             &self.filter,
         );
-        let viewport = usize::from(self.review_height.get().saturating_sub(1).max(1));
+        let viewport = usize::from(
+            self.review_height
+                .get()
+                .saturating_sub(2 + u16::from(!self.options.pager))
+                .max(1),
+        );
         let max_scroll = rows.lines.len().saturating_sub(viewport);
         let file_top = rows
             .file_tops
             .get(&selected.file_index)
             .copied()
             .unwrap_or(0);
+        let file_body_top = rows
+            .file_body_tops
+            .get(&selected.file_index)
+            .copied()
+            .unwrap_or(file_top);
         self.scroll = match reveal.anchor {
-            ReviewRevealAnchor::FileTop => file_top,
+            ReviewRevealAnchor::FileTop => file_body_top,
             ReviewRevealAnchor::Hunk => {
                 let hunk_key = (selected.file_index, selected.hunk_index.unwrap_or(0));
                 let (top, height) = reveal_note_id
@@ -7543,7 +7609,7 @@ impl ReviewApp {
                             (top, rows.hunk_heights.get(&hunk_key).copied().unwrap_or(1))
                         })
                     })
-                    .unwrap_or((file_top, 1));
+                    .unwrap_or((file_body_top, 1));
                 let padding = 2_usize.max(viewport / 4);
                 usize::try_from(compute_hunk_reveal_scroll_top(
                     i64::try_from(top).unwrap_or(i64::MAX),
@@ -7552,7 +7618,7 @@ impl ReviewApp {
                     i64::try_from(viewport).unwrap_or(i64::MAX),
                 ))
                 .unwrap_or(usize::MAX)
-                .max(file_top)
+                .max(file_body_top)
             }
             ReviewRevealAnchor::None => self.scroll,
         }
@@ -8270,8 +8336,25 @@ impl ReviewApp {
         };
         self.mouse_scroll_accumulator += direction * self.mouse_scroll_acceleration.tick(now);
         let integer_scroll = self.mouse_scroll_accumulator.trunc() as isize;
+        let max_scroll = if self.review_geometry_published.get() {
+            let viewport = usize::from(
+                self.review_height
+                    .get()
+                    .saturating_sub(2 + u16::from(!self.options.pager)),
+            );
+            self.current_review_rows()
+                .lines
+                .len()
+                .saturating_sub(viewport)
+        } else {
+            usize::MAX
+        };
+        self.scroll = self.scroll.min(max_scroll);
         if integer_scroll > 0 {
-            self.scroll = self.scroll.saturating_add(integer_scroll.unsigned_abs());
+            self.scroll = self
+                .scroll
+                .saturating_add(integer_scroll.unsigned_abs())
+                .min(max_scroll);
         } else if integer_scroll < 0 {
             self.scroll = self.scroll.saturating_sub(integer_scroll.unsigned_abs());
         }
@@ -11151,8 +11234,9 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         app.options.extension_notifications.as_ref(),
         &app.filter,
     );
-    drop(state);
-    let viewport = area.height.saturating_sub(1) as usize;
+    let viewport = area
+        .height
+        .saturating_sub(2 + u16::from(!app.options.pager)) as usize;
     if rows.lines.is_empty() {
         rows.lines
             .extend(std::iter::repeat_with(Line::default).take(viewport.saturating_sub(1) / 2));
@@ -11171,6 +11255,28 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         app.scroll.min(max_scroll)
     };
     let content_height = rows.lines.len();
+    let pinned_file_index = rows
+        .visible_file_indices
+        .iter()
+        .copied()
+        .rev()
+        .find(|index| {
+            rows.file_header_tops
+                .get(index)
+                .is_some_and(|top| *top <= scroll.saturating_sub(1))
+        })
+        .or_else(|| rows.visible_file_indices.first().copied());
+    let pinned_header = pinned_file_index.and_then(|index| {
+        state.changeset().files.get(index).map(|file| {
+            file_header(
+                file,
+                usize::from(area.width),
+                max_file_header_stats_width(&state.changeset().files),
+                &app.options.theme,
+            )
+        })
+    });
+    drop(state);
     let viewport_bottom = scroll.saturating_add(viewport);
     *app.review_file_header_hits
         .lock()
@@ -11181,7 +11287,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             (*top >= scroll && *top < viewport_bottom).then_some(SidebarFileHit {
                 bounds: Rect::new(
                     area.x,
-                    area.y.saturating_add(1).saturating_add(
+                    area.y.saturating_add(2).saturating_add(
                         u16::try_from(top.saturating_sub(scroll)).unwrap_or(u16::MAX),
                     ),
                     area.width,
@@ -11191,6 +11297,20 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             })
         })
         .collect();
+    if let Some(file_index) = pinned_file_index {
+        app.review_file_header_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(SidebarFileHit {
+                bounds: Rect::new(
+                    area.x,
+                    area.y.saturating_add(1),
+                    area.width,
+                    area.height.saturating_sub(1).min(1),
+                ),
+                file_index,
+            });
+    }
     let cursor_row = app.current_line_row.min(rows.lines.len().saturating_sub(1));
     if app.focus == Focus::Review
         && app.options.cursor_line != CursorLineMode::Off
@@ -11214,7 +11334,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 state_key: hit.state_key,
                 bounds: Rect::new(
                     area.x,
-                    area.y.saturating_add(1).saturating_add(
+                    area.y.saturating_add(2).saturating_add(
                         u16::try_from(top.saturating_sub(scroll)).unwrap_or(u16::MAX),
                     ),
                     area.width,
@@ -11242,6 +11362,10 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     } else {
         Style::default().fg(ratatui_theme_color(&app.options.theme.border))
     };
+    let mut visible = visible;
+    if let Some(header) = pinned_header {
+        visible.insert(0, header);
+    }
     Paragraph::new(visible)
         .block(
             Block::default()
@@ -11318,8 +11442,10 @@ fn paint_live_copy_selection(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     let side = resolve_copy_selection_side(drag.anchor.column(), snapshot.layout, snapshot.width);
     let split = (snapshot.layout == LayoutMode::Split)
         .then(|| resolve_diff_split_pane_widths(snapshot.width));
-    let content_top = area.y.saturating_add(1);
-    let viewport_height = area.height.saturating_sub(1);
+    let content_top = area.y.saturating_add(2);
+    let viewport_height = area
+        .height
+        .saturating_sub(2 + u16::from(!app.options.pager));
     for viewport_row in 0..viewport_height {
         let visual_row = i64::try_from(snapshot.scroll.saturating_add(usize::from(viewport_row)))
             .unwrap_or(i64::MAX);
@@ -11377,13 +11503,13 @@ fn render_vertical_review_scrollbar(
 ) -> Option<VerticalScrollbarRenderMap> {
     let track_height = u16::try_from(presentation.geometry.track_height)
         .unwrap_or(u16::MAX)
-        .min(review_area.height.saturating_sub(1));
+        .min(review_area.height.saturating_sub(2));
     if review_area.width == 0 || track_height == 0 {
         return None;
     }
     let track = Rect::new(
         review_area.right().saturating_sub(VERTICAL_SCROLLBAR_WIDTH),
-        review_area.y.saturating_add(1),
+        review_area.y.saturating_add(2),
         VERTICAL_SCROLLBAR_WIDTH.min(review_area.width),
         track_height,
     );
@@ -11428,6 +11554,9 @@ struct ReviewRows {
     note_bounds: std::collections::HashMap<String, (usize, usize)>,
     line_cursors: Vec<ReviewLineCursor>,
     file_tops: BTreeMap<usize, usize>,
+    file_header_tops: BTreeMap<usize, usize>,
+    file_body_tops: BTreeMap<usize, usize>,
+    visible_file_indices: Vec<usize>,
     file_header_rows: Vec<(usize, usize)>,
     hunk_tops: std::collections::HashMap<(usize, usize), usize>,
     hunk_heights: std::collections::HashMap<(usize, usize), usize>,
@@ -11437,6 +11566,7 @@ struct ReviewRows {
 #[derive(Debug)]
 struct LiveCopySelectionSnapshot {
     files: Vec<DiffFile>,
+    pinned_file_index: Option<usize>,
     file_section_layouts: Vec<FileSectionLayout>,
     section_geometry: Vec<Arc<DiffSectionGeometry>>,
     line_cursors: Vec<ReviewLineCursor>,
@@ -11463,7 +11593,9 @@ impl LiveCopySelectionSnapshot {
             header_label_width: self.header_label_width,
             header_stats_width: self.header_stats_width,
             layout: self.layout,
-            pinned_header_file: None,
+            pinned_header_file: self
+                .pinned_file_index
+                .and_then(|index| self.files.get(index)),
             reserve_add_note_column: self.reserve_add_note_column,
             section_geometry: &self.section_geometry,
             show_hunk_headers: self.show_hunk_headers,
@@ -11650,6 +11782,9 @@ fn build_review_rows_with_chrome(
 ) -> ReviewRows {
     let mut rows = Vec::new();
     let mut file_tops = BTreeMap::new();
+    let mut file_header_tops = BTreeMap::new();
+    let mut file_body_tops = BTreeMap::new();
+    let mut visible_file_indices = Vec::new();
     let mut file_header_rows = Vec::with_capacity(changeset.files.len());
     let mut hunk_tops = std::collections::HashMap::new();
     let mut hunk_heights = std::collections::HashMap::new();
@@ -11680,6 +11815,7 @@ fn build_review_rows_with_chrome(
         }
         let first_visible_file = visible_file_position == 0;
         visible_file_position = visible_file_position.saturating_add(1);
+        visible_file_indices.push(file_index);
         file_tops.insert(file_index, rows.len());
         let has_file_view = file_view_layouts.contains_key(&file.runtime_id);
         let section = plan_diff_section(DiffSectionViewOptions {
@@ -11692,7 +11828,7 @@ fn build_review_rows_with_chrome(
             // Native file-view geometry is measured immediately before painting.
             has_section_geometry: has_file_view,
             separator_width: usize::from(width.saturating_sub(2)),
-            show_header: chrome.show_file_headers,
+            show_header: chrome.show_file_headers && (!live || !first_visible_file),
             separator_height: if first_visible_file {
                 0
             } else {
@@ -11703,6 +11839,7 @@ fn build_review_rows_with_chrome(
         if let Some(separator) = section.separator {
             rows.extend(separator.lines());
         }
+        file_header_tops.insert(file_index, rows.len());
         if section.show_header {
             file_header_rows.push((file_index, rows.len()));
             rows.push(file_header(
@@ -11712,6 +11849,7 @@ fn build_review_rows_with_chrome(
                 &options.theme,
             ));
         }
+        file_body_tops.insert(file_index, rows.len());
         let file_selection = if selection.file_index == file_index {
             selection
         } else {
@@ -11939,6 +12077,9 @@ fn build_review_rows_with_chrome(
         note_bounds,
         line_cursors,
         file_tops,
+        file_header_tops,
+        file_body_tops,
+        visible_file_indices,
         file_header_rows,
         hunk_tops,
         hunk_heights,
@@ -16634,7 +16775,12 @@ mod tests {
         assert!(!alpha.contains("Maximum update depth exceeded"));
         let alpha_rows = app.current_review_rows();
         let (alpha_note_top, _) = alpha_rows.note_bounds["alpha-navigation"];
-        let viewport = usize::from(app.review_height.get().saturating_sub(1).max(1));
+        let viewport = usize::from(
+            app.review_height
+                .get()
+                .saturating_sub(2 + u16::from(!app.options.pager))
+                .max(1),
+        );
         assert_eq!(
             alpha_note_top.saturating_sub(app.review_scroll()),
             2_usize.max(viewport / 4)
@@ -19058,6 +19204,385 @@ mod tests {
                 .iter()
                 .any(|hit| hit.file_index == 19)
         );
+    }
+
+    #[test]
+    fn frozen_scroll_oracle_accounts_for_nine_source_cases_on_both_pins() {
+        let oracle: serde_json::Value =
+            serde_json::from_str(include_str!("../../../port/hunk/oracles/pty-scroll.json"))
+                .unwrap();
+        assert_eq!(
+            oracle["source"]["baseline"]["blob"],
+            "f6c4fbbf35086cfdb7fa38886914be9b4847bd41"
+        );
+        assert_eq!(oracle["source"]["baseline"]["bytes"], 12694);
+        assert_eq!(
+            oracle["source"]["stable"]["blob"],
+            "1da31e5c0f54782ef22507934f9349ed8e298dfd"
+        );
+        assert_eq!(oracle["source"]["stable"]["bytes"], 12661);
+        for pin in ["baseline", "stable"] {
+            assert_eq!(oracle["oracle_runs"][pin]["passed"], 9);
+            assert_eq!(oracle["oracle_runs"][pin]["failed"], 0);
+            assert_eq!(oracle["oracle_runs"][pin]["expect_calls"], 46);
+        }
+        let mappings = oracle["test_mapping"].as_array().unwrap();
+        assert_eq!(mappings.len(), 9);
+        let mut names = BTreeSet::new();
+        for mapping in mappings {
+            assert!(names.insert(mapping["source_test"].as_str().unwrap()));
+            for evidence in mapping["evidence"].as_array().unwrap() {
+                let test = evidence["test"]
+                    .as_str()
+                    .unwrap()
+                    .strip_prefix("tests::")
+                    .unwrap();
+                assert!(include_str!("lib.rs").contains(&format!("fn {test}()")));
+            }
+        }
+    }
+
+    #[test]
+    fn scroll_short_final_file_allows_upward_movement_after_navigation() {
+        let short = |factor| {
+            (1..=3)
+                .map(|n| format!("export const shortLine{n} = {};\n", n * factor))
+                .collect::<String>()
+        };
+        let review = navigation_changeset(vec![
+            (
+                "first.ts".into(),
+                numbered_exports(1, 30, 0, false),
+                numbered_exports(1, 30, 100, false),
+            ),
+            ("second.ts".into(), short(1), short(10)),
+        ]);
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                cursor_line: CursorLineMode::Off,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(220, 10)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+        let bottom = rendered_review_frame(&mut terminal, &app);
+        assert!(bottom.contains("shortLine1 = 10;"), "{bottom}");
+        assert!(!bottom.contains("line30 = 130"), "{bottom}");
+        for _ in 0..4 {
+            app.scroll_diff(-1, ScrollUnit::Step);
+        }
+        let moved = rendered_review_frame(&mut terminal, &app);
+        assert!(moved.contains("line30 = 130"), "{moved}");
+    }
+
+    #[test]
+    fn scroll_first_wheel_step_and_reverse_restore_collapsed_gap_under_pinned_header() {
+        let before = (1..=400)
+            .map(|n| format!("export const line{n:03} = {n};\n"))
+            .collect::<String>();
+        let after = before.replace("line366 = 366", "line366 = 9999");
+        let review = navigation_changeset(vec![
+            ("aaa-collapsed.ts".into(), before, after),
+            (
+                "zzz-other.ts".into(),
+                "export const other = 1;\n".into(),
+                "export const other = 2;\n".into(),
+            ),
+        ]);
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(220, 10)).unwrap();
+        let initial = rendered_review_frame(&mut terminal, &app);
+        assert!(initial.contains("▾ 362 unchanged lines"), "{initial}");
+        assert!(
+            !initial.contains("366 - export const line366 = 366;"),
+            "{initial}"
+        );
+        let now = Instant::now();
+        app.handle_mouse_at(MouseEventKind::ScrollDown, now);
+        let advanced = rendered_review_frame(&mut terminal, &app);
+        assert!(
+            advanced.contains("366 - export const line366 = 366;"),
+            "{advanced}"
+        );
+        app.handle_mouse_at(MouseEventKind::ScrollUp, now + Duration::from_millis(200));
+        let restored = rendered_review_frame(&mut terminal, &app);
+        assert!(restored.contains("▾ 362 unchanged lines"), "{restored}");
+        assert!(
+            !restored.contains("366 - export const line366 = 366;"),
+            "{restored}"
+        );
+        assert_eq!(
+            restored.matches("aaa-collapsed.ts").count(),
+            initial.matches("aaa-collapsed.ts").count()
+        );
+    }
+
+    #[test]
+    fn scroll_pinned_header_handoff_keeps_the_viewport_lane_stable() {
+        let mut app = ReviewApp::new(
+            pinned_header_navigation_changeset(),
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(220, 10)).unwrap();
+        let initial = rendered_review_frame(&mut terminal, &app);
+        assert_eq!(initial.matches("first.ts").count(), 2);
+        let rows = app.current_review_rows();
+        let header = rows.file_header_tops[&1];
+        let height = app.review_height.get();
+        for top in [header - 1, header] {
+            app.scroll = top;
+            let frame = rendered_review_frame(&mut terminal, &app);
+            assert_eq!(frame.matches("first.ts").count(), 2, "{frame}");
+            assert_eq!(frame.matches("second.ts").count(), 2, "{frame}");
+            assert_eq!(app.review_height.get(), height);
+        }
+        app.scroll = header + 1;
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert_eq!(frame.matches("first.ts").count(), 1, "{frame}");
+        assert_eq!(frame.matches("second.ts").count(), 2, "{frame}");
+        assert!(frame.contains("@@ -1,16 +1,16 @@"), "{frame}");
+        app.scroll += 1;
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(!frame.contains("@@ -1,16 +1,16 @@"), "{frame}");
+        assert_eq!(app.review_height.get(), height);
+    }
+
+    #[test]
+    fn scroll_wheel_at_eof_does_not_accumulate_invisible_overscroll() {
+        let review = navigation_changeset(vec![(
+            "after.ts".into(),
+            numbered_exports(1, 18, 0, true),
+            numbered_exports(1, 18, 100, true),
+        )]);
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(220, 12)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        let now = Instant::now();
+        for step in 0..42 {
+            app.handle_mouse_at(
+                MouseEventKind::ScrollDown,
+                now + Duration::from_millis(step * 200),
+            );
+        }
+        let bottom = rendered_review_frame(&mut terminal, &app);
+        assert!(bottom.contains("line18 = 118"), "{bottom}");
+        let scroll = app.scroll;
+        app.handle_mouse_at(MouseEventKind::ScrollUp, now + Duration::from_secs(10));
+        assert_eq!(app.scroll, scroll - 1);
+        for step in 0..30 {
+            app.handle_mouse_at(
+                MouseEventKind::ScrollUp,
+                now + Duration::from_secs(11) + Duration::from_millis(step * 200),
+            );
+        }
+        let restored = rendered_review_frame(&mut terminal, &app);
+        assert!(restored.contains("line01 = 101"), "{restored}");
+        assert_eq!(app.scroll, 0);
+    }
+
+    #[test]
+    fn scroll_live_scrollbar_track_and_drag_move_the_visible_review() {
+        let review = navigation_changeset(vec![(
+            "after.ts".into(),
+            numbered_exports(1, 18, 0, true),
+            numbered_exports(1, 18, 100, true),
+        )]);
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(120, 10)).unwrap();
+        let initial = rendered_review_frame(&mut terminal, &app);
+        assert!(initial.contains("line01 = 101"));
+        assert!(!initial.contains("line12 = 112"));
+        let now = Instant::now();
+        for step in 0..5 {
+            app.handle_mouse_at(
+                MouseEventKind::ScrollDown,
+                now + Duration::from_millis(step * 200),
+            );
+        }
+        let moved = rendered_review_frame(&mut terminal, &app);
+        assert!(
+            moved.contains("line08 = 108") || moved.contains("line09 = 109"),
+            "{moved}"
+        );
+        let map = app.review_scrollbar_hits.get().unwrap();
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: map.track.x,
+            row: map.track.bottom() - 1,
+            modifiers: KeyModifiers::NONE,
+        });
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: map.track.x,
+            row: map.track.bottom() - 1,
+            modifiers: KeyModifiers::NONE,
+        });
+        let clicked = rendered_review_frame(&mut terminal, &app);
+        assert!(
+            clicked.contains("line12 = 112") || clicked.contains("line13 = 113"),
+            "{clicked}"
+        );
+        assert!(!clicked.contains("line01 = 101"));
+        let map = app.review_scrollbar_hits.get().unwrap();
+        for (kind, row) in [
+            (MouseEventKind::Down(MouseButton::Left), map.thumb.y),
+            (
+                MouseEventKind::Drag(MouseButton::Left),
+                map.track.bottom() - 1,
+            ),
+            (
+                MouseEventKind::Up(MouseButton::Left),
+                map.track.bottom() - 1,
+            ),
+        ] {
+            app.handle_mouse_event(MouseEvent {
+                kind,
+                column: map.track.x,
+                row,
+                modifiers: KeyModifiers::NONE,
+            });
+        }
+        let dragged = rendered_review_frame(&mut terminal, &app);
+        assert!(
+            dragged.contains("line15 = 115") || dragged.contains("line16 = 116"),
+            "{dragged}"
+        );
+        assert!(!dragged.contains("line01 = 101"));
+    }
+
+    #[test]
+    fn scroll_step_keys_after_a_code_click_move_exactly_one_row() {
+        let mut app = ReviewApp::new(
+            pinned_header_navigation_changeset(),
+            ReviewOptions {
+                cursor_line: CursorLineMode::Off,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(120, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        for (key, expected) in [('j', 1), ('k', 0)] {
+            app.handle_key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE));
+            assert_eq!(app.scroll, expected);
+        }
+        let frame = rendered_review_frame(&mut terminal, &app);
+        let row = frame
+            .lines()
+            .position(|line| line.contains("line08"))
+            .unwrap() as u16;
+        for kind in [
+            MouseEventKind::Down(MouseButton::Left),
+            MouseEventKind::Up(MouseButton::Left),
+        ] {
+            app.handle_mouse_event(MouseEvent {
+                kind,
+                column: 60,
+                row,
+                modifiers: KeyModifiers::NONE,
+            });
+        }
+        for (key, expected) in [('j', 1), ('j', 2), ('k', 1)] {
+            app.handle_key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE));
+            rendered_review_frame(&mut terminal, &app);
+            assert_eq!(app.scroll, expected);
+        }
+    }
+
+    #[test]
+    fn scroll_wheel_round_trip_moves_visible_code_and_restores_first_line() {
+        let review = navigation_changeset(vec![(
+            "after.ts".into(),
+            numbered_exports(1, 18, 0, true),
+            numbered_exports(1, 18, 100, true),
+        )]);
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(220, 12)).unwrap();
+        let initial = rendered_review_frame(&mut terminal, &app);
+        assert!(initial.contains("line01 = 101"));
+        assert!(!initial.contains("line08 = 108"), "{initial}");
+        let now = Instant::now();
+        for step in 0..12 {
+            app.handle_mouse_at(
+                MouseEventKind::ScrollDown,
+                now + Duration::from_millis(step * 200),
+            );
+        }
+        let scrolled = rendered_review_frame(&mut terminal, &app);
+        assert!(!scrolled.contains("line01 = 101"));
+        assert!(
+            scrolled.contains("line11 = 111") || scrolled.contains("line12 = 112"),
+            "{scrolled}"
+        );
+        for step in 0..12 {
+            app.handle_mouse_at(
+                MouseEventKind::ScrollUp,
+                now + Duration::from_secs(3) + Duration::from_millis(step * 200),
+            );
+        }
+        let restored = rendered_review_frame(&mut terminal, &app);
+        assert!(restored.contains("line01 = 101"), "{restored}");
+    }
+
+    #[test]
+    fn scroll_step_keys_in_pager_move_exactly_one_row() {
+        let review = navigation_changeset(vec![(
+            "scroll.ts".into(),
+            numbered_exports(1, 60, 0, true),
+            numbered_exports(1, 60, 100, true),
+        )]);
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                pager: true,
+                cursor_line: CursorLineMode::Off,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(140, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        for (key, expected) in [('j', 1), ('j', 2), ('k', 1)] {
+            app.handle_key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE));
+            rendered_review_frame(&mut terminal, &app);
+            assert_eq!(app.scroll, expected);
+        }
     }
 
     #[test]

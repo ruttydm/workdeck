@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "runtime": "Bun 1.3.14",
+  "captured_at": "2026-09-06",
+  "source": {
+    "path": "test/pty/scroll.test.ts",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "f6c4fbbf35086cfdb7fa38886914be9b4847bd41",
+      "sha256": "1062b3af660c93d427f4307d555cdfd9abbe0e9b809b07d6ba9129f1b40aefb6",
+      "bytes": 12694,
+      "lines": 395
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "1da31e5c0f54782ef22507934f9349ed8e298dfd",
+      "sha256": "8a319eb3c09c37322c3d82311a21413d8d4c5315052e8d4575a3ba547aad3aa1",
+      "bytes": 12661,
+      "lines": 395
+    }
+  },
+  "oracle_runs": {
+    "baseline": {
+      "command": "bun test test/pty/scroll.test.ts",
+      "passed": 9,
+      "failed": 0,
+      "expect_calls": 46
+    },
+    "stable": {
+      "command": "bun test test/pty/scroll.test.ts",
+      "passed": 9,
+      "failed": 0,
+      "expect_calls": 46
+    }
+  },
+  "pin_delta": [
+    "The baseline adds --files to the three direct-file invocations."
+  ],
+  "test_mapping": [
+    {
+      "source_test": "a short last file does not trap upward scrolling at the bottom edge",
+      "evidence": [
+        {
+          "file": "crates/workdeck-tui/src/lib.rs",
+          "test": "tests::scroll_short_final_file_allows_upward_movement_after_navigation"
+        }
+      ]
+    },
+    {
+      "source_test": "step keys move one row in pager mode, where the scroll box holds focus",
+      "evidence": [
+        {
+          "file": "crates/workdeck-tui/src/lib.rs",
+          "test": "tests::scroll_step_keys_in_pager_move_exactly_one_row"
+        }
+      ]
+    },
+    {
+      "source_test": "step keys still move one row after a click in the review stream",
+      "evidence": [
+        {
+          "file": "crates/workdeck-tui/src/lib.rs",
+          "test": "tests::scroll_step_keys_after_a_code_click_move_exactly_one_row"
+        }
+      ]
+    },
+    {
+      "source_test": "clicking and dragging the live scrollbar scrolls the review pane",
+      "evidence": [
+        {
+          "file": "crates/workdeck-tui/src/lib.rs",
+          "test": "tests::scroll_live_scrollbar_track_and_drag_move_the_visible_review"
+        }
+      ]
+    },
+    {
+      "source_test": "mouse wheel scrolling preserves the divider and header handoff in a real PTY",
+      "evidence": [
+        {
+          "file": "crates/workdeck-tui/src/lib.rs",
+          "test": "tests::scroll_pinned_header_handoff_keeps_the_viewport_lane_stable"
+        }
+      ]
+    },
+    {
+      "source_test": "mouse wheel scrolling moves the review pane",
+      "evidence": [
+        {
+          "file": "crates/workdeck-tui/src/lib.rs",
+          "test": "tests::scroll_wheel_round_trip_moves_visible_code_and_restores_first_line"
+        }
+      ]
+    },
+    {
+      "source_test": "repeated mouse-wheel input remains stable at the end of the review stream",
+      "evidence": [
+        {
+          "file": "crates/workdeck-tui/src/lib.rs",
+          "test": "tests::scroll_wheel_at_eof_does_not_accumulate_invisible_overscroll"
+        }
+      ]
+    },
+    {
+      "source_test": "the first mouse-wheel step still advances content under the always-pinned file header above a collapsed gap",
+      "evidence": [
+        {
+          "file": "crates/workdeck-tui/src/lib.rs",
+          "test": "tests::scroll_first_wheel_step_and_reverse_restore_collapsed_gap_under_pinned_header"
+        }
+      ]
+    },
+    {
+      "source_test": "one mouse-wheel step down then up restores the collapsed-gap view beneath the pinned file header",
+      "evidence": [
+        {
+          "file": "crates/workdeck-tui/src/lib.rs",
+          "test": "tests::scroll_first_wheel_step_and_reverse_restore_collapsed_gap_under_pinned_header"
+        }
+      ]
+    }
+  ],
+  "adaptations": [
+    "Ratatui TestBackend drives the live renderer at each source terminal size. Synthetic clock spacing makes wheel steps deterministic.",
+    "The header handoff test visits each exact separator/header boundary and verifies stable viewport height and file-name counts.",
+    "The two collapsed-gap cases are combined in one down/up round-trip test.",
+    "Scrollbar interactions use the renderer's measured track and thumb hit rectangles instead of probing backend-dependent edge columns.",
+    "Code-click coverage uses a visible changed code row in a working-tree comparison; CLI show and stdin parsing are validated separately."
+  ]
+}
