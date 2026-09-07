@@ -17,6 +17,7 @@ mod changelog;
 mod nix;
 mod release_channel;
 mod release_notes;
+mod release_status;
 mod skill;
 mod term_video;
 
@@ -211,7 +212,10 @@ fn run() -> Result<()> {
             Some("channel") => release_channel::channel(args),
             Some("check-version") => release_channel::check_version(&repo_root()?, args),
             Some("validate-prerelease") => release_notes::validate_local(&repo_root()?, args),
-            _ => bail!("release requires package, channel, check-version, or validate-prerelease"),
+            Some("status") => release_status::run(&repo_root()?, args),
+            _ => bail!(
+                "release requires package, channel, check-version, validate-prerelease, or status"
+            ),
         },
         _ => {
             print_help();
@@ -2226,6 +2230,7 @@ fn print_help() {
     );
     println!("cargo xtask release check-version TAG");
     println!("cargo xtask release validate-prerelease");
+    println!("cargo xtask release status --since=REVISION");
     println!(
         "cargo xtask media plan --storyboard FILE --output FILE [--fps N] [--caption-animation-seconds N]"
     );

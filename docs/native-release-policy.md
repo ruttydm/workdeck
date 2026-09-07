@@ -49,7 +49,30 @@ between the current package version and channel, unique valid consumed fragment 
 present on disk, and the exact current-version changelog heading.
 
 This explicit validator is only the generated-state portion of pull-request release-note checking.
-Ordinary-PR fragment status and metadata-only PR routing remain unfinished and are not bypassed
-by this command. The containing upstream verifier and its test file remain unmapped until their
+Metadata-only PR routing remains unfinished and is not bypassed by this command. The separate
+ordinary-fragment status gate is described below. The containing upstream verifier and its test file remain unmapped until their
 remaining cases are implemented. Historical migrated fragments under `port/hunk/` are not active
 Workdeck release fragments or consumed prerelease state.
+
+## Ordinary release-fragment status
+
+`cargo xtask release status --since=REVISION` compares the current tracked working tree with the
+merge base of the supplied revision and `HEAD`. It reads `release/fragments/*.md`, selecting
+changed fragments that still exist. Modified existing fragments count; deleted fragments,
+untracked files, hidden fragments, and case-insensitive README files do not. If tracked product
+files changed without a qualifying fragment, the command fails. An unchanged tree needs no new
+fragment, but the release-fragment directory must exist.
+
+Fragments retain YAML frontmatter delimited by `---`, mapping Cargo package names to `major`,
+`minor`, `patch`, or `none`. Empty frontmatter is an explicit maintenance-only fragment. Anchors
+and merges are supported; malformed YAML, duplicate keys, invalid version types, and unknown
+workspace package names fail. All workspace changes belong to the single Workdeck product;
+internal crates are not independently shipped or version-bumped by this gate. JSON output records
+the supplied revision, merge base, selected fragment IDs, and highest executable release type.
+The command does not consume fragments, change versions, or publish anything.
+
+Merge-base and surviving-fragment selection follow the pinned
+[Changesets 2.31.0 Git helpers](https://github.com/changesets/changesets/blob/%40changesets%2Fcli%402.31.0/packages/git/src/index.ts)
+and [status gate](https://github.com/changesets/changesets/blob/%40changesets%2Fcli%402.31.0/packages/cli/src/commands/status/index.ts).
+The Rust parser uses `serde_norway`; no JavaScript runtime is used. Attribution is in
+`THIRD_PARTY_NOTICES`, and `cargo xtask licenses` regenerates the dependency license inventory.

@@ -62,6 +62,11 @@ Generated prerelease state can be checked separately with `cargo xtask release v
 Seven source validation cases and additional malformed-input/read-only fixture tests are native;
 `oracles/pr-release-notes.json` records both complete upstream runs and names the eight remaining
 path-classification/PR-routing cases. The source verifier and its test file remain unmapped.
+The native ordinary-fragment gate is `cargo xtask release status --since=REVISION`. Real Git tests
+cover merge-base selection, modified/deleted/untracked fragments, maintenance entries, hidden and
+README filtering, unknown packages, and read-only behavior; YAML tests cover all 77 pinned inputs,
+anchors, merges, and duplicate rejection. PR classification/dispatch is still a separate incomplete
+boundary, and no containing source record is completed by this status implementation alone.
 
 ## Terminal lifecycle verification
 
