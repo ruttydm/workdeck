@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 mod bootstrap;
 mod changeset_parse;
 mod fixtures;
+mod highlight_prefetch;
 mod release;
 mod render_layout;
 mod runner;
@@ -668,6 +669,9 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     }
     if command.as_deref() == Some("changeset-parse") {
         return changeset_parse::run(args);
+    }
+    if command.as_deref() == Some("highlight-prefetch") {
+        return highlight_prefetch::run(args);
     }
     if command.as_deref() == Some("run") {
         return runner::run_command(args);

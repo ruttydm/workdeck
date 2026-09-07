@@ -63,7 +63,8 @@ workload. The default suite still reports `executionAvailable: false`.
 `cargo xtask benchmark run --script render-layout.ts --samples 1 --out REPORT.json` executes
 the completed render-layout workload in a native child process, drains both output pipes,
 aggregates repeated samples and writes a versioned report with Git/Cargo/native-platform metadata.
-`bootstrap-load.ts`, `working-tree-load.ts`, `changeset-parse.ts` and `render-layout.ts` are currently admitted.
+`bootstrap-load.ts`, `working-tree-load.ts`, `changeset-parse.ts`, `highlight-prefetch.ts`
+and `render-layout.ts` are currently admitted.
 Every selected workload is checked before execution
 or output-directory creation; default, huge, competitor and other incomplete selections fail.
 Fractional sample counts retain the source loop semantics, and repeated workload selections append
@@ -121,6 +122,16 @@ still resolves language, counts additions/deletions, detects binary patches and 
 All patches are prepared before measurements. Both pinned oracles agree on file and sanitized-byte
 counts, and native tests compare complete resulting files with the production changeset path.
 Diagnostic oracle timings are not performance acceptance evidence.
+
+`cargo xtask benchmark highlight-prefetch` uses the production Ratatui app and 240×24 cell buffer
+for the four pinned marker files. It reconstructs contiguous styled spans from cells and applies
+the source marker-segmentation check, preserving both bounded polling loops, the two intervening
+frames, Down input, zero-on-timeout metrics and owned-runtime cleanup. Down is the source's
+one-row review command, not a substituted next-file command despite the historical metric name.
+Native tests verify complete fixture sources and geometry, selected/adjacent highlighting,
+non-no-op selection input, and rejection of plain unsegmented marker text. Scheduling uses the
+native renderer and thread yield; diagnostic timings and observed iteration counts are not fixed
+scheduler contracts or performance acceptance evidence.
 
 The shared fixture generator is native in `xtask/src/benchmark/fixtures.rs`: it supports configurable
 line counts/change regions, patch prefixes/extensions, committed-before/modified-after repositories,
