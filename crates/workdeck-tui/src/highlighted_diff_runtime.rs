@@ -6,6 +6,7 @@
 //! and late/retryable completions cannot poison the shared cache.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use workdeck_core::{DiffFile, DiffLineKind, review_digest};
 use workdeck_diff::{
@@ -45,7 +46,7 @@ pub struct HighlightedDiffCoordinator {
 impl HighlightedDiffCoordinator {
     #[must_use]
     pub fn begin(&mut self, cache_key: &str) -> HighlightRequestState {
-        if self.cache.get(cache_key).is_some() {
+        if self.cache.get_shared(cache_key).is_some() {
             return HighlightRequestState::Cached;
         }
         if let Some(request_id) = self.in_flight.get(cache_key) {
@@ -60,6 +61,11 @@ impl HighlightedDiffCoordinator {
     #[must_use]
     pub fn read(&mut self, cache_key: &str) -> Option<HighlightedDiffCode> {
         self.cache.get(cache_key)
+    }
+
+    #[must_use]
+    pub fn read_shared(&mut self, cache_key: &str) -> Option<Arc<HighlightedDiffCode>> {
+        self.cache.get_shared(cache_key)
     }
 
     #[must_use]
@@ -78,9 +84,31 @@ impl HighlightedDiffCoordinator {
         if self.in_flight.get(cache_key) != Some(&request_id) {
             return false;
         }
+        if completion.retryable {
+            self.in_flight.remove(cache_key);
+            return true;
+        }
+        self.commit_shared(
+            cache_key,
+            request_id,
+            Arc::new(completion.code.clone()),
+            completion.retryable,
+        )
+    }
+
+    fn commit_shared(
+        &mut self,
+        cache_key: &str,
+        request_id: u64,
+        code: Arc<HighlightedDiffCode>,
+        retryable: bool,
+    ) -> bool {
+        if self.in_flight.get(cache_key) != Some(&request_id) {
+            return false;
+        }
         self.in_flight.remove(cache_key);
-        if !completion.retryable {
-            self.cache.set(cache_key.into(), completion.code.clone());
+        if !retryable {
+            self.cache.set_shared(cache_key.into(), code);
         }
         true
     }
@@ -259,10 +287,21 @@ impl HighlightedDiffRuntime {
         theme: &AppTheme,
         offload_large_diff: bool,
     ) -> Option<HighlightedDiffCode> {
+        self.prefetch_highlighted_diff_shared(file, theme, offload_large_diff)
+            .map(|code| code.as_ref().clone())
+    }
+
+    /// Renderer-owned reads share immutable token storage instead of deep-cloning each hit.
+    pub fn prefetch_highlighted_diff_shared(
+        &mut self,
+        file: &DiffFile,
+        theme: &AppTheme,
+        offload_large_diff: bool,
+    ) -> Option<Arc<HighlightedDiffCode>> {
         let cache_key = highlighted_diff_cache_key(theme, file);
         let request = self.coordinator.begin(&cache_key);
         if request == HighlightRequestState::Cached {
-            return self.coordinator.read(&cache_key);
+            return self.coordinator.read_shared(&cache_key);
         }
         let request_id = match request {
             HighlightRequestState::Existing(request_id)
@@ -284,12 +323,10 @@ impl HighlightedDiffRuntime {
                 &theme.syntax_scope_overrides,
             )
         };
-        let completion = HighlightCompletion {
-            code: highlighted_diff_code(file, highlighted),
-            retryable: false,
-        };
-        self.coordinator.commit(&cache_key, request_id, &completion);
-        Some(completion.code)
+        let code = Arc::new(highlighted_diff_code(file, highlighted));
+        self.coordinator
+            .commit_shared(&cache_key, request_id, Arc::clone(&code), false);
+        Some(code)
     }
 
     #[must_use]
@@ -463,6 +500,45 @@ mod tests {
             0,
             1,
         )
+    }
+
+    #[test]
+    fn renderer_reads_share_storage_without_weakening_content_invalidation() {
+        let mut runtime = HighlightedDiffRuntime::default();
+        let file = file(
+            "const old = 1;\n",
+            "const new = 2;\n",
+            "shared",
+            "src/shared.ts",
+        );
+        let theme = resolve_theme(Some("midnight"), None, &[]);
+        let first = runtime
+            .prefetch_highlighted_diff_shared(&file, &theme, false)
+            .unwrap();
+        let second = runtime
+            .prefetch_highlighted_diff_shared(&file, &theme, false)
+            .unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        let mut owned = runtime
+            .prefetch_highlighted_diff(&file, &theme, false)
+            .unwrap();
+        assert_eq!(&owned, first.as_ref());
+        owned.highlighted.clear();
+        assert!(
+            !runtime
+                .prefetch_highlighted_diff_shared(&file, &theme, false)
+                .unwrap()
+                .highlighted
+                .is_empty()
+        );
+        let mut changed = file.clone();
+        changed.patch.push_str("changed patch identity");
+        let replacement = runtime
+            .prefetch_highlighted_diff_shared(&changed, &theme, false)
+            .unwrap();
+        assert!(!Arc::ptr_eq(&first, &replacement));
+        runtime.clear();
+        assert!(!first.highlighted.is_empty());
     }
 
     #[test]

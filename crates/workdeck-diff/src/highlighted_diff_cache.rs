@@ -2,6 +2,7 @@
 //! `src/ui/diff/highlightedDiffCache.ts`.
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 
 use crate::HighlightedFile;
 
@@ -14,7 +15,7 @@ const ENTRY_OVERHEAD_LINES: usize = 8;
 #[derive(Debug, Clone)]
 struct HighlightedDiffCacheEntry {
     cost: usize,
-    value: HighlightedDiffCode,
+    value: Arc<HighlightedDiffCode>,
 }
 
 /// Native equivalent of Hunk's side-separated highlighted diff result.
@@ -74,6 +75,11 @@ impl HighlightedDiffCache {
 
     /// Read one result and mark it most recently used.
     pub fn get(&mut self, key: &str) -> Option<HighlightedDiffCode> {
+        self.get_shared(key).map(|value| value.as_ref().clone())
+    }
+
+    /// Share immutable token data with a renderer while retaining the same LRU promotion.
+    pub fn get_shared(&mut self, key: &str) -> Option<Arc<HighlightedDiffCode>> {
         let value = self.entries.get(key)?.value.clone();
         self.touch(key);
         Some(value)
@@ -82,11 +88,16 @@ impl HighlightedDiffCache {
     /// Read one result without changing recency.
     #[must_use]
     pub fn peek(&self, key: &str) -> Option<&HighlightedDiffCode> {
-        self.entries.get(key).map(|entry| &entry.value)
+        self.entries.get(key).map(|entry| entry.value.as_ref())
     }
 
     /// Store one result as most recently used, evicting least-recently-used entries over budget.
     pub fn set(&mut self, key: String, value: HighlightedDiffCode) {
+        self.set_shared(key, Arc::new(value));
+    }
+
+    /// Store shared immutable data without changing accounting or eviction rules.
+    pub fn set_shared(&mut self, key: String, value: Arc<HighlightedDiffCode>) {
         if let Some(previous) = self.entries.remove(&key) {
             self.cached_cost = self.cached_cost.saturating_sub(previous.cost);
             self.remove_from_lru(&key);
@@ -174,6 +185,29 @@ mod tests {
         assert_eq!(cache.peek("on-screen"), Some(&on_screen));
         assert_eq!(cache.peek("prefetched"), Some(&prefetched));
         assert!(cache.peek("scrolled-past").is_none());
+    }
+
+    #[test]
+    fn shared_reads_reuse_tokens_promote_lru_and_survive_eviction_without_alias_mutation() {
+        let mut cache = HighlightedDiffCache::new(40);
+        let value = Arc::new(highlighted(10));
+        let weak = Arc::downgrade(&value);
+        cache.set_shared("a".into(), value);
+        cache.set("b".into(), highlighted(10));
+        let first = cache.get_shared("a").unwrap();
+        let second = cache.get_shared("a").unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        cache.set("c".into(), highlighted(10));
+        assert!(cache.peek("b").is_none());
+        let mut owned = cache.get("a").unwrap();
+        owned.highlighted.clear();
+        assert!(!cache.peek("a").unwrap().highlighted.is_empty());
+        cache.clear();
+        assert_eq!(first.retained_line_count(), 10);
+        assert!(weak.upgrade().is_some());
+        drop(first);
+        drop(second);
+        assert!(weak.upgrade().is_none());
     }
 
     #[test]

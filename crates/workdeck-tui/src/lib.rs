@@ -12479,12 +12479,9 @@ fn build_review_rows_with_chrome(
             continue;
         }
         let highlighted = if options.highlight {
-            highlight_cache
-                .prefetch_highlighted_diff(file, &options.theme, live)
-                .map(|highlighted| highlighted.highlighted)
-                .unwrap_or_default()
+            highlight_cache.prefetch_highlighted_diff_shared(file, &options.theme, live)
         } else {
-            Vec::new()
+            None
         };
         let gap_source = review_gap_source_for_file(file);
         let expansion_side = review_expansion_side(file.change_kind);
@@ -12604,7 +12601,9 @@ fn build_review_rows_with_chrome(
                     hunk_index,
                     options,
                     width,
-                    highlighted.get(hunk_index),
+                    highlighted
+                        .as_ref()
+                        .and_then(|code| code.highlighted.get(hunk_index)),
                     comments,
                     file_selection,
                     selected_hunk,
@@ -12616,7 +12615,9 @@ fn build_review_rows_with_chrome(
                     hunk,
                     hunk_index,
                     options,
-                    highlighted.get(hunk_index),
+                    highlighted
+                        .as_ref()
+                        .and_then(|code| code.highlighted.get(hunk_index)),
                     comments,
                     width,
                     file_selection,
