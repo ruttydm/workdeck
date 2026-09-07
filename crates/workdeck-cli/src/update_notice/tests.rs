@@ -430,8 +430,7 @@ fn disable_environment_returns_immediately_without_state_or_network() {
 
 #[test]
 fn hung_registry_lookup_is_cancelled_at_the_deadline() {
-    let observed = Arc::new(AtomicBool::new(false));
-    let worker_observed = Arc::clone(&observed);
+    let (observed, acknowledgement) = std::sync::mpsc::sync_channel(1);
     let mut harness = NoticeHarness::new(
         Some(WorkdeckInstallSource::Cargo),
         "0.7.0",
@@ -442,17 +441,15 @@ fn hung_registry_lookup_is_cancelled_at_the_deadline() {
             while !cancelled.load(Ordering::Acquire) {
                 std::thread::yield_now();
             }
-            worker_observed.store(true, Ordering::Release);
+            let _ = observed.send(());
             Err("cancelled".into())
         }),
         timeout: Duration::from_millis(10),
     };
     assert_eq!(harness.resolve(), None);
-    for _ in 0..10_000 {
-        if observed.load(Ordering::Acquire) {
-            break;
-        }
-        std::thread::yield_now();
-    }
-    assert!(observed.load(Ordering::Acquire));
+    // The lookup deadline is still 10 ms. Observe the worker's cancellation
+    // acknowledgement with a bounded wait, not a scheduler-dependent yield count.
+    acknowledgement
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
 }
