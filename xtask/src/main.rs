@@ -395,6 +395,7 @@ fn parse_map_options(mut args: impl Iterator<Item = String>) -> Result<MapOption
 fn map_records(options: MapOptions) -> Result<()> {
     let repo = repo_root()?;
     let ledger_path = repo.join(options.ledger.unwrap_or_else(|| DEFAULT_LEDGER.into()));
+    let _ledger_lock = lock_ledger_for_write(&ledger_path)?;
     let mut records = read_ledger(&ledger_path)?;
     let disposition = options
         .disposition
@@ -432,14 +433,7 @@ fn map_records(options: MapOptions) -> Result<()> {
     if changed == 0 {
         bail!("port map selectors matched no ledger records");
     }
-    let temporary = ledger_path.with_extension("jsonl.tmp");
-    let mut writer = BufWriter::new(File::create(&temporary)?);
-    for record in &records {
-        serde_json::to_writer(&mut writer, record)?;
-        writer.write_all(b"\n")?;
-    }
-    writer.flush()?;
-    fs::rename(&temporary, &ledger_path)?;
+    write_ledger_atomic(&ledger_path, &records)?;
     println!("mapped {changed} ledger records as {disposition}");
     Ok(())
 }
@@ -950,6 +944,7 @@ fn materialize_assets() -> Result<()> {
 
     let repo = repo_root()?;
     let ledger_path = repo.join(DEFAULT_LEDGER);
+    let _ledger_lock = lock_ledger_for_write(&ledger_path)?;
     let mut records = read_ledger(&ledger_path)?;
     let retained_root = repo.join("third_party/hunk/assets");
     fs::create_dir_all(&retained_root).context("create retained Hunk asset directory")?;
@@ -1020,14 +1015,7 @@ fn materialize_assets() -> Result<()> {
     }
     manifest_writer.flush()?;
 
-    let temporary = ledger_path.with_extension("jsonl.tmp");
-    let mut ledger_writer = BufWriter::new(File::create(&temporary)?);
-    for record in &records {
-        serde_json::to_writer(&mut ledger_writer, record)?;
-        ledger_writer.write_all(b"\n")?;
-    }
-    ledger_writer.flush()?;
-    fs::rename(&temporary, &ledger_path)?;
+    write_ledger_atomic(&ledger_path, &records)?;
 
     println!("materialized {changed} byte-exact Hunk media assets");
     println!("manifest: {}", relative_to(&repo, &manifest_path));
@@ -1506,6 +1494,7 @@ fn inventory(options: Options) -> Result<()> {
     let entries = read_tree(&repo, &baseline)?;
     let ledger_path = repo.join(options.ledger.unwrap_or_else(|| DEFAULT_LEDGER.into()));
     let metadata_path = repo.join(options.metadata.unwrap_or_else(|| DEFAULT_METADATA.into()));
+    let _ledger_lock = lock_ledger_for_write(&ledger_path)?;
 
     if ledger_path.exists() {
         bail!(
@@ -1520,9 +1509,7 @@ fn inventory(options: Options) -> Result<()> {
     }
 
     let mut blob_metadata = HashMap::<String, (u64, bool)>::new();
-    let mut writer = BufWriter::new(
-        File::create(&ledger_path).with_context(|| format!("create {}", ledger_path.display()))?,
-    );
+    let mut records = Vec::with_capacity(entries.len());
 
     for entry in &entries {
         let (line_count, binary) = match blob_metadata.get(&entry.blob) {
@@ -1554,10 +1541,9 @@ fn inventory(options: Options) -> Result<()> {
             evidence: Vec::new(),
             provenance: vec![baseline.clone()],
         };
-        serde_json::to_writer(&mut writer, &record).context("serialize ledger record")?;
-        writer.write_all(b"\n").context("write ledger record")?;
+        records.push(record);
     }
-    writer.flush().context("flush ledger")?;
+    write_ledger_atomic(&ledger_path, &records)?;
 
     let metadata = BaselineMetadata {
         schema_version: 1,
@@ -1588,6 +1574,7 @@ fn inventory(options: Options) -> Result<()> {
 fn reclassify(options: Options) -> Result<()> {
     let repo = repo_root()?;
     let ledger_path = repo.join(options.ledger.unwrap_or_else(|| DEFAULT_LEDGER.into()));
+    let _ledger_lock = lock_ledger_for_write(&ledger_path)?;
     let mut records = read_ledger(&ledger_path)?;
     if records.is_empty() {
         bail!("ledger is empty: {}", ledger_path.display());
@@ -1930,17 +1917,56 @@ fn read_ledger(path: &Path) -> Result<Vec<LedgerRecord>> {
         .collect()
 }
 
+/// Keep a stable lock inode separate from the atomically replaced ledger inode.
+/// Do not unlink this sidecar: doing so lets another writer lock a different inode.
+fn lock_ledger_for_write(path: &Path) -> Result<File> {
+    let parent = path
+        .parent()
+        .context("ledger requires a parent directory")?;
+    fs::create_dir_all(parent)?;
+    let lock_path = path.with_extension("jsonl.lock");
+    let lock = File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lock_path)?;
+    lock.try_lock().with_context(|| {
+        format!(
+            "another port command is editing {}; retry after it finishes",
+            path.display()
+        )
+    })?;
+    Ok(lock)
+}
+
 fn write_ledger_atomic(path: &Path, records: &[LedgerRecord]) -> Result<()> {
-    let temporary = path.with_extension("jsonl.tmp");
-    let mut writer = BufWriter::new(
-        File::create(&temporary).with_context(|| format!("create {}", temporary.display()))?,
-    );
-    for record in records {
-        serde_json::to_writer(&mut writer, record).context("serialize ledger record")?;
-        writer.write_all(b"\n").context("write ledger record")?;
+    let parent = path
+        .parent()
+        .context("ledger requires a parent directory")?;
+    let mut temporary =
+        tempfile::NamedTempFile::new_in(parent).context("create unique ledger temporary file")?;
+    if let Ok(metadata) = fs::metadata(path) {
+        temporary
+            .as_file()
+            .set_permissions(metadata.permissions())?;
     }
-    writer.flush().context("flush ledger")?;
-    fs::rename(&temporary, path).with_context(|| format!("replace {}", path.display()))
+    {
+        let mut writer = BufWriter::new(temporary.as_file_mut());
+        for record in records {
+            serde_json::to_writer(&mut writer, record).context("serialize ledger record")?;
+            writer.write_all(b"\n").context("write ledger record")?;
+        }
+        writer.flush().context("flush ledger")?;
+    }
+    temporary
+        .as_file()
+        .sync_all()
+        .context("sync ledger contents")?;
+    temporary
+        .persist(path)
+        .with_context(|| format!("replace {}", path.display()))?;
+    Ok(())
 }
 
 fn binary_blob_flags<'a>(
@@ -2205,8 +2231,8 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::{
-        LedgerRecord, classify, parse_map_options, release_entries, source_line_count,
-        validate_test_evidence,
+        LedgerRecord, classify, lock_ledger_for_write, parse_map_options, read_ledger,
+        release_entries, source_line_count, validate_test_evidence, write_ledger_atomic,
     };
     use std::collections::BTreeSet;
     use std::fs;
@@ -2294,6 +2320,63 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("--id, --path, or --prefix"));
+    }
+
+    #[test]
+    fn ledger_write_lock_excludes_competing_writers_and_releases_on_drop() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("ledger.jsonl");
+        let first = lock_ledger_for_write(&path).unwrap();
+        let error = lock_ledger_for_write(&path).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("another port command is editing")
+        );
+        assert!(
+            !path.exists(),
+            "locking must not initialize or truncate the ledger"
+        );
+        drop(first);
+        let second = lock_ledger_for_write(&path).unwrap();
+        assert!(path.with_extension("jsonl.lock").exists());
+        drop(second);
+    }
+
+    #[test]
+    fn atomic_ledger_replacement_has_no_shared_temporary_or_trailing_bytes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("ledger.jsonl");
+        let _lock = lock_ledger_for_write(&path).unwrap();
+        let mut record = LedgerRecord {
+            id: "baseline:source:0-1".into(),
+            baseline: "baseline".into(),
+            path: "source".into(),
+            blob: "blob".into(),
+            byte_start: 0,
+            byte_end: 1,
+            line_start: 1,
+            line_end: 1,
+            classification: "source".into(),
+            disposition: "unmapped".into(),
+            destinations: Vec::new(),
+            evidence: Vec::new(),
+            provenance: vec!["x".repeat(8192)],
+        };
+        write_ledger_atomic(&path, std::slice::from_ref(&record)).unwrap();
+        record.provenance.clear();
+        write_ledger_atomic(&path, std::slice::from_ref(&record)).unwrap();
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            format!("{}\n", serde_json::to_string(&record).unwrap())
+        );
+        assert_eq!(read_ledger(&path).unwrap().len(), 1);
+        assert_eq!(
+            fs::read_dir(directory.path()).unwrap().count(),
+            2,
+            "only the ledger and stable lock sidecar remain"
+        );
+        assert!(!path.with_extension("jsonl.tmp").exists());
     }
 
     #[test]

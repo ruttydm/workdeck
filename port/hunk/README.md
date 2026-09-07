@@ -1,5 +1,11 @@
 # Hunk semantic-port ledger
 
+Ledger mutations hold a nonblocking OS lock for the entire read/modify/write transaction and
+replace the ledger from a unique, flushed temporary file. A competing writer fails with a retry
+message instead of sharing a temporary file or losing another mapping. The ignored
+`ledger.jsonl.lock` sidecar remains on disk deliberately; the OS releases its lock when the owner
+exits. Read-only status/audit commands do not acquire or create this sidecar.
+
 Workdeck ports the pinned Hunk source tree without merging Hunk's unrelated history into the
 Workdeck mainline. The source anchors are:
 
