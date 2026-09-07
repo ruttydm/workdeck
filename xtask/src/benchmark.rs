@@ -7,6 +7,135 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, Serialize)]
+struct ReleaseRunOptions {
+    version: String,
+    samples: f64,
+    out: PathBuf,
+}
+
+fn sample_number(value: &str) -> f64 {
+    let value = super::release_channel::trim_source_whitespace(value);
+    if value.is_empty() {
+        return 0.0;
+    }
+    for (prefix, radix) in [
+        ("0x", 16),
+        ("0X", 16),
+        ("0b", 2),
+        ("0B", 2),
+        ("0o", 8),
+        ("0O", 8),
+    ] {
+        if let Some(digits) = value.strip_prefix(prefix) {
+            if digits.is_empty() {
+                return f64::NAN;
+            }
+            let mut result = 0.0;
+            for digit in digits.chars() {
+                let Some(digit) = digit.to_digit(radix) else {
+                    return f64::NAN;
+                };
+                result = result * f64::from(radix) + f64::from(digit);
+            }
+            return result;
+        }
+    }
+    // Rust also accepts spellings such as "inf" that JavaScript Number does not.
+    let decimal = regex::Regex::new(
+        r"^[+-]?(?:(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?|Infinity)$",
+    )
+    .expect("literal regex");
+    if !decimal.is_match(value) {
+        return f64::NAN;
+    }
+    value.parse().unwrap_or(f64::NAN)
+}
+
+fn release_run_options(
+    root: &Path,
+    cwd: &Path,
+    version: String,
+    samples_env: Option<&str>,
+    mut args: impl Iterator<Item = String>,
+) -> Result<ReleaseRunOptions> {
+    let output = |version: &str| -> Result<PathBuf> {
+        release_version(version)?;
+        Ok(root
+            .join("benchmarks/release")
+            .join(format!("bench-{version}.json")))
+    };
+    let mut options = ReleaseRunOptions {
+        out: output(&version)?,
+        version,
+        samples: sample_number(samples_env.unwrap_or("5")),
+    };
+    let mut explicit = false;
+    while let Some(arg) = args.next() {
+        if !matches!(arg.as_str(), "--version" | "--samples" | "--out") {
+            bail!("Unknown release benchmark argument: {arg}");
+        }
+        let value = args
+            .next()
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("Missing value for {arg}"))?;
+        match arg.as_str() {
+            "--version" => {
+                options.version = value;
+                if !explicit {
+                    options.out = output(&options.version)?;
+                }
+            }
+            "--samples" => options.samples = sample_number(&value),
+            "--out" => {
+                let absolute = std::path::absolute(cwd.join(value))?;
+                let mut resolved = PathBuf::new();
+                for component in absolute.components() {
+                    match component {
+                        std::path::Component::CurDir => {}
+                        std::path::Component::ParentDir => {
+                            resolved.pop();
+                        }
+                        other => resolved.push(other.as_os_str()),
+                    }
+                }
+                options.out = resolved;
+                explicit = true;
+            }
+            _ => unreachable!(),
+        }
+    }
+    if !options.samples.is_finite() || options.samples < 1.0 {
+        bail!("--samples must be a positive number");
+    }
+    Ok(options)
+}
+
+fn release_plan(args: impl Iterator<Item = String>) -> Result<()> {
+    let root = super::repo_root()?;
+    let metadata = cargo_metadata::MetadataCommand::new()
+        .current_dir(&root)
+        .no_deps()
+        .exec()?;
+    let version = metadata
+        .packages
+        .iter()
+        .find(|p| p.name.as_str() == "workdeck-cli")
+        .ok_or_else(|| anyhow::anyhow!("workspace does not contain workdeck-cli"))?
+        .version
+        .to_string();
+    let samples = std::env::var("WORKDECK_RELEASE_BENCHMARK_SAMPLES").ok();
+    let options = release_run_options(
+        &root,
+        &std::env::current_dir()?,
+        version,
+        samples.as_deref(),
+        args,
+    )?;
+    println!("{}", serde_json::to_string(&options)?);
+    Ok(())
+}
+
 struct ReleaseVersion {
     parts: [f64; 3],
     prerelease: Option<String>,
@@ -503,6 +632,9 @@ fn aggregate(source: &str, name: &str, samples: Vec<f64>) -> Metric {
 
 pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     let command = args.next();
+    if command.as_deref() == Some("release-plan") {
+        return release_plan(args);
+    }
     if command.as_deref() == Some("previous") {
         return previous_command(args);
     }
@@ -535,6 +667,86 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_release_output_survives_a_later_version_option() {
+        let root = tempfile::tempdir().unwrap();
+        let out = root.path().join("custom-release-benchmark.json");
+        let options = release_run_options(
+            root.path(),
+            root.path(),
+            "0.1.0".into(),
+            None,
+            [
+                "--out".into(),
+                out.to_string_lossy().into_owned(),
+                "--version".into(),
+                "0.16.0".into(),
+            ]
+            .into_iter(),
+        )
+        .unwrap();
+        assert_eq!(options.version, "0.16.0");
+        assert_eq!(options.out, out);
+        assert_eq!(options.samples, 5.0);
+        let normalized = release_run_options(
+            root.path(),
+            root.path(),
+            "0.1.0".into(),
+            None,
+            ["--out", "nested/../custom.json"]
+                .into_iter()
+                .map(str::to_owned),
+        )
+        .unwrap();
+        assert_eq!(normalized.out, root.path().join("custom.json"));
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn release_plan_preserves_defaults_fractional_samples_and_argument_validation_order() {
+        let root = tempfile::tempdir().unwrap();
+        let parse = |args: &[&str], env| {
+            release_run_options(
+                root.path(),
+                root.path(),
+                "0.1.0".into(),
+                env,
+                args.iter().map(|s| (*s).to_owned()),
+            )
+        };
+        let default = parse(&["--version", "0.2.0"], Some("3")).unwrap();
+        assert_eq!(
+            default.out,
+            root.path().join("benchmarks/release/bench-0.2.0.json")
+        );
+        assert_eq!(default.samples, 3.0);
+        assert_eq!(parse(&["--samples", "2.5"], None).unwrap().samples, 2.5);
+        // Source validates a version while deriving a default output, not after an explicit output.
+        assert!(parse(&["--version", "invalid"], None).is_err());
+        assert!(parse(&["--out", "custom.json", "--version", "invalid"], None).is_ok());
+        for args in [
+            vec!["--samples", "0"],
+            vec!["--samples", "NaN"],
+            vec!["--samples", "Infinity"],
+            vec!["--out"],
+            vec!["--out", ""],
+            vec!["--unknown"],
+        ] {
+            assert!(parse(&args, None).is_err());
+        }
+        for (value, expected) in [
+            ("0x10", 16.0),
+            ("0b11", 3.0),
+            ("0o10", 8.0),
+            ("\u{feff}2\u{a0}", 2.0),
+            ("1e2", 100.0),
+            ("", 0.0),
+        ] {
+            assert_eq!(sample_number(value), expected);
+        }
+        assert!(sample_number("inf").is_nan());
+    }
 
     #[test]
     fn selects_latest_lower_stable_release_and_skips_prereleases_and_unrelated_names() {

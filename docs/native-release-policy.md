@@ -62,6 +62,13 @@ rounding avoids changing displayed values through intermediate floating-point mu
 lower than the requested release, ignoring prerelease and unrelated filenames. A missing
 directory or absent lower snapshot produces JSON `null`; invalid versions fail before lookup.
 
+`cargo xtask benchmark release-plan [--version VERSION] [--samples N] [--out PATH]` resolves
+native Cargo defaults and emits the run options without creating directories or executing a
+benchmark. `WORKDECK_RELEASE_BENCHMARK_SAMPLES` supplies the default count (otherwise five).
+An explicit output survives later version options; relative output paths resolve against the
+current directory. Fractional positive sample counts retain the source parser's behavior.
+This planning command is not a replacement for the still-unfinished suite execution boundary.
+
 Benchmark execution, same-host measurements, automatic comparison-command integration,
 and strict release enforcement remain incomplete. These tests are not performance measurements,
 and the containing source records remain unmapped.
