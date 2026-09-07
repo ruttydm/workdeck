@@ -2415,6 +2415,9 @@ impl ReviewApp {
                 KeyCode::Enter => {
                     insert_filter_character(&mut composer.body, &mut composer.cursor, '\n');
                 }
+                KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    insert_filter_character(&mut composer.body, &mut composer.cursor, '\n');
+                }
                 KeyCode::Tab => {
                     for _ in 0..4 {
                         insert_filter_character(&mut composer.body, &mut composer.cursor, ' ');
@@ -2484,6 +2487,11 @@ impl ReviewApp {
         });
         self.reconcile_active_file_view_mode();
         self.status = None;
+        if self.options.cursor_line == CursorLineMode::Off {
+            let _ = self
+                .with_state(|state| state.reveal_line(target.file_index, target.side, target.line));
+            self.scroll_to_selected_line();
+        }
     }
 
     fn active_note_for_composer(
@@ -2628,6 +2636,7 @@ impl ReviewApp {
         let rows = self.current_review_rows();
         rows.note_targets
             .get(&self.current_line_row)
+            .filter(|_| self.options.cursor_line != CursorLineMode::Off)
             .copied()
             .or_else(|| {
                 self.with_state(|state| {
@@ -2635,10 +2644,14 @@ impl ReviewApp {
                     let file = state.changeset().files.get(selection.file_index)?;
                     let hunk_index = selection.hunk_index?;
                     let hunk = file.hunks.get(hunk_index)?;
-                    let (side, line) = selection.side.zip(selection.line).unwrap_or_else(|| {
-                        let target = review_default_hunk_line_target(hunk);
-                        (target.side, target.line)
-                    });
+                    let (side, line) = selection
+                        .side
+                        .zip(selection.line)
+                        .filter(|_| self.options.cursor_line != CursorLineMode::Off)
+                        .unwrap_or_else(|| {
+                            let target = review_default_hunk_line_target(hunk);
+                            (target.side, target.line)
+                        });
                     Some(ReviewNoteTarget {
                         file_index: selection.file_index,
                         hunk_index,
@@ -7065,7 +7078,13 @@ impl ReviewApp {
             &self.filter,
         );
         if let Some(composer) = &self.note_composer {
-            rows.insert_composer(composer, width, layout, &self.options.theme);
+            rows.insert_composer(
+                composer,
+                width,
+                layout,
+                &self.options.theme,
+                state.changeset().files.get(composer.target.file_index),
+            );
         }
         rows
     }
@@ -11372,7 +11391,13 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         &app.filter,
     );
     if let Some(composer) = &app.note_composer {
-        rows.insert_composer(composer, area.width, layout, &app.options.theme);
+        rows.insert_composer(
+            composer,
+            area.width,
+            layout,
+            &app.options.theme,
+            state.changeset().files.get(composer.target.file_index),
+        );
     }
     let viewport = area
         .height
@@ -11708,6 +11733,7 @@ fn paint_note_composer(
     width: u16,
     layout: LayoutMode,
     theme: &AppTheme,
+    file: Option<&DiffFile>,
 ) -> PaintedAgentInlineNote {
     let range = workdeck_core::LineRange {
         start: composer.target.line,
@@ -11736,6 +11762,7 @@ fn paint_note_composer(
     let mut options =
         AgentInlineNoteViewOptions::new(&annotation, layout, theme, usize::from(width));
     options.anchor_side = Some(composer.target.side);
+    options.file = file;
     options.draft = Some(AgentInlineNoteDraft {
         body: &composer.body,
         focused: true,
@@ -11752,18 +11779,25 @@ impl ReviewRows {
         width: u16,
         layout: LayoutMode,
         theme: &AppTheme,
+        file: Option<&DiffFile>,
     ) {
         let Some(anchor) = self
             .note_targets
             .iter()
             .filter(|(_, target)| **target == composer.target)
             .map(|(row, _)| *row)
+            .chain(
+                self.line_cursors
+                    .iter()
+                    .filter(|cursor| cursor.target == composer.target)
+                    .map(|cursor| cursor.row),
+            )
             .max()
         else {
             return;
         };
         let start = anchor.saturating_add(1);
-        let painted = paint_note_composer(composer, width, layout, theme);
+        let painted = paint_note_composer(composer, width, layout, theme, file);
         let lines = painted.ratatui_lines();
         let height = lines.len();
         self.lines.splice(start..start, lines);
@@ -13754,7 +13788,15 @@ fn render_note_composer(_area: Rect, _buffer: &mut Buffer, app: &ReviewApp) {
         return;
     }
     let layout = app.with_state(|state| state.resolved_layout(area.width));
-    let painted = paint_note_composer(composer, area.width, layout, &app.options.theme);
+    let painted = app.with_state(|state| {
+        paint_note_composer(
+            composer,
+            area.width,
+            layout,
+            &app.options.theme,
+            state.changeset().files.get(composer.target.file_index),
+        )
+    });
     app.note_composer_bounds.set(Some(Rect::new(
         area.x.saturating_add(painted.box_left as u16),
         area.y

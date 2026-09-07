@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "runtime": "Bun 1.3.14",
+  "captured_at": "2026-09-07",
+  "translation_status": "partial; source ledger record remains unmapped",
+  "source": {
+    "path": "test/pty/notes.test.ts",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "a3b6b503625c0279a4f61497e711fed70c24240d",
+      "sha256": "e17b44a3654442a781a109763403f8234899901f5196d242976b8784e5ddd306",
+      "bytes": 30737,
+      "lines": 839
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "dbebce9528390663c9d0eb1f723b8799319cc5e2",
+      "sha256": "7af41359cba8d89326963ae94bec088ec8b84065ed55a3152a89e99bc4333732",
+      "bytes": 24894,
+      "lines": 711
+    }
+  },
+  "oracle_runs": {
+    "baseline": { "command": "bun test test/pty/notes.test.ts", "passed": 19, "failed": 0, "expect_calls": 73 },
+    "stable": { "command": "bun test test/pty/notes.test.ts", "passed": 18, "failed": 0, "expect_calls": 55 }
+  },
+  "native_evidence": "crates/workdeck-cli/tests/terminal_pager.rs",
+  "test_module": "notes",
+  "completed_test_translations": [
+    { "source_test": "opening a draft keeps the active line fixed while pushing following code down", "test": "opening_drafts_preserves_active_line_and_pushes_following_code" },
+    { "source_test": "cursor-line-off drafts still reveal their default target and full composer", "test": "cursor_off_draft_reveals_default_target_and_full_composer" },
+    { "source_test": "user notes can be drafted and saved inline in a real PTY", "test": "user_notes_draft_and_save_inline_with_newline_geometry" },
+    { "source_test": "CJK draft notes wrap instead of scrolling out of view in a real PTY", "test": "cjk_drafts_wrap_and_retain_both_ends_when_saved" },
+    { "source_test": "rapid Ctrl+S presses save a draft note exactly once", "test": "rapid_control_s_saves_a_draft_exactly_once" },
+    { "source_test": "a single Escape cancels a freshly opened empty draft note", "test": "first_escape_cancels_an_empty_draft" }
+  ],
+  "remaining": [
+    "Agent note visibility, collapsed-gap placement and experimental markup",
+    "Threaded edit, reply, nested/sibling reply, keyboard actions and leaf deletion (baseline-only test)",
+    "Mouse movement-gated add-note affordances and suppression after scrolling/navigation",
+    "Mouse cancellation/save controls and context/deletion/stack/split targets",
+    "App/pager shortcut focus ownership and multiple notes within one hunk"
+  ]
+}

@@ -463,6 +463,199 @@ fn piped_stdin_still_allows_concrete_theme_app_terminal_input() {
     session.quit();
 }
 
+// Hunk MIT: test/pty/notes.test.ts. Partial translation: the source remains unmapped.
+mod notes {
+    use super::*;
+
+    fn pair(
+        before: &str,
+        after: &str,
+        mode: &str,
+        width: u16,
+        height: u16,
+        extra: &[&str],
+    ) -> (tempfile::TempDir, Session) {
+        let fixture = tempfile::tempdir().unwrap();
+        let left = fixture.path().join("before.ts");
+        let right = fixture.path().join("after.ts");
+        fs::write(&left, before).unwrap();
+        fs::write(&right, after).unwrap();
+        let mut args = vec![
+            "diff",
+            "--files",
+            left.to_str().unwrap(),
+            right.to_str().unwrap(),
+            "--mode",
+            mode,
+        ];
+        args.extend_from_slice(extra);
+        let session = Session::launch("", &args, false, width, height);
+        (fixture, session)
+    }
+
+    fn long_wrap(height: u16) -> (tempfile::TempDir, Session) {
+        pair(
+            "export const message = 'short';\n",
+            "export const message = 'this is a very long wrapped line for tuistory integration coverage';\n",
+            "split",
+            120,
+            height,
+            &[],
+        )
+    }
+
+    fn row(text: &str, needle: &str) -> usize {
+        text.lines()
+            .position(|line| line.contains(needle))
+            .unwrap_or_else(|| panic!("missing {needle}:\n{text}"))
+    }
+
+    #[test]
+    fn user_notes_draft_and_save_inline_with_newline_geometry() {
+        let (_fixture, mut session) = long_wrap(20);
+        session.wait(|text| text.contains("this is a very long"));
+        session.write(b"c");
+        let fresh = session.wait(|text| {
+            text.contains("Draft note")
+                && text.contains("Write a note")
+                && text.contains("Esc cancel")
+        });
+        let border = fresh
+            .lines()
+            .find(|line| line.contains("^S save") && line.contains("Esc cancel"))
+            .unwrap();
+        assert!(
+            border.trim_start().starts_with('╰') && border.trim_end().ends_with('╯'),
+            "{fresh}"
+        );
+        session.write(b"Please cover this edge case.");
+        let first = session.wait(|text| text.contains("Please cover this edge case."));
+        let previous = row(&first, "^S save");
+        session.write(b"\x0a");
+        session.wait(|text| {
+            text.contains("Please cover this edge case.")
+                && text
+                    .lines()
+                    .position(|line| line.contains("^S save"))
+                    .is_some_and(|row| row > previous)
+        });
+        session.write(b"Second line.\x13");
+        let saved = session.wait(|text| text.contains("Your note") && !text.contains("Draft note"));
+        assert!(saved.contains("Please cover this edge case."));
+        assert!(saved.contains("Second line."));
+        session.quit();
+    }
+
+    #[test]
+    fn cjk_drafts_wrap_and_retain_both_ends_when_saved() {
+        let (_fixture, mut session) = long_wrap(24);
+        session.wait(|text| text.contains("this is a very long"));
+        session.write(b"c");
+        session.wait(|text| text.contains("Draft note"));
+        let body = "这个包主要是为了在普通的chatmodel外面包一层,把工具调用的编号统一转换后再返回给调用方使用";
+        session.write(body.as_bytes());
+        session
+            .wait(|text| text.contains("这个包主要是为了在普") && text.contains("回给调用方使用"));
+        session.write(b"\x13");
+        let saved = session.wait(|text| text.contains("Your note") && !text.contains("Draft note"));
+        assert!(saved.contains("这个包主要是为了在普"), "{saved}");
+        assert!(saved.contains("回给调用方使用"), "{saved}");
+        session.quit();
+    }
+
+    #[test]
+    fn rapid_control_s_saves_a_draft_exactly_once() {
+        let (_fixture, mut session) = long_wrap(24);
+        session.wait(|text| text.contains("this is a very long"));
+        session.write(b"c");
+        session.wait(|text| text.contains("Draft note"));
+        session.write(b"Save exactly one note.");
+        session.wait(|text| text.contains("Save exactly one note."));
+        session.write(b"\x13\x13");
+        session.wait(|text| text.contains("Your note") && !text.contains("Draft note"));
+        session.wait_for(Duration::from_millis(250), |_| false);
+        let settled = session.parser.terminal().plain_string();
+        assert!(settled.contains("Save exactly one note."));
+        assert!(!settled.contains("Your note 1/"));
+        assert_eq!(settled.matches("Your note").count(), 1);
+        session.quit();
+    }
+
+    #[test]
+    fn first_escape_cancels_an_empty_draft() {
+        let (_fixture, mut session) = long_wrap(20);
+        session.wait(|text| text.contains("this is a very long"));
+        session.write(b"c");
+        session.wait(|text| text.contains("Draft note"));
+        session.write(b"\x1b");
+        session.wait(|text| !text.contains("Draft note") && text.contains("this is a very long"));
+        session.quit();
+    }
+
+    #[test]
+    fn cursor_off_draft_reveals_default_target_and_full_composer() {
+        let before = (1..=18)
+            .map(|line| format!("export const line{line:02} = {line};\n"))
+            .collect::<String>();
+        let after = (1..=18)
+            .map(|line| format!("export const line{line:02} = {};\n", line + 100))
+            .collect::<String>();
+        let (_fixture, mut session) =
+            pair(&before, &after, "stack", 120, 12, &["--cursor-line", "off"]);
+        session.wait(|text| text.contains("line01 = 1;"));
+        session.write(b" ");
+        session.wait(|text| !text.contains("line01 = 1;") && text.contains("line"));
+        session.write(b"c");
+        session.wait(|text| {
+            text.contains("Draft note - before.ts -> after.ts R1") && text.contains("Esc cancel")
+        });
+        session.write(b"\x1b");
+        session.wait(|text| !text.contains("Draft note"));
+        session.quit();
+    }
+
+    #[test]
+    fn opening_drafts_preserves_active_line_and_pushes_following_code() {
+        let before = (1..=18)
+            .map(|line| format!("export const line{line:02} = {line};\n"))
+            .collect::<String>();
+        let after = (1..=18)
+            .map(|line| format!("export const line{line:02} = {};\n", line + 100))
+            .collect::<String>();
+        let (_fixture, mut session) = pair(&before, &after, "stack", 120, 26, &[]);
+        session.wait(|text| text.contains("line01 = 1;"));
+        for (active, following, target) in [
+            ("line09 = 9;", "line10 = 10;", "L9"),
+            ("line17 = 17;", "line18 = 18;", "L17"),
+        ] {
+            for _ in 0..8 {
+                session.write(b"\x1b[B");
+            }
+            session.wait_for(Duration::from_millis(100), |_| false);
+            let initial = session.parser.terminal().plain_string();
+            let active_row = row(&initial, active);
+            let following_row = row(&initial, following);
+            assert!(active_row > 0);
+            session.write(b"c");
+            session.wait(|text| {
+                text.contains(&format!("Draft note - before.ts -> after.ts {target}"))
+            });
+            // A PTY read can end inside the title's repaint; inspect the complete
+            // subsequent frame just as the source waits 100ms after opening a draft.
+            session.wait_for(Duration::from_millis(100), |_| false);
+            let draft = session.parser.terminal().plain_string();
+            assert_eq!(row(&draft, active), active_row, "{draft}");
+            assert_eq!(row(&draft, "Draft note"), active_row + 1, "{draft}");
+            if target == "L9" {
+                assert!(row(&draft, following) > following_row);
+            }
+            session.write(b"\x1b");
+            session.wait(|text| !text.contains("Draft note"));
+        }
+        session.quit();
+    }
+}
+
 // Hunk MIT: test/pty/session-attention-integration.test.ts.
 #[test]
 fn session_attention_highlight_reveals_and_paints_exact_range_then_clears_and_navigates() {

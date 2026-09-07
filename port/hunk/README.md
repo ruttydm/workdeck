@@ -97,3 +97,14 @@ private loopback daemon. Session highlight/navigate now scroll to the selected l
 not the owning hunk's start; the test checks line 111's near-top landing, real warning-mark cell
 backgrounds, clear counts, and navigation back to line 25. Terminal output continues draining during
 session CLI exchanges. Color tests explicitly enable truecolor without inheriting `NO_COLOR`.
+
+Notes are still partial and unmapped. `oracles/pty-notes.json` records all 19 baseline and 18 stable
+oracle passes (the threaded-action test is baseline-only), six native keyboard-focused translations,
+and remaining cases. Draft titles receive the owning file, LF/Ctrl+J inserts a newline, cursor-off
+drafts reveal the default hunk target, and split composer insertion recognizes either side of a
+paired row. These checks do not complete the notes source interval.
+
+Lifecycle capture now retains a separate stderr pipe for failures after terminal revocation and
+continues draining output while revoking. A zero-byte terminal write is classified as disconnect
+alongside EIO and broken pipes; it is not swallowed for unrelated I/O. Five consecutive native
+lifecycle suite runs passed after this correction.
