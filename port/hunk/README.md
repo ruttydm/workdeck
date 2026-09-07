@@ -52,6 +52,13 @@ release claims or current runtime/install requirements. The separate Changesets 
 configuration, and prerelease state remain unmapped until the native release workflow is ported.
 The documentation mappings do not complete any described runtime feature or release gate.
 
+Native [release-channel and version policy](../../docs/native-release-policy.md) is available through
+`cargo xtask release channel` and `cargo xtask release check-version`. The former preserves
+latest/beta/backport/manual selection while returning native `channel` metadata instead of an
+npm publication tag; the latter verifies the exact tag against the executable's Cargo version.
+All seven source channel tests are translated, and `oracles/release-channel.json` records 18
+matching differential cases from both pinned runtimes. No command publishes or mutates a release.
+
 ## Terminal lifecycle verification
 
 `oracles/pty-lifecycle.json` records the five passing baseline oracle cases and the test file's

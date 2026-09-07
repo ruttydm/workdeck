@@ -15,6 +15,7 @@ use std::process::{Command, Output};
 mod architecture;
 mod changelog;
 mod nix;
+mod release_channel;
 mod skill;
 mod term_video;
 
@@ -206,7 +207,9 @@ fn run() -> Result<()> {
         },
         Some("release") => match args.next().as_deref() {
             Some("package") => package_release(parse_package_options(args)?),
-            _ => bail!("release requires the package command"),
+            Some("channel") => release_channel::channel(args),
+            Some("check-version") => release_channel::check_version(&repo_root()?, args),
+            _ => bail!("release requires package, channel, or check-version"),
         },
         _ => {
             print_help();
@@ -2216,6 +2219,10 @@ fn print_help() {
     );
     println!("cargo xtask site <build|check|serve>");
     println!("cargo xtask changelog upstream-history [--check]");
+    println!(
+        "cargo xtask release channel --event EVENT --ref REF [--requested-tag CHANNEL] [--current-latest VERSION]"
+    );
+    println!("cargo xtask release check-version TAG");
     println!(
         "cargo xtask media plan --storyboard FILE --output FILE [--fps N] [--caption-animation-seconds N]"
     );
