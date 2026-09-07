@@ -2225,6 +2225,7 @@ fn relative_to(repo: &Path, path: &Path) -> String {
 
 fn print_help() {
     println!("cargo xtask benchmark aggregate SOURCE METRIC SAMPLES_JSON");
+    println!("cargo xtask benchmark parse-metrics < METRIC_OUTPUT");
     println!("cargo xtask benchmark working-tree");
     println!("cargo xtask benchmark render-layout");
     println!("cargo xtask benchmark stream-fixture [--huge | --non-ascii]");

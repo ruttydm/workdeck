@@ -1,0 +1,13 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": "benchmarks/run.ts",
+  "capture": "Pinned parseMetrics function extracted with git show, transpiled and executed in memory using Bun 1.3.14; both pins produced identical cases. No full benchmark runner execution or performance acceptance is claimed.",
+  "cases": [
+    {"input":"noise\nMETRIC load_ms=1.25\r\nMETRIC count=-2\nMETRIC load_ms=3.5","metrics":[["load_ms",3.5],["count",-2]]},
+    {"input":"\ufeffMETRIC\u00a0a.b:c-d_e=0001.50\u2029","metrics":[["a.b:c-d_e",1.5]]},
+    {"input":"METRIC plus=+1\nMETRIC exponent=1e3\nMETRIC fraction=.5\nMETRIC tail=1.\nMETRIC unicode=１２\nMETRIC bad/name=1\nMETRIC ok=-0","metrics":[["ok",0]]},
+    {"input":"METRIC a=1\nMETRIC b=2\nMETRIC a=3","metrics":[["a",3],["b",2]]},
+    {"input":"METRIC\u0085bad=1\nMETRIC\u2028good=2","metrics":[["good",2]]}
+  ]
+}

@@ -40,6 +40,14 @@ cross-platform CI, or the remaining release gates. See [the semantic-port ledger
 
 ## Benchmark aggregation boundary
 
+`cargo xtask benchmark parse-metrics` reads benchmark stdout from stdin and emits ordered
+`[name, value]` pairs. It preserves the first insertion position and last value of duplicate
+names, uses the pinned decimal-number grammar and ECMAScript whitespace rules, and ignores
+non-metric output. Five frozen cases match both pins. This parser does not execute the unfinished
+benchmark suite. Native report models also retain runtime, version, sample-count and regression
+explanation metadata; a read-only test round-trips all 22 pinned historical release reports.
+Historical runtime metadata is data only and never starts a JavaScript runtime.
+
 `cargo xtask benchmark render-layout` measures split rows, stack rows, section geometry and
 review plans for the three pinned size/shape scenarios. Native row counts match both oracles,
 including the 18,000-line single-file case. Stream content retains the source's declared statistics

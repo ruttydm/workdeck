@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 mod fixtures;
 mod release;
 mod render_layout;
+mod runner;
 mod stream;
 mod working_tree;
 
@@ -660,6 +661,9 @@ fn aggregate(source: &str, name: &str, samples: Vec<f64>) -> Metric {
 
 pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     let command = args.next();
+    if command.as_deref() == Some("parse-metrics") {
+        return runner::parse_command(args);
+    }
     if command.as_deref() == Some("stream-fixture") {
         return stream::run(args);
     }
