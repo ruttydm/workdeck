@@ -16,11 +16,6 @@ unsafe extern "C" {
 struct ReviewChild(Child);
 
 impl ReviewChild {
-    fn wait_clean(&mut self) {
-        let status = self.wait_status();
-        assert_eq!(status.code(), Some(0), "review exited abnormally: {status}");
-    }
-
     fn wait_status(&mut self) -> ExitStatus {
         self.wait_status_with_timeout(Duration::from_secs(3))
     }
@@ -302,11 +297,18 @@ fn exercise_pty_shutdown(action: Shutdown) {
             .env("WORKDECK_MCP_DISABLE", "1")
             .stdin(Stdio::from(slave.try_clone().unwrap()))
             .stdout(Stdio::from(slave.try_clone().unwrap()))
-            .stderr(Stdio::from(slave))
+            .stderr(Stdio::piped())
             .spawn()
             .unwrap(),
     );
     drop(command);
+    drop(slave);
+    let mut stderr = child.0.stderr.take().unwrap();
+    let errors = std::thread::spawn(move || {
+        let mut text = String::new();
+        let _ = stderr.read_to_string(&mut text);
+        text
+    });
     wait_for_frame(&mut master);
     let drain = match action {
         Shutdown::CloseMaster => {
@@ -318,11 +320,14 @@ fn exercise_pty_shutdown(action: Shutdown) {
             assert_eq!(unsafe { libc::kill(child.0.id() as _, signal) }, 0);
             Some(std::thread::spawn(move || {
                 let mut buffer = [0; 8192];
+                let mut captured = Vec::new();
                 while let Ok(count) = master.read(&mut buffer) {
                     if count == 0 {
                         break;
                     }
+                    captured.extend_from_slice(&buffer[..count]);
                 }
+                captured
             }))
         }
         #[cfg(target_os = "macos")]
@@ -332,21 +337,29 @@ fn exercise_pty_shutdown(action: Shutdown) {
             // behind an in-flight tty write if capture stops midway through a frame.
             let drain = std::thread::spawn(move || {
                 let mut buffer = [0; 8192];
+                let mut captured = Vec::new();
                 while let Ok(count) = master.read(&mut buffer) {
                     if count == 0 {
                         break;
                     }
+                    captured.extend_from_slice(&buffer[..count]);
                 }
+                captured
             });
             // SAFETY: tty_path is the NUL-terminated name of this test's private slave.
             assert_eq!(unsafe { revoke(tty_path.as_ptr()) }, 0);
             Some(drain)
         }
     };
-    child.wait_clean();
-    if let Some(drain) = drain {
-        drain.join().unwrap();
-    }
+    let status = child.wait_status();
+    let captured = drain.map(|drain| drain.join().unwrap()).unwrap_or_default();
+    let stderr = errors.join().unwrap();
+    assert_eq!(
+        status.code(),
+        Some(0),
+        "review exited abnormally: {status}\nstderr: {stderr}\n{}",
+        String::from_utf8_lossy(&captured)
+    );
     assert!(
         !dir.path().join(".agents").exists(),
         "viewing created repository state"

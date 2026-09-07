@@ -229,7 +229,9 @@ impl InteractiveTerminalSession {
             return matches!(error.raw_os_error(), Some(libc::EIO | libc::ENXIO))
                 || matches!(
                     error.kind(),
-                    io::ErrorKind::BrokenPipe | io::ErrorKind::UnexpectedEof
+                    io::ErrorKind::BrokenPipe
+                        | io::ErrorKind::UnexpectedEof
+                        | io::ErrorKind::WriteZero
                 );
         }
         let _ = error;
