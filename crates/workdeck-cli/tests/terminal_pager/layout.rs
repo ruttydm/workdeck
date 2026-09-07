@@ -387,13 +387,7 @@ fn sidebar(text: &str) -> String {
 }
 
 fn rightmost(text: &str, needle: &str) -> usize {
-    text.lines()
-        .filter_map(|line| {
-            line.rfind(needle)
-                .map(|index| line[..index].chars().count())
-        })
-        .max()
-        .unwrap()
+    super::harness::rightmost_column_of(text, needle).unwrap()
 }
 
 fn drag(session: &mut Session, from: usize, to: usize) {

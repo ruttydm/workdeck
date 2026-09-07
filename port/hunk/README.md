@@ -135,6 +135,10 @@ Watch-driver coverage also exercises the source's detached linked worktree with 
 alongside the existing branch-attached variant. Both use a real common Git directory and observer
 events; direct-file atomic-save coverage now includes the source fixture's initially empty Git
 repository. These changes preserve the original refresh deadline and do not replace PTY parity.
+Snapshot lookup helpers have separate dual-pin oracle cases in
+`oracles/pty-harness-snapshot-helpers.json`, including missing/empty needles and astral Unicode.
+The source's rightmost match is a UTF-16 string offset, not a terminal-cell coordinate; the native
+helper preserves that contract without changing the renderer's display-width calculations.
 
 `oracles/pty-file-views.json` records thirteen baseline passes, the stable suite's initial
 menu timeout, isolated retry, and full thirteen-case passing retry. Native tests exercise compiled

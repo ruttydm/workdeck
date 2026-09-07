@@ -4,6 +4,38 @@
 use super::{Duration, Session};
 use std::path::Path;
 
+pub(super) fn line_index_of(text: &str, needle: &str) -> Option<usize> {
+    text.split('\n').position(|line| line.contains(needle))
+}
+
+/// Source snapshot string index, deliberately UTF-16 rather than terminal-cell width.
+pub(super) fn rightmost_column_of(text: &str, needle: &str) -> Option<usize> {
+    text.split('\n')
+        .filter_map(|line| {
+            line.rfind(needle)
+                .map(|index| line[..index].encode_utf16().count())
+        })
+        .max()
+}
+
+#[test]
+fn snapshot_string_helpers_match_both_pinned_oracles() {
+    let oracle: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../port/hunk/oracles/pty-harness-snapshot-helpers.json"
+    ))
+    .unwrap();
+    assert_eq!(oracle["baselines"].as_array().unwrap().len(), 2);
+    let cases = oracle["cases"].as_array().unwrap();
+    assert_eq!(cases.len(), 4);
+    for case in cases {
+        let text = case["text"].as_str().unwrap();
+        let needle = case["needle"].as_str().unwrap();
+        let offset = |field: &str| usize::try_from(case[field].as_i64().unwrap()).ok();
+        assert_eq!(rightmost_column_of(text, needle), offset("rightmost"));
+        assert_eq!(line_index_of(text, needle), offset("row"));
+    }
+}
+
 pub(super) fn direct_file_pair(name: &str) -> tempfile::TempDir {
     let numbered = |count: usize, padded: bool, offset: usize| {
         (1..=count)

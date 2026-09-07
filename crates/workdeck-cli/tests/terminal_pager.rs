@@ -600,8 +600,7 @@ mod notes {
     }
 
     fn row(text: &str, needle: &str) -> usize {
-        text.lines()
-            .position(|line| line.contains(needle))
+        super::harness::line_index_of(text, needle)
             .unwrap_or_else(|| panic!("missing {needle}:\n{text}"))
     }
 
