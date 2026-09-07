@@ -1,5 +1,5 @@
-//! Partial MIT translation of Hunk's scripts/verify-pr-release-notes.ts.
-//! Generated-state validation is native; PR routing and normal fragment status remain separate work.
+//! MIT translation of Hunk's scripts/verify-pr-release-notes.ts.
+//! Cargo metadata and the native fragment gate replace the package/Changesets runtime.
 
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
@@ -7,6 +7,89 @@ use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
+use std::process::{Command, Stdio};
+
+const PRE_STATE: &str = "release/prerelease.json";
+
+fn generated_release_path(path: &str) -> bool {
+    let leaf = |prefix: &str, suffix: &str| {
+        path.strip_prefix(prefix)
+            .and_then(|tail| tail.strip_suffix(suffix))
+            .is_some_and(|name| !name.is_empty() && !name.contains('/'))
+    };
+    matches!(
+        path,
+        PRE_STATE | "CHANGELOG.md" | "Cargo.toml" | "Cargo.lock" | "crates/workdeck-cli/Cargo.toml"
+    ) || leaf("release/fragments/", ".md")
+        || leaf("benchmarks/release/bench-", ".json")
+}
+
+fn generated_preparation(paths: &[String]) -> bool {
+    paths.iter().any(|path| path == PRE_STATE)
+        && paths.iter().all(|path| generated_release_path(path))
+}
+
+fn changed_paths(repo: &Path, base: &str, head: &str) -> Result<Vec<String>> {
+    let args = [
+        "diff",
+        "--name-only",
+        "--no-renames",
+        "-z",
+        base,
+        head,
+        "--",
+    ];
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(repo)
+        .stderr(Stdio::inherit())
+        .output()?;
+    if !output.status.success() {
+        bail!(
+            "git {} failed with exit {}",
+            args.join(" "),
+            output.status.code().unwrap_or(-1)
+        );
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(str::to_owned)
+        .collect())
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Verification {
+    ChangesetStatus,
+    GeneratedPrerelease,
+}
+
+fn verify_pr_with_status(
+    repo: &Path,
+    base: &str,
+    head: &str,
+    status: impl FnOnce(&str) -> Result<()>,
+) -> Result<Verification> {
+    let paths = changed_paths(repo, base, head)?;
+    if !generated_preparation(&paths) || !repo.join(PRE_STATE).exists() {
+        status(base)?;
+        return Ok(Verification::ChangesetStatus);
+    }
+    validate_local(repo, std::iter::empty())?;
+    Ok(Verification::GeneratedPrerelease)
+}
+
+pub(super) fn verify_pr(repo: &Path, mut args: impl Iterator<Item = String>) -> Result<()> {
+    let base = args.next().unwrap_or_default();
+    let head = args.next().unwrap_or_else(|| "HEAD".into());
+    if base.is_empty() || base.starts_with('-') || head.starts_with('-') {
+        bail!("Usage: cargo xtask release verify-pr-notes <base-revision> [head-revision]");
+    }
+    verify_pr_with_status(repo, &base, &head, |base| {
+        super::release_status::run(repo, [format!("--since={base}")].into_iter())
+    })?;
+    Ok(())
+}
 
 fn valid_identifier(value: &str) -> bool {
     !value.is_empty()
@@ -143,7 +226,7 @@ pub(super) fn validate_local(repo: &Path, mut args: impl Iterator<Item = String>
         .iter()
         .find(|package| package.name.as_str() == "workdeck-cli")
         .context("workspace does not contain workdeck-cli")?;
-    let pre = serde_json::from_slice(&fs::read(repo.join("release/prerelease.json"))?)?;
+    let pre = serde_json::from_slice(&fs::read(repo.join(PRE_STATE))?)?;
     let changelog = fs::read_to_string(repo.join("CHANGELOG.md"))?;
     let mut on_disk = BTreeSet::new();
     for entry in fs::read_dir(repo.join("release/fragments"))? {
@@ -172,6 +255,227 @@ pub(super) fn validate_local(repo: &Path, mut args: impl Iterator<Item = String>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn generated_paths() -> Vec<String> {
+        [
+            PRE_STATE,
+            "release/fragments/old-fix.md",
+            "CHANGELOG.md",
+            "Cargo.toml",
+            "benchmarks/release/bench-0.18.0-beta.0.json",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect()
+    }
+
+    #[test]
+    fn accepts_only_generated_prerelease_metadata_paths() {
+        for path in generated_paths() {
+            assert!(generated_release_path(&path));
+        }
+        for path in [
+            "src/main.rs",
+            "benchmarks/run.rs",
+            "bun.lock",
+            "release/fragments/nested/fix.md",
+            "benchmarks/release/bench-.json",
+        ] {
+            assert!(!generated_release_path(path), "{path}");
+        }
+        assert!(generated_release_path("crates/workdeck-cli/Cargo.toml"));
+        assert!(generated_release_path("Cargo.lock"));
+    }
+
+    #[test]
+    fn selects_a_metadata_only_diff_that_changes_prerelease_state() {
+        assert!(generated_preparation(&generated_paths()));
+    }
+
+    #[test]
+    fn ordinary_changesets_stay_on_the_standard_status_path() {
+        assert!(!generated_preparation(&[
+            "src/main.rs".into(),
+            "release/fragments/fix.md".into()
+        ]));
+        assert!(!generated_preparation(&[
+            "CHANGELOG.md".into(),
+            "Cargo.toml".into()
+        ]));
+        assert!(!generated_preparation(&[]));
+    }
+
+    #[test]
+    fn release_preparation_mixed_with_source_changes_is_not_exempt() {
+        let mut paths = generated_paths();
+        paths.push("src/main.rs".into());
+        assert!(!generated_preparation(&paths));
+    }
+
+    fn git(root: &Path, args: &[&str]) -> String {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(root)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    }
+
+    fn manifest(root: &Path, version: &str) {
+        fs::write(root.join("Cargo.toml"), format!("[package]\nname = \"workdeck-cli\"\nversion = \"{version}\"\nedition = \"2024\"\npublish = false\n")).unwrap();
+    }
+
+    fn repository() -> (tempfile::TempDir, String) {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir_all(root.path().join("src")).unwrap();
+        fs::create_dir_all(root.path().join("release/fragments")).unwrap();
+        manifest(root.path(), "0.17.7");
+        fs::write(root.path().join("src/main.rs"), "fn main() {}\n").unwrap();
+        fs::write(root.path().join("CHANGELOG.md"), "# Changelog\n").unwrap();
+        fs::write(
+            root.path().join("release/fragments/new-feature.md"),
+            "---\n---\n",
+        )
+        .unwrap();
+        git(root.path(), &["init", "-q"]);
+        git(
+            root.path(),
+            &["config", "user.email", "test@example.invalid"],
+        );
+        git(
+            root.path(),
+            &["config", "user.name", "Workdeck Release Test"],
+        );
+        git(root.path(), &["config", "commit.gpgsign", "false"]);
+        git(root.path(), &["add", "."]);
+        git(root.path(), &["commit", "-qm", "base"]);
+        let base = git(root.path(), &["rev-parse", "HEAD"]);
+        (root, base)
+    }
+
+    fn generated_prerelease(root: &Path, initial: &str) {
+        manifest(root, "0.18.0-beta.0");
+        fs::write(root.join(PRE_STATE), serde_json::to_vec_pretty(&serde_json::json!({"mode":"pre","tag":"beta","initialVersions":{"workdeck-cli":initial},"changesets":["new-feature"]})).unwrap()).unwrap();
+        fs::write(
+            root.join("CHANGELOG.md"),
+            "# Changelog\n\n## 0.18.0-beta.0\n\n## 0.17.7\n",
+        )
+        .unwrap();
+        git(root, &["add", "."]);
+        git(root, &["commit", "-qm", "prepare prerelease"]);
+    }
+
+    #[test]
+    fn ordinary_diffs_route_to_status_with_the_exact_base_revision() {
+        let (root, base) = repository();
+        fs::write(
+            root.path().join("source.rs"),
+            "pub const CHANGED: bool = true;\n",
+        )
+        .unwrap();
+        git(root.path(), &["add", "."]);
+        git(root.path(), &["commit", "-qm", "ordinary change"]);
+        let mut calls = Vec::new();
+        let result = verify_pr_with_status(root.path(), &base, "HEAD", |base| {
+            calls.push(format!("--since={base}"));
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(result, Verification::ChangesetStatus);
+        assert_eq!(calls, [format!("--since={base}")]);
+    }
+
+    #[test]
+    fn metadata_only_prerelease_output_routes_to_generated_validation() {
+        let (root, base) = repository();
+        generated_prerelease(root.path(), "0.17.7");
+        let result = verify_pr_with_status(root.path(), &base, "HEAD", |_| {
+            panic!("ordinary status must not run")
+        })
+        .unwrap();
+        assert_eq!(result, Verification::GeneratedPrerelease);
+        assert_eq!(git(root.path(), &["status", "--porcelain"]), "");
+    }
+
+    #[test]
+    fn stable_promotion_removing_prerelease_state_routes_to_status() {
+        let (root, _) = repository();
+        generated_prerelease(root.path(), "0.17.7");
+        let base = git(root.path(), &["rev-parse", "HEAD"]);
+        manifest(root.path(), "0.18.0");
+        fs::write(
+            root.path().join("CHANGELOG.md"),
+            "# Changelog\n\n## 0.18.0\n\n## 0.17.7\n",
+        )
+        .unwrap();
+        fs::remove_file(root.path().join(PRE_STATE)).unwrap();
+        fs::remove_file(root.path().join("release/fragments/new-feature.md")).unwrap();
+        fs::write(
+            root.path().join("release/fragments/stable-release.md"),
+            "---\n---\n",
+        )
+        .unwrap();
+        git(root.path(), &["add", "."]);
+        git(root.path(), &["commit", "-qm", "prepare stable release"]);
+        let mut calls = Vec::new();
+        let result = verify_pr_with_status(root.path(), &base, "HEAD", |base| {
+            calls.push(format!("--since={base}"));
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(result, Verification::ChangesetStatus);
+        assert_eq!(calls, [format!("--since={base}")]);
+        verify_pr(root.path(), [base].into_iter()).unwrap();
+    }
+
+    #[test]
+    fn generated_pr_rejects_an_initial_version_older_than_its_stable_changelog() {
+        let (root, base) = repository();
+        generated_prerelease(root.path(), "0.17.6");
+        let error = verify_pr_with_status(root.path(), &base, "HEAD", |_| {
+            panic!("invalid generated state must not fall back to ordinary status")
+        })
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("Initial version 0.17.6 does not match latest stable release 0.17.7")
+        );
+    }
+
+    #[test]
+    fn cli_routes_real_status_and_rejects_option_like_revisions() {
+        let (root, base) = repository();
+        fs::write(
+            root.path().join("src/main.rs"),
+            "fn main() { println!(\"changed\"); }\n",
+        )
+        .unwrap();
+        git(root.path(), &["add", "."]);
+        git(root.path(), &["commit", "-qm", "ordinary change"]);
+        assert!(verify_pr(root.path(), [base.clone()].into_iter()).is_err());
+        fs::write(
+            root.path().join("release/fragments/maintenance.md"),
+            "---\n---\n",
+        )
+        .unwrap();
+        git(root.path(), &["add", "."]);
+        git(root.path(), &["commit", "-qm", "maintenance note"]);
+        verify_pr(root.path(), [base.clone()].into_iter()).unwrap();
+        for args in [vec![], vec!["--help".into()], vec![base, "--help".into()]] {
+            assert!(
+                verify_pr(root.path(), args.into_iter())
+                    .unwrap_err()
+                    .to_string()
+                    .contains("Usage:")
+            );
+        }
+    }
 
     fn input() -> (Value, String, BTreeSet<String>) {
         (

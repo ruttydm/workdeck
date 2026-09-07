@@ -59,14 +59,15 @@ npm publication tag; the latter verifies the exact tag against the executable's 
 All seven source channel tests are translated, and `oracles/release-channel.json` records 18
 matching differential cases from both pinned runtimes. No command publishes or mutates a release.
 Generated prerelease state can be checked separately with `cargo xtask release validate-prerelease`.
-Seven source validation cases and additional malformed-input/read-only fixture tests are native;
-`oracles/pr-release-notes.json` records both complete upstream runs and names the eight remaining
-path-classification/PR-routing cases. The source verifier and its test file remain unmapped.
+All 15 source validation, path-classification, and PR-routing cases have native translations;
+`oracles/pr-release-notes.json` records both complete upstream runs and their named mappings.
+`cargo xtask release verify-pr-notes BASE_REVISION [HEAD_REVISION]` selects generated validation
+only for metadata-only preparation with existing prerelease state, otherwise the ordinary gate.
 The native ordinary-fragment gate is `cargo xtask release status --since=REVISION`. Real Git tests
 cover merge-base selection, modified/deleted/untracked fragments, maintenance entries, hidden and
 README filtering, unknown packages, and read-only behavior; YAML tests cover all 77 pinned inputs,
-anchors, merges, and duplicate rejection. PR classification/dispatch is still a separate incomplete
-boundary, and no containing source record is completed by this status implementation alone.
+anchors, merges, and duplicate rejection. Stable promotion and ordinary changes exercise the
+actual native status route; invalid generated state fails without bypassing validation.
 
 ## Terminal lifecycle verification
 

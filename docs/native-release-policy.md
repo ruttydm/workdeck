@@ -48,11 +48,17 @@ nonempty channel tag, the highest stable changelog version as the initial versio
 between the current package version and channel, unique valid consumed fragment IDs still
 present on disk, and the exact current-version changelog heading.
 
-This explicit validator is only the generated-state portion of pull-request release-note checking.
-Metadata-only PR routing remains unfinished and is not bypassed by this command. The separate
-ordinary-fragment status gate is described below. The containing upstream verifier and its test file remain unmapped until their
-remaining cases are implemented. Historical migrated fragments under `port/hunk/` are not active
-Workdeck release fragments or consumed prerelease state.
+`cargo xtask release verify-pr-notes BASE_REVISION [HEAD_REVISION]` defaults the head to `HEAD`
+and rejects option-like revisions. It classifies the NUL-delimited, no-renames Git diff. Only a
+diff changing prerelease state and consisting entirely of release metadata uses generated-state
+validation: prerelease JSON, changelog, root fragment Markdown, benchmark release JSON, or native
+Cargo version metadata (`Cargo.toml`, `Cargo.lock`, and `crates/workdeck-cli/Cargo.toml`).
+Ordinary changes, mixed source changes, and stable promotions removing prerelease state use the
+ordinary gate below with the exact supplied base revision. Invalid generated state fails without
+falling back to that gate. Neither route writes release state or publishes artifacts.
+
+All 15 source verifier cases have native tests, including real Git routing fixtures. Historical
+migrated fragments under `port/hunk/` are not active Workdeck fragments or prerelease state.
 
 ## Ordinary release-fragment status
 

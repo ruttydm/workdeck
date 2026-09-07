@@ -213,8 +213,9 @@ fn run() -> Result<()> {
             Some("check-version") => release_channel::check_version(&repo_root()?, args),
             Some("validate-prerelease") => release_notes::validate_local(&repo_root()?, args),
             Some("status") => release_status::run(&repo_root()?, args),
+            Some("verify-pr-notes") => release_notes::verify_pr(&repo_root()?, args),
             _ => bail!(
-                "release requires package, channel, check-version, validate-prerelease, or status"
+                "release requires package, channel, check-version, validate-prerelease, status, or verify-pr-notes"
             ),
         },
         _ => {
@@ -2231,6 +2232,7 @@ fn print_help() {
     println!("cargo xtask release check-version TAG");
     println!("cargo xtask release validate-prerelease");
     println!("cargo xtask release status --since=REVISION");
+    println!("cargo xtask release verify-pr-notes BASE_REVISION [HEAD_REVISION]");
     println!(
         "cargo xtask media plan --storyboard FILE --output FILE [--fps N] [--caption-animation-seconds N]"
     );

@@ -7,7 +7,7 @@
     "baseline": {"passed":15,"failed":0,"expect_calls":26},
     "stable": {"passed":15,"failed":0,"expect_calls":26}
   },
-  "port_status": "Partial: generated-state validation only. Both containing source files remain unmapped.",
+  "port_status": "All 15 source cases translated; native Cargo metadata and fragment status replace the package runtime.",
   "native_test_file": "xtask/src/release_notes.rs",
   "translated_validation_cases": [
     {"source_test":"accepts coherent generated prerelease state","native_test":"accepts_coherent_generated_prerelease_state"},
@@ -18,18 +18,20 @@
     {"source_test":"rejects duplicate changeset IDs","native_test":"rejects_duplicate_changeset_ids"},
     {"source_test":"requires the exact package version heading","native_test":"requires_the_exact_package_version_heading"}
   ],
-  "remaining_source_cases": [
-    "accepts only generated prerelease metadata",
-    "selects a metadata-only diff that changes prerelease state",
-    "keeps ordinary changesets on the standard status path",
-    "does not exempt release preparation mixed with source changes",
-    "routes ordinary diffs through Changesets with the exact base revision",
-    "routes metadata-only prerelease output through generated-state validation",
-    "routes a stable promotion that removes prerelease state through Changesets",
-    "rejects an initial version older than the carried stable changelog"
+  "translated_routing_cases": [
+    {"source_test":"accepts only generated prerelease metadata","native_test":"accepts_only_generated_prerelease_metadata_paths"},
+    {"source_test":"selects a metadata-only diff that changes prerelease state","native_test":"selects_a_metadata_only_diff_that_changes_prerelease_state"},
+    {"source_test":"keeps ordinary changesets on the standard status path","native_test":"ordinary_changesets_stay_on_the_standard_status_path"},
+    {"source_test":"does not exempt release preparation mixed with source changes","native_test":"release_preparation_mixed_with_source_changes_is_not_exempt"},
+    {"source_test":"routes ordinary diffs through Changesets with the exact base revision","native_test":"ordinary_diffs_route_to_status_with_the_exact_base_revision"},
+    {"source_test":"routes metadata-only prerelease output through generated-state validation","native_test":"metadata_only_prerelease_output_routes_to_generated_validation"},
+    {"source_test":"routes a stable promotion that removes prerelease state through Changesets","native_test":"stable_promotion_removing_prerelease_state_routes_to_status"},
+    {"source_test":"rejects an initial version older than the carried stable changelog","native_test":"generated_pr_rejects_an_initial_version_older_than_its_stable_changelog"}
   ],
   "adaptations": [
     "Native package identity and version come from workdeck-cli Cargo metadata.",
+    "Cargo.toml, Cargo.lock and crates/workdeck-cli/Cargo.toml replace package.json as generated version metadata.",
+    "The native release status gate replaces Changesets execution; actual status routing has additional Git integration coverage.",
     "Active native release inputs use release/prerelease.json and release/fragments; no legacy runtime is executed.",
     "Historical migrated upstream release fragments are not active Workdeck release inputs."
   ]
