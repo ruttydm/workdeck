@@ -102,6 +102,8 @@ cargo xtask site check
 
 The pinned Hunk tree is being ported through a byte-exact ledger rather than merged as unrelated Git ancestry. `cargo xtask port fetch` recreates the namespaced upstream refs and source anchors; `cargo xtask port status` reports the honest remaining queue; strict `cargo xtask port audit` is the release gate. See [the semantic-port ledger](port/hunk/README.md).
 
+The [migrated upstream release-fragment history](docs/upstream-release-fragments.md) preserves the pinned release notes and maintenance entries as historical documentation, not as Workdeck completion claims. Verify its exact source reconstruction with `cargo xtask changelog upstream-history --check`.
+
 The live Cargo and Rust module graph is checked against the product ownership boundaries by `cargo xtask architecture check`; the same check runs inside `cargo xtask verify`. See [Architecture](docs/ARCHITECTURE.md).
 
 The bundled [review skill](skills/workdeck-review/SKILL.md) is generated from the typed native

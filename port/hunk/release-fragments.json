@@ -1,0 +1,469 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "license": "MIT; Copyright (c) Modem Labs Inc.",
+  "source_package": "hunkdiff",
+  "fragments": [
+    {
+      "path": ".changeset/add-discord-readme-badge.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/calm-brokers-bound.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/calm-coins-navigate.md",
+      "blob": "0429bfebc60c9c202b94f1bb5ed3f786544aafb3",
+      "bump": "minor",
+      "body": "Navigate a live review directly to a comment returned by `hunk session comment list`.\n"
+    },
+    {
+      "path": ".changeset/calm-extension-runtime.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/calm-install-aliases.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/calm-notes-compose.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/calm-pandas-expand.md",
+      "blob": "f6a274c9c3ad5e72f212d51d056f585a94c52a59",
+      "bump": "patch",
+      "body": "Enable unchanged-context expansion in Jujutsu-backed reviews.\n"
+    },
+    {
+      "path": ".changeset/calm-review-events.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/calm-rows-plan.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/clean-birds-review.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/clean-spans-flow.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/complete-synthetic-key-events.md",
+      "blob": "e9c53bfb0e2b47fc4d05ab76ad5006688bbb24fc",
+      "bump": "patch",
+      "body": "Provide complete key event data to command matchers and programmatically invoked handlers.\n"
+    },
+    {
+      "path": ".changeset/configurable-review-gaps.md",
+      "blob": "21b88cd35aee6f3f861d9a8b624decba0fe650f9",
+      "bump": "minor",
+      "body": "Make the vertical space between files and hunks configurable.\n"
+    },
+    {
+      "path": ".changeset/ctrl-half-page-navigation.md",
+      "blob": "c89afa89ccfae2faf198e86bc2cb75da8b94227d",
+      "bump": "patch",
+      "body": "Add Ctrl-D and Ctrl-U aliases for half-page review scrolling.\n"
+    },
+    {
+      "path": ".changeset/current-review-refresh-controller.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/dim-line-highlighter-tone.md",
+      "blob": "abd5e75b4de28bfef987bb5d9da22908ca3990fe",
+      "bump": "minor",
+      "body": "Add a `dim` tone to `hunk.registerLineHighlighter` and `hunk session highlight add` for fading diff text toward line backgrounds while preserving syntax highlighting token hues.\n"
+    },
+    {
+      "path": ".changeset/dull-suns-pay.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/editorial-release-notes.md",
+      "blob": "8c46211ff2f99aaa532685ea13edd28b8e5b38c6",
+      "bump": null,
+      "body": "Clarify editorial GitHub release-note and contributor acknowledgment guidance.\n"
+    },
+    {
+      "path": ".changeset/fair-baboons-tease.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/fair-brokers-rest.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/fast-tuis-wait.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/file-language-selectors.md",
+      "blob": "762a54c1a5e370684a8785c1eaa36b0521c27971",
+      "bump": "minor",
+      "body": "Let extensions select syntax highlighting by exact filename or basename/path glob, in addition to file extensions.\n"
+    },
+    {
+      "path": ".changeset/fix-edge-jump-reveal-race.md",
+      "blob": "ab993741e186b72ce17fe9154b55f88e47f1b263",
+      "bump": "patch",
+      "body": "Keep explicit top and bottom jumps from being overridden by a pending selection reveal.\n"
+    },
+    {
+      "path": ".changeset/fix-pnpm-bun-projection.md",
+      "blob": "3c37f0464d35cc16fdef51d6b740bd75b996c898",
+      "bump": "patch",
+      "body": "Stop installing Bun beside prebuilt Hunk packages so pnpm global updates cannot corrupt Bun's shared platform-package projection. Standalone platform binaries continue to work without a separate Bun installation.\n"
+    },
+    {
+      "path": ".changeset/fix-prerelease-version-test.md",
+      "blob": "26b5b7b81424e0055daa2cc160cc7cf70f5fa55c",
+      "bump": null,
+      "body": "Allow CLI delegation coverage to validate prerelease version output.\n"
+    },
+    {
+      "path": ".changeset/fix-startup-file-window.md",
+      "blob": "c6e6c14e0eb11b6a97249ab4f7a943f61ede979f",
+      "bump": "patch",
+      "body": "Fill the review stream on first paint instead of leaving it blank until the user scrolls.\n"
+    },
+    {
+      "path": ".changeset/fix-windows-ci-flakes.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/focused-extension-editor.md",
+      "blob": "96fddd1d538ec5564815924340af10ebc705c6e7",
+      "bump": "patch",
+      "body": "Let focused editors inside extension panes receive keys before Hunk's global shortcuts.\n"
+    },
+    {
+      "path": ".changeset/focused-workspace-controls.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/fresh-install-tabs.md",
+      "blob": "6bf2397479841b998c366a1c0f36c3db5442cc05",
+      "bump": "patch",
+      "body": "Make the checksum-aware curl installer the default across the website and docs, add an accessible tabbed install selector, and establish `hunk update` as the canonical updater from Hunk 0.20 onward.\n"
+    },
+    {
+      "path": ".changeset/fresh-sockets-retry.md",
+      "blob": "e34a1772e88e27e84317cbaebda6c93f6267360f",
+      "bump": "patch",
+      "body": "Retry session broker connections after synchronous WebSocket startup failures.\n"
+    },
+    {
+      "path": ".changeset/fresh-themes-refactor.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/friendly-terminals-register.md",
+      "blob": "bd361257cc87dfc9f46018a0ff13a31249e2a450",
+      "bump": "patch",
+      "body": "Keep iTerm2 sessions connected to the local session daemon when their terminal identifiers contain native punctuation.\n"
+    },
+    {
+      "path": ".changeset/fuzzy-guides-wrap.md",
+      "blob": "c30b48f648a18546645ac81cb7a8b4560ef80506",
+      "bump": "patch",
+      "body": "Keep wrapped diff geometry aligned with rendered note-guide and add-note columns.\n"
+    },
+    {
+      "path": ".changeset/fuzzy-highlights-dim.md",
+      "blob": "83fbf4e00fcd5f3758d1e0af1d126232a9d89bf4",
+      "bump": "patch",
+      "body": "Accept the documented `dim` tone when routing line-highlight commands through the session daemon.\n"
+    },
+    {
+      "path": ".changeset/generic-extension-cli-commands.md",
+      "blob": "281930a02ee1738cab68ac850160eba6b0ab1564",
+      "bump": "minor",
+      "body": "Let extensions register generic top-level CLI command trees with raw arguments, cancellable streaming I/O, validated exit statuses, and one-time delegation into built-in Hunk commands, including a dependency-free `hunk gh 123` example that fetches GitHub pull-request diffs directly.\n"
+    },
+    {
+      "path": ".changeset/humble-toes-battle.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/hunk-commit-extension.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/hunk-mark-as-reviewed-extension.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/hunk-viewed-note-changed.md",
+      "blob": "2fdaf1e0dac81436b09195642c11ef8cbf2ac67b",
+      "bump": "minor",
+      "body": "Publish `hunk_viewed` and store-backed `note_changed` extension lifecycle events so progress and note UIs can follow hunk navigation and agent comments.\n"
+    },
+    {
+      "path": ".changeset/list-hunk-file-order.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/list-hunk-git-lite.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/olive-impalas-nail.md",
+      "blob": "e1370934b180eb472cd6628855c21bc80d3be424",
+      "bump": "patch",
+      "body": "Recognize pacman/AUR-managed installations via `HUNK_INSTALL_SOURCE=pacman` and suppress automatic update notices for them.\n"
+    },
+    {
+      "path": ".changeset/opentui-refresh.md",
+      "blob": "fdaa07da3889f78ec0a116db816e978005aeecd0",
+      "bump": "patch",
+      "body": "Upgrade the OpenTUI runtime and reusable component peer requirement to 0.5.6.\n"
+    },
+    {
+      "path": ".changeset/pane-current-line-address.md",
+      "blob": "eee2cfb664c68a270c1181c7c78a5202632bfca7",
+      "bump": "minor",
+      "body": "Give opted-in extension panes the current line's `{ side, line }` source address on `currentLine`, matching command selection, so a pane can follow the cursor without waiting for a keypress.\n"
+    },
+    {
+      "path": ".changeset/plain-rows-project.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/publish-beta-changelog.md",
+      "blob": "9629925e723f4f4537eecb478db97208af98e3c5",
+      "bump": "patch",
+      "body": "Publish dated prerelease notes on hunk.dev without promoting them as the latest stable release or default install target.\n"
+    },
+    {
+      "path": ".changeset/pure-pane-controller.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/quiet-daemons-prove.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/quiet-install-conflicts.md",
+      "blob": "cee523c85ccc0d9030b277cd0e7af8093cc78e5f",
+      "bump": "patch",
+      "body": "Refuse curl installs alongside competing Hunk binaries unless explicitly forced, and print each conflicting path, version, PATH precedence, and package-manager removal guidance.\n"
+    },
+    {
+      "path": ".changeset/quiet-lifecycles-characterize.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/quiet-row-facade.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/quiet-terminals-exit.md",
+      "blob": "2068b36bfc00c7ee4d8459edb345cc2469d3bfc0",
+      "bump": "patch",
+      "body": "Exit cleanly when the terminal hosting a review disconnects instead of leaving an unreachable Hunk process behind.\n"
+    },
+    {
+      "path": ".changeset/quiet-trust-controller.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/require-node-twenty-two.md",
+      "blob": "4f24cce6211faef02063a7589afa4e8cbbce4b12",
+      "bump": "minor",
+      "body": "Require Node.js 22 or newer for npm installs. Standalone Hunk binaries continue to run without Node.js.\n"
+    },
+    {
+      "path": ".changeset/responsive-panes-grow.md",
+      "blob": "fa159b7f036a3c6c9b37f50b8da24ced8270c983",
+      "bump": "minor",
+      "body": "Resize the built-in files sidebar with the terminal, showing its compact projection at medium widths and keeping split review after the sidebar hides. Extension API v12 adds `ExtensionPaneSize.fraction` for bounded body-axis fractional sizing while preserving manual overrides.\n"
+    },
+    {
+      "path": ".changeset/restore-review-interaction-latency.md",
+      "blob": "5340124f6be353123ce21f05f5a126f88a3dba6b",
+      "bump": "patch",
+      "body": "Restore first-frame and scroll responsiveness for large review streams.\n"
+    },
+    {
+      "path": ".changeset/secure-session-broker-authentication.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/secure-session-broker-integration.md",
+      "blob": "9e555da263af1c0d20bc641b9812c972dd7fba0b",
+      "bump": "minor",
+      "body": "Authenticate local session producers and CLI controls with automatically discovered owner-private credentials, signed responses, scoped reconnect replacement, and bounded handshakes. Expose only minimal public daemon health, refuse unsafe PID-based replacement, and let interactive Hunk windows reconnect automatically after an incompatible incumbent becomes idle.\n"
+    },
+    {
+      "path": ".changeset/secure-session-peer-ownership.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/simplify-copy-rendering.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/simplify-copy-selection-ranges.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/simplify-session-cli-dispatch.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/social-hounds-invent.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/strict-session-broker-runtime-validation.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/swift-cases-carry.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/theme-diff-accent-harvest.md",
+      "blob": "dcff78b96d007df9c2672171ba0189b05e707c8e",
+      "bump": "patch",
+      "body": "Fix washed-out or wrong-hue diff colors in ~25 bundled themes (gruvbox, rosé pine, tokyo-night, material, everforest, laserwave, night-owl, slack, and others) by re-harvesting every theme's diff accents from its real VS Code accent tokens.\n"
+    },
+    {
+      "path": ".changeset/theme-guard-washout.md",
+      "blob": "f4c4af32dbf11b25e73ddacaaa0046461f0b07f8",
+      "bump": "patch",
+      "body": "Stop the theme contrast guards from washing out diff accents: low-contrast sign colors now get the smallest readable adjustment instead of a fixed 45% blend, and word-level diff emphasis is derived to the renderer's own separation floor so the highlight you see is the one the theme defines.\n"
+    },
+    {
+      "path": ".changeset/thin-places-think.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/threaded-review-notes.md",
+      "blob": "a5cfd1052b27d38bb15ca3323f71d78f2846b44d",
+      "bump": "minor",
+      "body": "Add editable inline review notes and arbitrarily nested threaded replies with mouse and keyboard actions, including reviewer dismissal of reply-free live agent notes.\n"
+    },
+    {
+      "path": ".changeset/tidy-code-cells.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/tidy-mounted-rows.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/tidy-startup-states.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/tidy-timed-notices.md",
+      "blob": "a845151cc840034a50f5fd010515d61e661f79ee",
+      "bump": null,
+      "body": ""
+    },
+    {
+      "path": ".changeset/two-revision-diff.md",
+      "blob": "93ec5ad44d046361cc4f712e38d53ad327d81727",
+      "bump": "minor",
+      "body": "Support backend-native `hunk diff <from> <to>` reviews across Git, Jujutsu, and Sapling, with pinned source expansion, working-copy isolation, explicit `hunk diff --files <left> <right>` file comparison, and structured `rangeEndpoints` in extension API generation 14.\n"
+    },
+    {
+      "path": ".changeset/watch-runtime-deadlock.md",
+      "blob": "703df5d8cf4a481e5ff35dec2c20343f2b2eb918",
+      "bump": "patch",
+      "body": "Refuse to start watch mode under Bun versions older than 1.3.14, which can deadlock filesystem watcher cleanup and leave Hunk unresponsive.\n"
+    },
+    {
+      "path": ".changeset/wide-trees-expand.md",
+      "blob": "1c74a202d8af6d0c9dc5a9508d6ab65282424004",
+      "bump": "minor",
+      "body": "Show a fully expanded file tree when the file sidebar reaches its preferred 34-column width, and keep resize drags active while its layout changes.\n"
+    }
+  ]
+}

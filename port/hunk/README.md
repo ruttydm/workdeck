@@ -35,6 +35,23 @@ The five commits unique to Hunk `v0.20.1` are tracked separately in
 `port/hunk/stable-fixes.jsonl`; the four functional regressions have Rust implementations and
 named tests. They do not falsely mark the larger baseline blobs containing those files as ported.
 
+## Migrated release-fragment history
+
+All 77 pinned release-note fragments are migrated as historical documentation in
+[`release-fragments.json`](release-fragments.json) and the generated
+[upstream release-fragment history](../../docs/upstream-release-fragments.md). This includes 34
+versioned notes and 43 maintenance-only fragments, including maintenance entries with prose.
+Each path, blob identity, version-bump metadata, and body is retained. The Rust generator
+reconstructs every source byte and compares it with the pinned Git blob before rendering or
+checking the document. Negative tests reject changed text, changed bumps, altered blob IDs,
+and omitted fragments. `cargo xtask verify` includes this check.
+
+Run `cargo xtask changelog upstream-history` to emit the document to stdout, or add `--check`
+to verify the committed document without writing. These historical quotations are not Workdeck
+release claims or current runtime/install requirements. The separate Changesets README,
+configuration, and prerelease state remain unmapped until the native release workflow is ported.
+The documentation mappings do not complete any described runtime feature or release gate.
+
 ## Terminal lifecycle verification
 
 `oracles/pty-lifecycle.json` records the five passing baseline oracle cases and the test file's

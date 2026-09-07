@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 mod architecture;
+mod changelog;
 mod nix;
 mod skill;
 mod term_video;
@@ -195,6 +196,7 @@ fn run() -> Result<()> {
             _ => bail!("extension requires the stage-example command"),
         },
         Some("site") => site(args.next().as_deref()),
+        Some("changelog") => changelog::run(&repo_root()?, args),
         Some("media") => match args.next().as_deref() {
             Some("plan") => term_video::plan_file(&repo_root()?, args),
             Some("compose") => term_video::compose_file(&repo_root()?, args),
@@ -1341,6 +1343,10 @@ fn verify() -> Result<()> {
     verify_vendored_themes()?;
     skill::check(&repo)?;
     architecture::check(&repo)?;
+    changelog::run(
+        &repo,
+        ["upstream-history".into(), "--check".into()].into_iter(),
+    )?;
     run_checked(&repo, "cargo", &["fmt", "--all", "--check"])?;
     run_checked(
         &repo,
@@ -2209,6 +2215,7 @@ fn print_help() {
         "cargo xtask extension stage-example <cli-tools|pane-layout|vim-navigation|review-snapshot-export|review-note-navigator|rendered-markdown|jsx-file-view|inline-edit|review-triage|github-pr|file-view-gallery|native-vcs|startup-lifecycle>"
     );
     println!("cargo xtask site <build|check|serve>");
+    println!("cargo xtask changelog upstream-history [--check]");
     println!(
         "cargo xtask media plan --storyboard FILE --output FILE [--fps N] [--caption-animation-seconds N]"
     );
