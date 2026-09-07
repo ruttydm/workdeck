@@ -9,10 +9,38 @@ use crossterm::cursor::Show;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::execute;
 use crossterm::terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+    BeginSynchronizedUpdate, EndSynchronizedUpdate, EnterAlternateScreen, LeaveAlternateScreen,
+    disable_raw_mode, enable_raw_mode,
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
+
+/// Publish a complete Ratatui frame, including failure-safe synchronization teardown.
+pub(crate) fn synchronized_frame<W: Write, T>(
+    output: &mut W,
+    draw: impl FnOnce(&mut W) -> io::Result<T>,
+) -> io::Result<T> {
+    struct FrameGuard<'a, W: Write> {
+        output: &'a mut W,
+        finished: bool,
+    }
+    impl<W: Write> Drop for FrameGuard<'_, W> {
+        fn drop(&mut self) {
+            if !self.finished {
+                let _ = execute!(self.output, EndSynchronizedUpdate);
+            }
+        }
+    }
+    let mut guard = FrameGuard {
+        output,
+        finished: false,
+    };
+    execute!(guard.output, BeginSynchronizedUpdate)?;
+    let result = draw(guard.output);
+    let end = execute!(guard.output, EndSynchronizedUpdate);
+    guard.finished = end.is_ok();
+    result.and_then(|value| end.map(|()| value))
+}
 /// Platform signals which request a graceful interactive-app shutdown.
 #[cfg(unix)]
 pub const APP_SHUTDOWN_SIGNALS: &[&str] = &["SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT", "SIGPIPE"];
@@ -181,6 +209,11 @@ impl TerminalRuntime for CrosstermRuntime {
 
 fn restore_output(output: &mut impl Write, mouse: bool) -> Result<()> {
     let mut first_error = disable_raw_mode().err().map(anyhow::Error::from);
+    if let Err(error) = execute!(output, EndSynchronizedUpdate)
+        && first_error.is_none()
+    {
+        first_error = Some(error.into());
+    }
     if mouse
         && let Err(error) = execute!(output, DisableMouseCapture)
         && first_error.is_none()
@@ -348,6 +381,71 @@ impl Drop for InteractiveTerminalPanicHook {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn synchronized_frame_keeps_cell_bytes_between_complete_boundaries() {
+        let mut output = Vec::new();
+        let value = synchronized_frame(&mut output, |output| {
+            output.write_all(b"frame cells")?;
+            Ok(42)
+        })
+        .unwrap();
+        assert_eq!(value, 42);
+        assert_eq!(output, b"\x1b[?2026hframe cells\x1b[?2026l");
+    }
+
+    #[test]
+    fn synchronized_frame_ends_when_drawing_returns_an_error() {
+        let mut output = Vec::new();
+        let error = synchronized_frame(&mut output, |output| {
+            output.write_all(b"partial")?;
+            Err::<(), _>(io::Error::other("draw failed"))
+        })
+        .unwrap_err();
+        assert_eq!(error.to_string(), "draw failed");
+        assert_eq!(output, b"\x1b[?2026hpartial\x1b[?2026l");
+    }
+
+    #[test]
+    fn synchronized_frame_ends_during_panic_unwind() {
+        let mut output = Vec::new();
+        let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+            let _ = synchronized_frame(&mut output, |_| -> io::Result<()> { panic!("draw panic") });
+        }));
+        assert!(result.is_err());
+        assert_eq!(output, b"\x1b[?2026h\x1b[?2026l");
+    }
+
+    #[test]
+    fn synchronized_frame_restores_after_begin_flush_failure() {
+        #[derive(Default)]
+        struct FailFirstFlush {
+            bytes: Vec<u8>,
+            flushes: usize,
+        }
+        impl Write for FailFirstFlush {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                self.bytes.extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                self.flushes += 1;
+                if self.flushes == 1 {
+                    Err(io::Error::other("begin flush failed"))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+        let mut output = FailFirstFlush::default();
+        let error = synchronized_frame(&mut output, |_| -> io::Result<()> {
+            panic!("drawing must not start after a failed begin")
+        })
+        .unwrap_err();
+        assert_eq!(error.to_string(), "begin flush failed");
+        assert_eq!(output.bytes, b"\x1b[?2026h\x1b[?2026l");
+        assert_eq!(output.flushes, 2);
+    }
     use std::cell::RefCell;
     use std::rc::Rc;
 

@@ -240,7 +240,13 @@ impl Session {
         let deadline = Instant::now() + timeout;
         loop {
             let text = self.parser.terminal().plain_string();
-            if predicate(&text) {
+            if !self
+                .parser
+                .terminal()
+                .modes
+                .get(qwertty_term_vt::modes::Mode::SynchronizedOutput)
+                && predicate(&text)
+            {
                 return Some(text);
             }
             if Instant::now() >= deadline {

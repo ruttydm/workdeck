@@ -13,6 +13,16 @@ startup failure, and panic all restore raw mode, mouse capture, the primary scre
 Each restoration is once-only, but all individual cleanup operations are attempted even if an
 earlier operation fails.
 
+Each Ratatui draw is enclosed in terminal synchronized-output boundaries (DEC mode 2026).
+The PTY parity harness evaluates screen predicates only outside an active synchronized update,
+so a partially received frame cannot satisfy an assertion. This preserves cell content and geometry;
+it does not normalize either. Terminals without synchronized-output support retain ordinary drawing.
+A frame guard attempts to end synchronization after draw errors, panic unwinding, or a failed
+begin flush, and terminal restoration also ends synchronization before leaving the alternate screen.
+Unit tests exercise these failure paths. The native terminal and lifecycle suites cover normal
+interactive rendering and teardown. These harness improvements do not mark the remaining pinned
+`test/pty/harness.ts` source interval as translated.
+
 The shipped executable installs graceful signal handling only while the review owns the process
 callback lease. Unix listens for `SIGINT`, `SIGTERM`, `SIGHUP`, `SIGQUIT`, and `SIGPIPE`; Windows
 uses the console Ctrl-C, Ctrl-Break, and close-event equivalents. The first signal requests a clean

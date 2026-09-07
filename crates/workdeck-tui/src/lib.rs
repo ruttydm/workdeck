@@ -9253,25 +9253,27 @@ fn run_loop(
         if let Err(error) = app_host.publish_snapshot(app) {
             app.status = Some(format!("failed to publish session snapshot: {error}"));
         }
-        let draw_result = terminal
-            .terminal_mut()
-            .draw(|frame| {
-                let area = frame.area();
-                render(area, frame.buffer_mut(), app);
-                let footer = Rect::new(
-                    area.x,
-                    area.bottom().saturating_sub(1),
-                    area.width,
-                    u16::from(area.height > 0),
-                );
-                if let Some(position) = app
-                    .extension_pane_input_cursor_position()
-                    .or_else(|| app.status_filter_cursor_position(footer))
-                {
-                    frame.set_cursor_position(position);
-                }
-            })
-            .map(|_| ());
+        let draw_result = interactive_runtime::synchronized_frame(&mut io::stdout(), |_| {
+            terminal
+                .terminal_mut()
+                .draw(|frame| {
+                    let area = frame.area();
+                    render(area, frame.buffer_mut(), app);
+                    let footer = Rect::new(
+                        area.x,
+                        area.bottom().saturating_sub(1),
+                        area.width,
+                        u16::from(area.height > 0),
+                    );
+                    if let Some(position) = app
+                        .extension_pane_input_cursor_position()
+                        .or_else(|| app.status_filter_cursor_position(footer))
+                    {
+                        frame.set_cursor_position(position);
+                    }
+                })
+                .map(|_| ())
+        });
         if let Err(error) = draw_result {
             if terminal.disconnected_during_io(&error) {
                 return Ok(());
