@@ -131,6 +131,8 @@ from both pins for eight direct-file factories: wrapping, wide characters, tabs,
 multiple hunks, expandable context, scrolling, and watch startup. The native factory test compares
 every before/after byte digest and checks the watch-only Git initialization. This verifies those
 fixture outputs, not the containing harness's remaining factories or terminal differential gate.
+Live layout and note PTY cases use the checked factories for wrapping, wide characters, tabs,
+multiple hunks, context expansion, and scrolling, rather than maintaining separate fixture text.
 Watch-driver coverage also exercises the source's detached linked worktree with `watched.ts`,
 alongside the existing branch-attached variant. Both use a real common Git directory and observer
 events; direct-file atomic-save coverage now includes the source fixture's initially empty Git

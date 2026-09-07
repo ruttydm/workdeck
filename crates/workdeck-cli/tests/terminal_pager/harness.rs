@@ -100,6 +100,34 @@ pub(super) fn direct_file_pair(name: &str) -> tempfile::TempDir {
     root
 }
 
+pub(super) fn launch_file_pair(
+    name: &str,
+    mode: &str,
+    cols: u16,
+    rows: u16,
+    extra: &[&str],
+) -> (tempfile::TempDir, Session) {
+    let root = direct_file_pair(name);
+    let extension = if name == "createTabbedFilePair" {
+        "txt"
+    } else {
+        "ts"
+    };
+    let before = root.path().join(format!("before.{extension}"));
+    let after = root.path().join(format!("after.{extension}"));
+    let mut args = vec![
+        "diff",
+        "--files",
+        before.to_str().unwrap(),
+        after.to_str().unwrap(),
+        "--mode",
+        mode,
+    ];
+    args.extend_from_slice(extra);
+    let session = Session::launch_in("", &args, false, cols, rows, None, Some(root.path()));
+    (root, session)
+}
+
 #[test]
 fn direct_file_pair_bytes_match_both_frozen_upstream_oracles() {
     use sha2::{Digest, Sha256};

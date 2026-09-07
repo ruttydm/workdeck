@@ -589,14 +589,7 @@ mod notes {
     }
 
     fn long_wrap(height: u16) -> (tempfile::TempDir, Session) {
-        pair(
-            "export const message = 'short';\n",
-            "export const message = 'this is a very long wrapped line for tuistory integration coverage';\n",
-            "split",
-            120,
-            height,
-            &[],
-        )
+        super::harness::launch_file_pair("createLongWrapFilePair", "split", 120, height, &[])
     }
 
     fn row(text: &str, needle: &str) -> usize {

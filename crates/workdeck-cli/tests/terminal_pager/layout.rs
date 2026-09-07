@@ -47,26 +47,13 @@ fn split(text: &str) -> bool {
 }
 
 fn long_line() -> (tempfile::TempDir, Session) {
-    super::notes::pair(
-        "export const message = 'short';\n",
-        "export const message = 'this is a very long wrapped line for tuistory integration coverage';\n",
-        "split",
-        102,
-        20,
-        &[],
-    )
+    super::harness::launch_file_pair("createLongWrapFilePair", "split", 102, 20, &[])
 }
 
 #[test]
 fn wide_characters_keep_split_dividers_in_the_same_cell_column() {
-    let (_root, mut session) = super::notes::pair(
-        "export const wide = '日本語';\nexport const plain = 'before';\n",
-        "export const wide = '한국어';\nexport const plain = 'after';\n",
-        "split",
-        140,
-        16,
-        &[],
-    );
+    let (_root, mut session) =
+        super::harness::launch_file_pair("createWideCharacterFilePair", "split", 140, 16, &[]);
     let snapshot = session.wait(|text| text.contains("日本語") && text.contains("plain"));
     let divider = |needle: &str| {
         let line = snapshot.lines().find(|line| line.contains(needle)).unwrap();
@@ -301,19 +288,8 @@ fn file_gap_inserts_two_blank_rows_and_a_separator_before_the_header() {
 
 #[test]
 fn hunk_gap_inserts_blank_rows_before_the_second_hunk() {
-    let before = (1..=80)
-        .map(|line| format!("export const line{line} = {line};\n"))
-        .collect::<String>();
-    let mut after = before.replace("line1 = 1;", "line1 = 100;");
-    for line in 60..=65 {
-        after = after.replace(
-            &format!("line{line} = {line};"),
-            &format!("line{line} = {line}00;"),
-        );
-    }
-    let (_root, mut session) = super::notes::pair(
-        &before,
-        &after,
+    let (_root, mut session) = super::harness::launch_file_pair(
+        "createMultiHunkFilePair",
         "stack",
         100,
         32,
@@ -338,17 +314,8 @@ fn hunk_gap_inserts_blank_rows_before_the_second_hunk() {
 
 #[test]
 fn context_hotkey_expands_and_collapses_source_lines() {
-    let before = (1..=30)
-        .map(|line| {
-            if line == 1 {
-                "export const hiddenLine01 = 1;\n".into()
-            } else {
-                format!("export const line{line:02} = {line};\n")
-            }
-        })
-        .collect::<String>();
-    let after = before.replace("line05 = 5;", "line05 = 500;");
-    let (_root, mut session) = super::notes::pair(&before, &after, "split", 140, 16, &[]);
+    let (_root, mut session) =
+        super::harness::launch_file_pair("createExpandableContextFilePair", "split", 140, 16, &[]);
     let initial = session.wait(|text| text.contains("▾ 1 unchanged line"));
     assert!(!initial.contains("hiddenLine01"));
     session.write(b"z");
@@ -530,12 +497,8 @@ fn unicode_rename_paths_remain_unescaped_in_sidebar_and_header() {
 
 #[test]
 fn layout_hotkeys_preserve_the_scrolled_source_anchor() {
-    let lines = |offset| {
-        (1..=18)
-            .map(|line| format!("export const line{line:02} = {};\n", line + offset))
-            .collect::<String>()
-    };
-    let (_root, mut session) = super::notes::pair(&lines(0), &lines(100), "split", 220, 12, &[]);
+    let (_root, mut session) =
+        super::harness::launch_file_pair("createScrollableFilePair", "split", 220, 12, &[]);
     let mut anchored = session.wait(|text| text.contains("line01 = 101"));
     assert!(!anchored.contains("line08 = 108"));
     for _ in 0..24 {
