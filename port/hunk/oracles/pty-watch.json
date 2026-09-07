@@ -55,6 +55,10 @@
       "evidence": [
         {
           "file": "crates/workdeck-tui/src/watched_input/tests.rs",
+          "test": "watched_input::tests::native_git_driver_refreshes_the_pinned_detached_worktree_fixture"
+        },
+        {
+          "file": "crates/workdeck-tui/src/watched_input/tests.rs",
           "test": "watched_input::tests::native_git_driver_refreshes_a_tracked_file_inside_a_linked_worktree"
         },
         {
@@ -67,7 +71,7 @@
   "adaptations": [
     "The native tests pass the exact pre-load signature into the mounted driver, require a real observer event, and allow at most five seconds for one debounced refresh.",
     "The direct-file test atomically replaces the watched path and reloads the complete file comparison, proving the initial changed line is absent from the refreshed patch.",
-    "The linked-worktree test creates a real Git common directory and linked worktree, then reloads the complete bundled-Git review after changing its tracked file.",
+    "The linked-worktree tests cover both the pinned detached HEAD fixture with watched.ts and an additional branch-attached variant, then reload the complete bundled-Git review after changing the tracked file.",
     "A separate Ratatui TestBackend contract proves a watch reload reaches the visible terminal cells while mounted review state is preserved."
   ]
 }

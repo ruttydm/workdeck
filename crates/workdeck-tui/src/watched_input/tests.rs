@@ -149,6 +149,7 @@ fn git(cwd: &Path, arguments: &[&str]) {
 #[test]
 fn native_direct_file_driver_refreshes_the_loaded_diff_after_an_atomic_save() {
     let directory = TempDir::new().unwrap();
+    git(directory.path(), &["init", "-q"]);
     let before = directory.path().join("before.ts");
     let after = directory.path().join("after.ts");
     fs::write(&before, "export const watchedValue = 'before';\n").unwrap();
@@ -212,38 +213,69 @@ fn native_direct_file_driver_refreshes_the_loaded_diff_after_an_atomic_save() {
 
 #[test]
 fn native_git_driver_refreshes_a_tracked_file_inside_a_linked_worktree() {
+    linked_worktree_refresh(false);
+}
+
+#[test]
+fn native_git_driver_refreshes_the_pinned_detached_worktree_fixture() {
+    linked_worktree_refresh(true);
+}
+
+fn linked_worktree_refresh(detached: bool) {
     let repository = TempDir::new().unwrap();
     git(
         repository.path(),
         &["init", "-q", "--initial-branch", "master"],
     );
-    git(repository.path(), &["config", "user.name", "Watch Test"]);
+    git(repository.path(), &["config", "user.name", "Pi"]);
     git(
         repository.path(),
-        &["config", "user.email", "watch@example.com"],
+        &["config", "user.email", "pi@example.com"],
     );
     git(repository.path(), &["config", "commit.gpgsign", "false"]);
     fs::write(
-        repository.path().join("linked.ts"),
+        repository.path().join("watched.ts"),
         "export const linkedValue = 'committed';\n",
     )
     .unwrap();
-    git(repository.path(), &["add", "linked.ts"]);
+    git(repository.path(), &["add", "watched.ts"]);
     git(repository.path(), &["commit", "-q", "-m", "initial"]);
 
-    let linked = TempDir::new().unwrap();
-    git(
-        repository.path(),
-        &[
-            "worktree",
-            "add",
-            "-q",
-            linked.path().to_str().unwrap(),
-            "-b",
-            "linked-watch",
-        ],
-    );
-    let tracked_file = linked.path().join("linked.ts");
+    let linked_parent = TempDir::new().unwrap();
+    let linked = linked_parent.path().join("worktree");
+    if detached {
+        git(
+            repository.path(),
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "--detach",
+                linked.to_str().unwrap(),
+                "HEAD",
+            ],
+        );
+    } else {
+        git(
+            repository.path(),
+            &[
+                "worktree",
+                "add",
+                "-q",
+                linked.to_str().unwrap(),
+                "-b",
+                "linked-watch",
+            ],
+        );
+    }
+    assert!(linked.join(".git").is_file());
+    let branch = Command::new("git")
+        .args(["symbolic-ref", "-q", "HEAD"])
+        .current_dir(&linked)
+        .output()
+        .unwrap();
+    assert_eq!(branch.status.success(), !detached);
+    let tracked_file = linked.join("watched.ts");
     fs::write(
         &tracked_file,
         "export const linkedValue = 'initial change';\n",
@@ -261,7 +293,7 @@ fn native_git_driver_refreshes_a_tracked_file_inside_a_linked_worktree() {
     };
     let input = CliInput::Vcs(diff_input.clone());
     let runtime = Arc::new(NativeWatchedInputRuntime::new(
-        linked.path(),
+        &linked,
         Some(bundled_vcs_catalog().clone()),
     ));
     let initial_signature = runtime.signature(&input).unwrap();
@@ -293,7 +325,7 @@ fn native_git_driver_refreshes_a_tracked_file_inside_a_linked_worktree() {
         let review = load_git_changeset(
             &VcsReviewInput::Diff(diff_input.clone()),
             &VcsLoadContext {
-                cwd: linked.path().to_owned(),
+                cwd: linked.clone(),
             },
             &GitVcsAdapterOptions::default(),
         )
