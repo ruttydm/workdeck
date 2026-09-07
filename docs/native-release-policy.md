@@ -56,9 +56,19 @@ cover the separate runner, workload execution, or the final same-host performanc
 `WORKDECK_BENCHMARK_SAMPLES` and `WORKDECK_BENCH_INCLUDE_HUGE`. Nine dual-pin cases cover defaults,
 fractional/radix sample counts, repeated values and errors. The plan preserves source workload
 identifiers (including their historical `.ts` suffix), ordered defaults and appended opt-ins;
-these identifiers do not name executable source files in Workdeck. It prints
-`executionAvailable: false`, creates no output directory and executes no workload. The complete
-runner remains unmapped until its native process execution and report pipeline are implemented.
+these identifiers do not name executable source files in Workdeck. The plan reports whether its
+entire selection has native execution support, creates no output directory and executes no
+workload. The default suite still reports `executionAvailable: false`.
+
+`cargo xtask benchmark run --script render-layout.ts --samples 1 --out REPORT.json` executes
+the completed render-layout workload in a native child process, drains both output pipes,
+aggregates repeated samples and writes a versioned report with Git/Cargo/native-platform metadata.
+Only `render-layout.ts` is currently admitted. Every selected workload is checked before execution
+or output-directory creation; default, huge, competitor and other incomplete selections fail.
+Fractional sample counts retain the source loop semantics, and repeated workload selections append
+samples rather than replacing them. Historical metric thresholds remain compatibility metadata.
+The complete runner remains unmapped: other workloads and general locale-sensitive report ordering
+are not yet implemented, and this diagnostic execution does not satisfy the strict performance gate.
 
 `cargo xtask benchmark render-layout` measures split rows, stack rows, section geometry and
 review plans for the three pinned size/shape scenarios. Native row counts match both oracles,

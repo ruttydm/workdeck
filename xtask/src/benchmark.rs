@@ -661,6 +661,9 @@ fn aggregate(source: &str, name: &str, samples: Vec<f64>) -> Metric {
 
 pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     let command = args.next();
+    if command.as_deref() == Some("run") {
+        return runner::run_command(args);
+    }
     if command.as_deref() == Some("runner-plan") {
         return runner::plan_command(args);
     }

@@ -13,7 +13,7 @@ struct Options {
     summary: Option<PathBuf>,
 }
 
-fn resolve(cwd: &Path, value: &str) -> Result<PathBuf> {
+pub(super) fn resolve(cwd: &Path, value: &str) -> Result<PathBuf> {
     let mut result = PathBuf::new();
     for component in std::path::absolute(cwd.join(value))?.components() {
         match component {
