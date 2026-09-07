@@ -208,14 +208,15 @@ impl Session {
         );
     }
 
+    #[track_caller]
     fn wait(&mut self, predicate: impl Fn(&str) -> bool) -> String {
-        self.wait_for(Duration::from_secs(20), predicate)
-            .unwrap_or_else(|| {
-                panic!(
-                    "terminal predicate timed out:\n{}",
-                    self.parser.terminal().plain_string()
-                )
-            })
+        let Some(text) = self.wait_for(Duration::from_secs(20), predicate) else {
+            panic!(
+                "terminal predicate timed out:\n{}",
+                self.parser.terminal().plain_string()
+            );
+        };
+        text
     }
 
     fn wait_for(&mut self, timeout: Duration, predicate: impl Fn(&str) -> bool) -> Option<String> {
@@ -320,6 +321,9 @@ impl Session {
 
 #[path = "terminal_pager/layout.rs"]
 mod layout;
+
+#[path = "terminal_pager/file_views.rs"]
+mod file_views;
 
 fn patch(lines: usize) -> String {
     let mut patch = format!(

@@ -15,7 +15,7 @@ fn git(root: &Path, args: &[&str]) {
     );
 }
 
-fn repository(files: &[(&str, &str, &str)]) -> tempfile::TempDir {
+pub(super) fn repository(files: &[(&str, &str, &str)]) -> tempfile::TempDir {
     let root = tempfile::tempdir().unwrap();
     git(root.path(), &["init", "-q"]);
     git(root.path(), &["config", "user.name", "PTY fixture"]);
@@ -36,7 +36,7 @@ fn repository(files: &[(&str, &str, &str)]) -> tempfile::TempDir {
     root
 }
 
-fn two_files(nested: bool) -> tempfile::TempDir {
+pub(super) fn two_files(nested: bool) -> tempfile::TempDir {
     repository(&[
         (
             if nested {

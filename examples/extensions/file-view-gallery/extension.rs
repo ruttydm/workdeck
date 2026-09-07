@@ -998,19 +998,19 @@ pub fn registrations() -> Vec<Registration> {
     vec![
         Registration::FileView {
             id: CHANGE_ATLAS_VIEW_ID.into(),
-            title: "Native demo: Change atlas".into(),
+            title: "JSX demo: Change atlas".into(),
             priority: 0,
             interactive_mode: false,
         },
         Registration::FileView {
             id: PALETTE_DELTA_VIEW_ID.into(),
-            title: "Native demo: CSS palette delta".into(),
+            title: "JSX demo: CSS palette delta".into(),
             priority: 0,
             interactive_mode: false,
         },
         Registration::FileView {
             id: DEPENDENCY_DELTA_VIEW_ID.into(),
-            title: "Native demo: Dependency delta".into(),
+            title: "JSX demo: Dependency delta".into(),
             priority: 0,
             interactive_mode: false,
         },

@@ -119,6 +119,17 @@ rows reserve the canonical three-cell add-note lane; wrap toggles reset horizont
 compact sidebar group headers retain their padding. Continuation rows preserve both diff rails.
 These source assertions do not replace the full terminal-cell oracle comparison release gate.
 
+`oracles/pty-file-views.json` records thirteen baseline passes, the stable suite's initial
+menu timeout, isolated retry, and full thirteen-case passing retry. Native tests exercise compiled
+Rust examples against pinned input blobs, including three retained presentations in a mixed-file
+scroll stream, Markdown note binding/fallback, inline edits and emoji deletion, menu dispatch,
+and interactive-mode input ownership. Mode exit clears its stale status hint. Busy native
+connections defer keyboard input in order rather than dropping a key and retiring the mode;
+the queue retains ownership identity across retries. File-view notes
+include agent-context annotations and exclude virtual thread drafts. Example titles retain their
+upstream visible text; no JSX or JavaScript runtime is used. Full cell-buffer differential parity
+remains a separate release gate.
+
 Lifecycle capture now retains a separate stderr pipe for failures after terminal revocation and
 continues draining output while revoking. A zero-byte terminal write is classified as disconnect
 alongside EIO and broken pipes; it is not swallowed for unrelated I/O. Five consecutive native

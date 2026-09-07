@@ -1113,6 +1113,8 @@ impl Drop for ProvisionalExtensionPaneRuntime {
 
 #[derive(Debug)]
 pub struct ReviewApp {
+    deferred_file_view_keys: std::collections::VecDeque<(u64, KeyEvent)>,
+    replaying_file_view_key: bool,
     state: Arc<Mutex<ReviewState>>,
     review_producer: workdeck_review::ReviewProducer,
     session_broker_client: Option<workdeck_session::WorkdeckSessionBrokerClient>,
@@ -1396,6 +1398,8 @@ impl ReviewApp {
             commands: ExtensionCommandAvailability::default(),
         });
         let mut app = Self {
+            deferred_file_view_keys: std::collections::VecDeque::new(),
+            replaying_file_view_key: false,
             state: Arc::new(Mutex::new(state)),
             review_producer,
             session_broker_client,
@@ -2278,6 +2282,12 @@ impl ReviewApp {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
+        if !self.replaying_file_view_key
+            && let Some((activation, _)) = self.deferred_file_view_keys.back().copied()
+        {
+            self.deferred_file_view_keys.push_back((activation, key));
+            return;
+        }
         self.clear_note_hover();
         if self.handle_extension_trust_prompt_key(&key) {
             return;
@@ -4068,6 +4078,20 @@ impl ReviewApp {
                 }
             }
             self.start_queued_extension_requests(Some(pending.extension_index));
+        }
+        if let Some((activation, key)) = self.deferred_file_view_keys.pop_front() {
+            let current = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .active_file_view_mode
+                .as_ref()
+                .map(|mode| mode.activation_id);
+            if current.is_none() || current == Some(activation) {
+                self.replaying_file_view_key = true;
+                self.handle_key(key);
+                self.replaying_file_view_key = false;
+            }
         }
     }
 
@@ -6617,6 +6641,14 @@ impl ReviewApp {
                 }
                 routing != KeyRoutingResult::Pass
             }
+            Err(HostError::Busy(_)) => {
+                // Background presentation work shares the ordered native connection.
+                // Retry this key before later input rather than dropping it or retiring
+                // a healthy mode; activation identity prevents delivery to a new mode.
+                self.deferred_file_view_keys
+                    .push_front((active.activation_id, *key));
+                true
+            }
             Err(error) => {
                 let current_activation_id = self
                     .extension_pane_runtime
@@ -6670,6 +6702,13 @@ impl ReviewApp {
         let Some(active) = active else {
             return;
         };
+        let mode_status = format!(
+            "{}:{} mode — Esc exits",
+            active.extension_id, active.view_id
+        );
+        if self.status.as_deref() == Some(mode_status.as_str()) {
+            self.status = None;
+        }
         let request = self.file_view_mode_lifecycle_request(&active);
         let execution = self
             .extension_pane_runtime
@@ -12697,9 +12736,11 @@ fn append_extension_file_view_rows(
     file_presentation_rendering: Option<&Mutex<FilePresentationRenderingController>>,
     extension_notifications: Option<&ExtensionNotificationHub>,
 ) -> bool {
-    let notes = comments
+    let mut notes = comments
         .iter()
         .filter(|comment| comment.anchor.file_key == file.key)
+        .filter(|comment| comment.source != "user-draft")
+        .filter(|comment| options.agent_notes || comment.source == "user")
         .filter(|comment| comment.resolution != workdeck_review::ReviewNoteResolution::Orphaned)
         .map(|comment| {
             let preferred = comment
@@ -12745,6 +12786,31 @@ fn append_extension_file_view_rows(
             }
         })
         .collect::<Vec<_>>();
+    if options.agent_notes
+        && let Some(context) = &file.agent
+    {
+        notes.extend(
+            context
+                .annotations
+                .iter()
+                .enumerate()
+                .map(|(index, annotation)| {
+                    let mut annotation = annotation.clone();
+                    if !options.experimental {
+                        annotation.markup = None;
+                    }
+                    VisibleFileViewNote {
+                        id: annotation.id.as_ref().map_or_else(
+                            || format!("annotation:{}:at:{index}", file.runtime_id),
+                            |id| format!("annotation:{}:id:{id}", file.runtime_id),
+                        ),
+                        has_actions: annotation.editable,
+                        annotation,
+                        thread_depth: 0,
+                    }
+                }),
+        );
+    }
     let plan = build_file_view_render_plan(&resolved.validated.layout, &notes);
     if !plan.unresolved_note_ids.is_empty() {
         return false;
@@ -14430,6 +14496,23 @@ mod tests {
             ChangesetSource::WorkingTree { staged: false },
         )
         .unwrap()
+    }
+
+    #[test]
+    fn deferred_file_view_input_preserves_order_when_control_returns_to_the_host() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        app.deferred_file_view_keys
+            .push_back((1, KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)));
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(app.deferred_file_view_keys.len(), 2);
+        assert!(!app.show_help);
+        app.poll_extension_commands();
+        assert!(app.show_help);
+        assert_eq!(app.deferred_file_view_keys.len(), 1);
+        app.poll_extension_commands();
+        assert!(!app.show_help);
+        assert!(app.deferred_file_view_keys.is_empty());
+        assert!(!app.replaying_file_view_key);
     }
 
     fn background_for_rendered_text(buffer: &Buffer, needle: &str) -> Color {
