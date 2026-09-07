@@ -51,6 +51,18 @@ impl Session {
         rows: u16,
         port: Option<u16>,
     ) -> Self {
+        Self::launch_in(patch, args, file_stdin, cols, rows, port, None)
+    }
+
+    fn launch_in(
+        patch: &str,
+        args: &[&str],
+        file_stdin: bool,
+        cols: u16,
+        rows: u16,
+        port: Option<u16>,
+        cwd: Option<&std::path::Path>,
+    ) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let patch_path = directory.path().join("input.patch");
         fs::write(&patch_path, patch).unwrap();
@@ -113,7 +125,7 @@ impl Session {
         let pipe_stdin = file_stdin && args.first() == Some(&"diff");
         command
             .args(args)
-            .current_dir(directory.path())
+            .current_dir(cwd.unwrap_or(directory.path()))
             .env("TERM", "xterm-256color")
             .env("COLORTERM", "truecolor")
             .env_remove("NO_COLOR")
@@ -283,7 +295,31 @@ impl Session {
         }
         assert!(!self.directory.path().join(".agents").exists());
     }
+
+    fn resize(&mut self, cols: u16, rows: u16) {
+        self.parser.terminal_mut().resize(cols, rows);
+        let size = libc::winsize {
+            ws_col: cols,
+            ws_row: rows,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        // SAFETY: the descriptor is this fixture's live master and size is initialized.
+        assert_eq!(
+            unsafe {
+                libc::ioctl(
+                    self.master.as_ref().unwrap().as_raw_fd(),
+                    libc::TIOCSWINSZ,
+                    &size,
+                )
+            },
+            0
+        );
+    }
 }
+
+#[path = "terminal_pager/layout.rs"]
+mod layout;
 
 fn patch(lines: usize) -> String {
     let mut patch = format!(
@@ -491,7 +527,7 @@ fn piped_stdin_still_allows_concrete_theme_app_terminal_input() {
 mod notes {
     use super::*;
 
-    fn pair(
+    pub(super) fn pair(
         before: &str,
         after: &str,
         mode: &str,

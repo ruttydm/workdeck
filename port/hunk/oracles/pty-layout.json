@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "runtime": "Bun 1.3.14",
+  "captured_at": "2026-09-07",
+  "source": {
+    "path": "test/pty/layout.test.ts",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "5ab7d95ac3cbf5534af094a442a87117d7f93af3",
+      "sha256": "1cd460c6040b7bd744c5d0a2da1e87a44ae66e87b54de796daeb71debf114808",
+      "bytes": 28217,
+      "lines": 889
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "a3ac1c3d28c6b941644f079cf13f72075c2e5f02",
+      "sha256": "67e54b1481d66b277dcc71aa39e96ae7bedf329f8ab1c330f18e8f4951a8f731",
+      "bytes": 19911,
+      "lines": 645
+    }
+  },
+  "oracle_runs": {
+    "baseline": { "command": "bun test test/pty/layout.test.ts", "passed": 23, "failed": 0, "expect_calls": 95 },
+    "stable": { "command": "bun test test/pty/layout.test.ts", "passed": 18, "failed": 0, "expect_calls": 71 }
+  },
+  "native_evidence": "crates/workdeck-cli/tests/terminal_pager/layout.rs",
+  "test_module": "layout",
+  "test_translations": [
+    { "source_test": "the first frame fills the viewport bottom with the next file section", "test": "first_frame_fills_the_bottom_with_the_next_file" },
+    { "source_test": "the first nowrap frame fills a tall viewport past the first-file overscan neighbor", "test": "tall_first_frame_renders_beyond_the_first_neighbor" },
+    { "source_test": "a larger file gap inserts blank rows before the next file header", "test": "file_gap_inserts_two_blank_rows_and_a_separator_before_the_header" },
+    { "source_test": "a hunk gap inserts blank rows before the next hunk header", "test": "hunk_gap_inserts_blank_rows_before_the_second_hunk" },
+    { "source_test": "split rows keep the center separator aligned after wide characters", "test": "wide_characters_keep_split_dividers_in_the_same_cell_column" },
+    { "source_test": "renamed CJK and emoji paths render as Unicode in the sidebar and file header", "test": "unicode_rename_paths_remain_unescaped_in_sidebar_and_header" },
+    { "source_test": "the CLI tab width reaches interactive app rendering", "test": "cli_tab_width_reaches_the_interactive_renderer" },
+    { "source_test": "real PTY sessions can toggle wrapped lines on and off", "test": "wrap_hotkey_reveals_and_hides_the_long_line_tail" },
+    { "source_test": "real PTY sessions can expand and collapse unchanged context", "test": "context_hotkey_expands_and_collapses_source_lines" },
+    { "source_test": "narrow terminals preserve stats and use three dots for truncated file paths", "test": "narrow_headers_keep_stats_and_three_dot_path_truncation" },
+    { "source_test": "auto layout responds to live terminal resize in a real PTY", "test": "auto_layout_tracks_tree_flat_hidden_and_stack_resize_thresholds" },
+    { "source_test": "--sidebar shows the sidebar below the automatic sidebar cutoff", "test": "explicit_sidebar_is_visible_below_the_automatic_cutoff" },
+    { "source_test": "--no-sidebar opens the review with the sidebar closed", "test": "explicit_hidden_sidebar_can_be_toggled_open" },
+    { "source_test": "dragging the sidebar divider resizes the review pane in a real PTY", "test": "dragging_sidebar_divider_resizes_the_review_pane" },
+    { "source_test": "retains a sidebar drag when its first motion switches the file projection", "test": "sidebar_drag_survives_the_first_motion_switching_projection" },
+    { "source_test": "dragging the sidebar through 31 content columns switches to compact paths", "test": "sidebar_drag_crossing_thirty_one_columns_switches_to_compact_paths" },
+    { "source_test": "explicit split mode stays split after a live resize", "test": "explicit_split_survives_a_narrow_resize" },
+    { "source_test": "explicit stack mode stays stacked after a live resize", "test": "explicit_stack_survives_a_wide_resize" },
+    { "source_test": "direct layout hotkeys can switch between split, stack, and auto in a real PTY", "test": "direct_hotkeys_switch_split_stack_and_auto" },
+    { "source_test": "layout hotkeys preserve the current review position in a real PTY", "test": "layout_hotkeys_preserve_the_scrolled_source_anchor" },
+    { "source_test": "arrow-key horizontal scrolling reveals hidden code columns in a real PTY", "test": "horizontal_arrows_reveal_hidden_columns_and_restore_the_start" },
+    { "source_test": "shifted mouse-wheel input scrolls code horizontally in a real PTY", "test": "shifted_wheel_scrolls_code_horizontally" },
+    { "source_test": "wrap toggles reset horizontal code scrolling in a real PTY", "test": "toggling_wrap_resets_horizontal_scroll" }
+  ],
+  "scope": "Native translations execute the source cases against the compiled Workdeck binary using real PTYs and parsed terminal cells. This is not a waiver for broader renderer or complete cell-frame differential parity. Layout fixture shutdown closes its owned PTY like the source harness; lifecycle tests separately assert quit behavior."
+}

@@ -494,7 +494,10 @@ pub fn render_workdeck_file_nav_window(
     for entry in entries {
         match entry {
             FileSidebarEntry::Group { label, .. } => lines.push(Line::styled(
-                fit_nav_text(&label, usize::from(area.width).max(1)),
+                format!(
+                    " {}",
+                    fit_nav_text(&label, usize::from(area.width.saturating_sub(1)).max(1))
+                ),
                 Style::default().fg(palette.muted).bg(palette.panel),
             )),
             FileSidebarEntry::Directory { label, depth, .. } => {

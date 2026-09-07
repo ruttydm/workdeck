@@ -110,6 +110,15 @@ pending sibling drafts update branch guides without entering the persistent stor
 covers nested/sibling replies, keyboard edit/reply and leaf deletion. This completes the notes test
 file, not the broader renderer implementation or full terminal-cell differential gate.
 
+`oracles/pty-layout.json` records 23 baseline and 18 stable layout oracle passes and names every
+native translation. Tests operate the compiled binary in private PTYs, resize both the actual
+terminal and VT parser, and inspect real repository diffs. They cover viewport filling, gaps,
+Unicode paths/cell widths, tab widths, wrap/context toggles, responsive layouts, sidebar policy
+and drag projection changes, anchored navigation, and horizontal arrows/wheel input. Wrapped split
+rows reserve the canonical three-cell add-note lane; wrap toggles reset horizontal offset and
+compact sidebar group headers retain their padding. Continuation rows preserve both diff rails.
+These source assertions do not replace the full terminal-cell oracle comparison release gate.
+
 Lifecycle capture now retains a separate stderr pipe for failures after terminal revocation and
 continues draining output while revoking. A zero-byte terminal write is classified as disconnect
 alongside EIO and broken pipes; it is not swallowed for unrelated I/O. Five consecutive native

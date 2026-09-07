@@ -3313,6 +3313,7 @@ impl ReviewApp {
             }
             AppCommandAction::ToggleLineWrap => {
                 self.options.wrap_lines = !self.options.wrap_lines;
+                self.options.horizontal_offset = 0;
             }
             AppCommandAction::ToggleMenuBar => self.show_menu_bar = !self.show_menu_bar,
             AppCommandAction::ToggleHunkHeaders => {
@@ -13873,10 +13874,43 @@ fn split_pair_rows(
     selected: bool,
 ) -> Vec<Line<'static>> {
     let mut old_lines = split_cell_lines(old, true, options, left_width, selected);
-    let mut new_lines = split_cell_lines(new, false, options, right_width, selected);
+    let reserved = if options.wrap_lines {
+        usize::from(CODE_ROW_ADD_NOTE_BADGE_WIDTH)
+    } else {
+        0
+    };
+    let mut new_lines = split_cell_lines(
+        new,
+        false,
+        options,
+        right_width.saturating_sub(reserved),
+        selected,
+    );
+    for line in &mut new_lines {
+        pad_spans(
+            line,
+            right_width,
+            Style::default().bg(ratatui_theme_color(&options.theme.panel)),
+        );
+    }
     let height = old_lines.len().max(new_lines.len()).max(1);
-    old_lines.resize_with(height, || vec![Span::raw(" ".repeat(left_width))]);
-    new_lines.resize_with(height, || vec![Span::raw(" ".repeat(right_width))]);
+    let empty_cell = |width, old| {
+        split_cell_lines(
+            SplitCellInput {
+                line: None,
+                highlighted: None,
+                emphasis: &[],
+                line_highlights: None,
+            },
+            old,
+            options,
+            width,
+            selected,
+        )
+        .remove(0)
+    };
+    old_lines.resize_with(height, || empty_cell(left_width, true));
+    new_lines.resize_with(height, || empty_cell(right_width, false));
     old_lines
         .into_iter()
         .zip(new_lines)
@@ -16043,7 +16077,9 @@ mod tests {
             &BTreeSet::new(),
         );
 
-        assert_eq!(rows.lines.len(), 5);
+        // Three right-hand cells remain reserved for the add-note affordance,
+        // including when it is hidden, so wrapped rows do not jump on hover.
+        assert_eq!(rows.lines.len(), 7);
         for row in &rows.lines[2..] {
             assert_eq!(row.width(), 21);
             assert_eq!(
