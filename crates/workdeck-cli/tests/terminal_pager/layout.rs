@@ -79,9 +79,7 @@ fn wide_characters_keep_split_dividers_in_the_same_cell_column() {
 
 #[test]
 fn cli_tab_width_reaches_the_interactive_renderer() {
-    let root = tempfile::tempdir().unwrap();
-    fs::write(root.path().join("before.txt"), "a\tbefore\n").unwrap();
-    fs::write(root.path().join("after.txt"), "a\tafter\n").unwrap();
+    let root = super::harness::direct_file_pair("createTabbedFilePair");
     let mut session = launch(
         root.path(),
         &[

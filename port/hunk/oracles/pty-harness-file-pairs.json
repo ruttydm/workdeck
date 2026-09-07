@@ -1,0 +1,16 @@
+{
+  "source": "test/pty/harness.ts",
+  "baselines": ["2c00f4358b89cfc0a6b04459ffc538ba601aa3c2", "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"],
+  "runtime": "Bun 1.3.14, disposable pinned checkouts, macOS arm64",
+  "capture": "Invoke each named createPtyHarness factory, SHA-256 the exact before and after file bytes, then cleanup. Both pins independently produced the following identical digests.",
+  "fixtures": [
+    {"name":"createLongWrapFilePair","before":"92cbf8f53873889b983e0f7c9e8aa93a33ee3df45964da6cd24bf3d177c5d607","after":"a505c6c3e775639d202baa4d3f8ede5dda50e9e7f77b9ea26dbd47492cd02613"},
+    {"name":"createWideCharacterFilePair","before":"2f8c96f281bd39191b6f82645efd9441f2876927d2c79c4ae1d8a0d80608f7cc","after":"ffc258f38ac41931f70b9e52f67e5f5d769dea5e151f20ee35883ff956d32302"},
+    {"name":"createTabbedFilePair","before":"587357802fc4c9436ec4ea096773b400a2680543e26e334e7aec892a45007117","after":"0f49a42817704f65e83072f09f824bcab95e50320b68104e943502e729dc1be5"},
+    {"name":"createDeletionOnlyFilePair","before":"d8d740e2e49245479aacae5acaaadba5415ec6ae6b23376f8d5dafcc9934b168","after":"a7af2111722e54ffd854f5b956f0cef25bf5c1c1f1f24683c6f37c9c591edf00"},
+    {"name":"createMultiHunkFilePair","before":"58766432a4d5420548fc461752cfe51da4ff6abd524936429e4be85e33462b09","after":"da5d37f43ff10e153ce4eaa9c8b3b5eecc8b908e74a1ded86f1aa8fa31d4e375"},
+    {"name":"createExpandableContextFilePair","before":"4c481942e2e17ba9ae849af3da91bc8a9cf3864afe8c8b3a20f16351787cae69","after":"715caadfcdb3af5ebf655c17d20bd18d1064c89abbfc17137e207b2d6c41cda8"},
+    {"name":"createScrollableFilePair","before":"cb3825fa0a5f0360b86876e0ca278186307cac2fc76323d0de9cc598b1f580dc","after":"295e8e8784fc77f4528689bef7454b1fafe696ad6b4cbd4362164b18eeb3b364"},
+    {"name":"createWatchFilePair","before":"c9b0f47625946534c6b6c13c68affcf62340a28dbce594928881d0b9affe787e","after":"a4137020eaa468450d66a83b401179357d319041c33e8f0ee555034186384a49"}
+  ]
+}

@@ -126,6 +126,11 @@ than collapsing a drag into one motion. Its coordinate tests cover both directio
 and stationary input; existing sidebar drag tests exercise it against the executable. Polling is
 capped by the remaining wait deadline so short motion intervals are not expanded to a fixed 50 ms.
 Fixture factories and the rest of `test/pty/harness.ts` still require complete source accounting.
+`oracles/pty-harness-file-pairs.json` freezes independently captured, identical SHA-256 digests
+from both pins for eight direct-file factories: wrapping, wide characters, tabs, deletion-only,
+multiple hunks, expandable context, scrolling, and watch startup. The native factory test compares
+every before/after byte digest and checks the watch-only Git initialization. This verifies those
+fixture outputs, not the containing harness's remaining factories or terminal differential gate.
 
 `oracles/pty-file-views.json` records thirteen baseline passes, the stable suite's initial
 menu timeout, isolated retry, and full thirteen-case passing retry. Native tests exercise compiled

@@ -4,6 +4,106 @@
 use super::{Duration, Session};
 use std::path::Path;
 
+pub(super) fn direct_file_pair(name: &str) -> tempfile::TempDir {
+    let numbered = |count: usize, padded: bool, offset: usize| {
+        (1..=count)
+            .map(|n| {
+                let label = if padded {
+                    format!("{n:02}")
+                } else {
+                    n.to_string()
+                };
+                format!("export const line{label} = {};\n", n + offset)
+            })
+            .collect::<String>()
+    };
+    let (before, after) = match name {
+        "createLongWrapFilePair" => (
+            "export const message = 'short';\n".into(),
+            "export const message = 'this is a very long wrapped line for tuistory integration coverage';\n".into(),
+        ),
+        "createWideCharacterFilePair" => (
+            "export const wide = '日本語';\nexport const plain = 'before';\n".into(),
+            "export const wide = '한국어';\nexport const plain = 'after';\n".into(),
+        ),
+        "createTabbedFilePair" => ("a\tbefore\n".into(), "a\tafter\n".into()),
+        "createDeletionOnlyFilePair" => (
+            "export const keep = true;\nexport const removeMe = true;\n".into(),
+            "export const keep = true;\n".into(),
+        ),
+        "createMultiHunkFilePair" => {
+            let before = numbered(80, false, 0);
+            let mut after = before.clone();
+            for n in std::iter::once(1).chain(60..=65) {
+                after = after.replace(
+                    &format!("export const line{n} = {n};\n"),
+                    &format!("export const line{n} = {};\n", n * 100),
+                );
+            }
+            (before, after)
+        }
+        "createExpandableContextFilePair" => {
+            let before = numbered(30, true, 0).replacen("line01", "hiddenLine01", 1);
+            let after = before.replace("line05 = 5;", "line05 = 500;");
+            (before, after)
+        }
+        "createScrollableFilePair" => (numbered(18, true, 0), numbered(18, true, 100)),
+        "createWatchFilePair" => (
+            "export const watchedValue = 'before';\n".into(),
+            "export const watchedValue = 'initial change';\n".into(),
+        ),
+        _ => panic!("unknown pinned file-pair factory: {name}"),
+    };
+    let root = tempfile::tempdir().unwrap();
+    if name == "createWatchFilePair" {
+        git(root.path(), &["init", "-q"]);
+    }
+    let extension = if name == "createTabbedFilePair" {
+        "txt"
+    } else {
+        "ts"
+    };
+    std::fs::write(root.path().join(format!("before.{extension}")), before).unwrap();
+    std::fs::write(root.path().join(format!("after.{extension}")), after).unwrap();
+    root
+}
+
+#[test]
+fn direct_file_pair_bytes_match_both_frozen_upstream_oracles() {
+    use sha2::{Digest, Sha256};
+    let oracle: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../port/hunk/oracles/pty-harness-file-pairs.json"
+    ))
+    .unwrap();
+    assert_eq!(oracle["baselines"].as_array().unwrap().len(), 2);
+    let fixtures = oracle["fixtures"].as_array().unwrap();
+    assert_eq!(fixtures.len(), 8);
+    for fixture in fixtures {
+        let name = fixture["name"].as_str().unwrap();
+        let root = direct_file_pair(name);
+        let extension = if name == "createTabbedFilePair" {
+            "txt"
+        } else {
+            "ts"
+        };
+        for side in ["before", "after"] {
+            let bytes = std::fs::read(root.path().join(format!("{side}.{extension}"))).unwrap();
+            assert_eq!(
+                format!("{:x}", Sha256::digest(bytes)),
+                fixture[side],
+                "{name} {side}"
+            );
+        }
+        assert_eq!(
+            root.path().join(".git").exists(),
+            name == "createWatchFilePair"
+        );
+        if name == "createWatchFilePair" {
+            assert_eq!(git(root.path(), &["ls-files"]), "");
+        }
+    }
+}
+
 pub(super) fn git(root: &Path, args: &[&str]) -> String {
     let output = std::process::Command::new("git")
         .args(args)
