@@ -8,6 +8,11 @@ use std::os::fd::{AsRawFd, FromRawFd};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
+// Hunk runs these lifecycle cases sequentially. Darwin revoke can hold tty
+// subsystem locks while other fixtures open/name/close their PTYs; do not
+// introduce cross-fixture interference through Rust's parallel test runner.
+static LIFECYCLE_FIXTURE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
     fn revoke(path: *const libc::c_char) -> libc::c_int;
@@ -149,6 +154,9 @@ fn redirected_input_accepts_arrow_and_quit_keys_through_crossterm() {
 }
 
 fn exercise_pipe_shutdown(signal: Option<i32>) {
+    let _fixture_guard = LIFECYCLE_FIXTURE_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("before.txt"), "old line\n").unwrap();
     fs::write(
@@ -254,6 +262,9 @@ enum Shutdown {
 }
 
 fn exercise_pty_shutdown(action: Shutdown) {
+    let _fixture_guard = LIFECYCLE_FIXTURE_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("before.txt"), "old line\n").unwrap();
     fs::write(
