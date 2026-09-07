@@ -72,3 +72,11 @@ review API without relaxing ordinary changed-hunk `reveal_line` validation. Gap 
 and restores the previous cursor target. The lens retains old-above-new rendering, fixed bottom-pane
 geometry, Unicode text, and split-only availability. Mouse tests cover one-cell click jitter,
 post-paging line selection, and multi-row copy drags across highlighted repaints.
+
+Chrome evidence is in `oracles/pty-chrome.json`: both pins pass all nine cases and 43 upstream
+assertions. `cargo test -p workdeck-tui pty_chrome` exercises routed mouse/keyboard menus, theme
+selection and rapid previews, note visibility, isolated preference saving with delayed quit,
+filter focus, controls help, and outer-cell gutter colors. Live rows now derive line-number widths
+per file instead of reserving four digits; measurement uses the same default. Exact stacked gutter
+text remains an assertion, not an allowed visual normalization. Broader UI source files and full
+cross-renderer cell-buffer/performance parity remain incomplete.

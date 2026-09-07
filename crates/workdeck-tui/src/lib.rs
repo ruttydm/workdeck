@@ -7089,7 +7089,6 @@ impl ReviewApp {
             return None;
         }
 
-        let fixed_line_number_digits = self.options.line_number_digits.unwrap_or(4).max(1);
         let mut geometry_cache = DiffSectionGeometryCache::default();
         let section_geometry = visible_files
             .iter()
@@ -7099,7 +7098,7 @@ impl ReviewApp {
                 options.show_hunk_headers = self.options.hunk_headers;
                 options.width = width;
                 options.show_line_numbers = self.options.line_numbers;
-                options.line_number_digits = Some(fixed_line_number_digits);
+                options.line_number_digits = self.options.line_number_digits;
                 options.wrap_lines = self.options.wrap_lines;
                 options.reserve_add_note_column = false;
                 options.tab_width = self.options.tab_width;
@@ -12034,6 +12033,13 @@ fn build_review_rows_with_chrome(
         if !visible(file_index, file) {
             continue;
         }
+        let mut file_options = options.clone();
+        file_options.line_number_digits = Some(
+            options
+                .line_number_digits
+                .unwrap_or_else(|| find_max_line_number(file).to_string().len()),
+        );
+        let options = &file_options;
         let first_visible_file = visible_file_position == 0;
         visible_file_position = visible_file_position.saturating_add(1);
         visible_file_indices.push(file_index);
@@ -17648,7 +17654,7 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect::<String>();
-        assert!(rendered.contains("[x] Automatic layout"));
+        assert!(rendered.contains("[x] Auto layout"));
         assert!(rendered.contains("[ ] Files pane"));
         assert!(rendered.contains("[x] Line numbers"));
         assert!(rendered.contains("[ ] Line wrapping"));
@@ -18909,6 +18915,280 @@ mod tests {
         assert_eq!(app.focus, Focus::Filter);
         assert!(frame.contains("filter:"));
         assert!(frame.contains('q'));
+    }
+
+    // Hunk MIT: test/pty/chrome.test.ts.
+    mod pty_chrome {
+        use super::*;
+
+        fn press(app: &mut ReviewApp, key: KeyCode) {
+            app.handle_key(KeyEvent::new(key, KeyModifiers::NONE));
+        }
+
+        fn setup(width: u16, height: u16) -> (ReviewApp, Terminal<TestBackend>) {
+            let app = ReviewApp::new(
+                responsive_changeset(),
+                ReviewOptions {
+                    layout: LayoutMode::Split,
+                    highlight: true,
+                    ..ReviewOptions::default()
+                },
+            );
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            rendered_review_frame(&mut terminal, &app);
+            (app, terminal)
+        }
+
+        fn click(app: &mut ReviewApp, terminal: &mut Terminal<TestBackend>, label: &str) {
+            let frame = rendered_review_frame(terminal, app);
+            let (row, line, offset) = frame
+                .lines()
+                .enumerate()
+                .find_map(|(row, line)| line.find(label).map(|offset| (row, line, offset)))
+                .unwrap_or_else(|| panic!("missing click target {label}:\n{frame}"));
+            let column = measure_text_width(&line[..offset]) as u16;
+            for kind in [
+                MouseEventKind::Down(MouseButton::Left),
+                MouseEventKind::Up(MouseButton::Left),
+            ] {
+                app.handle_mouse_event(MouseEvent {
+                    kind,
+                    column,
+                    row: row as u16,
+                    modifiers: KeyModifiers::NONE,
+                });
+            }
+            rendered_review_frame(terminal, app);
+        }
+
+        #[test]
+        fn tab_filter_narrows_the_live_review_stream() {
+            let (mut app, mut terminal) = setup(220, 24);
+            let initial = rendered_review_frame(&mut terminal, &app);
+            assert!(initial.contains("export const add = true;"));
+            assert!(initial.contains("betaValue"));
+            press(&mut app, KeyCode::Tab);
+            for ch in "beta".chars() {
+                press(&mut app, KeyCode::Char(ch));
+            }
+            let filtered = rendered_review_frame(&mut terminal, &app);
+            assert!(filtered.contains("betaValue"));
+            assert!(filtered.contains("filter: beta"));
+            assert!(!filtered.contains("alpha.ts"));
+            assert!(!filtered.contains("export const add = true;"));
+        }
+
+        #[test]
+        fn slash_filter_reaches_a_file_beyond_the_initial_viewport() {
+            let mut app = ReviewApp::new(
+                sidebar_jump_navigation_changeset(),
+                ReviewOptions {
+                    layout: LayoutMode::Split,
+                    ..ReviewOptions::default()
+                },
+            );
+            let mut terminal = Terminal::new(TestBackend::new(220, 12)).unwrap();
+            let initial = rendered_review_frame(&mut terminal, &app);
+            assert!(initial.contains("alphaOnly = true"));
+            assert!(initial.contains("betaValue = 2"));
+            press(&mut app, KeyCode::Char('/'));
+            assert!(
+                rendered_review_frame(&mut terminal, &app).contains("filter: type to filter files")
+            );
+            for ch in "delta".chars() {
+                press(&mut app, KeyCode::Char(ch));
+            }
+            let filtered = rendered_review_frame(&mut terminal, &app);
+            assert!(filtered.contains("filter: delta"));
+            assert!(filtered.contains("deltaOnly = true"));
+            assert!(!filtered.contains("alphaOnly = true"));
+        }
+
+        #[test]
+        fn mouse_theme_notes_and_help_menu_round_trip() {
+            let mut review = watched_changeset(true, Some("Adds bonus export."));
+            review.files[0].agent.as_mut().unwrap().annotations[0].rationale =
+                Some("Highlights the follow-up addition for review.".into());
+            let mut app = ReviewApp::new(
+                review,
+                ReviewOptions {
+                    layout: LayoutMode::Split,
+                    agent_notes: true,
+                    ..ReviewOptions::default()
+                },
+            );
+            let mut terminal = Terminal::new(TestBackend::new(140, 20)).unwrap();
+            let initial = rendered_review_frame(&mut terminal, &app);
+            assert!(initial.contains("Adds bonus export."));
+            assert!(initial.contains("Highlights the follow-up addition for review."));
+            click(&mut app, &mut terminal, "View");
+            click(&mut app, &mut terminal, "Themes…");
+            assert!(rendered_review_frame(&mut terminal, &app).contains("Theme selector"));
+            click(&mut app, &mut terminal, "github-light-default");
+            let selected = rendered_review_frame(&mut terminal, &app);
+            assert!(selected.contains("Theme: github-light-default"));
+            assert!(selected.contains("Adds bonus export."));
+            assert!(!selected.contains("Theme selector"));
+            click(&mut app, &mut terminal, "Agent");
+            assert!(rendered_review_frame(&mut terminal, &app).contains("Next annotated file"));
+            click(&mut app, &mut terminal, "Agent notes");
+            let hidden = rendered_review_frame(&mut terminal, &app);
+            assert!(!hidden.contains("Adds bonus export."));
+            assert!(!hidden.contains("Agent notes"));
+            click(&mut app, &mut terminal, "Agent");
+            click(&mut app, &mut terminal, "Agent notes");
+            assert!(rendered_review_frame(&mut terminal, &app).contains("Adds bonus export."));
+            click(&mut app, &mut terminal, "Help");
+            click(&mut app, &mut terminal, "Controls help");
+            let help = rendered_review_frame(&mut terminal, &app);
+            assert!(help.contains("Navigation"));
+            assert!(help.contains("g / Home"));
+        }
+
+        #[test]
+        fn mouse_save_persists_previewed_theme_before_quit() {
+            let directory = tempfile::TempDir::new().unwrap();
+            let config_path = directory.path().join("workdeck/config.toml");
+            let mut app = ReviewApp::new(
+                multi_hunk_navigation_changeset(),
+                ReviewOptions {
+                    view_preferences_config_path: Some(config_path.clone()),
+                    view_preferences_home_directory: Some(directory.path().to_owned()),
+                    ..ReviewOptions::default()
+                },
+            );
+            let mut terminal = Terminal::new(TestBackend::new(120, 24)).unwrap();
+            rendered_review_frame(&mut terminal, &app);
+            assert!(!config_path.exists());
+            press(&mut app, KeyCode::Char('t'));
+            rendered_review_frame(&mut terminal, &app);
+            press(&mut app, KeyCode::Down);
+            assert!(rendered_review_frame(&mut terminal, &app).contains("›  github-dark-dimmed"));
+            press(&mut app, KeyCode::Enter);
+            assert!(!rendered_review_frame(&mut terminal, &app).contains("Theme selector"));
+            press(&mut app, KeyCode::Char('q'));
+            let prompt = rendered_review_frame(&mut terminal, &app);
+            for label in [
+                "Save view preferences?",
+                "- theme = \"github-dark-default\"",
+                "+ theme = \"github-dark-dimmed\"",
+                "enter/s save",
+            ] {
+                assert!(prompt.contains(label), "{label}:\n{prompt}");
+            }
+            click(&mut app, &mut terminal, "enter/s save");
+            assert!(
+                std::fs::read_to_string(config_path)
+                    .unwrap()
+                    .contains("theme = \"github-dark-dimmed\"")
+            );
+            assert!(!app.take_quit_requested());
+            app.tick_extension_notifications(Instant::now() + POST_PERSISTENCE_QUIT_DELAY);
+            assert!(app.take_quit_requested());
+        }
+
+        #[test]
+        fn question_mark_opens_keyboard_controls() {
+            let (mut app, mut terminal) = setup(220, 24);
+            press(&mut app, KeyCode::Char('?'));
+            let frame = rendered_review_frame(&mut terminal, &app);
+            assert!(frame.contains("Controls help"));
+            assert!(frame.contains("move line-by-line"));
+        }
+
+        #[test]
+        fn rapid_theme_previews_remain_responsive_with_large_highlighted_files() {
+            let review = navigation_changeset(
+                (0..8)
+                    .map(|index| {
+                        (
+                            format!("theme-preview-{index}.ts"),
+                            numbered_exports(1, 150, index * 1_000, false),
+                            numbered_exports(1, 150, (index + 8) * 1_000, false),
+                        )
+                    })
+                    .collect(),
+            );
+            let mut app = ReviewApp::new(review, ReviewOptions::default());
+            let mut terminal = Terminal::new(TestBackend::new(120, 24)).unwrap();
+            rendered_review_frame(&mut terminal, &app);
+            press(&mut app, KeyCode::Char('t'));
+            let initial_index = app.themes.selected_index(&app.theme_catalog());
+            for _ in 0..100 {
+                press(&mut app, KeyCode::Char('j'));
+                let frame = rendered_review_frame(&mut terminal, &app);
+                assert!(frame.contains("Theme selector"));
+                std::thread::sleep(Duration::from_millis(30));
+            }
+            let frame = rendered_review_frame(&mut terminal, &app);
+            assert!(frame.contains("Theme selector"));
+            assert_ne!(
+                app.themes.selected_index(&app.theme_catalog()),
+                initial_index
+            );
+            assert!(frame.lines().any(|line| line.contains("›  ")));
+            assert!(app.themes.selector_open);
+        }
+
+        #[test]
+        fn mouse_menu_switches_to_stacked_layout() {
+            let (mut app, mut terminal) = setup(220, 24);
+            assert!(
+                rendered_review_frame(&mut terminal, &app)
+                    .lines()
+                    .any(|line| line.matches('▌').count() >= 2)
+            );
+            click(&mut app, &mut terminal, "View");
+            let menu = rendered_review_frame(&mut terminal, &app);
+            assert!(menu.contains("Stacked view"));
+            assert!(menu.contains("Split view"));
+            click(&mut app, &mut terminal, "Stacked view");
+            let stacked = rendered_review_frame(&mut terminal, &app);
+            assert_eq!(app.layout(), LayoutMode::Stack);
+            assert!(!stacked.lines().any(|line| line.matches('▌').count() >= 2));
+            assert!(
+                stacked.contains("1   -  export const alpha = 1;"),
+                "{stacked}"
+            );
+            assert!(stacked.contains("1   -  export const beta = 1;"));
+        }
+
+        #[test]
+        fn keyboard_menu_switches_to_stacked_layout() {
+            let (mut app, mut terminal) = setup(220, 24);
+            press(&mut app, KeyCode::F(10));
+            let menu = rendered_review_frame(&mut terminal, &app);
+            for label in ["Toggle files/filter focus", "Quit", "Reload"] {
+                assert!(menu.contains(label), "{label}");
+            }
+            press(&mut app, KeyCode::Right);
+            let menu = rendered_review_frame(&mut terminal, &app);
+            for label in ["Split view", "Stacked view", "Auto layout"] {
+                assert!(menu.contains(label), "{label}");
+            }
+            press(&mut app, KeyCode::Down);
+            press(&mut app, KeyCode::Enter);
+            let stacked = rendered_review_frame(&mut terminal, &app);
+            assert_eq!(app.layout(), LayoutMode::Stack);
+            assert!(!stacked.lines().any(|line| line.matches('▌').count() >= 2));
+            assert!(stacked.contains("1   -  export const alpha = 1;"));
+        }
+
+        #[test]
+        fn menu_bar_and_body_share_one_column_outer_gutters() {
+            let (app, mut terminal) = setup(100, 20);
+            app.with_state(|state| state.set_layout(LayoutMode::Auto));
+            let frame = rendered_review_frame(&mut terminal, &app);
+            let body_row = frame
+                .lines()
+                .position(|line| line.contains("export const alpha"))
+                .unwrap() as u16;
+            let buffer = terminal.backend().buffer();
+            assert_eq!(buffer[(0, 0)].bg, buffer[(0, body_row)].bg);
+            assert_eq!(buffer[(99, 0)].bg, buffer[(99, body_row)].bg);
+            assert_ne!(buffer[(1, 0)].bg, buffer[(0, 0)].bg);
+            assert_ne!(buffer[(98, 0)].bg, buffer[(99, 0)].bg);
+        }
     }
 
     // Hunk MIT: test/pty/key-routing.test.ts, baseline 2c00f435.

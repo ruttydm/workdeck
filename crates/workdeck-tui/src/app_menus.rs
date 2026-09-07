@@ -155,7 +155,7 @@ pub fn build_app_menus(options: BuildAppMenusOptions) -> AppMenus {
         ),
         checked(
             "workdeck.view.layoutAuto",
-            "Automatic layout",
+            "Auto layout",
             options.layout_mode == LayoutMode::Auto,
         ),
         MenuEntrySpec::Separator,
