@@ -47,6 +47,9 @@ non-metric output. Five frozen cases match both pins. This parser does not execu
 benchmark suite. Native report models also retain runtime, version, sample-count and regression
 explanation metadata; a read-only test round-trips all 22 pinned historical release reports.
 Historical runtime metadata is data only and never starts a JavaScript runtime.
+The benchmark-result source mapping covers thresholds, metrics, runtime metadata, regression
+explanations, run/comparison records, classification and nearest-rank aggregation. It does not
+cover the separate runner, workload execution, or the final same-host performance gate.
 
 `cargo xtask benchmark render-layout` measures split rows, stack rows, section geometry and
 review plans for the three pinned size/shape scenarios. Native row counts match both oracles,
