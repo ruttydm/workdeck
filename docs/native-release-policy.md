@@ -40,6 +40,17 @@ cross-platform CI, or the remaining release gates. See [the semantic-port ledger
 
 ## Benchmark aggregation boundary
 
+`cargo xtask benchmark render-layout` measures split rows, stack rows, section geometry and
+review plans for the three pinned size/shape scenarios. Native row counts match both oracles,
+including the 18,000-line single-file case. Stream content retains the source's declared statistics
+and full before/after snapshots. The broader huge-stream and application-bootstrap fixture helpers
+remain incomplete; no same-host latency or memory acceptance is inferred from these count tests.
+
+This workload exposed and fixed a product-level snapshot bug: `diff_from_file_snapshots` now marks
+complete text comparisons non-partial and retains both full sources, so trailing collapsed gaps
+remain visible. Patch-only parsing remains partial. Diff-library and live terminal tests cover
+the change; the benchmark oracle detects the formerly missing row per balanced-stream file.
+
 `cargo xtask benchmark working-tree` creates disposable Git fixtures for the five pinned tracked
 and untracked scenarios and emits native `METRIC` lines. Structural file/addition/deletion counts
 are checked against both pinned runtimes. The current timed boundary is bundled VCS catalog

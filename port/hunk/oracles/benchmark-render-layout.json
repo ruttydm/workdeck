@@ -1,0 +1,16 @@
+{
+  "baselines": ["2c00f4358b89cfc0a6b04459ffc538ba601aa3c2", "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"],
+  "runtime": "Bun 1.3.14, disposable pinned checkouts",
+  "source": "benchmarks/render-layout.ts",
+  "source_fixture": "benchmarks/large-stream-fixture.ts",
+  "complete_snapshot_metadata": {"isPartial":false,"additionLines":120,"deletionLines":120},
+  "performance_gate": "NOT EVIDENCE: overlapping diagnostic captures; structural counts only are parity assertions.",
+  "scenarios": [
+    {"name":"many_small_files","files":360,"split_rows":6120,"stack_rows":10440,"planned_rows":6120,"baseline_ms":{"split_rows":5.06,"stack_rows":4.16,"geometry":13.30,"review_plan":6.21},"stable_ms":{"split_rows":4.86,"stack_rows":3.92,"geometry":12.11,"review_plan":7.27}},
+    {"name":"balanced_stream","files":180,"split_rows":10260,"stack_rows":18900,"planned_rows":10260,"baseline_ms":{"split_rows":4.18,"stack_rows":4.45,"geometry":11.81,"review_plan":8.66},"stable_ms":{"split_rows":4.33,"stack_rows":4.60,"geometry":13.11,"review_plan":9.35}},
+    {"name":"large_single_file","files":1,"split_rows":16010,"stack_rows":32011,"planned_rows":16010,"baseline_ms":{"split_rows":7.19,"stack_rows":6.44,"geometry":20.25,"review_plan":11.52},"stable_ms":{"split_rows":8.42,"stack_rows":5.94,"geometry":18.84,"review_plan":10.95}}
+  ],
+  "ledger_status": "The render-layout workload has a native mapping; the containing large-stream fixture remains unmapped until its huge/bootstrap helpers are complete.",
+  "native_test": "benchmark::render_layout::tests::all_native_row_counts_match_both_pinned_workloads",
+  "snapshot_regressions": ["workdeck_diff::tests::compares_text_snapshots_with_pierre_compatible_explicit_hunk_counts", "diff_section_body::tests::source_capability_gates_gap_toggle_and_highlight_readiness"]
+}

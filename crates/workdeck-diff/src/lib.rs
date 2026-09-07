@@ -82,7 +82,7 @@ pub use word_diff::{WordDiffRanges, word_diff_ranges};
 use thiserror::Error;
 use workdeck_core::{
     Changeset, ChangesetSource, DiffFile, DiffHunk, DiffLine, DiffLineKind, FileChangeKind,
-    FileFlags, FileStats,
+    FileFlags, FileSourceSnapshots, FileStats, SourceOrigin, SourceSnapshot,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -321,6 +321,25 @@ pub fn diff_from_file_snapshots(
     }
     file.previous_path = (before.name != after.name).then(|| before.name.to_owned());
     file.path = after.name.to_owned();
+    // A comparison built from complete texts is not partial patch metadata. Keeping the
+    // parser's partial flag suppresses trailing source gaps and misclassifies highlighting.
+    file.flags.partial = false;
+    file.set_sources(FileSourceSnapshots {
+        old: Some(SourceSnapshot::new(
+            before.contents.to_owned(),
+            SourceOrigin::File {
+                path: before.name.to_owned(),
+            },
+            true,
+        )),
+        new: Some(SourceSnapshot::new(
+            after.contents.to_owned(),
+            SourceOrigin::File {
+                path: after.name.to_owned(),
+            },
+            true,
+        )),
+    });
     file.refresh_identity();
     file.refresh_address(&source_id, 0);
     Ok(file)
@@ -1288,6 +1307,12 @@ mod tests {
         assert_eq!(file.stats.deletions, 1);
         assert_eq!(file.hunks[0].formatted_header(), "@@ -1,2 +1,3 @@");
         assert!(file.runtime_id.starts_with("old-cache:new-cache:"));
+        assert!(!file.flags.partial);
+        assert_eq!(file.sources.old.as_ref().unwrap().content, "one\ntwo\n");
+        assert_eq!(
+            file.sources.new.as_ref().unwrap().content,
+            "one\nthree\nadded\n"
+        );
     }
 
     #[test]

@@ -937,6 +937,22 @@ mod tests {
         let mut expanded = HashSet::new();
         expanded.insert("before:0".into());
         let mut file = file("zero\none\ntwo\n", "zero\nONE\ntwo\n");
+        let mut complete_options =
+            DiffSectionBodyOptions::new(Some(&file), LayoutMode::Stack, &theme, &expanded);
+        complete_options.interactions.toggle_gap = Some(7);
+        let complete = paint_diff_section_body(&DiffSectionBodyState::default(), complete_options);
+        let PaintedDiffSectionContent::Rows {
+            rows: complete_rows,
+            ..
+        } = complete.content
+        else {
+            panic!("complete snapshot did not render rows");
+        };
+        assert!(complete_rows.iter().any(|row| matches!(row, PaintedDiffSectionRow::Diff { painted:PaintedDiffRow::Metadata(meta), .. } if meta.gap_toggle_hit.is_some())));
+
+        // This branch intentionally models a patch-only file without source capability.
+        file.flags.partial = true;
+        file.set_sources(FileSourceSnapshots::default());
         let mut unavailable_options =
             DiffSectionBodyOptions::new(Some(&file), LayoutMode::Stack, &theme, &expanded);
         unavailable_options.interactions.toggle_gap = Some(7);

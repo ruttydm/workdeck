@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 mod fixtures;
 mod release;
+mod render_layout;
 mod working_tree;
 
 #[derive(Debug, Serialize)]
@@ -636,6 +637,9 @@ fn aggregate(source: &str, name: &str, samples: Vec<f64>) -> Metric {
 
 pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     let command = args.next();
+    if command.as_deref() == Some("render-layout") {
+        return render_layout::run(args);
+    }
     if command.as_deref() == Some("synthetic-patch") {
         return fixtures::run(args);
     }

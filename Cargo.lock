@@ -3398,7 +3398,9 @@ dependencies = [
  "url",
  "workdeck-core",
  "workdeck-diff",
+ "workdeck-review",
  "workdeck-session",
+ "workdeck-tui",
  "workdeck-vcs",
  "zip",
 ]

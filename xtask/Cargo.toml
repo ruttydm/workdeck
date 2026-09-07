@@ -31,3 +31,5 @@ workdeck-session = { path = "../crates/workdeck-session" }
 workdeck-core = { path = "../crates/workdeck-core" }
 workdeck-vcs = { path = "../crates/workdeck-vcs" }
 workdeck-diff = { path = "../crates/workdeck-diff" }
+workdeck-tui = { path = "../crates/workdeck-tui" }
+workdeck-review = { path = "../crates/workdeck-review" }
