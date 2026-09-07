@@ -9,11 +9,11 @@ default optimized Cargo release profile at `28a8854a49e4acabc9c27a03a02dc69f3857
 Both disposable Hunk checkouts used Bun 1.3.14 with update notices and MCP disabled.
 Other host activity was not controlled; no peak-memory comparison was captured.
 
-| Median, milliseconds | Hunk main 2c00f435 | Hunk v0.20.1 | Workdeck 28a8854a | Workdeck 9780b4cf |
-| --- | ---: | ---: | ---: | ---: |
-| Cold first frame | 2.40 | 2.08 | 237.62 | 170.51 |
-| Warm first frame | 1.76 | 1.56 | 235.13 | 168.76 |
-| Four wheel ticks | 197.42 | 207.60 | 1815.55 | 1389.65 |
+| Median, milliseconds | Hunk main 2c00f435 | Hunk v0.20.1 | Workdeck 28a8854a | Workdeck 9780b4cf | Workdeck f62e190e |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Cold first frame | 2.40 | 2.08 | 237.62 | 170.51 | 158.30 |
+| Warm first frame | 1.76 | 1.56 | 235.13 | 168.76 | 156.36 |
+| Four wheel ticks | 197.42 | 207.60 | 1815.55 | 1389.65 | 1293.14 |
 
 All three native timings exceed the 10% limit against both pins. The report schema's inherited
 15%-plus-absolute thresholds are historical compatibility metadata, not Workdeck's acceptance gate.
@@ -26,6 +26,12 @@ wheel-tick latency about 23%, relative to the first native run. Both native vers
 the latency gate by a wide margin. No memory or full-process launch acceptance is implied.
 The same change corrects query whitespace against a dual-pin oracle (U+0085 is not trimmed;
 U+FEFF is), with a reproduced failing test before the correction.
+
+The third native run (`f62e190e`) uses borrowed metadata serialization for highlight fingerprints.
+Byte-for-byte JSON and digest tests preserve the existing cache identity, including Unicode and
+full source snapshots. The same optimized three-sample procedure improves these medians another
+7–8% versus `9780b4cf`, but still fails the latency gate. This report predates shared token-cache
+reads and cannot establish their performance impact.
 
 The source workload excludes fixture/app construction and highlight-settlement cleanup from its
 timers. Therefore first-frame results are not full-process launch results. A separate debug CPU
@@ -52,3 +58,4 @@ Raw reports retain every sample, source Git SHA, runtime identity, quantile and 
 - [Pinned stable](large-stream-hunk-v0.20.1.json)
 - [Optimized native before performance fixes](large-stream-native-28a8854a.json)
 - [Optimized native after borrowed-field filtering](large-stream-native-9780b4cf.json)
+- [Optimized native after borrowed fingerprint serialization](large-stream-native-f62e190e.json)
