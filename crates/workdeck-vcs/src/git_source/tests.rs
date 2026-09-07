@@ -285,7 +285,10 @@ fn oversized_diagnostics_force_terminate_a_child_that_ignores_term() {
     let executable = fixture.path().join("overflow-git");
     write_executable(
         &executable,
-        "#!/bin/sh\ntrap '' TERM\nprintf 'small source\\n'\nhead -c 70000 /dev/zero | tr '\\000' x >&2\nwhile :; do sleep 1; done\n",
+        &format!(
+            "#!/bin/sh\ntrap '' TERM\nsleep 10 &\nprintf 'small source\\n'\nprintf '%s' '{}' >&2\nwait\n",
+            "x".repeat(70_000)
+        ),
     );
     let (mut options, diagnostics) = capturing_options();
     options.git_executable = executable;
@@ -302,7 +305,11 @@ fn oversized_diagnostics_force_terminate_a_child_that_ignores_term() {
         ),
         LimitedSourceTextResult::Missing
     );
-    assert!(started.elapsed() < Duration::from_secs(2));
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "cleanup took {:?}",
+        started.elapsed()
+    );
     let diagnostics = diagnostics.lock().unwrap();
     assert_eq!(diagnostics.len(), 1);
     assert!(diagnostics[0].contains("failed to collect Git source"));

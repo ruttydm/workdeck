@@ -126,7 +126,7 @@ fn read_git_object_spec(
     options: &GitFileSourceOptions,
 ) -> LimitedSourceTextResult {
     let mut command = git_source_command(options, repo_root, object_name);
-    let mut process = match command.spawn() {
+    let mut process = match crate::source_text::spawn_source_subprocess(&mut command) {
         Ok(process) => process,
         Err(error) => {
             emit_diagnostic(

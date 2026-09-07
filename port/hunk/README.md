@@ -147,3 +147,10 @@ lifecycle suite runs passed after this correction.
 Lifecycle fixtures now also run sequentially, matching the source suite: Darwin terminal revocation
 can otherwise hold terminal subsystem locks across independent fixtures. Original exit deadlines
 remain unchanged.
+
+Git/Jujutsu source collection owns a dedicated Unix subprocess group. Overflow cleanup terminates
+descendants as well as the direct child so inherited output pipes cannot keep reader joins blocked.
+The diagnostic-overflow regressions retain their original Git two-second and Jujutsu five-second
+deadlines with ten-second descendant
+sleeps; a separate test checks cleanup after the parent exits on TERM and verifies an unrelated
+process remains alive. This does not assert Windows process-tree cleanup parity.

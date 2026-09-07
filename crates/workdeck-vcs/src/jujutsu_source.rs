@@ -88,7 +88,7 @@ pub fn read_jj_file_source(
 ) -> LimitedSourceTextResult {
     let arguments = jj_source_arguments(spec);
     let mut command = jj_source_command(options, spec, &arguments);
-    let mut process = match command.spawn() {
+    let mut process = match crate::source_text::spawn_source_subprocess(&mut command) {
         Ok(process) => process,
         Err(error) => {
             emit_diagnostic(

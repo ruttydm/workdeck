@@ -3,7 +3,7 @@
 use std::fs;
 use std::io::{self, Read};
 use std::path::Path;
-use std::process::{Child, ExitStatus};
+use std::process::{Child, Command, ExitStatus};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -105,6 +105,76 @@ pub trait SourceSubprocess {
     fn request_terminate(&mut self) -> io::Result<()>;
     fn force_kill(&mut self) -> io::Result<()>;
     fn try_wait_for_exit(&mut self) -> io::Result<Option<ExitStatus>>;
+    fn finish_cleanup(&mut self) {}
+}
+
+/// A source command and its explicitly owned Unix process group. Killing only
+/// the shell can leave descendants holding the reader pipes open indefinitely.
+pub(crate) struct OwnedSourceSubprocess {
+    child: Child,
+    #[cfg(unix)]
+    group: libc::pid_t,
+}
+
+pub(crate) fn spawn_source_subprocess(command: &mut Command) -> io::Result<OwnedSourceSubprocess> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let child = command.spawn()?;
+    Ok(OwnedSourceSubprocess {
+        #[cfg(unix)]
+        group: child.id() as libc::pid_t,
+        child,
+    })
+}
+
+impl std::ops::Deref for OwnedSourceSubprocess {
+    type Target = Child;
+    fn deref(&self) -> &Child {
+        &self.child
+    }
+}
+
+impl std::ops::DerefMut for OwnedSourceSubprocess {
+    fn deref_mut(&mut self) -> &mut Child {
+        &mut self.child
+    }
+}
+
+impl SourceSubprocess for OwnedSourceSubprocess {
+    fn request_terminate(&mut self) -> io::Result<()> {
+        #[cfg(unix)]
+        {
+            // SAFETY: spawn assigned this child a new group whose ID is its PID.
+            if unsafe { libc::kill(-self.group, libc::SIGTERM) } == 0 {
+                Ok(())
+            } else {
+                Err(io::Error::last_os_error())
+            }
+        }
+        #[cfg(not(unix))]
+        self.child.kill()
+    }
+
+    fn force_kill(&mut self) -> io::Result<()> {
+        self.finish_cleanup();
+        self.child.kill()
+    }
+
+    fn try_wait_for_exit(&mut self) -> io::Result<Option<ExitStatus>> {
+        self.child.try_wait()
+    }
+
+    fn finish_cleanup(&mut self) {
+        #[cfg(unix)]
+        // SAFETY: this is only the group explicitly created for this source command.
+        // A descendant can retain both pipe descriptors after the parent exits.
+        unsafe {
+            libc::kill(-self.group, libc::SIGKILL);
+        }
+    }
 }
 
 impl SourceSubprocess for Child {
@@ -125,6 +195,7 @@ impl SourceSubprocess for Child {
 pub fn terminate_source_subprocess(process: &mut impl SourceSubprocess) {
     let _ = process.request_terminate();
     if wait_for_source_subprocess_exit(process, SOURCE_SUBPROCESS_GRACE) {
+        process.finish_cleanup();
         return;
     }
     let _ = process.force_kill();
@@ -204,6 +275,38 @@ mod tests {
     #[derive(Default)]
     struct NeverExits {
         signals: Vec<&'static str>,
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn owned_cleanup_closes_descendant_pipes_even_when_the_parent_exits_on_term() {
+        let mut command = Command::new("sh");
+        command
+            .args([
+                "-c",
+                "trap 'exit 0' TERM; (trap '' TERM; sleep 10) & printf R; wait",
+            ])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null());
+        let mut process = spawn_source_subprocess(&mut command).unwrap();
+        let mut output = process.stdout.take().unwrap();
+        let mut ready = [0];
+        output.read_exact(&mut ready).unwrap();
+        assert_eq!(ready, *b"R");
+        let mut unrelated = Command::new("sleep").arg("10").spawn().unwrap();
+        let started = Instant::now();
+        terminate_source_subprocess(&mut process);
+        let mut tail = Vec::new();
+        output.read_to_end(&mut tail).unwrap();
+        let unrelated_survived = unrelated.try_wait().unwrap().is_none();
+        let _ = unrelated.kill();
+        let _ = unrelated.wait();
+        assert!(
+            unrelated_survived,
+            "cleanup must not signal an unrelated process group"
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(tail.is_empty());
     }
 
     impl SourceSubprocess for NeverExits {
