@@ -12,5 +12,5 @@
     {"name":"untracked_few_large", "files":14, "additions":30104, "deletions":104, "baseline_load_ms":114.28, "stable_load_ms":104.85}
   ],
   "native_boundary": "Bundled VCS catalog loading and changeset materialization; full application-bootstrap overhead remains unported in this benchmark.",
-  "ledger_status": "Both containing runtime source records remain unmapped."
+  "ledger_status": "Working-tree workload remains unmapped until full bootstrap coverage; shared fixtures have separate byte and repository evidence in benchmark-fixtures.json and native tests."
 }

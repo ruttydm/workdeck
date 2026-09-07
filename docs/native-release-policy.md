@@ -43,10 +43,21 @@ cross-platform CI, or the remaining release gates. See [the semantic-port ledger
 `cargo xtask benchmark working-tree` creates disposable Git fixtures for the five pinned tracked
 and untracked scenarios and emits native `METRIC` lines. Structural file/addition/deletion counts
 are checked against both pinned runtimes. The current timed boundary is bundled VCS catalog
-loading plus changeset materialization, not complete application bootstrap. The shared fixture's
-patch generator and configurable variants also remain unfinished. Neither source file is mapped.
+loading plus changeset materialization, not complete application bootstrap. That workload source
+file remains unmapped.
 Single oracle timings in `benchmark-working-tree.json` overlapped other validation and are explicitly
 excluded from the same-host performance acceptance evidence.
+
+The shared fixture generator is native in `xtask/src/benchmark/fixtures.rs`: it supports configurable
+line counts/change regions, patch prefixes/extensions, committed-before/modified-after repositories,
+untracked sources, Git diagnostics and automatic temporary-directory cleanup. Source and patch
+bytes match twelve dual-pin fixtures; repository tests verify commit identity, custom extensions,
+untracked paths and cleanup. Generated TypeScript-like content exists only as benchmark input,
+not executable tooling or a source mirror. Fixture commits disable user signing agents.
+`cargo xtask benchmark synthetic-patch OPTIONS_JSON` emits the deterministic patch without writing
+repository state. Options retain camel-case names such as `fileCount`, `changedStart`, and
+`changedLines`; fractional counts are truncated and negative counts generate empty arrays, while
+changed-region bounds retain their numeric comparisons.
 
 `cargo xtask benchmark aggregate SOURCE METRIC SAMPLES_JSON` emits native JSON with the
 source-compatible nearest-rank median, p75, p95, extrema, original sample order, units, and metric

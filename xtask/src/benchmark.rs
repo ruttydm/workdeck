@@ -7,6 +7,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+mod fixtures;
 mod release;
 mod working_tree;
 
@@ -635,6 +636,9 @@ fn aggregate(source: &str, name: &str, samples: Vec<f64>) -> Metric {
 
 pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     let command = args.next();
+    if command.as_deref() == Some("synthetic-patch") {
+        return fixtures::run(args);
+    }
     if command.as_deref() == Some("working-tree") {
         return working_tree::run(args);
     }

@@ -2,8 +2,6 @@
 //! Measures the native catalog/materialization path; full application bootstrap remains separate.
 
 use super::*;
-use std::fs;
-use std::process::{Command, Stdio};
 use std::time::Instant;
 use workdeck_core::{ChangesetSource, CommonOptions, InputLayoutMode, VcsDiffCommandInput};
 use workdeck_vcs::{
@@ -58,76 +56,36 @@ const SCENARIOS: [Scenario; 5] = [
     },
 ];
 
+#[cfg(test)]
 fn synthetic_source(index: usize, changed: bool, lines: usize) -> String {
-    let start = lines / 3;
-    let end = start + (lines / 6).max(4);
-    (0..lines).map(|line_index| {
-        let line = line_index+1;
-        if changed && (start..end).contains(&line_index) {
-            format!("export function bench{index}_{line}(value: number) {{ return value * {line} + {index}; }}\n")
-        } else {
-            format!("export function bench{index}_{line}(value: number) {{ return value + {line}; }}\n")
-        }
-    }).collect()
-}
-
-fn git(root: &Path, args: &[&str]) -> Result<String> {
-    let result = Command::new("git")
-        .args(args)
-        .current_dir(root)
-        .stdin(Stdio::null())
-        .output()?;
-    if !result.status.success() {
-        let stderr = String::from_utf8_lossy(&result.stderr);
-        let stderr = super::super::release_channel::trim_source_whitespace(&stderr);
-        bail!(
-            "{}",
-            if stderr.is_empty() {
-                format!("git {} failed", args.join(" "))
-            } else {
-                stderr.into()
-            }
-        );
-    }
-    Ok(String::from_utf8_lossy(&result.stdout).into_owned())
+    fixtures::source(
+        index,
+        changed,
+        &fixtures::Options {
+            file_count: 1.0,
+            lines: lines as f64,
+            changed_start: None,
+            changed_lines: None,
+            extension: "ts".into(),
+            prefix: "src/bench".into(),
+        },
+    )
 }
 
 fn fixture(scenario: Scenario) -> Result<tempfile::TempDir> {
-    let root = tempfile::Builder::new()
-        .prefix("workdeck-benchmark-repo-")
-        .tempdir()?;
-    git(root.path(), &["init"])?;
-    git(root.path(), &["config", "user.name", "Benchmark User"])?;
-    git(
+    let root = fixtures::changed_repo(&fixtures::Options {
+        file_count: scenario.files as f64,
+        lines: scenario.lines as f64,
+        changed_start: None,
+        changed_lines: None,
+        extension: "ts".into(),
+        prefix: "src/bench".into(),
+    })?;
+    fixtures::add_untracked(
         root.path(),
-        &["config", "user.email", "benchmark@example.com"],
+        scenario.untracked_files as f64,
+        scenario.untracked_lines as f64,
     )?;
-    // Fixtures must not invoke a user's signing agent.
-    git(root.path(), &["config", "commit.gpgsign", "false"])?;
-    fs::create_dir_all(root.path().join("src"))?;
-    for index in 1..=scenario.files {
-        fs::write(
-            root.path().join(format!("src/bench{index}.ts")),
-            synthetic_source(index, false, scenario.lines),
-        )?;
-    }
-    git(root.path(), &["add", "."])?;
-    git(root.path(), &["commit", "-m", "initial benchmark fixture"])?;
-    for index in 1..=scenario.files {
-        fs::write(
-            root.path().join(format!("src/bench{index}.ts")),
-            synthetic_source(index, true, scenario.lines),
-        )?;
-    }
-    if scenario.untracked_files > 0 {
-        fs::create_dir_all(root.path().join("untracked"))?;
-    }
-    for index in 1..=scenario.untracked_files {
-        fs::write(
-            root.path().join(format!("untracked/new{index}.ts")),
-            synthetic_source(index, true, scenario.untracked_lines),
-        )?;
-    }
     Ok(root)
 }
 
@@ -202,7 +160,9 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::fixtures::git;
     use super::*;
+    use std::fs;
 
     #[test]
     fn native_working_tree_scenarios_match_both_pinned_structural_counts() {

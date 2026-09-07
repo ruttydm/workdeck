@@ -30,3 +30,4 @@ zip = { version = "2.4", default-features = false, features = ["deflate"] }
 workdeck-session = { path = "../crates/workdeck-session" }
 workdeck-core = { path = "../crates/workdeck-core" }
 workdeck-vcs = { path = "../crates/workdeck-vcs" }
+workdeck-diff = { path = "../crates/workdeck-diff" }

@@ -3397,6 +3397,7 @@ dependencies = [
  "tempfile",
  "url",
  "workdeck-core",
+ "workdeck-diff",
  "workdeck-session",
  "workdeck-vcs",
  "zip",
