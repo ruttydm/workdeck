@@ -27,16 +27,26 @@
       "status": "not-applicable-source-file-absent"
     }
   },
-  "translation_status": "partial-unmapped",
+  "translation_status": "translated-test",
   "native_evidence": "crates/workdeck-cli/tests/terminal_lifecycle.rs",
   "verified": [
     "PTY master closure returns exit code zero without a terminating signal",
     "macOS controlling terminal revocation returns exit code zero",
-    "SIGHUP, SIGQUIT and SIGPIPE return exit code zero with PTY streams",
+    "SIGHUP, SIGQUIT and SIGPIPE return exit code zero within two seconds with pipes and session brokering enabled",
+    "Additional SIGHUP, SIGQUIT and SIGPIPE coverage uses PTY streams",
+    "Redirected arrow-key and quit input passes through the native Crossterm parser",
     "Initial viewing does not create .agents repository state"
   ],
-  "remaining": [
-    "The three source signal cases use piped streams with session brokering enabled; terminal-only tests do not cover those cases.",
-    "The lifecycle source ledger interval remains unmapped."
+  "test_mapping": [
+    { "source_test": "exits cleanly on SIGHUP", "test": "exits_cleanly_on_sighup_with_pipes_and_broker" },
+    { "source_test": "exits cleanly on SIGQUIT", "test": "exits_cleanly_on_sigquit_with_pipes_and_broker" },
+    { "source_test": "exits cleanly on SIGPIPE", "test": "exits_cleanly_on_sigpipe_with_pipes_and_broker" },
+    { "source_test": "exits when the host closes the PTY master", "test": "exits_cleanly_when_host_closes_pty_master" },
+    { "source_test": "exits when macOS revokes the controlling terminal", "test": "exits_cleanly_when_controlling_terminal_is_revoked" }
+  ],
+  "harness_adaptations": [
+    "Rust owns and reaps a separately spawned daemon on an isolated loopback port instead of discovering and signaling daemon PIDs.",
+    "The macOS child uses setsid and TIOCSCTTY instead of a shell supervisor; its exact process exit status is collected directly.",
+    "Terminal lifecycle tests do not claim broader cell-buffer visual parity."
   ]
 }

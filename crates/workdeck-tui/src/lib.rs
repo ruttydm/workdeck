@@ -71,6 +71,8 @@ mod modal_frame;
 mod mouse_capture;
 mod mouse_scroll;
 mod open_in_editor;
+#[cfg(unix)]
+mod piped_input;
 mod planned_review_row;
 mod planned_row_text;
 mod public_review;
@@ -220,7 +222,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget, Wrap};
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::io::{self, IsTerminal};
+use std::io;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -8734,11 +8736,6 @@ fn run_review_inner(
     mut reloader: Option<&mut ReviewReloader<'_>>,
     mut dynamic_reloader: Option<&mut DynamicReviewReloader<'_>>,
 ) -> Result<()> {
-    if !io::stdout().is_terminal() {
-        anyhow::bail!(
-            "interactive review requires a terminal; use a Workdeck headless command for redirected output"
-        );
-    }
     if let Some((input, _, _)) = &watch_input {
         options.review_input = Some(input.clone());
     }

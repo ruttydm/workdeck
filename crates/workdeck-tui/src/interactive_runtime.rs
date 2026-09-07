@@ -1,6 +1,5 @@
 //! Failure-safe ownership of an interactive Crossterm session.
 
-#[cfg(unix)]
 use std::io::IsTerminal;
 use std::io::{self, Stdout, Write};
 use std::panic;
@@ -131,7 +130,9 @@ impl TerminalRuntime for CrosstermRuntime {
     type Terminal = Terminal<CrosstermBackend<Stdout>>;
 
     fn enable_raw_mode(&mut self) -> Result<()> {
-        enable_raw_mode()?;
+        if io::stdin().is_terminal() {
+            enable_raw_mode()?;
+        }
         Ok(())
     }
 
@@ -152,7 +153,18 @@ impl TerminalRuntime for CrosstermRuntime {
             .stdout
             .take()
             .expect("stdout is transferred into Ratatui exactly once");
-        Ok(Terminal::new(CrosstermBackend::new(stdout))?)
+        let backend = CrosstermBackend::new(stdout);
+        if io::stdout().is_terminal() {
+            Ok(Terminal::new(backend)?)
+        } else {
+            // Match the upstream renderer's fallback when stdout has no terminal dimensions.
+            Ok(Terminal::with_options(
+                backend,
+                ratatui::TerminalOptions {
+                    viewport: ratatui::Viewport::Fixed(ratatui::layout::Rect::new(0, 0, 80, 24)),
+                },
+            )?)
+        }
     }
 
     fn restore_without_terminal(&mut self, mouse: bool) -> Result<()> {
@@ -199,6 +211,8 @@ fn restore_output(output: &mut impl Write, mouse: bool) -> Result<()> {
 /// RAII owner for raw mode, the alternate screen, mouse capture, and cursor restoration.
 pub struct InteractiveTerminalSession {
     inner: ManagedTerminal<CrosstermRuntime>,
+    #[cfg(unix)]
+    _piped_input: Option<crate::piped_input::PipedInputBridge>,
     #[cfg(unix)]
     terminal_descriptors: [bool; 2],
 }
@@ -265,10 +279,19 @@ impl InteractiveTerminalSession {
     }
 
     pub fn enter(mouse: bool) -> Result<Self> {
+        let mouse = mouse && io::stdin().is_terminal();
+        #[cfg(unix)]
+        let piped_input = if !io::stdin().is_terminal() && !io::stdout().is_terminal() {
+            Some(crate::piped_input::PipedInputBridge::start()?)
+        } else {
+            None
+        };
         Ok(Self {
             #[cfg(unix)]
             terminal_descriptors: [io::stdin().is_terminal(), io::stdout().is_terminal()],
             inner: ManagedTerminal::enter(CrosstermRuntime::new(), mouse)?,
+            #[cfg(unix)]
+            _piped_input: piped_input,
         })
     }
 

@@ -1,9 +1,9 @@
 //! Native subprocess coverage for Hunk's MIT-licensed test/pty/lifecycle.test.ts.
-//! The source remains unmapped until pipe, signal, and revoke cases also pass.
+//! Source: baseline 2c00f435; Hunk MIT attribution is retained in THIRD_PARTY_NOTICES.
 #![cfg(unix)]
 
 use std::fs::{self, File};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
@@ -17,7 +17,16 @@ struct ReviewChild(Child);
 
 impl ReviewChild {
     fn wait_clean(&mut self) {
-        let deadline = Instant::now() + Duration::from_secs(3);
+        let status = self.wait_status();
+        assert_eq!(status.code(), Some(0), "review exited abnormally: {status}");
+    }
+
+    fn wait_status(&mut self) -> ExitStatus {
+        self.wait_status_with_timeout(Duration::from_secs(3))
+    }
+
+    fn wait_status_with_timeout(&mut self, timeout: Duration) -> ExitStatus {
+        let deadline = Instant::now() + timeout;
         let status: ExitStatus = loop {
             if let Some(status) = self.0.try_wait().unwrap() {
                 break status;
@@ -28,7 +37,7 @@ impl ReviewChild {
             );
             std::thread::sleep(Duration::from_millis(10));
         };
-        assert_eq!(status.code(), Some(0), "review exited abnormally: {status}");
+        status
     }
 }
 
@@ -74,7 +83,7 @@ fn pty_pair() -> (File, File) {
     unsafe { (File::from_raw_fd(master), File::from_raw_fd(slave)) }
 }
 
-fn wait_for_frame(master: &mut File) {
+fn wait_for_frame(master: &mut (impl Read + AsRawFd)) {
     let deadline = Instant::now() + Duration::from_secs(20);
     let mut output = Vec::new();
     loop {
@@ -122,6 +131,118 @@ fn exits_cleanly_on_sigquit_in_terminal() {
 #[test]
 fn exits_cleanly_on_sigpipe_in_terminal() {
     exercise_pty_shutdown(Shutdown::Signal(libc::SIGPIPE));
+}
+
+#[test]
+fn exits_cleanly_on_sighup_with_pipes_and_broker() {
+    exercise_pipe_shutdown(Some(libc::SIGHUP));
+}
+
+#[test]
+fn exits_cleanly_on_sigquit_with_pipes_and_broker() {
+    exercise_pipe_shutdown(Some(libc::SIGQUIT));
+}
+
+#[test]
+fn exits_cleanly_on_sigpipe_with_pipes_and_broker() {
+    exercise_pipe_shutdown(Some(libc::SIGPIPE));
+}
+
+#[test]
+fn redirected_input_accepts_arrow_and_quit_keys_through_crossterm() {
+    exercise_pipe_shutdown(None);
+}
+
+fn exercise_pipe_shutdown(signal: Option<i32>) {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("before.txt"), "old line\n").unwrap();
+    fs::write(
+        dir.path().join("after.txt"),
+        "this is a very long wrapped line\n",
+    )
+    .unwrap();
+    let reservation = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = reservation.local_addr().unwrap().port();
+    let command = || {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_workdeck"));
+        command
+            .current_dir(dir.path())
+            .env("TERM", "xterm-256color")
+            .env("XDG_CONFIG_HOME", dir.path().join("config"))
+            .env("XDG_RUNTIME_DIR", dir.path().join("runtime"))
+            .env("WORKDECK_MCP_HOST", "127.0.0.1")
+            .env("WORKDECK_MCP_PORT", port.to_string())
+            .env("WORKDECK_MCP_DISABLE", "0");
+        command
+    };
+    drop(reservation);
+    let mut daemon = ReviewChild(
+        command()
+            .args(["daemon", "serve"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while std::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port)).is_err() {
+        assert!(
+            daemon.0.try_wait().unwrap().is_none(),
+            "private broker exited before readiness"
+        );
+        assert!(
+            Instant::now() < deadline,
+            "private broker never became ready"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let mut child = ReviewChild(
+        command()
+            .args(["diff", "--files", "before.txt", "after.txt"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    let mut stderr = child.0.stderr.take().unwrap();
+    let errors = std::thread::spawn(move || {
+        let mut text = String::new();
+        let _ = stderr.read_to_string(&mut text);
+        text
+    });
+    let mut stdout = child.0.stdout.take().unwrap();
+    wait_for_frame(&mut stdout);
+    let drain = std::thread::spawn(move || {
+        let _ = std::io::copy(&mut stdout, &mut std::io::sink());
+    });
+    if let Some(signal) = signal {
+        // SAFETY: signal the exact owned review process after observing its rendered frame.
+        assert_eq!(unsafe { libc::kill(child.0.id() as _, signal) }, 0);
+    } else {
+        child
+            .0
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(b"\x1b[Bq")
+            .unwrap();
+    }
+    let status = child.wait_status_with_timeout(Duration::from_secs(2));
+    drain.join().unwrap();
+    let stderr = errors.join().unwrap();
+    assert_eq!(status.code(), Some(0), "{status}: {stderr}");
+    assert!(stderr.is_empty(), "review emitted shutdown errors");
+    // SAFETY: daemon is another exact child owned by this test, not a discovered user process.
+    assert_eq!(unsafe { libc::kill(daemon.0.id() as _, libc::SIGTERM) }, 0);
+    assert_eq!(
+        daemon
+            .wait_status_with_timeout(Duration::from_secs(6))
+            .code(),
+        Some(0)
+    );
+    assert!(!dir.path().join(".agents").exists());
 }
 
 #[cfg(target_os = "macos")]
