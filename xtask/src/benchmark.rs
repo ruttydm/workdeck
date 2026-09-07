@@ -7,6 +7,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+mod bootstrap;
 mod fixtures;
 mod release;
 mod render_layout;
@@ -661,6 +662,9 @@ fn aggregate(source: &str, name: &str, samples: Vec<f64>) -> Metric {
 
 pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     let command = args.next();
+    if command.as_deref() == Some("bootstrap-load") {
+        return bootstrap::run(args);
+    }
     if command.as_deref() == Some("run") {
         return runner::run_command(args);
     }

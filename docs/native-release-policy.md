@@ -63,7 +63,8 @@ workload. The default suite still reports `executionAvailable: false`.
 `cargo xtask benchmark run --script render-layout.ts --samples 1 --out REPORT.json` executes
 the completed render-layout workload in a native child process, drains both output pipes,
 aggregates repeated samples and writes a versioned report with Git/Cargo/native-platform metadata.
-Only `render-layout.ts` is currently admitted. Every selected workload is checked before execution
+`bootstrap-load.ts`, `working-tree-load.ts` and `render-layout.ts` are currently admitted.
+Every selected workload is checked before execution
 or output-directory creation; default, huge, competitor and other incomplete selections fail.
 Fractional sample counts retain the source loop semantics, and repeated workload selections append
 samples rather than replacing them. Historical metric thresholds remain compatibility metadata.
@@ -86,8 +87,8 @@ lines; huge mode combines 1,000 files of 300 lines with one directly synthesized
 The giant patch avoids a large diff calculation and remains partial metadata, while ordinary
 stream files retain complete sources. Eight custom-file cases verify source hashes, statistics
 and hunk geometry against both pins; normal, non-ASCII and complete huge bootstrap summaries are
-also checked. These fixture constructors are separate from the unfinished production bootstrap
-benchmark and strict performance acceptance gate.
+also checked. These fixture constructors are separate from the production-loader benchmark and
+strict performance acceptance gate.
 
 This workload exposed and fixed a product-level snapshot bug: `diff_from_file_snapshots` now marks
 complete text comparisons non-partial and retains both full sources, so trailing collapsed gaps
@@ -96,11 +97,22 @@ the change; the benchmark oracle detects the formerly missing row per balanced-s
 
 `cargo xtask benchmark working-tree` creates disposable Git fixtures for the five pinned tracked
 and untracked scenarios and emits native `METRIC` lines. Structural file/addition/deletion counts
-are checked against both pinned runtimes. The current timed boundary is bundled VCS catalog
-loading plus changeset materialization, not complete application bootstrap. That workload source
-file remains unmapped.
+are checked against both pinned runtimes. Its timed boundary now includes the bundled catalog,
+production `load_selected_vcs_changeset` path and shared `AppBootstrap::new` assembly. The CLI uses
+those same implementations. Config/extension preparation remains outside this source-level
+bootstrap benchmark, just as it is outside Hunk's measured `loadAppBootstrap` call.
 Single oracle timings in `benchmark-working-tree.json` overlapped other validation and are explicitly
 excluded from the same-host performance acceptance evidence.
+
+`cargo xtask benchmark bootstrap-load` reproduces the 64-file/420-line fixture, direct-file pair,
+Git subprocess, parsing and patch-chunk probes. Complete source hashes for ordinary and pair files
+match both pins, as do all structural counts. The native parser probe returns the Rust changeset
+model rather than Pierre metadata; it retains the same file-count check. Explicit cwd arguments
+preserve source/reload context without temporarily changing the process-global cwd. Fixtures disable
+Git signing, preserve committed-before/current-after bytes and remove their owned directory on drop.
+The shared constructor owns input-derived defaults; the CLI still attaches its configured themes,
+extension state, notices, keybindings and preference destination afterward. This refactor does not
+move agent/process ownership or bypass extension preparation in the actual product.
 
 The shared fixture generator is native in `xtask/src/benchmark/fixtures.rs`: it supports configurable
 line counts/change regions, patch prefixes/extensions, committed-before/modified-after repositories,

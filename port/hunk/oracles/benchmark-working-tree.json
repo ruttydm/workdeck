@@ -11,6 +11,6 @@
     {"name":"untracked_many_small", "files":136, "additions":4528, "deletions":208, "baseline_load_ms":130.06, "stable_load_ms":113.37},
     {"name":"untracked_few_large", "files":14, "additions":30104, "deletions":104, "baseline_load_ms":114.28, "stable_load_ms":104.85}
   ],
-  "native_boundary": "Bundled VCS catalog loading and changeset materialization; full application-bootstrap overhead remains unported in this benchmark.",
-  "ledger_status": "Working-tree workload remains unmapped until full bootstrap coverage; shared fixtures have separate byte and repository evidence in benchmark-fixtures.json and native tests."
+  "native_boundary": "Bundled VCS catalog, production load_selected_vcs_changeset and shared AppBootstrap::new assembly, matching the source-level loader boundary without adding CLI configuration/extension preparation.",
+  "ledger_status": "Shared production bootstrap coverage and fixture tests are implemented; source mapping is recorded separately in ledger.jsonl. Historical timings are not a performance acceptance result."
 }

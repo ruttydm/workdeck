@@ -1,13 +1,7 @@
-//! Partial MIT port of Hunk's working-tree benchmark and shared synthetic fixtures.
-//! Measures the native catalog/materialization path; full application bootstrap remains separate.
+//! MIT port of Hunk's working-tree benchmark using shared production bootstrap assembly.
 
 use super::*;
 use std::time::Instant;
-use workdeck_core::{ChangesetSource, CommonOptions, InputLayoutMode, VcsDiffCommandInput};
-use workdeck_vcs::{
-    VcsLoadContext, VcsReviewInput, bundled_vcs_catalog, get_vcs_adapter, load_vcs_review,
-    materialize_vcs_patch_result, operation_from_input,
-};
 
 #[derive(Clone, Copy)]
 struct Scenario {
@@ -15,7 +9,7 @@ struct Scenario {
     files: usize,
     lines: usize,
     untracked_files: usize,
-    untracked_lines: usize,
+    untracked_lines: Option<usize>,
 }
 
 const SCENARIOS: [Scenario; 5] = [
@@ -24,35 +18,35 @@ const SCENARIOS: [Scenario; 5] = [
         files: 16,
         lines: 80,
         untracked_files: 0,
-        untracked_lines: 0,
+        untracked_lines: None,
     },
     Scenario {
         name: "medium_worktree",
         files: 96,
         lines: 180,
         untracked_files: 0,
-        untracked_lines: 0,
+        untracked_lines: None,
     },
     Scenario {
         name: "large_worktree",
         files: 240,
         lines: 220,
         untracked_files: 0,
-        untracked_lines: 0,
+        untracked_lines: None,
     },
     Scenario {
         name: "untracked_many_small",
         files: 16,
         lines: 80,
         untracked_files: 120,
-        untracked_lines: 36,
+        untracked_lines: Some(36),
     },
     Scenario {
         name: "untracked_few_large",
         files: 8,
         lines: 80,
         untracked_files: 6,
-        untracked_lines: 5000,
+        untracked_lines: Some(5000),
     },
 ];
 
@@ -81,11 +75,13 @@ fn fixture(scenario: Scenario) -> Result<tempfile::TempDir> {
         extension: "ts".into(),
         prefix: "src/bench".into(),
     })?;
-    fixtures::add_untracked(
-        root.path(),
-        scenario.untracked_files as f64,
-        scenario.untracked_lines as f64,
-    )?;
+    if scenario.untracked_files > 0 {
+        fixtures::add_untracked(
+            root.path(),
+            scenario.untracked_files as f64,
+            scenario.untracked_lines.unwrap_or(40) as f64,
+        )?;
+    }
     Ok(root)
 }
 
@@ -101,32 +97,9 @@ struct Measurement {
 fn measure(scenario: Scenario) -> Result<Measurement> {
     let fixture = fixture(scenario)?;
     let start = Instant::now();
-    let catalog = bundled_vcs_catalog();
-    let adapter = get_vcs_adapter("git", catalog)?;
-    let operation = operation_from_input(VcsReviewInput::Diff(VcsDiffCommandInput {
-        range: None,
-        range_endpoints: None,
-        staged: false,
-        pathspecs: vec![],
-        options: CommonOptions {
-            mode: Some(InputLayoutMode::Auto),
-            ..CommonOptions::default()
-        },
-    }));
-    let result = load_vcs_review(
-        adapter,
-        &operation,
-        &VcsLoadContext {
-            cwd: fixture.path().to_owned(),
-        },
-        catalog,
-    )?;
-    let changeset = materialize_vcs_patch_result(
-        result,
-        "benchmark:working",
-        ChangesetSource::WorkingTree { staged: false },
-    )?;
+    let bootstrap = super::bootstrap::load_vcs(fixture.path())?;
     let load_ms = start.elapsed().as_secs_f64() * 1000.0;
+    let changeset = &bootstrap.changeset;
     let measurement = Measurement {
         name: scenario.name,
         load_ms,
@@ -196,7 +169,7 @@ mod tests {
             files: 1,
             lines: 12,
             untracked_files: 1,
-            untracked_lines: 6,
+            untracked_lines: Some(6),
         };
         let root = fixture(scenario).unwrap();
         assert_eq!(
@@ -214,5 +187,14 @@ mod tests {
         let path = root.path().to_owned();
         drop(root);
         assert!(!path.exists());
+        let root = fixture(Scenario {
+            untracked_lines: None,
+            ..scenario
+        })
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(root.path().join("untracked/new1.ts")).unwrap(),
+            synthetic_source(1, true, 40)
+        );
     }
 }
