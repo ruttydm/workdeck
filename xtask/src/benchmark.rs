@@ -234,19 +234,40 @@ fn previous_command(mut args: impl Iterator<Item = String>) -> Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Run {
     version: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    generated_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     git_sha: Option<String>,
-    #[serde(default)]
-    accepted_regressions: Vec<AcceptedRegression>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    package_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    runtime: Option<RuntimeInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    samples_per_benchmark: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    accepted_regressions: Option<Vec<AcceptedRegression>>,
     results: Vec<Metric>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeInfo {
+    // Read historical oracle metadata; this never enables or invokes a runtime.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bun_version: Option<String>,
+    platform: String,
+    arch: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 struct AcceptedRegression {
     name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -303,6 +324,7 @@ fn compare(base: &Run, head: &Run, generated_at: String) -> Comparison {
     let accepted: BTreeSet<_> = head
         .accepted_regressions
         .iter()
+        .flatten()
         .map(|a| a.name.as_str())
         .collect();
     let rows: Vec<_> = names
@@ -688,6 +710,80 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn benchmark_run_round_trip_preserves_runtime_and_regression_provenance() {
+        let value = serde_json::json!({
+            "version": 1,
+            "generatedAt": "2026-09-07T00:00:00.000Z",
+            "gitSha": "source-commit",
+            "packageVersion": "0.20.1",
+            "runtime": {"bunVersion":"1.3.14", "platform":"darwin", "arch":"arm64"},
+            "samplesPerBenchmark": 2.5,
+            "acceptedRegressions": [{"name":"fixture/load_ms", "reason":"historical explanation, not a port waiver"}],
+            "results": []
+        });
+        let run: Run = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&run).unwrap(), value);
+        let native = serde_json::json!({"version":1,"runtime":{"platform":"linux","arch":"x64"},"results":[]});
+        let run: Run = serde_json::from_value(native.clone()).unwrap();
+        assert_eq!(serde_json::to_value(run).unwrap(), native);
+        // Existing comparison inputs may omit metadata; do not fabricate provenance.
+        let minimal = serde_json::json!({"version":1,"results":[]});
+        let run: Run = serde_json::from_value(minimal.clone()).unwrap();
+        assert_eq!(serde_json::to_value(run).unwrap(), minimal);
+        let explicit_empty = serde_json::json!({"version":1,"acceptedRegressions":[],"results":[]});
+        let run: Run = serde_json::from_value(explicit_empty.clone()).unwrap();
+        assert_eq!(serde_json::to_value(run).unwrap(), explicit_empty);
+    }
+
+    #[test]
+    fn pinned_historical_reports_retain_every_field_through_the_native_model() {
+        fn equal(left: &serde_json::Value, right: &serde_json::Value) {
+            use serde_json::Value;
+            match (left, right) {
+                (Value::Number(a), Value::Number(b)) => assert_eq!(a.as_f64(), b.as_f64()),
+                (Value::Array(a), Value::Array(b)) => {
+                    assert_eq!(a.len(), b.len());
+                    for (a, b) in a.iter().zip(b) {
+                        equal(a, b);
+                    }
+                }
+                (Value::Object(a), Value::Object(b)) => {
+                    assert_eq!(a.len(), b.len());
+                    for (key, value) in a {
+                        equal(value, b.get(key).expect(key));
+                    }
+                }
+                _ => assert_eq!(left, right),
+            }
+        }
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let git = |args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .current_dir(root)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8(output.stdout).unwrap()
+        };
+        let pin = "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2";
+        let paths = git(&["ls-tree", "--name-only", pin, "benchmarks/release/"]);
+        let mut count = 0;
+        for path in paths.lines().filter(|p| p.ends_with(".json")) {
+            let source = git(&["show", &format!("{pin}:{path}")]);
+            let value: serde_json::Value = serde_json::from_str(&source).unwrap();
+            let run: Run = serde_json::from_str(&source).unwrap();
+            equal(&value, &serde_json::to_value(run).unwrap());
+            count += 1;
+        }
+        assert_eq!(count, 22);
+    }
 
     #[test]
     fn explicit_release_output_survives_a_later_version_option() {
