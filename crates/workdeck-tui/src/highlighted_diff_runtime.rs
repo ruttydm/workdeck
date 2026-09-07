@@ -107,21 +107,41 @@ fn utf16_len(value: &str) -> usize {
     value.encode_utf16().count()
 }
 
+/// Borrow content directly instead of allocating a JSON value tree for every cache lookup.
+/// Declaration order intentionally matches the existing ordered JSON fingerprint format.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HighlightFingerprintMetadata<'a> {
+    path: &'a str,
+    previous_path: Option<&'a str>,
+    change_kind: &'a workdeck_core::FileChangeKind,
+    stats: &'a workdeck_core::FileStats,
+    flags: &'a workdeck_core::FileFlags,
+    split_row_count: usize,
+    stack_row_count: usize,
+    hunks: &'a [workdeck_core::DiffHunk],
+    sources: &'a workdeck_core::FileSourceSnapshots,
+}
+
+fn highlight_fingerprint_metadata(file: &DiffFile) -> String {
+    serde_json::to_string(&HighlightFingerprintMetadata {
+        path: &file.path,
+        previous_path: file.previous_path.as_deref(),
+        change_kind: &file.change_kind,
+        stats: &file.stats,
+        flags: &file.flags,
+        split_row_count: file.split_row_count,
+        stack_row_count: file.stack_row_count,
+        hunks: &file.hunks,
+        sources: &file.sources,
+    })
+    .expect("highlight fingerprint metadata is JSON serializable")
+}
+
 /// Hash every diff-content input that can change the native highlighted result.
 #[must_use]
 pub fn highlighted_content_fingerprint(file: &DiffFile) -> String {
-    let metadata = serde_json::json!({
-        "path": file.path,
-        "previousPath": file.previous_path,
-        "changeKind": file.change_kind,
-        "stats": file.stats,
-        "flags": file.flags,
-        "splitRowCount": file.split_row_count,
-        "stackRowCount": file.stack_row_count,
-        "hunks": file.hunks,
-        "sources": file.sources,
-    })
-    .to_string();
+    let metadata = highlight_fingerprint_metadata(file);
     let fingerprint_input = format!(
         "{}:{}{}:{}",
         utf16_len(&file.patch),
@@ -369,6 +389,45 @@ mod tests {
             )),
         });
         file
+    }
+
+    #[test]
+    fn borrowed_fingerprint_preserves_every_serialized_byte_and_digest() {
+        let mut plain = file("old\n", "new\n", "plain", "src/plain.ts");
+        plain.sources = FileSourceSnapshots::default();
+        plain.flags.partial = true;
+        let mut unicode = file("old\r\n\"雪\"\n", "new\n😀\t\\\n", "unicode", "src/雪😀.ts");
+        unicode.previous_path = Some("before/\"雪\".ts".into());
+        unicode.patch = "patch\r\n\"\t😀\u{2028}\u{0085}".into();
+        unicode.flags.binary = true;
+        unicode.flags.too_large = true;
+        unicode.stats.truncated = true;
+        unicode.change_kind = workdeck_core::FileChangeKind::Renamed;
+        let mut empty = plain.clone();
+        empty.hunks.clear();
+        empty.path.clear();
+        empty.patch.clear();
+        for file in [plain, unicode, empty] {
+            let legacy = serde_json::json!({
+                "path": file.path, "previousPath": file.previous_path,
+                "changeKind": file.change_kind, "stats": file.stats, "flags": file.flags,
+                "splitRowCount": file.split_row_count, "stackRowCount": file.stack_row_count,
+                "hunks": file.hunks, "sources": file.sources,
+            })
+            .to_string();
+            assert_eq!(highlight_fingerprint_metadata(&file), legacy);
+            let input = format!(
+                "{}:{}{}:{}",
+                utf16_len(&file.patch),
+                file.patch,
+                utf16_len(&legacy),
+                legacy
+            );
+            assert_eq!(
+                highlighted_content_fingerprint(&file),
+                review_digest(input.as_bytes())
+            );
+        }
     }
 
     fn theme() -> AppTheme {
