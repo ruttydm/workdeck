@@ -40,6 +40,14 @@ cross-platform CI, or the remaining release gates. See [the semantic-port ledger
 
 ## Benchmark aggregation boundary
 
+`cargo xtask benchmark working-tree` creates disposable Git fixtures for the five pinned tracked
+and untracked scenarios and emits native `METRIC` lines. Structural file/addition/deletion counts
+are checked against both pinned runtimes. The current timed boundary is bundled VCS catalog
+loading plus changeset materialization, not complete application bootstrap. The shared fixture's
+patch generator and configurable variants also remain unfinished. Neither source file is mapped.
+Single oracle timings in `benchmark-working-tree.json` overlapped other validation and are explicitly
+excluded from the same-host performance acceptance evidence.
+
 `cargo xtask benchmark aggregate SOURCE METRIC SAMPLES_JSON` emits native JSON with the
 source-compatible nearest-rank median, p75, p95, extrema, original sample order, units, and metric
 classification. Frozen aggregation outputs from both pinned runtimes are checked field-by-field

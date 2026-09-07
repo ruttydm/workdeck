@@ -1,0 +1,16 @@
+{
+  "baselines": ["2c00f4358b89cfc0a6b04459ffc538ba601aa3c2", "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"],
+  "runtime": "Bun 1.3.14, disposable pinned checkouts",
+  "source": "benchmarks/working-tree-load.ts",
+  "source_fixture": "benchmarks/lib/fixtures.ts",
+  "performance_gate": "NOT EVIDENCE: these single oracle samples overlapped validation work; only structural counts are used for parity assertions.",
+  "scenarios": [
+    {"name":"small_worktree", "files":16, "additions":208, "deletions":208, "baseline_load_ms":112.58, "stable_load_ms":113.60},
+    {"name":"medium_worktree", "files":96, "additions":2880, "deletions":2880, "baseline_load_ms":161.92, "stable_load_ms":156.19},
+    {"name":"large_worktree", "files":240, "additions":8640, "deletions":8640, "baseline_load_ms":248.28, "stable_load_ms":233.38},
+    {"name":"untracked_many_small", "files":136, "additions":4528, "deletions":208, "baseline_load_ms":130.06, "stable_load_ms":113.37},
+    {"name":"untracked_few_large", "files":14, "additions":30104, "deletions":104, "baseline_load_ms":114.28, "stable_load_ms":104.85}
+  ],
+  "native_boundary": "Bundled VCS catalog loading and changeset materialization; full application-bootstrap overhead remains unported in this benchmark.",
+  "ledger_status": "Both containing runtime source records remain unmapped."
+}

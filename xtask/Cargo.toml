@@ -28,3 +28,5 @@ tempfile = "3.13"
 url = "2.5"
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
 workdeck-session = { path = "../crates/workdeck-session" }
+workdeck-core = { path = "../crates/workdeck-core" }
+workdeck-vcs = { path = "../crates/workdeck-vcs" }
