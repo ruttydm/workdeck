@@ -1,0 +1,218 @@
+{
+  "baselines": [
+    "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+  ],
+  "runtime": "Bun 1.3.14 in disposable pinned checkouts",
+  "source": "benchmarks/lib/benchmark-result.ts",
+  "status": "Both pins produced identical aggregation outputs; no performance gate result.",
+  "metrics": [
+    {
+      "name": "fixture/render_ms",
+      "source": "fixture",
+      "samples": [
+        9,
+        1,
+        5,
+        3
+      ],
+      "median": 3,
+      "p75": 5,
+      "p95": 9,
+      "min": 1,
+      "max": 9,
+      "unit": "ms",
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5
+      }
+    },
+    {
+      "name": "fixture/competitor_tool_ms",
+      "source": "fixture",
+      "samples": [
+        9,
+        1,
+        5,
+        3
+      ],
+      "median": 3,
+      "p75": 5,
+      "p95": 9,
+      "min": 1,
+      "max": 9,
+      "unit": "ms",
+      "comparable": false
+    },
+    {
+      "name": "fixture/is_ready",
+      "source": "fixture",
+      "samples": [
+        9,
+        1,
+        5,
+        3
+      ],
+      "median": 3,
+      "p75": 5,
+      "p95": 9,
+      "min": 1,
+      "max": 9,
+      "unit": "boolean",
+      "comparable": false
+    },
+    {
+      "name": "fixture/scroll_ready_before_move",
+      "source": "fixture",
+      "samples": [
+        9,
+        1,
+        5,
+        3
+      ],
+      "median": 3,
+      "p75": 5,
+      "p95": 9,
+      "min": 1,
+      "max": 9,
+      "unit": "boolean",
+      "comparable": false
+    },
+    {
+      "name": "fixture/git_available",
+      "source": "fixture",
+      "samples": [
+        9,
+        1,
+        5,
+        3
+      ],
+      "median": 3,
+      "p75": 5,
+      "p95": 9,
+      "min": 1,
+      "max": 9,
+      "unit": "boolean",
+      "comparable": false
+    },
+    {
+      "name": "fixture/peak_rss",
+      "source": "fixture",
+      "samples": [
+        9,
+        1,
+        5,
+        3
+      ],
+      "median": 3,
+      "p75": 5,
+      "p95": 9,
+      "min": 1,
+      "max": 9,
+      "unit": "bytes",
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.2,
+        "minAbsoluteRegression": 8388608
+      }
+    },
+    {
+      "name": "fixture/heap_used",
+      "source": "fixture",
+      "samples": [
+        9,
+        1,
+        5,
+        3
+      ],
+      "median": 3,
+      "p75": 5,
+      "p95": 9,
+      "min": 1,
+      "max": 9,
+      "unit": "bytes",
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.2,
+        "minAbsoluteRegression": 8388608
+      }
+    },
+    {
+      "name": "fixture/patch_bytes",
+      "source": "fixture",
+      "samples": [
+        9,
+        1,
+        5,
+        3
+      ],
+      "median": 3,
+      "p75": 5,
+      "p95": 9,
+      "min": 1,
+      "max": 9,
+      "unit": "bytes",
+      "comparable": false
+    },
+    {
+      "name": "fixture/rows",
+      "source": "fixture",
+      "samples": [
+        9,
+        1,
+        5,
+        3
+      ],
+      "median": 3,
+      "p75": 5,
+      "p95": 9,
+      "min": 1,
+      "max": 9,
+      "unit": "count",
+      "comparable": false
+    }
+  ],
+  "percentiles": [
+    {
+      "percent": -10,
+      "value": 1
+    },
+    {
+      "percent": 0,
+      "value": 1
+    },
+    {
+      "percent": 50,
+      "value": 3
+    },
+    {
+      "percent": 75,
+      "value": 5
+    },
+    {
+      "percent": 95,
+      "value": 9
+    },
+    {
+      "percent": 110,
+      "value": 9
+    }
+  ],
+  "empty": {
+    "name": "fixture/render_ms",
+    "source": "fixture",
+    "samples": [],
+    "median": 0,
+    "p75": 0,
+    "p95": 0,
+    "min": 0,
+    "max": 0,
+    "unit": "ms",
+    "comparable": true,
+    "threshold": {
+      "maxRegressionRatio": 1.15,
+      "minAbsoluteRegression": 5
+    }
+  }
+}

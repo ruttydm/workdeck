@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 mod architecture;
+mod benchmark;
 mod changelog;
 mod nix;
 mod release_channel;
@@ -142,6 +143,7 @@ fn run() -> Result<()> {
             }
         }
         Some("licenses") => licenses(parse_output_option(args)?),
+        Some("benchmark") => benchmark::run(args),
         Some("themes") => match args.next().as_deref() {
             Some("vendor") => vendor_themes(parse_theme_vendor_options(args)?),
             Some("verify") => {
@@ -2210,6 +2212,7 @@ fn relative_to(repo: &Path, path: &Path) -> String {
 }
 
 fn print_help() {
+    println!("cargo xtask benchmark aggregate SOURCE METRIC SAMPLES_JSON");
     println!(
         "cargo xtask port <fetch|inventory|reclassify|map|materialize-assets|audit|status> [port options]"
     );

@@ -38,7 +38,19 @@ passed seven tests and ten assertions. Attribution is retained in
 These helpers do not complete native release preparation, installation tests, artifact signing,
 cross-platform CI, or the remaining release gates. See [the semantic-port ledger](../port/hunk/README.md).
 
-## Generated prerelease validation
+## Benchmark aggregation boundary
+
+`cargo xtask benchmark aggregate SOURCE METRIC SAMPLES_JSON` emits native JSON with the
+source-compatible nearest-rank median, p75, p95, extrema, original sample order, units, and metric
+classification. Frozen aggregation outputs from both pinned runtimes are checked field-by-field
+in `xtask/src/benchmark.rs`. The recorded historical thresholds (15% timing with a 5 ms floor;
+20% memory with an 8 MiB floor) are compatibility metadata, **not** the semantic-port release
+gate. They do not relax its 10% latency limit or zero peak-memory regression requirement.
+Benchmark execution, same-host measurements, comparison/reporting, and strict release enforcement
+remain incomplete. Aggregation tests are not performance measurements, and the containing source
+record remains unmapped.
+
+## Generated state and PR routing
 
 `cargo xtask release validate-prerelease` reads the current executable's Cargo version,
 `release/prerelease.json`, `CHANGELOG.md`, and regular Markdown files in `release/fragments/`.
