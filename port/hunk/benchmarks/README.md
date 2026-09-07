@@ -33,6 +33,12 @@ full source snapshots. The same optimized three-sample procedure improves these 
 7–8% versus `9780b4cf`, but still fails the latency gate. This report predates shared token-cache
 reads and cannot establish their performance impact.
 
+The shared-token-cache run (`dc3041ab`, including implementation `abcd918b`) records cold/warm
+medians of 163.35/156.89 ms and four-wheel-tick median 1273.56 ms, again with three optimized
+subprocess samples on this host. Compared with the preceding run, scrolling is about 1.5% faster
+but cold/warm rendering is slightly slower. These small mixed differences do not establish an
+overall performance improvement; the latency gate still fails and memory remains unmeasured.
+
 The source workload excludes fixture/app construction and highlight-settlement cleanup from its
 timers. Therefore first-frame results are not full-process launch results. A separate debug CPU
 sample caught `ReviewApp::new` → cursor seeding → review-row construction → highlighting;
@@ -59,3 +65,4 @@ Raw reports retain every sample, source Git SHA, runtime identity, quantile and 
 - [Optimized native before performance fixes](large-stream-native-28a8854a.json)
 - [Optimized native after borrowed-field filtering](large-stream-native-9780b4cf.json)
 - [Optimized native after borrowed fingerprint serialization](large-stream-native-f62e190e.json)
+- [Optimized native with shared token-cache reads](large-stream-native-dc3041ab.json)
