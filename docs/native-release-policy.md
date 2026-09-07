@@ -140,6 +140,8 @@ highlight settlement (up to 200 frames) and app retirement are outside the measu
 There is no React test scheduler in this native rendering path. Tests require highlighted first
 frames and actual viewport movement. Debug execution of the full workload is currently expensive;
 functional coverage must not be interpreted as satisfying the optimized latency/memory gates.
+The [recorded optimized investigation](../port/hunk/benchmarks/README.md) also fails the 10%
+latency limit against both pins; it retains raw three-sample reports and reproduction commands.
 
 The shared fixture generator is native in `xtask/src/benchmark/fixtures.rs`: it supports configurable
 line counts/change regions, patch prefixes/extensions, committed-before/modified-after repositories,
