@@ -184,15 +184,39 @@ pub(super) struct ReviewSnapshotFixture {
     pub expected: ReviewSnapshotProjection,
 }
 
-/// The source intent JSON retains `consumeDraft` but excludes expanded-line
-/// proofs. The native action model can represent that shape losslessly; the
-/// consumer separately validates lowering to the renderer-neutral intent.
+/// The source intent JSON retains `consumeDraft` but excludes wire-only proofs
+/// and save preconditions. Keep a distinct type so those fields cannot leak into
+/// expectations just because the broader native action model accepts them.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(transparent)]
+pub(super) struct ConformanceReviewIntent(workdeck_session::WorkdeckReviewActionV1);
+
+impl<'de> Deserialize<'de> for ConformanceReviewIntent {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = Value::deserialize(deserializer)?;
+        let action: workdeck_session::WorkdeckReviewActionV1 =
+            serde_json::from_value(value.clone()).map_err(serde::de::Error::custom)?;
+        if workdeck_session::to_review_intent_value(&action) != value {
+            return Err(serde::de::Error::custom(
+                "intent contains wire-only or lossy fields",
+            ));
+        }
+        if value
+            .get("consumeDraft")
+            .is_some_and(|consume| consume != &Value::Bool(true))
+        {
+            return Err(serde::de::Error::custom("consumeDraft must be true"));
+        }
+        Ok(Self(action))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ReviewWireParseOutcome {
     pub accepted: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub intent: Option<workdeck_session::WorkdeckReviewActionV1>,
+    pub intent: Option<ConformanceReviewIntent>,
 }
 
 pub(super) fn wire_outcome(value: &Value) -> ReviewWireParseOutcome {
@@ -325,6 +349,33 @@ fn projection_contracts_preserve_required_nulls_and_reject_invalid_variants() {
         }))
         .is_err()
     );
+}
+
+#[test]
+fn intent_contract_excludes_wire_proofs_and_requires_draft_consumption() {
+    use serde_json::json;
+    let proof = json!({"gapId": "before:1", "side": "new", "line": 7,
+        "sourceIdentity": "source:0123456789abcdef"});
+    let draft = json!({"type": "notes/start-draft", "fileKey": "file:0123456789abcdef",
+        "hunkIndex": 1, "target": {"side": "new", "line": 7}});
+    let typed: ConformanceReviewIntent = serde_json::from_value(draft.clone()).unwrap();
+    assert_eq!(serde_json::to_value(typed).unwrap(), draft);
+    let mut with_proof = draft;
+    with_proof["expandedLineProof"] = proof;
+    assert!(serde_json::from_value::<ConformanceReviewIntent>(with_proof).is_err());
+    let save = json!({"type": "notes/create-user", "consumeDraft": true});
+    let typed: ConformanceReviewIntent = serde_json::from_value(save.clone()).unwrap();
+    assert_eq!(serde_json::to_value(typed).unwrap(), save);
+    let mut with_target = save;
+    with_target["target"] = json!({"side": "new", "line": 7});
+    assert!(serde_json::from_value::<ConformanceReviewIntent>(with_target).is_err());
+    for kind in ["notes/create-user", "notes/update-user"] {
+        let mut invalid = json!({"type": kind, "consumeDraft": false});
+        if kind == "notes/update-user" {
+            invalid["noteId"] = json!("user:1");
+        }
+        assert!(serde_json::from_value::<ConformanceReviewIntent>(invalid).is_err());
+    }
 }
 
 #[test]

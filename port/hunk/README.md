@@ -1566,6 +1566,11 @@ adapter correction, not a claim that every runtime note transport has been audit
 All 25 focused conformance tests pass after this correction. These latest increments
 have focused validation only; they are not a fresh full-workspace or release-gate result.
 The shared types record remains unmapped until its complete contract review is finished.
+That review also separated conformance intents from the broader wire-action model:
+expanded-line proofs and create-note target preconditions cannot appear in an intent,
+and create/update consumption must be literal `true`. The typed expectation model now
+enforces those distinctions, with an executable rejection/round-trip test. Both pinned
+corpora still pass unchanged; the focused suite now contains 26 passing tests.
 
 Full `cargo xtask verify` passed at `e4f3c782` before this conformance increment, including
 workspace tests, Clippy, release build, and the large-repository smoke test. This does not
