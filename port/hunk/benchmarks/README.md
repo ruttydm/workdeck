@@ -251,3 +251,13 @@ frame, 211.88 ms navigation and 175.09 ms scrolling. The roughly 1–2% change f
 is small; no material end-to-end improvement is established. The allocation removal preserves
 exact emphasis ranges, but does not address the dominant remaining cost. All pinned-source latency
 gates still fail, peak memory remains unproven and source-ledger coverage is unchanged.
+
+### Styled-run emphasis follow-up at `da5f06e0`
+
+[Three optimized runs](interaction-diagnostic-da5f06e0.json) report 110.73 ms first frame,
+206.47 ms median navigation and 169.75 ms median scrolling. This is a small (roughly 3%)
+shift from `c27fbc05`, not a resolution of the remaining performance gap. The implementation
+copies contiguous equal-style text runs while preserving character-start byte-range semantics;
+Unicode splits and overlapping ranges are compared against the original character loop.
+All pinned-Hunk latency gates still fail. Post-navigation RSS median is 226263040 bytes,
+which is a current snapshot, not peak-memory evidence. Ledger coverage remains unchanged.
