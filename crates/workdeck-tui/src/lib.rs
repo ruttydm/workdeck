@@ -3354,7 +3354,7 @@ impl ReviewApp {
     }
 
     fn scroll_diff(&mut self, delta: isize, unit: ScrollUnit) {
-        let rows = self.current_review_rows();
+        let rows = self.current_review_geometry_rows();
         let last = rows.lines.len().saturating_sub(1);
         let viewport = usize::from(
             self.review_height
@@ -3471,7 +3471,7 @@ impl ReviewApp {
             self.scroll_diff(delta, ScrollUnit::Step);
             return;
         }
-        let rows = self.current_review_rows();
+        let rows = self.current_review_geometry_rows();
         let last = rows.lines.len().saturating_sub(1);
         let cursors = review_line_cursors(&rows);
         if cursors.is_empty() {
@@ -3519,7 +3519,7 @@ impl ReviewApp {
     }
 
     fn current_review_line_cursor(&self) -> Option<ReviewLineCursor> {
-        let rows = self.current_review_rows();
+        let rows = self.current_review_geometry_rows();
         let cursors = review_line_cursors(&rows);
         self.current_review_line_cursor_in(&cursors)
     }
@@ -7679,7 +7679,7 @@ impl ReviewApp {
     }
 
     fn scroll_to_selected_line(&mut self) {
-        let rows = self.current_review_rows();
+        let rows = self.current_review_geometry_rows();
         let Some(cursor) = self.current_review_line_cursor_in(&rows.line_cursors) else {
             self.scroll_to_selection();
             return;
