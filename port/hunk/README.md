@@ -1,5 +1,28 @@
 # Hunk semantic-port ledger
 
+## Commit provenance validation
+
+`cargo xtask port history` checks annotated Workdeck commits after the `dc2ac39`
+base without changing Git history or repository state. Git extracts the actual
+trailer block, preserving repeated values and excluding prose mentions. Each
+`Hunk-Port:` identifier must exist in the ledger **at that commit**, not merely
+in today's ledger: subsequent interval splitting must not invalidate historical
+references. Each annotated port commit must also identify upstream provenance;
+`Hunk-Upstream:` values must be full commit hashes reachable from preserved Hunk
+branches, tags, or the two source anchors.
+
+Strict audit invokes this check after its source-coverage gate. The CI checkout
+fetches complete Workdeck history for validation; release preflight already did so.
+This validates references, not the semantic contents of a port commit, and does not
+yet identify all missing trailers on entirely unannotated commits.
+
+At `1594ea43`, the check examined 455 annotated commits among 464 Workdeck commits
+and found ten unresolved historical provenance issues: three missing upstream
+trailers and seven `baseline` shorthand values instead of explicit hashes. The
+command reports every affected commit. History has not been rewritten, no errors
+are waived, and this is an additional failing release gate. Documentation migration
+has reduced the current unmapped count to 313; the upstream queue remains eleven.
+
 ## Executable test-anchor validation
 
 The mapped-test evidence gate parses Rust syntax instead of searching for test-looking

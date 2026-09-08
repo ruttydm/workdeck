@@ -19,6 +19,7 @@ mod ci_changes;
 mod ci_host;
 mod install;
 mod nix;
+mod port_history;
 mod provenance;
 mod release_channel;
 mod release_notes;
@@ -111,7 +112,7 @@ fn run() -> Result<()> {
             let command = args
                 .next()
                 .context(
-                    "port requires fetch, inventory, reclassify, map, materialize-assets, audit, or status",
+                    "port requires fetch, inventory, reclassify, map, materialize-assets, audit, status, or history",
                 )?;
             if !matches!(
                 command.as_str(),
@@ -122,11 +123,18 @@ fn run() -> Result<()> {
                     | "materialize-assets"
                     | "audit"
                     | "status"
+                    | "history"
             ) {
                 bail!("unknown port command {command:?}");
             }
             if command == "fetch" {
                 return fetch_hunk();
+            }
+            if command == "history" {
+                if args.next().is_some() {
+                    bail!("port history accepts no options");
+                }
+                return port_history::check(&repo_root()?);
             }
             if command == "map" {
                 return map_records(parse_map_options(args)?);
@@ -1806,6 +1814,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
         bail!("{unmapped} ledger records remain unmapped");
     }
     if strict {
+        port_history::check(&repo)?;
         validate_upstream_delta(upstream_delta.as_deref())?;
     }
     Ok(())
@@ -2366,7 +2375,7 @@ fn print_help() {
     println!("cargo xtask benchmark previous VERSION RELEASE_DIRECTORY");
     println!("cargo xtask benchmark release-plan [--version VERSION] [--samples N] [--out PATH]");
     println!(
-        "cargo xtask port <fetch|inventory|reclassify|map|materialize-assets|audit|status> [port options]"
+        "cargo xtask port <fetch|inventory|reclassify|map|materialize-assets|audit|status|history> [port options]"
     );
     println!(
         "cargo xtask themes <vendor --shiki-archive FILE --tm-themes-archive FILE --pierre-archive FILE|verify>"
