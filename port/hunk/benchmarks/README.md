@@ -243,3 +243,11 @@ leading tokens, with full change sequences and emphasis ranges checked against t
 algorithm for 67,081 short token pairs. Workload counts, viewport and input dispatch are unchanged.
 All latency gates still fail against Hunk; current RSS median after navigation is 225214464 bytes,
 not peak-memory acceptance. No source ledger record was newly mapped.
+
+### Length-only emphasis follow-up at `c27fbc05`
+
+[Three optimized runs](interaction-diagnostic-c27fbc05.json) report medians of 114.02 ms first
+frame, 211.88 ms navigation and 175.09 ms scrolling. The roughly 1–2% change from the prior run
+is small; no material end-to-end improvement is established. The allocation removal preserves
+exact emphasis ranges, but does not address the dominant remaining cost. All pinned-source latency
+gates still fail, peak memory remains unproven and source-ledger coverage is unchanged.
