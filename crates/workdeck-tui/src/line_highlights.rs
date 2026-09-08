@@ -195,6 +195,7 @@ impl LineHighlightMap {
 struct LineHighlightTaskKey {
     file_id: String,
     content_identity: String,
+    agent_identity: Option<String>,
     source_identity: Option<String>,
     source_generation: Option<u64>,
     highlighter_key: String,
@@ -455,6 +456,7 @@ impl LineHighlightPreparationController {
                     let task_key = LineHighlightTaskKey {
                         file_id: file.runtime_id.clone(),
                         content_identity: file.content_identity.clone(),
+                        agent_identity: agent_context_identity(file),
                         source_identity: file.source_identity.clone(),
                         source_generation: extensions
                             .get(registration.extension_index)
@@ -563,6 +565,7 @@ fn desired_line_highlight_tasks(
                     key: LineHighlightTaskKey {
                         file_id: file.runtime_id.clone(),
                         content_identity: file.content_identity.clone(),
+                        agent_identity: agent_context_identity(file),
                         source_identity: file.source_identity.clone(),
                         source_generation: extensions
                             .get(registration.extension_index)
@@ -579,6 +582,14 @@ fn desired_line_highlight_tasks(
             })
         })
         .collect()
+}
+
+fn agent_context_identity(file: &DiffFile) -> Option<String> {
+    file.agent.as_ref().map(|agent| {
+        workdeck_core::review_digest(
+            &serde_json::to_vec(agent).expect("agent context is serializable"),
+        )
+    })
 }
 
 fn same_line_highlight_parts(
@@ -1128,6 +1139,63 @@ mod tests {
             |controller| controller.pending_count() == 0,
         );
         assert_eq!(runtime.calls().len(), 2);
+    }
+
+    #[test]
+    fn changed_agent_context_rederives_highlights_without_changing_diff_identity() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("agent-aware")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let mut file = test_file("file", "same-patch");
+        file.refresh_identity();
+        let content_identity = file.content_identity.clone();
+        let mut controller = LineHighlightPreparationController::default();
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            std::slice::from_ref(&file),
+            |controller| controller.pending_count() == 0,
+        );
+        file.agent = Some(workdeck_core::AgentFileContext {
+            path: file.path.clone(),
+            summary: Some("new rationale".into()),
+            annotations: vec![],
+        });
+        file.refresh_identity();
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            std::slice::from_ref(&file),
+            |controller| controller.pending_count() == 0,
+        );
+        assert_eq!(file.content_identity, content_identity);
+        assert_eq!(runtime.calls().len(), 2);
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            std::slice::from_ref(&file.clone()),
+            |controller| controller.pending_count() == 0,
+        );
+        assert_eq!(runtime.calls().len(), 2);
+        file.agent = None;
+        file.refresh_identity();
+        assert_eq!(file.content_identity, content_identity);
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            std::slice::from_ref(&file),
+            |controller| controller.pending_count() == 0,
+        );
+        assert_eq!(runtime.calls().len(), 3);
     }
 
     #[test]

@@ -34,6 +34,15 @@ warning reporting while repeated renders of the same registration stay cached.
 All 21 preparation tests and 13 host highlighter tests pass, together with
 workspace Clippy, formatting, and architecture checks for this registration change.
 
+Agent context is a separate highlighter input: it is intentionally excluded from
+diff content identity but included in the extension file projection. A regression
+reproduced stale highlights after adding agent rationale to an unchanged diff.
+Scheduling and publication now include a digest of that context. Tests verify
+addition and removal rederive marks while unchanged clones reuse them, without
+changing the underlying diff identity or loading source to compute the key.
+The complete TUI unit suite passes at this checkpoint (1,052 tests), as do
+workspace Clippy, formatting, and architecture checks.
+
 This does not establish complete cache parity: metadata-changing transforms
 and the remaining whole-hook contracts still need explicit review. The previously
 mapped full `useLineHighlights.ts` interval is
