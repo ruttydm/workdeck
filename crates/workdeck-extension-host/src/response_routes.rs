@@ -23,6 +23,16 @@ pub enum ResponseRouteError {
 }
 
 impl ExtensionResponseRoutes {
+    /// A render/event-loop probe must not wait behind stdout frame dispatch.
+    pub(crate) fn active_or_contended(routes: &std::sync::Mutex<Self>) -> bool {
+        match routes.try_lock() {
+            Ok(routes) => routes.has_active_parents(),
+            Err(std::sync::TryLockError::WouldBlock) => true,
+            Err(std::sync::TryLockError::Poisoned(error)) => {
+                error.into_inner().has_active_parents()
+            }
+        }
+    }
     pub fn has_active_parents(&self) -> bool {
         !self.routes.is_empty()
     }
@@ -106,6 +116,27 @@ impl ExtensionResponseRoutes {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pending_probe_does_not_wait_for_dispatch_lock() {
+        let routes = std::sync::Arc::new(std::sync::Mutex::new(ExtensionResponseRoutes::default()));
+        assert!(!ExtensionResponseRoutes::active_or_contended(&routes));
+        let guard = routes.lock().unwrap();
+        let captured = routes.clone();
+        let (sender, receiver) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            sender
+                .send(ExtensionResponseRoutes::active_or_contended(&captured))
+                .unwrap();
+        });
+        let observed = receiver.recv_timeout(std::time::Duration::from_secs(5));
+        drop(guard);
+        worker.join().unwrap();
+        assert!(observed.unwrap());
+        assert!(!ExtensionResponseRoutes::active_or_contended(&routes));
+        let _inbox = routes.lock().unwrap().register(1).unwrap();
+        assert!(ExtensionResponseRoutes::active_or_contended(&routes));
+    }
 
     #[test]
     fn closing_routes_disconnects_all_waiters_and_cannot_be_reopened() {

@@ -2861,11 +2861,7 @@ impl LoadedExtension {
     pub fn request_pending(&self) -> bool {
         self.connection.try_lock().map_or(true, |connection| {
             connection.pending_request.is_some()
-                || connection
-                    .response_routes
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .has_active_parents()
+                || ExtensionResponseRoutes::active_or_contended(&connection.response_routes)
         })
     }
 

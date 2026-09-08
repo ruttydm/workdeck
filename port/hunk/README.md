@@ -2,6 +2,12 @@
 
 ## Pending-state compatibility during concurrent highlighting
 
+The general pending probe also uses a nonblocking route-lock check: contention
+reports busy rather than blocking the UI behind stdout dispatch. A bounded
+contention regression holds that lock, verifies the probe returns before release,
+and checks idle and active-parent states. This is responsiveness evidence for
+the probe, not the complete latency benchmark gate.
+
 General `request_pending()` once again reports active routed highlighters as
 busy to existing pane/command UI callers. The highlighter coordinator uses a
 separate `line_highlight_request_pending()` check that permits other routed
