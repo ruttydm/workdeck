@@ -48,6 +48,18 @@ pub struct ExtensionDocumentRead {
 }
 
 impl ExtensionDocumentRead {
+    /// Inspect a shared read without blocking a protocol event loop.
+    /// `None` is not yet available (pending or locked); `Some(None)` is a
+    /// settled unreadable side.
+    #[must_use]
+    pub fn try_result(&self) -> Option<Option<String>> {
+        match self.shared.result.try_lock() {
+            Ok(result) => result.clone(),
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner().clone(),
+            Err(std::sync::TryLockError::WouldBlock) => None,
+        }
+    }
+
     pub fn wait(
         &self,
         cancellation: &ExtensionRequestCancellation,
@@ -181,6 +193,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn polling_a_locked_result_does_not_wait_for_its_owner() {
+        let read = ExtensionDocumentRead {
+            shared: Arc::new(SharedDocumentRead::default()),
+        };
+        let mut result = read.shared.result.lock().unwrap();
+        *result = Some(Some("ready".into()));
+        let (sender, receiver) = mpsc::channel();
+        let polled = read.clone();
+        let worker = std::thread::spawn(move || sender.send(polled.try_result()).unwrap());
+        let observed = receiver.recv_timeout(Duration::from_secs(5));
+        drop(result);
+        worker.join().unwrap();
+        assert_eq!(observed.unwrap(), None);
+        assert_eq!(read.try_result(), Some(Some("ready".into())));
+    }
+
+    #[test]
     fn deduplicates_reads_and_cancellation_only_ends_callers_waits() {
         let (called_tx, called_rx) = mpsc::channel();
         let (release_tx, release_rx) = mpsc::channel();
@@ -197,12 +226,20 @@ mod tests {
         let second = reader.read_document(ExtensionFileSide::New);
         assert_eq!(called_rx.recv().unwrap(), ExtensionFileSide::New);
         assert!(called_rx.try_recv().is_err());
+        assert_eq!(first.try_result(), None);
+        assert_eq!(second.try_result(), None);
 
         let cancellation = ExtensionRequestCancellation::default();
         cancellation.cancel();
         assert_eq!(first.wait(&cancellation), Err(DocumentReadError::Aborted));
         assert_eq!(second.wait(&cancellation), Err(DocumentReadError::Aborted));
         release_tx.send(()).unwrap();
+        assert_eq!(
+            second.wait(&ExtensionRequestCancellation::default()),
+            Ok(Some("after".into()))
+        );
+        assert_eq!(first.try_result(), Some(Some("after".into())));
+        assert_eq!(second.try_result(), Some(Some("after".into())));
     }
 
     #[test]
@@ -239,11 +276,8 @@ mod tests {
         );
 
         let missing = ExtensionDocumentReader::new(|_| Err("unreadable".into()));
-        assert_eq!(
-            missing
-                .read_document(ExtensionFileSide::Old)
-                .wait(&cancellation),
-            Ok(None)
-        );
+        let failed = missing.read_document(ExtensionFileSide::Old);
+        assert_eq!(failed.wait(&cancellation), Ok(None));
+        assert_eq!(failed.try_result(), Some(None));
     }
 }

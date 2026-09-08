@@ -1,5 +1,26 @@
 # Hunk semantic-port ledger
 
+## Lazy document protocol bridge preparation
+
+Pinned `extensionDocumentReader.ts` starts a source read only when a side is
+requested, deduplicates it for the request lifetime, maps unreadable sources to
+null, and aborts individual waits without cancelling the shared read. The host
+already has that shared-reader primitive, but native highlighter requests still
+embed eagerly loaded old/new documents. That transport is not lazy-read parity.
+
+`ExtensionDocumentRead::try_result` now lets a protocol loop inspect a shared
+read without waiting on I/O or a contended result mutex. Its result distinguishes
+not-yet-available data from a settled unreadable side. Tests verify contention,
+shared completion after caller cancellation, exact text, and unreadable results.
+
+The next bridge must use the existing reader rather than duplicate its cache,
+bind child document requests to the live parent request ID and captured file
+authority, bound pending child requests, and keep processing cancellation and
+deadlines while reads run. No native highlighter callback protocol is claimed
+implemented by this primitive, and no ledger coverage is added.
+Verification passes: all four reader tests, workspace Clippy plus a host-only
+recheck after bounding the contention test, formatting, and architecture checks.
+
 ## Note-enriched views with deferred source authority
 
 The source-bound highlighter regression now merges a live annotation before
