@@ -12,6 +12,7 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
     let mut require_cleanup = false;
     let mut mark_annotations = false;
     let mut skip_documents = false;
+    let mut expect_missing = false;
     let mut last_annotation_width: Option<usize> = None;
     let mut active_request = None;
     'requests: loop {
@@ -52,6 +53,11 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
                 skip_documents = input
                     .config
                     .get("skipDocuments")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                expect_missing = input
+                    .config
+                    .get("expectMissing")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
                 let mut registrations = vec![Registration::LineHighlighter {
@@ -127,6 +133,19 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
                     .get(&workdeck_extension_api::ExtensionFileSide::New)
                     .cloned()
                     .flatten();
+                if expect_missing && lazy {
+                    if new.is_none() {
+                        write_result(&mut output, request.id, Vec::<Value>::new())?;
+                    } else {
+                        write_error(
+                            &mut output,
+                            request.id,
+                            -32602,
+                            "expected unreadable document",
+                        )?;
+                    }
+                    continue;
+                }
                 if input.aborted
                     || (!lazy && old.as_deref() != Some("old\n"))
                     || new.as_deref() != Some("new\n")

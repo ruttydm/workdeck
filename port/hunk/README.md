@@ -1,5 +1,19 @@
 # Hunk semantic-port ledger
 
+## Unreadable native document regression
+
+A compiled highlighter fixture now requires an unreadable lazy document and
+returns an empty mark array after its duplicate callbacks. The integration test
+injects an ordinary provider error while the file still has embedded snapshots:
+the child must observe null, not a fallback snapshot or a failed parent request.
+Two separate parent readers each fetch once despite duplicate callbacks, proving
+that failure deduplication is request-scoped and cleanup permits a later parent.
+This does not establish exhaustive source-error or callback-protocol parity and
+adds no ledger coverage.
+Verification passes: all ten compiled highlighter integration tests, workspace
+Clippy, formatting, and architecture checks. A fresh local strict audit still
+fails with 313 unmapped records; upstream catch-up remains incomplete.
+
 ## No-read native highlighter regression
 
 The compiled example has a `skipDocuments` fixture mode that returns an empty
