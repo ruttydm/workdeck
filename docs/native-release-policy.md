@@ -3,6 +3,15 @@
 These Rust tools validate release inputs and emit metadata. They do not fetch a latest version,
 create a Git tag, commit changes, upload assets, or publish packages or releases.
 
+`cargo xtask install-plan [version] [--no-modify-path] [-f|--force]` is a read-only installer
+preflight. It reports version/flag selection and native OS/architecture as JSON, including Rosetta
+correction on macOS. `WORKDECK_VERSION`, `WORKDECK_NO_MODIFY_PATH` and
+`WORKDECK_ALLOW_CONFLICTING_INSTALLS` supply defaults; boolean environment values enable flags
+only when exactly `1`. Last positional version wins, and one leading `v` is removed. The output
+explicitly sets `executionAvailable: false`: release resolution, conflict checks, verified archive
+extraction, atomic installation and shell-profile updates remain unfinished. This is not an
+installer or updater replacement yet and must not justify removing the existing implementation.
+
 ```console
 cargo xtask release channel --event push --ref v0.19.0 --current-latest 0.18.2
 cargo xtask release channel --event workflow_dispatch --ref main --requested-tag beta

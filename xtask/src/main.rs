@@ -15,6 +15,7 @@ use std::process::{Command, Output};
 mod architecture;
 mod benchmark;
 mod changelog;
+mod install;
 mod nix;
 mod release_channel;
 mod release_notes;
@@ -201,6 +202,7 @@ fn run() -> Result<()> {
             _ => bail!("extension requires the stage-example command"),
         },
         Some("site") => site(args.next().as_deref()),
+        Some("install-plan") => install::run(args),
         Some("changelog") => changelog::run(&repo_root()?, args),
         Some("media") => match args.next().as_deref() {
             Some("plan") => term_video::plan_file(&repo_root()?, args),
@@ -2279,6 +2281,7 @@ fn print_help() {
         "cargo xtask extension stage-example <cli-tools|pane-layout|vim-navigation|review-snapshot-export|review-note-navigator|rendered-markdown|jsx-file-view|inline-edit|review-triage|github-pr|file-view-gallery|native-vcs|startup-lifecycle>"
     );
     println!("cargo xtask site <build|check|serve>");
+    println!("cargo xtask install-plan [version] [--no-modify-path] [-f|--force]");
     println!("cargo xtask changelog upstream-history [--check]");
     println!(
         "cargo xtask release channel --event EVENT --ref REF [--requested-tag CHANNEL] [--current-latest VERSION]"
