@@ -295,6 +295,7 @@ impl DaemonSessionSocket for ApiSocket {
 
 fn command_result(command: &str, message: &Value) -> Value {
     match command {
+        "quit_session" => json!({"quitting": true}),
         "navigate_to_hunk" => json!({
             "fileId": "file-1", "filePath": "src/example.rs", "hunkIndex": 0
         }),
@@ -903,6 +904,36 @@ fn capabilities_advertise_every_workdeck_session_action_once() {
     assert_eq!(capabilities.version, WORKDECK_SESSION_API_VERSION);
     assert_eq!(capabilities.daemon_version, WORKDECK_SESSION_DAEMON_VERSION);
     assert_eq!(capabilities.actions, SUPPORTED_SESSION_ACTIONS);
+}
+
+#[test]
+fn session_api_dispatches_native_quit_with_the_selected_session() {
+    let (state, socket) = api_state();
+    let response = handle(
+        &state,
+        json!({"action": "quit", "selector": {"sessionId": "s-1"}}),
+    );
+    assert_eq!(response.status, 200);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&response.body).unwrap(),
+        json!({"result": {"quitting": true}})
+    );
+    let messages = socket.messages();
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["command"], "quit_session");
+    assert_eq!(messages[0]["input"]["sessionId"], "s-1");
+}
+
+#[test]
+fn session_api_rejects_invalid_quit_before_dispatch() {
+    let (state, socket) = api_state();
+    for input in [
+        json!({"action": "quit", "selector": {"sessionId": "s-1"}, "force": true}),
+        json!({"action": "quit", "selector": {"sessionId": 42}}),
+    ] {
+        assert_eq!(handle(&state, input).status, 400);
+    }
+    assert!(socket.messages().is_empty());
 }
 
 #[test]

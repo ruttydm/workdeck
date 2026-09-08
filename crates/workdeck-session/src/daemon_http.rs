@@ -223,6 +223,7 @@ fn decode_chunked_body(mut encoded: &[u8]) -> Result<Vec<u8>, SessionDaemonHttpE
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SessionDaemonAction {
+    Quit,
     List,
     Get,
     Context,

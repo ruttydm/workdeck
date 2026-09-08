@@ -920,6 +920,7 @@ const fn request_action(request: &SessionDaemonRequest) -> SessionDaemonAction {
         SessionDaemonRequest::CommentClear { .. } => SessionDaemonAction::CommentClear,
         SessionDaemonRequest::HighlightAdd { .. } => SessionDaemonAction::HighlightAdd,
         SessionDaemonRequest::HighlightClear { .. } => SessionDaemonAction::HighlightClear,
+        SessionDaemonRequest::Quit { .. } => SessionDaemonAction::Quit,
     }
 }
 
@@ -938,6 +939,7 @@ const fn action_name(action: SessionDaemonAction) -> &'static str {
         SessionDaemonAction::CommentClear => "comment-clear",
         SessionDaemonAction::HighlightAdd => "highlight-add",
         SessionDaemonAction::HighlightClear => "highlight-clear",
+        SessionDaemonAction::Quit => "quit",
     }
 }
 

@@ -42,7 +42,8 @@ pub const DEFAULT_STALE_SESSION_TTL_MS: u64 = 45_000;
 pub const DEFAULT_STALE_SESSION_SWEEP_INTERVAL_MS: u64 = 15_000;
 pub const DEFAULT_SESSION_DAEMON_IDLE_TIMEOUT_MS: u64 = 60_000;
 
-pub const SUPPORTED_SESSION_ACTIONS: [SessionDaemonAction; 13] = [
+pub const SUPPORTED_SESSION_ACTIONS: [SessionDaemonAction; 14] = [
+    SessionDaemonAction::Quit,
     SessionDaemonAction::List,
     SessionDaemonAction::Get,
     SessionDaemonAction::Context,
@@ -231,7 +232,8 @@ fn request_selector(request: &SessionDaemonRequest) -> Option<&SessionSelector> 
         | SessionDaemonRequest::CommentRm { selector, .. }
         | SessionDaemonRequest::CommentClear { selector, .. }
         | SessionDaemonRequest::HighlightAdd { selector, .. }
-        | SessionDaemonRequest::HighlightClear { selector, .. } => Some(selector),
+        | SessionDaemonRequest::HighlightClear { selector, .. }
+        | SessionDaemonRequest::Quit { selector } => Some(selector),
     }
 }
 
@@ -249,7 +251,8 @@ fn request_selector_mut(request: &mut SessionDaemonRequest) -> Option<&mut Sessi
         | SessionDaemonRequest::CommentRm { selector, .. }
         | SessionDaemonRequest::CommentClear { selector, .. }
         | SessionDaemonRequest::HighlightAdd { selector, .. }
-        | SessionDaemonRequest::HighlightClear { selector, .. } => Some(selector),
+        | SessionDaemonRequest::HighlightClear { selector, .. }
+        | SessionDaemonRequest::Quit { selector } => Some(selector),
     }
 }
 
@@ -289,6 +292,7 @@ pub fn session_api_authorization_facts(
             (CallerOperation::Dispatch, Some("navigate_to_hunk"))
         }
         SessionDaemonRequest::Reload { .. } => (CallerOperation::Dispatch, Some("reload_session")),
+        SessionDaemonRequest::Quit { .. } => (CallerOperation::Dispatch, Some("quit_session")),
         SessionDaemonRequest::CommentAdd { .. } => (CallerOperation::Dispatch, Some("comment")),
         SessionDaemonRequest::CommentApply { .. } => {
             (CallerOperation::Dispatch, Some("comment_batch"))
@@ -649,6 +653,27 @@ fn dispatch_api_request(
                 }
                 _ => Err(ApiError::message(
                     "The session returned the wrong highlight result.",
+                )),
+            }
+        }
+        SessionDaemonRequest::Quit { selector } => {
+            let command = crate::QuitSessionToolInput {
+                target_session: selector.clone(),
+            };
+            let result = dispatch_command(
+                state,
+                selector,
+                "quit_session",
+                &command,
+                "Timed out waiting for the session to quit.",
+                None,
+            )?;
+            match result {
+                WorkdeckSessionCommandResult::QuitSession(result) => {
+                    Ok(SessionDaemonResponse::Quit { result })
+                }
+                _ => Err(ApiError::message(
+                    "The session returned the wrong quit result.",
                 )),
             }
         }

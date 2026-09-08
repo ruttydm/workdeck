@@ -205,6 +205,8 @@ pub enum DaemonCommentDirection {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all_fields = "camelCase", deny_unknown_fields)]
 pub enum SessionDaemonRequest {
+    #[serde(rename = "quit")]
+    Quit { selector: SessionSelector },
     #[serde(rename = "list")]
     List,
     #[serde(rename = "get")]
@@ -641,6 +643,9 @@ pub enum SessionCommentSummary {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum SessionDaemonResponse {
+    Quit {
+        result: crate::QuitSessionResult,
+    },
     List {
         sessions: Vec<ListedSession>,
     },
@@ -1263,6 +1268,10 @@ fn valid_response(action: SessionDaemonAction, value: &Value) -> bool {
             .is_some_and(|object| applied_highlight(&object["result"])),
         SessionDaemonAction::HighlightClear => exact_object(value, &["result"], &[])
             .is_some_and(|object| cleared_highlights(&object["result"])),
+        SessionDaemonAction::Quit => exact_object(value, &["result"], &[]).is_some_and(|object| {
+            exact_object(&object["result"], &["quitting"], &[])
+                .is_some_and(|result| result["quitting"] == true)
+        }),
     }
 }
 
@@ -1332,6 +1341,9 @@ pub fn parse_session_daemon_response(
             result: decode_response(&value["result"]).ok_or_else(|| invalid_response(action))?,
         },
         SessionDaemonAction::HighlightClear => SessionDaemonResponse::HighlightClear {
+            result: decode_response(&value["result"]).ok_or_else(|| invalid_response(action))?,
+        },
+        SessionDaemonAction::Quit => SessionDaemonResponse::Quit {
             result: decode_response(&value["result"]).ok_or_else(|| invalid_response(action))?,
         },
     };
