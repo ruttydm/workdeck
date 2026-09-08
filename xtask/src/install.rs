@@ -88,6 +88,21 @@ struct PathFileObservation {
     shadowing: Shadowing,
     manager_hint: Option<&'static str>,
     diagnostic_path: PathBuf,
+    executable_access: Option<bool>,
+}
+
+fn executable_access(path: &Path) -> Option<bool> {
+    #[cfg(unix)]
+    {
+        use rustix::fs::{Access, AtFlags, CWD, accessat};
+        Some(path.is_file() && accessat(CWD, path, Access::EXEC_OK, AtFlags::EACCESS).is_ok())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        // File extension alone is not proof of native executable access on Windows.
+        None
+    }
 }
 
 fn manager_hint(path: &Path) -> Option<&'static str> {
@@ -187,6 +202,7 @@ fn observe_candidates(
         }
         positions.insert(identity.clone(), observations.len());
         observations.push(PathFileObservation {
+            executable_access: executable_access(&path),
             shadowing: shadowing(&path, target, entries, executable),
             aliases: vec![path.clone()],
             diagnostic_path: path.clone(),
@@ -325,6 +341,27 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn executable_access_uses_os_permissions_without_running_file_contents() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let directory = tempfile::tempdir().unwrap();
+        let binary = directory.path().join("workdeck");
+        std::fs::write(&binary, b"not an executable format; must never run").unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(executable_access(&binary), Some(false));
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(executable_access(&binary), Some(true));
+        let alias = directory.path().join("alias");
+        symlink(&binary, &alias).unwrap();
+        assert_eq!(executable_access(&alias), Some(true));
+        assert_eq!(executable_access(directory.path()), Some(false));
+        assert_eq!(
+            executable_access(&directory.path().join("missing")),
+            Some(false)
+        );
+    }
 
     #[test]
     fn inactive_mise_scan_is_bounded_ordered_and_marks_absent_path_candidates() {

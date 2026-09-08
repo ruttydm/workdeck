@@ -21,8 +21,10 @@ supplies `diagnosticPath` and `managerHint` for Cargo, Homebrew, Nix, mise, or s
 These are layout-based hints, not verified ownership; `/usr/local/bin/workdeck` remains ambiguous.
 Empty PATH entries resolve
 against the current directory without changing the process working directory. Candidate programs are never
-executed. File observations are not full conflict validation: executable permission checks,
-manager-aware remediation and legacy-manager scans are still pending. `existingInstallFiles`
+executed. `executableAccess` uses the OS effective-user execute-access check on Unix and is
+`null` on Windows, where native access validation is unfinished; executable format is not
+validated by launching the candidate. File observations are not full conflict validation:
+Windows permission checks, manager-aware remediation and legacy-manager scans are still pending. `existingInstallFiles`
 combines PATH observations with the bounded `~/.local/share/mise/installs/workdeck/*/workdeck`
 and `*/bin/workdeck` layouts (using `workdeck.exe` on Windows), preserving identity deduplication.
 Off-PATH installations are labeled `not-on-path`. Missing mise directories create no state;
