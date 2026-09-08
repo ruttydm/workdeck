@@ -360,6 +360,8 @@ pub struct LineHighlightPreparationController {
     generation: Option<Vec<LineHighlightTaskKey>>,
     generation_files: Vec<PreparationFileIdentity>,
     deadlines: BTreeMap<LineHighlightTaskKey, (Instant, LineHighlightTask)>,
+    // One lifetime per provider attempt, including transport contention/retries.
+    attempt_deadlines: BTreeMap<LineHighlightTaskKey, Instant>,
     cache: BTreeMap<LineHighlightTaskKey, Option<Arc<[ValidatedLineHighlight]>>>,
     pending: BTreeMap<LineHighlightTaskKey, Arc<ExtensionRequestCancellation>>,
     sender: mpsc::Sender<LineHighlightCompletion>,
@@ -384,6 +386,7 @@ impl Default for LineHighlightPreparationController {
             generation: None,
             generation_files: Vec::new(),
             deadlines: BTreeMap::new(),
+            attempt_deadlines: BTreeMap::new(),
             cache: BTreeMap::new(),
             pending: BTreeMap::new(),
             sender,
@@ -403,6 +406,7 @@ impl LineHighlightPreparationController {
         }
         self.pending.clear();
         self.deadlines.clear();
+        self.attempt_deadlines.clear();
     }
 
     /// Terminal transition, invoked before retiring native extension processes.
@@ -493,6 +497,8 @@ impl LineHighlightPreparationController {
         self.deadlines
             .retain(|key, _| self.pending.contains_key(key));
         self.cache.retain(|key, _| desired.contains(key));
+        self.attempt_deadlines
+            .retain(|key, _| desired.contains(key) && !self.cache.contains_key(key));
         self.merged.retain(|file_id, entry| {
             files.iter().any(|file| {
                 file.runtime_id == *file_id && file.content_identity == entry.content_identity
@@ -527,6 +533,20 @@ impl LineHighlightPreparationController {
             let Some(extension) = extensions.get(task.extension_index) else {
                 continue;
             };
+            let now = Instant::now();
+            let deadline = *self
+                .attempt_deadlines
+                .entry(task.key.clone())
+                .or_insert(now + workdeck_extension_host::LINE_HIGHLIGHT_TIMEOUT);
+            if now >= deadline {
+                self.cache.insert(task.key.clone(), None);
+                self.attempt_deadlines.remove(&task.key);
+                self.report_once(extensions, task, "highlight", format!(
+                    "Extension {} line highlighter \"{}\" failed highlighting {} • marks dropped",
+                    task.extension_id, task.highlighter_id, task.file.path,
+                ));
+                continue;
+            }
             if extension.request_pending() {
                 continue;
             }
@@ -534,13 +554,8 @@ impl LineHighlightPreparationController {
             let cancelled = Arc::new(ExtensionRequestCancellation::default());
             self.pending
                 .insert(task.key.clone(), Arc::clone(&cancelled));
-            self.deadlines.insert(
-                task.key.clone(),
-                (
-                    Instant::now() + workdeck_extension_host::LINE_HIGHLIGHT_TIMEOUT,
-                    task.clone(),
-                ),
-            );
+            self.deadlines
+                .insert(task.key.clone(), (deadline, task.clone()));
             let extension = Arc::clone(extension);
             let sender = self.sender.clone();
             thread::spawn(move || {
@@ -2413,6 +2428,80 @@ mod tests {
                 vec!["first", "second"]
             );
         }
+    }
+
+    #[test]
+    fn busy_provider_wait_has_a_deadline_without_starting_a_worker() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+        runtime.pending.store(true, Ordering::Release);
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("blocked")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [test_file("file", "content")];
+        let mut controller = LineHighlightPreparationController::default();
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        assert_eq!(controller.attempt_deadlines.len(), 1);
+        assert_eq!(controller.pending_count(), 0);
+        assert!(
+            controller.deadlines.is_empty(),
+            "queued work must not freeze a file snapshot"
+        );
+        *controller.attempt_deadlines.values_mut().next().unwrap() = Instant::now();
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        assert!(controller.cache.values().next().unwrap().is_none());
+        assert!(controller.attempt_deadlines.is_empty());
+        assert_eq!(runtime.warnings().len(), 1);
+        runtime.pending.store(false, Ordering::Release);
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        assert!(
+            runtime.calls().is_empty(),
+            "a timed-out attempt must not start later"
+        );
+        controller.replace_document();
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            &files,
+            |controller| !controller.resolved().is_empty(),
+        );
+        assert_eq!(runtime.calls().len(), 1);
+    }
+
+    #[test]
+    fn retry_reuses_original_attempt_deadline_and_cannot_extend_it() {
+        let runtime =
+            FakeLineHighlightRuntime::new(|_, _, _| Err(LineHighlightRuntimeError::Retry));
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("retry")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [test_file("file", "content")];
+        let mut controller = LineHighlightPreparationController::default();
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        let original = *controller.attempt_deadlines.values().next().unwrap();
+        let completion = controller
+            .receiver
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        controller.sender.send(completion).unwrap();
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        assert_eq!(
+            *controller.attempt_deadlines.values().next().unwrap(),
+            original
+        );
+        assert_eq!(controller.deadlines.values().next().unwrap().0, original);
+        let completion = controller
+            .receiver
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        controller.sender.send(completion).unwrap();
+        *controller.attempt_deadlines.values_mut().next().unwrap() = Instant::now();
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        assert_eq!(controller.pending_count(), 0);
+        assert!(controller.cache.values().next().unwrap().is_none());
+        assert_eq!(runtime.calls().len(), 2);
+        assert_eq!(runtime.warnings().len(), 1);
     }
 
     #[test]

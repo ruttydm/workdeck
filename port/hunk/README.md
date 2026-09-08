@@ -81,6 +81,21 @@ Strict audit refreshed after `bf656bd4`: exactly 1,257 baseline files and 1,326
 records, with 290 unmapped records and 11 cached upstream delta commits. Audit
 exited unsuccessfully on incomplete coverage. No mapping is changed by this fix.
 
+### One deadline across provider waiting and retries
+
+Provider contention previously had no preparation deadline, and a retry created
+a fresh full timeout. The coordinator now retains one attempt deadline from the
+file's first eligible provider turn through queued waiting, retries, and worker
+execution. The waiting map retains only task keys and instants, not frozen file
+snapshots. Generation replacement clears those lifetimes; a settled timeout is
+cached and cannot invoke its provider later without invalidation.
+
+Deterministic tests expire a queued deadline without starting a worker, verify
+reload recovery, and verify that retry execution uses the original deadline.
+All 47 coordinator tests and 25 compiled highlighter integration tests pass.
+TUI all-target Clippy with warnings denied, formatting and whitespace checks
+also pass. No whole-file ledger mapping is claimed.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation
