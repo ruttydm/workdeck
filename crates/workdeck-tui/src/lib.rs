@@ -1935,22 +1935,38 @@ impl ReviewApp {
             .reconcile_files(changeset.files.iter().map(|file| file.runtime_id.clone()));
         if self.with_state(|state| state.changeset() != &changeset) {
             let previous_changeset = self.with_state(|state| state.changeset().clone());
-            // Hunk MIT: useTerminalReview's document-reconcile effect and shared
-            // review reducer retire expansion state by semantic source identity.
-            let retired = workdeck_review::review_keys_with_retired_source_identities(
-                previous_changeset
-                    .files
-                    .iter()
-                    .map(|file| (file.key.as_str(), file.source_identity.as_deref())),
-                changeset
-                    .files
-                    .iter()
-                    .map(|file| (file.key.as_str(), file.source_identity.as_deref())),
-            );
-            self.expanded_gaps
-                .retain(|(file_key, _)| !retired.contains(file_key.as_str()));
-            self.gap_cursor_restore
-                .retain(|(file_key, _), _| !retired.contains(file_key.as_str()));
+            if !self.expanded_gaps.is_empty() || !self.gap_cursor_restore.is_empty() {
+                // Hunk MIT: useTerminalReview's document-reconcile effect and shared
+                // review reducer retire expansion state by semantic source identity.
+                let retired = workdeck_review::review_keys_with_retired_source_identities(
+                    previous_changeset
+                        .files
+                        .iter()
+                        .map(|file| (file.key.as_str(), file.source_identity.as_deref())),
+                    changeset
+                        .files
+                        .iter()
+                        .map(|file| (file.key.as_str(), file.source_identity.as_deref())),
+                );
+                self.expanded_gaps
+                    .retain(|(file_key, _)| !retired.contains(file_key.as_str()));
+                let mut file_indices = BTreeMap::new();
+                for (index, file) in changeset.files.iter().enumerate() {
+                    file_indices.entry(file.key.as_str()).or_insert(index);
+                }
+                self.gap_cursor_restore.retain(|(file_key, _), target| {
+                    if retired.contains(file_key.as_str()) {
+                        return false;
+                    }
+                    let Some(index) = file_indices.get(file_key.as_str()) else {
+                        return false;
+                    };
+                    // Source cursors address a file identity, not its position in the
+                    // stream. Rebase the native indexed target onto that same file.
+                    target.file_index = *index;
+                    true
+                });
+            }
             let carried_agent_line_highlights = carry_over_line_highlights(
                 &self.agent_line_highlights,
                 &previous_changeset,
@@ -3639,6 +3655,8 @@ impl ReviewApp {
             .copied()
             .find(|cursor| {
                 cursor.row == self.current_line_row
+                    && cursor.target.file_index == selection.file_index
+                    && cursor.target.hunk_index == selection.hunk_index.unwrap_or(0)
                     && selection
                         .side
                         .zip(selection.line)
@@ -3654,6 +3672,12 @@ impl ReviewApp {
                             && cursor.target.side == side
                             && cursor.target.line == line
                     })
+                })
+            })
+            .or_else(|| {
+                cursors.iter().copied().find(|cursor| {
+                    cursor.target.file_index == selection.file_index
+                        && cursor.target.hunk_index == selection.hunk_index.unwrap_or(0)
                 })
             })
     }
@@ -7950,7 +7974,17 @@ impl ReviewApp {
             self.gap_cursor_restore.remove(&key)
         };
         let rows = self.current_review_rows();
-        if let Some(cursor) = review_line_cursors(&rows)
+        let cursors = review_line_cursors(&rows);
+        // A collapse restores the saved anchor only if it actually removed the
+        // current cursor. Moving clear of the gap must survive closing it.
+        let target = if expanded {
+            target
+        } else {
+            previous
+                .filter(|previous| cursors.iter().any(|cursor| cursor.target == *previous))
+                .or(target)
+        };
+        if let Some(cursor) = cursors
             .into_iter()
             .find(|cursor| Some(cursor.target) == target)
         {
@@ -20740,6 +20774,89 @@ mod tests {
             assert_eq!(app.gap_cursor_restore, restore);
             assert!(rendered_review_frame(&mut terminal, &app).contains("hiddenLine01"));
             press(&mut app, 'z');
+            assert!(!rendered_review_frame(&mut terminal, &app).contains("hiddenLine01"));
+        }
+
+        #[test]
+        fn collapsing_a_gap_after_file_reorder_restores_the_same_semantic_file() {
+            let (mut app, mut terminal) = setup(true);
+            press(&mut app, 'z');
+            assert!(rendered_review_frame(&mut terminal, &app).contains("hiddenLine01"));
+            let restored_line = app.gap_cursor_restore.values().next().unwrap().line;
+            let mut replacement = app.with_state(|state| state.changeset().clone());
+            let mut other = navigation_changeset(vec![(
+                "other.ts".into(),
+                numbered_exports(1, 8, 0, true),
+                numbered_exports(1, 8, 100, true),
+            )]);
+            replacement.files.insert(0, other.files.remove(0));
+            app.reload(replacement);
+            assert_eq!(app.with_state(|state| state.selection().file_index), 1);
+            assert_eq!(
+                app.current_review_line_cursor().unwrap().target.file_index,
+                1
+            );
+            app.toggle_source_gap();
+            assert_eq!(app.with_state(|state| state.selection().file_index), 1);
+            let cursor = app.current_review_line_cursor().unwrap();
+            assert_eq!(cursor.target.file_index, 1);
+            assert_eq!(cursor.target.line, restored_line);
+        }
+
+        #[test]
+        fn collapsing_a_gap_keeps_a_cursor_that_moved_outside_the_gap() {
+            let before = "hiddenLine01\nhiddenLine02\nhiddenLine03\nold4\nold5\n";
+            let after = "hiddenLine01\nhiddenLine02\nhiddenLine03\nnew4\nnew5\n";
+            let patch = create_two_files_patch("gap.ts", before, after, 0);
+            let mut review = parse_patch(
+                &patch,
+                "cursor-gap",
+                "Gap",
+                ChangesetSource::WorkingTree { staged: false },
+            )
+            .unwrap();
+            review.files[0].set_sources(FileSourceSnapshots {
+                old: Some(SourceSnapshot::new(
+                    before.into(),
+                    SourceOrigin::Revision {
+                        revision: "HEAD".into(),
+                    },
+                    true,
+                )),
+                new: Some(SourceSnapshot::new(
+                    after.into(),
+                    SourceOrigin::WorkingTree,
+                    false,
+                )),
+            });
+            review.files[0].flags.partial = false;
+            review.refresh_review_identities();
+            let mut app = ReviewApp::new(
+                review,
+                ReviewOptions {
+                    layout: LayoutMode::Stack,
+                    highlight: false,
+                    ..ReviewOptions::default()
+                },
+            );
+            let mut terminal = Terminal::new(TestBackend::new(140, 20)).unwrap();
+            rendered_review_frame(&mut terminal, &app);
+            press(&mut app, 'z');
+            for _ in 0..10 {
+                let cursor = app.current_review_line_cursor().unwrap();
+                if cursor.target.side == ReviewSide::New && cursor.target.line == 5 {
+                    break;
+                }
+                press(&mut app, 'j');
+            }
+            let before_collapse = app.current_review_line_cursor().unwrap().target;
+            assert_eq!(before_collapse.side, ReviewSide::New);
+            assert_eq!(before_collapse.line, 5);
+            press(&mut app, 'z');
+            assert_eq!(
+                app.current_review_line_cursor().unwrap().target,
+                before_collapse
+            );
             assert!(!rendered_review_frame(&mut terminal, &app).contains("hiddenLine01"));
         }
     }

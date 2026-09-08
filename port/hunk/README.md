@@ -8,6 +8,16 @@ retire both open gaps and saved cursor restore points. Reintroducing a removed
 file cannot resurrect its previous expansion. An unchanged source identity keeps
 its expansion, including when only the runtime file identifier changes.
 
+Surviving restore points are relocated by semantic file key when files reorder;
+their old numeric indexes cannot target another file. Current-cursor lookup also
+requires the selected file and hunk, and falls back to that hunk's first cursor
+when no prior cursor remains. Collapsing a gap restores its saved anchor only if
+the current line disappeared; a cursor moved outside the gap stays where it is.
+Native regressions reproduced the previous wrong-file jump and unconditional
+restore. These cases are source-derived runtime tests, not additional frozen
+upstream terminal-frame comparisons. With no expansion state, reload skips this
+reconciliation work.
+
 The changed/removed-source regression failed against the preceding live TUI and
 passes with this integration. The unchanged-source case verifies both retained
 state and rendered source rows. Its fixture refreshes derived identities after
