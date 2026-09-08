@@ -266,6 +266,7 @@ pub fn resolve_highlighted_snapshot(
 pub struct HighlightedDiffRuntime {
     engine: HighlightCache,
     coordinator: HighlightedDiffCoordinator,
+    pub(crate) word_emphasis: crate::word_emphasis_cache::WordEmphasisCache,
 }
 
 impl Drop for HighlightedDiffRuntime {

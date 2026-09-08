@@ -104,6 +104,7 @@ mod viewport_anchor;
 mod viewport_geometry;
 mod viewport_selection;
 mod watched_input;
+mod word_emphasis_cache;
 
 use extension_dialog_view::{
     ExtensionInputDialogPlan, ExtensionSelectDialogPlan, extension_dialog_action_at,
@@ -240,7 +241,7 @@ use workdeck_diff::{
     LanguageRegistry, SyntaxToken, TextSegment, clip_segments, expand_diff_tabs,
     find_max_line_number, plan_split_line_pairs, resolve_split_cell_geometry,
     resolve_split_pane_widths as resolve_diff_split_pane_widths, resolve_stack_cell_geometry,
-    sanitize_terminal_line, slice_segments_window, word_diff_ranges, wrap_segments,
+    sanitize_terminal_line, slice_segments_window, wrap_segments,
 };
 use workdeck_extension_api::{
     ExtensionCommandAvailability, ExtensionCurrentLinePaint as ExtensionCurrentLinePaintContext,
@@ -12640,6 +12641,7 @@ fn build_review_rows_with_chrome(
                     file_selection,
                     selected_hunk,
                     line_highlight_paint.as_ref(),
+                    &mut highlight_cache.word_emphasis,
                 ),
                 LayoutMode::Stack | LayoutMode::Auto => stack_hunk_rows(
                     file,
@@ -12655,6 +12657,7 @@ fn build_review_rows_with_chrome(
                     file_selection,
                     selected_hunk,
                     line_highlight_paint.as_ref(),
+                    &mut highlight_cache.word_emphasis,
                 ),
             };
             if options.agent_notes {
@@ -13377,6 +13380,7 @@ fn stack_hunk_rows(
     selection: ReviewSelection,
     hunk_selected: bool,
     line_highlights: Option<&LineHighlightPaintIndex>,
+    word_emphasis: &mut word_emphasis_cache::WordEmphasisCache,
 ) -> TargetedHunkRows {
     let mut rows = Vec::new();
     let mut targets = Vec::new();
@@ -13390,7 +13394,7 @@ fn stack_hunk_rows(
         if old_index == new_index {
             continue;
         }
-        let ranges = word_diff_ranges(
+        let ranges = word_emphasis.ranges(
             &expanded_line_content(&hunk.lines[old_index], options.tab_width),
             &expanded_line_content(&hunk.lines[new_index], options.tab_width),
         );
@@ -13579,6 +13583,7 @@ fn split_hunk_rows(
     selection: ReviewSelection,
     hunk_selected: bool,
     line_highlights: Option<&LineHighlightPaintIndex>,
+    word_emphasis: &mut word_emphasis_cache::WordEmphasisCache,
 ) -> TargetedHunkRows {
     let mut rows = Vec::new();
     let mut targets = Vec::new();
@@ -13594,7 +13599,7 @@ fn split_hunk_rows(
             .zip(new)
             .filter(|(old, new)| !std::ptr::eq(*old, *new))
             .map(|(old, new)| {
-                word_diff_ranges(
+                word_emphasis.ranges(
                     &expanded_line_content(old, options.tab_width),
                     &expanded_line_content(new, options.tab_width),
                 )
