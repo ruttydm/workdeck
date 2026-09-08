@@ -401,3 +401,14 @@ rendering remains about 9.27 ms. A single retained immutable-document height avo
 plain geometry just to clamp the wheel, with explicit setting/document invalidation and
 fallback for complex content. Full-frame geometry and painting are not cached. The change
 does not satisfy the pinned-Hunk scrolling budget; peak-memory and ledger gates remain open.
+
+### Style-free section geometry reuse at `af2ff101`
+
+[Three optimized runs](interaction-stages-af2ff101.json) report 10.65 ms first frame,
+33.11 ms navigation and 8.36 ms scrolling. Navigation render time is 8.24 ms and scroll
+render time 6.93 ms; dispatch remains 24.80 ms and 1.42 ms respectively. Eligible plain
+renders reuse exact section positions instead of repeating the geometry prepass. The
+1,031 TUI unit tests and scroll integration pass, including full-cell cached/rebuilt
+comparisons after theme and terminal-width changes. This remains a diagnostic result,
+not scrolling parity (the earlier paired Hunk sample was about 1.2 ms), peak-memory
+acceptance, or additional ledger coverage. Other host activity was not controlled.
