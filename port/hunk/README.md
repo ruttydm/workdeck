@@ -18,6 +18,11 @@ The stdout reader now consults these routes before forwarding unmatched frames
 to the existing response channel. EOF, reader failure, and connection teardown
 close the route registry. Native request methods still use the legacy inbox;
 parent registration and releasing the connection lock during waits remain next.
+The cancellable request path now registers its parent inbox before sending,
+receives responses/callbacks through that inbox, and retires it on send failure
+or request completion. Connection locking is still held across the wait, so
+native concurrency remains unfinished. Transport failures disconnect routed
+waiters; more precise transport-error propagation remains follow-up work.
 This does not change the serialization gap described below or add ledger coverage.
 The route primitive also has idempotent terminal closure: it disconnects all
 parent inboxes after buffered frames drain and permanently rejects registration.

@@ -1141,7 +1141,20 @@ impl LoadedExtension {
         if connection.pending_request.is_some() {
             return Err(HostError::Busy(self.manifest.id.clone()));
         }
-        let id = self.send_request_on(&mut connection, method, params)?;
+        let id = connection.next_id;
+        let routes = Arc::clone(&connection.response_routes);
+        let responses = routes
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .register(id)
+            .map_err(|_| HostError::Busy(self.manifest.id.clone()))?;
+        if let Err(error) = self.send_request_on(&mut connection, method, params) {
+            routes
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .retire(id);
+            return Err(error);
+        }
         let deadline = Instant::now() + timeout;
         let mut documents = documents.map(|reader| ExtensionDocumentRequests::new(id, reader));
         let result = (|| {
@@ -1167,11 +1180,8 @@ impl LoadedExtension {
                         self.send_document_response_on(&mut connection, child_id, Ok(value))?;
                     }
                 }
-                match connection
-                    .responses
-                    .recv_timeout(remaining.min(Duration::from_millis(25)))
-                {
-                    Ok(Ok(line)) => {
+                match responses.recv_timeout(remaining.min(Duration::from_millis(25))) {
+                    Ok(line) => {
                         if let Ok(value) = serde_json::from_str::<Value>(&line)
                             && value.get("method").and_then(Value::as_str)
                                 == Some(workdeck_extension_api::EXTENSION_DOCUMENT_READ_METHOD)
@@ -1224,12 +1234,6 @@ impl LoadedExtension {
                         }
                         break line;
                     }
-                    Ok(Err(source)) => {
-                        return Err(HostError::Io {
-                            id: self.manifest.id.clone(),
-                            source,
-                        });
-                    }
                     Err(mpsc::RecvTimeoutError::Timeout) => continue,
                     Err(mpsc::RecvTimeoutError::Disconnected) => {
                         return Err(HostError::Closed(self.manifest.id.clone()));
@@ -1241,6 +1245,10 @@ impl LoadedExtension {
         if let Some(documents) = documents.as_mut() {
             documents.retire();
         }
+        routes
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .retire(id);
         // Hunk's line-highlight request aborts its child signal in finally,
         // including success and extension errors. Preserve the decoded result
         // if the child closes before best-effort cleanup can be delivered.
