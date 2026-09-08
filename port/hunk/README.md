@@ -31,6 +31,14 @@ content, retained asset, Rust-generated replacement, and retained license.
 Port commits name their records with `Hunk-Port:` trailers. Stable and catch-up commits additionally
 carry `Hunk-Upstream:` trailers. An unmapped record is visible work, never an implicit waiver.
 
+Status/audit list the tracked post-baseline commit hashes in reverse topological order (parents
+before children). Strict audit rejects missing upstream refs as unknown, as well as a non-empty
+delta. These observations use the locally fetched `hunk-upstream/main`, not a live remote query;
+the final fetch requirement remains mandatory. Currently this is the raw post-baseline range:
+there is no verified catch-up disposition registry yet, and commit trailers alone do not remove
+entries. Implementing and verifying that registry is outstanding; changing the baseline or
+moving the upstream ref backward is not an acceptable way to clear this gate.
+
 The five commits unique to Hunk `v0.20.1` are tracked separately in
 `port/hunk/stable-fixes.jsonl`; the four functional regressions have Rust implementations and
 named tests. They do not falsely mark the larger baseline blobs containing those files as ported.

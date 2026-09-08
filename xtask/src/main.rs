@@ -1735,7 +1735,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
 
     let unmapped = disposition_counts.get("unmapped").copied().unwrap_or(0);
     let stable_fixes = validate_stable_fixes(&repo)?;
-    let upstream_delta = upstream_delta_count(&repo, &baseline)?;
+    let upstream_delta = upstream_delta_commits(&repo, &baseline)?;
     println!("Hunk semantic-port ledger");
     println!("  baseline: {baseline}");
     println!("  files: {}", entries.len());
@@ -1744,16 +1744,21 @@ fn audit(options: Options, strict: bool) -> Result<()> {
         println!("  {disposition}: {count}");
     }
     println!("  stable-only commits: {stable_fixes}");
-    match upstream_delta {
-        Some(count) => println!("  upstream delta commits: {count}"),
+    match &upstream_delta {
+        Some(commits) => {
+            println!("  upstream delta commits: {}", commits.len());
+            for commit in commits {
+                println!("    pending upstream: {commit}");
+            }
+        }
         None => println!("  upstream delta commits: unknown (fetch hunk-upstream)"),
     }
 
     if strict && unmapped > 0 && !options.allow_incomplete {
         bail!("{unmapped} ledger records remain unmapped");
     }
-    if strict && upstream_delta.is_some_and(|count| count > 0) {
-        bail!("the Hunk upstream-delta queue is not empty");
+    if strict {
+        validate_upstream_delta(upstream_delta.as_deref())?;
     }
     Ok(())
 }
@@ -1806,17 +1811,23 @@ fn validate_stable_fixes(repo: &Path) -> Result<usize> {
     Ok(records.len())
 }
 
-fn upstream_delta_count(repo: &Path, baseline: &str) -> Result<Option<usize>> {
+fn validate_upstream_delta(commits: Option<&[String]>) -> Result<()> {
+    match commits {
+        None => bail!("Hunk upstream state is unknown; fetch hunk-upstream before strict audit"),
+        Some(commits) if !commits.is_empty() => bail!("the Hunk upstream-delta queue is not empty"),
+        Some(_) => Ok(()),
+    }
+}
+
+fn upstream_delta_commits(repo: &Path, baseline: &str) -> Result<Option<Vec<String>>> {
     let upstream = "refs/remotes/hunk-upstream/main";
     let probe = git_output(repo, ["rev-parse", "--verify", upstream])?;
     if !probe.status.success() {
         return Ok(None);
     }
     let range = format!("{baseline}..{upstream}");
-    let output = git_stdout(repo, ["rev-list", "--count", &range])?;
-    Ok(Some(
-        output.parse().context("invalid upstream delta count")?,
-    ))
+    let output = git_stdout(repo, ["rev-list", "--reverse", "--topo-order", &range])?;
+    Ok(Some(output.lines().map(str::to_owned).collect()))
 }
 
 fn validate_disposition(repo: &Path, record: &LedgerRecord) -> Result<()> {
@@ -2291,6 +2302,12 @@ fn print_help() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn strict_upstream_gate_rejects_unknown_and_pending_state() {
+        assert!(super::validate_upstream_delta(None).is_err());
+        assert!(super::validate_upstream_delta(Some(&["unported-commit".into()])).is_err());
+        assert!(super::validate_upstream_delta(Some(&[])).is_ok());
+    }
     use super::{
         LedgerRecord, classify, lock_ledger_for_write, parse_map_options, read_ledger,
         release_entries, source_line_count, validate_test_evidence, write_ledger_atomic,
