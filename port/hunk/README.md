@@ -1572,6 +1572,40 @@ and create/update consumption must be literal `true`. The typed expectation mode
 enforces those distinctions, with an executable rejection/round-trip test. Both pinned
 corpora still pass unchanged; the focused suite now contains 26 passing tests.
 
+#### Shared conformance interface review
+
+The complete pinned `test/review-conformance/types.ts` record is now translated. This
+mapping covers its harness interfaces, not completion of the product or its imported
+runtime subsystems. The source's two rules remain enforced: expectations come from the
+hand-written upstream contract, and compared projections contain no renderer-specific
+widths, cells, or DOM. Frozen adapter output is a second comparison, never a replacement
+for those expectations.
+
+| Source interface family | Rust implementation and executable checks |
+| --- | --- |
+| Gap, line address, hunk ranges, expanded row, file and geometry projection | `models.rs` typed lossless projection checks; all three geometry consumers and malformed-shape tests |
+| Expansion, geometry fixture and consumer | Root conformance fixture builders, file-scoped expansion and fresh-builder tests |
+| Snapshot projection, fixture and consumer | `models.rs` and `snapshot.rs`; saved notes, reply identity, unsaved terminal draft exclusion, alternate generations and fresh builders |
+| Selection input/output, reveal, move/outcome, navigation projection | `models.rs` and `navigation.rs`; vanished/null positions, typed output, real planner and terminal store paths |
+| Navigation fixture and consumer | Optional filter, keyed annotated-hunk map, independent annotated files, moves and selections; pinned corpora and explicit/empty/absent scope tests |
+| Ordering consumer | Native publication-address inputs and publication-order enum results; core and real broker-mirror corpus paths |
+| Wire outcome, fixture and consumer | Typed intent wrapper excludes wire-only fields, object action inputs preserve malformed source cases, note adapter retains explicit empty tags; both pinned wire corpora and size boundaries |
+| Event projection, fixture and consumer | Typed publication body, numeric/relative windows and frame summaries; protocol and real HTTP consumers, boundary windows and corrupt/incomplete event checks |
+
+All fixture families retain IDs, finding IDs, descriptions, and hand-written expected
+projections. Generic named consumer descriptors retain registration phases and executable
+family-specific callbacks; phase strings are upstream history, not SDK versions. Rust
+builder closures replace source functions and build fresh native inputs. The source event
+Promise becomes a blocking completion boundary in this synchronous native harness: the
+real HTTP adapter reads through the resumable frame, closes its HTTP surface, and stops
+its test daemon before returning the typed projection. It does not return pending work
+or substitute a frame-list mock. Domain line/index integer types replace JavaScript
+numbers; renderer geometry is never normalized away in the comparisons.
+
+The complete focused suite has 27 passing tests after annotation-scope review, with
+focused Clippy, formatting and diff checks passing. Earlier paragraphs record incremental
+unmapped status; this review supersedes that status for this source record only.
+
 Full `cargo xtask verify` passed at `e4f3c782` before this conformance increment, including
 workspace tests, Clippy, release build, and the large-repository smoke test. This does not
 clear strict source coverage, benchmark, native-platform, signing, or release gates.
