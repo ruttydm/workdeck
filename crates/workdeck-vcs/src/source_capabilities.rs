@@ -11,9 +11,12 @@ use std::{
 };
 use workdeck_core::{DiffFile, ReviewSide};
 
+static NEXT_SOURCE_RUNTIME_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 /// One provider invocation bound to one file. Caller-supplied metadata cannot
 /// substitute a different path or revision into the captured request.
 pub struct VcsFileSourceCapability {
+    runtime_identity: u64,
     reader: VcsSourceReader,
     request: VcsFileSourceRequest,
     resolved: Mutex<[Option<VcsFileSourceResult>; 2]>,
@@ -22,6 +25,13 @@ pub struct VcsFileSourceCapability {
 impl VcsFileSourceCapability {
     pub(crate) fn new(reader: VcsSourceReader, file: &DiffFile) -> Self {
         Self {
+            runtime_identity: NEXT_SOURCE_RUNTIME_ID
+                .fetch_update(
+                    std::sync::atomic::Ordering::Relaxed,
+                    std::sync::atomic::Ordering::Relaxed,
+                    |identity| identity.checked_add(1),
+                )
+                .expect("VCS source runtime identity exhausted"),
             reader,
             request: VcsFileSourceRequest {
                 path: file.path.clone(),
@@ -55,6 +65,11 @@ impl VcsFileSourceCapability {
             .lock()
             .unwrap_or_else(|error| error.into_inner())[index] = Some(value.clone());
         Ok(value)
+    }
+
+    /// Process-local identity of this executable reader, never a serialized source key.
+    pub fn runtime_identity(&self) -> u64 {
+        self.runtime_identity
     }
 }
 
@@ -159,6 +174,7 @@ mod tests {
         });
         let first = VcsFileSourceCapability::new(Arc::clone(&reader), &file());
         let second = VcsFileSourceCapability::new(reader, &file());
+        assert_ne!(first.runtime_identity(), second.runtime_identity());
         for _ in 0..3 {
             assert_eq!(
                 first.read(ReviewSide::Old).unwrap(),

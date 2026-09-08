@@ -11,10 +11,23 @@ provider cache as other source consumers.
 A regression reproduced stale highlight reuse after source identity changed
 while patch content stayed unchanged: the extension ran once instead of twice.
 Source identity is now part of both scheduling and publication cache keys, so
-old-source completions cannot satisfy new-source tasks. This does not establish
-complete cache parity: unattested handle replacement with unchanged identity,
-registration identity changes, and metadata-changing transforms still need
-explicit review. The previously mapped full `useLineHighlights.ts` interval is
+old-source completions cannot satisfy new-source tasks.
+
+A second regression reproduced reuse after replacing an unattested source
+handle with unchanged patch/source identity. Provider handles now have a
+process-local, non-serialized identity. Unattested highlighter task keys include
+that identity; matching attested source keys still reuse results. A controlled
+worker test releases the retired reader's result only after its replacement has
+published, and verifies that the late result cannot replace current highlights.
+
+All 19 highlighter tests and three provider-capability tests pass, along with
+workspace Clippy, formatting, and architecture checks. The full workspace run
+started at `d510fd07` also completed successfully (including 190 xtask tests,
+one ignored); the focused tests above separately verify these later changes.
+
+This does not establish complete cache parity: registration identity changes
+and metadata-changing transforms still need explicit review. The previously
+mapped full `useLineHighlights.ts` interval is
 reopened as unmapped. Its prior destination/evidence references are preserved in
 `highlighter-work-in-progress.json`, not as a completed ledger mapping.
 The honest unmapped count is now 313, not 312.

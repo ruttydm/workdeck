@@ -24,6 +24,9 @@ pub enum LineHighlightRuntimeError {
 
 /// Process boundary used by the background coordinator and deterministic tests.
 pub trait LineHighlightRuntime: Send + Sync {
+    fn source_generation(&self, _file: &DiffFile) -> Option<u64> {
+        None
+    }
     fn request_pending(&self) -> bool;
     fn highlight_file(
         &self,
@@ -41,6 +44,16 @@ pub(crate) struct SourceBoundLineHighlightRuntime {
 }
 
 impl LineHighlightRuntime for SourceBoundLineHighlightRuntime {
+    fn source_generation(&self, file: &DiffFile) -> Option<u64> {
+        if file.source_attested {
+            None
+        } else {
+            self.sources
+                .as_ref()?
+                .get(file)
+                .map(|source| source.runtime_identity())
+        }
+    }
     fn request_pending(&self) -> bool {
         self.runtime.request_pending()
     }
@@ -183,6 +196,7 @@ struct LineHighlightTaskKey {
     file_id: String,
     content_identity: String,
     source_identity: Option<String>,
+    source_generation: Option<u64>,
     highlighter_key: String,
     epoch: u64,
 }
@@ -269,7 +283,7 @@ impl LineHighlightPreparationController {
         epochs: &workdeck_extension_host::LineHighlightEpochState,
         files: &[DiffFile],
     ) {
-        let tasks = desired_line_highlight_tasks(registrations, epochs, files);
+        let tasks = desired_line_highlight_tasks(extensions, registrations, epochs, files);
         let desired = tasks
             .iter()
             .map(|task| task.key.clone())
@@ -441,6 +455,9 @@ impl LineHighlightPreparationController {
                         file_id: file.runtime_id.clone(),
                         content_identity: file.content_identity.clone(),
                         source_identity: file.source_identity.clone(),
+                        source_generation: extensions
+                            .get(registration.extension_index)
+                            .and_then(|runtime| runtime.source_generation(file)),
                         highlighter_key: highlighter_key.clone(),
                         epoch,
                     };
@@ -528,6 +545,7 @@ impl LineHighlightPreparationController {
 }
 
 fn desired_line_highlight_tasks(
+    extensions: &[Arc<dyn LineHighlightRuntime>],
     registrations: &[RegisteredLineHighlighter],
     epochs: &workdeck_extension_host::LineHighlightEpochState,
     files: &[DiffFile],
@@ -544,6 +562,9 @@ fn desired_line_highlight_tasks(
                         file_id: file.runtime_id.clone(),
                         content_identity: file.content_identity.clone(),
                         source_identity: file.source_identity.clone(),
+                        source_generation: extensions
+                            .get(registration.extension_index)
+                            .and_then(|runtime| runtime.source_generation(file)),
                         epoch: scoped_epoch(epochs, &highlighter_key, &file.runtime_id),
                         highlighter_key,
                     },
@@ -710,10 +731,78 @@ mod tests {
     }
 
     struct FakeLineHighlightRuntime {
+        source_generation: std::sync::atomic::AtomicU64,
         pending: AtomicBool,
         calls: Mutex<Vec<(String, String)>>,
         warnings: Mutex<Vec<String>>,
         handler: Arc<HighlightHandler>,
+    }
+
+    #[test]
+    fn replacement_source_handles_rederive_unattested_but_reuse_attested_highlights() {
+        for attested in [false, true] {
+            let load = |text: &'static str| {
+                workdeck_vcs::materialize_vcs_patch_result_deferred(
+                    workdeck_vcs::VcsPatchResult {
+                        repo_root: ".".into(),
+                        source_label: "source".into(),
+                        title: "source".into(),
+                        patch_text: "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n".into(),
+                        untracked_paths: vec![],
+                        extra_files: vec![],
+                        source_cache_key: attested.then(|| "immutable".into()),
+                        source_reader: Some(Arc::new(move |_| {
+                            Ok(workdeck_vcs::VcsFileSourceResult::Source(workdeck_core::SourceSnapshot::new(
+                                text.into(), workdeck_core::SourceOrigin::WorkingTree, attested,
+                            )))
+                        })),
+                    }, "review", ChangesetSource::WorkingTree { staged: false },
+                ).unwrap()
+            };
+            let (first, first_sources) = load("first\n");
+            let (second, second_sources) = load(if attested { "first\n" } else { "second\n" });
+            assert_eq!(
+                first.files[0].source_identity,
+                second.files[0].source_identity
+            );
+            assert_eq!(
+                first.files[0].content_identity,
+                second.files[0].content_identity
+            );
+            let observed = Arc::new(Mutex::new(Vec::new()));
+            let captured = Arc::clone(&observed);
+            let runtime = FakeLineHighlightRuntime::new(move |_, file, _| {
+                captured
+                    .lock()
+                    .unwrap()
+                    .push(file.sources.new.as_ref().unwrap().content.clone());
+                Ok(one_mark("match"))
+            });
+            let registrations = [registration("source-aware")];
+            let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+            let mut controller = LineHighlightPreparationController::default();
+            for (changeset, sources) in [(first, first_sources), (second, second_sources)] {
+                let extensions: Vec<Arc<dyn LineHighlightRuntime>> =
+                    vec![Arc::new(SourceBoundLineHighlightRuntime {
+                        runtime: runtime.clone(),
+                        sources: Some(sources),
+                    })];
+                reconcile_until(
+                    &mut controller,
+                    &extensions,
+                    &registrations,
+                    &epochs,
+                    &changeset.files,
+                    |controller| controller.pending_count() == 0,
+                );
+            }
+            let expected = if attested {
+                vec!["first\n"]
+            } else {
+                vec!["first\n", "second\n"]
+            };
+            assert_eq!(*observed.lock().unwrap(), expected);
+        }
     }
 
     impl FakeLineHighlightRuntime {
@@ -724,6 +813,7 @@ mod tests {
             + 'static,
         ) -> Arc<Self> {
             Arc::new(Self {
+                source_generation: std::sync::atomic::AtomicU64::new(0),
                 pending: AtomicBool::new(false),
                 calls: Mutex::new(Vec::new()),
                 warnings: Mutex::new(Vec::new()),
@@ -745,6 +835,10 @@ mod tests {
     }
 
     impl LineHighlightRuntime for FakeLineHighlightRuntime {
+        fn source_generation(&self, _: &DiffFile) -> Option<u64> {
+            let generation = self.source_generation.load(Ordering::Acquire);
+            (generation != 0).then_some(generation)
+        }
         fn request_pending(&self) -> bool {
             self.pending.load(Ordering::Acquire)
         }
@@ -1034,6 +1128,61 @@ mod tests {
             std::slice::from_ref(&file),
             |controller| controller.pending_count() == 0,
         );
+        assert_eq!(runtime.calls().len(), 2);
+    }
+
+    #[test]
+    fn replaced_source_generation_discards_a_late_worker_result() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let release_rx = Mutex::new(release_rx);
+        let calls = AtomicUsize::new(0);
+        let runtime = FakeLineHighlightRuntime::new(move |_, _, _| {
+            let first = calls.fetch_add(1, Ordering::SeqCst) == 0;
+            if first {
+                started_tx.send(()).unwrap();
+                release_rx
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(10))
+                    .unwrap();
+            }
+            Ok(
+                json!([{ "side": "new", "line": 1, "range": [0, if first { 1 } else { 2 }], "tone": "match" }]),
+            )
+        });
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("source-aware")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [test_file("file", "same-patch")];
+        let mut controller = LineHighlightPreparationController::default();
+        runtime.source_generation.store(1, Ordering::Release);
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        runtime.source_generation.store(2, Ordering::Release);
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            &files,
+            |controller| {
+                controller
+                    .resolved()
+                    .get("file")
+                    .is_some_and(|marks| marks[0].end == 2)
+            },
+        );
+        release_tx.send(()).unwrap();
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            &files,
+            |controller| controller.pending_count() == 0,
+        );
+        assert_eq!(controller.resolved().get("file").unwrap()[0].end, 2);
         assert_eq!(runtime.calls().len(), 2);
     }
 
