@@ -1,0 +1,21 @@
+{
+  "source": "benchmarks/terminal-width.ts",
+  "runtime": "Bun 1.3.14 darwin-arm64",
+  "purpose": "Checksums observed by running each complete pinned workload. Both workloads independently compared every line and aggregate checksum with their installed string-width reference. Concurrent runs are not performance acceptance evidence.",
+  "iterations": 2000,
+  "warmupIterations": 50,
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "checksums": {"cjk_scalar": 664000, "emoji_scalar": 170000, "complex_cluster": 196000},
+      "measurements": {"cjk_scalar": 12000, "emoji_scalar": 4000, "complex_cluster": 4000}
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "checksums": {"cjk_scalar": 664000, "emoji_scalar": 170000, "complex_cluster": 196000},
+      "measurements": {"cjk_scalar": 12000, "emoji_scalar": 4000, "complex_cluster": 4000}
+    }
+  ]
+}

@@ -17,6 +17,8 @@ mod release;
 mod render_layout;
 mod runner;
 mod stream;
+#[cfg(test)]
+mod terminal_width;
 mod working_tree;
 mod wrapped_cjk;
 
