@@ -103,7 +103,7 @@ impl ReviewApp {
                     },
                 );
             } else {
-                self.install_source_loader(&file.key, loader);
+                self.bind_source_loader(file, loader);
             }
         }
         let retired = self
@@ -115,9 +115,14 @@ impl ReviewApp {
         self.source_requests.retire(&retired);
         self.options.source_presentation.retire(&retired);
         self.source_loaders.retain(|key, _| installed.contains(key));
+        let expanded_files: BTreeSet<_> = self
+            .expanded_gaps
+            .iter()
+            .map(|(key, _)| key.clone())
+            .collect();
         for file in &files.files {
-            if self.expanded_gaps.iter().any(|(key, _)| key == &file.key) {
-                self.start_source_load(&file.key, review_expansion_side(file.change_kind));
+            if expanded_files.contains(&file.key) {
+                self.start_source_load_for_file(file, review_expansion_side(file.change_kind));
             }
         }
     }
@@ -128,17 +133,16 @@ impl ReviewApp {
         file_key: &str,
         loader: Arc<dyn ReviewSourceLoader>,
     ) -> bool {
-        let file = self.with_state(|state| {
-            state
-                .changeset()
-                .files
-                .iter()
-                .find(|file| file.key == file_key)
-                .cloned()
-        });
+        let changeset = self.with_state(|state| state.changeset_snapshot());
+        let file = changeset.files.iter().find(|file| file.key == file_key);
         let Some(file) = file else {
             return false;
         };
+        self.bind_source_loader(file, loader);
+        true
+    }
+
+    fn bind_source_loader(&mut self, file: &DiffFile, loader: Arc<dyn ReviewSourceLoader>) {
         self.source_requests
             .retire(&BTreeSet::from([file.key.clone()]));
         self.source_loaders.insert(
@@ -148,38 +152,35 @@ impl ReviewApp {
                 loader,
             },
         );
-        self.options.source_presentation.pending(&file);
-        true
+        self.options.source_presentation.pending(file);
     }
 
     pub(super) fn start_source_load(&mut self, file_key: &str, side: ReviewSide) {
-        let file = self.with_state(|state| {
-            state
-                .changeset()
-                .files
-                .iter()
-                .find(|file| file.key == file_key)
-                .cloned()
-        });
+        let changeset = self.with_state(|state| state.changeset_snapshot());
+        let file = changeset.files.iter().find(|file| file.key == file_key);
         let Some(file) = file else {
             return;
         };
+        self.start_source_load_for_file(file, side);
+    }
+
+    fn start_source_load_for_file(&mut self, file: &DiffFile, side: ReviewSide) {
         let Some(binding) = self
             .source_loaders
-            .get(file_key)
+            .get(&file.key)
             .filter(|binding| binding.identity == file.source_identity)
         else {
             return;
         };
         if let Some(update) = self.source_requests.start(
-            &file,
+            file,
             side,
             Arc::clone(&binding.loader),
-            self.options.source_presentation.status(&file),
+            self.options.source_presentation.status(file),
         ) {
             self.options
                 .source_presentation
-                .set_status(&file, update.status);
+                .set_status(file, update.status);
         }
     }
 
@@ -251,15 +252,18 @@ impl ReviewApp {
     }
 
     pub(super) fn reconcile_source_loaders(&mut self, changeset: &Changeset) {
+        let attested_files: BTreeSet<_> = changeset
+            .files
+            .iter()
+            .filter(|file| file.source_attested)
+            .map(|file| (file.key.as_str(), file.source_identity.as_deref()))
+            .collect();
         let retired: BTreeSet<_> = self
             .source_loaders
             .iter()
             .filter_map(|(key, binding)| {
-                let retained = changeset.files.iter().any(|file| {
-                    file.key == *key
-                        && file.source_identity == binding.identity
-                        && file.source_attested
-                });
+                let retained =
+                    attested_files.contains(&(key.as_str(), binding.identity.as_deref()));
                 (!retained).then(|| key.clone())
             })
             .collect();
@@ -318,6 +322,69 @@ pub(super) mod tests {
         let (sender, receiver) = mpsc::channel();
         assert!(app.install_source_loader(&key, Arc::new(Loader(Mutex::new(receiver)))));
         (app, sender)
+    }
+
+    #[test]
+    fn bulk_binding_and_reconciliation_preserve_authority_without_source_reads() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let reads = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&reads);
+        let patch = (0..256).map(|index| format!(
+            "diff --git a/file{index}.rs b/file{index}.rs\n--- a/file{index}.rs\n+++ b/file{index}.rs\n@@ -3 +3 @@\n-old\n+new\n"
+        )).collect::<String>();
+        let (changeset, capabilities) = workdeck_vcs::materialize_vcs_patch_result_deferred(
+            workdeck_vcs::VcsPatchResult {
+                repo_root: ".".into(),
+                source_label: "bulk".into(),
+                title: "bulk".into(),
+                patch_text: patch,
+                untracked_paths: vec![],
+                extra_files: vec![],
+                source_cache_key: Some("pinned".into()),
+                source_reader: Some(Arc::new(move |_| {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    Ok(workdeck_vcs::VcsFileSourceResult::Missing)
+                })),
+            },
+            "bulk",
+            workdeck_core::ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap();
+        let mut app = ReviewApp::new(
+            changeset,
+            ReviewOptions {
+                highlight: false,
+                source_capabilities: Some(capabilities.clone()),
+                ..ReviewOptions::default()
+            },
+        );
+        let snapshot = app.with_state(|state| state.changeset_snapshot());
+        assert_eq!(app.source_loaders.len(), 256);
+        app.install_vcs_source_capabilities(&capabilities);
+        assert!(Arc::ptr_eq(
+            &snapshot,
+            &app.with_state(|state| state.changeset_snapshot())
+        ));
+        assert!(
+            snapshot
+                .files
+                .iter()
+                .all(|file| app.options.source_presentation.available(file))
+        );
+        let mut next = (*snapshot).clone();
+        next.files.truncate(128);
+        next.files[0].source_attested = false;
+        next.files[1].source_identity = Some("changed".into());
+        app.reconcile_source_loaders(&next);
+        assert_eq!(app.source_loaders.len(), 126);
+        assert!(!app.options.source_presentation.available(&next.files[0]));
+        assert!(!app.options.source_presentation.available(&next.files[1]));
+        assert!(
+            next.files[2..]
+                .iter()
+                .all(|file| app.options.source_presentation.available(file))
+        );
+        assert_eq!(reads.load(Ordering::SeqCst), 0);
     }
 
     pub(crate) fn drain_one(app: &mut ReviewApp) {

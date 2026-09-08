@@ -1,5 +1,23 @@
 # Hunk semantic-port ledger
 
+## Indexed runtime source binding
+
+Bulk provider installation uses files from the immutable review snapshot rather
+than searching and cloning a complete file for each handle. Reopening gaps also
+uses those known files, with a deduplicated expanded-file index. Single-file
+actions borrow from an owned review snapshot and leave the worker to make its
+necessary captured copy.
+
+Reload retirement indexes attested `(file key, source identity)` pairs once per
+reconciliation instead of scanning every file for every binding or presentation
+entry. This preserves the previous membership rule, including duplicate-key
+inputs, while removing the nested scans. A 256-file test verifies binding,
+unchanged rebinding, retirement, zero source reads, and unchanged document identity.
+These structural changes are not evidence that the release latency or peak-memory
+benchmark gates pass. No ledger coverage is added.
+Verification passes: 51 source-related unit tests, six source-filtered terminal
+target tests, workspace Clippy, formatting, and architecture checks.
+
 ## Transform-owned deferred source handoff
 
 The extension host carries reader handles through the same opaque-metadata

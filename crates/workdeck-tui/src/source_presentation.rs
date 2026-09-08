@@ -1,6 +1,9 @@
 //! Runtime source-load presentation, separate from immutable provider snapshots.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 use workdeck_core::{DiffFile, ReviewSide};
 use workdeck_review::{
     ExpandedSourceError, ExpandedSourceStatus, ReviewSourceErrorReason, ReviewSourceStatus,
@@ -86,12 +89,13 @@ impl ReviewSourcePresentation {
 
     /// Match the shared reducer's attestation rule when a document is replaced.
     pub fn reconcile(&mut self, files: &[DiffFile]) {
+        let attested_files: BTreeSet<_> = files
+            .iter()
+            .filter(|file| file.source_attested)
+            .map(|file| (file.key.as_str(), file.source_identity.as_deref()))
+            .collect();
         self.files.retain(|key, entry| {
-            files.iter().any(|file| {
-                file.key == *key
-                    && file.source_identity == entry.source_identity
-                    && file.source_attested
-            })
+            attested_files.contains(&(key.as_str(), entry.source_identity.as_deref()))
         });
     }
 }
