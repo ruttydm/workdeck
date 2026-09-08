@@ -14,7 +14,8 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
     let mut skip_documents = false;
     let mut expect_missing = false;
     let mut batch_four = false;
-    let mut batch = Vec::new();
+    let mut cancel_batch = false;
+    let mut batch: Vec<(u64, String)> = Vec::new();
     let mut last_annotation_width: Option<usize> = None;
     let mut active_request = None;
     'requests: loop {
@@ -24,6 +25,22 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
         }
         let value: Value = serde_json::from_str(&line).map_err(io::Error::other)?;
         if value.get("id").is_none() {
+            if cancel_batch
+                && value.get("method").and_then(Value::as_str) == Some("$/cancelRequest")
+                && batch.iter().any(|(id, path)| {
+                    path == "file-1.rs"
+                        && Some(*id) == value.pointer("/params/id").and_then(Value::as_u64)
+                })
+            {
+                batch.retain(|(_, path)| path != "file-1.rs");
+                for (id, path) in batch.drain(..).rev() {
+                    write_result(
+                        &mut output,
+                        id,
+                        serde_json::json!({"path":path,"simultaneous":4}),
+                    )?;
+                }
+            }
             if value.get("method").and_then(Value::as_str) == Some("$/cancelRequest")
                 && value.pointer("/params/id").and_then(Value::as_u64) == active_request
             {
@@ -45,6 +62,11 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
                 batch_four = input
                     .config
                     .get("batchFour")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                cancel_batch = input
+                    .config
+                    .get("cancelBatch")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
                 require_cleanup = input
@@ -105,6 +127,19 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
                 if batch_four {
                     batch.push((request.id, input.file.path.clone()));
                     if batch.len() == 4 {
+                        if cancel_batch {
+                            let first = batch
+                                .iter()
+                                .position(|(_, path)| path == "file-0.rs")
+                                .unwrap();
+                            let (id, path) = batch.remove(first);
+                            write_result(
+                                &mut output,
+                                id,
+                                serde_json::json!({"path":path,"simultaneous":4}),
+                            )?;
+                            continue;
+                        }
                         for (id, path) in batch.drain(..).rev() {
                             write_result(
                                 &mut output,

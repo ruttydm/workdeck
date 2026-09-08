@@ -14,8 +14,14 @@ behavior while allowing independent highlighter waits.
 Final verification passes after all legacy guards: twelve compiled highlighter
 tests, all 178 host unit tests, workspace Clippy, formatting, and architecture
 checks. The integration suite includes both the four-parent case and saved notes.
-Concurrent document callbacks, independent cancellation among four live parents,
-and a multiplexed SDK remain unfinished. No complete concurrency parity or
+An additional compiled case waits for all four parents, replies to one as a
+readiness signal, and keeps the remaining three unresolved until a specified
+parent is cancelled. The cancelled caller receives `HostError::Cancelled`; the
+other two receive their own results after the child consumes that cancellation.
+All thirteen integration tests pass, including the original reversed-response
+case. This proves isolation for that cancellation sequence, not concurrent
+document callbacks or arbitrary event interleavings.
+Concurrent document callbacks and a multiplexed SDK remain unfinished. No complete concurrency parity or
 ledger coverage is claimed.
 
 The host now has a parent-route primitive with four bounded inboxes and

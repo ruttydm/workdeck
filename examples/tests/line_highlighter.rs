@@ -70,30 +70,57 @@ fn review_file(path: &str) -> workdeck_core::DiffFile {
 
 #[test]
 fn four_native_parents_share_one_child_and_receive_reversed_responses() {
+    assert_four_native_parents(false);
+}
+
+#[test]
+fn cancelling_one_native_parent_preserves_other_parent_results() {
+    assert_four_native_parents(true);
+}
+
+fn assert_four_native_parents(cancel_one: bool) {
     let (_directory, manifest) = staged_extension();
     let extension = LoadedExtension::spawn_with_configuration(
         &manifest,
         "test",
-        serde_json::json!({"includeHang":false,"batchFour":true}),
+        serde_json::json!({"includeHang":false,"batchFour":true,"cancelBatch":cancel_one}),
     )
     .unwrap();
+    let cancel_second = Arc::new(AtomicBool::new(false));
     let workers = (0..4)
         .map(|index| {
             let mut extension = extension.clone();
+            let cancel_second = cancel_second.clone();
             std::thread::spawn(move || {
                 let path = format!("file-{index}.rs");
                 let file = review_file(&path);
                 let deadline = Instant::now() + Duration::from_secs(5);
                 loop {
-                    match extension.highlight_file("attention", &file) {
+                    let not_cancelled = AtomicBool::new(false);
+                    match extension.highlight_file_cancellable(
+                        "attention",
+                        &file,
+                        if index == 1 {
+                            &cancel_second
+                        } else {
+                            &not_cancelled
+                        },
+                    ) {
                         Err(HostError::Busy(_)) if Instant::now() < deadline => {
                             std::thread::yield_now()
                         }
                         result => {
+                            if cancel_one && index == 1 {
+                                assert!(matches!(result, Err(HostError::Cancelled(_))));
+                                break;
+                            }
                             assert_eq!(
                                 result.unwrap(),
                                 serde_json::json!({"path":path,"simultaneous":4})
                             );
+                            if cancel_one && index == 0 {
+                                cancel_second.store(true, Ordering::Release);
+                            }
                             break;
                         }
                     }
