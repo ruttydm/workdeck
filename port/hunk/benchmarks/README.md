@@ -158,6 +158,9 @@ fail against the pinned Hunk reports. Memory remains unmeasured.
 `xtask/src/benchmark/interaction_latency.rs` exercises the source's 180-file, 120-line,
 240x28 workload with six real `]` presses and eight wheel ticks on separate renderers. It checks
 selection changes, viewport movement and finite timing samples. It is currently test-only:
-retained RSS/heap measurements, frozen captures from both Hunk anchors and same-host optimized
-comparisons remain missing. The source ledger record remains unmapped and the default runner
+native retained RSS/heap measurements and same-host optimized comparisons remain missing.
+Frozen single-run output from both pinned anchors is now recorded in
+[the interaction oracle](../oracles/benchmark-interaction-latency.json), covering all 13 metric
+names and source-scale counts. Those sequential original-runtime captures are diagnostic evidence,
+not repeated performance acceptance. The source ledger record remains unmapped and the default runner
 still rejects `interaction-latency.ts`; this partial test is not benchmark parity evidence.
