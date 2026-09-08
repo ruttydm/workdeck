@@ -29,6 +29,11 @@ combines PATH observations with the bounded `~/.local/share/mise/installs/workde
 and `*/bin/workdeck` layouts (using `workdeck.exe` on Windows), preserving identity deduplication.
 Off-PATH installations are labeled `not-on-path`. Missing mise directories create no state;
 other directory-read failures are reported rather than silently hiding candidates.
+`observedConflictDecision` reports `requires-force` for observed executable competitors unless
+`--force` explicitly allows them. Non-executable files do not count as executable competitors.
+Unknown access yields `unresolved-access`, including when force is set; it is not a successful
+permission check. `no-observed-executable-conflicts` describes only this incomplete discovery
+scope. Every preflight still reports `executionAvailable: false` and performs no installation.
 
 ```console
 cargo xtask release channel --event push --ref v0.19.0 --current-latest 0.18.2

@@ -91,6 +91,38 @@ struct PathFileObservation {
     executable_access: Option<bool>,
 }
 
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum ConflictDecision {
+    NoObservedExecutableConflicts,
+    RequiresForce,
+    ExplicitlyAllowed,
+    UnresolvedAccess,
+}
+
+fn conflict_decision(
+    observations: &[PathFileObservation],
+    allow_conflicts: bool,
+) -> ConflictDecision {
+    if observations
+        .iter()
+        .any(|item| item.executable_access.is_none())
+    {
+        return ConflictDecision::UnresolvedAccess;
+    }
+    if !observations
+        .iter()
+        .any(|item| item.executable_access == Some(true))
+    {
+        return ConflictDecision::NoObservedExecutableConflicts;
+    }
+    if allow_conflicts {
+        ConflictDecision::ExplicitlyAllowed
+    } else {
+        ConflictDecision::RequiresForce
+    }
+}
+
 fn executable_access(path: &Path) -> Option<bool> {
     #[cfg(unix)]
     {
@@ -327,11 +359,13 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> Result<()> {
             .map(|entry| entry.join(executable))
             .chain(inactive),
     );
+    let conflict_decision = conflict_decision(&existing_path_files, options.allow_conflicts);
     println!(
         "{}",
         serde_json::to_string_pretty(&serde_json::json!({
         "options": options, "os": os, "arch": arch, "executionAvailable": false,
         "targetBinary": target, "targetIdentity": target_identity, "existingInstallFiles": existing_path_files,
+        "observedConflictDecision": conflict_decision,
             "remaining": ["release resolution", "competing installs", "verified archive extraction", "atomic installation", "shell profile updates"]
         }))?
     );
@@ -341,6 +375,45 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn conflict_decisions_preserve_force_and_do_not_waive_unknown_access() {
+        let observation = |access| PathFileObservation {
+            path: "other/workdeck".into(),
+            identity: "other/workdeck".into(),
+            aliases: vec!["other/workdeck".into()],
+            shadowing: Shadowing::NotOnPath,
+            manager_hint: None,
+            diagnostic_path: "other/workdeck".into(),
+            executable_access: access,
+        };
+        assert_eq!(
+            conflict_decision(&[], false),
+            ConflictDecision::NoObservedExecutableConflicts
+        );
+        assert_eq!(
+            conflict_decision(&[observation(Some(false))], false),
+            ConflictDecision::NoObservedExecutableConflicts
+        );
+        assert_eq!(
+            conflict_decision(&[observation(Some(true))], false),
+            ConflictDecision::RequiresForce
+        );
+        assert_eq!(
+            conflict_decision(&[observation(Some(true))], true),
+            ConflictDecision::ExplicitlyAllowed
+        );
+        for allow in [false, true] {
+            assert_eq!(
+                conflict_decision(&[observation(None)], allow),
+                ConflictDecision::UnresolvedAccess
+            );
+            assert_eq!(
+                conflict_decision(&[observation(Some(true)), observation(None)], allow),
+                ConflictDecision::UnresolvedAccess
+            );
+        }
+    }
 
     #[cfg(unix)]
     #[test]
