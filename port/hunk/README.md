@@ -5,6 +5,12 @@
 The host now has a parent-route primitive with four bounded inboxes and
 nonblocking dispatch. Tests cover out-of-order delivery, independent retirement,
 duplicate/limit rejection, overflow isolation, and disconnected consumers.
+Frame classification routes document callbacks by `parentRequestId` and ordinary
+responses by response ID. A collision regression uses a child callback ID equal
+to another active parent and verifies that only the owning parent's inbox gets
+the callback. Notifications, malformed JSON/version/parent IDs, and unknown
+parents stay with the caller for explicit legacy or error handling. Routing does
+not itself validate callback authority or payloads.
 Unknown/retired parent frames return to the caller for legacy dispatch or stale
 rejection. This primitive is not yet wired into stdout or request lifecycles;
 frame-byte validation and terminal-error propagation remain dispatcher work.

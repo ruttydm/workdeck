@@ -21,6 +21,34 @@ pub enum ResponseRouteError {
 }
 
 impl ExtensionResponseRoutes {
+    /// Classify without granting authority: callbacks are validated by their
+    /// owning parent after routing. Notifications and malformed frames remain
+    /// available to the legacy/error dispatcher, never an arbitrary inbox.
+    pub fn dispatch_frame(&mut self, frame: String) -> Result<Option<String>, ResponseRouteError> {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&frame) else {
+            return Ok(Some(frame));
+        };
+        if value.get("jsonrpc").and_then(serde_json::Value::as_str) != Some("2.0") {
+            return Ok(Some(frame));
+        }
+        let parent = if value.get("method").and_then(serde_json::Value::as_str)
+            == Some(workdeck_extension_api::EXTENSION_DOCUMENT_READ_METHOD)
+        {
+            // A child ID may numerically equal a different active parent ID.
+            value
+                .pointer("/params/parentRequestId")
+                .and_then(serde_json::Value::as_u64)
+        } else if value.get("method").is_none() {
+            value.get("id").and_then(serde_json::Value::as_u64)
+        } else {
+            None
+        };
+        match parent {
+            Some(parent) => self.dispatch(parent, frame),
+            None => Ok(Some(frame)),
+        }
+    }
+
     pub fn register(&mut self, parent: u64) -> Result<Receiver<String>, ResponseRouteError> {
         if self.routes.contains_key(&parent) {
             return Err(ResponseRouteError::DuplicateParent);
@@ -63,6 +91,30 @@ impl ExtensionResponseRoutes {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn callbacks_route_by_parent_even_when_child_id_matches_another_parent() {
+        let mut routes = ExtensionResponseRoutes::default();
+        let first = routes.register(1).unwrap();
+        let second = routes.register(2).unwrap();
+        let callback = serde_json::json!({"jsonrpc":"2.0","id":1,"method":"workdeck/document/read","params":{"parentRequestId":2,"side":"new"}}).to_string();
+        assert_eq!(routes.dispatch_frame(callback.clone()), Ok(None));
+        assert_eq!(second.try_recv().unwrap(), callback);
+        assert!(first.try_recv().is_err());
+        let response = serde_json::json!({"jsonrpc":"2.0","id":1,"result":[]}).to_string();
+        assert_eq!(routes.dispatch_frame(response.clone()), Ok(None));
+        assert_eq!(first.try_recv().unwrap(), response);
+        for frame in [
+            "not json",
+            r#"{"jsonrpc":"1.0","id":1,"result":[]}"#,
+            r#"{"jsonrpc":"2.0","id":1,"method":"workdeck/document/read","params":{"parentRequestId":"2"}}"#,
+            r#"{"jsonrpc":"2.0","id":1,"method":"workdeck/notification"}"#,
+        ] {
+            assert_eq!(routes.dispatch_frame(frame.into()), Ok(Some(frame.into())));
+        }
+        assert!(first.try_recv().is_err());
+        assert!(second.try_recv().is_err());
+    }
 
     #[test]
     fn four_parent_inboxes_deliver_out_of_order_and_retire_independently() {
