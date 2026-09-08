@@ -261,3 +261,15 @@ copies contiguous equal-style text runs while preserving character-start byte-ra
 Unicode splits and overlapping ranges are compared against the original character loop.
 All pinned-Hunk latency gates still fail. Post-navigation RSS median is 226263040 bytes,
 which is a current snapshot, not peak-memory evidence. Ledger coverage remains unchanged.
+
+### Rejected word-emphasis memoization at `48ddc5fc`
+
+[Three optimized runs](interaction-diagnostic-48ddc5fc.json) report 113.30 ms first frame,
+209.71 ms median navigation and 173.36 ms median scrolling. These do not demonstrate a
+benefit versus `da5f06e0`; malloc-in-use snapshots also increased. The bounded direct-mapped
+cache passed correctness tests but is removed from production on this evidence. Its code
+and tests remain recoverable in Git. The workload has 8,640 changed pairs competing for
+4,096 slots, so cyclic eviction is a plausible contributor, not a measured attribution.
+No cache-size tuning is accepted as parity evidence. The remaining investigation is the
+cost of rebuilding offscreen rows while retaining exact geometry and all dynamic behavior.
+All source latency gates remain failed; ledger coverage and peak-memory status are unchanged.
