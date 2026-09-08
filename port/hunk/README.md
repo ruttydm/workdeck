@@ -1,5 +1,25 @@
 # Hunk semantic-port ledger
 
+## Parent-bound document callback broker
+
+The host now has a request-scoped broker around its existing shared document
+reader. Wrong-parent and duplicate child IDs are rejected before a source read
+can start. Pending callbacks are capped at 32 and total child IDs at 256 per
+parent; completed IDs cannot be replayed. Nonblocking polling returns ready
+results, including unreadable sides, and retirement revokes publication and
+new requests without cancelling an underlying shared read.
+
+The native wire model for `workdeck/document/read` carries only `parentRequestId`
+and `side`. Unknown fields (including paths), invalid sides, negative IDs, and
+string IDs are rejected. Tests exercise the authority checks, bounded queues,
+same-side deduplication, retirement, late shared completion, and wire shape.
+
+This is the broker and wire contract, not an active highlighter transport:
+the JSON-RPC receive loop and executable SDK/example still need connection to
+this broker. No lazy-read parity or new ledger coverage is claimed.
+Verification passes: two broker tests, the strict wire-model test, workspace
+Clippy, formatting, and architecture checks.
+
 ## Lazy document protocol bridge preparation
 
 Pinned `extensionDocumentReader.ts` starts a source read only when a side is

@@ -239,6 +239,17 @@ pub struct LineHighlightRequest {
     pub aborted: bool,
 }
 
+pub const EXTENSION_DOCUMENT_READ_METHOD: &str = "workdeck/document/read";
+
+/// Child-to-host request for one side of the active parent's captured file.
+/// No path or file identifier can redirect the parent's reader authority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExtensionDocumentReadRequest {
+    pub parent_request_id: u64,
+    pub side: ExtensionFileSide,
+}
+
 /// Host-validated layout plus terminal row measurements retained for painting.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -263,6 +274,28 @@ pub struct FileViewRowFailure {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn document_read_wire_request_carries_only_parent_and_side() {
+        let request = ExtensionDocumentReadRequest {
+            parent_request_id: 7,
+            side: ExtensionFileSide::New,
+        };
+        let value = serde_json::json!({ "parentRequestId": 7, "side": "new" });
+        assert_eq!(serde_json::to_value(request).unwrap(), value);
+        assert_eq!(
+            serde_json::from_value::<ExtensionDocumentReadRequest>(value).unwrap(),
+            request
+        );
+        for invalid in [
+            serde_json::json!({ "parentRequestId": 7, "side": "new", "path": "other.txt" }),
+            serde_json::json!({ "parentRequestId": 7, "side": "both" }),
+            serde_json::json!({ "parentRequestId": -1, "side": "old" }),
+            serde_json::json!({ "parentRequestId": "7", "side": "old" }),
+        ] {
+            assert!(serde_json::from_value::<ExtensionDocumentReadRequest>(invalid).is_err());
+        }
+    }
 
     fn extension_file() -> ExtensionDiffFile {
         ExtensionDiffFile {

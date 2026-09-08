@@ -1,5 +1,6 @@
 //! Subprocess host for trusted native Workdeck extensions.
 
+mod document_requests;
 mod extension_application;
 mod extension_discovery;
 mod extension_document_reader;
@@ -19,6 +20,7 @@ mod runtime_boundary;
 mod startup;
 mod synchronous_callbacks;
 
+pub use document_requests::*;
 pub use extension_application::*;
 pub use extension_discovery::*;
 pub use extension_document_reader::*;
