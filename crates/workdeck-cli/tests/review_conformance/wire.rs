@@ -1,12 +1,13 @@
 //! Hunk MIT wire-action corpus, parsed and lowered by the native session protocol.
 
-use serde_json::{Value, json};
+use super::models::ReviewWireParseOutcome;
+use serde_json::Value;
 use workdeck_session::{
     WorkdeckReviewParseResult, parse_workdeck_review_action, to_review_intent_value,
     to_semantic_review_intent,
 };
 
-type ActionParser = fn(&Value) -> Value;
+type ActionParser = fn(&Value) -> ReviewWireParseOutcome;
 type NotePolicy = fn(&Value) -> bool;
 #[derive(Clone, Copy)]
 pub(super) struct WireProjections {
@@ -23,16 +24,25 @@ pub(super) const CONSUMER: super::models::Consumer<WireProjections> = super::mod
     },
 );
 
-fn parse_action(input: &Value) -> Value {
+fn parse_action(input: &Value) -> ReviewWireParseOutcome {
     match parse_workdeck_review_action(input) {
         WorkdeckReviewParseResult::Parsed(action) => {
             assert!(
                 to_semantic_review_intent(&action).is_some(),
                 "typed lowering"
             );
-            json!({"accepted": true, "intent": to_review_intent_value(&action)})
+            let value = to_review_intent_value(&action);
+            let intent = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(serde_json::to_value(&intent).unwrap(), value);
+            ReviewWireParseOutcome {
+                accepted: true,
+                intent: Some(intent),
+            }
         }
-        WorkdeckReviewParseResult::Failed(_) => json!({"accepted": false}),
+        WorkdeckReviewParseResult::Failed(_) => ReviewWireParseOutcome {
+            accepted: false,
+            intent: None,
+        },
     }
 }
 
@@ -55,6 +65,8 @@ fn wire_actions_lower_to_the_pinned_intents_and_reject_invalid_shapes() {
                 continue;
             }
             let actual = (CONSUMER.project.parse_action)(&case["input"]["action"]);
+            assert_eq!(actual, super::models::wire_outcome(&case["expected"]));
+            let actual = serde_json::to_value(actual).unwrap();
             assert_eq!(
                 actual, case["expected"],
                 "{}: {}",

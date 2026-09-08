@@ -12,7 +12,8 @@ use workdeck_session::{
     WorkdeckReviewResourceCatalogV1,
 };
 
-type Classifier = fn(&ReviewPublicationAddress, &ReviewPublicationAddress) -> &'static str;
+type Classifier =
+    fn(&ReviewPublicationAddress, &ReviewPublicationAddress) -> ReviewPublicationOrder;
 pub(super) const CONSUMERS: [super::models::Consumer<Classifier>; 2] = [
     super::models::Consumer::new("core publication ordering", "Phase 2", core_verdict),
     super::models::Consumer::new("broker review mirror", "Phase 3", mirror_verdict),
@@ -21,8 +22,8 @@ pub(super) const CONSUMERS: [super::models::Consumer<Classifier>; 2] = [
 fn core_verdict(
     current: &ReviewPublicationAddress,
     incoming: &ReviewPublicationAddress,
-) -> &'static str {
-    verdict(classify_review_publication(current, incoming))
+) -> ReviewPublicationOrder {
+    classify_review_publication(current, incoming)
 }
 
 fn verdict(order: ReviewPublicationOrder) -> &'static str {
@@ -55,7 +56,7 @@ fn catalog(generation: &str) -> WorkdeckReviewResourceCatalogV1 {
 fn mirror_verdict(
     current: &ReviewPublicationAddress,
     incoming: &ReviewPublicationAddress,
-) -> &'static str {
+) -> ReviewPublicationOrder {
     let mut mirror = ReviewMirror::new();
     let initial = mirror.observe(ObserveReviewPublicationInput {
         session_id: "session-1",
@@ -69,9 +70,9 @@ fn mirror_verdict(
         address: Some(incoming),
     });
     match update {
-        ReviewMirrorUpdate::Advanced { .. } => "accepted",
-        ReviewMirrorUpdate::Replaced { .. } => "gap",
-        ReviewMirrorUpdate::Ignored => "stale",
+        ReviewMirrorUpdate::Advanced { .. } => ReviewPublicationOrder::Accepted,
+        ReviewMirrorUpdate::Replaced { .. } => ReviewPublicationOrder::Gap,
+        ReviewMirrorUpdate::Ignored => ReviewPublicationOrder::Stale,
         ReviewMirrorUpdate::Adopted { .. } => panic!("existing session cannot be adopted twice"),
     }
 }
@@ -158,7 +159,7 @@ fn core_broker_and_producer_ordering_match_both_pinned_corpora() {
                         .map(|consumer| {
                             (
                                 consumer.name,
-                                json!((consumer.project)(&current, &incoming)),
+                                json!(verdict((consumer.project)(&current, &incoming))),
                             )
                         })
                         .collect()

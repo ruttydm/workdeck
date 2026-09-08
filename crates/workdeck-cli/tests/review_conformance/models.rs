@@ -184,6 +184,21 @@ pub(super) struct ReviewSnapshotFixture {
     pub expected: ReviewSnapshotProjection,
 }
 
+/// The source intent JSON retains `consumeDraft` but excludes expanded-line
+/// proofs. The native action model can represent that shape losslessly; the
+/// consumer separately validates lowering to the renderer-neutral intent.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ReviewWireParseOutcome {
+    pub accepted: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intent: Option<workdeck_session::WorkdeckReviewActionV1>,
+}
+
+pub(super) fn wire_outcome(value: &Value) -> ReviewWireParseOutcome {
+    checked(value)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct ReviewEventFramingProjection {
