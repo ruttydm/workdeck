@@ -225,5 +225,11 @@ The pinned `sha2` 0.10.9 source selects its ARM SHA-2 implementation only with t
 `workdeck-core` now enables that feature for aarch64 targets, retaining the dependency's runtime
 CPU detection and software fallback. This changes neither cache-key inputs nor digest format.
 Canonical empty, short, multiblock and million-byte SHA-256 vectors cover digest compatibility.
-The feature adds the MIT-licensed `sha2-asm` dependency; optimized workload effect and native
-cross-platform execution still require verification. No hash identity has been truncated or waived.
+The feature adds the MIT-licensed `sha2-asm` dependency. No hash identity has been truncated or waived.
+
+[Three optimized ARM-backend runs](interaction-diagnostic-18fdc4b9.json) now measure 126.79 ms
+first frame, 236.75 ms median navigation and 201.78 ms median scrolling. Relative to `7bc6ed7e`,
+these improve approximately 19.8%, 10.4% and 11.7% respectively with unchanged workload counts.
+All still fail the 10% gate versus pinned Hunk. Post-navigation RSS median is 224755712 bytes;
+peak usage and cross-runtime heap acceptance remain unproven. Native platform-matrix execution
+also remains outstanding.
