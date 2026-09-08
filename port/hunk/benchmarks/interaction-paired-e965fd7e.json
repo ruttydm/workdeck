@@ -1,0 +1,85 @@
+{
+  "nativeCommit": "e965fd7e522e648ca5b22587b15b6f66939c0857",
+  "sourceCommits": {
+    "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+  },
+  "host": "macOS arm64",
+  "nativeProfile": "release",
+  "hunkRuntime": "Bun 1.3.14",
+  "method": "Three alternating native/baseline/stable rounds, fresh sequential processes; no concurrent builds or tests by this agent; other host activity uncontrolled. Nearest-rank medians. Raw source startup variability retained.",
+  "runs": [
+    {
+      "kind": "native",
+      "round": 1,
+      "exitCode": 0,
+      "output": "{\n  \"diagnosticOnly\": true,\n  \"firstFrameMs\": 20.4845,\n  \"navigationPressMs\": [\n    59.355417,\n    58.728958,\n    59.023875000000004,\n    58.453541,\n    58.465584,\n    58.575874999999996\n  ],\n  \"scrollTickMs\": [\n    22.37925,\n    21.478791,\n    22.243624999999998,\n    21.723708000000002,\n    21.577625,\n    22.241917,\n    21.737834,\n    21.835792\n  ],\n  \"afterFirstFrame\": {\n    \"rssBytes\": 188579840,\n    \"mallocInUseBytes\": 52485392\n  },\n  \"afterNavigation\": {\n    \"rssBytes\": 189644800,\n    \"mallocInUseBytes\": 53826576\n  },\n  \"files\": 180,\n  \"linesPerFile\": 120,\n  \"viewport\": {\n    \"width\": 240,\n    \"height\": 28\n  },\n  \"memorySemantics\": \"Current RSS and native malloc-zone usage, not peak RSS or JavaScript heapUsed\"\n}\n"
+    },
+    {
+      "kind": "baseline",
+      "round": 1,
+      "exitCode": 0,
+      "output": "METRIC first_frame_ms=5.97\nMETRIC after_first_frame_rss_bytes=279592960\nMETRIC after_first_frame_heap_used_bytes=40684869\nMETRIC hunk_nav_press_median_ms=48.09\nMETRIC hunk_nav_press_p95_ms=122.69\nMETRIC after_navigation_rss_bytes=433766400\nMETRIC after_navigation_heap_used_bytes=101680505\nMETRIC scroll_tick_median_ms=1.71\nMETRIC scroll_tick_p95_ms=25.59\nMETRIC navigation_presses=6\nMETRIC scroll_ticks=8\nMETRIC files=180\nMETRIC lines_per_file=120\n"
+    },
+    {
+      "kind": "stable",
+      "round": 1,
+      "exitCode": 0,
+      "output": "METRIC first_frame_ms=19.52\nMETRIC after_first_frame_rss_bytes=289325056\nMETRIC after_first_frame_heap_used_bytes=40891629\nMETRIC hunk_nav_press_median_ms=47.65\nMETRIC hunk_nav_press_p95_ms=56.74\nMETRIC after_navigation_rss_bytes=419889152\nMETRIC after_navigation_heap_used_bytes=100696023\nMETRIC scroll_tick_median_ms=1.21\nMETRIC scroll_tick_p95_ms=5.22\nMETRIC navigation_presses=6\nMETRIC scroll_ticks=8\nMETRIC files=180\nMETRIC lines_per_file=120\n"
+    },
+    {
+      "kind": "native",
+      "round": 2,
+      "exitCode": 0,
+      "output": "{\n  \"diagnosticOnly\": true,\n  \"firstFrameMs\": 20.198291,\n  \"navigationPressMs\": [\n    58.958416,\n    58.275167,\n    57.994834000000004,\n    58.291500000000006,\n    58.478457999999996,\n    58.871417\n  ],\n  \"scrollTickMs\": [\n    22.295458,\n    21.523583,\n    21.633625,\n    21.493667000000002,\n    22.203625000000002,\n    21.732416,\n    21.570958,\n    21.500208\n  ],\n  \"afterFirstFrame\": {\n    \"rssBytes\": 187596800,\n    \"mallocInUseBytes\": 52480336\n  },\n  \"afterNavigation\": {\n    \"rssBytes\": 190775296,\n    \"mallocInUseBytes\": 53808240\n  },\n  \"files\": 180,\n  \"linesPerFile\": 120,\n  \"viewport\": {\n    \"width\": 240,\n    \"height\": 28\n  },\n  \"memorySemantics\": \"Current RSS and native malloc-zone usage, not peak RSS or JavaScript heapUsed\"\n}\n"
+    },
+    {
+      "kind": "baseline",
+      "round": 2,
+      "exitCode": 0,
+      "output": "METRIC first_frame_ms=19.93\nMETRIC after_first_frame_rss_bytes=306085888\nMETRIC after_first_frame_heap_used_bytes=41376625\nMETRIC hunk_nav_press_median_ms=46.49\nMETRIC hunk_nav_press_p95_ms=118.75\nMETRIC after_navigation_rss_bytes=444923904\nMETRIC after_navigation_heap_used_bytes=99749490\nMETRIC scroll_tick_median_ms=1.29\nMETRIC scroll_tick_p95_ms=2.50\nMETRIC navigation_presses=6\nMETRIC scroll_ticks=8\nMETRIC files=180\nMETRIC lines_per_file=120\n"
+    },
+    {
+      "kind": "stable",
+      "round": 2,
+      "exitCode": 0,
+      "output": "METRIC first_frame_ms=18.16\nMETRIC after_first_frame_rss_bytes=293928960\nMETRIC after_first_frame_heap_used_bytes=40575464\nMETRIC hunk_nav_press_median_ms=45.84\nMETRIC hunk_nav_press_p95_ms=126.12\nMETRIC after_navigation_rss_bytes=424411136\nMETRIC after_navigation_heap_used_bytes=100631510\nMETRIC scroll_tick_median_ms=1.16\nMETRIC scroll_tick_p95_ms=4.87\nMETRIC navigation_presses=6\nMETRIC scroll_ticks=8\nMETRIC files=180\nMETRIC lines_per_file=120\n"
+    },
+    {
+      "kind": "native",
+      "round": 3,
+      "exitCode": 0,
+      "output": "{\n  \"diagnosticOnly\": true,\n  \"firstFrameMs\": 20.316167,\n  \"navigationPressMs\": [\n    59.254667,\n    58.597875,\n    58.969417,\n    57.975125000000006,\n    58.827749999999995,\n    58.351375\n  ],\n  \"scrollTickMs\": [\n    22.326834,\n    21.533042,\n    21.478167,\n    21.517542,\n    21.432792,\n    21.52225,\n    22.217333,\n    21.4565\n  ],\n  \"afterFirstFrame\": {\n    \"rssBytes\": 188104704,\n    \"mallocInUseBytes\": 52468208\n  },\n  \"afterNavigation\": {\n    \"rssBytes\": 190005248,\n    \"mallocInUseBytes\": 53807152\n  },\n  \"files\": 180,\n  \"linesPerFile\": 120,\n  \"viewport\": {\n    \"width\": 240,\n    \"height\": 28\n  },\n  \"memorySemantics\": \"Current RSS and native malloc-zone usage, not peak RSS or JavaScript heapUsed\"\n}\n"
+    },
+    {
+      "kind": "baseline",
+      "round": 3,
+      "exitCode": 0,
+      "output": "METRIC first_frame_ms=19.91\nMETRIC after_first_frame_rss_bytes=306102272\nMETRIC after_first_frame_heap_used_bytes=40278533\nMETRIC hunk_nav_press_median_ms=45.53\nMETRIC hunk_nav_press_p95_ms=54.86\nMETRIC after_navigation_rss_bytes=447381504\nMETRIC after_navigation_heap_used_bytes=99771437\nMETRIC scroll_tick_median_ms=1.27\nMETRIC scroll_tick_p95_ms=2.53\nMETRIC navigation_presses=6\nMETRIC scroll_ticks=8\nMETRIC files=180\nMETRIC lines_per_file=120\n"
+    },
+    {
+      "kind": "stable",
+      "round": 3,
+      "exitCode": 0,
+      "output": "METRIC first_frame_ms=20.08\nMETRIC after_first_frame_rss_bytes=293126144\nMETRIC after_first_frame_heap_used_bytes=40861979\nMETRIC hunk_nav_press_median_ms=47.86\nMETRIC hunk_nav_press_p95_ms=58.11\nMETRIC after_navigation_rss_bytes=433127424\nMETRIC after_navigation_heap_used_bytes=100717410\nMETRIC scroll_tick_median_ms=1.40\nMETRIC scroll_tick_p95_ms=4.78\nMETRIC navigation_presses=6\nMETRIC scroll_ticks=8\nMETRIC files=180\nMETRIC lines_per_file=120\n"
+    }
+  ],
+  "summaries": {
+    "native": {
+      "firstFrameMs": 20.316167,
+      "navigationMs": 58.575874999999996,
+      "scrollMs": 21.570958
+    },
+    "baseline": {
+      "firstFrameMs": 19.91,
+      "navigationMs": 46.49,
+      "scrollMs": 1.29
+    },
+    "stable": {
+      "firstFrameMs": 19.52,
+      "navigationMs": 47.65,
+      "scrollMs": 1.21
+    }
+  },
+  "acceptance": "First-frame aggregate within 10% of both source medians in this sample. Navigation and scroll medians fail. Peak memory and overall benchmark acceptance remain unproven."
+}

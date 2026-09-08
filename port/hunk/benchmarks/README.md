@@ -338,3 +338,15 @@ Current post-navigation RSS median is 190545920 bytes, not peak-memory proof. Th
 result is close to earlier three-run source medians, but navigation and scrolling remain above
 the source budget. Fresh paired-source comparisons and full benchmark/memory gates remain
 required. No ledger coverage or overall performance gate is claimed complete.
+
+### Refreshed alternating source comparison
+
+[Three alternating native/main/stable rounds](interaction-paired-e965fd7e.json) retain raw
+outputs and verify both source checkout anchors. Native first-frame median is 20.32 ms,
+versus main 19.91 ms and stable 19.52 ms: within 10% in this sample, with substantial source
+startup variability retained rather than discarded. Navigation medians are native 58.58 ms,
+main 46.49 ms and stable 47.65 ms. Scroll medians are native 21.57 ms, main 1.29 ms and stable
+1.21 ms. Navigation and scrolling fail the gate. These are current-RSS snapshots, not peak
+memory comparisons, and the overall benchmark gate remains failed. The next performance
+investigation should target native per-input geometry work, not claim completion from the
+first-frame aggregate alone.
