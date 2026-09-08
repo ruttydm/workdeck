@@ -65,6 +65,26 @@ mod tests {
 
     #[test]
     fn workload_uses_non_ascii_content_at_the_source_scale() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/benchmark-non-ascii-stream.json"
+        ))
+        .unwrap();
+        for run in oracle["runs"].as_array().unwrap() {
+            assert_eq!(run["exitCode"], 0);
+            let metrics = runner::parse_metrics(run["combinedOutput"].as_str().unwrap());
+            assert_eq!(metrics.len(), 6);
+            for (name, expected) in [
+                ("files", FILE_COUNT),
+                ("lines_per_file", LINES_PER_FILE),
+                ("scroll_ticks", SCROLL_TICKS),
+            ] {
+                assert_eq!(
+                    metrics.iter().find(|(key, _)| key == name).unwrap().1,
+                    expected as f64
+                );
+                assert_eq!(oracle["counts"][name], expected);
+            }
+        }
         let bootstrap = stream::large_bootstrap(
             std::env::current_dir().unwrap(),
             FILE_COUNT,
@@ -87,6 +107,8 @@ mod tests {
         }));
         assert_eq!(large_stream::VIEWPORT.width, 240);
         assert_eq!(large_stream::VIEWPORT.height, 28);
+        assert_eq!(oracle["viewport"]["width"], large_stream::VIEWPORT.width);
+        assert_eq!(oracle["viewport"]["height"], large_stream::VIEWPORT.height);
     }
 
     #[test]

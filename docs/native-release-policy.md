@@ -64,7 +64,7 @@ workload. The default suite still reports `executionAvailable: false`.
 the completed render-layout workload in a native child process, drains both output pipes,
 aggregates repeated samples and writes a versioned report with Git/Cargo/native-platform metadata.
 `bootstrap-load.ts`, `working-tree-load.ts`, `changeset-parse.ts`, `highlight-prefetch.ts`, `large-stream.ts`
-and `render-layout.ts` are currently admitted.
+`non-ascii-stream.ts` and `render-layout.ts` are currently admitted.
 Every selected workload is checked before execution
 or output-directory creation; default, huge, competitor and other incomplete selections fail.
 Fractional sample counts retain the source loop semantics, and repeated workload selections append
@@ -142,6 +142,15 @@ frames and actual viewport movement. Debug execution of the full workload is cur
 functional coverage must not be interpreted as satisfying the optimized latency/memory gates.
 The [recorded optimized investigation](../port/hunk/benchmarks/README.md) also fails the 10%
 latency limit against both pins; it retains raw three-sample reports and reproduction commands.
+
+`cargo xtask benchmark non-ascii-stream` measures a fresh 120-file/120-line Unicode stream's
+first frame and a separate warmed app's eight individual wheel ticks at (170,12), using the same
+240×28 production viewport. It emits first-frame latency, nearest-rank scroll median/p95 and
+structural counts. Unlike the large-stream workload, the source interaction helper has no explicit
+17 ms coalescing delay; native event dispatch/render/yield is timed per tick. CJK, emoji and
+box-drawing content is retained in both full source snapshots. App destruction is outside the
+timers. Frozen direct-workload output from both pins is diagnostic only, not controlled performance
+acceptance evidence; final latency and memory gates remain outstanding.
 
 The shared fixture generator is native in `xtask/src/benchmark/fixtures.rs`: it supports configurable
 line counts/change regions, patch prefixes/extensions, committed-before/modified-after repositories,

@@ -274,7 +274,7 @@ pub(super) fn plan_command(args: impl Iterator<Item = String>) -> Result<()> {
     Ok(())
 }
 
-fn parse_metrics(output: &str) -> Vec<(String, f64)> {
+pub(super) fn parse_metrics(output: &str) -> Vec<(String, f64)> {
     // ECMAScript whitespace differs from Rust/Unicode \s (notably U+0085 and U+FEFF).
     let pattern = regex::Regex::new(
         r"^METRIC[\x09-\x0d\x20\x{00a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff}]+([A-Za-z0-9_.:-]+)=(-?[0-9]+(?:\.[0-9]+)?)$",
