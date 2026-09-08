@@ -1,5 +1,22 @@
 # Hunk semantic-port ledger
 
+## Whole-operation highlighter deadline
+
+Preparation deadlines now start before worker launch, covering deferred source
+hydration as well as the native extension request. Coordinator polling expires
+overdue requests, signals cancellation, frees their slots, caches a failed
+derivation, and reports the timeout once. Completion timestamps prevent a late
+result queued before the next poll from bypassing the deadline. Successful
+settlement also signals cancellation, matching the pinned request's cleanup.
+
+Tests hold a worker beyond an injected deadline, verify cancellation and slot
+release, then deliver its late marks and check that neither publication nor
+restart occurs. A separate queued-result test checks the deadline boundary.
+All 30 highlighter tests, workspace Clippy, formatting, and architecture checks
+pass. Expiry is coordinator-driven; blocked source threads are not forcibly
+terminated. This does not establish latency or memory parity, full generation
+semantics, or whole-hook coverage. The ledger remains unchanged.
+
 ## Early registry-retirement cancellation
 
 Native extension registry retirement now cancels pending highlighter preparation

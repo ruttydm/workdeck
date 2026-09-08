@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 use std::thread;
+use std::time::Instant;
 
 use serde_json::Value;
 use workdeck_core::{Changeset, DiffFile};
@@ -224,6 +225,7 @@ struct LineHighlightCompletion {
     task: LineHighlightTask,
     outcome: LineHighlightTaskOutcome,
     cancellation: Arc<AtomicBool>,
+    completed_at: Instant,
 }
 
 #[derive(Debug, Clone)]
@@ -238,6 +240,7 @@ struct MergedLineHighlights {
 #[derive(Debug)]
 pub struct LineHighlightPreparationController {
     retired: bool,
+    deadlines: BTreeMap<LineHighlightTaskKey, (Instant, LineHighlightTask)>,
     cache: BTreeMap<LineHighlightTaskKey, Option<Arc<[ValidatedLineHighlight]>>>,
     pending: BTreeMap<LineHighlightTaskKey, Arc<AtomicBool>>,
     sender: mpsc::Sender<LineHighlightCompletion>,
@@ -259,6 +262,7 @@ impl Default for LineHighlightPreparationController {
         let (sender, receiver) = mpsc::channel();
         Self {
             retired: false,
+            deadlines: BTreeMap::new(),
             cache: BTreeMap::new(),
             pending: BTreeMap::new(),
             sender,
@@ -277,6 +281,7 @@ impl LineHighlightPreparationController {
             cancellation.store(true, Ordering::Release);
         }
         self.pending.clear();
+        self.deadlines.clear();
     }
 
     /// Terminal transition, invoked before retiring native extension processes.
@@ -333,6 +338,9 @@ impl LineHighlightPreparationController {
             }
         });
         self.poll_completions(&desired, extensions);
+        self.expire_requests(Instant::now(), extensions);
+        self.deadlines
+            .retain(|key, _| self.pending.contains_key(key));
         self.cache.retain(|key, _| desired.contains(key));
         self.merged.retain(|file_id, entry| {
             files.iter().any(|file| {
@@ -367,6 +375,13 @@ impl LineHighlightPreparationController {
             let cancelled = Arc::new(AtomicBool::new(false));
             self.pending
                 .insert(task.key.clone(), Arc::clone(&cancelled));
+            self.deadlines.insert(
+                task.key.clone(),
+                (
+                    Instant::now() + workdeck_extension_host::LINE_HIGHLIGHT_TIMEOUT,
+                    task.clone(),
+                ),
+            );
             let extension = Arc::clone(extension);
             let task = task.clone();
             let sender = self.sender.clone();
@@ -383,6 +398,7 @@ impl LineHighlightPreparationController {
                     task,
                     outcome,
                     cancellation: cancelled,
+                    completed_at: Instant::now(),
                 });
             });
         }
@@ -394,7 +410,7 @@ impl LineHighlightPreparationController {
         desired: &BTreeSet<LineHighlightTaskKey>,
         extensions: &[Arc<dyn LineHighlightRuntime>],
     ) {
-        while let Ok(completion) = self.receiver.try_recv() {
+        while let Ok(mut completion) = self.receiver.try_recv() {
             let current = self
                 .pending
                 .get(&completion.task.key)
@@ -403,11 +419,17 @@ impl LineHighlightPreparationController {
                 continue;
             }
             self.pending.remove(&completion.task.key);
+            if let Some((deadline, _)) = self.deadlines.remove(&completion.task.key)
+                && completion.completed_at >= deadline
+            {
+                completion.outcome = LineHighlightTaskOutcome::Failed("highlight timed out".into());
+            }
             if completion.cancellation.load(Ordering::Acquire)
                 || !desired.contains(&completion.task.key)
             {
                 continue;
             }
+            completion.cancellation.store(true, Ordering::Release);
             match completion.outcome {
                 LineHighlightTaskOutcome::Retry => {}
                 LineHighlightTaskOutcome::Failed(error) => {
@@ -466,6 +488,32 @@ impl LineHighlightPreparationController {
                     }
                 }
             }
+        }
+    }
+
+    fn expire_requests(&mut self, now: Instant, extensions: &[Arc<dyn LineHighlightRuntime>]) {
+        let expired = self
+            .deadlines
+            .iter()
+            .filter(|(_, (deadline, _))| now >= *deadline)
+            .map(|(key, (_, task))| (key.clone(), task.clone()))
+            .collect::<Vec<_>>();
+        for (key, task) in expired {
+            self.deadlines.remove(&key);
+            let Some(cancellation) = self.pending.remove(&key) else {
+                continue;
+            };
+            cancellation.store(true, Ordering::Release);
+            self.cache.insert(key, None);
+            self.report_once(
+                extensions,
+                &task,
+                "highlight",
+                format!(
+                    "Extension {} line highlighter {:?} failed highlighting {} (highlight timed out) • marks dropped",
+                    task.extension_id, task.highlighter_id, task.file.path,
+                ),
+            );
         }
     }
 
@@ -1400,6 +1448,86 @@ mod tests {
     }
 
     #[test]
+    fn whole_request_deadline_releases_a_blocked_worker_and_rejects_its_late_marks() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (finished_tx, finished_rx) = mpsc::channel();
+        let release_rx = Mutex::new(release_rx);
+        let runtime = FakeLineHighlightRuntime::new(move |_, _, cancelled| {
+            started_tx.send(()).unwrap();
+            release_rx
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap();
+            finished_tx.send(cancelled.load(Ordering::Acquire)).unwrap();
+            Ok(one_mark("match"))
+        });
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("blocked")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [test_file("file", "content")];
+        let mut controller = LineHighlightPreparationController::default();
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let deadline = controller.deadlines.values().next().unwrap().0;
+        controller.expire_requests(deadline, &extensions);
+        assert_eq!(controller.pending_count(), 0);
+        assert!(controller.cache.values().all(Option::is_none));
+        assert_eq!(runtime.warnings().len(), 1);
+        release_tx.send(()).unwrap();
+        assert!(finished_rx.recv_timeout(Duration::from_secs(5)).unwrap());
+        let completion = controller
+            .receiver
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        controller.sender.send(completion).unwrap();
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        assert!(controller.resolved().is_empty());
+        assert_eq!(runtime.calls().len(), 1);
+        assert_eq!(runtime.warnings().len(), 1);
+    }
+
+    #[test]
+    fn queued_result_completed_after_deadline_is_not_published() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+        let extensions = runtime_list(&runtime);
+        let mut tasks = desired_line_highlight_tasks(
+            &extensions,
+            &[registration("late")],
+            &workdeck_extension_host::LineHighlightEpochState::default(),
+            &[test_file("file", "content")],
+        );
+        let task = tasks.remove(0);
+        let desired = BTreeSet::from([task.key.clone()]);
+        let cancellation = Arc::new(AtomicBool::new(false));
+        let deadline = Instant::now();
+        let mut controller = LineHighlightPreparationController::default();
+        controller
+            .pending
+            .insert(task.key.clone(), cancellation.clone());
+        controller
+            .deadlines
+            .insert(task.key.clone(), (deadline, task.clone()));
+        controller
+            .sender
+            .send(LineHighlightCompletion {
+                task: task.clone(),
+                outcome: LineHighlightTaskOutcome::Value(one_mark("match")),
+                cancellation: cancellation.clone(),
+                completed_at: deadline,
+            })
+            .unwrap();
+        controller.poll_completions(&desired, &extensions);
+        assert!(controller.pending.is_empty());
+        assert!(controller.deadlines.is_empty());
+        assert!(controller.cache.get(&task.key).unwrap().is_none());
+        assert!(cancellation.load(Ordering::Acquire));
+        assert_eq!(runtime.warnings().len(), 1);
+        assert!(runtime.warnings()[0].contains("highlight timed out"));
+    }
+
+    #[test]
     fn registry_retirement_cancels_preparation_before_owner_drop() {
         let (started_tx, started_rx) = mpsc::channel();
         let (release_tx, release_rx) = mpsc::channel();
@@ -1592,6 +1720,7 @@ mod tests {
                     task: task.clone(),
                     outcome,
                     cancellation: Arc::clone(&old),
+                    completed_at: Instant::now(),
                 })
                 .unwrap();
         }
@@ -1608,6 +1737,7 @@ mod tests {
                 task: task.clone(),
                 outcome: LineHighlightTaskOutcome::Value(one_mark("match")),
                 cancellation: current,
+                completed_at: Instant::now(),
             })
             .unwrap();
         controller.poll_completions(&desired, &extensions);
