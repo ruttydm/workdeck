@@ -113,9 +113,7 @@ fn inspect_archive_entries(path: &Path) -> Result<(BTreeMap<String, bool>, u64)>
         }
         Ok(())
     };
-    let file = std::fs::File::open(path)?;
-    // Recheck the opened file as well as the path metadata.
-    validate_archive_input(&file.metadata()?)?;
+    let file = open_archive_input(path)?;
     if path.extension().is_some_and(|extension| extension == "zip") {
         let mut archive = zip::ZipArchive::new(file)?;
         for index in 0..archive.len() {
@@ -169,6 +167,20 @@ fn inspect_archive_entries(path: &Path) -> Result<(BTreeMap<String, bool>, u64)>
         }
     }
     Ok((original_names, total))
+}
+
+fn open_archive_input(path: &Path) -> Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // A FIFO substituted after path metadata inspection must not block open().
+        options.custom_flags(rustix::fs::OFlags::NONBLOCK.bits() as i32);
+    }
+    let file = options.open(path)?;
+    validate_archive_input(&file.metadata()?)?;
+    Ok(file)
 }
 
 fn validate_archive_input(metadata: &std::fs::Metadata) -> Result<()> {
@@ -655,6 +667,38 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(unix)]
+    fn archive_open_rejects_fifo_without_waiting_for_a_writer() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("replaced.tar.gz");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .args(["-m", "600"])
+                .arg(&path)
+                .status()
+                .unwrap()
+                .success()
+        );
+        // Exercise the open path directly, bypassing the earlier path metadata check.
+        assert!(
+            open_archive_input(&path)
+                .unwrap_err()
+                .to_string()
+                .contains("regular file")
+        );
+        let regular = directory.path().join("regular.tar.gz");
+        std::fs::write(&regular, b"fixture").unwrap();
+        assert_eq!(
+            open_archive_input(&regular)
+                .unwrap()
+                .metadata()
+                .unwrap()
+                .len(),
+            7
+        );
+    }
 
     #[test]
     #[cfg(unix)] // set_len creates sparse fixtures here; avoid allocating GiBs on Windows.

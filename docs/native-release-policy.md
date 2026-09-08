@@ -69,8 +69,10 @@ Before parsing, archive inspection requires a regular file of at most 2 GiB comp
 and repeats the metadata check on the opened handle. Unix tests use sparse files to verify the
 exact size boundary without allocating GiBs. This is not a complete allocation bound: ZIP central
 directory allocation still occurs inside the dependency before entry iteration and needs its own
-limit. Concurrent hostile replacement of input paths also requires stronger open semantics before
-this inspection can become an installer security boundary.
+limit. Unix archive opens use `O_NONBLOCK` and validate the opened handle, so a FIFO substituted
+after the initial path check is rejected without waiting for a writer. A native FIFO regression
+exercises that open path directly. This does not prevent concurrent modification of a regular file;
+immutable verified extraction inputs and equivalent Windows handling remain unfinished.
 
 `install-inspect ARCHIVE --package` additionally requires one wrapper directory, exactly one
 `workdeck` or `workdeck.exe` regular file, and regular `LICENSE`, `THIRD_PARTY_NOTICES`,
