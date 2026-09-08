@@ -1669,3 +1669,12 @@ per-TUI listener still remain; this does not claim the complete listener migrati
 Workspace all-target Clippy and formatting passed for this increment, as did CLI
 malformed-selector tests including missing and conflicting quit selectors. A fresh
 strict audit still fails at 290 unmapped records with 11 cached upstream commits.
+
+Full `cargo xtask verify` at `245d27ba` did not pass. Architecture, theme, skill and
+release-fragment checks passed, followed by CLI integration, 27 conformance and nine
+terminal-lifecycle tests. The terminal-pager suite ended with 56 passes and 37 failures:
+the recorded failures report `No space left on device` while creating temporary
+repositories, session runtime files, and nested Cargo query-cache/object outputs.
+The verifier stopped at workspace tests, before its Clippy, release-build and smoke
+stages. Earlier focused test and standalone Clippy passes do not make this run green.
+Storage recovery and a fresh verification run are required.
