@@ -28,6 +28,61 @@ fn staged_extension() -> (TempDir, std::path::PathBuf) {
 }
 
 #[test]
+fn native_cli_output_burst_survives_bounded_queue_backpressure_byte_for_byte() {
+    struct SlowFirstWrite {
+        bytes: Vec<u8>,
+        first: bool,
+    }
+    impl Write for SlowFirstWrite {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.first {
+                self.first = false;
+                thread::sleep(Duration::from_millis(50));
+            }
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    let (_directory, manifest) = staged_extension();
+    let mut extension = LoadedExtension::spawn(&manifest, "test-host").unwrap();
+    let mut stdout = SlowFirstWrite {
+        bytes: Vec::new(),
+        first: true,
+    };
+    let mut stderr = Vec::new();
+    let result = extension
+        .invoke_cli_command(
+            "cli-tools",
+            vec!["write-burst".into()],
+            std::path::Path::new("/tmp"),
+            Duration::from_secs(5),
+            &mut stdout,
+            &mut stderr,
+        )
+        .unwrap();
+    let expected = (0..128)
+        .map(|index| format!("frame-{index:03}:{}\n", "x".repeat(1024)))
+        .collect::<String>();
+    assert_eq!(stdout.bytes, expected.as_bytes());
+    assert!(stderr.is_empty());
+    assert_eq!(result.result, CliCommandResult::Exit { code: 0 });
+    let next = extension
+        .invoke_cli_command(
+            "cli-tools",
+            vec!["status".into()],
+            std::path::Path::new("/tmp"),
+            Duration::from_secs(2),
+            &mut Vec::new(),
+            &mut Vec::new(),
+        )
+        .unwrap();
+    assert_eq!(next.result, CliCommandResult::Exit { code: 0 });
+}
+
+#[test]
 fn compiled_extension_handshakes_streams_and_preserves_raw_delegation_args() {
     let (_directory, manifest) = staged_extension();
     let mut extension = LoadedExtension::spawn(&manifest, "test-host").unwrap();

@@ -19,6 +19,7 @@ mod keyboard_mode_controller;
 mod line_highlights;
 mod native_vcs;
 mod protocol_frame;
+mod response_queue;
 mod response_routes;
 mod runtime_boundary;
 mod startup;
@@ -41,6 +42,7 @@ pub use keyboard_mode::*;
 pub use keyboard_mode_controller::*;
 pub use line_highlights::*;
 pub use native_vcs::*;
+pub use response_queue::MAX_LEGACY_RESPONSE_FRAMES;
 pub use response_routes::*;
 pub use runtime_boundary::*;
 pub use startup::*;
@@ -545,7 +547,7 @@ struct ExtensionSpawnContext {
 struct ExtensionConnection {
     child: Child,
     stdin: ChildStdin,
-    responses: mpsc::Receiver<Result<String, std::io::Error>>,
+    responses: response_queue::ResponseReceiver,
     response_routes: Arc<Mutex<ExtensionResponseRoutes>>,
     next_id: u64,
     pending_request: Option<PendingExecutionRequest>,
@@ -739,11 +741,12 @@ fn changeset_transform_ids(handshake: &HandshakeResponse) -> Vec<String> {
         .collect()
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 struct PendingExecutionRequest {
     id: u64,
     deadline: Instant,
     kind: PendingExecutionKind,
+    _response_lease: response_queue::ResponseLease,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -903,7 +906,7 @@ impl LoadedExtension {
                 &log_extension_id,
             );
         });
-        let (sender, responses) = mpsc::channel();
+        let (sender, responses) = response_queue::response_channel();
         let response_routes = Arc::new(Mutex::new(ExtensionResponseRoutes::default()));
         let output_routes = Arc::clone(&response_routes);
         let output_notifications = notifications.clone();
@@ -1037,6 +1040,19 @@ impl LoadedExtension {
         }
     }
 
+    fn begin_response_lease(
+        &self,
+        connection: &ExtensionConnection,
+    ) -> Result<response_queue::ResponseLease, HostError> {
+        connection
+            .responses
+            .begin(connection.next_id)
+            .map_err(|error| match error {
+                response_queue::LeaseError::Busy => HostError::Busy(self.manifest.id.clone()),
+                response_queue::LeaseError::Closed => HostError::Closed(self.manifest.id.clone()),
+            })
+    }
+
     /// Revoke all retained authority and start best-effort native shutdown exactly once.
     ///
     /// This half is deliberately nonblocking so a collection of extensions can all receive the
@@ -1099,6 +1115,7 @@ impl LoadedExtension {
         {
             return Err(HostError::Busy(self.manifest.id.clone()));
         }
+        let _response_lease = self.begin_response_lease(&connection)?;
         let id = self.send_request_on(&mut connection, method, params)?;
         let line = self.receive_protocol_line_on(&connection, id, Instant::now() + timeout)?;
         self.decode_response(id, &line)
@@ -1770,6 +1787,7 @@ impl LoadedExtension {
         {
             return Err(HostError::Busy(self.manifest.id.clone()));
         }
+        let _response_lease = self.begin_response_lease(&connection)?;
         let id = self.send_request_on(
             &mut connection,
             "workdeck/cli/invoke",
@@ -2565,11 +2583,13 @@ impl LoadedExtension {
                 message: format!("event {:?} is not subscribed", event.name),
             });
         }
+        let response_lease = self.begin_response_lease(&connection)?;
         let id = self.send_request_on(&mut connection, "workdeck/event", event)?;
         connection.pending_request = Some(PendingExecutionRequest {
             id,
             deadline: Instant::now() + Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
             kind: PendingExecutionKind::Event,
+            _response_lease: response_lease,
         });
         Ok(())
     }
@@ -2769,6 +2789,7 @@ impl LoadedExtension {
                 message: format!("command {command_id:?} is not registered"),
             });
         }
+        let response_lease = self.begin_response_lease(&connection)?;
         let id = self.send_request_on(
             &mut connection,
             "workdeck/command/invoke",
@@ -2789,6 +2810,7 @@ impl LoadedExtension {
             id,
             deadline: Instant::now() + Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
             kind: PendingExecutionKind::Command,
+            _response_lease: response_lease,
         });
         Ok(())
     }
@@ -2797,7 +2819,7 @@ impl LoadedExtension {
     pub fn command_pending(&self) -> bool {
         self.connection.try_lock().is_ok_and(|connection| {
             matches!(
-                connection.pending_request,
+                connection.pending_request.as_ref(),
                 Some(PendingExecutionRequest {
                     kind: PendingExecutionKind::Command,
                     ..
@@ -2810,7 +2832,7 @@ impl LoadedExtension {
     pub fn event_pending(&self) -> bool {
         self.connection.try_lock().is_ok_and(|connection| {
             matches!(
-                connection.pending_request,
+                connection.pending_request.as_ref(),
                 Some(PendingExecutionRequest {
                     kind: PendingExecutionKind::Event,
                     ..
@@ -2855,8 +2877,11 @@ impl LoadedExtension {
             Ok(connection) => connection,
             Err(error) => return Some(Err(error)),
         };
-        let pending = connection.pending_request?;
-        if pending.kind != expected {
+        let (pending_id, pending_deadline, pending_kind) = connection
+            .pending_request
+            .as_ref()
+            .map(|pending| (pending.id, pending.deadline, pending.kind))?;
+        if pending_kind != expected {
             return None;
         }
         let line = loop {
@@ -2868,7 +2893,7 @@ impl LoadedExtension {
                         continue;
                     }
                     if json_rpc_response_id(&line)
-                        .is_some_and(|response_id| response_id < pending.id)
+                        .is_some_and(|response_id| response_id < pending_id)
                     {
                         continue;
                     }
@@ -2885,11 +2910,11 @@ impl LoadedExtension {
                     connection.pending_request = None;
                     return Some(Err(HostError::Closed(self.manifest.id.clone())));
                 }
-                Err(mpsc::TryRecvError::Empty) if Instant::now() >= pending.deadline => {
+                Err(mpsc::TryRecvError::Empty) if Instant::now() >= pending_deadline => {
                     let _ = self.send_notification_on(
                         &mut connection,
                         "$/cancelRequest",
-                        serde_json::json!({ "id": pending.id }),
+                        serde_json::json!({ "id": pending_id }),
                     );
                     connection.pending_request = None;
                     return Some(Err(HostError::Timeout(self.manifest.id.clone())));
@@ -2898,7 +2923,7 @@ impl LoadedExtension {
             }
         };
         connection.pending_request = None;
-        let result = self.decode_response(pending.id, &line).and_then(|value| {
+        let result = self.decode_response(pending_id, &line).and_then(|value| {
             let execution: CommandExecution =
                 serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
                     id: self.manifest.id.clone(),

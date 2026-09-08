@@ -79,12 +79,49 @@ The compiled line-highlighter diagnostic fixture writes a 4 MiB line followed by
 1,100 short lines and a marker before sending its protocol reply. Its integration test
 requires a successful reply, exactly 1,024 retained entries, 78 discarded entries,
 one truncated line, the final marker, and a successful subsequent native request.
-This closes stderr accumulation only. The legacy response queue and stdin write
-deadlines remain separate gaps, and no source-ledger record is marked complete here.
+This closes stderr accumulation only. The serialized response-queue bound is described
+below; stdin write deadlines remain unfinished. No source-ledger record is marked complete here.
 All 192 host unit tests and 19 compiled highlighter integration tests pass after
 this increment, along with host/examples all-target Clippy, formatting, and the
 architecture check. The earlier full verification at `c10ab4e8` predates these log
 changes and is not presented as a full-workspace verification of this increment.
+
+## Bounded serialized native response queue
+
+The serialized native response queue is now limited to eight complete frames,
+independently of the existing per-frame size limit. Its dedicated stdout reader
+applies backpressure until the consumer drains space; it does not drop valid frames
+or block while holding the routed-parent registry lock. Receiver destruction releases
+a reader waiting on the full queue. Each serialized request owns a lease, including
+asynchronous commands and events until polling completes. Returning, cancelling or
+retiring that request releases the lease, clears revoked queued output and wakes
+the reader. Recognised old replies and CLI output for another request are discarded
+before they can fill a newer lease. Unowned malformed frames terminate the reader;
+they are not silently ignored. This "legacy" queue means serialized native
+extension operations, not the separate old Workdeck per-TUI session listener.
+Unit tests check exact capacity, frame/error order and receiver-drop release. A
+compiled CLI fixture emits 128 frames while the host delays its first output write;
+the test requires byte-exact output, a successful result and a subsequent command.
+A second compiled fixture emits 128 late replies after settling its request. Its test
+requires the next routed highlighter and serialized query to complete, guarding against
+an idle queue holding up the shared stdout reader. An initial assertion incorrectly
+expected a null annotation-width diagnostic after highlighting; the fixture records
+width 3 on that path, and the assertion was corrected from the fixture implementation.
+Stdin writes still precede their response deadlines, so this is a buffering bound,
+not a claim that every native transport operation is deadline-safe.
+
+The initial three queue tests and 195 host tests passed before request leases were added.
+The first compiled CLI run failed seven initial handshakes
+with timeouts, before invoking the output-burst action. The burst test then passed
+in isolation, and a rerun of all eight CLI and nineteen highlighter integration tests
+passed without changing deadlines or assertions. The initial handshake timeouts are
+not claimed fixed or causally explained. No source ledger mapping is added.
+
+Final lease-based validation passes all 198 host unit tests and all 59 focused native
+integration tests: eight CLI, twenty highlighter, seventeen sidebar, eleven workspace
+and three startup-lifecycle tests. Host/examples all-target Clippy, formatting, diff
+and architecture checks pass. The earlier full workspace verification predates this
+queue change; this focused validation does not satisfy the remaining full-port gates.
 
 ## Native concurrency parity gap confirmed
 

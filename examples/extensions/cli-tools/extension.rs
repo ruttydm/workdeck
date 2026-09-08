@@ -111,6 +111,17 @@ pub fn execute_cli_tools(
                 stdin_consumed: false,
             })
         }
+        "write-burst" => {
+            for index in 0..128 {
+                let line = format!("frame-{index:03}:{}\n", "x".repeat(1024));
+                emit(CliOutputStream::Stdout, line.as_bytes()).map_err(output_error)?;
+            }
+            Ok(CliCommandExecution {
+                result: CliCommandResult::Exit { code: 0 },
+                stdin_read_started: false,
+                stdin_consumed: false,
+            })
+        }
         "late-output" => Ok(CliCommandExecution {
             result: CliCommandResult::Exit { code: 0 },
             stdin_read_started: false,

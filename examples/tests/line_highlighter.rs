@@ -69,6 +69,40 @@ fn review_file(path: &str) -> workdeck_core::DiffFile {
 }
 
 #[test]
+fn late_serialized_reply_burst_cannot_block_a_routed_highlighter_request() {
+    let (_directory, manifest) = staged_extension();
+    let mut extension = LoadedExtension::spawn_with_configuration(
+        &manifest,
+        "test",
+        serde_json::json!({"includeHang":false}),
+    )
+    .unwrap();
+    assert_eq!(
+        extension
+            .request(
+                "example/late-response-burst",
+                serde_json::json!({}),
+                Duration::from_secs(2)
+            )
+            .unwrap(),
+        serde_json::Value::Null
+    );
+    extension
+        .highlight_file("attention", &review_file("after-burst.rs"))
+        .unwrap();
+    assert_eq!(
+        extension
+            .request(
+                "example/last-annotation-width",
+                serde_json::json!({}),
+                Duration::from_secs(2)
+            )
+            .unwrap(),
+        serde_json::json!(3)
+    );
+}
+
+#[test]
 fn stderr_flood_is_bounded_while_native_requests_remain_responsive() {
     let (_directory, manifest) = staged_extension();
     let mut extension = LoadedExtension::spawn_with_configuration(

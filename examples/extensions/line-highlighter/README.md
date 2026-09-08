@@ -17,3 +17,7 @@ The native diagnostic fixture method `example/stderr-flood` writes a 4 MiB diagn
 1,100 short diagnostic lines, and a completion marker to stderr before replying on
 stdout. Its integration test verifies bounded host retention, explicit truncation/drop
 accounting, complete pipe drainage, and a successful subsequent protocol request.
+
+`example/late-response-burst` settles a serialized request and then emits 128 late
+replies with that request's ID. The integration test immediately runs a routed
+highlighter and another serialized request; revoked output must not block either.

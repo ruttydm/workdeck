@@ -117,6 +117,12 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
         }
         let request: JsonRpcRequest = serde_json::from_value(value).map_err(io::Error::other)?;
         match request.method.as_str() {
+            "example/late-response-burst" => {
+                write_result(&mut output, request.id, Value::Null)?;
+                for _ in 0..128 {
+                    write_result(&mut output, request.id, "x".repeat(1024))?;
+                }
+            }
             "example/stderr-flood" => {
                 // Native host resource-limit fixture: write more than a pipe can
                 // buffer before replying, then exceed the retained entry limit.
