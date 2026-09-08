@@ -14,7 +14,11 @@ changed. A one-entry TUI content-height cache now retains this identity after a 
 unwrapped split render. Wheel handling reuses the exact height only when document identity,
 layout, width, filtering, file/hunk spacing, header/pager settings and registry generation match.
 Notes, wrapping, expanded gaps, agent line highlighting and active extensions bypass reuse;
-complex render paths clear the retained entry. Full row geometry and painting still rebuild.
+complex render paths clear the retained entry. The same entry retains style-free file-section
+positions, allowing subsequent eligible renders to skip the geometry prepass used for viewport
+clamping and highlight prefetch. Full painted-row construction still runs. A Unicode frame test
+compares every Ratatui cell against a forced rebuild after theme changes and resizing, while
+holding scrollbar interaction history constant; it also checks section allocation reuse.
 The cache stores no painted rows and does not by itself prove a performance gate. Broader
 geometry reuse must account for all dynamic content; generation alone is insufficient.
 

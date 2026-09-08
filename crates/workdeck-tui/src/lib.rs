@@ -11694,77 +11694,91 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             .iter()
             .all(|file| file.agent.is_none())
     {
-        let mut geometry_options = app.options.clone();
-        geometry_options.highlight = false;
-        let geometry = build_live_review_rows(
-            state.changeset(),
-            &comments,
-            state.selection(),
-            layout,
-            &geometry_options,
-            area.width,
-            &mut highlights,
-            &app.expanded_gaps,
-            &line_highlights,
-            &file_view_layouts,
-            &component_expanded,
-            &app.file_presentation_rendering,
-            app.options.extension_notifications.as_ref(),
-            &app.filter,
-            ReviewRowPurpose::Geometry,
-        );
-        let start = app
-            .scroll
-            .min(geometry.lines.len().saturating_sub(viewport));
-        *app.review_plain_height
+        let cached = app
+            .review_plain_height
             .lock()
-            .unwrap_or_else(|error| error.into_inner()) = Some(PlainReviewHeight {
-            document: state.changeset_snapshot(),
-            layout,
-            width: area.width,
-            filter: app.filter.clone(),
-            file_gap: app.options.file_gap,
-            hunk_gap: app.options.hunk_gap,
-            hunk_headers: app.options.hunk_headers,
-            pager: app.options.pager,
-            registry_generation: app.extension_registry_generation,
-            height: geometry.lines.len(),
+            .unwrap_or_else(|error| error.into_inner())
+            .as_ref()
+            .filter(|cached| {
+                cached.matches(
+                    &state,
+                    &app.options,
+                    area.width,
+                    &app.filter,
+                    app.extension_registry_generation,
+                )
+            })
+            .map(|cached| (cached.height, Arc::clone(&cached.sections)));
+        let (content_height, layouts) = cached.unwrap_or_else(|| {
+            let mut geometry_options = app.options.clone();
+            geometry_options.highlight = false;
+            let geometry = build_live_review_rows(
+                state.changeset(),
+                &comments,
+                state.selection(),
+                layout,
+                &geometry_options,
+                area.width,
+                &mut highlights,
+                &app.expanded_gaps,
+                &line_highlights,
+                &file_view_layouts,
+                &component_expanded,
+                &app.file_presentation_rendering,
+                app.options.extension_notifications.as_ref(),
+                &app.filter,
+                ReviewRowPurpose::Geometry,
+            );
+            let layouts = geometry
+                .visible_file_indices
+                .iter()
+                .enumerate()
+                .map(|(position, index)| {
+                    let bottom = geometry
+                        .visible_file_indices
+                        .get(position + 1)
+                        .map_or(geometry.lines.len(), |next| geometry.file_tops[next]);
+                    FileSectionLayout {
+                        file_id: index.to_string(),
+                        section_index: position,
+                        section_top: geometry.file_tops[index] as i64,
+                        header_top: geometry.file_header_tops[index] as i64,
+                        body_top: geometry.file_body_tops[index] as i64,
+                        body_height: bottom.saturating_sub(geometry.file_body_tops[index]) as i64,
+                        section_bottom: bottom as i64,
+                    }
+                })
+                .collect::<Vec<_>>();
+            let layouts = Arc::new(layouts);
+            *app.review_plain_height
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) = Some(PlainReviewHeight {
+                document: state.changeset_snapshot(),
+                layout,
+                width: area.width,
+                filter: app.filter.clone(),
+                file_gap: app.options.file_gap,
+                hunk_gap: app.options.hunk_gap,
+                hunk_headers: app.options.hunk_headers,
+                pager: app.options.pager,
+                registry_generation: app.extension_registry_generation,
+                height: geometry.lines.len(),
+                sections: Arc::clone(&layouts),
+            });
+            (geometry.lines.len(), layouts)
         });
+        let start = app.scroll.min(content_height.saturating_sub(viewport));
         let rapid = app
             .review_prefetch
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .observe(start as i64, viewport as i64, false, render_now);
-        let ids = geometry
-            .visible_file_indices
+        let ids = layouts
             .iter()
-            .map(usize::to_string)
-            .collect::<Vec<_>>();
-        let layouts = geometry
-            .visible_file_indices
-            .iter()
-            .enumerate()
-            .map(|(position, index)| {
-                let bottom = geometry
-                    .visible_file_indices
-                    .get(position + 1)
-                    .map_or(geometry.lines.len(), |next| geometry.file_tops[next]);
-                FileSectionLayout {
-                    file_id: index.to_string(),
-                    section_index: position,
-                    section_top: geometry.file_tops[index] as i64,
-                    header_top: geometry.file_header_tops[index] as i64,
-                    body_top: geometry.file_body_tops[index] as i64,
-                    body_height: bottom.saturating_sub(geometry.file_body_tops[index]) as i64,
-                    section_bottom: bottom as i64,
-                }
-            })
+            .map(|section| section.file_id.as_str())
             .collect::<Vec<_>>();
         let selected = state.selection().file_index.to_string();
-        let adjacent = adjacent_highlight_prefetch_ids(
-            &ids.iter().map(String::as_str).collect::<Vec<_>>(),
-            Some(&selected),
-        );
+        let adjacent = adjacent_highlight_prefetch_ids(&ids, Some(&selected));
         highlight_files = highlight_prefetch_ids(
             &adjacent,
             &layouts,
@@ -12220,6 +12234,7 @@ struct PlainReviewHeight {
     pager: bool,
     registry_generation: u64,
     height: usize,
+    sections: Arc<Vec<FileSectionLayout>>,
 }
 
 impl PlainReviewHeight {
@@ -21351,6 +21366,77 @@ mod tests {
         let frame = rendered_review_frame(&mut terminal, &app);
         assert!(!frame.contains("@@ -1,16 +1,16 @@"), "{frame}");
         assert_eq!(app.review_height.get(), height);
+    }
+
+    #[test]
+    fn plain_section_cache_reuses_geometry_but_repaints_theme_and_rebuilds_on_resize() {
+        let review = navigation_changeset(vec![
+            ("a.rs".into(), "old 日\n".repeat(12), "new 🚀\n".repeat(12)),
+            ("b.rs".into(), "old b\n".repeat(5), "new b\n".repeat(5)),
+        ]);
+        let mut app = ReviewApp::new(
+            review.clone(),
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                wrap_lines: false,
+                highlight: false,
+                sidebar: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        let retained = Arc::clone(
+            &app.review_plain_height
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .sections,
+        );
+        app.scroll = 1;
+        app.options.theme = resolve_theme(Some("github-light"), None, &[]);
+        rendered_review_frame(&mut terminal, &app);
+        assert!(Arc::ptr_eq(
+            &retained,
+            &app.review_plain_height
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .sections
+        ));
+        // Hold interaction history constant and compare complete renderer buffers
+        // with cached geometry against a forced geometry rebuild.
+        let mut actual = Buffer::empty(Rect::new(0, 0, 100, 20));
+        let mut expected = Buffer::empty(actual.area);
+        render(actual.area, &mut actual, &app);
+        *app.review_plain_height.lock().unwrap() = None;
+        render(expected.area, &mut expected, &app);
+        for (index, (actual, expected)) in actual.content.iter().zip(&expected.content).enumerate()
+        {
+            assert_eq!(actual, expected, "frame cell {index}");
+        }
+        let mut resized = Terminal::new(TestBackend::new(80, 20)).unwrap();
+        rendered_review_frame(&mut resized, &app);
+        assert!(!Arc::ptr_eq(
+            &retained,
+            &app.review_plain_height
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .sections
+        ));
+        let mut actual = Buffer::empty(Rect::new(0, 0, 80, 20));
+        let mut expected = Buffer::empty(actual.area);
+        render(actual.area, &mut actual, &app);
+        *app.review_plain_height.lock().unwrap() = None;
+        render(expected.area, &mut expected, &app);
+        for (index, (actual, expected)) in actual.content.iter().zip(&expected.content).enumerate()
+        {
+            assert_eq!(actual, expected, "resized frame cell {index}");
+        }
     }
 
     #[test]
