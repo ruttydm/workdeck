@@ -7,6 +7,8 @@
 
 #[path = "review_conformance/events.rs"]
 mod events;
+#[path = "review_conformance/models.rs"]
+mod models;
 #[path = "review_conformance/navigation.rs"]
 mod navigation;
 #[path = "review_conformance/notes.rs"]
@@ -555,6 +557,10 @@ fn check_geometry_consumer(name: &str, project: fn(&DiffFile, Option<&str>, &str
             let id = case["id"].as_str().unwrap();
             let (file, expansion, source) = fixture(id);
             let actual = project(&file, expansion, &source);
+            assert_eq!(
+                models::geometry(&actual),
+                models::geometry(&case["expected"])
+            );
             assert_eq!(actual, case["expected"], "{}: {id}", oracle["upstream"]);
             let captured = case["actual"]
                 .as_array()
@@ -563,6 +569,10 @@ fn check_geometry_consumer(name: &str, project: fn(&DiffFile, Option<&str>, &str
                 .find(|consumer| consumer["consumer"] == name)
                 .expect("actual pinned consumer output");
             assert_eq!(actual, captured["output"], "captured {name}: {id}");
+            assert_eq!(
+                models::geometry(&actual),
+                models::geometry(&captured["output"])
+            );
             count += 1;
         }
         assert_eq!(count, 6);

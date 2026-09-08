@@ -363,6 +363,10 @@ fn protocol_and_real_http_surface_match_all_pinned_event_windows() {
             for (name, project) in CONSUMERS {
                 let actual = project(&body, window);
                 assert_eq!(
+                    super::models::event_framing(&actual),
+                    super::models::event_framing(&case["expected"])
+                );
+                assert_eq!(
                     actual, case["expected"],
                     "{}: {name}: {}",
                     case["id"], oracle["upstream"]

@@ -187,6 +187,10 @@ fn complete_saved_note_snapshot_excludes_a_real_unsaved_terminal_draft() {
             .filter(|case| case["group"] == "snapshot")
             .collect::<Vec<_>>();
         assert_eq!(cases.len(), 1);
+        assert_eq!(
+            super::models::snapshot(&actual),
+            super::models::snapshot(&cases[0]["expected"])
+        );
         assert_eq!(actual, cases[0]["expected"]);
         assert_eq!(cases[0]["actual"][0]["consumer"], CONSUMER.0);
         assert_eq!(actual, cases[0]["actual"][0]["output"]);

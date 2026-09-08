@@ -1485,7 +1485,7 @@ reassembles chunked publications with the native assembler, and requires byte-ex
 round trips of the native serialized publication. Exact-window and one-byte-over-window
 boundaries, resumable frame counts, and adjacent-only frame-name collapsing are checked
 against both pins. The event fixture and framing-helper source files are now mapped.
-The 19 Rust test functions execute the pinned corpus cases through registered native
+The 21 Rust test functions execute the pinned corpus cases through registered native
 consumer callbacks; registry and finding-coverage assertions guard accidental omissions.
 Core geometry first projects the canonical review file, then uses canonical gap selectors
 and content-manifest geometry, rather than observing only the parser's DiffFile.
@@ -1525,6 +1525,13 @@ to the requested file, and preserves its source-specific empty `expandedRows` ar
 missing gap (core and producer omit that field instead). Empty streams and out-of-range
 file targets are also covered. All 19 focused tests and focused Clippy pass. The shared
 conformance type definitions remain unmapped pending their complete Rust translation.
+Their geometry, navigation, saved-note snapshot, and event-framing output models now
+have executable typed Rust checks in `review_conformance/models.rs`. Each native output
+and pinned expectation must survive exact JSON-value round trips through the model;
+unknown fields, malformed ranges, invalid variants, and missing required null fields
+cannot disappear during comparison. All 21 focused tests pass. Fixture interfaces and
+consumer signatures are still incomplete, so the entire source types record remains
+unmapped; these checks do not substitute for its remaining translation.
 Capture-integrity tests reject changed outputs and wrong pins but are not parity proof.
 
 Full `cargo xtask verify` passed at `e4f3c782` before this conformance increment, including

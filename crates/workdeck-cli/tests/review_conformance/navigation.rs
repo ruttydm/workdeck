@@ -416,6 +416,10 @@ fn both_navigation_consumers_match_both_pinned_corpora() {
             for (name, terminal) in CONSUMERS {
                 let actual = projection(&fixture, terminal);
                 assert_eq!(
+                    super::models::navigation(&actual),
+                    super::models::navigation(&case["expected"])
+                );
+                assert_eq!(
                     actual, case["expected"],
                     "{id}: {name}: {}",
                     oracle["upstream"]
