@@ -1,5 +1,22 @@
 # Hunk semantic-port ledger
 
+## Preparation-pass supersession
+
+A held-worker regression reproduced an unfinished request surviving the addition
+of another review file without cancellation. The coordinator now compares the
+ordered active task keys before settlement and cancels all unfinished requests
+when that preparation pass changes. Completed cache entries are retained when
+their individual keys still match. Unchanged polling retains the same request
+token; an unchanged file with unfinished work restarts after supersession.
+
+The generation comparison borrows existing keys on unchanged polls rather than
+allocating another key vector each time. This models active preparation changes,
+not every upstream React dependency identity: changes involving only ineligible
+files or otherwise equivalent input collections still require separate audit.
+No whole-hook mapping or additional ledger coverage is claimed.
+Verification passes: all 31 highlighter tests, all 1,062 TUI unit tests, workspace
+Clippy, formatting, and architecture checks.
+
 ## Whole-operation highlighter deadline
 
 Preparation deadlines now start before worker launch, covering deferred source

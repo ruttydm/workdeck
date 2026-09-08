@@ -240,6 +240,7 @@ struct MergedLineHighlights {
 #[derive(Debug)]
 pub struct LineHighlightPreparationController {
     retired: bool,
+    generation: Option<Vec<LineHighlightTaskKey>>,
     deadlines: BTreeMap<LineHighlightTaskKey, (Instant, LineHighlightTask)>,
     cache: BTreeMap<LineHighlightTaskKey, Option<Arc<[ValidatedLineHighlight]>>>,
     pending: BTreeMap<LineHighlightTaskKey, Arc<AtomicBool>>,
@@ -262,6 +263,7 @@ impl Default for LineHighlightPreparationController {
         let (sender, receiver) = mpsc::channel();
         Self {
             retired: false,
+            generation: None,
             deadlines: BTreeMap::new(),
             cache: BTreeMap::new(),
             pending: BTreeMap::new(),
@@ -292,6 +294,7 @@ impl LineHighlightPreparationController {
         }
         self.retired = true;
         self.cancel_pending();
+        self.generation = None;
         self.cache.clear();
         self.merged.clear();
         self.resolved = LineHighlightMap::default();
@@ -325,6 +328,16 @@ impl LineHighlightPreparationController {
             return;
         }
         let tasks = desired_line_highlight_tasks(extensions, registrations, epochs, files);
+        // A changed preparation pass aborts all unfinished work, even for a
+        // file whose own key survived. Completed derivations remain reusable.
+        if self
+            .generation
+            .as_ref()
+            .is_none_or(|generation| generation.iter().ne(tasks.iter().map(|task| &task.key)))
+        {
+            self.cancel_pending();
+            self.generation = Some(tasks.iter().map(|task| task.key.clone()).collect());
+        }
         let desired = tasks
             .iter()
             .map(|task| task.key.clone())
@@ -1525,6 +1538,62 @@ mod tests {
         assert!(cancellation.load(Ordering::Acquire));
         assert_eq!(runtime.warnings().len(), 1);
         assert!(runtime.warnings()[0].contains("highlight timed out"));
+    }
+
+    #[test]
+    fn changing_another_file_restarts_unfinished_generation_work() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (finished_tx, finished_rx) = mpsc::channel();
+        let release_rx = Mutex::new(release_rx);
+        let requests = AtomicUsize::new(0);
+        let runtime = FakeLineHighlightRuntime::new(move |_, file, cancelled| {
+            if file.runtime_id == "unchanged" && requests.fetch_add(1, Ordering::AcqRel) == 0 {
+                started_tx.send(()).unwrap();
+                release_rx
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(5))
+                    .unwrap();
+                finished_tx.send(cancelled.load(Ordering::Acquire)).unwrap();
+            }
+            Ok(one_mark("match"))
+        });
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("highlight")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let mut files = vec![test_file("unchanged", "content")];
+        let mut controller = LineHighlightPreparationController::default();
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let original = controller.pending.values().next().unwrap().clone();
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        assert!(!original.load(Ordering::Acquire));
+        assert!(Arc::ptr_eq(
+            controller.pending.values().next().unwrap(),
+            &original
+        ));
+        files.push(test_file("added", "new-content"));
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        release_tx.send(()).unwrap();
+        assert!(finished_rx.recv_timeout(Duration::from_secs(5)).unwrap());
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            &files,
+            |controller| controller.pending_count() == 0 && controller.resolved().len() == 2,
+        );
+        assert_eq!(
+            runtime
+                .calls()
+                .iter()
+                .filter(|(_, file)| file == "unchanged")
+                .count(),
+            2
+        );
+        assert!(runtime.warnings().is_empty());
     }
 
     #[test]
