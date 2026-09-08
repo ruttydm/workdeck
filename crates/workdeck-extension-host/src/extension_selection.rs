@@ -45,17 +45,23 @@ pub fn build_extension_review_selection(
 pub fn build_extension_review_selection_from_snapshot(
     snapshot: &ReviewSnapshot,
 ) -> ExtensionReviewSelection {
-    let files = snapshot
-        .changeset
-        .files
-        .iter()
-        .map(project_extension_diff_file)
-        .collect::<Vec<_>>();
     let selected_file_id = snapshot
         .changeset
         .files
         .get(snapshot.selection.file_index)
         .map(|file| file.runtime_id.as_str());
+    let Some(file) = selected_file_id.and_then(|selected| {
+        // Preserve the public resolver's first-match behavior even if a caller
+        // supplies duplicate or empty mounted IDs. Only that file is serialized.
+        snapshot
+            .changeset
+            .files
+            .iter()
+            .find(|file| file.runtime_id == selected)
+    }) else {
+        return ExtensionReviewSelection::default();
+    };
+    let file = project_extension_diff_file(file);
     let line_cursor = snapshot
         .selection
         .hunk_index
@@ -73,7 +79,7 @@ pub fn build_extension_review_selection_from_snapshot(
             },
         });
     build_extension_review_selection(
-        &files,
+        std::slice::from_ref(&file),
         selected_file_id,
         snapshot.selection.hunk_index.map(|index| index as f64),
         line_cursor.as_ref(),

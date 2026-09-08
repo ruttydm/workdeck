@@ -21255,6 +21255,74 @@ mod tests {
     }
 
     #[test]
+    fn selected_file_projection_matches_full_projection_for_duplicate_ids_and_missing_selection() {
+        let base = navigation_changeset(vec![
+            ("a.rs".into(), "old a\n".into(), "new a\n".into()),
+            ("b.rs".into(), "old b\n".into(), "new b\n".into()),
+        ]);
+        for shared_id in [None, Some("duplicate"), Some("")] {
+            let mut changeset = base.clone();
+            if let Some(id) = shared_id {
+                for file in &mut changeset.files {
+                    file.runtime_id = id.into();
+                }
+            }
+            let files = changeset
+                .files
+                .iter()
+                .map(project_extension_diff_file)
+                .collect::<Vec<_>>();
+            for file_index in [0, 1, 2, usize::MAX] {
+                for hunk_index in [None, Some(0), Some(9)] {
+                    for side in [None, Some(ReviewSide::Old), Some(ReviewSide::New)] {
+                        let snapshot = workdeck_core::ReviewSnapshot {
+                            generation: 7,
+                            changeset: changeset.clone(),
+                            selection: ReviewSelection {
+                                file_index,
+                                hunk_index,
+                                side,
+                                line: Some(1),
+                            },
+                        };
+                        let selected = changeset
+                            .files
+                            .get(file_index)
+                            .map(|file| file.runtime_id.as_str());
+                        let cursor = hunk_index.zip(side).map(|(hunk_index, side)| {
+                            workdeck_extension_host::ExtensionLineCursor {
+                                file_id: selected.unwrap_or_default().into(),
+                                hunk_index,
+                                target: workdeck_extension_api::ExtensionReviewSelectionLine {
+                                    side: match side {
+                                        ReviewSide::Old => {
+                                            workdeck_extension_api::ExtensionFileSide::Old
+                                        }
+                                        ReviewSide::New => {
+                                            workdeck_extension_api::ExtensionFileSide::New
+                                        }
+                                    },
+                                    line: 1,
+                                },
+                            }
+                        });
+                        let expected = workdeck_extension_host::build_extension_review_selection(
+                            &files,
+                            selected,
+                            hunk_index.map(|index| index as f64),
+                            cursor.as_ref(),
+                        );
+                        assert_eq!(
+                            build_extension_review_selection_from_snapshot(&snapshot),
+                            expected
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn per_file_digit_override_matches_isolated_rendering_after_large_line_numbers() {
         let patch = [("a.rs", 1), ("b.rs", 1000), ("c.rs", 9)]
             .into_iter()
