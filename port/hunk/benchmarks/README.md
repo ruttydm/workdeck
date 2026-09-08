@@ -310,3 +310,15 @@ available; count-only geometry shares its checked address arithmetic. Exhaustive
 counts and direct gap-address comparisons supplement the full review/TUI suites.
 All pinned-Hunk latency gates still fail. Current post-navigation RSS median is 211288064
 bytes, not peak-memory evidence. No ledger record was newly mapped.
+
+### Highlight prefetch policy port
+
+Inspection of pinned `DiffPane.tsx` confirms that Hunk selects highlight requests using
+the selected file, adjacent files and a viewport halo of at least 24 rows or three viewport
+heights, enlarged by rapid-scroll overscan. The current native renderer still requests
+highlights for every file. `highlight_prefetch.rs` now translates the pure selection policy,
+verified against [executed baseline/stable fixtures](../oracles/highlight-prefetch-policy.json).
+The fixtures execute the unchanged extracted functions with each pin's actual file-section
+intersection implementation, not a reimplementation used as its own oracle.
+Live wiring, rapid-scroll idle timing and wrapped-window warmup remain incomplete. This is
+not a benchmark improvement or a complete `DiffPane.tsx` port, and its ledger record stays unmapped.
