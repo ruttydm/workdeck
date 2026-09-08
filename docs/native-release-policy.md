@@ -61,6 +61,10 @@ structural inspection, not a complete package verifier: required contents, wrapp
 signatures/provenance and safe extraction remain unfinished. Output deliberately does not claim
 checksum verification or installation. Tests exercise tar and ZIP payload reads and path rejection
 without creating extracted directories.
+Tar inspection also drains the gzip decoder after tar's end marker to validate CRC/ISIZE,
+permits at most 1 MiB of trailing zero tar padding, and rejects nonzero padding, extra compressed
+members and trailing compressed-stream bytes. Regression tests cover corrupt/truncated trailers,
+hidden trailing payloads, concatenated members and excessive zero padding without extraction.
 
 `install-inspect ARCHIVE --package` additionally requires one wrapper directory, exactly one
 `workdeck` or `workdeck.exe` regular file, and regular `LICENSE`, `THIRD_PARTY_NOTICES`,

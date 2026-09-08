@@ -128,7 +128,10 @@ fn inspect_archive_entries(path: &Path) -> Result<(BTreeMap<String, bool>, u64)>
             verify_entry_bytes(&mut entry, expected)?;
         }
     } else {
-        let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(file));
+        use std::io::{BufRead, Read};
+        let mut archive = tar::Archive::new(flate2::bufread::GzDecoder::new(
+            std::io::BufReader::new(file),
+        ));
         for entry in archive.entries()? {
             let mut entry = entry?;
             if !entry.header().entry_type().is_file() && !entry.header().entry_type().is_dir() {
@@ -142,6 +145,24 @@ fn inspect_archive_entries(path: &Path) -> Result<(BTreeMap<String, bool>, u64)>
             )?;
             let expected = entry.size();
             verify_entry_bytes(&mut entry, expected)?;
+        }
+        // Tar iteration stops at its end marker, before gzip necessarily checks CRC/ISIZE.
+        // Finish the decoder, permitting only bounded zero tar padding after that marker.
+        let mut decoder = archive.into_inner();
+        let mut padding = 0usize;
+        let mut buffer = [0; 8192];
+        loop {
+            let count = decoder.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            padding += count;
+            if padding > 1024 * 1024 || buffer[..count].iter().any(|byte| *byte != 0) {
+                bail!("Invalid or excessive trailing tar padding");
+            }
+        }
+        if !decoder.into_inner().fill_buf()?.is_empty() {
+            bail!("Trailing data or concatenated gzip members are not permitted");
         }
     }
     Ok((original_names, total))
@@ -621,6 +642,53 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tar_inspection_checks_gzip_trailer_and_rejects_hidden_payloads() {
+        use std::io::Write;
+        let mut tar = tar::Builder::new(Vec::new());
+        let mut header = tar::Header::new_gnu();
+        header.set_size(3);
+        header.set_mode(0o755);
+        header.set_cksum();
+        tar.append_data(&mut header, "root/workdeck", &b"bin"[..])
+            .unwrap();
+        let raw = tar.into_inner().unwrap();
+        let compress = |bytes: &[u8]| {
+            let mut gzip =
+                flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+            gzip.write_all(bytes).unwrap();
+            gzip.finish().unwrap()
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("fixture.tar.gz");
+        let valid = compress(&raw);
+        std::fs::write(&path, &valid).unwrap();
+        assert_eq!(inspect_archive(&path).unwrap(), (1, 3));
+        let mut bad_crc = valid.clone();
+        let trailer = bad_crc.len() - 8;
+        bad_crc[trailer] ^= 1;
+        let mut trailing = valid.clone();
+        trailing.extend_from_slice(b"hidden");
+        let mut concatenated = valid.clone();
+        concatenated.extend_from_slice(&compress(b"hidden"));
+        let mut hidden = raw.clone();
+        hidden.extend_from_slice(b"hidden");
+        let mut excessive = raw.clone();
+        excessive.resize(raw.len() + 1024 * 1024 + 1, 0);
+        for bytes in [
+            bad_crc,
+            valid[..valid.len() - 4].to_vec(),
+            trailing,
+            concatenated,
+            compress(&hidden),
+            compress(&excessive),
+        ] {
+            std::fs::write(&path, bytes).unwrap();
+            assert!(inspect_archive(&path).is_err());
+        }
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
 
     #[test]
     fn package_path_gate_requires_wrapper_executable_licenses_sbom_and_provenance() {
