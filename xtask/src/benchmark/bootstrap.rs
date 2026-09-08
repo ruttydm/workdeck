@@ -8,7 +8,7 @@ use workdeck_core::{
 };
 use workdeck_vcs::{
     VcsCatalog, VcsReviewInput, bundled_vcs_catalog, get_vcs_adapter, load_file_comparison,
-    load_selected_vcs_changeset,
+    load_selected_vcs_changeset_deferred,
 };
 
 const FILE_COUNT: usize = 64;
@@ -64,8 +64,12 @@ pub(super) fn load_vcs(cwd: &Path) -> Result<AppBootstrap<(), VcsCatalog>> {
     };
     let catalog = bundled_vcs_catalog();
     let adapter = get_vcs_adapter("git", catalog)?;
-    let loaded =
-        load_selected_vcs_changeset(cwd, adapter, catalog, &VcsReviewInput::Diff(input.clone()))?;
+    let loaded = load_selected_vcs_changeset_deferred(
+        cwd,
+        adapter,
+        catalog,
+        &VcsReviewInput::Diff(input.clone()),
+    )?;
     Ok(AppBootstrap::new(
         CliInput::Vcs(input),
         ReloadContext {

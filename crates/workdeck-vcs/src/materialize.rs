@@ -15,12 +15,38 @@ pub struct LoadedVcsChangeset {
     pub source_capabilities: crate::VcsSourceCapabilities,
 }
 
-/// Production load-and-materialize boundary shared by the CLI and native benchmarks.
+#[derive(Clone, Copy)]
+enum SourceReadMode {
+    Eager,
+    Deferred,
+}
+
+/// Eager compatibility boundary for consumers requiring complete source snapshots.
 pub fn load_selected_vcs_changeset(
     cwd: &Path,
     adapter: &VcsAdapter,
     catalog: &VcsCatalog,
     input: &VcsReviewInput,
+) -> Result<LoadedVcsChangeset, VcsCatalogError> {
+    load_selected_with_source_mode(cwd, adapter, catalog, input, SourceReadMode::Eager)
+}
+
+/// Interactive review loads the patch now and reads full source only on demand.
+pub fn load_selected_vcs_changeset_deferred(
+    cwd: &Path,
+    adapter: &VcsAdapter,
+    catalog: &VcsCatalog,
+    input: &VcsReviewInput,
+) -> Result<LoadedVcsChangeset, VcsCatalogError> {
+    load_selected_with_source_mode(cwd, adapter, catalog, input, SourceReadMode::Deferred)
+}
+
+fn load_selected_with_source_mode(
+    cwd: &Path,
+    adapter: &VcsAdapter,
+    catalog: &VcsCatalog,
+    input: &VcsReviewInput,
+    source_mode: SourceReadMode,
 ) -> Result<LoadedVcsChangeset, VcsCatalogError> {
     let operation = operation_from_input(input.clone());
     let result = load_vcs_review(
@@ -71,10 +97,11 @@ pub fn load_selected_vcs_changeset(
         }
     };
     let repo_root = result.repo_root.clone();
-    let (changeset, source_capabilities) = materialize_vcs_patch_result_with_sources(
+    let (changeset, source_capabilities) = materialize_with_source_mode(
         result,
         format!("{}:{suffix}", adapter.id),
         source,
+        source_mode,
     )?;
     Ok(LoadedVcsChangeset {
         changeset,
@@ -93,11 +120,28 @@ pub fn materialize_vcs_patch_result(
 }
 
 /// Retain executable source capabilities for the review runtime as well as the
-/// currently materialized snapshots. This does not yet switch initial loading to lazy.
+/// currently materialized snapshots. Existing headless callers retain eager reads.
 pub fn materialize_vcs_patch_result_with_sources(
     result: VcsPatchResult,
     changeset_id: impl Into<String>,
     source: ChangesetSource,
+) -> Result<(Changeset, crate::VcsSourceCapabilities), VcsCatalogError> {
+    materialize_with_source_mode(result, changeset_id, source, SourceReadMode::Eager)
+}
+
+pub fn materialize_vcs_patch_result_deferred(
+    result: VcsPatchResult,
+    changeset_id: impl Into<String>,
+    source: ChangesetSource,
+) -> Result<(Changeset, crate::VcsSourceCapabilities), VcsCatalogError> {
+    materialize_with_source_mode(result, changeset_id, source, SourceReadMode::Deferred)
+}
+
+fn materialize_with_source_mode(
+    result: VcsPatchResult,
+    changeset_id: impl Into<String>,
+    source: ChangesetSource,
+    source_mode: SourceReadMode,
 ) -> Result<(Changeset, crate::VcsSourceCapabilities), VcsCatalogError> {
     let changeset_id = changeset_id.into();
     let source_label = result.source_label.clone();
@@ -124,12 +168,14 @@ pub fn materialize_vcs_patch_result_with_sources(
                 std::sync::Arc::clone(reader),
                 file,
             ));
-            let old = capability.read(ReviewSide::Old)?;
-            let new = capability.read(ReviewSide::New)?;
-            file.set_sources(FileSourceSnapshots {
-                old: source_snapshot(old),
-                new: source_snapshot(new),
-            });
+            if matches!(source_mode, SourceReadMode::Eager) {
+                let old = capability.read(ReviewSide::Old)?;
+                let new = capability.read(ReviewSide::New)?;
+                file.set_sources(FileSourceSnapshots {
+                    old: source_snapshot(old),
+                    new: source_snapshot(new),
+                });
+            }
             pending_capabilities[index] = Some(capability);
         }
     }
@@ -174,6 +220,64 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use tempfile::TempDir;
     use workdeck_core::{DiffFile, FileChangeKind, SourceOrigin, SourceSnapshot, review_file_key};
+
+    #[test]
+    fn deferred_materialization_reads_no_source_until_a_bound_side_is_requested() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let reads = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&reads);
+        let (changeset, capabilities) = materialize_vcs_patch_result_deferred(
+            VcsPatchResult {
+                repo_root: PathBuf::from("."),
+                source_label: "deferred".into(),
+                title: "deferred".into(),
+                patch_text: "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -3 +3 @@\n-old\n+new\n".into(),
+                untracked_paths: vec![],
+                extra_files: vec![],
+                source_cache_key: Some("snapshot".into()),
+                source_reader: Some(Arc::new(move |request| {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    Ok(VcsFileSourceResult::Source(SourceSnapshot::new(
+                        match request.side {
+                            ReviewSide::Old => "old-source",
+                            ReviewSide::New => "new-source",
+                        }.into(),
+                        SourceOrigin::WorkingTree,
+                        true,
+                    )))
+                })),
+            },
+            "deferred",
+            ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap();
+        assert_eq!(reads.load(Ordering::SeqCst), 0);
+        let file = &changeset.files[0];
+        assert_eq!(file.sources, FileSourceSnapshots::default());
+        assert!(file.source_identity.is_some());
+        assert!(file.source_attested);
+        let capability = capabilities.get(file).unwrap();
+        for (side, expected, count) in [
+            (ReviewSide::New, "new-source", 1),
+            (ReviewSide::New, "new-source", 1),
+            (ReviewSide::Old, "old-source", 2),
+        ] {
+            let VcsFileSourceResult::Source(source) = capability.read(side).unwrap() else {
+                panic!("expected source")
+            };
+            assert_eq!(source.content, expected);
+            assert_eq!(reads.load(Ordering::SeqCst), count);
+        }
+        assert_eq!(file.sources, FileSourceSnapshots::default());
+        let projected = capabilities.with_source_snapshots(file).unwrap();
+        let new = projected.sources.new.as_ref().unwrap();
+        assert_eq!(new.content, "new-source");
+        assert_eq!(new.origin, SourceOrigin::WorkingTree);
+        assert!(new.attested);
+        assert_eq!(projected.source_identity, file.source_identity);
+        assert_eq!(reads.load(Ordering::SeqCst), 2);
+        assert_eq!(file.sources, FileSourceSnapshots::default());
+    }
 
     #[test]
     fn parses_patch_hydrates_exact_sides_and_synthesizes_untracked_files() {

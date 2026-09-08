@@ -6181,7 +6181,8 @@ fn load_selected_vcs_changeset(
     catalog: &VcsCatalog,
     input: &VcsReviewInput,
 ) -> Result<workdeck_vcs::LoadedVcsChangeset> {
-    workdeck_vcs::load_selected_vcs_changeset(cwd, adapter, catalog, input).map_err(Into::into)
+    workdeck_vcs::load_selected_vcs_changeset_deferred(cwd, adapter, catalog, input)
+        .map_err(Into::into)
 }
 
 /// Load any already-validated session input at its requested working

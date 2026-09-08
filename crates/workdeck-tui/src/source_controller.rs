@@ -80,6 +80,7 @@ impl ReviewApp {
         &mut self,
         capabilities: &workdeck_vcs::VcsSourceCapabilities,
     ) {
+        self.options.source_capabilities = Some(capabilities.clone());
         let files = self.with_state(|state| state.changeset_snapshot());
         let mut installed = BTreeSet::new();
         for file in &files.files {
@@ -264,6 +265,9 @@ impl ReviewApp {
             .collect();
         self.source_requests.retire(&retired);
         self.source_loaders.retain(|key, _| !retired.contains(key));
+        if let Some(capabilities) = &mut self.options.source_capabilities {
+            capabilities.retire(&retired);
+        }
         self.options.source_presentation.reconcile(&changeset.files);
     }
 }

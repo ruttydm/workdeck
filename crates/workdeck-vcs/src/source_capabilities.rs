@@ -80,6 +80,30 @@ impl std::fmt::Debug for VcsSourceCapabilities {
 }
 
 impl VcsSourceCapabilities {
+    /// Retire handles without affecting already captured publication generations.
+    pub fn retire(&mut self, keys: &std::collections::BTreeSet<String>) {
+        self.files.retain(|key, _| !keys.contains(key));
+    }
+
+    /// Materialize a consumer-owned copy through captured provider authority.
+    /// The immutable review document and serialized descriptors remain unchanged.
+    pub fn with_source_snapshots(&self, file: &DiffFile) -> Result<DiffFile, VcsCatalogError> {
+        let mut result = file.clone();
+        if let Some(capability) = self.get(file) {
+            let snapshot = |side| {
+                capability.read(side).map(|value| match value {
+                    VcsFileSourceResult::Source(snapshot) => Some(snapshot),
+                    VcsFileSourceResult::Missing | VcsFileSourceResult::TooLarge { .. } => None,
+                })
+            };
+            result.set_sources(workdeck_core::FileSourceSnapshots {
+                old: snapshot(ReviewSide::Old)?,
+                new: snapshot(ReviewSide::New)?,
+            });
+        }
+        Ok(result)
+    }
+
     pub(crate) fn insert(&mut self, file: &DiffFile, capability: Arc<VcsFileSourceCapability>) {
         self.files.insert(
             file.key.clone(),

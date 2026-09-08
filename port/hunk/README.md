@@ -1,5 +1,40 @@
 # Hunk semantic-port ledger
 
+## Deferred interactive VCS inputs
+
+Interactive diff, show, stash, and dynamic VCS reloads now materialize patch
+metadata and retained provider capabilities without reading full tracked-file
+sources. Expansion and session resource requests read those capabilities on demand.
+The eager compatibility API remains available to snapshot consumers. Untracked
+diff synthesis still reads its input; direct-file and patch inputs retain their
+existing behavior. Native bootstrap/working-tree benchmarks use the deferred path;
+previous timing results are not evidence for its performance.
+
+A counting-provider test verifies zero initial source reads and independent,
+cached reads of each side. A real-Git PTY test in both layouts edits an unchanged
+line after the initial frame with watch disabled, expands it, and observes the
+new text. It also opens a note and verifies that viewing creates no repository
+state. The session reload test now uses actual deferred materialization rather
+than clearing eager snapshots.
+
+The first full terminal run exposed four file-view regressions: those consumers
+had relied on eager snapshots. Matched file-view workers and invoked extension
+workspace contexts now obtain consumer-owned source copies through retained
+provider handles. Workspace writes use the same cached provider snapshots for
+origin/attestation and optimistic disk-content checks. The review document is not
+mutated; retirement removes handles from future consumers while already captured
+generations retain their own registry. Full-source line-highlighter input and
+source preservation through metadata-changing transforms still require follow-up.
+
+Checkpoint verification: all 91 terminal tests and 1,045 TUI unit tests pass,
+along with the focused source-copy test, workspace Clippy, formatting, and
+architecture checks. The earlier full-workspace run stopped at the file-view
+regressions; it is not recorded as passing. Strict audit still rejects the 312
+unmapped records, and the cached upstream queue still contains 11 commits.
+
+This does not complete the source hook or change
+ledger coverage; full annotation/session and remaining input parity is unfinished.
+
 ## Runtime-loaded cursor selection
 
 A live regression reproduced a panic when selecting an asynchronously rendered
@@ -15,7 +50,7 @@ Attested runtime text can preserve its selected line across a matching reload;
 changed identities retire the text and selection. Channel-controlled live tests
 exercise these transitions, including the original failing cursor path.
 
-Remaining deferred-input and annotation/session validation work is still required.
+Remaining input and annotation/session validation work is still required.
 This does not complete the entire Hunk hook or add ledger coverage.
 
 ## Generation-owned session source readers
@@ -34,8 +69,8 @@ cannot open files or invoke a provider.
 
 Tests cover cancelled/committed reader replacement, old-generation isolation, and
 initial/reloaded source resources through the live session adapter, including failed
-registration. Initial VCS reads remain eager pending the remaining deferred-input,
-cursor, and loaded-line validation work. Ledger coverage is unchanged.
+registration. Interactive VCS reads are now deferred as described above;
+remaining input and loaded-line validation work is unfinished. Ledger coverage is unchanged.
 
 ## Live source loading presentation
 
@@ -57,10 +92,9 @@ Replacing unattested handles refetches open gaps even when diff/source identity
 is unchanged; a test exercises the real constructor and dynamic reload gate.
 Absent replacement authority removes obsolete presentation and executable bindings.
 
-Initial VCS materialization remains eager, and direct-file/patch inputs still use
-their existing snapshot behavior. Cursor reveal/restoration after asynchronous
-completion, loaded-line selection/session semantics, and remaining reload/input
-paths still require parity work. This integration does not complete the Hunk hook
+Direct-file/patch inputs still use their existing snapshot behavior. Asynchronous
+cursor reveal/restoration is integrated, but complete loaded-line session semantics
+and remaining reload/input paths still require parity work. This integration does not complete the Hunk hook
 or increase ledger coverage.
 
 ## Asynchronous source request owner
@@ -73,7 +107,7 @@ ignored and late failures retain diagnostics. Typed size failures preserve their
 distinct state. Workers cannot mutate the review store directly.
 
 Deterministic channel-controlled tests cover these transitions. The live canvas
-now uses this request owner as described above; cursor reveal and the remaining
+now uses this request owner and pending cursor reveal as described above; remaining
 input/reload paths still require integration. No source interval gains coverage
 from this component alone.
 
@@ -85,10 +119,10 @@ captures its provider request, keeps old/new resolved results independently, and
 retains snapshot origin/attestation and typed size failures. Ordinary failures
 remain retryable. Duplicate file paths do not share a per-file cache.
 
-Materialization uses these same handles for its initial reads; subsequent access
-reuses those resolved results. Unknown or retired identities do not resolve a
-handle, and supplied metadata cannot change the captured provider request.
-Initial loading is still eager. The initial/dynamic VCS handoff now reaches the
+Eager materialization uses these same handles for its initial reads; subsequent
+access reuses those resolved results. Interactive materialization defers those reads.
+Unknown or retired identities do not resolve a handle, and supplied metadata cannot
+change the captured provider request. The initial/dynamic VCS handoff now reaches the
 asynchronous controller, but full input and cursor/session parity remains
 unfinished; this change does not increase ledger coverage.
 

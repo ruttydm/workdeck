@@ -566,6 +566,69 @@ fn piped_stdin_still_allows_concrete_theme_app_terminal_input() {
 }
 
 #[test]
+fn real_git_review_defers_source_until_expansion_in_both_layouts() {
+    for layout in ["stack", "split"] {
+        let repo = tempfile::tempdir().unwrap();
+        let git = |args: &[&str]| {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(repo.path())
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&["-c", "init.defaultBranch=main", "init", "-q"]);
+        let path = repo.path().join("source.txt");
+        let before = "hidden-source-one\nline-two\nline-three\nline-four\nline-five\nline-six\nline-seven\nold-value\nline-nine\nline-ten\nline-eleven\nline-twelve\n";
+        fs::write(&path, before).unwrap();
+        git(&["add", "source.txt"]);
+        git(&[
+            "-c",
+            "user.name=Workdeck Parity",
+            "-c",
+            "user.email=parity@example.invalid",
+            "commit",
+            "-qm",
+            "fixture",
+        ]);
+        let changed = before.replace("old-value", "new-value");
+        fs::write(&path, &changed).unwrap();
+        let mut session = Session::launch_in(
+            "",
+            &["diff", "--mode", layout, "--no-watch", "--no-sidebar"],
+            false,
+            120,
+            24,
+            None,
+            Some(repo.path()),
+        );
+        let initial =
+            session.wait(|text| text.contains("unchanged lines") && text.contains("new-value"));
+        assert!(!initial.contains("hidden-source-one"));
+        assert!(!repo.path().join(".agents/workdeck").exists());
+        // Watch is disabled: this edit must reach expansion through its first
+        // source read, not by reloading the original diff or an eager snapshot.
+        fs::write(
+            &path,
+            changed.replace("hidden-source-one", "late-source-one"),
+        )
+        .unwrap();
+        session.click_label("unchanged lines");
+        session.wait(|text| text.contains("late-source-one") && text.contains("Hide"));
+        session.write(b"c");
+        session.wait(|text| text.contains("Draft note"));
+        session.write(b"\x1b");
+        session.wait(|text| !text.contains("Draft note"));
+        session.quit();
+        assert!(!repo.path().join(".agents/workdeck").exists());
+    }
+}
+
+#[test]
 fn real_terminal_gap_click_expands_and_collapses_source_in_both_layouts() {
     for layout in ["stack", "split"] {
         let (_fixture, mut session) = harness::launch_file_pair(

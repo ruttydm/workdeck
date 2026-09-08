@@ -1034,19 +1034,31 @@ mod tests {
         workdeck_vcs::VcsSourceCapabilities,
     ) {
         let text = text.to_owned();
-        let (mut changeset, capabilities) = workdeck_vcs::materialize_vcs_patch_result_with_sources(
+        let (changeset, capabilities) = workdeck_vcs::materialize_vcs_patch_result_deferred(
             workdeck_vcs::VcsPatchResult {
-                repo_root: std::path::PathBuf::from("."), source_label: "reload-source".into(), title: "reload-source".into(),
-                patch_text: "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -3 +3 @@\n-old\n+new\n".into(),
-                untracked_paths: vec![], extra_files: vec![], source_cache_key: None,
-                source_reader: Some(Arc::new(move |_| Ok(workdeck_vcs::VcsFileSourceResult::Source(workdeck_core::SourceSnapshot::new(
-                    text.clone(), workdeck_core::SourceOrigin::WorkingTree, false,
-                ))))),
-            }, "reload-source", workdeck_core::ChangesetSource::WorkingTree { staged: false },
-        ).unwrap();
-        // Exercise deferred presentation with real retained provider handles.
-        // Production initial VCS materialization is still eager.
-        changeset.files[0].set_sources(Default::default());
+                repo_root: std::path::PathBuf::from("."),
+                source_label: "reload-source".into(),
+                title: "reload-source".into(),
+                patch_text:
+                    "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -3 +3 @@\n-old\n+new\n"
+                        .into(),
+                untracked_paths: vec![],
+                extra_files: vec![],
+                source_cache_key: None,
+                source_reader: Some(Arc::new(move |_| {
+                    Ok(workdeck_vcs::VcsFileSourceResult::Source(
+                        workdeck_core::SourceSnapshot::new(
+                            text.clone(),
+                            workdeck_core::SourceOrigin::WorkingTree,
+                            false,
+                        ),
+                    ))
+                })),
+            },
+            "reload-source",
+            workdeck_core::ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap();
         (changeset, capabilities)
     }
 

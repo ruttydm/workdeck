@@ -462,6 +462,7 @@ struct FileViewLayoutDispatch {
     file: DiffFile,
     extension: LoadedExtension,
     view_id: String,
+    source_capabilities: Option<workdeck_vcs::VcsSourceCapabilities>,
 }
 
 fn spawn_file_view_layout_dispatch(
@@ -474,6 +475,7 @@ fn spawn_file_view_layout_dispatch(
             file,
             mut extension,
             view_id,
+            source_capabilities,
         } = dispatch;
         let snapshot = create_file_view_input_snapshot(&file);
         let outcome = if task.cancellation.is_cancelled() {
@@ -489,7 +491,23 @@ fn spawn_file_view_layout_dispatch(
                         task.identity.extension_id, task.identity.view_id, task.identity.file_path
                     ),
                 },
-                Ok(true) => {
+                Ok(true) => 'layout: {
+                    let loaded = source_capabilities
+                        .as_ref()
+                        .map(|capabilities| capabilities.with_source_snapshots(&file))
+                        .transpose();
+                    let file = match loaded {
+                        Ok(Some(file)) => file,
+                        Ok(None) => file,
+                        Err(error) => {
+                            break 'layout FileViewLayoutOutcome::Failed {
+                                category: "unavailable-source".into(),
+                                warning: format!(
+                                    "File view source unavailable: {error} • using raw diff"
+                                ),
+                            };
+                        }
+                    };
                     let input = create_file_view_input(
                         &file,
                         task.identity.width,
@@ -1922,6 +1940,7 @@ impl ReviewApp {
             self.source_requests
                 .retire(&self.source_loaders.keys().cloned().collect());
             self.source_loaders.clear();
+            self.options.source_capabilities = None;
             self.options.source_presentation = ReviewSourcePresentation::default();
         } else {
             self.reconcile_source_loaders(&changeset);
@@ -4045,20 +4064,38 @@ impl ReviewApp {
         let committed = self.extension_runtime_bridge.committed_review();
         let selection = self.extension_runtime_bridge.get_selection();
         let review_controls = self.extension_runtime_bridge.create_review_controls();
-        let workspace = self.with_state(|state| {
-            self.options
-                .review_input
-                .as_ref()
-                .zip(self.options.repo.as_deref())
-                .map(|(input, root)| {
-                    build_extension_workspace_snapshot(
-                        &state.changeset().files,
-                        input,
-                        root,
-                        command_epoch,
-                    )
-                })
-        });
+        let files = self.with_state(|state| state.changeset_snapshot());
+        let workspace = self
+            .options
+            .review_input
+            .as_ref()
+            .zip(self.options.repo.as_deref())
+            .map(|(input, root)| {
+                let files = files
+                    .files
+                    .iter()
+                    .map(|file| {
+                        self.options.source_capabilities.as_ref().map_or_else(
+                            || Ok(file.clone()),
+                            |capabilities| capabilities.with_source_snapshots(file),
+                        )
+                    })
+                    .collect::<std::result::Result<Vec<_>, _>>()?;
+                Ok::<_, workdeck_vcs::VcsCatalogError>(build_extension_workspace_snapshot(
+                    &files,
+                    input,
+                    root,
+                    command_epoch,
+                ))
+            })
+            .transpose();
+        let workspace = match workspace {
+            Ok(workspace) => workspace,
+            Err(error) => {
+                self.status = Some(format!("Extension workspace source unavailable: {error}"));
+                return;
+            }
+        };
         let snapshot = committed.snapshot;
         let review = review_controls.snapshot().unwrap_or(committed.review);
         let cwd = self.extension_command_cwd();
@@ -5736,6 +5773,15 @@ impl ReviewApp {
                 "The review reloaded before this extension operation could finish.".into(),
             ));
         };
+        let file = self
+            .options
+            .source_capabilities
+            .as_ref()
+            .map_or_else(
+                || Ok(file.clone()),
+                |capabilities| capabilities.with_source_snapshots(&file),
+            )
+            .map_err(|error| WorkspaceWriteFailure::Unavailable(error.to_string()))?;
         if !matches!(source, ChangesetSource::WorkingTree { staged: false })
             || !file.sources.new.as_ref().is_some_and(|snapshot| {
                 matches!(snapshot.origin, SourceOrigin::WorkingTree) && snapshot.attested
@@ -7062,6 +7108,7 @@ impl ReviewApp {
                 file: file.clone(),
                 extension,
                 view_id: registration.view.view_id.clone(),
+                source_capabilities: self.options.source_capabilities.clone(),
             });
         }
         drop(runtime);
