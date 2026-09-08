@@ -206,3 +206,12 @@ fell from 320.58 to 263.72 ms (17.7%). First frame is 158.25 ms and scrolling 22
 remain close to the preceding run and do not show a material improvement. Post-navigation RSS
 median is 225443840 bytes, still a snapshot rather than peak usage. All latency gates remain
 failed against both pinned Hunk reports; source ledger mapping remains incomplete.
+
+### Cursor-geometry follow-up at `7bc6ed7e`
+
+[Three further optimized runs](interaction-diagnostic-7bc6ed7e.json) report first-frame median
+158.15 ms, navigation median 264.18 ms and scroll median 228.57 ms. These are effectively unchanged
+from the prior geometry-only reveal result; no material latency gain is demonstrated for this
+workload. The newly adjusted keyboard/cursor paths need separately targeted performance coverage.
+All original interaction latency gates remain failed. Further optimization requires profiling the
+remaining production rendering work, not changing workload counts or claiming success from tests.
