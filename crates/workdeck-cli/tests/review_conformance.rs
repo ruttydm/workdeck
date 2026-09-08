@@ -90,11 +90,43 @@ fn fixture(id: &str) -> (DiffFile, Option<&'static str>, String) {
 }
 
 fn core_projection(file: &DiffFile, expansion: Option<&str>, source_text: &str) -> Value {
+    core_files_projection(
+        std::slice::from_ref(file),
+        expansion.map(|gap| (0, gap)),
+        source_text,
+    )
+}
+
+fn core_files_projection(
+    files: &[DiffFile],
+    expansion: Option<(usize, &str)>,
+    source_text: &str,
+) -> Value {
+    let files = files
+        .iter()
+        .enumerate()
+        .map(|(index, file)| {
+            core_canonical_projection(
+                &project_review_file(file, "/repo", index),
+                expansion
+                    .filter(|(file_index, _)| *file_index == index)
+                    .map(|(_, gap)| gap),
+                source_text,
+            )
+        })
+        .collect::<Vec<_>>();
+    json!({"files": files})
+}
+
+fn core_canonical_projection(
+    file: &workdeck_core::SemanticReviewFile,
+    expansion: Option<&str>,
+    source_text: &str,
+) -> Value {
     // The upstream core consumer observes the canonical document, not parser output.
     // In particular, zero-count hunk positions must survive canonical projection.
-    let file = project_review_file(file, "/repo", 0);
-    let source = semantic_review_gap_source(&file);
-    let manifest = build_review_content_manifest_file(&file);
+    let source = semantic_review_gap_source(file);
+    let manifest = build_review_content_manifest_file(file);
     let gaps = (0..file.hunks.len())
         .filter_map(|index| review_leading_gap(&source, index))
         .chain(review_trailing_gap(&source))
@@ -130,7 +162,9 @@ fn core_projection(file: &DiffFile, expansion: Option<&str>, source_text: &str) 
         ));
     }
     if let Some(id) = expansion {
-        let gap = review_gap_address(&source, id).expect("fixture gap exists");
+        let Some(gap) = review_gap_address(&source, id) else {
+            return value;
+        };
         let lines = workdeck_review::normalized_review_source_lines(source_text);
         let range = if manifest.expansion_side == workdeck_core::ReviewSide::Old {
             gap.old_range
@@ -148,7 +182,64 @@ fn core_projection(file: &DiffFile, expansion: Option<&str>, source_text: &str) 
                 .collect::<Vec<_>>()
         );
     }
-    json!({"files": [value]})
+    value
+}
+
+#[test]
+fn core_and_producer_project_complete_streams_and_scope_expansion_to_its_file() {
+    let first = fixture("binary-rename-with-no-rows").0;
+    let (second, gap, source) = fixture("pure-insertion-hunk");
+    let files = [first.clone(), second.clone()];
+    for project in [core_files_projection, producer_files_projection] {
+        assert_eq!(project(&[], None, ""), json!({"files": []}));
+        let actual = project(&files, Some((1, gap.unwrap())), &source);
+        assert_eq!(actual["files"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            actual["files"][0],
+            core_projection(&first, None, "")["files"][0]
+        );
+        assert_eq!(
+            actual["files"][1],
+            core_projection(&second, gap, &source)["files"][0]
+        );
+        assert_eq!(
+            project(&files, Some((999, gap.unwrap())), &source),
+            project(&files, None, &source)
+        );
+        assert_eq!(
+            project(&files, Some((1, "before:999")), &source),
+            project(&files, None, &source)
+        );
+    }
+}
+
+#[test]
+fn core_and_producer_expansion_helpers_preserve_absent_gaps_and_short_sources() {
+    let (file, expansion, source) = fixture("pure-insertion-hunk");
+    for (name, project) in [GEOMETRY_CONSUMERS[0], GEOMETRY_CONSUMERS[2]] {
+        for missing in ["before:999", "not-a-gap"] {
+            let actual = project(&file, Some(missing), &source);
+            assert!(
+                actual["files"][0].get("expandedRows").is_none(),
+                "{name}: {missing}"
+            );
+            assert_eq!(actual, project(&file, None, &source));
+        }
+        let actual = project(&file, expansion, "only one line\r\n");
+        let rows = actual["files"][0]["expandedRows"].as_array().unwrap();
+        assert_eq!(rows.len(), 6, "{name}");
+        assert_eq!(
+            rows[0],
+            json!({"oldLine": 1, "newLine": 1, "text": "only one line"})
+        );
+        for (offset, row) in rows.iter().enumerate().skip(1) {
+            assert_eq!(
+                row,
+                &json!({"oldLine": offset + 1, "newLine": offset + 1, "text": ""}),
+                "{name}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -167,6 +258,18 @@ fn producer_geometry_matches_both_pinned_conformance_oracles() {
 }
 
 fn producer_projection(file: &DiffFile, expansion: Option<&str>, source_text: &str) -> Value {
+    producer_files_projection(
+        std::slice::from_ref(file),
+        expansion.map(|gap| (0, gap)),
+        source_text,
+    )
+}
+
+fn producer_files_projection(
+    files: &[DiffFile],
+    expansion: Option<(usize, &str)>,
+    source_text: &str,
+) -> Value {
     use workdeck_core::ReviewSide;
     use workdeck_review::{
         PublishReviewInput, ReviewIntentFacts, ReviewIntentOutcome, ReviewProducer,
@@ -175,7 +278,7 @@ fn producer_projection(file: &DiffFile, expansion: Option<&str>, source_text: &s
     };
     let producer = ReviewProducer::new(
         PublishReviewInput {
-            files: vec![file.clone()],
+            files: files.to_vec(),
             source_label: Some("conformance".into()),
         },
         ReviewProducerOptions {
@@ -186,72 +289,86 @@ fn producer_projection(file: &DiffFile, expansion: Option<&str>, source_text: &s
     .unwrap();
     let publication = producer.get_publication();
     producer.attach_store(SemanticReviewStore::new(publication.document.clone(), true));
-    let manifest = &publication.manifest.files[0];
-    assert_canonical_file_matches_manifest(&publication.document.files[0], manifest).unwrap();
-    let gaps = manifest
-        .hunks
+    let files = publication
+        .manifest
+        .files
         .iter()
-        .filter_map(|hunk| hunk.leading_gap.as_ref())
-        .chain(manifest.trailing_gap.as_ref())
-        .collect::<Vec<_>>();
-    let ranges = manifest
-        .hunks
-        .iter()
-        .map(|hunk| {
-            json!({
-                "oldRange": hunk.old_range, "newRange": hunk.new_range,
-            })
+        .enumerate()
+        .map(|(index, manifest)| {
+            assert_canonical_file_matches_manifest(&publication.document.files[index], manifest)
+                .unwrap();
+            let gaps = manifest
+                .hunks
+                .iter()
+                .filter_map(|hunk| hunk.leading_gap.as_ref())
+                .chain(manifest.trailing_gap.as_ref())
+                .collect::<Vec<_>>();
+            let ranges = manifest
+                .hunks
+                .iter()
+                .map(|hunk| {
+                    json!({
+                        "oldRange": hunk.old_range, "newRange": hunk.new_range,
+                    })
+                })
+                .collect::<Vec<_>>();
+            let targets = manifest
+                .hunks
+                .iter()
+                .map(|hunk| hunk.default_note_target)
+                .collect::<Vec<_>>();
+            let mut value = json!({"path": manifest.path, "gaps": gaps,
+        "hunkRanges": ranges, "defaultNoteTargets": targets});
+            if let Some(reason) = manifest.empty_diff_reason {
+                value["emptyDiffReason"] = json!(reason);
+            }
+            if let Some((_, gap_id)) = expansion.filter(|(file_index, _)| *file_index == index) {
+                let outcome = match producer.apply_intent(
+                    SemanticReviewIntent::ToggleExpansion {
+                        file_key: manifest.key.clone(),
+                        gap_id: gap_id.into(),
+                    },
+                    ReviewIntentFacts::default(),
+                ) {
+                    Ok(outcome) => outcome,
+                    Err(workdeck_review::ReviewProducerIntentError::Planning(_)) => {
+                        return value;
+                    }
+                    Err(error) => panic!("producer lifecycle failure: {error}"),
+                };
+                let Some(ReviewIntentOutcome::ExpansionToggled {
+                    old_range,
+                    new_range,
+                    line_count,
+                    side,
+                    expanded,
+                    ..
+                }) = outcome
+                else {
+                    panic!("expected a producer expansion outcome")
+                };
+                assert!(expanded);
+                let lines = workdeck_review::normalized_review_source_lines(source_text);
+                let range = if side == ReviewSide::Old {
+                    old_range
+                } else {
+                    new_range
+                };
+                value["expandedRows"] = json!(
+                    (0..line_count)
+                        .map(|offset| json!({
+                            "oldLine": old_range[0] as usize + offset,
+                            "newLine": new_range[0] as usize + offset,
+                            "text": lines.get(range[0] as usize + offset - 1)
+                                .map(String::as_str).unwrap_or(""),
+                        }))
+                        .collect::<Vec<_>>()
+                );
+            }
+            value
         })
         .collect::<Vec<_>>();
-    let targets = manifest
-        .hunks
-        .iter()
-        .map(|hunk| hunk.default_note_target)
-        .collect::<Vec<_>>();
-    let mut value = json!({"path": manifest.path, "gaps": gaps,
-        "hunkRanges": ranges, "defaultNoteTargets": targets});
-    if let Some(reason) = manifest.empty_diff_reason {
-        value["emptyDiffReason"] = json!(reason);
-    }
-    if let Some(gap_id) = expansion {
-        let outcome = producer
-            .apply_intent(
-                SemanticReviewIntent::ToggleExpansion {
-                    file_key: manifest.key.clone(),
-                    gap_id: gap_id.into(),
-                },
-                ReviewIntentFacts::default(),
-            )
-            .unwrap();
-        let Some(ReviewIntentOutcome::ExpansionToggled {
-            old_range,
-            new_range,
-            line_count,
-            side,
-            expanded,
-            ..
-        }) = outcome
-        else {
-            panic!("expected a producer expansion outcome")
-        };
-        assert!(expanded);
-        let lines = workdeck_review::normalized_review_source_lines(source_text);
-        let range = if side == ReviewSide::Old {
-            old_range
-        } else {
-            new_range
-        };
-        value["expandedRows"] = json!(
-            (0..line_count)
-                .map(|offset| json!({
-                    "oldLine": old_range[0] as usize + offset,
-                    "newLine": new_range[0] as usize + offset,
-                    "text": lines[range[0] as usize + offset - 1],
-                }))
-                .collect::<Vec<_>>()
-        );
-    }
-    json!({"files": [value]})
+    json!({"files": files})
 }
 
 fn terminal_projection(file: &DiffFile, expansion: Option<&str>, source_text: &str) -> Value {
