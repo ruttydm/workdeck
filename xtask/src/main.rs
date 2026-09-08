@@ -17,6 +17,7 @@ mod benchmark;
 mod changelog;
 mod install;
 mod nix;
+mod provenance;
 mod release_channel;
 mod release_notes;
 mod release_status;
@@ -215,6 +216,7 @@ fn run() -> Result<()> {
         },
         Some("release") => match args.next().as_deref() {
             Some("package") => package_release(parse_package_options(args)?),
+            Some("provenance-check") => provenance::inspect(args),
             Some("channel") => release_channel::channel(args),
             Some("check-version") => release_channel::check_version(&repo_root()?, args),
             Some("validate-prerelease") => release_notes::validate_local(&repo_root()?, args),
@@ -2311,6 +2313,7 @@ fn print_help() {
         "cargo xtask media launch encode [--work-dir DIR] [--ffmpeg FILE] [--mp4 FILE] [--webm FILE]"
     );
     println!("cargo xtask release package --target TRIPLE [--binary PATH] [--output DIR]");
+    println!("cargo xtask release provenance-check BINARY STATEMENT");
 }
 
 #[cfg(test)]

@@ -69,6 +69,17 @@ path/type checks only, not validation of metadata contents or provenance authent
 packager does not yet emit provenance, so its archives intentionally fail this stricter path gate.
 No placeholder provenance is generated to make the check pass.
 
+`cargo xtask release provenance-check BINARY STATEMENT` provides a read-only input-boundary
+check for a plain in-toto Statement v1 with the SLSA provenance v1 predicate. It bounds statement
+reads to 1 MiB, requires nonempty build-type and builder identifiers, and requires exactly one
+subject matching the binary basename with its actual SHA-256. Duplicate matching subjects,
+wrong envelopes and mismatched digests fail. Unknown fields remain accepted. This is not full
+schema validation, DSSE/Sigstore verification, builder trust, or verification of build inputs;
+successful output explicitly reports `signatureVerified`, `builderTrusted` and `releaseReady`
+as false. It neither creates provenance nor packages or installs anything. The synthetic unit
+test statements are test data, not build evidence. Packaging integration remains outstanding.
+Format reference: [SLSA provenance v1](https://slsa.dev/spec/v1.0/provenance).
+
 Verification checkpoint at `57769da3`: `cargo test -p xtask -- --quiet` passed all 161 tooling
 tests together, including the installer checks and production benchmark tests. This is a local
 development-profile integration result, not evidence of cross-platform installation, signed
