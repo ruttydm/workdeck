@@ -392,3 +392,12 @@ extension panes no longer serialize the complete visible-file metadata; open reg
 retain the same availability/render payloads. The selected ID is read directly without another
 file projection. All 1,029 TUI tests and scroll integration pass. Scrolling still fails the
 pinned-source budget, and peak-memory, full benchmark and source-ledger gates remain incomplete.
+
+### Exact wheel-height reuse at `465f55fc`
+
+[Three optimized runs](interaction-stages-465f55fc.json) report 10.70 ms first frame,
+35.26 ms navigation and 10.66 ms scrolling. Wheel dispatch falls from 3.88 ms to 1.39 ms;
+rendering remains about 9.27 ms. A single retained immutable-document height avoids rebuilding
+plain geometry just to clamp the wheel, with explicit setting/document invalidation and
+fallback for complex content. Full-frame geometry and painting are not cached. The change
+does not satisfy the pinned-Hunk scrolling budget; peak-memory and ledger gates remain open.
