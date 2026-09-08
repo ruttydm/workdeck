@@ -153,7 +153,7 @@ fn whole_note_size_counts_framing_combined_fields_and_utf8() {
         } else if id == "whole-note-one-byte-over" {
             assert_eq!(bytes, MAX_REVIEW_NOTE_BYTES + 1);
         }
-        let typed_note: workdeck_core::SemanticReviewNote =
+        let typed_note: super::models::ConformanceReviewNote =
             serde_json::from_value(note.clone()).unwrap();
         assert_eq!(
             serde_json::to_value(&typed_note).unwrap(),
@@ -171,6 +171,25 @@ fn whole_note_size_counts_framing_combined_fields_and_utf8() {
             ))),
         );
     }
+}
+
+#[test]
+fn typed_wire_note_size_preserves_explicit_empty_tags_at_the_boundary() {
+    let mut note = minimal_note();
+    let framing = serde_json::to_vec(&note).unwrap().len();
+    note["summary"] = json!("x".repeat(MAX_REVIEW_NOTE_BYTES - framing));
+    let typed: super::models::ConformanceReviewNote = serde_json::from_value(note.clone()).unwrap();
+    assert!((super::wire::CONSUMER.project.accepts_note)(&typed));
+    note["tags"] = json!([]);
+    let typed: super::models::ConformanceReviewNote = serde_json::from_value(note.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&typed).unwrap(), note);
+    assert!(!review_note_within_size_limit(&note));
+    assert!(!(super::wire::CONSUMER.project.accepts_note)(&typed));
+    note["tags"] = Value::Null;
+    assert!(serde_json::from_value::<super::models::ConformanceReviewNote>(note.clone()).is_err());
+    note.as_object_mut().unwrap().remove("tags");
+    note["unrecognized"] = json!(true);
+    assert!(serde_json::from_value::<super::models::ConformanceReviewNote>(note).is_err());
 }
 
 fn check_oracles(

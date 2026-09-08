@@ -1548,6 +1548,25 @@ file against the composed pinned expectations. All 22 focused tests pass. The ot
 fixture families still need their complete interfaces; the types record remains unmapped.
 Capture-integrity tests reject changed outputs and wrong pins but are not parity proof.
 
+The subsequent interface increments (`ef0d87dd`, `8ab2035b`, `c06ce9b2`, `7e1bf0f6`,
+`49006015`) bind event, snapshot, wire, and navigation fixtures to typed callbacks.
+Event consumers receive the publication and relative/absolute window rule; snapshot
+consumers receive a generation and fresh state builder; navigation consumers receive
+fresh file builders, optional filtering/annotation scopes, and positional inputs.
+All retain source metadata and hand-written expectations alongside raw oracle comparisons.
+Ordering callbacks return the native publication-order enum. Builder-invocation tests
+exercise both navigation consumers and alternate snapshot generations.
+
+The interface review found an additional wire-size distinction: the native domain note
+model omits empty tags on serialization, while the source wire shape can explicitly carry
+`tags: []`. The conformance note adapter now preserves that presence and rejects fields
+or nulls that typing would lose. A new executable boundary test proves that adding empty
+tags to an exactly-at-limit note changes acceptance to rejection. This is a conformance
+adapter correction, not a claim that every runtime note transport has been audited.
+All 25 focused conformance tests pass after this correction. These latest increments
+have focused validation only; they are not a fresh full-workspace or release-gate result.
+The shared types record remains unmapped until its complete contract review is finished.
+
 Full `cargo xtask verify` passed at `e4f3c782` before this conformance increment, including
 workspace tests, Clippy, release build, and the large-repository smoke test. This does not
 clear strict source coverage, benchmark, native-platform, signing, or release gates.

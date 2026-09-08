@@ -207,6 +207,44 @@ pub(super) struct ReviewWireFixture {
     pub expected: ReviewWireParseOutcome,
 }
 
+/// A typed note with wire field presence retained. The domain model deliberately
+/// omits empty tags; the source wire size contract counts an explicit empty list.
+#[derive(Debug, Clone)]
+pub(super) struct ConformanceReviewNote {
+    note: workdeck_core::SemanticReviewNote,
+    tags: Option<Vec<String>>,
+}
+
+impl Serialize for ConformanceReviewNote {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut value = serde_json::to_value(&self.note).map_err(serde::ser::Error::custom)?;
+        if let Some(tags) = &self.tags {
+            value["tags"] = serde_json::to_value(tags).map_err(serde::ser::Error::custom)?;
+        }
+        value.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ConformanceReviewNote {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = Value::deserialize(deserializer)?;
+        let tags = value
+            .get("tags")
+            .map(|tags| serde_json::from_value(tags.clone()))
+            .transpose()
+            .map_err(serde::de::Error::custom)?;
+        let note = serde_json::from_value(value.clone()).map_err(serde::de::Error::custom)?;
+        let result = Self { note, tags };
+        // Reject unsupported fields/nulls instead of silently shrinking the wire body.
+        if serde_json::to_value(&result).map_err(serde::de::Error::custom)? != value {
+            return Err(serde::de::Error::custom(
+                "note typing changed wire field presence",
+            ));
+        }
+        Ok(result)
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(super) enum ConformanceFilePosition {
     Index(usize),

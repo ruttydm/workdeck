@@ -8,7 +8,7 @@ use workdeck_session::{
 };
 
 type ActionParser = fn(&serde_json::Map<String, Value>) -> ReviewWireParseOutcome;
-type NotePolicy = fn(&workdeck_core::SemanticReviewNote) -> bool;
+type NotePolicy = fn(&super::models::ConformanceReviewNote) -> bool;
 #[derive(Clone, Copy)]
 pub(super) struct WireProjections {
     pub parse_action: ActionParser,
