@@ -639,6 +639,7 @@ fn workdeck_diff_body_rows(
         None,
         None,
         None,
+        crate::ReviewRowPurpose::Paint,
     );
     let map = WorkdeckDiffRenderMap {
         hunk_rows: rows

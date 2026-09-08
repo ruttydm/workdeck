@@ -7139,10 +7139,14 @@ impl ReviewApp {
     }
 
     fn current_review_rows(&self) -> ReviewRows {
-        self.current_review_rows_with_options(&self.options)
+        self.current_review_rows_with_options(&self.options, ReviewRowPurpose::Paint)
     }
 
-    fn current_review_rows_with_options(&self, options: &ReviewOptions) -> ReviewRows {
+    fn current_review_rows_with_options(
+        &self,
+        options: &ReviewOptions,
+        purpose: ReviewRowPurpose,
+    ) -> ReviewRows {
         let state = self
             .state
             .lock()
@@ -7177,6 +7181,7 @@ impl ReviewApp {
             &self.file_presentation_rendering,
             self.options.extension_notifications.as_ref(),
             &self.filter,
+            purpose,
         );
         if let Some(composer) = &self.note_composer {
             rows.insert_composer(
@@ -7781,6 +7786,7 @@ impl ReviewApp {
             &self.file_presentation_rendering,
             self.options.extension_notifications.as_ref(),
             &self.filter,
+            ReviewRowPurpose::Geometry,
         );
         let viewport = usize::from(
             self.review_height
@@ -8748,7 +8754,7 @@ impl ReviewApp {
     fn current_review_geometry_rows(&self) -> ReviewRows {
         let mut options = self.options.clone();
         options.highlight = false;
-        self.current_review_rows_with_options(&options)
+        self.current_review_rows_with_options(&options, ReviewRowPurpose::Geometry)
     }
 
     fn retire_interactive_authority(&mut self) {
@@ -11633,6 +11639,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         &app.file_presentation_rendering,
         app.options.extension_notifications.as_ref(),
         &app.filter,
+        ReviewRowPurpose::Paint,
     );
     if let Some(composer) = &app.note_composer {
         rows.insert_composer(
@@ -12337,7 +12344,14 @@ fn build_review_rows(
         None,
         None,
         None,
+        ReviewRowPurpose::Paint,
     )
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ReviewRowPurpose {
+    Paint,
+    Geometry,
 }
 
 fn diff_file_matches_filter(file: &DiffFile, filter: &str) -> bool {
@@ -12367,6 +12381,7 @@ fn build_live_review_rows(
     file_presentation_rendering: &Mutex<FilePresentationRenderingController>,
     extension_notifications: Option<&ExtensionNotificationHub>,
     filter: &str,
+    purpose: ReviewRowPurpose,
 ) -> ReviewRows {
     build_review_rows_with_chrome(
         changeset,
@@ -12385,6 +12400,7 @@ fn build_live_review_rows(
         Some(file_presentation_rendering),
         extension_notifications,
         Some(filter),
+        purpose,
     )
 }
 
@@ -12406,6 +12422,7 @@ fn build_review_rows_with_chrome(
     file_presentation_rendering: Option<&Mutex<FilePresentationRenderingController>>,
     extension_notifications: Option<&ExtensionNotificationHub>,
     filter: Option<&str>,
+    purpose: ReviewRowPurpose,
 ) -> ReviewRows {
     let mut rows = Vec::new();
     let mut file_tops = BTreeMap::new();
@@ -12640,6 +12657,7 @@ fn build_review_rows_with_chrome(
                     file_selection,
                     selected_hunk,
                     line_highlight_paint.as_ref(),
+                    purpose,
                 ),
                 LayoutMode::Stack | LayoutMode::Auto => stack_hunk_rows(
                     file,
@@ -12655,6 +12673,7 @@ fn build_review_rows_with_chrome(
                     file_selection,
                     selected_hunk,
                     line_highlight_paint.as_ref(),
+                    purpose,
                 ),
             };
             if options.agent_notes {
@@ -13377,13 +13396,18 @@ fn stack_hunk_rows(
     selection: ReviewSelection,
     hunk_selected: bool,
     line_highlights: Option<&LineHighlightPaintIndex>,
+    purpose: ReviewRowPurpose,
 ) -> TargetedHunkRows {
     let mut rows = Vec::new();
     let mut targets = Vec::new();
     let mut cursor_targets = Vec::new();
     let mut note_bounds = Vec::new();
     let mut emphasis = vec![Vec::new(); hunk.lines.len()];
-    for pair in plan_split_line_pairs(&hunk.lines) {
+    let geometry_nowrap = purpose == ReviewRowPurpose::Geometry && !options.wrap_lines;
+    for pair in plan_split_line_pairs(&hunk.lines)
+        .into_iter()
+        .filter(|_| !geometry_nowrap)
+    {
         let (Some(old_index), Some(new_index)) = (pair.old_index, pair.new_index) else {
             continue;
         };
@@ -13398,17 +13422,23 @@ fn stack_hunk_rows(
         emphasis[new_index] = ranges.new;
     }
     for (index, line) in hunk.lines.iter().enumerate() {
-        let line_rows = stack_line_rows(
-            line,
-            options,
-            highlighted
-                .and_then(|lines| lines.get(index))
-                .and_then(|line_highlight| line_highlight.for_stack(line.kind)),
-            &emphasis[index],
-            hunk_selected || line_is_selected(line, selection),
-            width,
-            line_highlight_ranges(line_highlights, line),
-        );
+        let line_rows = if geometry_nowrap {
+            // Unwrapped code occupies exactly one row, regardless of clipping,
+            // styles, Unicode width or horizontal offset. These rows never paint.
+            vec![Line::default()]
+        } else {
+            stack_line_rows(
+                line,
+                options,
+                highlighted
+                    .and_then(|lines| lines.get(index))
+                    .and_then(|line_highlight| line_highlight.for_stack(line.kind)),
+                &emphasis[index],
+                hunk_selected || line_is_selected(line, selection),
+                width,
+                line_highlight_ranges(line_highlights, line),
+            )
+        };
         let target = diff_line_note_target(file_index, hunk_index, line);
         cursor_targets.push((rows.len(), target));
         targets.extend(std::iter::repeat_n(Some(target), line_rows.len()));
@@ -13579,6 +13609,7 @@ fn split_hunk_rows(
     selection: ReviewSelection,
     hunk_selected: bool,
     line_highlights: Option<&LineHighlightPaintIndex>,
+    purpose: ReviewRowPurpose,
 ) -> TargetedHunkRows {
     let mut rows = Vec::new();
     let mut targets = Vec::new();
@@ -13587,44 +13618,52 @@ fn split_hunk_rows(
     let pane_widths = resolve_diff_split_pane_widths(usize::from(width));
     let left_width = pane_widths.left_width;
     let right_width = pane_widths.right_width;
+    let geometry_nowrap = purpose == ReviewRowPurpose::Geometry && !options.wrap_lines;
     for pair in plan_split_line_pairs(&hunk.lines) {
         let old = pair.old_index.and_then(|index| hunk.lines.get(index));
         let new = pair.new_index.and_then(|index| hunk.lines.get(index));
         let emphasis = old
             .zip(new)
             .filter(|(old, new)| !std::ptr::eq(*old, *new))
+            .filter(|_| !geometry_nowrap)
             .map(|(old, new)| {
                 word_diff_ranges(
                     &expanded_line_content(old, options.tab_width),
                     &expanded_line_content(new, options.tab_width),
                 )
             });
-        let pair_rows = split_pair_rows(
-            SplitCellInput {
-                line: old,
-                highlighted: pair
-                    .old_index
-                    .and_then(|index| highlighted.and_then(|lines| lines.get(index)))
-                    .and_then(|line| line.deletion.as_ref()),
-                emphasis: emphasis.as_ref().map_or(&[], |ranges| &ranges.old),
-                line_highlights: old.and_then(|line| line_highlight_ranges(line_highlights, line)),
-            },
-            SplitCellInput {
-                line: new,
-                highlighted: pair
-                    .new_index
-                    .and_then(|index| highlighted.and_then(|lines| lines.get(index)))
-                    .and_then(|line| line.addition.as_ref()),
-                emphasis: emphasis.as_ref().map_or(&[], |ranges| &ranges.new),
-                line_highlights: new.and_then(|line| line_highlight_ranges(line_highlights, line)),
-            },
-            options,
-            left_width,
-            right_width,
-            hunk_selected
-                || old.is_some_and(|line| line_is_selected(line, selection))
-                || new.is_some_and(|line| line_is_selected(line, selection)),
-        );
+        let pair_rows = if geometry_nowrap {
+            vec![Line::default()]
+        } else {
+            split_pair_rows(
+                SplitCellInput {
+                    line: old,
+                    highlighted: pair
+                        .old_index
+                        .and_then(|index| highlighted.and_then(|lines| lines.get(index)))
+                        .and_then(|line| line.deletion.as_ref()),
+                    emphasis: emphasis.as_ref().map_or(&[], |ranges| &ranges.old),
+                    line_highlights: old
+                        .and_then(|line| line_highlight_ranges(line_highlights, line)),
+                },
+                SplitCellInput {
+                    line: new,
+                    highlighted: pair
+                        .new_index
+                        .and_then(|index| highlighted.and_then(|lines| lines.get(index)))
+                        .and_then(|line| line.addition.as_ref()),
+                    emphasis: emphasis.as_ref().map_or(&[], |ranges| &ranges.new),
+                    line_highlights: new
+                        .and_then(|line| line_highlight_ranges(line_highlights, line)),
+                },
+                options,
+                left_width,
+                right_width,
+                hunk_selected
+                    || old.is_some_and(|line| line_is_selected(line, selection))
+                    || new.is_some_and(|line| line_is_selected(line, selection)),
+            )
+        };
         let cursor_row = rows.len();
         if pair.old_index == pair.new_index {
             if let Some(line) = new.or(old) {
@@ -17166,6 +17205,7 @@ mod tests {
                 None,
                 None,
                 None,
+                ReviewRowPurpose::Paint,
             );
             let area = Rect::new(0, 0, 80, rows.lines.len() as u16);
             let mut buffer = Buffer::empty(area);
@@ -21097,10 +21137,11 @@ mod tests {
         let before = "export const label = '日本語 🚀';\n\t// café 短い\n".repeat(5);
         let after =
             "export const label = '中文 ✨ and a much longer wrapped value';\n\t// café 長い\n"
-                .repeat(5);
+                .repeat(5)
+                + "// extra unpaired addition 🚀\n";
         for layout in [LayoutMode::Split, LayoutMode::Stack] {
             for wrap_lines in [false, true] {
-                for width in [24, 80, 240] {
+                for width in [0, 1, 2, 8, 24, 80, 240] {
                     let app = ReviewApp::new(
                         navigation_changeset(vec![(
                             "unicode.ts".into(),
@@ -21110,9 +21151,20 @@ mod tests {
                         ReviewOptions {
                             layout,
                             wrap_lines,
+                            horizontal_offset: if wrap_lines { 0 } else { 17 },
                             ..ReviewOptions::default()
                         },
                     );
+                    app.with_state(|state| {
+                        let key = state.changeset().files[0].key.clone();
+                        state
+                            .add_comment(saved_comment(&key, "agent-geometry", "日本語 note"))
+                            .unwrap();
+                        let mut comment = saved_comment(&key, "user-geometry", "Saved user note");
+                        comment.source = "user".into();
+                        comment.editable = true;
+                        state.add_comment(comment).unwrap();
+                    });
                     app.review_width.set(width);
                     app.prefetch_file_highlights(0);
                     let highlighted = app.current_review_rows();
@@ -21128,12 +21180,25 @@ mod tests {
                             })
                             .collect::<Vec<_>>()
                     };
-                    assert_eq!(
-                        text(&highlighted),
-                        text(&geometry),
-                        "{layout:?} wrap={wrap_lines} width={width}"
-                    );
+                    assert_eq!(highlighted.lines.len(), geometry.lines.len());
+                    if wrap_lines {
+                        assert_eq!(
+                            text(&highlighted),
+                            text(&geometry),
+                            "{layout:?} wrap={wrap_lines} width={width}"
+                        );
+                    }
+                    // Geometry-only unwrapped code deliberately carries no paint
+                    // content. Copy/render still request the full painted plan.
+                    let mut unhighlighted = app.options.clone();
+                    unhighlighted.highlight = false;
+                    let painted = app
+                        .current_review_rows_with_options(&unhighlighted, ReviewRowPurpose::Paint);
+                    assert_eq!(text(&highlighted), text(&painted));
                     assert_eq!(highlighted.line_cursors, geometry.line_cursors);
+                    assert_eq!(highlighted.note_targets, geometry.note_targets);
+                    assert_eq!(highlighted.note_bounds, geometry.note_bounds);
+                    assert!(!geometry.note_bounds.is_empty());
                     assert_eq!(highlighted.file_tops, geometry.file_tops);
                     assert_eq!(highlighted.file_header_tops, geometry.file_header_tops);
                     assert_eq!(highlighted.file_body_tops, geometry.file_body_tops);
