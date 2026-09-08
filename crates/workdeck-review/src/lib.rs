@@ -26,6 +26,7 @@ mod semantic_state;
 mod semantic_store;
 #[cfg(test)]
 mod semantic_test_support;
+mod source_requests;
 
 pub use anchors::*;
 pub use annotations::*;
@@ -51,6 +52,7 @@ pub(crate) use semantic_reducer::*;
 pub use semantic_selectors::*;
 pub use semantic_state::*;
 pub use semantic_store::*;
+pub use source_requests::*;
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

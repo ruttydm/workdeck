@@ -1,5 +1,19 @@
 # Hunk semantic-port ledger
 
+## Asynchronous source request owner
+
+`workdeck-review::ReviewSourceRequests` provides the worker/completion boundary
+for source loads. It skips loading/loaded state, allows retries after failures,
+and checks request ID, side, and loader identity before settling a result.
+Retirement removes authority without waiting on a provider; late successes are
+ignored and late failures retain diagnostics. Typed size failures preserve their
+distinct state. Workers cannot mutate the review store directly.
+
+Deterministic channel-controlled tests cover these transitions. This is the
+request-owner component, not yet a connected live TUI controller; integration of
+loading rows, cursor reveal, and reload refetch remains required. No source
+interval gains coverage from this component alone.
+
 ## Runtime provider source ownership
 
 `LoadedVcsChangeset` retains a non-serialized source-capability registry, bound
