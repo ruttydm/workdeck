@@ -5,6 +5,92 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+fn archive_entry_path(name: &str) -> Result<String> {
+    let name = name.strip_suffix('/').unwrap_or(name);
+    if name.is_empty() || name.contains(['\\', ':', '\0']) {
+        bail!("Unsafe archive path: {name:?}");
+    }
+    for part in name.split('/') {
+        if part.is_empty() || part == "." || part == ".." || part.ends_with([' ', '.']) {
+            bail!("Unsafe archive path: {name:?}");
+        }
+        let stem = part.split('.').next().unwrap_or(part).to_ascii_uppercase();
+        if matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+            || (stem.len() == 4
+                && (stem.starts_with("COM") || stem.starts_with("LPT"))
+                && matches!(stem.as_bytes()[3], b'1'..=b'9'))
+        {
+            bail!("Reserved archive path: {name:?}");
+        }
+    }
+    Ok(name.to_owned())
+}
+
+fn inspect_archive(path: &Path) -> Result<(usize, u64)> {
+    let mut names = std::collections::BTreeSet::new();
+    let mut total = 0u64;
+    let mut record = |name: &str, size: u64| -> Result<()> {
+        let name = archive_entry_path(name)?;
+        if !names.insert(name.to_lowercase()) {
+            bail!("Duplicate archive path: {name}");
+        }
+        total = total
+            .checked_add(size)
+            .ok_or_else(|| anyhow::anyhow!("Archive size overflow"))?;
+        if names.len() > 100_000 || total > 2 * 1024 * 1024 * 1024 {
+            bail!("Archive exceeds installation limits");
+        }
+        Ok(())
+    };
+    let file = std::fs::File::open(path)?;
+    if path.extension().is_some_and(|extension| extension == "zip") {
+        let mut archive = zip::ZipArchive::new(file)?;
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index)?;
+            if entry
+                .unix_mode()
+                .is_some_and(|mode| !matches!(mode & 0o170000, 0 | 0o100000 | 0o040000))
+            {
+                bail!("Archive links and special files are not permitted");
+            }
+            record(entry.name(), entry.size())?;
+            let copied = std::io::copy(&mut entry, &mut std::io::sink())?;
+            if copied != entry.size() {
+                bail!("Archive entry size mismatch");
+            }
+        }
+    } else {
+        let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(file));
+        for entry in archive.entries()? {
+            let mut entry = entry?;
+            if !entry.header().entry_type().is_file() && !entry.header().entry_type().is_dir() {
+                bail!("Archive links and special files are not permitted");
+            }
+            let bytes = entry.path_bytes();
+            record(std::str::from_utf8(&bytes)?, entry.size())?;
+            std::io::copy(&mut entry, &mut std::io::sink())?;
+        }
+    }
+    Ok((names.len(), total))
+}
+
+pub(super) fn inspect(mut args: impl Iterator<Item = String>) -> Result<()> {
+    let path = args
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("install-inspect requires ARCHIVE"))?;
+    if args.next().is_some() {
+        bail!("install-inspect accepts exactly ARCHIVE");
+    }
+    let (entries, bytes) = inspect_archive(Path::new(&path))?;
+    println!(
+        "{}",
+        serde_json::to_string(
+            &serde_json::json!({"entries": entries, "declaredBytes": bytes, "pathsChecked": true, "checksumVerified": false, "signatureVerified": false, "installed": false})
+        )?
+    );
+    Ok(())
+}
+
 fn expected_checksum(contents: &str, archive_name: &str) -> Result<String> {
     let mut selected = None;
     for line in contents.lines() {
@@ -453,6 +539,77 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn archive_paths_reject_cross_platform_traversal_and_reserved_names() {
+        assert_eq!(
+            archive_entry_path("workdeck/skills/README.md").unwrap(),
+            "workdeck/skills/README.md"
+        );
+        for name in [
+            "/absolute",
+            "../escape",
+            "root/../escape",
+            "root//file",
+            "C:/file",
+            "root\\file",
+            "root/NUL.txt",
+            "root/COM1",
+            "root/trailing.",
+            "root/trailing ",
+        ] {
+            assert!(archive_entry_path(name).is_err(), "{name}");
+        }
+    }
+
+    #[test]
+    fn zip_inspection_checks_payloads_and_case_collisions_without_extraction() {
+        use std::io::Write;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("archive.zip");
+        let write = |names: &[&str]| {
+            let mut zip = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+            for name in names {
+                zip.start_file(*name, zip::write::SimpleFileOptions::default())
+                    .unwrap();
+                zip.write_all(b"bin").unwrap();
+            }
+            zip.finish().unwrap();
+        };
+        write(&["root/workdeck.exe"]);
+        assert_eq!(inspect_archive(&path).unwrap(), (1, 3));
+        assert!(!directory.path().join("root").exists());
+        write(&["root/workdeck.exe", "root/WORKDECK.exe"]);
+        assert!(inspect_archive(&path).is_err());
+        write(&["../escape"]);
+        assert!(inspect_archive(&path).is_err());
+    }
+
+    #[test]
+    fn archive_inspection_reads_payloads_without_extracting_and_rejects_duplicates() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("archive.tar.gz");
+        let write = |duplicate: bool| {
+            let file = std::fs::File::create(&path).unwrap();
+            let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+            let mut archive = tar::Builder::new(encoder);
+            for _ in 0..if duplicate { 2 } else { 1 } {
+                let mut header = tar::Header::new_gnu();
+                header.set_size(3);
+                header.set_mode(0o755);
+                header.set_cksum();
+                archive
+                    .append_data(&mut header, "root/workdeck", &b"bin"[..])
+                    .unwrap();
+            }
+            archive.into_inner().unwrap().finish().unwrap();
+        };
+        write(false);
+        assert_eq!(inspect_archive(&path).unwrap(), (1, 3));
+        assert!(!directory.path().join("root").exists());
+        write(true);
+        assert!(inspect_archive(&path).is_err());
+    }
 
     #[test]
     fn checksum_selection_requires_exact_unique_valid_archive_entry() {

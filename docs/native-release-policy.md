@@ -48,6 +48,15 @@ the strict Workdeck release gate. Successful JSON states `checksumVerified: true
 manifest nor validates/extracts the archive or installs anything. Signature/provenance validation,
 safe extraction and atomic replacement remain required before installation execution is enabled.
 
+`cargo xtask install-inspect ARCHIVE` reads tar.gz or ZIP entries without extracting files.
+It rejects absolute/traversal paths, backslashes, drive/stream separators, reserved DOS names,
+trailing dots/spaces, links/special files and case-folded duplicate paths. Inspection limits
+archives to 100,000 entries and 2 GiB of declared uncompressed payload. This is preliminary
+structural inspection, not a complete package verifier: required contents, wrapper layout,
+signatures/provenance and safe extraction remain unfinished. Output deliberately does not claim
+checksum verification or installation. Tests exercise tar and ZIP payload reads and path rejection
+without creating extracted directories.
+
 ```console
 cargo xtask release channel --event push --ref v0.19.0 --current-latest 0.18.2
 cargo xtask release channel --event workflow_dispatch --ref main --requested-tag beta

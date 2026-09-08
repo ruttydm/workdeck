@@ -204,6 +204,7 @@ fn run() -> Result<()> {
         Some("site") => site(args.next().as_deref()),
         Some("install-plan") => install::run(args),
         Some("install-verify") => install::verify(args),
+        Some("install-inspect") => install::inspect(args),
         Some("changelog") => changelog::run(&repo_root()?, args),
         Some("media") => match args.next().as_deref() {
             Some("plan") => term_video::plan_file(&repo_root()?, args),
@@ -2284,6 +2285,7 @@ fn print_help() {
     println!("cargo xtask site <build|check|serve>");
     println!("cargo xtask install-plan [version] [--no-modify-path] [-f|--force]");
     println!("cargo xtask install-verify ARCHIVE CHECKSUM_FILE");
+    println!("cargo xtask install-inspect ARCHIVE");
     println!("cargo xtask changelog upstream-history [--check]");
     println!(
         "cargo xtask release channel --event EVENT --ref REF [--requested-tag CHANNEL] [--current-latest VERSION]"
