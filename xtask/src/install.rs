@@ -261,6 +261,33 @@ fn read_checksum_manifest(path: &Path) -> Result<String> {
     Ok(String::from_utf8(bytes)?)
 }
 
+fn hash_archive_bytes(reader: impl std::io::Read, expected: u64) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    if expected > 2 * 1024 * 1024 * 1024 {
+        bail!("Compressed archive exceeds 2 GiB installation limit");
+    }
+    let limit = expected
+        .checked_add(1)
+        .ok_or_else(|| anyhow::anyhow!("Archive size overflow"))?;
+    let mut reader = reader.take(limit);
+    let mut hash = Sha256::new();
+    let mut count = 0u64;
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let bytes = reader.read(&mut buffer)?;
+        if bytes == 0 {
+            break;
+        }
+        count += bytes as u64;
+        hash.update(&buffer[..bytes]);
+    }
+    if count != expected {
+        bail!("Archive size changed during checksum verification");
+    }
+    Ok(format!("{:x}", hash.finalize()))
+}
+
 pub(super) fn verify(mut args: impl Iterator<Item = String>) -> Result<()> {
     let archive = args
         .next()
@@ -277,7 +304,8 @@ pub(super) fn verify(mut args: impl Iterator<Item = String>) -> Result<()> {
         .and_then(|name| name.to_str())
         .ok_or_else(|| anyhow::anyhow!("Archive name is not valid UTF-8"))?;
     let expected = expected_checksum(&read_checksum_manifest(Path::new(&checksums))?, name)?;
-    let actual = super::sha256_file(archive)?;
+    let file = open_archive_input(archive)?;
+    let actual = hash_archive_bytes(&file, file.metadata()?.len())?;
     if actual != expected {
         bail!("Checksum verification failed for {name}; refusing a corrupted or tampered archive");
     }
@@ -679,6 +707,25 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn archive_hash_requires_exact_observed_length_and_bounded_reads() {
+        use std::io::Cursor;
+        assert_eq!(
+            hash_archive_bytes(&b"abc"[..], 3).unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert!(hash_archive_bytes(&b"ab"[..], 3).is_err());
+        let mut growing = Cursor::new(b"abcdefghij");
+        assert!(hash_archive_bytes(&mut growing, 3).is_err());
+        assert_eq!(growing.position(), 4);
+        assert!(hash_archive_bytes(std::io::repeat(0), 0).is_err());
+        assert!(hash_archive_bytes(std::io::empty(), u64::MAX).is_err());
+        assert_eq!(
+            hash_archive_bytes(std::io::empty(), 0).unwrap(),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
 
     #[test]
     fn checksum_manifest_reads_are_bounded_and_require_utf8() {

@@ -69,6 +69,11 @@ Checksum manifests are read from validated regular-file handles with a 1 MiB lim
 validation. The reader stops after at most one excess byte; tests cover the exact boundary,
 oversized and invalid-UTF-8 inputs, and directory rejection. This bounds manifest input only;
 checksum matching still does not establish publisher authenticity.
+Archive checksum hashing uses the validated handle and reads at most the observed length plus
+one byte, capped by the 2 GiB input policy. Shrinking or growing inputs fail length validation.
+Tests exercise known SHA-256 vectors, short/growing streams and bounded reads. Same-length
+concurrent content changes are not detected by length alone: the resulting digest must still
+match the supplied checksum, and immutable authenticated extraction remains a separate gate.
 Before parsing, archive inspection requires a regular file of at most 2 GiB compressed bytes,
 and repeats the metadata check on the opened handle. Unix tests use sparse files to verify the
 exact size boundary without allocating GiBs. This is not a complete allocation bound: ZIP central
