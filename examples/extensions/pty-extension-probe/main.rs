@@ -321,6 +321,11 @@ fn main() -> io::Result<()> {
     for line in io::stdin().lock().lines() {
         let line = line?;
         let envelope: serde_json::Value = serde_json::from_str(&line).map_err(io::Error::other)?;
+        // Highlight completion retires the parent with a notification. This
+        // synchronous probe has no outstanding work once its response is sent.
+        if envelope["method"] == "$/cancelRequest" && envelope.get("id").is_none() {
+            continue;
+        }
         if envelope["method"] == "workdeck/handshake" {
             let handshake: HandshakeRequest =
                 serde_json::from_value(envelope["params"].clone()).map_err(io::Error::other)?;

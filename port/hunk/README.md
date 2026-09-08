@@ -1352,6 +1352,11 @@ Unix extension children use their own process groups so the reviewer can deliver
 instead of foreground SIGINT killing them first. Extension reveal uses live measured line rows,
 not the hunk anchor. Notifications retain the source `ext` surface and expire without a persistent
 status copy. These assertions do not waive Windows lifecycle or full terminal-cell parity gates.
+The synchronous native PTY probe accepts parent cancellation notifications without attempting to
+decode them as requests with IDs. This includes cleanup after successful highlighting; otherwise
+the probe exits before refresh or a queued command can run. The existing refresh and held-highlight
+command tests both reproduce the regression without this handling and pass with it; all nineteen
+native extension PTY cases pass together. This fixture repair adds no source-ledger coverage.
 The native trust fixture commits its compiled extension and manifest before changing the two
 source files, matching the source harness's tracked-extension baseline. Its alpha/beta contents
 now match that factory rather than borrowing the distinct layout fixture. A shared repository

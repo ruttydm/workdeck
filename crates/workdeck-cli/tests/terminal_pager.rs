@@ -278,7 +278,11 @@ impl Session {
             }
             let mut bytes = [0; 32768];
             let count = self.master.as_mut().unwrap().read(&mut bytes).unwrap();
-            assert!(count > 0, "PTY closed:\n{text}");
+            assert!(
+                count > 0,
+                "PTY closed (child status: {:?}):\n{text}",
+                self.child.try_wait().unwrap()
+            );
             self.parser.feed(&bytes[..count]);
             let replies = self.parser.handler.take_output();
             if !replies.is_empty() {
