@@ -152,3 +152,12 @@ median tick latency cannot be attributed solely to width borrowing. Both workloa
 fail against the pinned Hunk reports. Memory remains unmeasured.
 
 - [Combined native Unicode follow-up](unicode-native-8395004e.json)
+
+### Interaction-latency translation in progress
+
+`xtask/src/benchmark/interaction_latency.rs` exercises the source's 180-file, 120-line,
+240x28 workload with six real `]` presses and eight wheel ticks on separate renderers. It checks
+selection changes, viewport movement and finite timing samples. It is currently test-only:
+retained RSS/heap measurements, frozen captures from both Hunk anchors and same-host optimized
+comparisons remain missing. The source ledger record remains unmapped and the default runner
+still rejects `interaction-latency.ts`; this partial test is not benchmark parity evidence.

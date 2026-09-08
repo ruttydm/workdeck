@@ -11,6 +11,8 @@ mod bootstrap;
 mod changeset_parse;
 mod fixtures;
 mod highlight_prefetch;
+#[cfg(test)]
+mod interaction_latency;
 mod large_stream;
 mod non_ascii_stream;
 mod release;
