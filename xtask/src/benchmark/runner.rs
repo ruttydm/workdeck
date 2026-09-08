@@ -29,6 +29,7 @@ fn workload_command(name: &str) -> Result<&'static str> {
         "changeset-parse.ts" => Ok("changeset-parse"),
         "highlight-prefetch.ts" => Ok("highlight-prefetch"),
         "large-stream.ts" => Ok("large-stream"),
+        "large-stream-profile.ts" => Ok("large-stream-profile"),
         "non-ascii-stream.ts" => Ok("non-ascii-stream"),
         "wrapped-cjk.ts" => Ok("wrapped-cjk"),
         "working-tree-load.ts" => Ok("working-tree"),

@@ -13,6 +13,7 @@ mod fixtures;
 mod highlight_prefetch;
 mod interaction_latency;
 mod large_stream;
+mod large_stream_profile;
 mod native_memory;
 mod non_ascii_stream;
 mod release;
@@ -688,6 +689,9 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     }
     if command.as_deref() == Some("large-stream") {
         return large_stream::run(args);
+    }
+    if command.as_deref() == Some("large-stream-profile") {
+        return large_stream_profile::run(args);
     }
     if command.as_deref() == Some("non-ascii-stream") {
         return non_ascii_stream::run(args);

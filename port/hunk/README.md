@@ -1,5 +1,21 @@
 # Hunk semantic-port ledger
 
+## Native planning-profile workload
+
+`cargo xtask benchmark large-stream-profile` runs the complete pinned
+`benchmarks/large-stream-profile.ts` workload without a terminal renderer: section
+geometry, split-row construction, then review-plan construction over 180 files of
+120 lines each. Fixture construction stays outside the timers; the theme is the
+pinned `midnight` alias, headers are enabled, and no agent notes are supplied.
+All seven source metric names, ordering and two-decimal timing formatting are retained.
+The normal subprocess runner also accepts `--script large-stream-profile.ts`.
+
+`oracles/benchmark-large-stream-profile.json` retains direct outputs from both pinned
+source scripts. The executable Rust test runs all three native stages and checks both
+10,260-row totals and the fixture counts against each oracle. Oracle timing values were
+captured under concurrent verification load and are not accepted benchmark comparisons.
+Implementing this workload does not establish the product's overall performance gate.
+
 ## Local verification checkpoint `c453574b`
 
 On 2026-09-08, `cargo xtask verify` passed the theme/skill/architecture/history checks,
