@@ -1415,6 +1415,72 @@ mod tests {
     }
 
     #[test]
+    fn removing_all_registrations_clears_derivations_and_readding_reexecutes() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("reset")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [test_file("file", "content")];
+        let mut controller = LineHighlightPreparationController::default();
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            &files,
+            |controller| !controller.resolved().is_empty(),
+        );
+        let previous = controller.resolved().get_shared("file").unwrap().clone();
+        assert_eq!(runtime.calls().len(), 1);
+        controller.reconcile(&extensions, &[], &epochs, &files);
+        assert!(controller.resolved().is_empty());
+        assert!(controller.cache.is_empty());
+        assert_eq!(controller.pending_count(), 0);
+        let empty = controller.resolved().clone();
+        controller.reconcile(&extensions, &[], &epochs, &files);
+        assert!(empty.ptr_eq(controller.resolved()));
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            &files,
+            |controller| !controller.resolved().is_empty(),
+        );
+        assert_eq!(runtime.calls().len(), 2);
+        assert!(!Arc::ptr_eq(
+            &previous,
+            controller.resolved().get_shared("file").unwrap()
+        ));
+    }
+
+    #[test]
+    fn removing_registrations_preserves_warning_history_for_the_same_registration() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, _| {
+            Err(LineHighlightRuntimeError::Failed("failed".into()))
+        });
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("warning")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [test_file("file", "content")];
+        let mut controller = LineHighlightPreparationController::default();
+        for _ in 0..2 {
+            reconcile_until(
+                &mut controller,
+                &extensions,
+                &registrations,
+                &epochs,
+                &files,
+                |controller| controller.cache.len() == 1,
+            );
+            controller.reconcile(&extensions, &[], &epochs, &files);
+            assert!(controller.cache.is_empty());
+        }
+        assert_eq!(runtime.calls().len(), 2);
+        assert_eq!(runtime.warnings().len(), 1);
+    }
+
+    #[test]
     fn coordinator_validates_caches_and_preserves_identity_across_unrelated_frames() {
         let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
         let extensions = runtime_list(&runtime);

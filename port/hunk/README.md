@@ -254,6 +254,18 @@ Validation passes all 41 highlighter coordinator tests, all 1,076 TUI unit tests
 warnings denied, formatting, diff and architecture checks. No same-host benchmark
 result or new full-workspace verification is inferred from these checks.
 
+## Highlighter registration removal contracts
+
+Two additional executable coordinator regressions cover the pinned hook's
+no-highlighters branch. Removing all registrations clears cached derivations and
+published marks; repeated empty reconciliation retains the empty map identity.
+Re-adding the same registration invokes it again and produces fresh mark storage.
+Warning history, unlike cached results, survives removal: the same failing
+registration runs again but does not repeat its already-reported warning.
+All 43 highlighter coordinator tests, TUI all-target Clippy with warnings denied,
+formatting and diff checks pass. These checks strengthen the pending
+whole-hook audit without marking its full source interval complete.
+
 ## Native concurrency parity gap confirmed
 
 The current transport releases its connection lock while cancellable requests
