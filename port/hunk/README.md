@@ -1,5 +1,22 @@
 # Hunk semantic-port ledger
 
+## Native cancellation metadata (partial hook parity)
+
+Native `$/cancelRequest` notifications now distinguish settled requests, explicit
+cancellation, and host deadlines through optional `cause` metadata. The SDK accepts
+legacy id-only notifications and retains structured JSON `reason` values in the
+typed error returned by a cancelled document read. A compiled line-highlighter
+fixture exposes the last received notification for executable transport checks.
+
+This does not complete parent abort-reason propagation: the current parent signal
+is still an atomic boolean, and no arbitrary parent reason is invented. The full
+`useLineHighlights.ts` ledger record remains unmapped. Validation passed 73 SDK
+unit tests, 204 host unit tests, and all 24 compiled highlighter integration tests,
+including the child-process test distinguishing all three causes. All-target
+Clippy with warnings denied passed for the SDK, host and examples; formatting
+and whitespace checks passed. This does not supersede the recorded
+full-workspace verification.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation

@@ -1295,13 +1295,25 @@ impl LoadedExtension {
         } else {
             child_pipe::WriteBudget::Until(deadline, None)
         };
+        let cancellation_cause = match &result {
+            Err(HostError::Timeout(_)) => {
+                workdeck_extension_api::ExtensionCancellationCause::TimedOut
+            }
+            Err(HostError::Cancelled(_)) => {
+                workdeck_extension_api::ExtensionCancellationCause::Cancelled
+            }
+            _ => workdeck_extension_api::ExtensionCancellationCause::Settled,
+        };
         let _ = self
             .connection_for_write(cleanup_budget)
             .and_then(|mut connection| {
                 self.send_notification_with_budget_on(
                     &mut connection,
                     "$/cancelRequest",
-                    serde_json::json!({ "id": id }),
+                    workdeck_extension_api::ExtensionRequestCancellation::new(
+                        id,
+                        cancellation_cause,
+                    ),
                     cleanup_budget,
                 )
             });
@@ -1900,7 +1912,10 @@ impl LoadedExtension {
                 self.send_notification_on(
                     &mut connection,
                     "$/cancelRequest",
-                    serde_json::json!({ "id": id }),
+                    workdeck_extension_api::ExtensionRequestCancellation::new(
+                        id,
+                        workdeck_extension_api::ExtensionCancellationCause::Cancelled,
+                    ),
                 )?;
                 cancellation_sent = true;
             }
@@ -3013,7 +3028,10 @@ impl LoadedExtension {
                     let _ = self.send_notification_on(
                         &mut connection,
                         "$/cancelRequest",
-                        serde_json::json!({ "id": pending_id }),
+                        workdeck_extension_api::ExtensionRequestCancellation::new(
+                            pending_id,
+                            workdeck_extension_api::ExtensionCancellationCause::TimedOut,
+                        ),
                     );
                     connection.pending_request = None;
                     return Some(Err(HostError::Timeout(self.manifest.id.clone())));

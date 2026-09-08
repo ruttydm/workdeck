@@ -59,7 +59,10 @@ pub fn read_extension_document(
             && value.get("id").is_none()
         {
             if value.pointer("/params/id").and_then(Value::as_u64) == Some(parent_id) {
-                return Err(io::ErrorKind::Interrupted.into());
+                let cancellation: crate::ExtensionRequestCancellation =
+                    serde_json::from_value(value["params"].clone())
+                        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+                return Err(io::Error::new(io::ErrorKind::Interrupted, cancellation));
             }
             continue;
         }
@@ -96,6 +99,32 @@ pub fn read_extension_document(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn callback_preserves_typed_parent_cancellation_metadata() {
+        for params in [
+            serde_json::json!({"id":8}),
+            serde_json::json!({"id":8,"cause":"timed_out","reason":{"message":"deadline","details":[1,true]}}),
+        ] {
+            let frame =
+                serde_json::json!({"jsonrpc":"2.0","method":"$/cancelRequest","params":params});
+            let error = read_extension_document(
+                &mut io::Cursor::new(format!("{frame}\n")),
+                &mut Vec::new(),
+                8,
+                3,
+                ExtensionFileSide::New,
+            )
+            .unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+            let cancellation = error
+                .get_ref()
+                .unwrap()
+                .downcast_ref::<crate::ExtensionRequestCancellation>()
+                .unwrap();
+            assert_eq!(serde_json::to_value(cancellation).unwrap(), params);
+        }
+    }
 
     #[test]
     fn callback_rejects_ambiguous_and_malformed_error_responses() {

@@ -69,6 +69,59 @@ fn review_file(path: &str) -> workdeck_core::DiffFile {
 }
 
 #[test]
+fn native_cleanup_distinguishes_settlement_timeout_and_parent_cancellation() {
+    use workdeck_extension_api::{
+        ExtensionCancellationCause as Cause, ExtensionRequestCancellation,
+    };
+    let (_directory, manifest) = staged_extension();
+    let mut extension = LoadedExtension::spawn(&manifest, "test").unwrap();
+    let received = |extension: &mut LoadedExtension, cause| {
+        let value = extension
+            .request(
+                "example/last-cancellation",
+                serde_json::json!({}),
+                Duration::from_secs(2),
+            )
+            .unwrap();
+        let cancellation: ExtensionRequestCancellation = serde_json::from_value(value).unwrap();
+        assert_eq!(cancellation.cause, Some(cause));
+        assert_eq!(cancellation.reason, None);
+        cancellation.id
+    };
+    extension
+        .highlight_file("attention", &review_file("success.rs"))
+        .unwrap();
+    let settled = received(&mut extension, Cause::Settled);
+    assert!(matches!(
+        extension.highlight_file("hang", &review_file("timeout.rs")),
+        Err(HostError::Timeout(_))
+    ));
+    let timed_out = received(&mut extension, Cause::TimedOut);
+    assert_ne!(settled, timed_out);
+    let cancelled = AtomicBool::new(false);
+    let mut peer = extension.clone();
+    std::thread::scope(|scope| {
+        let waiting = scope.spawn(|| {
+            peer.highlight_file_cancellable("hang", &review_file("cancel.rs"), &cancelled)
+        });
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !extension.request_pending() || extension.line_highlight_request_pending() {
+            assert!(
+                Instant::now() < deadline,
+                "parent never acquired routed ownership"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        cancelled.store(true, Ordering::Release);
+        assert!(matches!(
+            waiting.join().unwrap(),
+            Err(HostError::Cancelled(_))
+        ));
+    });
+    assert_ne!(received(&mut extension, Cause::Cancelled), timed_out);
+}
+
+#[test]
 fn late_serialized_reply_burst_cannot_block_a_routed_highlighter_request() {
     let (_directory, manifest) = staged_extension();
     let mut extension = LoadedExtension::spawn_with_configuration(

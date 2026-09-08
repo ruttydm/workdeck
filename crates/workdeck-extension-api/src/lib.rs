@@ -6,6 +6,7 @@
 
 mod authoring;
 mod bundled_ui;
+mod cancellation;
 mod document_callbacks;
 mod document_client;
 mod extension_ids;
@@ -16,6 +17,7 @@ mod vcs;
 
 pub use authoring::*;
 pub use bundled_ui::*;
+pub use cancellation::*;
 pub use document_callbacks::*;
 pub use document_client::*;
 pub use extension_ids::*;

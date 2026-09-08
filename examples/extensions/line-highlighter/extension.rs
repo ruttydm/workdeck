@@ -22,6 +22,7 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
     let mut batch: Vec<(u64, String)> = Vec::new();
     let mut last_annotation_width: Option<usize> = None;
     let mut active_request = None;
+    let mut last_cancellation: Option<workdeck_extension_api::ExtensionRequestCancellation> = None;
     let mut callbacks = workdeck_extension_api::ExtensionDocumentCallbacks::default();
     let mut pending_documents =
         std::collections::BTreeMap::<u64, (LineHighlightRequest, bool)>::new();
@@ -86,6 +87,9 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
             if value.get("method").and_then(Value::as_str) == Some("$/cancelRequest")
                 && let Some(parent) = value.pointer("/params/id").and_then(Value::as_u64)
             {
+                last_cancellation = Some(
+                    serde_json::from_value(value["params"].clone()).map_err(io::Error::other)?,
+                );
                 callbacks.retire(parent);
                 pending_documents.remove(&parent);
             }
@@ -117,6 +121,9 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
         }
         let request: JsonRpcRequest = serde_json::from_value(value).map_err(io::Error::other)?;
         match request.method.as_str() {
+            "example/last-cancellation" => {
+                write_result(&mut output, request.id, &last_cancellation)?;
+            }
             "example/stop-reading" => {
                 write_result(&mut output, request.id, Value::Null)?;
                 loop {
