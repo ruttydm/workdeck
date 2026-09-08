@@ -176,3 +176,24 @@ error. Counters are integrated at the interaction workload boundaries, outside m
 intervals. Defining/verifying cross-runtime memory comparisons remains required before the source
 interaction benchmark can be mapped or admitted. The diagnostic does not force allocator purges
 and cannot claim equivalence to Hunk's full-GC snapshots.
+
+### Optimized interaction diagnostic at `10bb95d7`
+
+[Raw nine-process comparison](interaction-diagnostic-10bb95d7.json) records three optimized native
+runs, then three pinned main and three pinned stable runs on the same macOS arm64 host. Builds
+and tests had finished first; unrelated host activity was not controlled. Using the source's
+nearest-rank percentile rule, medians across runs are:
+
+| Measurement | Native | Hunk main | Hunk stable |
+| --- | ---: | ---: | ---: |
+| First frame (ms) | 160.96 | 19.04 | 19.03 |
+| Per-run median navigation press (ms) | 320.58 | 45.47 | 47.73 |
+| Per-run median scroll tick (ms) | 228.02 | 1.49 | 1.32 |
+| RSS after first frame (bytes) | 213811200 | 305725440 | 292356096 |
+| RSS after navigation (bytes) | 238862336 | 444219392 | 435060736 |
+
+All three latency measurements fail the user's 10% gate by a substantial margin. Lower RSS
+snapshots do not establish peak-memory acceptance. Native malloc usage remains distinctly labeled
+in the raw report and is not compared to JavaScript heap usage. Source parity and ledger mapping
+remain incomplete. The next performance work must investigate per-event row planning/rendering;
+changing the benchmark scale or excluding input dispatch would not resolve the observed gap.

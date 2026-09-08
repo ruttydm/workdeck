@@ -1,0 +1,192 @@
+{
+  "nativeCommit": "10bb95d71206406ba78ba16c25ed5b24bea78c63",
+  "host": "macOS 26.5.2 arm64",
+  "rust": "1.95.0",
+  "nativeProfile": "release",
+  "hunkRuntime": "Bun 1.3.14",
+  "order": "three native processes, then three baseline processes, then three stable processes; no builds/tests run concurrently by this agent; other host activity uncontrolled",
+  "sourceCommits": {
+    "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+  },
+  "native": [
+    {
+      "exitCode": 0,
+      "report": {
+        "diagnosticOnly": true,
+        "firstFrameMs": 166.19970800000002,
+        "navigationPressMs": [
+          330.366125,
+          322.106333,
+          320.772792,
+          318.34495899999996,
+          316.699,
+          319.47716599999995
+        ],
+        "scrollTickMs": [
+          228.019375,
+          227.51125,
+          234.6565,
+          226.522083,
+          230.571084,
+          228.366708,
+          228.103542,
+          224.56599999999997
+        ],
+        "afterFirstFrame": {
+          "rssBytes": 213811200,
+          "mallocInUseBytes": 69578496
+        },
+        "afterNavigation": {
+          "rssBytes": 241614848,
+          "mallocInUseBytes": 77314560
+        },
+        "files": 180,
+        "linesPerFile": 120,
+        "viewport": {
+          "width": 240,
+          "height": 28
+        },
+        "memorySemantics": "Current RSS and native malloc-zone usage, not peak RSS or JavaScript heapUsed"
+      }
+    },
+    {
+      "exitCode": 0,
+      "report": {
+        "diagnosticOnly": true,
+        "firstFrameMs": 155.128959,
+        "navigationPressMs": [
+          331.14754200000004,
+          326.04525,
+          325.785792,
+          321.298625,
+          318.530792,
+          316.86204200000003
+        ],
+        "scrollTickMs": [
+          228.63525,
+          229.07174999999998,
+          231.02962499999998,
+          231.11166699999998,
+          229.72500000000002,
+          229.17337500000002,
+          228.58920899999998,
+          228.3275
+        ],
+        "afterFirstFrame": {
+          "rssBytes": 215662592,
+          "mallocInUseBytes": 69552160
+        },
+        "afterNavigation": {
+          "rssBytes": 238862336,
+          "mallocInUseBytes": 77342384
+        },
+        "files": 180,
+        "linesPerFile": 120,
+        "viewport": {
+          "width": 240,
+          "height": 28
+        },
+        "memorySemantics": "Current RSS and native malloc-zone usage, not peak RSS or JavaScript heapUsed"
+      }
+    },
+    {
+      "exitCode": 0,
+      "report": {
+        "diagnosticOnly": true,
+        "firstFrameMs": 160.960792,
+        "navigationPressMs": [
+          337.780208,
+          328.527417,
+          323.547625,
+          320.583,
+          318.998583,
+          316.89549999999997
+        ],
+        "scrollTickMs": [
+          229.988458,
+          230.296167,
+          229.740958,
+          229.376875,
+          226.72679100000002,
+          227.176,
+          226.749708,
+          225.56300000000002
+        ],
+        "afterFirstFrame": {
+          "rssBytes": 213483520,
+          "mallocInUseBytes": 69617856
+        },
+        "afterNavigation": {
+          "rssBytes": 238239744,
+          "mallocInUseBytes": 77680048
+        },
+        "files": 180,
+        "linesPerFile": 120,
+        "viewport": {
+          "width": 240,
+          "height": 28
+        },
+        "memorySemantics": "Current RSS and native malloc-zone usage, not peak RSS or JavaScript heapUsed"
+      }
+    }
+  ],
+  "sources": {
+    "baseline": [
+      {
+        "exitCode": 0,
+        "output": "METRIC first_frame_ms=6.30\nMETRIC after_first_frame_rss_bytes=280772608\nMETRIC after_first_frame_heap_used_bytes=40592399\nMETRIC hunk_nav_press_median_ms=45.38\nMETRIC hunk_nav_press_p95_ms=122.23\nMETRIC after_navigation_rss_bytes=444219392\nMETRIC after_navigation_heap_used_bytes=104174632\nMETRIC scroll_tick_median_ms=1.49\nMETRIC scroll_tick_p95_ms=25.23\nMETRIC navigation_presses=6\nMETRIC scroll_ticks=8\nMETRIC files=180\nMETRIC lines_per_file=120\n"
+      },
+      {
+        "exitCode": 0,
+        "output": "METRIC first_frame_ms=20.53\nMETRIC after_first_frame_rss_bytes=306675712\nMETRIC after_first_frame_heap_used_bytes=41444963\nMETRIC hunk_nav_press_median_ms=45.98\nMETRIC hunk_nav_press_p95_ms=57.19\nMETRIC after_navigation_rss_bytes=441942016\nMETRIC after_navigation_heap_used_bytes=101642258\nMETRIC scroll_tick_median_ms=1.66\nMETRIC scroll_tick_p95_ms=7.79\nMETRIC navigation_presses=6\nMETRIC scroll_ticks=8\nMETRIC files=180\nMETRIC lines_per_file=120\n"
+      },
+      {
+        "exitCode": 0,
+        "output": "METRIC first_frame_ms=19.04\nMETRIC after_first_frame_rss_bytes=305725440\nMETRIC after_first_frame_heap_used_bytes=41465166\nMETRIC hunk_nav_press_median_ms=45.47\nMETRIC hunk_nav_press_p95_ms=55.54\nMETRIC after_navigation_rss_bytes=449101824\nMETRIC after_navigation_heap_used_bytes=99776212\nMETRIC scroll_tick_median_ms=1.24\nMETRIC scroll_tick_p95_ms=2.63\nMETRIC navigation_presses=6\nMETRIC scroll_ticks=8\nMETRIC files=180\nMETRIC lines_per_file=120\n"
+      }
+    ],
+    "stable": [
+      {
+        "exitCode": 0,
+        "output": "METRIC first_frame_ms=19.03\nMETRIC after_first_frame_rss_bytes=292782080\nMETRIC after_first_frame_heap_used_bytes=40858608\nMETRIC hunk_nav_press_median_ms=47.76\nMETRIC hunk_nav_press_p95_ms=56.50\nMETRIC after_navigation_rss_bytes=434667520\nMETRIC after_navigation_heap_used_bytes=100787049\nMETRIC scroll_tick_median_ms=1.28\nMETRIC scroll_tick_p95_ms=5.83\nMETRIC navigation_presses=6\nMETRIC scroll_ticks=8\nMETRIC files=180\nMETRIC lines_per_file=120\n"
+      },
+      {
+        "exitCode": 0,
+        "output": "METRIC first_frame_ms=19.99\nMETRIC after_first_frame_rss_bytes=292356096\nMETRIC after_first_frame_heap_used_bytes=39840474\nMETRIC hunk_nav_press_median_ms=47.29\nMETRIC hunk_nav_press_p95_ms=56.02\nMETRIC after_navigation_rss_bytes=435060736\nMETRIC after_navigation_heap_used_bytes=100759139\nMETRIC scroll_tick_median_ms=1.32\nMETRIC scroll_tick_p95_ms=4.72\nMETRIC navigation_presses=6\nMETRIC scroll_ticks=8\nMETRIC files=180\nMETRIC lines_per_file=120\n"
+      },
+      {
+        "exitCode": 0,
+        "output": "METRIC first_frame_ms=18.77\nMETRIC after_first_frame_rss_bytes=290455552\nMETRIC after_first_frame_heap_used_bytes=40889478\nMETRIC hunk_nav_press_median_ms=47.73\nMETRIC hunk_nav_press_p95_ms=52.41\nMETRIC after_navigation_rss_bytes=435486720\nMETRIC after_navigation_heap_used_bytes=99416666\nMETRIC scroll_tick_median_ms=1.40\nMETRIC scroll_tick_p95_ms=2.98\nMETRIC navigation_presses=6\nMETRIC scroll_ticks=8\nMETRIC files=180\nMETRIC lines_per_file=120\n"
+      }
+    ]
+  },
+  "medians": {
+    "native": {
+      "first_frame_ms": 160.960792,
+      "hunk_nav_press_median_ms": 320.583,
+      "scroll_tick_median_ms": 228.019375,
+      "after_first_frame_rss_bytes": 213811200,
+      "after_navigation_rss_bytes": 238862336
+    },
+    "baseline": {
+      "first_frame_ms": 19.04,
+      "hunk_nav_press_median_ms": 45.47,
+      "scroll_tick_median_ms": 1.49,
+      "after_first_frame_rss_bytes": 305725440,
+      "after_navigation_rss_bytes": 444219392
+    },
+    "stable": {
+      "first_frame_ms": 19.03,
+      "hunk_nav_press_median_ms": 47.73,
+      "scroll_tick_median_ms": 1.32,
+      "after_first_frame_rss_bytes": 292356096,
+      "after_navigation_rss_bytes": 435060736
+    }
+  },
+  "assessment": {
+    "latencyGate": "FAIL: all three reported latency medians exceed both pinned sources by more than 10%",
+    "memoryGate": "UNPROVEN: current RSS snapshots are lower; no peak sampling or equivalent heap measurement",
+    "sourceParity": "INCOMPLETE: diagnostic only; ledger remains unmapped"
+  }
+}
