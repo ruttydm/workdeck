@@ -123,6 +123,15 @@ provenance, release-gate completion, or acceptable optimized performance. At tha
 packaging had no provenance input; the input boundary above was added subsequently. Authentication
 and validation of actual build evidence remain outstanding.
 
+Integration checkpoint at `c91fdef7`: all 169 `xtask` tests passed together (40.39 seconds,
+local development profile), including provenance input, archive retention and subprocess tests.
+Strict `cargo xtask port audit` was rerun successfully after rebuilding the audit executable,
+and returned failure as required: 1,257 baseline files, 1,326 records, 315 unmapped records,
+five tracked stable-only commits and 11 commits in the locally tracked upstream delta.
+No fresh remote fetch was performed for this checkpoint. These counts do not establish functional
+parity or passing release gates. The first audit attempt failed at linking due to exhausted disk
+space; only regenerable `xtask` development build output was cleaned before the retry.
+
 ```console
 cargo xtask release channel --event push --ref v0.19.0 --current-latest 0.18.2
 cargo xtask release channel --event workflow_dispatch --ref main --requested-tag beta
