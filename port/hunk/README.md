@@ -1,5 +1,19 @@
 # Hunk semantic-port ledger
 
+## Runtime provider source ownership
+
+`LoadedVcsChangeset` retains a non-serialized source-capability registry, bound
+after final review addresses and source identities are established. Each handle
+captures its provider request, keeps old/new resolved results independently, and
+retains snapshot origin/attestation and typed size failures. Ordinary failures
+remain retryable. Duplicate file paths do not share a per-file cache.
+
+Materialization uses these same handles for its initial reads; subsequent access
+reuses those resolved results. Unknown or retired identities do not resolve a
+handle, and supplied metadata cannot change the captured provider request.
+Initial loading is still eager. The CLI/TUI handoff and asynchronous controller
+remain unfinished, and this change does not increase ledger coverage.
+
 ## Source capability identity integration
 
 The shared `DiffFile` model now retains optional source-capability identity

@@ -15,6 +15,7 @@ mod materialize;
 mod platform;
 mod sapling_adapter;
 mod sapling_commands;
+mod source_capabilities;
 mod source_text;
 mod untracked;
 mod watch_controller;
@@ -41,6 +42,7 @@ pub use materialize::*;
 pub use platform::{normalize_path_for_os, normalize_path_for_platform};
 pub use sapling_adapter::*;
 pub use sapling_commands::*;
+pub use source_capabilities::*;
 pub use source_text::{
     DEFAULT_SOURCE_TEXT_MAX_BYTES, LimitedSourceTextResult, SourceSubprocess, SourceTextError,
     log_source_diagnostic, read_file_text_with_limit, read_stream_text_with_limit,

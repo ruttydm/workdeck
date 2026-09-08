@@ -1,9 +1,8 @@
 //! Convert provider-neutral patch results into the core changeset rendered by Workdeck.
 
 use crate::{
-    VcsAdapter, VcsCatalog, VcsCatalogError, VcsFileSourceRequest, VcsFileSourceResult,
-    VcsLoadContext, VcsPatchResult, VcsReviewInput, build_filesystem_untracked_diff_file,
-    load_vcs_review, operation_from_input,
+    VcsAdapter, VcsCatalog, VcsCatalogError, VcsFileSourceResult, VcsLoadContext, VcsPatchResult,
+    VcsReviewInput, build_filesystem_untracked_diff_file, load_vcs_review, operation_from_input,
 };
 use std::path::{Path, PathBuf};
 use workdeck_core::{Changeset, ChangesetSource, FileSourceSnapshots, ReviewSide};
@@ -13,6 +12,7 @@ use workdeck_diff::changeset_from_patch;
 pub struct LoadedVcsChangeset {
     pub changeset: Changeset,
     pub repo_root: PathBuf,
+    pub source_capabilities: crate::VcsSourceCapabilities,
 }
 
 /// Production load-and-materialize boundary shared by the CLI and native benchmarks.
@@ -71,11 +71,15 @@ pub fn load_selected_vcs_changeset(
         }
     };
     let repo_root = result.repo_root.clone();
-    let changeset =
-        materialize_vcs_patch_result(result, format!("{}:{suffix}", adapter.id), source)?;
+    let (changeset, source_capabilities) = materialize_vcs_patch_result_with_sources(
+        result,
+        format!("{}:{suffix}", adapter.id),
+        source,
+    )?;
     Ok(LoadedVcsChangeset {
         changeset,
         repo_root,
+        source_capabilities,
     })
 }
 
@@ -84,6 +88,17 @@ pub fn materialize_vcs_patch_result(
     changeset_id: impl Into<String>,
     source: ChangesetSource,
 ) -> Result<Changeset, VcsCatalogError> {
+    materialize_vcs_patch_result_with_sources(result, changeset_id, source)
+        .map(|(changeset, _)| changeset)
+}
+
+/// Retain executable source capabilities for the review runtime as well as the
+/// currently materialized snapshots. This does not yet switch initial loading to lazy.
+pub fn materialize_vcs_patch_result_with_sources(
+    result: VcsPatchResult,
+    changeset_id: impl Into<String>,
+    source: ChangesetSource,
+) -> Result<(Changeset, crate::VcsSourceCapabilities), VcsCatalogError> {
     let changeset_id = changeset_id.into();
     let source_label = result.source_label.clone();
     let mut changeset = changeset_from_patch(
@@ -96,32 +111,26 @@ pub fn materialize_vcs_patch_result(
     );
 
     changeset.files.extend(result.extra_files);
+    let mut pending_capabilities = vec![None; changeset.files.len()];
     if let Some(reader) = &result.source_reader {
-        for file in &mut changeset.files {
+        for (index, file) in changeset.files.iter_mut().enumerate() {
             if file.flags.binary || file.flags.too_large {
                 continue;
             }
             file.set_source_capability(Some(workdeck_core::SourceCapabilityIdentity {
                 cache_key: result.source_cache_key.clone(),
             }));
-            let old = reader(&VcsFileSourceRequest {
-                path: file.path.clone(),
-                previous_path: file.previous_path.clone(),
-                change_kind: file.change_kind,
-                is_untracked: file.flags.untracked,
-                side: ReviewSide::Old,
-            })?;
-            let new = reader(&VcsFileSourceRequest {
-                path: file.path.clone(),
-                previous_path: file.previous_path.clone(),
-                change_kind: file.change_kind,
-                is_untracked: file.flags.untracked,
-                side: ReviewSide::New,
-            })?;
+            let capability = std::sync::Arc::new(crate::VcsFileSourceCapability::new(
+                std::sync::Arc::clone(reader),
+                file,
+            ));
+            let old = capability.read(ReviewSide::Old)?;
+            let new = capability.read(ReviewSide::New)?;
             file.set_sources(FileSourceSnapshots {
                 old: source_snapshot(old),
                 new: source_snapshot(new),
             });
+            pending_capabilities[index] = Some(capability);
         }
     }
 
@@ -142,7 +151,13 @@ pub fn materialize_vcs_patch_result(
         changeset.files.push(file);
     }
     changeset.refresh_review_identities();
-    Ok(changeset)
+    let mut source_capabilities = crate::VcsSourceCapabilities::default();
+    for (file, capability) in changeset.files.iter().zip(pending_capabilities) {
+        if let Some(capability) = capability {
+            source_capabilities.insert(file, capability);
+        }
+    }
+    Ok((changeset, source_capabilities))
 }
 
 fn source_snapshot(result: VcsFileSourceResult) -> Option<workdeck_core::SourceSnapshot> {
@@ -164,7 +179,10 @@ mod tests {
     fn parses_patch_hydrates_exact_sides_and_synthesizes_untracked_files() {
         let repo = TempDir::new().unwrap();
         std::fs::write(repo.path().join("fresh.txt"), "fresh\n").unwrap();
-        let reader: VcsSourceReader = Arc::new(|request| {
+        let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let observed = Arc::clone(&reads);
+        let reader: VcsSourceReader = Arc::new(move |request| {
+            observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let content = match request.side {
                 ReviewSide::Old => "old\n",
                 ReviewSide::New => "new\n",
@@ -178,7 +196,7 @@ mod tests {
                 true,
             )))
         });
-        let changeset = materialize_vcs_patch_result(
+        let (changeset, capabilities) = materialize_vcs_patch_result_with_sources(
             VcsPatchResult {
                 repo_root: repo.path().into(),
                 source_label: repo.path().display().to_string(),
@@ -228,6 +246,18 @@ mod tests {
         assert_eq!(changeset.files[1].change_kind, FileChangeKind::Added);
         assert!(changeset.files[1].flags.untracked);
         let tracked = &changeset.files[0];
+        let retained = capabilities.get(tracked).unwrap();
+        for side in [ReviewSide::Old, ReviewSide::New] {
+            let expected = match side {
+                ReviewSide::Old => tracked.sources.old.as_ref().unwrap(),
+                ReviewSide::New => tracked.sources.new.as_ref().unwrap(),
+            };
+            assert_eq!(
+                retained.read(side).unwrap(),
+                VcsFileSourceResult::Source(expected.clone())
+            );
+        }
+        assert_eq!(reads.load(std::sync::atomic::Ordering::SeqCst), 2);
         assert_eq!(
             tracked
                 .source_capability
