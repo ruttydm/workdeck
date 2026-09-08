@@ -31,11 +31,13 @@ an available source snapshot; asynchronous source-fetch capability and the full
 DiffPane/controller port remain unfinished and unmapped. No source interval gains
 coverage from this partial controller integration.
 
-Gap labels now share the ported metadata-label helper: materialized source gaps
-show the interactive chevron, while gaps without a source snapshot use the
-noninteractive dotted label and publish no mouse target. A live row-builder
-regression checks both the label and absent hit metadata. This does not implement
-lazy source fetching or complete the metadata row's remaining paint integration.
+Gap rows now use the ported metadata painter: materialized source gaps show the
+interactive chevron, while gaps without a source snapshot use the noninteractive
+dotted label and publish no mouse target. The painter supplies the selected or
+dimmed rail, themed foreground/background, width clipping, and panel padding.
+A live row-builder regression checks labels, absent hit metadata, selected and
+unselected colors, and exact widths at 0, 1, 2, 12, and 80 columns. This does not
+implement lazy source fetching or the metadata row's hover/add-note controls.
 
 ## Live gap retirement on reload
 

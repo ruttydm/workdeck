@@ -13032,6 +13032,8 @@ fn build_review_rows_with_chrome(
                     layout,
                     options,
                     width,
+                    selection.file_index == file_index
+                        && selection.hunk_index == Some(address.hunk_index),
                     expanded_gaps,
                     highlighted_source.as_ref(),
                     line_highlight_paint.as_ref(),
@@ -13149,6 +13151,8 @@ fn build_review_rows_with_chrome(
                 layout,
                 options,
                 width,
+                selection.file_index == file_index
+                    && selection.hunk_index == Some(address.hunk_index),
                 expanded_gaps,
                 highlighted_source.as_ref(),
                 line_highlight_paint.as_ref(),
@@ -13490,6 +13494,7 @@ fn source_gap_rows(
     layout: LayoutMode,
     options: &ReviewOptions,
     width: u16,
+    selected: bool,
     expanded_gaps: &BTreeSet<(String, usize)>,
     highlighted_source: Option<&workdeck_diff::HighlightedSourceCode>,
     line_highlights: Option<&LineHighlightPaintIndex>,
@@ -13510,7 +13515,15 @@ fn source_gap_rows(
     );
     let plan = plan_expanded_gap(&file.key, address, expanded, status, side);
     let mut rows = Vec::with_capacity(plan.lines.len().saturating_add(1));
-    rows.push(source_gap_label(&plan.label, width, source.is_some()));
+    rows.push(source_gap_label(
+        file,
+        address,
+        &plan.label,
+        width,
+        source.is_some(),
+        selected,
+        &options.theme,
+    ));
     for expanded_line in plan.lines {
         let start = rows.len();
         let highlighted = highlighted_source
@@ -13593,15 +13606,54 @@ fn sanitized_syntax_tokens(tokens: &[SyntaxToken]) -> Vec<SyntaxToken> {
         .collect()
 }
 
-fn source_gap_label(label: &str, width: u16, expandable: bool) -> Line<'static> {
-    let spans = clip_styled_spans(
-        vec![Span::styled(
-            collapsed_diff_meta_row_label(label, expandable),
-            Style::default().fg(Color::DarkGray),
-        )],
-        usize::from(width),
-    );
-    Line::from(spans)
+fn source_gap_label(
+    file: &DiffFile,
+    address: ReviewGapAddress,
+    label: &str,
+    width: u16,
+    expandable: bool,
+    selected: bool,
+    theme: &AppTheme,
+) -> Line<'static> {
+    let key = workdeck_review::review_gap_id(address.position, address.hunk_index);
+    let planned = PlannedReviewRow::DiffRow {
+        key: key.clone(),
+        stable_key: key.clone(),
+        stable_alias_keys: Vec::new(),
+        file_id: file.key.clone(),
+        hunk_index: address.hunk_index,
+        row: workdeck_diff::DiffRow::Collapsed {
+            key,
+            file_id: file.key.clone(),
+            hunk_index: address.hunk_index,
+            text: label.to_owned(),
+            position: address.position,
+            old_range: [
+                address.old_range.start as usize,
+                address.old_range.end as usize,
+            ],
+            new_range: [
+                address.new_range.start as usize,
+                address.new_range.end as usize,
+            ],
+        },
+        anchor_id: None,
+        note_guide_side: None,
+    };
+    paint_diff_meta_row(
+        &planned,
+        DiffMetaRowViewOptions {
+            width: usize::from(width),
+            theme,
+            selected,
+            show_hunk_headers: true,
+            show_add_note_badge: false,
+            enable_gap_toggle: expandable,
+        },
+    )
+    .expect("collapsed gap rows always have metadata paint")
+    .line
+    .ratatui_line()
 }
 
 fn insert_agent_annotation_rows(
@@ -16860,6 +16912,47 @@ mod tests {
             .join("\n");
         assert!(collapsed_text.contains("▾ 2 unchanged lines"));
         assert!(!collapsed_text.contains("one"));
+
+        for selected in [false, true] {
+            for width in [0, 1, 2, 12, 80] {
+                let painted = build_review_rows(
+                    &changeset,
+                    &[],
+                    ReviewSelection {
+                        hunk_index: selected.then_some(0),
+                        ..ReviewSelection::default()
+                    },
+                    LayoutMode::Stack,
+                    &options,
+                    width,
+                    &mut highlights,
+                    &BTreeSet::new(),
+                );
+                let line = &painted.lines[painted.gap_rows[0].0];
+                assert_eq!(line.width(), usize::from(width));
+                if width > 0 {
+                    assert_eq!(line.spans[0].content, diff_rail_marker());
+                    let rail_color = if selected {
+                        neutral_rail_color(&options.theme).to_owned()
+                    } else {
+                        dim_rail_color(neutral_rail_color(&options.theme), &options.theme)
+                    };
+                    assert_eq!(
+                        line.spans[0].style.fg,
+                        Some(ratatui_theme_color(&rail_color))
+                    );
+                    assert!(line.spans.iter().all(|span| {
+                        span.style.bg == Some(ratatui_theme_color(&options.theme.panel_alt))
+                    }));
+                }
+                if width == 80 {
+                    assert_eq!(
+                        line.spans[1].style.fg,
+                        Some(ratatui_theme_color(&options.theme.muted))
+                    );
+                }
+            }
+        }
 
         let expanded = build_review_rows(
             &changeset,
@@ -21773,6 +21866,9 @@ mod tests {
                 "export const other = 2;\n".into(),
             ),
         ]);
+        // This patch-only fixture has no expansion source; scrolling must retain
+        // the noninteractive gap label, not advertise a source fetch callback.
+        assert!(review.files[0].sources.new.is_none());
         let mut app = ReviewApp::new(
             review,
             ReviewOptions {
@@ -21783,7 +21879,7 @@ mod tests {
         );
         let mut terminal = Terminal::new(TestBackend::new(220, 10)).unwrap();
         let initial = rendered_review_frame(&mut terminal, &app);
-        assert!(initial.contains("▾ 362 unchanged lines"), "{initial}");
+        assert!(initial.contains("··· 362 unchanged lines ···"), "{initial}");
         assert!(
             !initial.contains("366 - export const line366 = 366;"),
             "{initial}"
@@ -21797,7 +21893,10 @@ mod tests {
         );
         app.handle_mouse_at(MouseEventKind::ScrollUp, now + Duration::from_millis(200));
         let restored = rendered_review_frame(&mut terminal, &app);
-        assert!(restored.contains("▾ 362 unchanged lines"), "{restored}");
+        assert!(
+            restored.contains("··· 362 unchanged lines ···"),
+            "{restored}"
+        );
         assert!(
             !restored.contains("366 - export const line366 = 366;"),
             "{restored}"
