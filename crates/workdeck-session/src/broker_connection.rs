@@ -41,6 +41,11 @@ pub trait SessionBrokerConnectionBridge<Input, ResultValue>: Send + Sync + 'stat
         &self,
         message: SessionServerMessage<String, Input>,
     ) -> Result<ResultValue, String>;
+
+    /// A validated successful result was accepted by the current socket's send
+    /// queue. This is not a peer acknowledgement. Lifecycle owners may use it
+    /// to order local shutdown after the reply, rather than after dispatch alone.
+    fn command_result_queued(&self, _request_id: &str) {}
 }
 
 impl<Input, ResultValue, F> SessionBrokerConnectionBridge<Input, ResultValue> for F
@@ -929,7 +934,7 @@ where
         &self,
         socket: &Arc<dyn SessionBrokerSocketLike>,
         value: Value,
-    ) -> Result<(), SessionBrokerConnectionError> {
+    ) -> Result<bool, SessionBrokerConnectionError> {
         let current = {
             let state = self
                 .state
@@ -940,10 +945,11 @@ where
                 && socket.ready_state() == self.options.open_state
         };
         if !current {
-            return Ok(());
+            return Ok(false);
         }
         socket
             .send(&value.to_string())
+            .map(|()| true)
             .map_err(SessionBrokerConnectionError::Socket)
     }
 
@@ -1114,7 +1120,7 @@ where
                 })();
                 match parsed {
                     Ok(result) => {
-                        let _ = self.send_to_socket(
+                        let sent = self.send_to_socket(
                             socket,
                             json!({
                                 "type": "command-result",
@@ -1123,6 +1129,13 @@ where
                                 "result": result,
                             }),
                         );
+                        if matches!(sent, Ok(true)) {
+                            // A lifecycle callback must not unwind out of the
+                            // FIFO worker and strand its remaining reservations.
+                            let _ = catch_unwind(AssertUnwindSafe(|| {
+                                bridge.command_result_queued(&message.request_id);
+                            }));
+                        }
                     }
                     Err(_) => {
                         socket.close(Some(1008), Some("Malformed session broker command result."))
@@ -1644,6 +1657,72 @@ mod tests {
                 .any(|message| message["type"] == "command-result" && message["ok"] == true)
         );
         connection.stop();
+    }
+
+    #[test]
+    fn result_queue_notification_requires_a_successful_current_socket_send() {
+        struct Bridge {
+            socket: Arc<TestSocket>,
+            dispatched: Arc<AtomicUsize>,
+            notified: Arc<AtomicUsize>,
+            mode: u8,
+        }
+        impl SessionBrokerConnectionBridge<TestInput, TestResult> for Bridge {
+            fn dispatch_command(
+                &self,
+                _: SessionServerMessage<String, TestInput>,
+            ) -> Result<TestResult, String> {
+                match self.mode {
+                    1 => self.socket.throw_on_send.store(true, Ordering::Release),
+                    2 => self.socket.set_ready(3),
+                    _ => {}
+                }
+                self.dispatched.fetch_add(1, Ordering::Release);
+                if self.mode == 3 {
+                    Err("command refused".into())
+                } else {
+                    Ok(TestResult { ok: true })
+                }
+            }
+            fn command_result_queued(&self, request_id: &str) {
+                assert!(
+                    self.socket
+                        .sent_values()
+                        .iter()
+                        .any(|value| value["type"] == "command-result"
+                            && value["requestId"] == request_id
+                            && value["ok"] == true)
+                );
+                self.notified.fetch_add(1, Ordering::Release);
+            }
+        }
+        for mode in 0..4 {
+            let socket = Arc::new(TestSocket::default());
+            let connection = TestConnection::new(options(Arc::clone(&socket))).unwrap();
+            connection.start().unwrap();
+            socket.emit_open();
+            let dispatched = Arc::new(AtomicUsize::new(0));
+            let notified = Arc::new(AtomicUsize::new(0));
+            connection.set_bridge(Some(Arc::new(Bridge {
+                socket: Arc::clone(&socket),
+                dispatched: Arc::clone(&dispatched),
+                notified: Arc::clone(&notified),
+                mode,
+            })));
+            socket.emit_text(command("quit-result", "fixture"));
+            wait_until(|| {
+                dispatched.load(Ordering::Acquire) == 1 && {
+                    let state = connection.inner.state.lock().unwrap();
+                    !state.draining && state.executing.is_empty()
+                }
+            });
+            assert_eq!(
+                notified.load(Ordering::Acquire),
+                usize::from(mode == 0),
+                "mode {mode}"
+            );
+            connection.stop();
+        }
     }
 
     #[test]
