@@ -299,3 +299,14 @@ remain complete. The new differential test compares visible text/styles and all 
 against the full painter; all 1,023 TUI unit tests and scroll integration pass.
 These measurements do not pass any pinned-Hunk latency gate. Current post-navigation RSS
 median is 214597632 bytes, not peak-memory acceptance. Source-ledger coverage is unchanged.
+
+### Count-only gap planning at `a5fc87e9`
+
+The [updated profile](interaction-profile-d2de3d88.md) motivated removal of source-line
+allocations from collapsed-gap planning. [Three optimized runs](interaction-diagnostic-a5fc87e9.json)
+report 53.75 ms first frame, 87.27 ms median navigation and 52.66 ms median scrolling,
+roughly 6.9%, 7.3% and 9.9% lower than `d2de3d88`. The source-backed expansion API remains
+available; count-only geometry shares its checked address arithmetic. Exhaustive normalization
+counts and direct gap-address comparisons supplement the full review/TUI suites.
+All pinned-Hunk latency gates still fail. Current post-navigation RSS median is 211288064
+bytes, not peak-memory evidence. No ledger record was newly mapped.
