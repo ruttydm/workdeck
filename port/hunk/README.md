@@ -1,5 +1,20 @@
 # Hunk semantic-port ledger
 
+## Reopened filesystem fetcher coverage
+
+The mappings for `src/core/changeset/fileSource.ts` and its complete test file
+have been reopened as unmapped. Their previous destinations implement bounded
+reads and snapshot storage, but not the source module's per-fetcher old/new cache
+of resolved text and missing results. In particular, the upstream test that
+rewrites a file after its first fetch has no corresponding cached-fetcher test in
+those destinations. A broad source/test file link was insufficient evidence.
+
+The original interval boundaries, blob hashes, classification, and provenance
+are unchanged; Git retains the withdrawn destination/evidence lists. Both
+intervals must regain genuine implementation and translated tests before being
+mapped again. The provider-to-live-review lazy-load integration remains a
+separate unfinished responsibility.
+
 ## Source decoding parity
 
 `oracles/source-text-decoding.json` freezes eight file/stream cases from both
