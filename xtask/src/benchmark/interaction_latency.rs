@@ -62,15 +62,21 @@ fn measure(memory: bool) -> Result<serde_json::Value> {
     let first_memory = memory.then(native_memory::snapshot).transpose()?;
     navigation.render_pass(2);
     let mut presses = Vec::new();
+    let mut navigation_dispatch = Vec::new();
+    let mut navigation_render = Vec::new();
     for _ in 0..NAVIGATION_PRESSES {
         let before = navigation.app.shared_state().lock().unwrap().selection();
         let start = Instant::now();
         navigation
             .app
             .handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+        let dispatched = Instant::now();
         navigation.render_pass(1);
+        let rendered = Instant::now();
         std::thread::yield_now();
         presses.push(start.elapsed().as_secs_f64() * 1000.0);
+        navigation_dispatch.push(dispatched.duration_since(start).as_secs_f64() * 1000.0);
+        navigation_render.push(rendered.duration_since(dispatched).as_secs_f64() * 1000.0);
         let after = navigation.app.shared_state().lock().unwrap().selection();
         anyhow::ensure!(
             before != after,
@@ -83,6 +89,8 @@ fn measure(memory: bool) -> Result<serde_json::Value> {
     scrolling.render_pass(2);
     let initial_scroll = scrolling.app.review_scroll();
     let mut ticks = Vec::new();
+    let mut scroll_dispatch = Vec::new();
+    let mut scroll_render = Vec::new();
     for _ in 0..SCROLL_TICKS {
         let start = Instant::now();
         scrolling.app.handle_mouse_event(MouseEvent {
@@ -91,9 +99,13 @@ fn measure(memory: bool) -> Result<serde_json::Value> {
             row: 12,
             modifiers: KeyModifiers::NONE,
         });
+        let dispatched = Instant::now();
         scrolling.render_pass(1);
+        let rendered = Instant::now();
         std::thread::yield_now();
         ticks.push(start.elapsed().as_secs_f64() * 1000.0);
+        scroll_dispatch.push(dispatched.duration_since(start).as_secs_f64() * 1000.0);
+        scroll_render.push(rendered.duration_since(dispatched).as_secs_f64() * 1000.0);
     }
     anyhow::ensure!(
         scrolling.app.review_scroll() > initial_scroll,
@@ -112,6 +124,11 @@ fn measure(memory: bool) -> Result<serde_json::Value> {
         "firstFrameMs": first_frame_ms,
         "navigationPressMs": presses,
         "scrollTickMs": ticks,
+        "navigationDispatchMs": navigation_dispatch,
+        "navigationRenderMs": navigation_render,
+        "scrollDispatchMs": scroll_dispatch,
+        "scrollRenderMs": scroll_render,
+        "stageSemantics": "Dispatch includes input handling and its geometry/events; render includes the complete frame pass. Total includes both stages and the scheduler yield. Two additional clock reads per interaction instrument the boundaries.",
         "afterFirstFrame": first_memory,
         "afterNavigation": navigation_memory,
         "files": stream::DEFAULT_FILE_COUNT,
@@ -135,6 +152,27 @@ fn source_interaction_sequence_drives_real_navigation_and_fresh_scroll_state() {
     let report = measure(cfg!(target_os = "macos")).unwrap();
     assert_eq!(report["navigationPressMs"].as_array().unwrap().len(), 6);
     assert_eq!(report["scrollTickMs"].as_array().unwrap().len(), 8);
+    for (total, dispatch, render) in [
+        (
+            "navigationPressMs",
+            "navigationDispatchMs",
+            "navigationRenderMs",
+        ),
+        ("scrollTickMs", "scrollDispatchMs", "scrollRenderMs"),
+    ] {
+        let totals = report[total].as_array().unwrap();
+        let dispatches = report[dispatch].as_array().unwrap();
+        let renders = report[render].as_array().unwrap();
+        assert_eq!(totals.len(), dispatches.len());
+        assert_eq!(totals.len(), renders.len());
+        for ((total, dispatch), render) in totals.iter().zip(dispatches).zip(renders) {
+            let dispatch = dispatch.as_f64().unwrap();
+            let render = render.as_f64().unwrap();
+            assert!(dispatch.is_finite() && dispatch >= 0.0);
+            assert!(render.is_finite() && render >= 0.0);
+            assert!(dispatch + render <= total.as_f64().unwrap() + 1e-9);
+        }
+    }
     assert_eq!(report["files"], 180);
     assert_eq!(report["linesPerFile"], 120);
     assert_eq!(
