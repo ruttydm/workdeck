@@ -35,6 +35,13 @@ pub trait LineHighlightRuntime: Send + Sync {
         file: &DiffFile,
         cancelled: &AtomicBool,
     ) -> Result<Value, LineHighlightRuntimeError>;
+    fn highlight_file_with_reader(
+        &self,
+        highlighter_id: &str,
+        file: &DiffFile,
+        cancelled: &AtomicBool,
+        reader: workdeck_extension_host::ExtensionDocumentReader,
+    ) -> Result<Value, LineHighlightRuntimeError>;
     fn notify_warning(&self, message: String);
 }
 
@@ -68,17 +75,44 @@ impl LineHighlightRuntime for SourceBoundLineHighlightRuntime {
         if cancelled.load(Ordering::Acquire) {
             return Err(LineHighlightRuntimeError::Retry);
         }
-        let loaded = self
-            .sources
-            .as_ref()
-            .map(|sources| sources.with_source_snapshots(file))
-            .transpose()
-            .map_err(|error| LineHighlightRuntimeError::Failed(error.to_string()))?;
-        if cancelled.load(Ordering::Acquire) {
-            return Err(LineHighlightRuntimeError::Retry);
-        }
+        let capability = self.sources.as_ref().and_then(|sources| sources.get(file));
+        let snapshots = file.sources.clone();
+        let reader = workdeck_extension_host::ExtensionDocumentReader::new(move |side| {
+            let side = match side {
+                workdeck_extension_api::ExtensionFileSide::Old => workdeck_core::ReviewSide::Old,
+                workdeck_extension_api::ExtensionFileSide::New => workdeck_core::ReviewSide::New,
+            };
+            if let Some(capability) = &capability {
+                return capability
+                    .read(side)
+                    .map(|result| match result {
+                        workdeck_vcs::VcsFileSourceResult::Source(snapshot) => {
+                            Some(snapshot.content)
+                        }
+                        workdeck_vcs::VcsFileSourceResult::Missing
+                        | workdeck_vcs::VcsFileSourceResult::TooLarge { .. } => None,
+                    })
+                    .map_err(|error| error.to_string());
+            }
+            Ok(match side {
+                workdeck_core::ReviewSide::Old => snapshots.old.as_ref(),
+                workdeck_core::ReviewSide::New => snapshots.new.as_ref(),
+            }
+            .map(|snapshot| snapshot.content.clone()))
+        });
         self.runtime
-            .highlight_file(highlighter_id, loaded.as_ref().unwrap_or(file), cancelled)
+            .highlight_file_with_reader(highlighter_id, file, cancelled, reader)
+    }
+
+    fn highlight_file_with_reader(
+        &self,
+        highlighter_id: &str,
+        file: &DiffFile,
+        cancelled: &AtomicBool,
+        reader: workdeck_extension_host::ExtensionDocumentReader,
+    ) -> Result<Value, LineHighlightRuntimeError> {
+        self.runtime
+            .highlight_file_with_reader(highlighter_id, file, cancelled, reader)
     }
 
     fn notify_warning(&self, message: String) {
@@ -87,6 +121,20 @@ impl LineHighlightRuntime for SourceBoundLineHighlightRuntime {
 }
 
 impl LineHighlightRuntime for LoadedExtension {
+    fn highlight_file_with_reader(
+        &self,
+        highlighter_id: &str,
+        file: &DiffFile,
+        cancelled: &AtomicBool,
+        reader: workdeck_extension_host::ExtensionDocumentReader,
+    ) -> Result<Value, LineHighlightRuntimeError> {
+        self.clone()
+            .highlight_file_with_document_reader(highlighter_id, file, cancelled, reader)
+            .map_err(|error| match error {
+                HostError::Busy(_) | HostError::Cancelled(_) => LineHighlightRuntimeError::Retry,
+                error => LineHighlightRuntimeError::Failed(error.to_string()),
+            })
+    }
     fn request_pending(&self) -> bool {
         LoadedExtension::request_pending(self)
     }
@@ -1065,6 +1113,36 @@ mod tests {
     }
 
     impl LineHighlightRuntime for FakeLineHighlightRuntime {
+        fn highlight_file_with_reader(
+            &self,
+            highlighter_id: &str,
+            file: &DiffFile,
+            cancelled: &AtomicBool,
+            reader: workdeck_extension_host::ExtensionDocumentReader,
+        ) -> Result<Value, LineHighlightRuntimeError> {
+            let read = |side| {
+                reader
+                    .read_document(side)
+                    .wait_until(
+                        &workdeck_extension_host::ExtensionRequestCancellation::default(),
+                        Instant::now() + Duration::from_secs(5),
+                    )
+                    .unwrap()
+                    .map(|text| {
+                        workdeck_core::SourceSnapshot::new(
+                            text,
+                            workdeck_core::SourceOrigin::WorkingTree,
+                            true,
+                        )
+                    })
+            };
+            let mut loaded = file.clone();
+            loaded.set_sources(workdeck_core::FileSourceSnapshots {
+                old: read(workdeck_extension_api::ExtensionFileSide::Old),
+                new: read(workdeck_extension_api::ExtensionFileSide::New),
+            });
+            self.highlight_file(highlighter_id, &loaded, cancelled)
+        }
         fn source_generation(&self, _: &DiffFile) -> Option<u64> {
             let generation = self.source_generation.load(Ordering::Acquire);
             (generation != 0).then_some(generation)

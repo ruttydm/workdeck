@@ -240,6 +240,7 @@ fn assert_saved_note_changes_reach_native_highlighter(deferred: bool) {
                 source_cache_key: Some("notes-snapshot".into()),
                 source_reader: Some(Arc::new(move |request| {
                     assert_eq!(request.path, "request.rs");
+                    assert_eq!(request.side, workdeck_core::ReviewSide::New);
                     reads.fetch_add(1, Ordering::SeqCst);
                     Ok(workdeck_vcs::VcsFileSourceResult::Source(
                         SourceSnapshot::new(
@@ -359,7 +360,7 @@ fn assert_saved_note_changes_reach_native_highlighter(deferred: bool) {
         }
     }
     assert_eq!(state.lock().unwrap().changeset(), &document);
-    assert_eq!(reads.load(Ordering::SeqCst), if deferred { 2 } else { 0 });
+    assert_eq!(reads.load(Ordering::SeqCst), if deferred { 1 } else { 0 });
 }
 
 #[test]

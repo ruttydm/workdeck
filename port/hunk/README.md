@@ -1,5 +1,25 @@
 # Hunk semantic-port ledger
 
+## Live TUI lazy highlighter source binding
+
+The source-bound TUI runtime now builds a request-local document reader from
+the captured VCS capability, falling back to immutable file snapshots only when
+no capability is bound. It passes this reader to the native host instead of
+materializing both source sides before invoking the extension. The shared
+reader maps provider errors to unreadable results and retains per-request
+deduplication; provider capability caches remain bound to their captured source.
+
+The compiled saved-note test now rejects old-side source reads and expects only
+one cached new-side fetch across note creation, editing, removal, and filtering.
+Its existing zero-read construction and terminal-cell assertions remain intact.
+The test runtime explicitly requests both sides for older source-ownership unit
+tests; production native requests do not take that test-only path. No ledger
+coverage or full callback/SDK parity is claimed by this integration.
+Verification passes: all 1,072 TUI unit tests, 39 focused highlighter tests,
+all eight compiled highlighter integration tests, workspace Clippy, formatting,
+and architecture checks. General SDK support and exhaustive callback failure,
+deadline, and no-read behavior remain separate verification work.
+
 ## Native highlighter document callback transport
 
 The transport drains ready callbacks one at a time, checking cancellation and

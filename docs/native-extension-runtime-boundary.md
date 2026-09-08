@@ -28,8 +28,11 @@ and accepts child `workdeck/document/read` requests with `parentRequestId` and
 `side`. Child IDs are independently scoped; no child path can grant source
 authority. Reads are shared per side, bounded by the parent broker, and retired
 when the parent settles. The compiled example exercises duplicate reads and
-cancellation during a held source read. The live TUI still uses the eager
-snapshot entry point; a general SDK callback helper remains unfinished.
+cancellation during a held source read. The live TUI passes captured VCS source
+authority through this entry point without eagerly reading either side. Where
+no captured provider exists, the reader uses the file's frozen snapshots.
+Provider failures become unreadable results through the shared document reader.
+A general SDK callback helper remains unfinished.
 
 Line-highlighter requests receive `$/cancelRequest` with the original request ID
 on timeout, supersession, and after a decoded response (including an extension
