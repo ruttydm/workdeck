@@ -63,6 +63,24 @@ whitespace checks pass. A subsequent focused run passed all 44 coordinator tests
 including the additional source-binding identity test. This does not establish whole-hook parity or change any ledger
 interval's disposition.
 
+### Four-file ownership during provider contention
+
+Pinned `useLineHighlights.ts` keeps each of four workers on its file until every
+provider completes. The native coordinator previously counted only pending RPCs:
+four files waiting on a busy second provider could allow the first provider to
+start a fifth file. The deterministic regression
+`busy_later_provider_retains_four_file_preparation_slots` failed before the fix
+with one unexpected pending request instead of zero. Scheduling now counts the
+first four unfinished files as occupied slots, including provider contention.
+The test also releases contention and verifies all five files eventually finish.
+All 45 focused coordinator tests and all 25 compiled highlighter integration
+tests pass, along with TUI all-target Clippy with warnings denied, formatting,
+and whitespace checks.
+
+Strict audit refreshed after `bf656bd4`: exactly 1,257 baseline files and 1,326
+records, with 290 unmapped records and 11 cached upstream delta commits. Audit
+exited unsuccessfully on incomplete coverage. No mapping is changed by this fix.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation

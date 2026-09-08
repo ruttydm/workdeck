@@ -506,11 +506,18 @@ impl LineHighlightPreparationController {
             }
             // The first unresolved registration owns this file's turn, including
             // while its native connection is busy. Later registrations cannot pass it.
-            if !blocked_files.insert(task.key.file_id.as_str())
-                || self
-                    .pending
-                    .keys()
-                    .any(|key| key.file_id == task.key.file_id)
+            if !blocked_files.insert(task.key.file_id.as_str()) {
+                continue;
+            }
+            // Hunk's worker owns the file until every provider settles, even
+            // when the next provider cannot accept a native request yet.
+            if blocked_files.len() > LINE_HIGHLIGHT_CONCURRENCY {
+                break;
+            }
+            if self
+                .pending
+                .keys()
+                .any(|key| key.file_id == task.key.file_id)
             {
                 continue;
             }
@@ -2406,6 +2413,46 @@ mod tests {
                 vec!["first", "second"]
             );
         }
+    }
+
+    #[test]
+    fn busy_later_provider_retains_four_file_preparation_slots() {
+        let first = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+        let second = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+        second.pending.store(true, Ordering::Release);
+        let extensions: Vec<Arc<dyn LineHighlightRuntime>> = vec![first.clone(), second.clone()];
+        let mut later = registration("second");
+        later.extension_index = 1;
+        let registrations = [registration("first"), later];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = (0..5)
+            .map(|index| test_file(&format!("file-{index}"), "content"))
+            .collect::<Vec<_>>();
+        let mut controller = LineHighlightPreparationController::default();
+        // Four file workers have finished their first provider, but not their second.
+        for task in desired_line_highlight_tasks(&extensions, &registrations, &epochs, &files) {
+            if task.highlighter_id == "first" && task.key.file_id != "file-4" {
+                controller.cache.insert(task.key, None);
+            }
+        }
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        assert_eq!(
+            controller.pending_count(),
+            0,
+            "fifth file started while four file workers remained occupied"
+        );
+        assert!(first.calls().is_empty());
+        second.pending.store(false, Ordering::Release);
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            &files,
+            |controller| controller.resolved().len() == 5 && controller.pending_count() == 0,
+        );
+        assert_eq!(first.calls(), [("first".into(), "file-4".into())]);
+        assert_eq!(second.calls().len(), 5);
     }
 
     #[test]
