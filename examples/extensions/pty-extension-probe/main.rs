@@ -64,7 +64,7 @@ fn registrations(kind: &str) -> Vec<Registration> {
             },
         }];
     }
-    if kind == "transform" {
+    if matches!(kind, "transform" | "source-transform") {
         return vec![Registration::ChangesetTransform {
             id: "filter-beta".into(),
         }];
@@ -188,6 +188,12 @@ fn dispatch(
                 .as_array_mut()
                 .ok_or_else(|| io::Error::other("missing files"))?
                 .retain(|file| !file["path"].as_str().unwrap_or_default().contains("beta"));
+            if kind == "source-transform" {
+                for file in changeset["files"].as_array_mut().unwrap() {
+                    file["path"] = "display-only.txt".into();
+                    file["language"] = "rust".into();
+                }
+            }
             value(serde_json::json!({ "changeset": changeset }))
         }
         "workdeck/event" => {

@@ -95,6 +95,31 @@ impl std::fmt::Debug for VcsSourceCapabilities {
 }
 
 impl VcsSourceCapabilities {
+    /// Update one host-owned file's identity without changing its executable reader.
+    pub fn rebind_file(&mut self, original: &DiffFile, replacement: &DiffFile) {
+        let capability = self.get(original);
+        self.files.remove(&original.key);
+        if let Some(capability) = capability {
+            self.insert(replacement, capability);
+        }
+    }
+
+    /// Carry existing authority across a host-validated file transformation.
+    /// Input pairs must name the original host file and its validated replacement;
+    /// public metadata alone never constructs a reader or changes its captured request.
+    pub fn rebind<'a>(
+        &self,
+        pairs: impl IntoIterator<Item = (&'a DiffFile, &'a DiffFile)>,
+    ) -> Self {
+        let mut rebound = Self::default();
+        for (original, replacement) in pairs {
+            if let Some(capability) = self.get(original) {
+                rebound.insert(replacement, capability);
+            }
+        }
+        rebound
+    }
+
     /// Retire handles without affecting already captured publication generations.
     pub fn retire(&mut self, keys: &std::collections::BTreeSet<String>) {
         self.files.retain(|key, _| !keys.contains(key));
@@ -191,6 +216,39 @@ mod tests {
             VcsFileSourceResult::Missing
         );
         assert_eq!(calls.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn language_rebinding_preserves_only_existing_reader_authority() {
+        let original = file();
+        let reader: VcsSourceReader = Arc::new(|request| {
+            assert_eq!(request.path, "source.txt");
+            Ok(VcsFileSourceResult::Missing)
+        });
+        let capability = Arc::new(VcsFileSourceCapability::new(reader, &original));
+        let mut registry = VcsSourceCapabilities::default();
+        registry.insert(&original, Arc::clone(&capability));
+        let mut replacement = original.clone();
+        replacement.language = Some("rust".into());
+        replacement.refresh_identity();
+        assert_ne!(replacement.source_identity, original.source_identity);
+        registry.rebind_file(&original, &replacement);
+        assert!(registry.get(&original).is_none());
+        assert!(Arc::ptr_eq(
+            &registry.get(&replacement).unwrap(),
+            &capability
+        ));
+        assert_eq!(
+            registry
+                .get(&replacement)
+                .unwrap()
+                .read(ReviewSide::New)
+                .unwrap(),
+            VcsFileSourceResult::Missing
+        );
+        let mut empty = VcsSourceCapabilities::default();
+        empty.rebind_file(&original, &replacement);
+        assert!(empty.get(&replacement).is_none());
     }
 
     #[test]

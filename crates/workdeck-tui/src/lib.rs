@@ -980,15 +980,30 @@ impl ExtensionPaneRuntime {
         }
     }
 
-    fn apply_to_changeset(&mut self, mut changeset: Changeset) -> Changeset {
+    fn apply_to_changeset_with_sources(
+        &mut self,
+        mut changeset: Changeset,
+        mut source_capabilities: Option<&mut workdeck_vcs::VcsSourceCapabilities>,
+    ) -> Changeset {
         let mut language_registry = LanguageRegistry::default();
         language_registry.replace_extensions(self.file_languages.clone());
         for file in &mut changeset.files {
             let language = language_registry.language_for_path(&file.path);
-            file.language = (language != "text").then_some(language);
+            let language = (language != "text").then_some(language);
+            if file.language != language {
+                let original = file.clone();
+                file.language = language;
+                file.refresh_identity();
+                if let Some(capabilities) = &mut source_capabilities {
+                    capabilities.rebind_file(&original, file);
+                }
+            }
         }
         for extension in &mut self.extensions {
-            changeset = extension.apply_changeset_transforms(changeset);
+            changeset = extension.apply_changeset_transforms_with_sources(
+                changeset,
+                source_capabilities.as_deref_mut(),
+            );
         }
         changeset.refresh_review_identities();
         changeset
@@ -1897,10 +1912,18 @@ impl ReviewApp {
     }
 
     fn prepare_reloaded_changeset(&self, changeset: Changeset) -> Changeset {
+        self.prepare_reloaded_changeset_with_sources(changeset, None)
+    }
+
+    fn prepare_reloaded_changeset_with_sources(
+        &self,
+        changeset: Changeset,
+        source_capabilities: Option<&mut workdeck_vcs::VcsSourceCapabilities>,
+    ) -> Changeset {
         self.extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .apply_to_changeset(changeset)
+            .apply_to_changeset_with_sources(changeset, source_capabilities)
     }
 
     fn reload_with_reason(
@@ -2094,7 +2117,9 @@ impl ReviewApp {
             extensions,
             &changeset.files,
         ));
-        let changeset = replacement.runtime_mut().apply_to_changeset(changeset);
+        let changeset = replacement
+            .runtime_mut()
+            .apply_to_changeset_with_sources(changeset, None);
         if self.with_state(|state| state.changeset() != &changeset)
             && let Err(error) = self
                 .review_producer

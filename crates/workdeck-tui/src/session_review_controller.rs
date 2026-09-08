@@ -314,7 +314,7 @@ impl ReviewApp {
         input: &CliInput,
         changeset: workdeck_core::Changeset,
         options: &workdeck_session::ReloadSessionOptions,
-        host_options: Option<DynamicReviewHostOptions>,
+        mut host_options: Option<DynamicReviewHostOptions>,
         mut replacement: Option<ProvisionalExtensionPaneRuntime>,
         replace_broker_session: F,
     ) -> Result<workdeck_session::ReloadedSessionResult, String>
@@ -328,9 +328,14 @@ impl ReviewApp {
         if self.shutdown_requested() {
             return Err("The Workdeck review is shutting down and cannot reload.".into());
         }
+        let source_capabilities = host_options
+            .as_mut()
+            .and_then(|options| options.source_capabilities.as_mut());
         let changeset = match &mut replacement {
-            Some(replacement) => replacement.runtime_mut().apply_to_changeset(changeset),
-            None => self.prepare_reloaded_changeset(changeset),
+            Some(replacement) => replacement
+                .runtime_mut()
+                .apply_to_changeset_with_sources(changeset, source_capabilities),
+            None => self.prepare_reloaded_changeset_with_sources(changeset, source_capabilities),
         };
         let reason = match options.reason.unwrap_or(BrokerReloadReason::Daemon) {
             BrokerReloadReason::Watch => workdeck_extension_api::SessionReloadReason::Watch,

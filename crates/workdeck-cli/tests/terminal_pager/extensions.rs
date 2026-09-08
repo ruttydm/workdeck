@@ -24,6 +24,64 @@ fn launch(root: &Path, name: &str, rows: u16) -> (tempfile::TempDir, Session) {
 }
 
 #[test]
+fn transformed_vcs_sources_survive_startup_and_reload_in_both_layouts() {
+    for layout in ["stack", "split"] {
+        let before = "hidden-source-one\nline-two\nline-three\nline-four\nline-five\nline-six\nline-seven\nold-value\nline-nine\nline-ten\nline-eleven\nline-twelve\n";
+        let changed = before.replace("old-value", "new-value");
+        let root = super::harness::repository(&[("source.txt", before, &changed)], |_| {});
+        let extension_root = tempfile::tempdir().unwrap();
+        let extension = super::file_views::example(extension_root.path(), "pty-extension-probe");
+        fs::write(extension.join("fixture-kind"), "source-transform").unwrap();
+        let mut session = Session::launch_in(
+            "",
+            &[
+                "diff",
+                "--mode",
+                layout,
+                "--no-watch",
+                "--no-sidebar",
+                "--extension",
+                extension.to_str().unwrap(),
+            ],
+            false,
+            140,
+            24,
+            None,
+            Some(root.path()),
+        );
+        session.wait(|text| text.contains("display-only.txt") && text.contains("unchanged lines"));
+        assert!(!root.path().join("display-only.txt").exists());
+        fs::write(
+            root.path().join("source.txt"),
+            changed.replace("hidden-source-one", "late-source-one"),
+        )
+        .unwrap();
+        session.click_label("unchanged lines");
+        session.wait(|text| text.contains("late-source-one") && text.contains("Hide"));
+        // Change patch identity as well: matching attested Git inputs deliberately
+        // retain loaded source, so an identical diff is not a reload oracle.
+        fs::write(
+            root.path().join("source.txt"),
+            changed.replace("new-value", "reloaded-value"),
+        )
+        .unwrap();
+        session.click_label("File");
+        session.wait(|text| text.contains("Reload"));
+        session.click_label("Reload");
+        session.wait(|text| text.contains("reloaded-value") && text.contains("unchanged lines"));
+        session.click_label("unchanged lines");
+        session.wait(|text| {
+            text.contains("display-only.txt")
+                && text.contains("reloaded-value")
+                && text.contains("hidden-source-one")
+                && !text.contains("late-source-one")
+        });
+        session.quit();
+        assert!(!root.path().join(".agents/workdeck").exists());
+    }
+}
+
+#[test]
 fn bundled_review_snapshot_exports_the_exact_saved_user_note() {
     let root = super::layout::two_files(false);
     let output_path = root.path().join("review-snapshot.json");

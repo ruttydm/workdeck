@@ -7136,37 +7136,70 @@ fn run_review_with_preloaded_extensions(
     if review.watch && !review.no_watch && reloader.is_none() {
         bail!("--watch requires a file- or VCS-backed review input");
     }
-    let bootstrap = prepare_app_bootstrap(
+    let (bootstrap, source_capabilities) = prepare_app_bootstrap_with_sources(
         cwd,
-        loaded.repo_root,
-        loaded.changeset,
+        loaded,
         &review,
         input,
         initial_watch_signature,
         prepared_extensions,
     )?;
-    run_app_bootstrap(bootstrap, review, reloader, loaded.source_capabilities)
+    run_app_bootstrap(bootstrap, review, reloader, source_capabilities)
 }
 
+#[cfg(test)]
 fn prepare_app_bootstrap(
     cwd: &Path,
     repo_root: Option<PathBuf>,
-    mut changeset: Changeset,
+    changeset: Changeset,
     review: &ReviewCliOptions,
     input: CliInput,
     initial_watch_signature: Option<String>,
-    mut prepared_extensions: PreparedReviewExtensions,
+    prepared_extensions: PreparedReviewExtensions,
 ) -> Result<WorkdeckAppBootstrap> {
-    apply_agent_context(cwd, review.agent_context.as_deref(), &mut changeset)?;
-    changeset = apply_review_extensions(changeset, &mut prepared_extensions.extensions)?;
-    Ok(build_app_bootstrap(
+    prepare_app_bootstrap_with_sources(
         cwd,
-        repo_root,
-        changeset,
+        LoadedReviewChangeset {
+            repo_root,
+            changeset,
+            source_capabilities: None,
+        },
         review,
         input,
         initial_watch_signature,
         prepared_extensions,
+    )
+    .map(|(bootstrap, _)| bootstrap)
+}
+
+fn prepare_app_bootstrap_with_sources(
+    cwd: &Path,
+    mut loaded: LoadedReviewChangeset,
+    review: &ReviewCliOptions,
+    input: CliInput,
+    initial_watch_signature: Option<String>,
+    mut prepared_extensions: PreparedReviewExtensions,
+) -> Result<(
+    WorkdeckAppBootstrap,
+    Option<workdeck_vcs::VcsSourceCapabilities>,
+)> {
+    apply_agent_context(cwd, review.agent_context.as_deref(), &mut loaded.changeset)?;
+    let changeset = apply_review_extensions(
+        loaded.changeset,
+        &mut prepared_extensions.extensions,
+        loaded.source_capabilities.as_mut(),
+    )?;
+    Ok((
+        build_app_bootstrap(
+            cwd,
+            loaded.repo_root,
+            changeset,
+            review,
+            input,
+            initial_watch_signature,
+            prepared_extensions,
+        ),
+        loaded.source_capabilities,
     ))
 }
 
@@ -7445,14 +7478,24 @@ fn resolve_review_repo_root(
 fn apply_review_extensions(
     mut changeset: Changeset,
     extensions: &mut [LoadedExtension],
+    mut source_capabilities: Option<&mut workdeck_vcs::VcsSourceCapabilities>,
 ) -> Result<Changeset> {
     let language_registry = build_review_language_registry(extensions);
     for file in &mut changeset.files {
         let language = language_registry.language_for_path(&file.path);
-        file.language = (language != "text").then_some(language);
+        let language = (language != "text").then_some(language);
+        if file.language != language {
+            let original = file.clone();
+            file.language = language;
+            file.refresh_identity();
+            if let Some(capabilities) = &mut source_capabilities {
+                capabilities.rebind_file(&original, file);
+            }
+        }
     }
     for extension in extensions.iter_mut() {
-        changeset = extension.apply_changeset_transforms(changeset);
+        changeset = extension
+            .apply_changeset_transforms_with_sources(changeset, source_capabilities.as_deref_mut());
     }
     changeset.refresh_review_identities();
     Ok(changeset)

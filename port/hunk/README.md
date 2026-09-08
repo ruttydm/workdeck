@@ -1,5 +1,32 @@
 # Hunk semantic-port ledger
 
+## Transform-owned deferred source handoff
+
+The extension host carries reader handles through the same opaque-metadata
+validation that identifies each transformed file's original renderer file.
+Reordering, filtering, display-path changes, and composed transforms produce a
+replacement registry only after the complete transform validates. Rebinding
+does not read source, construct a reader from metadata, or change the provider's
+captured request. Invalid output leaves the previous registry unchanged; filtered
+files lose bindings from the replacement while retained generations keep theirs.
+
+CLI startup and dynamic session reload pass this registry through language
+overrides and transforms before constructing their publication source reader.
+Tests cover composition, cached provider reads using the original path, rejected
+forged metadata, and an empty registry that cannot gain authority. A real-Git
+PTY fixture changes the displayed path to a nonexistent file and verifies source
+expansion and a changed-input reload in both layouts. Identical attested Git
+inputs deliberately reuse source and are not treated as fresh-read evidence.
+
+Checkpoint checks pass: 92 terminal tests, 91 CLI unit tests, 1,052 TUI unit
+tests, five host transform tests, four provider-capability tests, workspace
+Clippy, formatting, and architecture checks. The terminal test explicitly
+reopens the gap after the changed-input reload collapses it.
+
+This handoff does not complete the remaining source/review hook contracts or
+increase ledger coverage. Legacy snapshot-only reload entrypoints remain separate
+from the dynamic VCS path.
+
 ## Deferred native line-highlighter sources
 
 Highlighter workers capture the current provider registry and obtain a
@@ -43,8 +70,8 @@ changing the underlying diff identity or loading source to compute the key.
 The complete TUI unit suite passes at this checkpoint (1,052 tests), as do
 workspace Clippy, formatting, and architecture checks.
 
-This does not establish complete cache parity: metadata-changing transforms
-and the remaining whole-hook contracts still need explicit review. The previously
+This does not establish complete cache parity: the remaining whole-hook contracts
+still need explicit review. The previously
 mapped full `useLineHighlights.ts` interval is
 reopened as unmapped. Its prior destination/evidence references are preserved in
 `highlighter-work-in-progress.json`, not as a completed ledger mapping.

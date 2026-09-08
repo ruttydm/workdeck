@@ -626,8 +626,10 @@ fn materialize_transformed_changeset(
     transformed: &ExtensionChangeset,
     previous: &Changeset,
     previous_public: &ExtensionChangeset,
+    source_capabilities: Option<&mut workdeck_vcs::VcsSourceCapabilities>,
 ) -> Result<Changeset, String> {
     let mut files = Vec::with_capacity(transformed.files.len());
+    let mut source_files = Vec::with_capacity(transformed.files.len());
     let mut claimed_ids = BTreeSet::new();
     for (index, public) in transformed.files.iter().enumerate() {
         if public.id.is_empty() {
@@ -662,6 +664,7 @@ fn materialize_transformed_changeset(
             ));
         };
 
+        source_files.push(source);
         let mut file = source.clone();
         file.runtime_id.clone_from(&public.id);
         file.path.clone_from(&public.path);
@@ -690,6 +693,9 @@ fn materialize_transformed_changeset(
     };
     changeset.refresh_review_identities();
     validate_transformed_changeset(&changeset)?;
+    if let Some(capabilities) = source_capabilities {
+        *capabilities = capabilities.rebind(source_files.into_iter().zip(&changeset.files));
+    }
     Ok(changeset)
 }
 
@@ -697,11 +703,16 @@ fn decode_transform_response(
     value: Value,
     previous: &Changeset,
     previous_public: &ExtensionChangeset,
+    source_capabilities: Option<&mut workdeck_vcs::VcsSourceCapabilities>,
 ) -> Result<(Changeset, ExtensionChangeset), String> {
     let response: TransformResponse =
         serde_json::from_value(value).map_err(|error| error.to_string())?;
-    let changeset =
-        materialize_transformed_changeset(&response.changeset, previous, previous_public)?;
+    let changeset = materialize_transformed_changeset(
+        &response.changeset,
+        previous,
+        previous_public,
+        source_capabilities,
+    )?;
     Ok((changeset, response.changeset))
 }
 
@@ -711,6 +722,7 @@ fn settle_transform_attempt(
     previous: Changeset,
     previous_public: ExtensionChangeset,
     attempt: Result<Value, String>,
+    source_capabilities: Option<&mut workdeck_vcs::VcsSourceCapabilities>,
 ) -> (Changeset, ExtensionChangeset) {
     let value = match attempt {
         Ok(value) => value,
@@ -722,7 +734,7 @@ fn settle_transform_attempt(
             return (previous, previous_public);
         }
     };
-    match decode_transform_response(value, &previous, &previous_public) {
+    match decode_transform_response(value, &previous, &previous_public, source_capabilities) {
         Ok(next) => next,
         Err(error) => {
             notifications.notify(
@@ -1853,7 +1865,16 @@ impl LoadedExtension {
         Ok(execution)
     }
 
-    pub fn apply_changeset_transforms(&mut self, mut changeset: Changeset) -> Changeset {
+    pub fn apply_changeset_transforms(&mut self, changeset: Changeset) -> Changeset {
+        self.apply_changeset_transforms_with_sources(changeset, None)
+    }
+
+    /// Carry host-owned readers through validated transforms without executing source I/O.
+    pub fn apply_changeset_transforms_with_sources(
+        &mut self,
+        mut changeset: Changeset,
+        mut source_capabilities: Option<&mut workdeck_vcs::VcsSourceCapabilities>,
+    ) -> Changeset {
         let transforms = changeset_transform_ids(&self.handshake);
         let mut public = project_extension_changeset(&changeset);
         for transform_id in transforms {
@@ -1874,6 +1895,7 @@ impl LoadedExtension {
                 changeset,
                 public,
                 attempt,
+                source_capabilities.as_deref_mut(),
             );
         }
         changeset
@@ -4081,7 +4103,7 @@ mod tests {
             })
             .unwrap(),
         ] {
-            assert!(decode_transform_response(value, &original, &original_public).is_err());
+            assert!(decode_transform_response(value, &original, &original_public, None).is_err());
         }
 
         let mut malformed = serde_json::to_value(TransformResponse {
@@ -4089,7 +4111,7 @@ mod tests {
         })
         .unwrap();
         malformed["changeset"]["files"][0]["stats"] = Value::Null;
-        assert!(decode_transform_response(malformed, &original, &original_public).is_err());
+        assert!(decode_transform_response(malformed, &original, &original_public, None).is_err());
     }
 
     #[test]
@@ -4107,6 +4129,7 @@ mod tests {
             .unwrap(),
             &original,
             &project_extension_changeset(&original),
+            None,
         )
         .unwrap();
         assert_eq!(first.files[0].path, "renamed-b.rs");
@@ -4123,6 +4146,7 @@ mod tests {
             .unwrap(),
             &first,
             &first_public,
+            None,
         )
         .unwrap();
         assert_eq!(second.title, "filtered");
@@ -4135,6 +4159,125 @@ mod tests {
                 .get("source")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn validated_transforms_rebind_original_readers_without_reading_or_granting_authority() {
+        let reads = Arc::new(Mutex::new(Vec::new()));
+        let observed = Arc::clone(&reads);
+        let patch = transform_fixture()
+            .files
+            .into_iter()
+            .map(|file| file.patch)
+            .collect::<String>();
+        let (original, mut sources) = workdeck_vcs::materialize_vcs_patch_result_deferred(
+            workdeck_vcs::VcsPatchResult {
+                repo_root: ".".into(),
+                source_label: "transform-source".into(),
+                title: "transform".into(),
+                patch_text: patch,
+                untracked_paths: vec![],
+                extra_files: vec![],
+                source_cache_key: Some("pinned".into()),
+                source_reader: Some(Arc::new(move |request| {
+                    observed.lock().unwrap().push(request.path.clone());
+                    Ok(workdeck_vcs::VcsFileSourceResult::Source(
+                        workdeck_core::SourceSnapshot::new(
+                            request.path.clone(),
+                            workdeck_core::SourceOrigin::WorkingTree,
+                            true,
+                        ),
+                    ))
+                })),
+            },
+            "transform",
+            workdeck_core::ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap();
+        let prior_sources = sources.clone();
+        let original_public = project_extension_changeset(&original);
+        let mut public = original_public.clone();
+        public.files.reverse();
+        public.files[0].path = "display-only.rs".into();
+        public.files[0].id = "display-id".into();
+        let value = serde_json::to_value(TransformResponse { changeset: public }).unwrap();
+        let (legacy, _) =
+            decode_transform_response(value.clone(), &original, &original_public, None).unwrap();
+        assert!(prior_sources.get(&legacy.files[0]).is_none());
+        let (first, first_public) =
+            decode_transform_response(value, &original, &original_public, Some(&mut sources))
+                .unwrap();
+        assert!(reads.lock().unwrap().is_empty());
+        let retained = sources.get(&first.files[0]).unwrap();
+        assert_eq!(
+            retained.runtime_identity(),
+            prior_sources
+                .get(&original.files[1])
+                .unwrap()
+                .runtime_identity()
+        );
+        let workdeck_vcs::VcsFileSourceResult::Source(source) =
+            retained.read(workdeck_core::ReviewSide::New).unwrap()
+        else {
+            panic!("source expected")
+        };
+        assert_eq!(source.content, "b.rs");
+        let mut filtered = first_public.clone();
+        filtered.files.truncate(1);
+        filtered.files[0].path = "second-display.rs".into();
+        let (second, second_public) = decode_transform_response(
+            serde_json::to_value(TransformResponse {
+                changeset: filtered.clone(),
+            })
+            .unwrap(),
+            &first,
+            &first_public,
+            Some(&mut sources),
+        )
+        .unwrap();
+        assert!(sources.get(&original.files[0]).is_none());
+        assert_eq!(
+            sources.get(&second.files[0]).unwrap().runtime_identity(),
+            retained.runtime_identity()
+        );
+        sources
+            .get(&second.files[0])
+            .unwrap()
+            .read(workdeck_core::ReviewSide::New)
+            .unwrap();
+        assert_eq!(*reads.lock().unwrap(), vec!["b.rs"]);
+
+        let mut invalid = second_public.clone();
+        let mut forged = invalid.files[0].clone();
+        forged.id = "forged".into();
+        forged.metadata["forged"] = Value::Bool(true);
+        invalid.files.push(forged);
+        assert!(
+            decode_transform_response(
+                serde_json::to_value(TransformResponse { changeset: invalid }).unwrap(),
+                &second,
+                &second_public,
+                Some(&mut sources),
+            )
+            .is_err()
+        );
+        assert_eq!(
+            sources.get(&second.files[0]).unwrap().runtime_identity(),
+            retained.runtime_identity()
+        );
+        let mut empty = workdeck_vcs::VcsSourceCapabilities::default();
+        let (unbound, _) = decode_transform_response(
+            serde_json::to_value(TransformResponse {
+                changeset: filtered,
+            })
+            .unwrap(),
+            &first,
+            &first_public,
+            Some(&mut empty),
+        )
+        .unwrap();
+        assert!(empty.get(&unbound.files[0]).is_none());
+        assert_eq!(*reads.lock().unwrap(), vec!["b.rs"]);
     }
 
     #[test]
@@ -4151,6 +4294,7 @@ mod tests {
             original.clone(),
             project_extension_changeset(&original),
             Err("sync or async failure".into()),
+            None,
         );
         assert_eq!(after_failure.0, original);
         let after_invalid = settle_transform_attempt(
@@ -4159,6 +4303,7 @@ mod tests {
             after_failure.0,
             after_failure.1,
             Ok(serde_json::json!({ "changeset": { "files": null } })),
+            None,
         );
         assert_eq!(after_invalid.0, original);
 
