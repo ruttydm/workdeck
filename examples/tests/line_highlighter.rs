@@ -85,7 +85,11 @@ fn native_cleanup_distinguishes_settlement_timeout_and_parent_cancellation() {
             .unwrap();
         let cancellation: ExtensionRequestCancellation = serde_json::from_value(value).unwrap();
         assert_eq!(cancellation.cause, Some(cause));
-        assert_eq!(cancellation.reason, None);
+        assert_eq!(
+            cancellation.reason,
+            (cause == Cause::TimedOut)
+                .then(|| serde_json::json!({"name":"Error","message":"highlight timed out"}))
+        );
         cancellation.id
     };
     extension
@@ -127,10 +131,11 @@ fn native_parent_abort_preserves_structured_reason_through_cleanup() {
     let mut extension = LoadedExtension::spawn(&manifest, "test").unwrap();
     let cancellation = workdeck_extension_host::ExtensionRequestCancellation::default();
     let reason = serde_json::json!({"message":"superseded","generation":42,"details":[true,null]});
-    let mut peer = extension.clone();
+    let peer = extension.clone();
     std::thread::scope(|scope| {
         let waiting = scope.spawn(|| {
-            peer.highlight_file_with_cancellation(
+            workdeck_tui::LineHighlightRuntime::highlight_file_with_reader(
+                &peer,
                 "hang",
                 &review_file("reason.rs"),
                 &cancellation,
@@ -149,7 +154,7 @@ fn native_parent_abort_preserves_structured_reason_through_cleanup() {
         cancellation.cancel();
         assert!(matches!(
             waiting.join().unwrap(),
-            Err(HostError::Cancelled(_))
+            Err(workdeck_tui::LineHighlightRuntimeError::Retry)
         ));
     });
     let value = extension

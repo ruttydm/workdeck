@@ -1,7 +1,6 @@
 //! Immutable line-highlight maps consumed by the review painter.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::Instant;
@@ -10,8 +9,9 @@ use serde_json::Value;
 use workdeck_core::{Changeset, DiffFile};
 use workdeck_extension_api::ValidatedLineHighlight;
 use workdeck_extension_host::{
-    HostError, LineHighlightValidation, LoadedExtension, MAX_MERGED_LINE_HIGHLIGHTS_PER_FILE,
-    RegisteredLineHighlighter, scoped_epoch, validate_line_highlights,
+    ExtensionRequestCancellation, HostError, LineHighlightValidation, LoadedExtension,
+    MAX_MERGED_LINE_HIGHLIGHTS_PER_FILE, RegisteredLineHighlighter, scoped_epoch,
+    validate_line_highlights,
 };
 
 pub const LINE_HIGHLIGHT_CONCURRENCY: usize = 4;
@@ -33,13 +33,13 @@ pub trait LineHighlightRuntime: Send + Sync {
         &self,
         highlighter_id: &str,
         file: &DiffFile,
-        cancelled: &AtomicBool,
+        cancelled: &ExtensionRequestCancellation,
     ) -> Result<Value, LineHighlightRuntimeError>;
     fn highlight_file_with_reader(
         &self,
         highlighter_id: &str,
         file: &DiffFile,
-        cancelled: &AtomicBool,
+        cancelled: &ExtensionRequestCancellation,
         reader: workdeck_extension_host::ExtensionDocumentReader,
     ) -> Result<Value, LineHighlightRuntimeError>;
     fn notify_warning(&self, message: String);
@@ -70,9 +70,9 @@ impl LineHighlightRuntime for SourceBoundLineHighlightRuntime {
         &self,
         highlighter_id: &str,
         file: &DiffFile,
-        cancelled: &AtomicBool,
+        cancelled: &ExtensionRequestCancellation,
     ) -> Result<Value, LineHighlightRuntimeError> {
-        if cancelled.load(Ordering::Acquire) {
+        if cancelled.is_cancelled() {
             return Err(LineHighlightRuntimeError::Retry);
         }
         let capability = self.sources.as_ref().and_then(|sources| sources.get(file));
@@ -108,7 +108,7 @@ impl LineHighlightRuntime for SourceBoundLineHighlightRuntime {
         &self,
         highlighter_id: &str,
         file: &DiffFile,
-        cancelled: &AtomicBool,
+        cancelled: &ExtensionRequestCancellation,
         reader: workdeck_extension_host::ExtensionDocumentReader,
     ) -> Result<Value, LineHighlightRuntimeError> {
         self.runtime
@@ -125,11 +125,11 @@ impl LineHighlightRuntime for LoadedExtension {
         &self,
         highlighter_id: &str,
         file: &DiffFile,
-        cancelled: &AtomicBool,
+        cancelled: &ExtensionRequestCancellation,
         reader: workdeck_extension_host::ExtensionDocumentReader,
     ) -> Result<Value, LineHighlightRuntimeError> {
         self.clone()
-            .highlight_file_with_document_reader(highlighter_id, file, cancelled, reader)
+            .highlight_file_with_cancellation(highlighter_id, file, cancelled, reader)
             .map_err(|error| match error {
                 HostError::Busy(_) | HostError::Cancelled(_) => LineHighlightRuntimeError::Retry,
                 error => LineHighlightRuntimeError::Failed(error.to_string()),
@@ -143,10 +143,19 @@ impl LineHighlightRuntime for LoadedExtension {
         &self,
         highlighter_id: &str,
         file: &DiffFile,
-        cancelled: &AtomicBool,
+        cancelled: &ExtensionRequestCancellation,
     ) -> Result<Value, LineHighlightRuntimeError> {
         let mut runtime = self.clone();
-        LoadedExtension::highlight_file_cancellable(&mut runtime, highlighter_id, file, cancelled)
+        let snapshots = file.sources.clone();
+        let reader = workdeck_extension_host::ExtensionDocumentReader::new(move |side| {
+            Ok(match side {
+                workdeck_extension_api::ExtensionFileSide::Old => snapshots.old.as_ref(),
+                workdeck_extension_api::ExtensionFileSide::New => snapshots.new.as_ref(),
+            }
+            .map(|snapshot| snapshot.content.clone()))
+        });
+        runtime
+            .highlight_file_with_cancellation(highlighter_id, file, cancelled, reader)
             .map_err(|error| match error {
                 HostError::Busy(_) | HostError::Cancelled(_) => LineHighlightRuntimeError::Retry,
                 error => LineHighlightRuntimeError::Failed(error.to_string()),
@@ -299,7 +308,7 @@ enum LineHighlightTaskOutcome {
 struct LineHighlightCompletion {
     task: LineHighlightTask,
     outcome: LineHighlightTaskOutcome,
-    cancellation: Arc<AtomicBool>,
+    cancellation: Arc<ExtensionRequestCancellation>,
     completed_at: Instant,
     cancelled_before_completion: bool,
 }
@@ -352,7 +361,7 @@ pub struct LineHighlightPreparationController {
     generation_files: Vec<PreparationFileIdentity>,
     deadlines: BTreeMap<LineHighlightTaskKey, (Instant, LineHighlightTask)>,
     cache: BTreeMap<LineHighlightTaskKey, Option<Arc<[ValidatedLineHighlight]>>>,
-    pending: BTreeMap<LineHighlightTaskKey, Arc<AtomicBool>>,
+    pending: BTreeMap<LineHighlightTaskKey, Arc<ExtensionRequestCancellation>>,
     sender: mpsc::Sender<LineHighlightCompletion>,
     receiver: mpsc::Receiver<LineHighlightCompletion>,
     merged: BTreeMap<String, MergedLineHighlights>,
@@ -390,7 +399,7 @@ impl Default for LineHighlightPreparationController {
 impl LineHighlightPreparationController {
     fn cancel_pending(&mut self) {
         for cancellation in self.pending.values() {
-            cancellation.store(true, Ordering::Release);
+            cancellation.cancel();
         }
         self.pending.clear();
         self.deadlines.clear();
@@ -473,7 +482,7 @@ impl LineHighlightPreparationController {
             .collect::<BTreeSet<_>>();
         self.pending.retain(|key, cancellation| {
             if !desired.contains(key) {
-                cancellation.store(true, Ordering::Release);
+                cancellation.cancel();
                 false
             } else {
                 true
@@ -515,7 +524,7 @@ impl LineHighlightPreparationController {
                 continue;
             }
             let task = task.freeze_for_worker();
-            let cancelled = Arc::new(AtomicBool::new(false));
+            let cancelled = Arc::new(ExtensionRequestCancellation::default());
             self.pending
                 .insert(task.key.clone(), Arc::clone(&cancelled));
             self.deadlines.insert(
@@ -540,7 +549,7 @@ impl LineHighlightPreparationController {
                     Err(_) => LineHighlightTaskOutcome::Failed("highlight worker panicked".into()),
                 };
                 let completed_at = Instant::now();
-                let cancelled_before_completion = cancelled.swap(true, Ordering::AcqRel);
+                let cancelled_before_completion = cancelled.cancel_with_reason(None);
                 let _ = sender.send(LineHighlightCompletion {
                     task,
                     outcome,
@@ -575,7 +584,7 @@ impl LineHighlightPreparationController {
             if completion.cancelled_before_completion || !desired.contains(&completion.task.key) {
                 continue;
             }
-            completion.cancellation.store(true, Ordering::Release);
+            completion.cancellation.cancel();
             match completion.outcome {
                 LineHighlightTaskOutcome::Retry => {}
                 LineHighlightTaskOutcome::Failed(_error) => {
@@ -649,7 +658,9 @@ impl LineHighlightPreparationController {
             let Some(cancellation) = self.pending.remove(&key) else {
                 continue;
             };
-            cancellation.store(true, Ordering::Release);
+            cancellation.cancel_with_reason(Some(
+                serde_json::json!({"name":"Error","message":"highlight timed out"}),
+            ));
             self.cache.insert(key, None);
             self.report_once(
                 extensions,
@@ -948,9 +959,32 @@ mod tests {
     use workdeck_diff::parse_patch;
     use workdeck_extension_api::HighlightTone;
 
-    type HighlightHandler = dyn Fn(&str, &DiffFile, &AtomicBool) -> Result<Value, LineHighlightRuntimeError>
+    type HighlightHandler = dyn Fn(
+            &str,
+            &DiffFile,
+            &ExtensionRequestCancellation,
+        ) -> Result<Value, LineHighlightRuntimeError>
         + Send
         + Sync;
+
+    #[test]
+    fn source_binding_preserves_shared_cancellation_reason_identity() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, cancellation| {
+            assert!(!cancellation.cancel_with_reason(Some(json!({"generation":7}))));
+            Ok(Value::Null)
+        });
+        let bound = SourceBoundLineHighlightRuntime {
+            runtime,
+            sources: None,
+        };
+        let cancellation = ExtensionRequestCancellation::default();
+        bound
+            .highlight_file("test", &test_file("file", "content"), &cancellation)
+            .unwrap();
+        assert!(cancellation.is_cancelled());
+        assert!(cancellation.cancel_with_reason(None));
+        assert_eq!(cancellation.reason(), Some(json!({"generation":7})));
+    }
 
     #[test]
     fn bound_highlighter_loads_sources_only_in_worker_and_preserves_review_data() {
@@ -1007,14 +1041,18 @@ mod tests {
         };
         assert_eq!(reads.load(Ordering::SeqCst), 0);
         assert_eq!(
-            bound.highlight_file("test", &merged[0], &AtomicBool::new(true)),
+            bound.highlight_file("test", &merged[0], &{
+                let cancellation = ExtensionRequestCancellation::default();
+                cancellation.cancel();
+                cancellation
+            }),
             Err(LineHighlightRuntimeError::Retry)
         );
         assert_eq!(reads.load(Ordering::SeqCst), 0);
         assert!(runtime.calls().is_empty());
         for _ in 0..2 {
             bound
-                .highlight_file("test", &merged[0], &AtomicBool::new(false))
+                .highlight_file("test", &merged[0], &ExtensionRequestCancellation::default())
                 .unwrap();
         }
         assert_eq!(reads.load(Ordering::SeqCst), 2);
@@ -1099,7 +1137,11 @@ mod tests {
 
     impl FakeLineHighlightRuntime {
         fn new(
-            handler: impl Fn(&str, &DiffFile, &AtomicBool) -> Result<Value, LineHighlightRuntimeError>
+            handler: impl Fn(
+                &str,
+                &DiffFile,
+                &ExtensionRequestCancellation,
+            ) -> Result<Value, LineHighlightRuntimeError>
             + Send
             + Sync
             + 'static,
@@ -1131,7 +1173,7 @@ mod tests {
             &self,
             highlighter_id: &str,
             file: &DiffFile,
-            cancelled: &AtomicBool,
+            cancelled: &ExtensionRequestCancellation,
             reader: workdeck_extension_host::ExtensionDocumentReader,
         ) -> Result<Value, LineHighlightRuntimeError> {
             let read = |side| {
@@ -1169,7 +1211,7 @@ mod tests {
             &self,
             highlighter_id: &str,
             file: &DiffFile,
-            cancelled: &AtomicBool,
+            cancelled: &ExtensionRequestCancellation,
         ) -> Result<Value, LineHighlightRuntimeError> {
             self.calls
                 .lock()
@@ -1772,7 +1814,7 @@ mod tests {
                 .unwrap()
                 .recv_timeout(Duration::from_secs(5))
                 .unwrap();
-            finished_tx.send(cancelled.load(Ordering::Acquire)).unwrap();
+            finished_tx.send(cancelled.is_cancelled()).unwrap();
             Ok(one_mark("match"))
         });
         let mut controller = LineHighlightPreparationController::default();
@@ -1801,7 +1843,7 @@ mod tests {
                 .unwrap()
                 .recv_timeout(Duration::from_secs(5))
                 .unwrap();
-            finished_tx.send(cancelled.load(Ordering::Acquire)).unwrap();
+            finished_tx.send(cancelled.is_cancelled()).unwrap();
             Ok(one_mark("match"))
         });
         let extensions = runtime_list(&runtime);
@@ -1812,7 +1854,12 @@ mod tests {
         controller.reconcile(&extensions, &registrations, &epochs, &files);
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         let deadline = controller.deadlines.values().next().unwrap().0;
+        let cancellation = controller.pending.values().next().unwrap().clone();
         controller.expire_requests(deadline, &extensions);
+        assert_eq!(
+            cancellation.reason(),
+            Some(json!({"name":"Error","message":"highlight timed out"}))
+        );
         assert_eq!(controller.pending_count(), 0);
         assert!(controller.cache.values().all(Option::is_none));
         assert_eq!(runtime.warnings().len(), 1);
@@ -1831,6 +1878,10 @@ mod tests {
         assert!(controller.resolved().is_empty());
         assert_eq!(runtime.calls().len(), 1);
         assert_eq!(runtime.warnings().len(), 1);
+        assert_eq!(
+            cancellation.reason(),
+            Some(json!({"name":"Error","message":"highlight timed out"}))
+        );
     }
 
     #[test]
@@ -1846,7 +1897,7 @@ mod tests {
         );
         let task = tasks.remove(0).freeze_for_worker();
         let desired = BTreeSet::from([task.key.clone()]);
-        let cancellation = Arc::new(AtomicBool::new(false));
+        let cancellation = Arc::new(ExtensionRequestCancellation::default());
         let deadline = Instant::now();
         let mut controller = LineHighlightPreparationController::default();
         controller
@@ -1869,7 +1920,7 @@ mod tests {
         assert!(controller.pending.is_empty());
         assert!(controller.deadlines.is_empty());
         assert!(controller.cache.get(&task.key).unwrap().is_none());
-        assert!(cancellation.load(Ordering::Acquire));
+        assert!(cancellation.is_cancelled());
         assert_eq!(runtime.warnings().len(), 1);
         assert_eq!(
             runtime.warnings()[0],
@@ -2044,7 +2095,7 @@ mod tests {
             .receiver
             .recv_timeout(Duration::from_secs(5))
             .unwrap();
-        assert!(completion.cancellation.load(Ordering::Acquire));
+        assert!(completion.cancellation.is_cancelled());
         assert!(matches!(
             completion.outcome,
             LineHighlightTaskOutcome::Failed(_)
@@ -2070,7 +2121,7 @@ mod tests {
             .receiver
             .recv_timeout(Duration::from_secs(5))
             .unwrap();
-        assert!(completion.cancellation.load(Ordering::Acquire));
+        assert!(completion.cancellation.is_cancelled());
         assert!(controller.cache.is_empty());
         controller.sender.send(completion).unwrap();
         controller.reconcile(&extensions, &registrations, &epochs, &files);
@@ -2208,7 +2259,7 @@ mod tests {
                     .unwrap()
                     .recv_timeout(Duration::from_secs(5))
                     .unwrap();
-                finished_tx.send(cancelled.load(Ordering::Acquire)).unwrap();
+                finished_tx.send(cancelled.is_cancelled()).unwrap();
             }
             Ok(one_mark("match"))
         });
@@ -2224,7 +2275,7 @@ mod tests {
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         let original = controller.pending.values().next().unwrap().clone();
         controller.reconcile(&extensions, &registrations, &epochs, &files);
-        assert!(!original.load(Ordering::Acquire));
+        assert!(!original.is_cancelled());
         assert!(Arc::ptr_eq(
             controller.pending.values().next().unwrap(),
             &original
@@ -2272,7 +2323,7 @@ mod tests {
                 .unwrap()
                 .recv_timeout(Duration::from_secs(5))
                 .unwrap();
-            finished_tx.send(cancelled.load(Ordering::Acquire)).unwrap();
+            finished_tx.send(cancelled.is_cancelled()).unwrap();
             Ok(one_mark("match"))
         });
         let extensions = runtime_list(&runtime);
@@ -2407,7 +2458,7 @@ mod tests {
         let cancellations = tasks
             .into_iter()
             .map(|task| {
-                let cancellation = Arc::new(AtomicBool::new(false));
+                let cancellation = Arc::new(ExtensionRequestCancellation::default());
                 controller
                     .pending
                     .insert(task.key, Arc::clone(&cancellation));
@@ -2418,7 +2469,7 @@ mod tests {
         assert!(
             cancellations
                 .iter()
-                .all(|cancelled| cancelled.load(Ordering::Acquire))
+                .all(|cancelled| cancelled.is_cancelled())
         );
         assert_eq!(controller.pending_count(), 0);
     }
@@ -2436,8 +2487,9 @@ mod tests {
         );
         let task = tasks.remove(0).freeze_for_worker();
         let desired = BTreeSet::from([task.key.clone()]);
-        let old = Arc::new(AtomicBool::new(true));
-        let current = Arc::new(AtomicBool::new(false));
+        let old = Arc::new(ExtensionRequestCancellation::default());
+        old.cancel();
+        let current = Arc::new(ExtensionRequestCancellation::default());
         let mut controller = LineHighlightPreparationController::default();
         controller
             .pending
@@ -2577,7 +2629,7 @@ mod tests {
             let requests = Arc::clone(&requests);
             move |_, _, cancelled| {
                 if requests.fetch_add(1, Ordering::AcqRel) > 0 {
-                    while !cancelled.load(Ordering::Acquire) {
+                    while !cancelled.is_cancelled() {
                         thread::sleep(Duration::from_millis(1));
                     }
                     return Err(LineHighlightRuntimeError::Retry);

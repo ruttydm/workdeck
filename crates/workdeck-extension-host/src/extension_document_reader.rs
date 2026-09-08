@@ -23,16 +23,19 @@ impl ExtensionRequestCancellation {
     }
 
     /// Abort once, preserving the first parent's JSON-compatible reason.
-    pub fn cancel_with_reason(&self, reason: Option<serde_json::Value>) {
+    /// Returns whether the handle was already cancelled before this call.
+    pub fn cancel_with_reason(&self, reason: Option<serde_json::Value>) -> bool {
         let mut stored = self
             .0
             .reason
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        if !self.is_cancelled() {
+        let was_cancelled = self.is_cancelled();
+        if !was_cancelled {
             *stored = reason;
             self.0.cancelled.store(true, Ordering::Release);
         }
+        was_cancelled
     }
 
     #[must_use]

@@ -1311,6 +1311,10 @@ impl LoadedExtension {
             workdeck_extension_api::ExtensionRequestCancellation::new(id, cancellation_cause);
         if cancellation_cause == workdeck_extension_api::ExtensionCancellationCause::Cancelled {
             cleanup.reason = parent_cancellation.and_then(ExtensionRequestCancellation::reason);
+        } else if cancellation_cause == workdeck_extension_api::ExtensionCancellationCause::TimedOut
+        {
+            cleanup.reason =
+                Some(serde_json::json!({"name":"Error","message":"highlight timed out"}));
         }
         let _ = self
             .connection_for_write(cleanup_budget)

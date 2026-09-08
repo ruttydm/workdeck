@@ -37,11 +37,31 @@ later aborts and reasonless cleanup cannot overwrite it. The new
 in native cleanup notifications. Legacy atomic-boolean entry points remain valid.
 All 207 host unit tests pass, including first-reason retention. All 25 compiled
 highlighter integration tests pass, including nested JSON reason preservation
-through actual child-process cleanup. The TUI coordinator still uses its
+through actual child-process cleanup. At `e7e9bfa1`, the TUI coordinator still used its
 boolean path: integrating its timeout and supersession reasons remains required
 before claiming full hook parity.
 Host and examples all-target Clippy with warnings denied, formatting, and
 whitespace checks also pass for this increment.
+
+### TUI reason-carrying cancellation integration
+
+The preparation coordinator, source-bound runtime, and native runtime adapter now
+share host cancellation handles instead of bare atomic flags. Cancelling with a
+reason returns the previous cancellation state under the same lock, preserving
+the coordinator's completion-versus-supersession decision. Coordinator deadlines
+retain `{"name":"Error","message":"highlight timed out"}` through late worker
+cleanup. Native host deadlines emit the same reason. Reasonless supersession and
+completion retain default-abort semantics; they cannot overwrite an existing
+explicit reason. The direct native TUI adapter now uses lazy snapshot reads.
+
+Tests check shared reason identity through source binding, timeout-reason retention
+after late completion, and structured reason delivery through the TUI runtime
+adapter to a compiled child. Validation passed 207 host unit tests, the existing
+1,078-test full TUI unit suite, and all 25 compiled highlighter integration tests.
+Host, TUI and examples all-target Clippy with warnings denied, formatting and
+whitespace checks pass. A subsequent focused run passed all 44 coordinator tests,
+including the additional source-binding identity test. This does not establish whole-hook parity or change any ledger
+interval's disposition.
 
 ## Native request-ID exhaustion
 
