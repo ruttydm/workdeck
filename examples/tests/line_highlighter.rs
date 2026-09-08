@@ -232,6 +232,8 @@ fn assert_retired_lazy_read_keeps_shared_read_alive(cancel: bool) {
         )
     });
     started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(extension.request_pending());
+    assert!(!extension.line_highlight_request_pending());
     let started = Instant::now();
     if cancel {
         cancelled.store(true, Ordering::Release);

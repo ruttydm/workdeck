@@ -136,7 +136,7 @@ impl LineHighlightRuntime for LoadedExtension {
             })
     }
     fn request_pending(&self) -> bool {
-        LoadedExtension::request_pending(self)
+        LoadedExtension::line_highlight_request_pending(self)
     }
 
     fn highlight_file(

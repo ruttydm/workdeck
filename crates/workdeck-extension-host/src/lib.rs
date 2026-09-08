@@ -2859,6 +2859,20 @@ impl LoadedExtension {
 
     #[must_use]
     pub fn request_pending(&self) -> bool {
+        self.connection.try_lock().map_or(true, |connection| {
+            connection.pending_request.is_some()
+                || connection
+                    .response_routes
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .has_active_parents()
+        })
+    }
+
+    /// Highlighters can share a child with other routed highlighter parents,
+    /// but cannot interleave with a legacy command/event request.
+    #[must_use]
+    pub fn line_highlight_request_pending(&self) -> bool {
         self.connection
             .try_lock()
             .map_or(true, |connection| connection.pending_request.is_some())

@@ -1,5 +1,17 @@
 # Hunk semantic-port ledger
 
+## Pending-state compatibility during concurrent highlighting
+
+General `request_pending()` once again reports active routed highlighters as
+busy to existing pane/command UI callers. The highlighter coordinator uses a
+separate `line_highlight_request_pending()` check that permits other routed
+parents while excluding a legacy request. The compiled held-read test asserts
+both observations before cancellation or timeout. Verification passes: all 17
+compiled highlighter tests, all 1,072 TUI unit tests, workspace Clippy, formatting,
+and architecture checks. This preserves the public busy signal without disabling
+concurrency. The fresh strict audit still fails on 313 unmapped records and
+reports 11 cached upstream commits; no coverage is added.
+
 ## Closed native transport is not retryable contention
 
 The four-parent fixture can now exit only after receiving all four invocations.
