@@ -71,7 +71,15 @@ pub fn read_extension_document(
                 "unexpected document response",
             ));
         }
-        if value.get("error").is_some_and(|error| !error.is_null()) {
+        if let Some(error) = value.get("error") {
+            if value.get("result").is_some()
+                || serde_json::from_value::<crate::JsonRpcError>(error.clone()).is_err()
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "invalid document error response",
+                ));
+            }
             return Err(io::Error::other("host rejected document request"));
         }
         return match value.get("result") {
@@ -88,6 +96,41 @@ pub fn read_extension_document(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn callback_rejects_ambiguous_and_malformed_error_responses() {
+        for payload in [
+            serde_json::json!({"result":null,"error":{"code":-32602,"message":"bad"}}),
+            serde_json::json!({"result":"text","error":null}),
+            serde_json::json!({"error":null}),
+            serde_json::json!({"error":{"code":"bad","message":"bad"}}),
+            serde_json::json!({"error":{"code":-32602}}),
+        ] {
+            let mut frame = payload;
+            frame["jsonrpc"] = serde_json::json!("2.0");
+            frame["id"] = serde_json::json!(3);
+            let mut input = io::Cursor::new(format!("{frame}\n"));
+            assert_eq!(
+                read_extension_document(&mut input, &mut Vec::new(), 8, 3, ExtensionFileSide::New)
+                    .unwrap_err()
+                    .kind(),
+                io::ErrorKind::InvalidData
+            );
+        }
+        let frame = serde_json::json!({"jsonrpc":"2.0","id":3,"error":{"code":-32602,"message":"rejected"}});
+        assert_eq!(
+            read_extension_document(
+                &mut io::Cursor::new(format!("{frame}\n")),
+                &mut Vec::new(),
+                8,
+                3,
+                ExtensionFileSide::New
+            )
+            .unwrap_err()
+            .kind(),
+            io::ErrorKind::Other
+        );
+    }
 
     #[test]
     fn callback_enforces_exact_frame_limit_without_draining_oversized_input() {

@@ -15,6 +15,12 @@ with all targets, formatting, and architecture checks.
 
 ## Synchronous native document SDK
 
+Error-response validation rejects simultaneous result/error fields, null error
+objects, and malformed error codes/messages. A well-formed host rejection remains
+distinct from invalid protocol data. The five SDK tests cover these cases in
+addition to frame bounds, source results, and parent cancellation; this adds no
+ledger coverage.
+
 Boundary regressions accept a JSON payload exactly at `MAX_MESSAGE_BYTES`,
 reject one extra byte, and prove an oversized unterminated stream consumes only
 `MAX_MESSAGE_BYTES + 2` bytes before rejection. Additional cases distinguish EOF
