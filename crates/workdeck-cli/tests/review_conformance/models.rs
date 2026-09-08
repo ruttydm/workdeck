@@ -199,6 +199,14 @@ pub(super) fn wire_outcome(value: &Value) -> ReviewWireParseOutcome {
     checked(value)
 }
 
+pub(super) struct ReviewWireFixture {
+    pub id: String,
+    pub findings: Vec<String>,
+    pub description: String,
+    pub action: serde_json::Map<String, Value>,
+    pub expected: ReviewWireParseOutcome,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct ReviewEventFramingProjection {

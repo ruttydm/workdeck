@@ -153,13 +153,22 @@ fn whole_note_size_counts_framing_combined_fields_and_utf8() {
         } else if id == "whole-note-one-byte-over" {
             assert_eq!(bytes, MAX_REVIEW_NOTE_BYTES + 1);
         }
+        let typed_note: workdeck_core::SemanticReviewNote =
+            serde_json::from_value(note.clone()).unwrap();
+        assert_eq!(
+            serde_json::to_value(&typed_note).unwrap(),
+            note,
+            "typing must preserve the exact note-size fixture: {id}"
+        );
         check_oracles(
             "note-size",
             id,
             &json!({"maxReviewNoteBytes": MAX_REVIEW_NOTE_BYTES, "serializedBytes": bytes}),
             &json!(review_note_within_size_limit(&note)),
             6,
-            Some(json!((super::wire::CONSUMER.project.accepts_note)(&note))),
+            Some(json!((super::wire::CONSUMER.project.accepts_note)(
+                &typed_note
+            ))),
         );
     }
 }
