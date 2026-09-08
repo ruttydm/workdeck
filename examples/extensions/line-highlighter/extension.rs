@@ -14,6 +14,8 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
     let mut skip_documents = false;
     let mut expect_missing = false;
     let mut batch_four = false;
+    let mut batch_documents = false;
+    let mut document_parents = std::collections::BTreeMap::<u64, (u64, String)>::new();
     let mut cancel_batch = false;
     let mut batch: Vec<(u64, String)> = Vec::new();
     let mut last_annotation_width: Option<usize> = None;
@@ -24,6 +26,22 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
             return Ok(());
         }
         let value: Value = serde_json::from_str(&line).map_err(io::Error::other)?;
+        if batch_documents
+            && value.get("method").is_none()
+            && let Some(child_id) = value.get("id").and_then(Value::as_u64)
+            && let Some((parent, path)) = document_parents.remove(&child_id)
+        {
+            let text = value
+                .get("result")
+                .cloned()
+                .ok_or_else(|| io::Error::other("missing document result"))?;
+            write_result(
+                &mut output,
+                parent,
+                serde_json::json!({"path":path,"text":text,"simultaneous":4}),
+            )?;
+            continue;
+        }
         if value.get("id").is_none() {
             if cancel_batch
                 && value.get("method").and_then(Value::as_str) == Some("$/cancelRequest")
@@ -62,6 +80,11 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
                 batch_four = input
                     .config
                     .get("batchFour")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                batch_documents = input
+                    .config
+                    .get("batchDocuments")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
                 cancel_batch = input
@@ -127,6 +150,16 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
                 if batch_four {
                     batch.push((request.id, input.file.path.clone()));
                     if batch.len() == 4 {
+                        if batch_documents {
+                            for (parent, path) in batch.drain(..).rev() {
+                                let child = parent + 100_000;
+                                document_parents.insert(child, (parent, path));
+                                serde_json::to_writer(&mut output, &serde_json::json!({"jsonrpc":"2.0","id":child,"method":"workdeck/document/read","params":{"parentRequestId":parent,"side":"new"}})).map_err(io::Error::other)?;
+                                output.write_all(b"\n")?;
+                            }
+                            output.flush()?;
+                            continue;
+                        }
                         if cancel_batch {
                             let first = batch
                                 .iter()

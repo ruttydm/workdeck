@@ -70,20 +70,25 @@ fn review_file(path: &str) -> workdeck_core::DiffFile {
 
 #[test]
 fn four_native_parents_share_one_child_and_receive_reversed_responses() {
-    assert_four_native_parents(false);
+    assert_four_native_parents(false, false);
 }
 
 #[test]
 fn cancelling_one_native_parent_preserves_other_parent_results() {
-    assert_four_native_parents(true);
+    assert_four_native_parents(true, false);
 }
 
-fn assert_four_native_parents(cancel_one: bool) {
+#[test]
+fn concurrent_native_document_callbacks_keep_parent_source_authority_separate() {
+    assert_four_native_parents(false, true);
+}
+
+fn assert_four_native_parents(cancel_one: bool, documents: bool) {
     let (_directory, manifest) = staged_extension();
     let extension = LoadedExtension::spawn_with_configuration(
         &manifest,
         "test",
-        serde_json::json!({"includeHang":false,"batchFour":true,"cancelBatch":cancel_one}),
+        serde_json::json!({"includeHang":false,"batchFour":true,"cancelBatch":cancel_one,"batchDocuments":documents}),
     )
     .unwrap();
     let cancel_second = Arc::new(AtomicBool::new(false));
@@ -95,17 +100,32 @@ fn assert_four_native_parents(cancel_one: bool) {
                 let path = format!("file-{index}.rs");
                 let file = review_file(&path);
                 let deadline = Instant::now() + Duration::from_secs(5);
+                let source_text = path.clone();
+                let reader = workdeck_extension_host::ExtensionDocumentReader::new(move |side| {
+                    assert_eq!(side, workdeck_extension_api::ExtensionFileSide::New);
+                    Ok(Some(source_text.clone()))
+                });
                 loop {
                     let not_cancelled = AtomicBool::new(false);
-                    match extension.highlight_file_cancellable(
-                        "attention",
-                        &file,
-                        if index == 1 {
-                            &cancel_second
-                        } else {
-                            &not_cancelled
-                        },
-                    ) {
+                    let result = if documents {
+                        extension.highlight_file_with_document_reader(
+                            "attention",
+                            &file,
+                            &not_cancelled,
+                            reader.clone(),
+                        )
+                    } else {
+                        extension.highlight_file_cancellable(
+                            "attention",
+                            &file,
+                            if index == 1 {
+                                &cancel_second
+                            } else {
+                                &not_cancelled
+                            },
+                        )
+                    };
+                    match result {
                         Err(HostError::Busy(_)) if Instant::now() < deadline => {
                             std::thread::yield_now()
                         }
@@ -114,10 +134,12 @@ fn assert_four_native_parents(cancel_one: bool) {
                                 assert!(matches!(result, Err(HostError::Cancelled(_))));
                                 break;
                             }
-                            assert_eq!(
-                                result.unwrap(),
+                            let expected = if documents {
+                                serde_json::json!({"path":path,"text":path,"simultaneous":4})
+                            } else {
                                 serde_json::json!({"path":path,"simultaneous":4})
-                            );
+                            };
+                            assert_eq!(result.unwrap(), expected);
                             if cancel_one && index == 0 {
                                 cancel_second.store(true, Ordering::Release);
                             }

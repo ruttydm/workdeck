@@ -21,7 +21,13 @@ other two receive their own results after the child consumes that cancellation.
 All thirteen integration tests pass, including the original reversed-response
 case. This proves isolation for that cancellation sequence, not concurrent
 document callbacks or arbitrary event interleavings.
-Concurrent document callbacks and a multiplexed SDK remain unfinished. No complete concurrency parity or
+The compiled fixture now also sends four document callbacks after all four
+parents arrive. Unique child IDs map replies back to their parent, and each host
+reader returns distinct text keyed to its captured file. All fourteen compiled
+integration tests pass, including checks that each parent receives its own path
+and source text. This covers concurrent callbacks in that fixture, not mixed
+callback cancellation/errors or a reusable multiplexed SDK.
+A multiplexed SDK remains unfinished. No complete concurrency parity or
 ledger coverage is claimed.
 
 The host now has a parent-route primitive with four bounded inboxes and
