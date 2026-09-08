@@ -123,6 +123,39 @@ and three startup-lifecycle tests. Host/examples all-target Clippy, formatting, 
 and architecture checks pass. The earlier full workspace verification predates this
 queue change; this focused validation does not satisfy the remaining full-port gates.
 
+Subsequently, `CARGO_INCREMENTAL=0 cargo xtask verify` passed at `e3c3d795`,
+covering the committed log and response-queue changes together. The run passed
+theme/notices, skills, architecture and release-content checks; workspace all-target
+tests (including 93 terminal-pager, 198 extension-host, 1,074 TUI and 241 VCS tests);
+workspace Clippy with warnings denied; the optimized release build; and the
+large-repository smoke test. The tooling suite passed 198 tests with its one existing
+ignored test. Strict port accounting remains 290 unmapped records and 11 cached
+upstream commits; this local verification is not a release or full-parity approval.
+
+### Remaining native stdin deadline work
+
+`request` and `request_cancellable` currently start response deadlines after
+`send_request_on` writes and flushes the child pipe. CLI, asynchronous command/event,
+notification and document-response paths also use blocking frame writes. Moreover,
+`begin_retirement` can write a shutdown notification despite its nonblocking contract.
+The next transport increment must cover the write itself, preserve frame ordering,
+and retire a partially written stream rather than append a new frame after timeout.
+Cancellation/shutdown must not introduce a second blocking write on the same pipe.
+
+Platform constraints were checked against primary documentation: POSIX
+[nonblocking pipe writes](https://pubs.opengroup.org/onlinepubs/9699919799/functions/write.html)
+can return partial progress or `EAGAIN`; readiness from
+[poll](https://pubs.opengroup.org/onlinepubs/9799919799/functions/poll.html)
+does not make a subsequent large blocking write safe. On Windows,
+[anonymous pipes do not support overlapped I/O](https://learn.microsoft.com/en-us/windows/win32/ipc/anonymous-pipe-operations),
+and [CancelSynchronousIo](https://learn.microsoft.com/en-us/windows/win32/api/ioapiset/nf-ioapiset-cancelsynchronousio)
+does not itself wait for cancellation completion. Merely moving a blocking write to
+an unjoined worker is therefore not accepted as deadline-safe transport. A replacement
+must retain the existing owned-pipe/thread-scoped SIGPIPE protections, test a child
+that stops reading, and verify shutdown plus subsequent-request rejection after a
+partial-frame timeout. These are unfinished implementation requirements, not evidence
+or ledger mappings.
+
 ## Native concurrency parity gap confirmed
 
 The current transport releases its connection lock while cancellable requests
