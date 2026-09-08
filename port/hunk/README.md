@@ -1157,6 +1157,33 @@ cargo xtask port map --path PATH --disposition rust-reimplementation \
   --destination crates/... --evidence crates/...
 ```
 
+Before a fetch can prune or replace tracking refs, `cargo xtask port fetch` archives
+the existing branch tips, exact tag objects, and pinned anchors under
+`refs/upstream/hunk/archive/{heads,tags,anchors}/<hex-name>/<object-id>`. It archives
+newly observed refs after the fetch too, including successful updates from a partially
+failed fetch. Hex-encoded names avoid ref file/directory collisions after branch renames.
+Each archive write is an atomic, create-only Git transaction; existing archive refs
+are verified, never moved or deleted by the tooling. A shared Git-directory lock
+serializes these operations across linked worktrees. Fetch does not auto-create
+unnamespaced tags and does not merge upstream ancestry into Workdeck.
+
+`cargo xtask port preserve-upstream` archives already available local refs without
+network access. `port/hunk/upstream-refs.jsonl` records their original ref names and
+object IDs, making older deleted archive refs detectable even after upstream deletes
+the corresponding branch. `cargo xtask port audit-upstream` is a read-only check of
+receipt integrity, immutable ref identity, and coverage of current tracking refs;
+strict port audit also requires it. It rejects corruption rather than silently repairing
+the receipt. These are local tooling guards, not hosted branch-protection settings:
+an owner can still change Git refs manually, which the receipt audit must detect.
+Commit receipt updates with port work and retain the archive refs when moving repositories.
+Temporary-repository tests cover force pushes, branch deletion/name-prefix reuse,
+annotated tags, symbolic-ref rejection, missing history, partial fetch failure, writer
+exclusion, idempotence, and history reachability after garbage collection.
+The initial local preservation archived 612 refs; a repeated run added zero and the
+read-only archive audit verified all 612 receipts. All seven archive regressions pass;
+the full xtask suite passes 198 tests with one existing opt-in capture test ignored.
+This does not constitute the required final upstream fetch or clear the catch-up queue.
+
 `audit` without `--allow-incomplete` is the release gate. Every baseline byte must be covered by
 exactly one ledger interval. A mapped interval must name both repository destinations and test or
 verification evidence. Valid dispositions are Rust reimplementation, translated test, migrated

@@ -27,6 +27,7 @@ mod release_status;
 mod review_conformance;
 mod skill;
 mod term_video;
+mod upstream_refs;
 
 const DEFAULT_BASELINE: &str = "hunk-port/main-2c00f435^{}";
 const DEFAULT_STABLE: &str = "hunk-port/stable-v0.20.1^{}";
@@ -113,11 +114,13 @@ fn run() -> Result<()> {
             let command = args
                 .next()
                 .context(
-                    "port requires fetch, inventory, reclassify, map, materialize-assets, audit, status, or history",
+                    "port requires fetch, preserve-upstream, audit-upstream, inventory, reclassify, map, materialize-assets, audit, status, or history",
                 )?;
             if !matches!(
                 command.as_str(),
                 "fetch"
+                    | "preserve-upstream"
+                    | "audit-upstream"
                     | "inventory"
                     | "reclassify"
                     | "map"
@@ -131,6 +134,29 @@ fn run() -> Result<()> {
             }
             if command == "fetch" {
                 return fetch_hunk();
+            }
+            if command == "preserve-upstream" {
+                if args.next().is_some() {
+                    bail!("preserve-upstream accepts no arguments");
+                }
+                let repo = repo_root()?;
+                let _lock = upstream_refs::lock(&repo)?;
+                let added = upstream_refs::preserve(&repo)?;
+                println!(
+                    "archived {added} Hunk refs; {} receipts verified",
+                    upstream_refs::audit(&repo)?
+                );
+                return Ok(());
+            }
+            if command == "audit-upstream" {
+                if args.next().is_some() {
+                    bail!("audit-upstream accepts no arguments");
+                }
+                println!(
+                    "verified {} archived Hunk refs",
+                    upstream_refs::audit(&repo_root()?)?
+                );
+                return Ok(());
             }
             if command == "capture-review-conformance" {
                 let bun = args.next().context(
@@ -334,6 +360,7 @@ fn fetch_hunk() -> Result<()> {
     const MAIN: &str = "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2";
     const STABLE: &str = "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd";
     let repo = repo_root()?;
+    let _lock = upstream_refs::lock(&repo)?;
     let remotes = git_stdout(&repo, ["remote"])?;
     if !remotes.lines().any(|remote| remote == "hunk-upstream") {
         run_checked(&repo, "git", &["remote", "add", "hunk-upstream", URL])?;
@@ -352,19 +379,10 @@ fn fetch_hunk() -> Result<()> {
             "+refs/heads/*:refs/remotes/hunk-upstream/*",
         ],
     )?;
-    run_checked(
-        &repo,
-        "git",
-        &[
-            "fetch",
-            "--prune",
-            "hunk-upstream",
-            "+refs/heads/*:refs/remotes/hunk-upstream/*",
-            "+refs/tags/*:refs/tags/hunk-upstream/*",
-        ],
-    )?;
+    upstream_refs::fetch(&repo)?;
     ensure_anchor_tag(&repo, "hunk-port/main-2c00f435", MAIN)?;
     ensure_anchor_tag(&repo, "hunk-port/stable-v0.20.1", STABLE)?;
+    upstream_refs::preserve(&repo)?;
     println!("updated namespaced Hunk refs and verified both port anchors");
     Ok(())
 }
@@ -1825,6 +1843,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
         bail!("{unmapped} ledger records remain unmapped");
     }
     if strict {
+        upstream_refs::audit(&repo)?;
         port_history::check(&repo)?;
         validate_upstream_delta(upstream_delta.as_deref())?;
     }
