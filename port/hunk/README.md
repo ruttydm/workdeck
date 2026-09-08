@@ -1,5 +1,21 @@
 # Hunk semantic-port ledger
 
+## Immutable native review documents
+
+`ReviewState` owns its changeset through `Arc<Changeset>`. Its `changeset()` accessor remains
+read-only, and `changeset_snapshot()` retains that exact immutable document. State clones share
+the document; selection, layout and comments remain independently owned state. Reload installs
+a new allocation. A fresh replacement state is distinguishable even if its generation and file
+IDs equal an older state's values. A retained `Arc` prevents allocation-address reuse while a
+consumer uses its identity. Caller copy-on-write edits cannot mutate the state-owned document.
+
+The public `ReviewSnapshot` still contains an owned `Changeset`; its serialized schema is not
+changed. This ownership boundary enables future geometry reuse but does not itself implement
+a geometry cache or prove a performance gate. Such reuse must also account for layout, width,
+notes, expanded gaps, filtering and extension geometry; generation alone is insufficient.
+
+## Ledger transactions
+
 Ledger mutations hold a nonblocking OS lock for the entire read/modify/write transaction and
 replace the ledger from a unique, flushed temporary file. A competing writer fails with a retry
 message instead of sharing a temporary file or losing another mapping. The ignored

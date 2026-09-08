@@ -54,6 +54,7 @@ pub use semantic_store::*;
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use thiserror::Error;
 use workdeck_core::{
     Changeset, LineRange, ReviewNoteSource, ReviewSelection, ReviewSide, ReviewSnapshot,
@@ -159,7 +160,7 @@ pub enum ReviewError {
 
 #[derive(Debug, Clone)]
 pub struct ReviewState {
-    changeset: Changeset,
+    changeset: Arc<Changeset>,
     selection: ReviewSelection,
     layout: LayoutMode,
     generation: u64,
@@ -171,7 +172,7 @@ impl ReviewState {
     pub fn new(changeset: Changeset) -> Self {
         let selection = first_selection(&changeset);
         Self {
-            changeset,
+            changeset: Arc::new(changeset),
             selection,
             layout: LayoutMode::Auto,
             generation: 1,
@@ -182,6 +183,13 @@ impl ReviewState {
 
     pub fn changeset(&self) -> &Changeset {
         &self.changeset
+    }
+
+    /// Retain the immutable document used by this state. Selection, layout and
+    /// notes do not mutate it; reload installs a distinct allocation. Holding the
+    /// Arc makes pointer identity safe even across complete ReviewState replacement.
+    pub fn changeset_snapshot(&self) -> Arc<Changeset> {
+        Arc::clone(&self.changeset)
     }
 
     pub fn selection(&self) -> ReviewSelection {
@@ -412,7 +420,7 @@ impl ReviewState {
                 self.selection.line,
             )
         });
-        self.changeset = changeset;
+        self.changeset = Arc::new(changeset);
         self.generation = self.generation.saturating_add(1);
         self.state_revision = 0;
         self.selection = previous_file
@@ -446,7 +454,7 @@ impl ReviewState {
     pub fn snapshot(&self) -> ReviewSnapshot {
         ReviewSnapshot {
             generation: self.generation,
-            changeset: self.changeset.clone(),
+            changeset: self.changeset.as_ref().clone(),
             selection: self.selection,
         }
     }
@@ -717,6 +725,39 @@ mod tests {
             source: ChangesetSource::WorkingTree { staged: false },
             files,
         }
+    }
+
+    #[test]
+    fn immutable_document_snapshot_survives_navigation_clone_and_reload() {
+        let mut state = ReviewState::new(changeset(vec![file("a", "a", 2), file("b", "b", 1)]));
+        let retained = state.changeset_snapshot();
+        state.select_hunk(0, 1).unwrap();
+        state.set_layout(LayoutMode::Split);
+        assert!(Arc::ptr_eq(&retained, &state.changeset_snapshot()));
+        let cloned = state.clone();
+        assert!(Arc::ptr_eq(&retained, &cloned.changeset_snapshot()));
+        let wire_before = state.snapshot();
+        state.reload(changeset(vec![file("replacement", "new", 1)]));
+        assert!(!Arc::ptr_eq(&retained, &state.changeset_snapshot()));
+        assert_eq!(retained.files[0].path, "a");
+        assert_eq!(cloned.changeset().files[0].path, "a");
+        assert_eq!(wire_before.changeset.files[0].path, "a");
+        assert_eq!(state.snapshot().changeset.files[0].path, "replacement");
+    }
+
+    #[test]
+    fn replacement_states_with_equal_generations_have_distinct_document_identity() {
+        let first = ReviewState::new(changeset(vec![file("a", "same", 1)]));
+        let second = ReviewState::new(changeset(vec![file("b", "same", 1)]));
+        assert_eq!(first.generation(), second.generation());
+        assert!(!Arc::ptr_eq(
+            &first.changeset_snapshot(),
+            &second.changeset_snapshot()
+        ));
+        // A caller can mutate a detached Arc through copy-on-write, never the state.
+        let mut detached = first.changeset_snapshot();
+        Arc::make_mut(&mut detached).files[0].path = "detached".into();
+        assert_eq!(first.changeset().files[0].path, "a");
     }
 
     #[test]
