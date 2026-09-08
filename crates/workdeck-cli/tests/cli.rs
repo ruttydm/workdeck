@@ -404,6 +404,11 @@ fn session_overviews_and_empty_list_are_headless_and_read_only() {
 #[test]
 fn malformed_session_commands_fail_before_daemon_or_repository_access() {
     let cases = [
+        (vec!["session", "quit"], "Specify one live Workdeck session"),
+        (
+            vec!["session", "quit", "session-1", "--repo", "."],
+            "Specify either <session-id> or --repo",
+        ),
         (vec!["session", "get"], "Specify one live Workdeck session"),
         (
             vec!["session", "get", "session-1", "--repo", "."],

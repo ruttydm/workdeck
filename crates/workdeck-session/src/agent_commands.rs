@@ -95,6 +95,22 @@ impl SessionCommandRunner {
         Self::from_environment(std::env::vars().collect())
     }
 
+    /// Workdeck-native review shutdown, separate from the pinned Hunk command model.
+    pub fn quit(
+        &self,
+        selector: SessionSelectorInput,
+    ) -> Result<crate::QuitSessionResult, SessionCommandError> {
+        if !(self.availability)(SessionDaemonAction::Quit)? {
+            return Err(SessionCommandError::Message(
+                crate::NO_ACTIVE_SESSIONS_MESSAGE.into(),
+            ));
+        }
+        let selector = normalize_session_selector(&selector_from_input(&selector))?;
+        let client = (self.client_factory)()?;
+        ensure_required_action(SessionDaemonAction::Quit, client.as_ref())?;
+        Ok(client.quit_session(selector)?)
+    }
+
     pub fn run(&self, input: SessionCommandInput) -> Result<String, SessionCommandError> {
         let action = command_action(&input);
         let daemon_available = (self.availability)(action)?;
@@ -652,6 +668,7 @@ mod tests {
 
     #[derive(Debug, Clone, PartialEq)]
     enum Call {
+        Quit(SessionSelector),
         List,
         Get(SessionSelector),
         Context(SessionSelector),
@@ -771,6 +788,14 @@ mod tests {
     }
 
     impl WorkdeckSessionCliClient for FakeClient {
+        fn quit_session(
+            &self,
+            selector: SessionSelector,
+        ) -> Result<crate::QuitSessionResult, WorkdeckSessionCliClientError> {
+            self.edit(|state| state.calls.push(Call::Quit(selector)));
+            Ok(crate::QuitSessionResult { quitting: true })
+        }
+
         fn get_capabilities(
             &self,
         ) -> Result<Option<SessionDaemonCapabilities>, WorkdeckSessionCliClientError> {
@@ -901,6 +926,7 @@ mod tests {
             version: WORKDECK_SESSION_API_VERSION,
             daemon_version: WORKDECK_SESSION_DAEMON_VERSION,
             actions: vec![
+                SessionDaemonAction::Quit,
                 SessionDaemonAction::List,
                 SessionDaemonAction::Get,
                 SessionDaemonAction::Context,
@@ -1076,6 +1102,56 @@ mod tests {
 
     fn json_output(output: &str) -> Value {
         serde_json::from_str(output).unwrap()
+    }
+
+    #[test]
+    fn native_quit_checks_capabilities_and_availability_before_dispatch() {
+        let client = FakeClient::new();
+        let selector = selector_input();
+        let expected = normalize_session_selector(&selector_from_input(&selector)).unwrap();
+        assert!(
+            runner(client.clone(), true)
+                .quit(selector.clone())
+                .unwrap()
+                .quitting
+        );
+        assert_eq!(client.calls(), vec![Call::Quit(expected)]);
+
+        for capabilities in [
+            Ok(None),
+            Err(WorkdeckSessionCliClientError::Authentication),
+            Ok(Some(SessionDaemonCapabilities {
+                version: WORKDECK_SESSION_API_VERSION,
+                daemon_version: WORKDECK_SESSION_DAEMON_VERSION,
+                actions: vec![SessionDaemonAction::List],
+            })),
+        ] {
+            let client = FakeClient::new();
+            client.edit(|state| state.capabilities = capabilities);
+            let error = runner(client.clone(), true)
+                .quit(selector.clone())
+                .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("missing required support for quit")
+            );
+            assert!(client.calls().is_empty());
+        }
+        let absent = SessionCommandRunner::with_hooks(
+            Arc::new(|| panic!("absent daemon must not create a credential-backed client")),
+            Arc::new(|action| {
+                assert_eq!(action, SessionDaemonAction::Quit);
+                Ok(false)
+            }),
+        );
+        assert!(
+            absent
+                .quit(selector)
+                .unwrap_err()
+                .to_string()
+                .contains(crate::NO_ACTIVE_SESSIONS_MESSAGE)
+        );
     }
 
     #[test]

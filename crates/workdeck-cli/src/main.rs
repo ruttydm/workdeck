@@ -8371,11 +8371,10 @@ fn handle_live_session_command(command: Option<LiveSessionCommand>) -> Result<()
             command: Some(command),
         } => handle_live_highlight_command(command),
         LiveSessionCommand::Quit { id, repo, json } => {
-            let directory = default_discovery_directory()
-                .context("could not resolve the Workdeck live-session directory")?;
-            let session = resolve_live_session(&directory, id.as_deref(), repo.as_deref())?;
-            let result = SessionClient::request(&session, SessionAction::Quit)?;
-            emit_live_value("live_session", "quit", result, json)
+            let selector = explicit_session_selector(id, repo)?;
+            let result = workdeck_session::SessionCommandRunner::from_process_environment()
+                .quit(selector)?;
+            emit_live_value("live_session", "quit", serde_json::to_value(result)?, json)
         }
     }
 }

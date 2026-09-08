@@ -1654,3 +1654,18 @@ evidence, not a completed CLI or TUI end-to-end migration: `workdeck session qui
 uses the legacy listener at this point, and the remaining legacy routes and listener
 must be removed only after their native replacements have executable parity evidence.
 No source ledger interval or upstream catch-up commit is marked complete by this work.
+
+The subsequent CLI increment replaces the legacy `workdeck session quit` route with
+`SessionCommandRunner::quit` and the authenticated native client. It checks daemon
+availability and advertised quit support before dispatch, normalizes the selected
+repository, and preserves the existing `live_session` / `quit` JSON envelope and text
+result. Incompatible or unauthenticated older daemons return upgrade guidance rather
+than falling back to the legacy listener. The real terminal-pager attention test now
+ends by issuing CLI quit with the native ID returned by `session list`, draining
+terminal restoration output, and asserting successful reviewer and CLI exits plus
+the unchanged JSON reply. It sends neither keyboard quit nor a legacy request.
+That PTY test and all 572 session library tests pass. Other legacy routes and the
+per-TUI listener still remain; this does not claim the complete listener migration.
+Workspace all-target Clippy and formatting passed for this increment, as did CLI
+malformed-selector tests including missing and conflicting quit selectors. A fresh
+strict audit still fails at 290 unmapped records with 11 cached upstream commits.

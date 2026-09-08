@@ -310,6 +310,10 @@ impl Session {
 
     fn quit(&mut self) {
         self.write(b"q");
+        self.wait_for_exit();
+    }
+
+    fn wait_for_exit(&mut self) {
         let deadline = Instant::now() + Duration::from_secs(3);
         loop {
             if let Some(status) = self.child.try_wait().unwrap() {
@@ -1412,5 +1416,41 @@ fn session_attention_highlight_reveals_and_paints_exact_range_then_clears_and_na
         .position(|line| line.contains("line025"))
         .unwrap();
     assert!(row > 0 && row < 12, "{frame}");
-    session.quit();
+    // Use the native ID returned by the broker, not the separate legacy listener ID.
+    // Drain terminal restoration output while the authenticated command shuts down
+    // the actual mounted review. No keyboard quit or legacy request is sent.
+    let mut quit = Command::new(env!("CARGO_BIN_EXE_workdeck"))
+        .args(["session", "quit", &session_id, "--json"])
+        .current_dir(session.directory.path())
+        .env("XDG_CONFIG_HOME", session.directory.path().join("config"))
+        .env("XDG_RUNTIME_DIR", session.directory.path().join("runtime"))
+        .env("WORKDECK_MCP_PORT", port.to_string())
+        .env("WORKDECK_MCP_DISABLE", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    session.wait_for_exit();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while quit.try_wait().unwrap().is_none() {
+        if Instant::now() >= deadline {
+            let _ = quit.kill();
+            let _ = quit.wait();
+            panic!("native quit CLI did not finish after review exit");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let output = quit.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["data"], serde_json::json!({"quitting": true}));
+    assert_eq!(result["kind"], "live_session");
+    assert_eq!(result["action"], "quit");
 }

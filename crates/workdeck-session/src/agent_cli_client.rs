@@ -178,6 +178,15 @@ pub struct SessionHighlightClearCliInput {
 
 /// Complete typed surface used by the `workdeck session` command family.
 pub trait WorkdeckSessionCliClient {
+    fn quit_session(
+        &self,
+        _selector: SessionSelector,
+    ) -> Result<crate::QuitSessionResult, WorkdeckSessionCliClientError> {
+        Err(WorkdeckSessionCliClientError::Request(
+            "This session client does not support native review shutdown.".into(),
+        ))
+    }
+
     fn get_capabilities(
         &self,
     ) -> Result<Option<SessionDaemonCapabilities>, WorkdeckSessionCliClientError>;
@@ -417,6 +426,13 @@ impl HttpWorkdeckSessionCliClient {
 }
 
 impl WorkdeckSessionCliClient for HttpWorkdeckSessionCliClient {
+    fn quit_session(
+        &self,
+        selector: SessionSelector,
+    ) -> Result<crate::QuitSessionResult, WorkdeckSessionCliClientError> {
+        HttpWorkdeckSessionCliClient::quit_session(self, selector)
+    }
+
     fn get_capabilities(
         &self,
     ) -> Result<Option<SessionDaemonCapabilities>, WorkdeckSessionCliClientError> {
