@@ -87,30 +87,35 @@ fn exited_native_transport_is_closed_not_retryable_busy() {
 
 #[test]
 fn four_native_parents_share_one_child_and_receive_reversed_responses() {
-    assert_four_native_parents(false, false, false);
+    assert_four_native_parents(false, false, false, false);
 }
 
 #[test]
 fn cancelling_one_native_parent_preserves_other_parent_results() {
-    assert_four_native_parents(true, false, false);
+    assert_four_native_parents(true, false, false, false);
 }
 
 #[test]
 fn concurrent_native_document_callbacks_keep_parent_source_authority_separate() {
-    assert_four_native_parents(false, true, false);
+    assert_four_native_parents(false, true, false, false);
 }
 
 #[test]
 fn concurrent_native_document_failure_does_not_replace_peer_sources() {
-    assert_four_native_parents(false, true, true);
+    assert_four_native_parents(false, true, true, false);
 }
 
-fn assert_four_native_parents(cancel_one: bool, documents: bool, fail_one: bool) {
+#[test]
+fn native_child_exit_disconnects_all_four_waiting_parents() {
+    assert_four_native_parents(false, false, false, true);
+}
+
+fn assert_four_native_parents(cancel_one: bool, documents: bool, fail_one: bool, exit_batch: bool) {
     let (_directory, manifest) = staged_extension();
     let extension = LoadedExtension::spawn_with_configuration(
         &manifest,
         "test",
-        serde_json::json!({"includeHang":false,"batchFour":true,"cancelBatch":cancel_one,"batchDocuments":documents}),
+        serde_json::json!({"includeHang":false,"batchFour":true,"cancelBatch":cancel_one,"batchDocuments":documents,"exitBatch":exit_batch}),
     )
     .unwrap();
     let cancel_second = Arc::new(AtomicBool::new(false));
@@ -155,6 +160,10 @@ fn assert_four_native_parents(cancel_one: bool, documents: bool, fail_one: bool)
                             std::thread::yield_now()
                         }
                         result => {
+                            if exit_batch {
+                                assert!(matches!(result, Err(HostError::Closed(_))));
+                                break;
+                            }
                             if cancel_one && index == 1 {
                                 assert!(matches!(result, Err(HostError::Cancelled(_))));
                                 break;

@@ -15,6 +15,7 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
     let mut expect_missing = false;
     let mut exit_on_highlight = false;
     let mut batch_four = false;
+    let mut exit_batch = false;
     let mut batch_documents = false;
     let mut document_parents = std::collections::BTreeMap::<u64, (u64, String)>::new();
     let mut cancel_batch = false;
@@ -88,6 +89,11 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
                     .get("batchFour")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
+                exit_batch = input
+                    .config
+                    .get("exitBatch")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 batch_documents = input
                     .config
                     .get("batchDocuments")
@@ -159,6 +165,9 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
                 if batch_four {
                     batch.push((request.id, input.file.path.clone()));
                     if batch.len() == 4 {
+                        if exit_batch {
+                            return Ok(());
+                        }
                         if batch_documents {
                             for (parent, path) in batch.drain(..).rev() {
                                 let child = parent + 100_000;

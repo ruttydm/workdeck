@@ -2,6 +2,12 @@
 
 ## Closed native transport is not retryable contention
 
+The four-parent fixture can now exit only after receiving all four invocations.
+Its new integration case requires every waiting host caller to receive Closed,
+not Timeout or Busy. All seventeen compiled integration tests, examples Clippy,
+formatting, and architecture checks pass. This is transport EOF coverage, not
+an assertion about forced crashes or all retirement interleavings.
+
 A compiled fixture exits when it receives a highlight invocation. Its regression
 requires both the interrupted call and a subsequent call to return
 `HostError::Closed`. The first run failed because parent-inbox registration
