@@ -1,5 +1,27 @@
 # Hunk semantic-port ledger
 
+## Native concurrency parity gap confirmed
+
+A fresh inspection of pinned `useLineHighlights.ts` shows four file workers
+sharing the same registered highlighter. The Rust coordinator's corresponding
+test uses `FakeLineHighlightRuntime`; it does not establish native process
+concurrency. `LoadedExtension::request_cancellable` holds the connection mutex
+through the response loop, `try_connection` returns Busy under contention, and
+`request_pending` treats that lock as an in-flight request. Consequently one
+held native calculation prevents other files from invoking that same extension.
+The baseline highlighter hook remains unmapped; prior four-worker unit evidence
+must not be used as native concurrency parity evidence.
+
+The next transport change needs one response dispatcher with per-parent request
+state, request-local document authority, independent cancellation/deadlines, and
+serialized writes without locking the connection for the whole calculation.
+Child callback response IDs must be unambiguous across simultaneous parents;
+the synchronous SDK/example does not currently provide a multiplexed serving
+loop. A compiled fixture must hold four parent calculations simultaneously,
+complete them out of order, and verify cancellation of one does not retire the
+others. Additional processes per file would duplicate extension lifecycle/state
+and are not a substitute for this behavior. No ledger coverage is added.
+
 ## Native document timeout during a held source read
 
 The compiled held-read fixture now exercises both explicit cancellation and the
