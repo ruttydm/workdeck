@@ -7154,6 +7154,17 @@ impl ReviewApp {
         prepared
     }
 
+    fn published_extension_line_highlights(&self) -> LineHighlightMap {
+        let runtime = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        merge_line_highlight_maps(
+            runtime.line_highlight_preparation.resolved(),
+            &self.agent_line_highlights,
+        )
+    }
+
     fn prepare_extension_line_highlights(
         &self,
         changeset: &Changeset,
@@ -7382,8 +7393,11 @@ impl ReviewApp {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .file_view_component_expanded
             .clone();
-        let line_highlights =
-            self.prepare_extension_line_highlights(state.changeset(), state.comments());
+        let line_highlights = if matches!(purpose, ReviewRowPurpose::Geometry) {
+            self.published_extension_line_highlights()
+        } else {
+            self.prepare_extension_line_highlights(state.changeset(), state.comments())
+        };
         let mut highlights = self
             .highlights
             .lock()
@@ -7985,8 +7999,7 @@ impl ReviewApp {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .file_view_component_expanded
             .clone();
-        let line_highlights =
-            self.prepare_extension_line_highlights(state.changeset(), state.comments());
+        let line_highlights = self.published_extension_line_highlights();
         let mut highlights = self
             .highlights
             .lock()

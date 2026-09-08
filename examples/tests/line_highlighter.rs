@@ -127,6 +127,12 @@ fn native_line_highlighter_receives_frozen_documents_and_returns_declarative_mar
 
 #[test]
 fn saved_note_changes_reach_native_highlighter_and_terminal_marks() {
+    for deferred in [false, true] {
+        assert_saved_note_changes_reach_native_highlighter(deferred);
+    }
+}
+
+fn assert_saved_note_changes_reach_native_highlighter(deferred: bool) {
     let (_directory, manifest) = staged_extension();
     let extension = LoadedExtension::spawn_with_configuration(
         &manifest,
@@ -134,16 +140,55 @@ fn saved_note_changes_reach_native_highlighter_and_terminal_marks() {
         serde_json::json!({ "includeHang": false, "markAnnotations": true }),
     )
     .unwrap();
-    let document = review_changeset("request.rs");
+    let initial = review_changeset("request.rs");
+    let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (document, source_capabilities) = if deferred {
+        let reads = Arc::clone(&reads);
+        let (document, sources) = workdeck_vcs::materialize_vcs_patch_result_deferred(
+            workdeck_vcs::VcsPatchResult {
+                repo_root: ".".into(),
+                source_label: "notes".into(),
+                title: "notes".into(),
+                patch_text: initial.files[0].patch.clone(),
+                untracked_paths: vec![],
+                extra_files: vec![],
+                source_cache_key: Some("notes-snapshot".into()),
+                source_reader: Some(Arc::new(move |request| {
+                    assert_eq!(request.path, "request.rs");
+                    reads.fetch_add(1, Ordering::SeqCst);
+                    Ok(workdeck_vcs::VcsFileSourceResult::Source(
+                        SourceSnapshot::new(
+                            match request.side {
+                                workdeck_core::ReviewSide::Old => "old\n",
+                                workdeck_core::ReviewSide::New => "new\n",
+                            }
+                            .into(),
+                            SourceOrigin::WorkingTree,
+                            true,
+                        ),
+                    ))
+                })),
+            },
+            "notes",
+            ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap();
+        (document, Some(sources))
+    } else {
+        (initial, None)
+    };
+    assert_eq!(reads.load(Ordering::SeqCst), 0);
     let mut probe = extension.clone();
     let options = ReviewOptions {
         sidebar: false,
         line_numbers: false,
         highlight: false,
+        source_capabilities,
         ..ReviewOptions::default()
     };
     let base = ratatui_theme_color(&options.theme.added_content_bg);
     let app = ReviewApp::new_with_extensions(document.clone(), options, vec![extension]);
+    assert_eq!(reads.load(Ordering::SeqCst), 0);
     let state = app.shared_state();
     let mut terminal = Terminal::new(TestBackend::new(100, 25)).unwrap();
     let note = workdeck_review::build_live_comment(
@@ -229,6 +274,7 @@ fn saved_note_changes_reach_native_highlighter_and_terminal_marks() {
         }
     }
     assert_eq!(state.lock().unwrap().changeset(), &document);
+    assert_eq!(reads.load(Ordering::SeqCst), if deferred { 2 } else { 0 });
 }
 
 #[test]

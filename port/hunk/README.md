@@ -1,5 +1,31 @@
 # Hunk semantic-port ledger
 
+## Note-enriched views with deferred source authority
+
+The source-bound highlighter regression now merges a live annotation before
+invocation. It checks zero reads during view construction, unchanged source
+identity, lookup through the original capability registry, both source sides
+and the note arriving together at the consumer, cached side reads, and an
+unchanged serialized review document.
+
+The compiled note-transition test runs with both embedded snapshots and a
+deferred VCS provider. The deferred provider asserts its captured request path;
+the test checks zero reads through app construction and exactly two side reads
+across creation, editing, removal, and draft/orphan filtering. Terminal marks
+and the child's observation query still verify every transition. This extends
+the preceding integration evidence without adding a ledger mapping or claiming
+complete provider, hook, or performance parity.
+
+The first deferred integration run failed its post-construction zero-read
+assertion: cursor seeding requested geometry through a path that also started
+highlighter workers. Geometry-only row and reveal queries now consume already
+published marks; paint paths remain responsible for preparation. This keeps
+cursor initialization from starting highlighter source I/O.
+Final verification passes: all six compiled highlighter tests (the note case
+runs embedded and deferred sources), all 1,072 TUI unit tests, workspace Clippy,
+formatting, and architecture checks. Lazy native `readDocument` parity remains
+unproven; these tests verify captured-reader ownership and caching.
+
 ## Saved-comment inputs for native highlighters
 
 The live highlighter path now receives saved comments from the caller's held

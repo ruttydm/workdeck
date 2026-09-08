@@ -916,9 +916,27 @@ mod tests {
             ChangesetSource::WorkingTree { staged: false },
         ).unwrap();
         let original = serde_json::to_value(&changeset).unwrap();
+        let annotation: workdeck_core::AgentAnnotation = serde_json::from_value(json!({
+            "summary": "live note", "tags": []
+        }))
+        .unwrap();
+        let annotations =
+            BTreeMap::from([(changeset.files[0].runtime_id.clone(), vec![annotation])]);
+        let merged =
+            crate::public_review::merge_file_annotations_borrowed(&changeset.files, &annotations);
+        assert_eq!(reads.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            merged[0].source_identity,
+            changeset.files[0].source_identity
+        );
+        assert!(sources.get(&merged[0]).is_some());
         let runtime = FakeLineHighlightRuntime::new(|_, file, _| {
             assert_eq!(file.sources.old.as_ref().unwrap().content, "old\n");
             assert_eq!(file.sources.new.as_ref().unwrap().content, "new\n");
+            assert_eq!(
+                file.agent.as_ref().unwrap().annotations[0].summary,
+                "live note"
+            );
             Ok(json!([]))
         });
         let bound = SourceBoundLineHighlightRuntime {
@@ -927,14 +945,14 @@ mod tests {
         };
         assert_eq!(reads.load(Ordering::SeqCst), 0);
         assert_eq!(
-            bound.highlight_file("test", &changeset.files[0], &AtomicBool::new(true)),
+            bound.highlight_file("test", &merged[0], &AtomicBool::new(true)),
             Err(LineHighlightRuntimeError::Retry)
         );
         assert_eq!(reads.load(Ordering::SeqCst), 0);
         assert!(runtime.calls().is_empty());
         for _ in 0..2 {
             bound
-                .highlight_file("test", &changeset.files[0], &AtomicBool::new(false))
+                .highlight_file("test", &merged[0], &AtomicBool::new(false))
                 .unwrap();
         }
         assert_eq!(reads.load(Ordering::SeqCst), 2);
