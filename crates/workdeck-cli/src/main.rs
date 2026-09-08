@@ -962,6 +962,7 @@ impl ReviewCliOptions {
         };
         ReviewOptions {
             source_presentation: workdeck_tui::ReviewSourcePresentation::default(),
+            source_capabilities: None,
             layout: match self.mode.unwrap_or(ReviewLayoutArg::Auto) {
                 ReviewLayoutArg::Auto => LayoutMode::Auto,
                 ReviewLayoutArg::Split => LayoutMode::Split,
@@ -5755,6 +5756,7 @@ fn run_with_preloaded_extensions(
             &args.cwd,
             LoadedReviewChangeset {
                 changeset: loaded.changeset,
+                source_capabilities: Some(loaded.source_capabilities),
                 repo_root: Some(loaded.repo_root),
             },
             review,
@@ -6098,6 +6100,7 @@ struct SelectedVcsAdapter {
 }
 
 struct LoadedReviewChangeset {
+    source_capabilities: Option<workdeck_vcs::VcsSourceCapabilities>,
     changeset: Changeset,
     repo_root: Option<PathBuf>,
 }
@@ -6275,6 +6278,7 @@ fn load_dynamic_review_input(
     let mut startup_notices = review.startup_notices.clone();
     startup_notices.extend(session_themes.notices);
     let mut repo_root = Some(config_root);
+    let mut source_capabilities = workdeck_vcs::VcsSourceCapabilities::default();
     let mut input = resolve_dynamic_review_input(input, cwd, catalog)?;
     let mut changeset = match &mut input {
         CliInput::Vcs(input) => {
@@ -6287,6 +6291,7 @@ fn load_dynamic_review_input(
             let loaded =
                 load_selected_vcs_changeset(cwd, &selected.adapter, catalog, &review_input)?;
             repo_root = Some(loaded.repo_root);
+            source_capabilities = loaded.source_capabilities;
             loaded.changeset
         }
         CliInput::Show(input) => {
@@ -6299,6 +6304,7 @@ fn load_dynamic_review_input(
             let loaded =
                 load_selected_vcs_changeset(cwd, &selected.adapter, catalog, &review_input)?;
             repo_root = Some(loaded.repo_root);
+            source_capabilities = loaded.source_capabilities;
             loaded.changeset
         }
         CliInput::StashShow(input) => {
@@ -6315,6 +6321,7 @@ fn load_dynamic_review_input(
             let loaded =
                 load_selected_vcs_changeset(cwd, &selected.adapter, catalog, &review_input)?;
             repo_root = Some(loaded.repo_root);
+            source_capabilities = loaded.source_capabilities;
             loaded.changeset
         }
         CliInput::Files(input) => {
@@ -6349,6 +6356,7 @@ fn load_dynamic_review_input(
     )?;
     Ok(workdeck_tui::DynamicReviewLoad {
         host_options: workdeck_tui::DynamicReviewHostOptions {
+            source_capabilities: Some(source_capabilities),
             command_cwd: cwd.to_owned(),
             repo_root,
             startup_notices,
@@ -6632,6 +6640,7 @@ fn handle_review_command(
                 return run_review_with_preloaded_extensions(
                     cwd,
                     LoadedReviewChangeset {
+                        source_capabilities: None,
                         changeset,
                         repo_root: None,
                     },
@@ -6691,6 +6700,7 @@ fn handle_review_command(
                 cwd,
                 LoadedReviewChangeset {
                     changeset: loaded.changeset,
+                    source_capabilities: Some(loaded.source_capabilities),
                     repo_root: Some(loaded.repo_root),
                 },
                 review,
@@ -6740,6 +6750,7 @@ fn handle_review_command(
                 cwd,
                 LoadedReviewChangeset {
                     changeset: loaded.changeset,
+                    source_capabilities: Some(loaded.source_capabilities),
                     repo_root: Some(loaded.repo_root),
                 },
                 review,
@@ -6791,6 +6802,7 @@ fn handle_review_command(
                 cwd,
                 LoadedReviewChangeset {
                     changeset: loaded.changeset,
+                    source_capabilities: Some(loaded.source_capabilities),
                     repo_root: Some(loaded.repo_root),
                 },
                 review,
@@ -6860,6 +6872,7 @@ fn handle_review_command(
                 run_review_with_preloaded_extensions(
                     cwd,
                     LoadedReviewChangeset {
+                        source_capabilities: None,
                         changeset,
                         repo_root: None,
                     },
@@ -6873,6 +6886,7 @@ fn handle_review_command(
                 run_review_with_preloaded_extensions(
                     cwd,
                     LoadedReviewChangeset {
+                        source_capabilities: None,
                         changeset,
                         repo_root: None,
                     },
@@ -6923,6 +6937,7 @@ fn handle_review_command(
             run_review_with_preloaded_extensions(
                 cwd,
                 LoadedReviewChangeset {
+                    source_capabilities: None,
                     changeset,
                     repo_root: None,
                 },
@@ -7003,6 +7018,7 @@ fn handle_review_command(
                     run_review_with_preloaded_extensions(
                         cwd,
                         LoadedReviewChangeset {
+                            source_capabilities: None,
                             changeset,
                             repo_root: None,
                         },
@@ -7128,7 +7144,7 @@ fn run_review_with_preloaded_extensions(
         initial_watch_signature,
         prepared_extensions,
     )?;
-    run_app_bootstrap(bootstrap, review, reloader)
+    run_app_bootstrap(bootstrap, review, reloader, loaded.source_capabilities)
 }
 
 fn prepare_app_bootstrap(
@@ -7252,6 +7268,7 @@ fn run_app_bootstrap(
     bootstrap: WorkdeckAppBootstrap,
     review: ReviewCliOptions,
     reloader: Option<&mut dyn FnMut() -> Result<Changeset>>,
+    source_capabilities: Option<workdeck_vcs::VcsSourceCapabilities>,
 ) -> Result<()> {
     let AppBootstrap {
         input,
@@ -7297,6 +7314,7 @@ fn run_app_bootstrap(
     let transient_view_preferences =
         uses_transient_view_preferences(extensions.iter().map(|extension| &extension.handshake));
     let mut options = review.tui_options();
+    options.source_capabilities = source_capabilities;
     options.layout = match initial_mode {
         InputLayoutMode::Auto => LayoutMode::Auto,
         InputLayoutMode::Split => LayoutMode::Split,

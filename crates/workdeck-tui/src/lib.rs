@@ -295,6 +295,8 @@ use crate::extension_runtime_bridge::{
 
 #[derive(Debug, Clone)]
 pub struct ReviewOptions {
+    /// Non-serialized provider authority supplied by the composition root.
+    pub source_capabilities: Option<workdeck_vcs::VcsSourceCapabilities>,
     /// Identity-bound load presentation; executable source readers remain host-owned.
     pub source_presentation: source_presentation::ReviewSourcePresentation,
     pub layout: LayoutMode,
@@ -355,6 +357,7 @@ impl Default for ReviewOptions {
     fn default() -> Self {
         Self {
             source_presentation: source_presentation::ReviewSourcePresentation::default(),
+            source_capabilities: None,
             layout: LayoutMode::Auto,
             sidebar_visibility: SidebarVisibility::Auto,
             sidebar: true,
@@ -1507,6 +1510,9 @@ impl ReviewApp {
             extension_trust_request: None,
             extension_trust_prompt_hits: Cell::new(None),
         };
+        if let Some(capabilities) = app.options.source_capabilities.take() {
+            app.install_vcs_source_capabilities(&capabilities);
+        }
         app.seed_current_line_cursor();
         app.commit_extension_runtime_bridge();
         app.install_extension_event_context_provider();

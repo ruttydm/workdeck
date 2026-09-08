@@ -3,6 +3,29 @@
 use super::*;
 use workdeck_review::ReviewSourceLoader;
 
+struct VcsSourceLoader(Arc<workdeck_vcs::VcsFileSourceCapability>);
+
+impl ReviewSourceLoader for VcsSourceLoader {
+    fn get_full_text(
+        &self,
+        _: &DiffFile,
+        side: ReviewSide,
+    ) -> std::result::Result<Option<String>, workdeck_review::ReviewSourceLoadError> {
+        self.0
+            .read(side)
+            .map(|result| match result {
+                workdeck_vcs::VcsFileSourceResult::Source(source) => Ok(Some(source.content)),
+                workdeck_vcs::VcsFileSourceResult::Missing => Ok(None),
+                workdeck_vcs::VcsFileSourceResult::TooLarge { .. } => {
+                    Err(workdeck_review::ReviewSourceLoadError::TooLarge)
+                }
+            })
+            .map_err(|error| {
+                workdeck_review::ReviewSourceLoadError::Unavailable(error.to_string())
+            })?
+    }
+}
+
 pub(super) struct SourceLoaderBinding {
     identity: Option<String>,
     loader: Arc<dyn ReviewSourceLoader>,
@@ -18,6 +41,51 @@ impl std::fmt::Debug for SourceLoaderBinding {
 }
 
 impl ReviewApp {
+    /// Replace runtime source ownership after a successful input/publication commit.
+    pub fn install_vcs_source_capabilities(
+        &mut self,
+        capabilities: &workdeck_vcs::VcsSourceCapabilities,
+    ) {
+        let files = self.with_state(|state| state.changeset_snapshot());
+        let mut installed = BTreeSet::new();
+        for file in &files.files {
+            let Some(capability) = capabilities.get(file) else {
+                continue;
+            };
+            installed.insert(file.key.clone());
+            let loader: Arc<dyn ReviewSourceLoader> = Arc::new(VcsSourceLoader(capability));
+            let retained = file.source_attested
+                && self
+                    .source_loaders
+                    .get(&file.key)
+                    .is_some_and(|binding| binding.identity == file.source_identity);
+            if retained {
+                self.source_loaders.insert(
+                    file.key.clone(),
+                    SourceLoaderBinding {
+                        identity: file.source_identity.clone(),
+                        loader,
+                    },
+                );
+            } else {
+                self.install_source_loader(&file.key, loader);
+            }
+        }
+        let retired = self
+            .source_loaders
+            .keys()
+            .filter(|key| !installed.contains(*key))
+            .cloned()
+            .collect();
+        self.source_requests.retire(&retired);
+        self.options.source_presentation.retire(&retired);
+        self.source_loaders.retain(|key, _| installed.contains(key));
+        for file in &files.files {
+            if self.expanded_gaps.iter().any(|(key, _)| key == &file.key) {
+                self.start_source_load(&file.key, review_expansion_side(file.change_kind));
+            }
+        }
+    }
     /// Install host-owned source authority for one currently mounted file.
     /// A serialized source descriptor alone never registers an executable reader.
     pub fn install_source_loader(
@@ -128,7 +196,7 @@ impl ReviewApp {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use std::sync::mpsc;
     use workdeck_review::ReviewSourceLoadError;
@@ -175,7 +243,7 @@ mod tests {
         (app, sender)
     }
 
-    fn drain_one(app: &mut ReviewApp) {
+    pub(crate) fn drain_one(app: &mut ReviewApp) {
         let deadline = Instant::now() + Duration::from_secs(5);
         while app.poll_source_requests() == 0 {
             assert!(Instant::now() < deadline, "source worker did not finish");
@@ -183,7 +251,7 @@ mod tests {
         }
     }
 
-    fn rows(app: &ReviewApp) -> String {
+    pub(crate) fn rows(app: &ReviewApp) -> String {
         app.current_review_rows()
             .lines
             .iter()

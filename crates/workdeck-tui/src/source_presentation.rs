@@ -19,6 +19,9 @@ pub struct ReviewSourcePresentation {
 }
 
 impl ReviewSourcePresentation {
+    pub fn retire(&mut self, keys: &std::collections::BTreeSet<String>) {
+        self.files.retain(|key, _| !keys.contains(key));
+    }
     /// Register presentation for a runtime-owned reader. This grants no I/O authority.
     pub fn pending(&mut self, file: &DiffFile) {
         self.files.insert(

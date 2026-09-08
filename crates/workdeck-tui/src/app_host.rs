@@ -51,6 +51,8 @@ pub struct DynamicReviewLoad {
 /// extension discovery for a new mounted review.
 #[derive(Clone, Default)]
 pub struct DynamicReviewHostOptions {
+    /// Replacement runtime source authority, installed only after publication commits.
+    pub source_capabilities: Option<workdeck_vcs::VcsSourceCapabilities>,
     pub command_cwd: PathBuf,
     pub repo_root: Option<PathBuf>,
     pub startup_notices: Vec<StartupNotice>,

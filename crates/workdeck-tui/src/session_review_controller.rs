@@ -374,6 +374,9 @@ impl ReviewApp {
         let _ = reservation
             .commit(workdeck_review::ReviewPublicationCommitOptions { detach_store: true });
         let reset_app = options.reset_app != Some(false);
+        let source_capabilities = host_options
+            .as_ref()
+            .and_then(|host| host.source_capabilities.clone());
         self.session_apply_input_options(input);
         if let Some(host_options) = host_options {
             self.session_apply_host_options(input, host_options, reset_app);
@@ -383,6 +386,9 @@ impl ReviewApp {
             self.install_extension_runtime(replacement.adopt(), &changeset);
         }
         self.commit_reloaded_changeset(changeset.clone(), reason, replacement_installed, reset_app);
+        if let Some(source_capabilities) = source_capabilities {
+            self.install_vcs_source_capabilities(&source_capabilities);
+        }
         let source_label = changeset.effective_source_label().to_owned();
         Ok(workdeck_session::ReloadedSessionResult {
             session_id,
@@ -1013,6 +1019,79 @@ impl ReviewApp {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    fn vcs_load(
+        text: &str,
+    ) -> (
+        workdeck_core::Changeset,
+        workdeck_vcs::VcsSourceCapabilities,
+    ) {
+        let text = text.to_owned();
+        let (mut changeset, capabilities) = workdeck_vcs::materialize_vcs_patch_result_with_sources(
+            workdeck_vcs::VcsPatchResult {
+                repo_root: std::path::PathBuf::from("."), source_label: "reload-source".into(), title: "reload-source".into(),
+                patch_text: "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -3 +3 @@\n-old\n+new\n".into(),
+                untracked_paths: vec![], extra_files: vec![], source_cache_key: None,
+                source_reader: Some(Arc::new(move |_| Ok(workdeck_vcs::VcsFileSourceResult::Source(workdeck_core::SourceSnapshot::new(
+                    text.clone(), workdeck_core::SourceOrigin::WorkingTree, false,
+                ))))),
+            }, "reload-source", workdeck_core::ChangesetSource::WorkingTree { staged: false },
+        ).unwrap();
+        // Exercise deferred presentation with real retained provider handles.
+        // Production initial VCS materialization is still eager.
+        changeset.files[0].set_sources(Default::default());
+        (changeset, capabilities)
+    }
+
+    #[test]
+    fn replacing_unattested_vcs_handles_refetches_an_open_gap_with_unchanged_identity() {
+        let (initial, initial_handles) = vcs_load("before-one\nbefore-two\nnew\n");
+        let identity = initial.files[0].source_identity.clone();
+        let mut app = ReviewApp::new(
+            initial,
+            ReviewOptions {
+                source_capabilities: Some(initial_handles),
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        app.toggle_source_gap();
+        crate::source_controller::tests::drain_one(&mut app);
+        assert!(crate::source_controller::tests::rows(&app).contains("before-one"));
+        let (replacement, replacement_handles) = vcs_load("after-one\nafter-two\nnew\n");
+        assert_eq!(replacement.files[0].source_identity, identity);
+        assert!(!replacement.files[0].source_attested);
+        app.session_commit_dynamic_reload(
+            crate::DynamicReviewLoad {
+                input: workdeck_core::CliInput::Patch(workdeck_core::PatchCommandInput {
+                    file: Some("input.patch".into()),
+                    text: None,
+                    options: Default::default(),
+                }),
+                changeset: replacement,
+                replacement_extensions: None,
+                replacement_vcs_catalog: None,
+                host_options: crate::DynamicReviewHostOptions {
+                    source_capabilities: Some(replacement_handles),
+                    command_cwd: std::env::current_dir().unwrap(),
+                    ..Default::default()
+                },
+            },
+            &workdeck_session::ReloadSessionOptions {
+                reset_app: Some(false),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(!app.expanded_gaps.is_empty());
+        crate::source_controller::tests::drain_one(&mut app);
+        let text = crate::source_controller::tests::rows(&app);
+        assert!(text.contains("after-one"), "{text}");
+        assert!(!text.contains("before-one"));
+        app.install_vcs_source_capabilities(&workdeck_vcs::VcsSourceCapabilities::default());
+        assert!(app.source_loaders.is_empty());
+        assert!(!crate::source_controller::tests::rows(&app).contains("after-one"));
+    }
     use workdeck_core::{
         ChangesetSource, CliInput, CommonOptions, PatchCommandInput, ReviewSide, StartupNotice,
         UserKeyBinding, UserKeyBindingEntry,

@@ -13,10 +13,18 @@ poll completions on the UI thread. Reload retires changed/unattested bindings,
 and app reset retires all bindings. Tests use blocked workers to verify loading
 and completion in the live row builder and rejection of stale reload results.
 
-The CLI does not yet install retained VCS handles through this API. Replacement
-binding handoff, open-gap refetch, cursor reveal/restoration after asynchronous
-completion, and loaded-line selection/session semantics remain required. This
-integration does not complete the Hunk hook or increase ledger coverage.
+Initial CLI VCS reviews now pass retained handles through the composition-root
+bootstrap into the mounted app. Dynamic reloads carry replacement handles through
+the publication transaction and install them only after a successful commit.
+Replacing unattested handles refetches open gaps even when diff/source identity
+is unchanged; a test exercises the real constructor and dynamic reload gate.
+Absent replacement authority removes obsolete presentation and executable bindings.
+
+Initial VCS materialization remains eager, and direct-file/patch inputs still use
+their existing snapshot behavior. Cursor reveal/restoration after asynchronous
+completion, loaded-line selection/session semantics, and remaining reload/input
+paths still require parity work. This integration does not complete the Hunk hook
+or increase ledger coverage.
 
 ## Asynchronous source request owner
 
@@ -28,8 +36,8 @@ ignored and late failures retain diagnostics. Typed size failures preserve their
 distinct state. Workers cannot mutate the review store directly.
 
 Deterministic channel-controlled tests cover these transitions. The live canvas
-now uses this request owner as described above; provider installation, cursor
-reveal, and reload refetch remain required. No source interval gains coverage
+now uses this request owner as described above; cursor reveal and the remaining
+input/reload paths still require integration. No source interval gains coverage
 from this component alone.
 
 ## Runtime provider source ownership
@@ -43,8 +51,9 @@ remain retryable. Duplicate file paths do not share a per-file cache.
 Materialization uses these same handles for its initial reads; subsequent access
 reuses those resolved results. Unknown or retired identities do not resolve a
 handle, and supplied metadata cannot change the captured provider request.
-Initial loading is still eager. The CLI/TUI handoff and asynchronous controller
-remain unfinished, and this change does not increase ledger coverage.
+Initial loading is still eager. The initial/dynamic VCS handoff now reaches the
+asynchronous controller, but full input and cursor/session parity remains
+unfinished; this change does not increase ledger coverage.
 
 ## Source capability identity integration
 

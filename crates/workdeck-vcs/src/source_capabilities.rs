@@ -70,6 +70,15 @@ pub struct VcsSourceCapabilities {
     files: BTreeMap<String, BoundCapability>,
 }
 
+impl std::fmt::Debug for VcsSourceCapabilities {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("VcsSourceCapabilities")
+            .field("file_count", &self.files.len())
+            .finish_non_exhaustive()
+    }
+}
+
 impl VcsSourceCapabilities {
     pub(crate) fn insert(&mut self, file: &DiffFile, capability: Arc<VcsFileSourceCapability>) {
         self.files.insert(
