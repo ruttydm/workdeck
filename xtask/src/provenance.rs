@@ -24,6 +24,8 @@ fn verification_args(repo: &str, digest: &str, reference: &str) -> Result<Vec<St
         bail!("release verification requires a full tag ref");
     }
     Ok(vec![
+        "--hostname".into(),
+        "github.com".into(),
         "--repo".into(),
         repo.into(),
         "--signer-workflow".into(),
@@ -44,7 +46,7 @@ fn verification_args(repo: &str, digest: &str, reference: &str) -> Result<Vec<St
 pub(crate) fn verify(args: impl Iterator<Item = String>) -> Result<()> {
     use std::{
         process::{Command, Stdio},
-        time::{Duration, Instant},
+        time::Duration,
     };
     let mut args: Vec<_> = args.collect();
     if args.first().is_some_and(|arg| arg == "--ci") {
@@ -74,6 +76,15 @@ pub(crate) fn verify(args: impl Iterator<Item = String>) -> Result<()> {
         .env("GH_PROMPT_DISABLED", "1")
         .spawn()
         .context("start required gh attestation verifier")?;
+    wait_verifier(&mut child, Duration::from_secs(120))?;
+    println!(
+        "Attestation verified by gh for the specified repository, release workflow, commit and tag; other release gates remain independent."
+    );
+    Ok(())
+}
+
+fn wait_verifier(child: &mut std::process::Child, timeout: std::time::Duration) -> Result<()> {
+    use std::time::{Duration, Instant};
     let started = Instant::now();
     loop {
         match child.try_wait() {
@@ -83,7 +94,7 @@ pub(crate) fn verify(args: impl Iterator<Item = String>) -> Result<()> {
                 }
                 break;
             }
-            Ok(None) if started.elapsed() < Duration::from_secs(120) => {
+            Ok(None) if started.elapsed() < timeout => {
                 std::thread::sleep(Duration::from_millis(50))
             }
             result => {
@@ -92,13 +103,10 @@ pub(crate) fn verify(args: impl Iterator<Item = String>) -> Result<()> {
                 if let Err(error) = result {
                     return Err(error).context("poll attestation verifier");
                 }
-                bail!("attestation verifier exceeded 120 seconds");
+                bail!("attestation verifier exceeded deadline {timeout:?}");
             }
         }
     }
-    println!(
-        "Attestation verified by gh for the specified repository, release workflow, commit and tag; other release gates remain independent."
-    );
     Ok(())
 }
 
@@ -227,10 +235,55 @@ pub(crate) fn inspect(args: impl Iterator<Item = String>) -> Result<()> {
 mod tests {
     use super::*;
     #[test]
+    fn verifier_process_fixture() {
+        match std::env::var("WORKDECK_TEST_VERIFIER_CHILD").as_deref() {
+            Ok("fail") => std::process::exit(7),
+            Ok("hang") => std::thread::sleep(std::time::Duration::from_secs(30)),
+            _ => (),
+        }
+    }
+
+    #[test]
+    fn verifier_child_failure_and_timeout_are_not_success() {
+        use std::{
+            process::{Command, Stdio},
+            time::{Duration, Instant},
+        };
+        for mode in ["success", "fail", "hang"] {
+            let mut child = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "provenance::tests::verifier_process_fixture"])
+                .env("WORKDECK_TEST_VERIFIER_CHILD", mode)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
+            let start = Instant::now();
+            let timeout = if mode == "hang" {
+                Duration::from_millis(150)
+            } else {
+                Duration::from_secs(10)
+            };
+            let result = wait_verifier(&mut child, timeout);
+            if mode == "success" {
+                result.unwrap();
+            } else {
+                let message = result.unwrap_err().to_string();
+                assert!(
+                    message.contains(if mode == "hang" { "deadline" } else { "failed" }),
+                    "{message}"
+                );
+            }
+            assert!(child.try_wait().unwrap().is_some(), "child must be reaped");
+            assert!(start.elapsed() < Duration::from_secs(12));
+        }
+    }
+    #[test]
     fn verification_policy_requires_explicit_release_identity() {
         let digest = "a".repeat(40);
         let args = verification_args("owner/workdeck", &digest, "refs/tags/v1.0.0").unwrap();
         for (flag, expected) in [
+            ("--hostname", "github.com"),
             ("--repo", "owner/workdeck"),
             (
                 "--signer-workflow",

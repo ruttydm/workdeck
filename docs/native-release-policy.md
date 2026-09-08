@@ -106,7 +106,10 @@ This relies on the installed verifier and its trusted roots;
 it is not a home-grown cryptographic implementation. Local policy tests check argument enforcement,
 not signatures. Real signed-fixture, negative-certificate, cross-platform and remote CI evidence
 remain pending. Packaging invoked alone still performs only subject binding, and installer-side
-verification of packaged evidence remains unfinished.
+verification of packaged evidence remains unfinished. The host is explicitly `github.com`,
+independent of a user's `GH_HOST`. Native subprocess tests exercise successful exit, nonzero exit,
+and deadline termination/reaping using the Rust test executable; these are process-control tests,
+not synthetic substitutes for cryptographic verification evidence.
 Verifier reference: [GitHub CLI attestation verification](https://cli.github.com/manual/gh_attestation_verify).
 
 Verification checkpoint at `57769da3`: `cargo test -p xtask -- --quiet` passed all 161 tooling
