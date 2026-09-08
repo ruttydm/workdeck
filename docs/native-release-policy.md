@@ -50,7 +50,9 @@ safe extraction and atomic replacement remain required before installation execu
 
 `cargo xtask install-inspect ARCHIVE` reads tar.gz or ZIP entries without extracting files.
 It rejects absolute/traversal paths, backslashes, drive/stream separators, reserved DOS names,
-trailing dots/spaces, links/special files and case-folded duplicate paths. Inspection limits
+trailing dots/spaces, links/special files and case-folded duplicate paths. Checks
+also reject files used as parent directories in either entry order and directories carrying
+payload bytes, while permitting explicit empty directory entries. Inspection limits
 archives to 100,000 entries and 2 GiB of declared uncompressed payload. Each payload read is
 bounded to its declared size plus one byte and must
 match the declared size exactly; short and oversized streams fail without unbounded draining.

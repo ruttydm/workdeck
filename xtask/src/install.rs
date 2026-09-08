@@ -39,13 +39,33 @@ fn verify_entry_bytes(reader: &mut impl std::io::Read, expected: u64) -> Result<
 }
 
 fn inspect_archive(path: &Path) -> Result<(usize, u64)> {
-    let mut names = std::collections::BTreeSet::new();
+    let mut names: BTreeMap<String, bool> = BTreeMap::new();
     let mut total = 0u64;
-    let mut record = |name: &str, size: u64| -> Result<()> {
+    let mut record = |name: &str, size: u64, directory: bool| -> Result<()> {
         let name = archive_entry_path(name)?;
-        if !names.insert(name.to_lowercase()) {
+        let key = name.to_lowercase();
+        if names.contains_key(&key) {
             bail!("Duplicate archive path: {name}");
         }
+        if directory && size != 0 {
+            bail!("Archive directory has a payload: {name}");
+        }
+        for (offset, _) in key.match_indices('/') {
+            if names.get(&key[..offset]) == Some(&false) {
+                bail!("Archive path descends through a file: {name}");
+            }
+        }
+        if !directory {
+            let prefix = format!("{key}/");
+            if names
+                .range(prefix.clone()..)
+                .next()
+                .is_some_and(|(name, _)| name.starts_with(&prefix))
+            {
+                bail!("Archive file replaces a parent directory: {name}");
+            }
+        }
+        names.insert(key, directory);
         total = total
             .checked_add(size)
             .ok_or_else(|| anyhow::anyhow!("Archive size overflow"))?;
@@ -65,7 +85,7 @@ fn inspect_archive(path: &Path) -> Result<(usize, u64)> {
             {
                 bail!("Archive links and special files are not permitted");
             }
-            record(entry.name(), entry.size())?;
+            record(entry.name(), entry.size(), entry.is_dir())?;
             let expected = entry.size();
             verify_entry_bytes(&mut entry, expected)?;
         }
@@ -77,7 +97,11 @@ fn inspect_archive(path: &Path) -> Result<(usize, u64)> {
                 bail!("Archive links and special files are not permitted");
             }
             let bytes = entry.path_bytes();
-            record(std::str::from_utf8(&bytes)?, entry.size())?;
+            record(
+                std::str::from_utf8(&bytes)?,
+                entry.size(),
+                entry.header().entry_type().is_dir(),
+            )?;
             let expected = entry.size();
             verify_entry_bytes(&mut entry, expected)?;
         }
@@ -611,6 +635,25 @@ mod tests {
         assert!(inspect_archive(&path).is_err());
         write(&["../escape"]);
         assert!(inspect_archive(&path).is_err());
+        for names in [
+            ["root/file", "root/file/child"],
+            ["root/file/child", "root/file"],
+            ["root/FILE/child", "root/file"],
+        ] {
+            write(&names);
+            assert!(inspect_archive(&path).is_err(), "{names:?}");
+        }
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+        zip.add_directory("root/", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.start_file(
+            "root/workdeck.exe",
+            zip::write::SimpleFileOptions::default(),
+        )
+        .unwrap();
+        zip.write_all(b"bin").unwrap();
+        zip.finish().unwrap();
+        assert_eq!(inspect_archive(&path).unwrap(), (2, 3));
     }
 
     #[test]
