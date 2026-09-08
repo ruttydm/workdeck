@@ -123,3 +123,13 @@ commands with `--script wrapped-cjk.ts`:
 - [Pinned main wrapped CJK](wrapped-cjk-hunk-2c00f435.json)
 - [Pinned stable wrapped CJK](wrapped-cjk-hunk-v0.20.1.json)
 - [Native wrapped CJK](wrapped-cjk-native.json)
+
+The follow-up native run at `bf92f7bb` avoids syntax preparation while rebuilding wheel-limit
+geometry. Three optimized samples after build completion retain the same 54/55/55 content rows.
+Its medians are 148.11 ms for 518-line first paint, 3.94 ms for long-line first paint, 152.95 ms
+for the immediate burst and 193.39 ms for the settled burst. Immediate/settled burst medians are
+about 10.5%/7.2% lower than `8ee94d28`; first-paint medians are slightly higher. This does not
+satisfy the 10% regression limit versus either Hunk pin, nor establish a memory improvement.
+The row planner still runs per event; no potentially stale geometry cache was introduced.
+
+- [Native wrapped CJK with geometry-only wheel limits](wrapped-cjk-native-bf92f7bb.json)
