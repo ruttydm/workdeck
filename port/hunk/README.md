@@ -1609,6 +1609,17 @@ unmapped status; this review supersedes that status for this source record only.
 Full `cargo xtask verify` passed at `e4f3c782` before this conformance increment, including
 workspace tests, Clippy, release build, and the large-repository smoke test. This does not
 clear strict source coverage, benchmark, native-platform, signing, or release gates.
+
+A fresh `cargo xtask verify` run at `22f88cea` also passed after the complete shared
+conformance-interface mapping and upstream-ref archive tooling were committed. This run
+passed workspace tests (including all 27 conformance tests, 241 VCS tests, and 198 xtask
+tests with one existing ignored opt-in test), workspace Clippy, release build, and the
+large-repository smoke check. The intentional temporary-repository fetch-lock error in
+the archive failure test was followed by a passing test; it was not a checkout lock.
+Strict `cargo xtask port audit` still fails with 290 unmapped records and 11 cached
+upstream commits pending. This verification does not satisfy the benchmark, final fetch,
+native platform, or release-signing gates and does not remove the legacy per-TUI session
+listener that still coexists with the native broker.
 The later full-workspace run at `fc471e27` failed ten app-host workspace tests during
 extension-probe startup with handshake timeouts; its geometry conformance tests passed.
 That failure is under investigation and the run must not be reported as a workspace pass.
