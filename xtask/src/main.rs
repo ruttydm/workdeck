@@ -1274,18 +1274,34 @@ fn attach_release_provenance(
     executable_name: &str,
     bytes: Vec<u8>,
 ) -> Result<()> {
+    if bytes.len() > 1024 * 1024 {
+        bail!("provenance input exceeds 1 MiB");
+    }
     let binary_name = format!("{root}/{executable_name}");
     let binary = entries
         .iter()
         .find(|entry| entry.0 == binary_name)
         .context("release entries lack binary")?;
     let digest = format!("{:x}", Sha256::digest(&binary.1));
-    provenance::check_binary_subject(&bytes, executable_name, &digest)?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes)?;
+    let statement = if value.get("mediaType").is_some() {
+        provenance::decode_bundle(&bytes)?
+    } else {
+        bytes.clone()
+    };
+    provenance::check_binary_subject(&statement, executable_name, &digest)?;
     let name = format!("{root}/provenance.json");
-    if entries.iter().any(|entry| entry.0 == name) {
+    let bundle_name = format!("{root}/provenance.sigstore.json");
+    if entries
+        .iter()
+        .any(|entry| entry.0 == name || entry.0 == bundle_name)
+    {
         bail!("release entries already contain provenance");
     }
-    entries.push((name, bytes, 0o644));
+    if value.get("mediaType").is_some() {
+        entries.push((bundle_name, bytes, 0o644));
+    }
+    entries.push((name, statement, 0o644));
     entries.sort_by(|left, right| left.0.cmp(&right.0));
     Ok(())
 }

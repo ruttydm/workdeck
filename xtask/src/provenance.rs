@@ -2,6 +2,54 @@
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 
+/// Decode a supported Sigstore bundle without authenticating its contents.
+/// Retain the original bundle separately; the extracted statement alone loses its signature.
+pub(crate) fn decode_bundle(bytes: &[u8]) -> Result<Vec<u8>> {
+    use base64::Engine;
+    if bytes.len() > 1024 * 1024 {
+        bail!("provenance bundle exceeds 1 MiB");
+    }
+    let bundle: Value = serde_json::from_slice(bytes).context("parse Sigstore bundle")?;
+    if !matches!(
+        bundle["mediaType"].as_str(),
+        Some(
+            "application/vnd.dev.sigstore.bundle.v0.3+json"
+                | "application/vnd.dev.sigstore.bundle+json;version=0.3"
+                | "application/vnd.dev.sigstore.bundle+json;version=0.2"
+        )
+    ) {
+        bail!("unsupported Sigstore bundle media type");
+    }
+    if !bundle["verificationMaterial"].is_object() || bundle.get("messageSignature").is_some() {
+        bail!("expected DSSE bundle with verification material");
+    }
+    let envelope = &bundle["dsseEnvelope"];
+    if envelope["payloadType"] != "application/vnd.in-toto+json" {
+        bail!("unsupported DSSE payload type");
+    }
+    let signatures = envelope["signatures"]
+        .as_array()
+        .context("missing DSSE signatures")?;
+    if signatures.len() != 1 {
+        bail!("Sigstore DSSE bundle must have exactly one signature");
+    }
+    let signature = signatures[0]["sig"]
+        .as_str()
+        .context("missing DSSE signature bytes")?;
+    if base64::engine::general_purpose::STANDARD
+        .decode(signature)?
+        .is_empty()
+    {
+        bail!("empty DSSE signature");
+    }
+    let payload = envelope["payload"]
+        .as_str()
+        .context("missing DSSE payload")?;
+    base64::engine::general_purpose::STANDARD
+        .decode(payload)
+        .context("decode DSSE payload")
+}
+
 /// Check a plain in-toto Statement carrying SLSA v1 provenance against binary bytes.
 /// Deliberately not a DSSE/Sigstore verifier or a claim of SLSA compliance.
 pub(crate) fn check_binary_subject(bytes: &[u8], name: &str, sha256: &str) -> Result<()> {
@@ -192,6 +240,71 @@ mod tests {
             options.provenance,
             std::path::PathBuf::from("statement.json")
         );
+    }
+    #[test]
+    fn bundle_decode_retains_original_evidence_and_rejects_bad_envelopes() {
+        use base64::Engine;
+        use sha2::{Digest, Sha256};
+        let mut statement = synthetic_statement();
+        statement["subject"][0]["digest"]["sha256"] =
+            format!("{:x}", Sha256::digest(b"binary")).into();
+        let statement = serde_json::to_vec_pretty(&statement).unwrap();
+        let bundle = serde_json::json!({
+            "mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
+            "verificationMaterial": {},
+            "dsseEnvelope": {
+                "payloadType": "application/vnd.in-toto+json",
+                "payload": base64::engine::general_purpose::STANDARD.encode(&statement),
+                "signatures": [{"sig": "dGVzdA=="}]
+            }
+        });
+        let bytes = serde_json::to_vec_pretty(&bundle).unwrap();
+        assert_eq!(decode_bundle(&bytes).unwrap(), statement);
+        let mut entries = vec![("root/workdeck".into(), b"binary".to_vec(), 0o755)];
+        super::super::attach_release_provenance(&mut entries, "root", "workdeck", bytes.clone())
+            .unwrap();
+        assert_eq!(
+            entries
+                .iter()
+                .find(|e| e.0 == "root/provenance.json")
+                .unwrap()
+                .1,
+            statement
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .find(|e| e.0 == "root/provenance.sigstore.json")
+                .unwrap()
+                .1,
+            bytes
+        );
+        for (pointer, replacement) in [
+            ("/mediaType", Value::String("unknown".into())),
+            ("/verificationMaterial", Value::Null),
+            (
+                "/dsseEnvelope/payloadType",
+                Value::String("text/plain".into()),
+            ),
+            ("/dsseEnvelope/payload", Value::String("!bad".into())),
+            ("/dsseEnvelope/signatures", serde_json::json!([])),
+            (
+                "/dsseEnvelope/signatures",
+                serde_json::json!([{"sig":"dGVzdA=="},{"sig":"dGVzdA=="}]),
+            ),
+            (
+                "/dsseEnvelope/signatures/0/sig",
+                Value::String(String::new()),
+            ),
+        ] {
+            let mut invalid = bundle.clone();
+            *invalid.pointer_mut(pointer).unwrap() = replacement;
+            assert!(
+                decode_bundle(&serde_json::to_vec(&invalid).unwrap()).is_err(),
+                "{pointer}"
+            );
+        }
+        assert!(decode_bundle(&vec![b' '; 1024 * 1024 + 1]).is_err());
     }
     #[test]
     fn rejects_wrong_envelopes_missing_identity_and_oversized_inputs() {

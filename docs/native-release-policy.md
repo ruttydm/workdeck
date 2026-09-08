@@ -66,8 +66,13 @@ without creating extracted directories.
 `workdeck` or `workdeck.exe` regular file, and regular `LICENSE`, `THIRD_PARTY_NOTICES`,
 `licenses.json`, `sbom.cdx.json` and `provenance.json` files with their exact spelling. These are
 path/type checks only, not validation of metadata contents or provenance authenticity.
-The packager now requires `--provenance STATEMENT`; missing input fails rather than generating
-placeholder evidence. It retains the supplied statement byte-for-byte as `provenance.json`.
+The packager now requires `--provenance STATEMENT_OR_BUNDLE`; missing input fails rather than
+generating placeholder evidence. It retains the statement byte-for-byte as `provenance.json`.
+For supported Sigstore 0.2/0.3 DSSE bundles it also retains the entire original input byte-for-byte
+as `provenance.sigstore.json`. Bundle decoding enforces the media/payload type, one nonempty
+base64 signature, and the input size limit, but does not authenticate those bytes or validate
+certificate/transparency-log material. Synthetic test signatures are deliberately not trusted.
+Bundle format reference: [Sigstore bundle specification](https://github.com/sigstore/protobuf-specs/blob/main/protos/sigstore_bundle.proto).
 
 `cargo xtask release provenance-check BINARY STATEMENT` provides a read-only input-boundary
 check for a plain in-toto Statement v1 with the SLSA provenance v1 predicate. It bounds statement
@@ -84,10 +89,11 @@ Format reference: [SLSA provenance v1](https://slsa.dev/spec/v1.0/provenance).
 checks that statement against the exact in-memory executable bytes passed to the archive writer,
 not an earlier hash of a subsequently reopened binary. Invalid evidence fails before creating the
 output directory. Both tar and ZIP tests reopen archives and verify exact binary and statement
-bytes. This remains subject binding, not authentication: signing, trusted builder/input policy,
-and CI acquisition of actual build provenance are unfinished. The release workflow does not yet
-supply the newly mandatory statement and therefore fails closed at packaging until that work is
-implemented. Nothing has been published or represented as a verified release.
+bytes. This remains subject binding, not authentication: signature verification and trusted builder/input policy
+are unfinished. The release workflow now requests binary attestation before packaging, supplies
+the action's bundle output, then requests separate archive attestation. This workflow wiring has
+not been executed remotely; successful local decoding tests are not signing/CI evidence.
+Nothing has been published or represented as a verified release.
 
 Verification checkpoint at `57769da3`: `cargo test -p xtask -- --quiet` passed all 161 tooling
 tests together, including the installer checks and production benchmark tests. This is a local
