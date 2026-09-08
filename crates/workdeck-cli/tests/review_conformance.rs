@@ -1,6 +1,9 @@
 //! Partial translation of Hunk's MIT-licensed review-conformance geometry corpus.
 //! Other consumer families remain unmapped until independently exercised in Rust.
 
+#[path = "review_conformance/navigation.rs"]
+mod navigation;
+
 use serde_json::{Value, json};
 use workdeck_core::{DiffFile, FileChangeKind, project_review_file, review_empty_diff_reason};
 use workdeck_diff::{FileComparisonOptions, FileSnapshot, diff_from_file_snapshots};

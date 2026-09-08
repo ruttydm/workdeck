@@ -1429,7 +1429,15 @@ after an unchanged line, which must be counted in the leading gap. The former pr
 manifest incorrectly omitted line 1 for the insertion and deletion cases despite correct
 renderer geometry. Direct core regressions also cover zero-count ranges at the file start.
 
-The captured navigation, snapshot, and event consumers are not yet exercised here. Capture-integrity tests
+The navigation module independently builds the five pinned fixtures and drives both the
+intent planner and the terminal reconciliation/store path. It checks all requested moves,
+annotation scopes, clamping/wrapping, hidden/vanished/absent selections, and reveal targets.
+The terminal adapter reads reveal counters from the real store transition; it does not
+reuse the planner's returned reveal as its answer. Both consumers pass both pinned corpora.
+Only the complete geometry and navigation fixture source files are mapped by this increment.
+The larger harness, consumer registry, and remaining consumer implementations remain unmapped.
+
+The captured snapshot and event consumers are not yet exercised here. Capture-integrity tests
 in xtask reject changed outputs and wrong pins, but do not substitute for those translations.
 All corresponding incomplete ledger records remain unmapped.
 
