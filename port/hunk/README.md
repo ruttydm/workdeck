@@ -1,5 +1,19 @@
 # Hunk semantic-port ledger
 
+## Early registry-retirement cancellation
+
+Native extension registry retirement now cancels pending highlighter preparation
+before retiring child processes, rather than waiting for the preparation owner's
+eventual drop. Retirement is terminal: later reconciliation cannot restart work
+or publish results through that owner. A held-worker regression exercises the
+actual registry-retirement entry point while keeping its owner alive; it failed
+before this change and now observes cancellation and no restart.
+
+All 28 highlighter tests and all 1,059 TUI unit tests pass, together with workspace
+Clippy, formatting, and architecture checks. This is a lifecycle checkpoint, not
+whole-hook parity: the highlighter hook remains unmapped and no ledger coverage
+is added.
+
 ## Registration-ordered file preparation
 
 The pinned highlighter hook prepares up to four files concurrently and awaits

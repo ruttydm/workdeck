@@ -237,6 +237,7 @@ struct MergedLineHighlights {
 /// Background preparation, caching, containment, and publication for native line highlighters.
 #[derive(Debug)]
 pub struct LineHighlightPreparationController {
+    retired: bool,
     cache: BTreeMap<LineHighlightTaskKey, Option<Arc<[ValidatedLineHighlight]>>>,
     pending: BTreeMap<LineHighlightTaskKey, Arc<AtomicBool>>,
     sender: mpsc::Sender<LineHighlightCompletion>,
@@ -249,9 +250,7 @@ pub struct LineHighlightPreparationController {
 
 impl Drop for LineHighlightPreparationController {
     fn drop(&mut self) {
-        for cancellation in self.pending.values() {
-            cancellation.store(true, Ordering::Release);
-        }
+        self.cancel_pending();
     }
 }
 
@@ -259,6 +258,7 @@ impl Default for LineHighlightPreparationController {
     fn default() -> Self {
         let (sender, receiver) = mpsc::channel();
         Self {
+            retired: false,
             cache: BTreeMap::new(),
             pending: BTreeMap::new(),
             sender,
@@ -272,6 +272,28 @@ impl Default for LineHighlightPreparationController {
 }
 
 impl LineHighlightPreparationController {
+    fn cancel_pending(&mut self) {
+        for cancellation in self.pending.values() {
+            cancellation.store(true, Ordering::Release);
+        }
+        self.pending.clear();
+    }
+
+    /// Terminal transition, invoked before retiring native extension processes.
+    /// Subsequent reconciliation cannot start or publish work for this owner.
+    pub fn retire(&mut self) {
+        if self.retired {
+            return;
+        }
+        self.retired = true;
+        self.cancel_pending();
+        self.cache.clear();
+        self.merged.clear();
+        self.resolved = LineHighlightMap::default();
+        self.reported_issues.clear();
+        self.issue_order.clear();
+    }
+
     #[must_use]
     pub fn resolved(&self) -> &LineHighlightMap {
         &self.resolved
@@ -294,6 +316,9 @@ impl LineHighlightPreparationController {
         epochs: &workdeck_extension_host::LineHighlightEpochState,
         files: &[DiffFile],
     ) {
+        if self.retired {
+            return;
+        }
         let tasks = desired_line_highlight_tasks(extensions, registrations, epochs, files);
         let desired = tasks
             .iter()
@@ -1372,6 +1397,42 @@ mod tests {
         drop(controller);
         release_tx.send(()).unwrap();
         assert!(finished_rx.recv_timeout(Duration::from_secs(5)).unwrap());
+    }
+
+    #[test]
+    fn registry_retirement_cancels_preparation_before_owner_drop() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (finished_tx, finished_rx) = mpsc::channel();
+        let release_rx = Mutex::new(release_rx);
+        let runtime = FakeLineHighlightRuntime::new(move |_, _, cancelled| {
+            started_tx.send(()).unwrap();
+            release_rx
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap();
+            finished_tx.send(cancelled.load(Ordering::Acquire)).unwrap();
+            Ok(one_mark("match"))
+        });
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("running")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [test_file("file", "content")];
+        let mut owner = crate::ExtensionPaneRuntime::default();
+        owner
+            .line_highlight_preparation
+            .reconcile(&extensions, &registrations, &epochs, &files);
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        owner.retire_extensions();
+        release_tx.send(()).unwrap();
+        assert!(finished_rx.recv_timeout(Duration::from_secs(5)).unwrap());
+        owner
+            .line_highlight_preparation
+            .reconcile(&extensions, &registrations, &epochs, &files);
+        assert_eq!(owner.line_highlight_preparation.pending_count(), 0);
+        assert!(owner.line_highlight_preparation.resolved().is_empty());
+        assert_eq!(runtime.calls().len(), 1);
     }
 
     #[test]

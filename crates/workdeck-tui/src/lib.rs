@@ -1112,6 +1112,7 @@ impl ExtensionPaneRuntime {
     }
 
     fn retire_extensions(&mut self) {
+        self.line_highlight_preparation.retire();
         self.pending_commands.clear();
         self.pending_events.clear();
         self.request_queues.clear();
