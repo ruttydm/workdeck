@@ -105,6 +105,95 @@ mod tests {
         assert!(check(&value).is_err());
     }
     #[test]
+    fn archives_retain_exact_statement_and_checked_binary_snapshot() {
+        use sha2::{Digest, Sha256};
+        use std::io::Read;
+        let directory = tempfile::tempdir().unwrap();
+        let binary = b"synthetic executable bytes".to_vec();
+        let mut value = synthetic_statement();
+        value["subject"][0]["digest"]["sha256"] = format!("{:x}", Sha256::digest(&binary)).into();
+        let statement = serde_json::to_vec_pretty(&value).unwrap();
+        let mut entries = vec![("workdeck-test/workdeck".to_owned(), binary.clone(), 0o755)];
+        super::super::attach_release_provenance(
+            &mut entries,
+            "workdeck-test",
+            "workdeck",
+            statement.clone(),
+        )
+        .unwrap();
+        assert!(
+            super::super::attach_release_provenance(
+                &mut entries,
+                "workdeck-test",
+                "workdeck",
+                statement.clone()
+            )
+            .is_err()
+        );
+        let tar_path = directory.path().join("test.tar.gz");
+        super::super::write_tar_archive(&tar_path, &entries).unwrap();
+        let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(
+            std::fs::File::open(tar_path).unwrap(),
+        ));
+        let mut contents = std::collections::BTreeMap::new();
+        for entry in tar.entries().unwrap() {
+            let mut entry = entry.unwrap();
+            let name = entry.path().unwrap().to_string_lossy().into_owned();
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes).unwrap();
+            contents.insert(name, bytes);
+        }
+        assert_eq!(contents["workdeck-test/workdeck"], binary);
+        assert_eq!(contents["workdeck-test/provenance.json"], statement);
+        let zip_path = directory.path().join("test.zip");
+        super::super::write_zip_archive(&zip_path, &entries).unwrap();
+        let mut zip = zip::ZipArchive::new(std::fs::File::open(zip_path).unwrap()).unwrap();
+        for (name, expected) in contents {
+            let mut actual = Vec::new();
+            zip.by_name(&name)
+                .unwrap()
+                .read_to_end(&mut actual)
+                .unwrap();
+            assert_eq!(actual, expected);
+        }
+        let mut wrong = vec![(
+            "workdeck-test/workdeck".to_owned(),
+            b"different binary".to_vec(),
+            0o755,
+        )];
+        let original = wrong.clone();
+        assert!(
+            super::super::attach_release_provenance(
+                &mut wrong,
+                "workdeck-test",
+                "workdeck",
+                statement
+            )
+            .is_err()
+        );
+        assert_eq!(wrong, original);
+    }
+
+    #[test]
+    fn packaging_requires_explicit_provenance_input() {
+        let parse = |args: &[&str]| {
+            super::super::parse_package_options(args.iter().map(|arg| (*arg).to_owned()))
+        };
+        assert!(parse(&["--target", "aarch64-apple-darwin"]).is_err());
+        assert!(parse(&["--target", "aarch64-apple-darwin", "--provenance"]).is_err());
+        let options = parse(&[
+            "--target",
+            "aarch64-apple-darwin",
+            "--provenance",
+            "statement.json",
+        ])
+        .unwrap();
+        assert_eq!(
+            options.provenance,
+            std::path::PathBuf::from("statement.json")
+        );
+    }
+    #[test]
     fn rejects_wrong_envelopes_missing_identity_and_oversized_inputs() {
         for pointer in [
             "/_type",

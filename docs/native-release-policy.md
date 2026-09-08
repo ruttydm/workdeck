@@ -65,9 +65,9 @@ without creating extracted directories.
 `install-inspect ARCHIVE --package` additionally requires one wrapper directory, exactly one
 `workdeck` or `workdeck.exe` regular file, and regular `LICENSE`, `THIRD_PARTY_NOTICES`,
 `licenses.json`, `sbom.cdx.json` and `provenance.json` files with their exact spelling. These are
-path/type checks only, not validation of metadata contents or provenance authenticity. The current
-packager does not yet emit provenance, so its archives intentionally fail this stricter path gate.
-No placeholder provenance is generated to make the check pass.
+path/type checks only, not validation of metadata contents or provenance authenticity.
+The packager now requires `--provenance STATEMENT`; missing input fails rather than generating
+placeholder evidence. It retains the supplied statement byte-for-byte as `provenance.json`.
 
 `cargo xtask release provenance-check BINARY STATEMENT` provides a read-only input-boundary
 check for a plain in-toto Statement v1 with the SLSA provenance v1 predicate. It bounds statement
@@ -77,14 +77,24 @@ wrong envelopes and mismatched digests fail. Unknown fields remain accepted. Thi
 schema validation, DSSE/Sigstore verification, builder trust, or verification of build inputs;
 successful output explicitly reports `signatureVerified`, `builderTrusted` and `releaseReady`
 as false. It neither creates provenance nor packages or installs anything. The synthetic unit
-test statements are test data, not build evidence. Packaging integration remains outstanding.
+test statements are test data, not build evidence.
 Format reference: [SLSA provenance v1](https://slsa.dev/spec/v1.0/provenance).
+
+`cargo xtask release package --target TRIPLE --provenance STATEMENT [--binary PATH] [--output DIR]`
+checks that statement against the exact in-memory executable bytes passed to the archive writer,
+not an earlier hash of a subsequently reopened binary. Invalid evidence fails before creating the
+output directory. Both tar and ZIP tests reopen archives and verify exact binary and statement
+bytes. This remains subject binding, not authentication: signing, trusted builder/input policy,
+and CI acquisition of actual build provenance are unfinished. The release workflow does not yet
+supply the newly mandatory statement and therefore fails closed at packaging until that work is
+implemented. Nothing has been published or represented as a verified release.
 
 Verification checkpoint at `57769da3`: `cargo test -p xtask -- --quiet` passed all 161 tooling
 tests together, including the installer checks and production benchmark tests. This is a local
 development-profile integration result, not evidence of cross-platform installation, signed
-provenance, release-gate completion, or acceptable optimized performance. Packaging still has no
-provenance input; extending that interface and validating actual build evidence remain outstanding.
+provenance, release-gate completion, or acceptable optimized performance. At that checkpoint,
+packaging had no provenance input; the input boundary above was added subsequently. Authentication
+and validation of actual build evidence remain outstanding.
 
 ```console
 cargo xtask release channel --event push --ref v0.19.0 --current-latest 0.18.2

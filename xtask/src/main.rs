@@ -1046,6 +1046,7 @@ fn materialize_assets() -> Result<()> {
 struct PackageOptions {
     target: String,
     binary: Option<PathBuf>,
+    provenance: PathBuf,
     output: PathBuf,
 }
 
@@ -1063,11 +1064,15 @@ fn parse_output_option(mut args: impl Iterator<Item = String>) -> Result<PathBuf
 fn parse_package_options(mut args: impl Iterator<Item = String>) -> Result<PackageOptions> {
     let mut target = None;
     let mut binary = None;
+    let mut provenance = None;
     let mut output = PathBuf::from("dist");
     while let Some(argument) = args.next() {
         match argument.as_str() {
             "--target" => target = Some(required_value(&mut args, "--target")?),
             "--binary" => binary = Some(PathBuf::from(required_value(&mut args, "--binary")?)),
+            "--provenance" => {
+                provenance = Some(PathBuf::from(required_value(&mut args, "--provenance")?))
+            }
             "--output" => output = PathBuf::from(required_value(&mut args, "--output")?),
             _ => bail!("unknown release package option {argument:?}"),
         }
@@ -1075,6 +1080,7 @@ fn parse_package_options(mut args: impl Iterator<Item = String>) -> Result<Packa
     Ok(PackageOptions {
         target: target.context("release package requires --target")?,
         binary,
+        provenance: provenance.context("release package requires --provenance STATEMENT")?,
         output,
     })
 }
@@ -1156,34 +1162,31 @@ fn package_release(options: PackageOptions) -> Result<()> {
         bail!("release binary does not exist: {}", binary.display());
     }
     let output = repo.join(options.output);
-    fs::create_dir_all(&output).with_context(|| format!("create {}", output.display()))?;
     let inventory = dependency_inventory()?;
     let inventory_bytes = serde_json::to_vec_pretty(&inventory)?;
     let sbom = cyclonedx_sbom(&inventory);
     let root = format!("workdeck-{}", options.target);
+    let mut entries = release_entries(
+        &root,
+        &binary,
+        executable_name,
+        &repo,
+        &inventory_bytes,
+        &sbom,
+    )?;
+    let mut provenance_bytes = Vec::new();
+    File::open(&options.provenance)?
+        .take(1024 * 1024 + 1)
+        .read_to_end(&mut provenance_bytes)?;
+    attach_release_provenance(&mut entries, &root, executable_name, provenance_bytes)?;
+    fs::create_dir_all(&output).with_context(|| format!("create {}", output.display()))?;
     let archive = if options.target.contains("windows") {
         let path = output.join(format!("{root}.zip"));
-        write_zip_archive(
-            &path,
-            &root,
-            &binary,
-            executable_name,
-            &repo,
-            &inventory_bytes,
-            &sbom,
-        )?;
+        write_zip_archive(&path, &entries)?;
         path
     } else {
         let path = output.join(format!("{root}.tar.gz"));
-        write_tar_archive(
-            &path,
-            &root,
-            &binary,
-            executable_name,
-            &repo,
-            &inventory_bytes,
-            &sbom,
-        )?;
+        write_tar_archive(&path, &entries)?;
         path
     };
     let digest = sha256_file(&archive)?;
@@ -1265,25 +1268,37 @@ fn release_entries<'a>(
     Ok(entries)
 }
 
-fn write_tar_archive(
-    path: &Path,
+fn attach_release_provenance(
+    entries: &mut Vec<(String, Vec<u8>, u32)>,
     root: &str,
-    binary: &Path,
     executable_name: &str,
-    repo: &Path,
-    inventory: &[u8],
-    sbom: &[u8],
+    bytes: Vec<u8>,
 ) -> Result<()> {
+    let binary_name = format!("{root}/{executable_name}");
+    let binary = entries
+        .iter()
+        .find(|entry| entry.0 == binary_name)
+        .context("release entries lack binary")?;
+    let digest = format!("{:x}", Sha256::digest(&binary.1));
+    provenance::check_binary_subject(&bytes, executable_name, &digest)?;
+    let name = format!("{root}/provenance.json");
+    if entries.iter().any(|entry| entry.0 == name) {
+        bail!("release entries already contain provenance");
+    }
+    entries.push((name, bytes, 0o644));
+    entries.sort_by(|left, right| left.0.cmp(&right.0));
+    Ok(())
+}
+
+fn write_tar_archive(path: &Path, entries: &[(String, Vec<u8>, u32)]) -> Result<()> {
     let writer = BufWriter::new(File::create(path)?);
     let encoder = GzEncoder::new(writer, Compression::best());
     let mut archive = tar::Builder::new(encoder);
     archive.mode(tar::HeaderMode::Deterministic);
-    for (name, bytes, mode) in
-        release_entries(root, binary, executable_name, repo, inventory, sbom)?
-    {
+    for (name, bytes, mode) in entries {
         let mut header = tar::Header::new_gnu();
         header.set_size(bytes.len() as u64);
-        header.set_mode(mode);
+        header.set_mode(*mode);
         header.set_mtime(0);
         header.set_cksum();
         archive.append_data(&mut header, name, bytes.as_slice())?;
@@ -1292,25 +1307,15 @@ fn write_tar_archive(
     Ok(())
 }
 
-fn write_zip_archive(
-    path: &Path,
-    root: &str,
-    binary: &Path,
-    executable_name: &str,
-    repo: &Path,
-    inventory: &[u8],
-    sbom: &[u8],
-) -> Result<()> {
+fn write_zip_archive(path: &Path, entries: &[(String, Vec<u8>, u32)]) -> Result<()> {
     let file = File::create(path)?;
     let mut archive = zip::ZipWriter::new(file);
-    for (name, bytes, mode) in
-        release_entries(root, binary, executable_name, repo, inventory, sbom)?
-    {
+    for (name, bytes, mode) in entries {
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated)
-            .unix_permissions(mode);
+            .unix_permissions(*mode);
         archive.start_file(name, options)?;
-        archive.write_all(&bytes)?;
+        archive.write_all(bytes)?;
     }
     archive.finish()?;
     Ok(())
@@ -2312,7 +2317,9 @@ fn print_help() {
     println!(
         "cargo xtask media launch encode [--work-dir DIR] [--ffmpeg FILE] [--mp4 FILE] [--webm FILE]"
     );
-    println!("cargo xtask release package --target TRIPLE [--binary PATH] [--output DIR]");
+    println!(
+        "cargo xtask release package --target TRIPLE --provenance STATEMENT [--binary PATH] [--output DIR]"
+    );
     println!("cargo xtask release provenance-check BINARY STATEMENT");
 }
 
