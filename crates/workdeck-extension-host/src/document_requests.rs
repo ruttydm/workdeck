@@ -67,15 +67,18 @@ impl ExtensionDocumentRequests {
 
     /// Return ready responses without waiting for source I/O. IDs remain spent.
     pub fn poll(&mut self) -> Vec<(u64, Option<String>)> {
+        std::iter::from_fn(|| self.poll_next()).collect()
+    }
+
+    /// Drain one ready response, avoiding a batch of copied source documents.
+    /// A pending earlier ID does not block a ready later ID.
+    pub fn poll_next(&mut self) -> Option<(u64, Option<String>)> {
         let ready = self
             .pending
             .iter()
-            .filter_map(|(id, read)| read.try_result().map(|value| (*id, value)))
-            .collect::<Vec<_>>();
-        for (id, _) in &ready {
-            self.pending.remove(id);
-        }
-        ready
+            .find_map(|(id, read)| read.try_result().map(|value| (*id, value)))?;
+        self.pending.remove(&ready.0);
+        Some(ready)
     }
 
     /// Revoke publication and new requests without cancelling shared source I/O.
@@ -92,6 +95,34 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex, mpsc};
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn single_response_poll_leaves_other_ready_requests_pending() {
+        let reader = ExtensionDocumentReader::new(|_| Ok(Some("source".into())));
+        reader
+            .read_document(ExtensionFileSide::New)
+            .wait_until(
+                &crate::ExtensionRequestCancellation::default(),
+                Instant::now() + Duration::from_secs(5),
+            )
+            .unwrap();
+        let mut requests = ExtensionDocumentRequests::new(7, reader);
+        for id in 0..MAX_PENDING_DOCUMENT_REQUESTS as u64 {
+            requests.request(id, 7, ExtensionFileSide::New).unwrap();
+        }
+        for id in 0..MAX_PENDING_DOCUMENT_REQUESTS as u64 {
+            assert_eq!(requests.poll_next(), Some((id, Some("source".into()))));
+            assert_eq!(
+                requests.pending.len(),
+                MAX_PENDING_DOCUMENT_REQUESTS - id as usize - 1
+            );
+            assert_eq!(
+                requests.request(id, 7, ExtensionFileSide::New),
+                Err(DocumentRequestError::DuplicateId)
+            );
+        }
+        assert_eq!(requests.poll_next(), None);
+    }
 
     #[test]
     fn validates_authority_and_limits_before_starting_reads() {

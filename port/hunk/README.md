@@ -2,6 +2,12 @@
 
 ## Native highlighter document callback transport
 
+The transport drains ready callbacks one at a time, checking cancellation and
+the parent deadline before copying each response. This avoids collecting up to
+32 copies of source text before those checks. A broker regression verifies that
+each drain removes exactly one request and keeps all completed IDs spent. This
+is a bounded-allocation change, not evidence for the overall benchmark gate.
+
 The callback capability is now a typed `LineHighlightRequest.document_reader`
 field shared by the host and compiled example. Omitted capability fields decode
 as false and the eager wire shape remains unchanged. Wire tests round-trip both

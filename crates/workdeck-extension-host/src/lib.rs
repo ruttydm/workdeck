@@ -1134,13 +1134,16 @@ impl LoadedExtension {
                     return Err(HostError::Timeout(self.manifest.id.clone()));
                 }
                 if let Some(documents) = documents.as_mut() {
-                    for (child_id, value) in documents.poll() {
+                    loop {
                         if cancelled.load(Ordering::Acquire) {
                             return Err(HostError::Cancelled(self.manifest.id.clone()));
                         }
                         if Instant::now() >= deadline {
                             return Err(HostError::Timeout(self.manifest.id.clone()));
                         }
+                        let Some((child_id, value)) = documents.poll_next() else {
+                            break;
+                        };
                         self.send_document_response_on(&mut connection, child_id, Ok(value))?;
                     }
                 }
