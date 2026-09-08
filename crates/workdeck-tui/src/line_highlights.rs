@@ -204,6 +204,19 @@ struct LineHighlightTaskKey {
     epoch: u64,
 }
 
+impl LineHighlightTaskKey {
+    /// Refresh epochs do not replace the file or registration being painted.
+    fn same_paint_inputs(&self, other: &Self) -> bool {
+        self.file_id == other.file_id
+            && self.content_identity == other.content_identity
+            && self.agent_identity == other.agent_identity
+            && self.source_identity == other.source_identity
+            && self.source_generation == other.source_generation
+            && self.highlighter_key == other.highlighter_key
+            && self.registration_identity == other.registration_identity
+    }
+}
+
 #[derive(Debug, Clone)]
 struct LineHighlightTask {
     key: LineHighlightTaskKey,
@@ -232,6 +245,7 @@ struct LineHighlightCompletion {
 #[derive(Debug, Clone)]
 struct MergedLineHighlights {
     content_identity: String,
+    published_inputs: Vec<LineHighlightTaskKey>,
     parts: Vec<Option<Arc<[ValidatedLineHighlight]>>>,
     merged: Arc<[ValidatedLineHighlight]>,
 }
@@ -651,6 +665,16 @@ impl LineHighlightPreparationController {
                 .iter()
                 .any(|(_, _, _, key)| !self.cache.contains_key(key))
             {
+                if let Some(previous) = self.merged.get(&file.runtime_id)
+                    && previous.published_inputs.len() == keyed.len()
+                    && previous
+                        .published_inputs
+                        .iter()
+                        .zip(&keyed)
+                        .all(|(input, (_, _, _, key))| input.same_paint_inputs(key))
+                {
+                    resolved.insert(file.runtime_id.clone(), Arc::clone(&previous.merged));
+                }
                 continue;
             }
             let mut accepted_parts = Vec::with_capacity(keyed.len());
@@ -709,6 +733,7 @@ impl LineHighlightPreparationController {
                 file.runtime_id.clone(),
                 MergedLineHighlights {
                     content_identity: file.content_identity.clone(),
+                    published_inputs: keyed.iter().map(|(_, _, _, key)| key.clone()).collect(),
                     parts: accepted_parts,
                     merged: Arc::clone(&merged),
                 },
@@ -1597,6 +1622,98 @@ mod tests {
             runtime.warnings()[0],
             "Extension test-extension line highlighter \"late\" failed highlighting file.rs • marks dropped"
         );
+    }
+
+    #[test]
+    fn pending_replacement_never_reuses_marks_from_different_paint_inputs() {
+        for changed in ["content", "source", "reader", "registration"] {
+            let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+            let extensions = runtime_list(&runtime);
+            let mut registrations = [registration("refresh")];
+            let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+            let mut files = [test_file("file", "content")];
+            let mut controller = LineHighlightPreparationController::default();
+            reconcile_until(
+                &mut controller,
+                &extensions,
+                &registrations,
+                &epochs,
+                &files,
+                |controller| controller.resolved().len() == 1,
+            );
+            runtime.pending.store(true, Ordering::Release);
+            match changed {
+                "content" => files[0].content_identity = "replacement".into(),
+                "source" => files[0].source_identity = Some("replacement".into()),
+                "reader" => runtime.source_generation.store(1, Ordering::Release),
+                "registration" => registrations[0] = registration("refresh"),
+                _ => unreachable!(),
+            }
+            controller.reconcile(&extensions, &registrations, &epochs, &files);
+            assert!(
+                controller.resolved().is_empty(),
+                "stale marks after {changed} replacement"
+            );
+            assert_eq!(runtime.calls().len(), 1);
+        }
+    }
+
+    #[test]
+    fn pending_epoch_refresh_keeps_previous_marks_until_replacement_settles() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let release_rx = Mutex::new(release_rx);
+        let calls = AtomicUsize::new(0);
+        let runtime = FakeLineHighlightRuntime::new(move |_, _, _| {
+            if calls.fetch_add(1, Ordering::AcqRel) == 0 {
+                return Ok(one_mark("match"));
+            }
+            started_tx.send(()).unwrap();
+            release_rx
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap();
+            Ok(json!([]))
+        });
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("refresh")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [test_file("file", "content")];
+        let mut controller = LineHighlightPreparationController::default();
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            &files,
+            |controller| controller.resolved().len() == 1,
+        );
+        let original = controller.resolved().get_shared("file").unwrap().clone();
+        let bumped = workdeck_extension_host::bump_scoped_epoch(
+            &epochs,
+            "test-extension:refresh",
+            Some("file"),
+        );
+        controller.reconcile(&extensions, &registrations, &bumped, &files);
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            controller
+                .resolved()
+                .get_shared("file")
+                .is_some_and(|marks| Arc::ptr_eq(marks, &original))
+        );
+        release_tx.send(()).unwrap();
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &bumped,
+            &files,
+            |controller| controller.pending_count() == 0,
+        );
+        assert!(controller.resolved().is_empty());
+        assert_eq!(runtime.calls().len(), 2);
     }
 
     #[test]

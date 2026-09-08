@@ -1,5 +1,22 @@
 # Hunk semantic-port ledger
 
+## Published marks during a pending refresh
+
+A held-worker regression reproduced marks disappearing immediately when an
+epoch refresh began. Pinned Hunk retains its previous publication while the
+same file and registrations prepare their replacement. The native coordinator
+now retains that exact merged array during a pending refresh only while its
+published paint inputs still match, ignoring epochs but not content, source,
+reader generation, agent context, or registration identity.
+
+The test releases the worker with an empty result and verifies that the old
+marks then disappear. Negative cases replace content, source identity, reader
+generation, or registration while the runtime is busy and verify immediate
+removal instead of stale retention. This is publication-state evidence, not
+whole-hook parity; the ledger remains unchanged.
+Verification passes: all 39 highlighter tests, all 1,070 TUI unit tests, workspace
+Clippy, formatting, and architecture checks.
+
 ## Merged highlight identity after empty refresh
 
 A regression reproduced a merged array being replaced solely because an epoch
