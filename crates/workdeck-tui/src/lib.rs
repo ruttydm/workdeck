@@ -13867,7 +13867,9 @@ fn split_hunk_rows(
                 )
             });
         let pair_rows = if geometry_nowrap {
-            vec![Line::default()]
+            // Append the single geometry row directly below, without allocating
+            // a temporary one-element vector for every offscreen pair.
+            Vec::new()
         } else {
             split_pair_rows(
                 SplitCellInput {
@@ -13923,8 +13925,13 @@ fn split_hunk_rows(
         let pair_target = new
             .or(old)
             .map(|line| diff_line_note_target(file_index, hunk_index, line));
-        targets.extend(std::iter::repeat_n(pair_target, pair_rows.len()));
-        rows.extend(pair_rows);
+        if geometry_nowrap {
+            targets.push(pair_target);
+            rows.push(Line::default());
+        } else {
+            targets.extend(std::iter::repeat_n(pair_target, pair_rows.len()));
+            rows.extend(pair_rows);
+        }
         if let Some(line) = old {
             let rendered_notes = comment_rows(
                 file,
