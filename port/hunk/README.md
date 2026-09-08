@@ -1,5 +1,17 @@
 # Hunk semantic-port ledger
 
+## Source decoding parity
+
+`oracles/source-text-decoding.json` freezes eight file/stream cases from both
+pinned source trees under Bun 1.3.14, including raw outputs and the oracle driver.
+The downloaded runtime archive was checked against its published SHA-256.
+The differential Rust test failed on a leading BOM before the fix. Native source
+readers now consume one initial UTF-8 BOM, preserve embedded BOMs, and enforce
+the input-byte ceiling before decoding. Invalid UTF-8, split emoji bytes,
+truncated input, empty input, and NUL are checked against both pins. Stream tests
+retain the recorded chunk boundaries instead of flattening them before reading.
+This corrects existing mapped source behavior; it adds no interval coverage.
+
 ## Filesystem source-read ceiling
 
 Filesystem source reads now open one handle, inspect that handle's metadata, and

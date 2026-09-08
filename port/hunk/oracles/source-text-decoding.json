@@ -1,0 +1,220 @@
+{
+  "runtime": "Bun 1.3.14",
+  "runtimeArchiveSha256": "d8b96221828ad6f97ac7ac0ab7e95872341af763001e8803e8267652c2652620",
+  "kind": "pinned-source-reader-decoding",
+  "driver": "import {readStreamTextWithLimit,readFileTextWithLimit} from \"./src/lib/sourceText.ts\";\nconst cases=[[\"bom\",[[239,187,191,120]],4],[\"bom-only\",[[239,187,191]],3],[\"middle-bom\",[[120,239,187,191]],4],[\"invalid\",[[255]],1],[\"split-emoji\",[[240,159],[152,128]],4],[\"truncated\",[[240,159]],2],[\"empty\",[],0],[\"nul\",[[0]],1]];\nconst results=[];for(const [name,chunks,limit] of cases){const stream=new ReadableStream({start(c){for(const chunk of chunks)c.enqueue(Uint8Array.from(chunk));c.close()}});const path=import.meta.dir+\"/\"+name+\".bin\";await Bun.write(path,Uint8Array.from(chunks.flat()));results.push({name,chunks,limit,streamText:await readStreamTextWithLimit(stream,limit),fileText:await readFileTextWithLimit(path,limit)})}console.log(JSON.stringify(results));",
+  "runs": [
+    {
+      "pin": "baseline",
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "combinedOutput": "[{\"name\":\"bom\",\"chunks\":[[239,187,191,120]],\"limit\":4,\"streamText\":\"x\",\"fileText\":\"x\"},{\"name\":\"bom-only\",\"chunks\":[[239,187,191]],\"limit\":3,\"streamText\":\"\",\"fileText\":\"\"},{\"name\":\"middle-bom\",\"chunks\":[[120,239,187,191]],\"limit\":4,\"streamText\":\"x﻿\",\"fileText\":\"x﻿\"},{\"name\":\"invalid\",\"chunks\":[[255]],\"limit\":1,\"streamText\":\"�\",\"fileText\":\"�\"},{\"name\":\"split-emoji\",\"chunks\":[[240,159],[152,128]],\"limit\":4,\"streamText\":\"😀\",\"fileText\":\"😀\"},{\"name\":\"truncated\",\"chunks\":[[240,159]],\"limit\":2,\"streamText\":\"�\",\"fileText\":\"�\"},{\"name\":\"empty\",\"chunks\":[],\"limit\":0,\"streamText\":\"\",\"fileText\":\"\"},{\"name\":\"nul\",\"chunks\":[[0]],\"limit\":1,\"streamText\":\"\\u0000\",\"fileText\":\"\\u0000\"}]\n",
+      "cases": [
+        {
+          "name": "bom",
+          "chunks": [
+            [
+              239,
+              187,
+              191,
+              120
+            ]
+          ],
+          "limit": 4,
+          "streamText": "x",
+          "fileText": "x"
+        },
+        {
+          "name": "bom-only",
+          "chunks": [
+            [
+              239,
+              187,
+              191
+            ]
+          ],
+          "limit": 3,
+          "streamText": "",
+          "fileText": ""
+        },
+        {
+          "name": "middle-bom",
+          "chunks": [
+            [
+              120,
+              239,
+              187,
+              191
+            ]
+          ],
+          "limit": 4,
+          "streamText": "x﻿",
+          "fileText": "x﻿"
+        },
+        {
+          "name": "invalid",
+          "chunks": [
+            [
+              255
+            ]
+          ],
+          "limit": 1,
+          "streamText": "�",
+          "fileText": "�"
+        },
+        {
+          "name": "split-emoji",
+          "chunks": [
+            [
+              240,
+              159
+            ],
+            [
+              152,
+              128
+            ]
+          ],
+          "limit": 4,
+          "streamText": "😀",
+          "fileText": "😀"
+        },
+        {
+          "name": "truncated",
+          "chunks": [
+            [
+              240,
+              159
+            ]
+          ],
+          "limit": 2,
+          "streamText": "�",
+          "fileText": "�"
+        },
+        {
+          "name": "empty",
+          "chunks": [],
+          "limit": 0,
+          "streamText": "",
+          "fileText": ""
+        },
+        {
+          "name": "nul",
+          "chunks": [
+            [
+              0
+            ]
+          ],
+          "limit": 1,
+          "streamText": "\u0000",
+          "fileText": "\u0000"
+        }
+      ]
+    },
+    {
+      "pin": "stable",
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "combinedOutput": "[{\"name\":\"bom\",\"chunks\":[[239,187,191,120]],\"limit\":4,\"streamText\":\"x\",\"fileText\":\"x\"},{\"name\":\"bom-only\",\"chunks\":[[239,187,191]],\"limit\":3,\"streamText\":\"\",\"fileText\":\"\"},{\"name\":\"middle-bom\",\"chunks\":[[120,239,187,191]],\"limit\":4,\"streamText\":\"x﻿\",\"fileText\":\"x﻿\"},{\"name\":\"invalid\",\"chunks\":[[255]],\"limit\":1,\"streamText\":\"�\",\"fileText\":\"�\"},{\"name\":\"split-emoji\",\"chunks\":[[240,159],[152,128]],\"limit\":4,\"streamText\":\"😀\",\"fileText\":\"😀\"},{\"name\":\"truncated\",\"chunks\":[[240,159]],\"limit\":2,\"streamText\":\"�\",\"fileText\":\"�\"},{\"name\":\"empty\",\"chunks\":[],\"limit\":0,\"streamText\":\"\",\"fileText\":\"\"},{\"name\":\"nul\",\"chunks\":[[0]],\"limit\":1,\"streamText\":\"\\u0000\",\"fileText\":\"\\u0000\"}]\n",
+      "cases": [
+        {
+          "name": "bom",
+          "chunks": [
+            [
+              239,
+              187,
+              191,
+              120
+            ]
+          ],
+          "limit": 4,
+          "streamText": "x",
+          "fileText": "x"
+        },
+        {
+          "name": "bom-only",
+          "chunks": [
+            [
+              239,
+              187,
+              191
+            ]
+          ],
+          "limit": 3,
+          "streamText": "",
+          "fileText": ""
+        },
+        {
+          "name": "middle-bom",
+          "chunks": [
+            [
+              120,
+              239,
+              187,
+              191
+            ]
+          ],
+          "limit": 4,
+          "streamText": "x﻿",
+          "fileText": "x﻿"
+        },
+        {
+          "name": "invalid",
+          "chunks": [
+            [
+              255
+            ]
+          ],
+          "limit": 1,
+          "streamText": "�",
+          "fileText": "�"
+        },
+        {
+          "name": "split-emoji",
+          "chunks": [
+            [
+              240,
+              159
+            ],
+            [
+              152,
+              128
+            ]
+          ],
+          "limit": 4,
+          "streamText": "😀",
+          "fileText": "😀"
+        },
+        {
+          "name": "truncated",
+          "chunks": [
+            [
+              240,
+              159
+            ]
+          ],
+          "limit": 2,
+          "streamText": "�",
+          "fileText": "�"
+        },
+        {
+          "name": "empty",
+          "chunks": [],
+          "limit": 0,
+          "streamText": "",
+          "fileText": ""
+        },
+        {
+          "name": "nul",
+          "chunks": [
+            [
+              0
+            ]
+          ],
+          "limit": 1,
+          "streamText": "\u0000",
+          "fileText": "\u0000"
+        }
+      ]
+    }
+  ]
+}

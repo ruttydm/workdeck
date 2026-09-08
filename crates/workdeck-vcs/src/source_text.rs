@@ -91,7 +91,10 @@ pub fn read_stream_text_with_limit<R: Read>(
         }
         bytes.extend_from_slice(&buffer[..bytes_read]);
     }
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    // Bun.file().text() and TextDecoder both consume one initial UTF-8 BOM.
+    // Check the byte ceiling first: a BOM still counts toward source size.
+    let decoded_bytes = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(&bytes);
+    Ok(String::from_utf8_lossy(decoded_bytes).into_owned())
 }
 
 pub fn log_source_diagnostic(message: &str, detail: &dyn std::fmt::Display) {
@@ -347,6 +350,60 @@ mod tests {
             read_sized_source_with_limit(InterruptedOnce(false).take(1), 1, 1).unwrap(),
             "x"
         );
+    }
+
+    #[test]
+    fn source_decoding_matches_both_pinned_file_and_stream_readers() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/source-text-decoding.json"
+        ))
+        .unwrap();
+        let directory = TempDir::new().unwrap();
+        for run in oracle["runs"].as_array().unwrap() {
+            assert_eq!(run["exitCode"], 0);
+            assert_eq!(run["cases"].as_array().unwrap().len(), 8);
+            for case in run["cases"].as_array().unwrap() {
+                let chunks = case["chunks"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|chunk| {
+                        chunk
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|byte| u8::try_from(byte.as_u64().unwrap()).unwrap())
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>();
+                let bytes = chunks.concat();
+                let mut stream: Box<dyn Read> = Box::new(io::empty());
+                for chunk in chunks {
+                    stream = Box::new(stream.chain(Cursor::new(chunk)));
+                }
+                let limit = usize::try_from(case["limit"].as_u64().unwrap()).unwrap();
+                assert_eq!(
+                    read_stream_text_with_limit(Some(stream), limit, None).unwrap(),
+                    case["streamText"].as_str().unwrap(),
+                    "stream case {} at {}",
+                    case["name"],
+                    run["pin"]
+                );
+                let path = directory.path().join("source.bin");
+                fs::write(&path, &bytes).unwrap();
+                assert_eq!(
+                    read_file_text_with_limit(&path, limit),
+                    LimitedSourceTextResult::Text(case["fileText"].as_str().unwrap().into()),
+                    "file case {} at {}",
+                    case["name"],
+                    run["pin"]
+                );
+            }
+        }
+        assert!(matches!(
+            read_stream_text_with_limit(Some(Cursor::new([0xef, 0xbb, 0xbf])), 2, None),
+            Err(SourceTextError::TooLarge { max_bytes: 2 })
+        ));
     }
 
     #[derive(Default)]
