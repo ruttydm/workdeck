@@ -136,7 +136,7 @@ pub(super) fn giant_file(index: usize, lines: usize, start: usize, end: usize) -
     Ok(file)
 }
 
-fn bootstrap(cwd: PathBuf, files: Vec<DiffFile>, id: String) -> AppBootstrap {
+pub(super) fn bootstrap(cwd: PathBuf, files: Vec<DiffFile>, id: String) -> AppBootstrap {
     let mut bootstrap = AppBootstrap::new(
         CliInput::Vcs(VcsDiffCommandInput {
             range: None,

@@ -18,6 +18,7 @@ mod render_layout;
 mod runner;
 mod stream;
 mod working_tree;
+mod wrapped_cjk;
 
 #[derive(Debug, Serialize)]
 struct ReleaseRunOptions {
@@ -680,6 +681,9 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     }
     if command.as_deref() == Some("non-ascii-stream") {
         return non_ascii_stream::run(args);
+    }
+    if command.as_deref() == Some("wrapped-cjk") {
+        return wrapped_cjk::run(args);
     }
     if command.as_deref() == Some("run") {
         return runner::run_command(args);
