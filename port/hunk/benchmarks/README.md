@@ -92,3 +92,34 @@ Use the commands above with `--script non-ascii-stream.ts` to reproduce these re
 - [Pinned main Unicode stream](non-ascii-stream-hunk-2c00f435.json)
 - [Pinned stable Unicode stream](non-ascii-stream-hunk-v0.20.1.json)
 - [Native Unicode stream](non-ascii-stream-native.json)
+
+## Wrapped Japanese Markdown
+
+At native commit `8ee94d28`, three optimized subprocess samples ran before three samples from
+each pinned Hunk checkout, sequentially on the same host after builds and tests completed.
+Runtime versions and uncontrolled-other-host-activity limitations are as above. Stable Hunk
+emitted React `act(...)` environment warnings. Both pins have identical workload source bytes
+(SHA-256 `5a081ec10b112099d2e17405c9e93d692e00ca72567ff2d5b264152f7f83c8a3`).
+
+| Median, milliseconds | Hunk main | Hunk stable | Workdeck |
+| --- | ---: | ---: | ---: |
+| 518-line mount to first frame | 103.82 | 68.98 | 146.55 |
+| Long-line mount to first frame | 20.49 | 21.69 | 3.89 |
+| Immediate twelve-event wheel burst | 4.72 | 4.25 | 170.86 |
+| Settled wheel burst | 29.47 | 28.00 | 208.45 |
+
+All nine samples preserve 518 physical lines, 8,736 UTF-16 units in the long line, twelve burst
+events and 54/55/55 initial/immediate/settled Japanese-content rows. First-paint timers include
+app construction but exclude fixture construction. Burst timers exclude synchronous syntax
+preparation and initial viewport settlement. Native highlighting is explicitly prepared in its
+per-app cache, rather than a source module-global cache. Movement checks compare characters,
+not syntax styles. First-frame content must occupy at least 80% of the 60-row viewport; burst
+content must retain at least 80% of the initial content rows.
+
+The long-line result alone beats both pins; the other three timings fail the 10% latency gate.
+No peak-memory or full-process launch acceptance is established. Reproduce using the preceding
+commands with `--script wrapped-cjk.ts`:
+
+- [Pinned main wrapped CJK](wrapped-cjk-hunk-2c00f435.json)
+- [Pinned stable wrapped CJK](wrapped-cjk-hunk-v0.20.1.json)
+- [Native wrapped CJK](wrapped-cjk-native.json)

@@ -1,0 +1,190 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-08T00:12:21.987Z",
+  "gitSha": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "packageVersion": "0.20.1",
+  "runtime": {
+    "bunVersion": "1.3.14",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "samplesPerBenchmark": 3,
+  "results": [
+    {
+      "name": "wrapped-cjk/long_line_characters",
+      "source": "wrapped-cjk",
+      "samples": [
+        8736,
+        8736,
+        8736
+      ],
+      "median": 8736,
+      "p75": 8736,
+      "p95": 8736,
+      "min": 8736,
+      "max": 8736,
+      "unit": "count",
+      "comparable": false
+    },
+    {
+      "name": "wrapped-cjk/physical_lines",
+      "source": "wrapped-cjk",
+      "samples": [
+        518,
+        518,
+        518
+      ],
+      "median": 518,
+      "p75": 518,
+      "p95": 518,
+      "min": 518,
+      "max": 518,
+      "unit": "count",
+      "comparable": false
+    },
+    {
+      "name": "wrapped-cjk/wheel_burst_events",
+      "source": "wrapped-cjk",
+      "samples": [
+        12,
+        12,
+        12
+      ],
+      "median": 12,
+      "p75": 12,
+      "p95": 12,
+      "min": 12,
+      "max": 12,
+      "unit": "count",
+      "comparable": false
+    },
+    {
+      "name": "wrapped-cjk/wrapped_cjk_518_mount_first_frame_ms",
+      "source": "wrapped-cjk",
+      "samples": [
+        73.52,
+        68.21,
+        68.98
+      ],
+      "median": 68.98,
+      "p75": 73.52,
+      "p95": 73.52,
+      "min": 68.21,
+      "max": 73.52,
+      "unit": "ms",
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5
+      }
+    },
+    {
+      "name": "wrapped-cjk/wrapped_cjk_long_line_mount_first_frame_ms",
+      "source": "wrapped-cjk",
+      "samples": [
+        24.29,
+        21.69,
+        20.92
+      ],
+      "median": 21.69,
+      "p75": 24.29,
+      "p95": 24.29,
+      "min": 20.92,
+      "max": 24.29,
+      "unit": "ms",
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5
+      }
+    },
+    {
+      "name": "wrapped-cjk/wrapped_cjk_wheel_burst_immediate_content_rows",
+      "source": "wrapped-cjk",
+      "samples": [
+        55,
+        55,
+        55
+      ],
+      "median": 55,
+      "p75": 55,
+      "p95": 55,
+      "min": 55,
+      "max": 55,
+      "unit": "count",
+      "comparable": false
+    },
+    {
+      "name": "wrapped-cjk/wrapped_cjk_wheel_burst_immediate_ms",
+      "source": "wrapped-cjk",
+      "samples": [
+        4.5,
+        4.12,
+        4.25
+      ],
+      "median": 4.25,
+      "p75": 4.5,
+      "p95": 4.5,
+      "min": 4.12,
+      "max": 4.5,
+      "unit": "ms",
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5
+      }
+    },
+    {
+      "name": "wrapped-cjk/wrapped_cjk_wheel_burst_initial_content_rows",
+      "source": "wrapped-cjk",
+      "samples": [
+        54,
+        54,
+        54
+      ],
+      "median": 54,
+      "p75": 54,
+      "p95": 54,
+      "min": 54,
+      "max": 54,
+      "unit": "count",
+      "comparable": false
+    },
+    {
+      "name": "wrapped-cjk/wrapped_cjk_wheel_burst_settled_content_rows",
+      "source": "wrapped-cjk",
+      "samples": [
+        55,
+        55,
+        55
+      ],
+      "median": 55,
+      "p75": 55,
+      "p95": 55,
+      "min": 55,
+      "max": 55,
+      "unit": "count",
+      "comparable": false
+    },
+    {
+      "name": "wrapped-cjk/wrapped_cjk_wheel_burst_settled_ms",
+      "source": "wrapped-cjk",
+      "samples": [
+        28,
+        27.82,
+        29.31
+      ],
+      "median": 28,
+      "p75": 29.31,
+      "p95": 29.31,
+      "min": 27.82,
+      "max": 29.31,
+      "unit": "ms",
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5
+      }
+    }
+  ]
+}
