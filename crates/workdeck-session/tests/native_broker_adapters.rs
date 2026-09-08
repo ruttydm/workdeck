@@ -465,6 +465,29 @@ fn contains_handler_failures_and_closes_the_affected_peer() {
 }
 
 #[test]
+fn accepts_a_websocket_upgrade_after_tcp_connect_without_early_header_bytes() {
+    let broker = broker_with_parsers(parsers(None));
+    let server = start(daemon_with(broker, SessionBrokerLimitPatch::default()));
+    let stream = TcpStream::connect(server.address()).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    // Accept and dispatch the connection before any HTTP bytes arrive. A
+    // nonblocking accepted socket must not mistake WouldBlock for disconnect.
+    thread::sleep(Duration::from_millis(100));
+    let (mut socket, _) =
+        tungstenite::client(format!("ws://{}/session", server.address()), stream).unwrap();
+    socket
+        .send(Message::Text(register_text("delayed-headers").into()))
+        .unwrap();
+    socket.close(None).unwrap();
+    stop(&server);
+}
+
+#[test]
 fn accepts_websocket_message_exactly_at_configured_byte_ceiling() {
     let broker = broker_with_parsers(parsers(None));
     let message = register_text("session-1");

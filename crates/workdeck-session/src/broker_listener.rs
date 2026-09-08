@@ -657,8 +657,17 @@ fn run_connection(mut socket: TcpStream, id: u64, runtime: Arc<NativeRuntime>) {
         running: Arc::clone(&runtime.running),
         id,
     };
-    let _ = socket.set_read_timeout(Some(SOCKET_IO_TIMEOUT));
-    let _ = socket.set_write_timeout(Some(SOCKET_IO_TIMEOUT));
+    // Accepted sockets can inherit the listener's nonblocking mode (Darwin).
+    // Connection workers use bounded blocking I/O; headers need not arrive in
+    // the same scheduling slice as accept, and WouldBlock is not an EOF.
+    if socket
+        .set_nonblocking(false)
+        .and_then(|()| socket.set_read_timeout(Some(SOCKET_IO_TIMEOUT)))
+        .and_then(|()| socket.set_write_timeout(Some(SOCKET_IO_TIMEOUT)))
+        .is_err()
+    {
+        return;
+    }
     let Ok(head) = peek_http_head(&socket) else {
         return;
     };

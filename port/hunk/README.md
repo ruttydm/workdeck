@@ -1394,3 +1394,10 @@ The diagnostic-overflow regressions retain their original Git two-second and Juj
 deadlines with ten-second descendant
 sleeps; a separate test checks cleanup after the parent exits on TERM and verifies an unrelated
 process remains alive. This does not assert Windows process-tree cleanup parity.
+
+The native broker listener explicitly makes each accepted socket blocking before applying its
+existing read/write timeouts. Darwin can inherit the listener's nonblocking mode; previously a
+connection accepted before its first HTTP bytes arrived was dropped on `WouldBlock`. A delayed
+WebSocket-header regression reproduces the failure without retries and passes after the correction,
+alongside all twenty-four adapter tests. Existing message ceilings, admission/pressure checks, and
+timeouts remain unchanged. This repairs an already mapped transport path without adding coverage.
