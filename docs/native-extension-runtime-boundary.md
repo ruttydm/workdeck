@@ -31,6 +31,13 @@ idempotently and continue reading notifications while asynchronous work is
 unresolved. Cleanup delivery is best-effort if the child has already closed;
 it does not replace the original decoded result.
 
+The reviewer's highlighter input includes baseline agent annotations followed by
+saved live notes for that file. Draft and orphaned notes are excluded. Note
+creation, editing, and removal invalidate the derived marks without rewriting
+the immutable review document; saved source-line anchors are retained even when
+they fall outside a diff hunk. The input is a consumer-owned view, not authority
+to construct a new source reader.
+
 Loading is a two-stage host operation. `prepare_extension_load` validates every manifest, settles
 compatible IDs first-wins in discovery order, snapshots per-extension configuration, and returns a
 provisional load with phase `loading` before any executable starts. An API-incompatible or invalid

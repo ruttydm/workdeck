@@ -7154,7 +7154,29 @@ impl ReviewApp {
         prepared
     }
 
-    fn prepare_extension_line_highlights(&self, changeset: &Changeset) -> LineHighlightMap {
+    fn prepare_extension_line_highlights(
+        &self,
+        changeset: &Changeset,
+        comments: &[ReviewComment],
+    ) -> LineHighlightMap {
+        let file_ids = changeset
+            .files
+            .iter()
+            .map(|file| (file.key.as_str(), public_review::public_file_id(file)))
+            .collect::<BTreeMap<_, _>>();
+        let mut annotations = BTreeMap::<String, Vec<AgentAnnotation>>::new();
+        for comment in comments.iter().filter(|comment| {
+            comment.source != "user-draft"
+                && comment.resolution != workdeck_review::ReviewNoteResolution::Orphaned
+        }) {
+            if let Some(id) = file_ids.get(comment.anchor.file_key.as_str()) {
+                annotations
+                    .entry((*id).to_owned())
+                    .or_default()
+                    .push(saved_comment_annotation(comment));
+            }
+        }
+        let files = public_review::merge_file_annotations_borrowed(&changeset.files, &annotations);
         let mut runtime = self
             .extension_pane_runtime
             .lock()
@@ -7176,9 +7198,9 @@ impl ReviewApp {
             &extensions,
             &registrations,
             &epochs,
-            changeset
-                .files
+            files
                 .iter()
+                .map(std::borrow::Cow::as_ref)
                 .filter(|file| diff_file_matches_filter(file, &self.filter)),
         );
         merge_line_highlight_maps(
@@ -7360,7 +7382,8 @@ impl ReviewApp {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .file_view_component_expanded
             .clone();
-        let line_highlights = self.prepare_extension_line_highlights(state.changeset());
+        let line_highlights =
+            self.prepare_extension_line_highlights(state.changeset(), state.comments());
         let mut highlights = self
             .highlights
             .lock()
@@ -7962,7 +7985,8 @@ impl ReviewApp {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .file_view_component_expanded
             .clone();
-        let line_highlights = self.prepare_extension_line_highlights(state.changeset());
+        let line_highlights =
+            self.prepare_extension_line_highlights(state.changeset(), state.comments());
         let mut highlights = self
             .highlights
             .lock()
@@ -11976,7 +12000,8 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .file_view_component_expanded
         .clone();
-    let line_highlights = app.prepare_extension_line_highlights(state.changeset());
+    let line_highlights =
+        app.prepare_extension_line_highlights(state.changeset(), state.comments());
     let mut highlights = app
         .highlights
         .lock()
@@ -14470,19 +14495,30 @@ fn saved_comment_thread(
     }
 }
 
-fn paint_saved_comment(
-    comment: &ReviewComment,
-    comments: &[ReviewComment],
-    file: &DiffFile,
-    layout: LayoutMode,
-    theme: &AppTheme,
-    width: u16,
-    hovered: bool,
-) -> PaintedAgentInlineNote {
-    let annotation = AgentAnnotation {
+fn saved_comment_annotation(comment: &ReviewComment) -> AgentAnnotation {
+    use workdeck_core::LineRange;
+    let preferred = comment
+        .anchor
+        .preferred_side
+        .zip(comment.anchor.preferred_line);
+    AgentAnnotation {
         id: Some(comment.id.clone()),
-        old_range: comment.anchor.old_range,
-        new_range: comment.anchor.new_range,
+        old_range: comment.anchor.old_range.or_else(|| {
+            preferred
+                .filter(|(side, _)| *side == ReviewSide::Old)
+                .map(|(_, line)| LineRange {
+                    start: line,
+                    end: line,
+                })
+        }),
+        new_range: comment.anchor.new_range.or_else(|| {
+            preferred
+                .filter(|(side, _)| *side == ReviewSide::New)
+                .map(|(_, line)| LineRange {
+                    start: line,
+                    end: line,
+                })
+        }),
         summary: comment.summary.clone(),
         rationale: comment.rationale.clone(),
         markup: comment.markup.clone(),
@@ -14494,7 +14530,19 @@ fn paint_saved_comment(
         created_at: comment.created_at.clone(),
         updated_at: comment.updated_at.clone(),
         editable: comment.editable,
-    };
+    }
+}
+
+fn paint_saved_comment(
+    comment: &ReviewComment,
+    comments: &[ReviewComment],
+    file: &DiffFile,
+    layout: LayoutMode,
+    theme: &AppTheme,
+    width: u16,
+    hovered: bool,
+) -> PaintedAgentInlineNote {
+    let annotation = saved_comment_annotation(comment);
     let mut view = AgentInlineNoteViewOptions::new(&annotation, layout, theme, usize::from(width));
     view.file = Some(file);
     let thread = saved_comment_thread(comment, comments);
@@ -15535,6 +15583,20 @@ mod tests {
             },
             editable: false,
         }
+    }
+
+    #[test]
+    fn saved_annotation_preserves_preferred_source_line_without_hunk_ranges() {
+        let mut comment = saved_comment("file", "note", "source note");
+        comment.anchor.old_range = None;
+        comment.anchor.new_range = None;
+        comment.anchor.preferred_side = Some(ReviewSide::New);
+        comment.anchor.preferred_line = Some(7);
+        let annotation = saved_comment_annotation(&comment);
+        assert_eq!(annotation.new_range, Some(LineRange { start: 7, end: 7 }));
+        assert_eq!(annotation.old_range, None);
+        assert_eq!(annotation.id.as_deref(), Some("note"));
+        assert_eq!(annotation.summary, "source note");
     }
 
     #[test]

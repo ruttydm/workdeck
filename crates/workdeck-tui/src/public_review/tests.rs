@@ -531,10 +531,29 @@ fn file_labels_keep_semantic_state_suffixes() {
 }
 
 #[test]
+fn annotation_merge_borrows_untouched_files_and_preserves_document() {
+    let files = [
+        sidebar_file("annotated", "src/a.rs"),
+        sidebar_file("untouched", "src/b.rs"),
+    ];
+    let before = files.clone();
+    let annotations = BTreeMap::from([("annotated".into(), vec![annotation("live")])]);
+    let merged = merge_file_annotations_borrowed(&files, &annotations);
+    assert!(matches!(merged[0], std::borrow::Cow::Owned(_)));
+    assert!(matches!(merged[1], std::borrow::Cow::Borrowed(_)));
+    assert!(std::ptr::eq(merged[1].as_ref(), &files[1]));
+    assert_eq!(
+        merged[0].agent.as_ref().unwrap().annotations[0].summary,
+        "live"
+    );
+    assert_eq!(files, before);
+}
+
+#[test]
 fn annotation_merge_preserves_existing_summary_and_annotations() {
     let mut file = sidebar_file("annotated", "src/a.rs");
     file.agent = Some(AgentFileContext {
-        path: file.path.clone(),
+        path: "stale-context-path.rs".into(),
         summary: Some("existing summary".into()),
         annotations: vec![annotation("existing")],
     });
@@ -544,6 +563,7 @@ fn annotation_merge_preserves_existing_summary_and_annotations() {
         &BTreeMap::from([("annotated".into(), vec![annotation("new")])]),
     );
     let agent = merged[0].agent.as_ref().unwrap();
+    assert_eq!(agent.path, "src/a.rs");
     assert_eq!(agent.summary.as_deref(), Some("existing summary"));
     assert_eq!(
         agent

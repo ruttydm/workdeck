@@ -1,5 +1,29 @@
 # Hunk semantic-port ledger
 
+## Saved-comment inputs for native highlighters
+
+The live highlighter path now receives saved comments from the caller's held
+review state. It groups non-draft, non-orphaned notes by file identity, projects
+the same annotation fields used by the note painter, and merges them into
+consumer-owned file views before filtering and preparation. Preferred source
+lines survive projection even when a note has no hunk range. Existing summaries
+and baseline annotations remain intact; the merged agent path names its file.
+
+The shared merge helper now offers borrowed results: untouched files retain
+their original references, while annotated files receive owned copies. The
+immutable changeset and its source identity are not rewritten. Agent-context
+cache identity causes creation, edits, and removal to rederive native marks.
+
+The compiled example has an opt-in annotation-driven mode and an observation
+query. Its integration test checks terminal mark widths and the child's observed
+inputs across note creation, edit, removal, and a mixture of active, draft, and
+orphaned notes, then verifies the original review document is unchanged.
+This implements the invocation gap identified below, not complete hook parity
+or deferred-provider/source-authority coverage. No ledger mapping is added.
+Verification passes on the final implementation: all six compiled highlighter
+tests, all 1,072 TUI unit tests, workspace Clippy, formatting, and architecture
+checks.
+
 ## Live-comment highlighter integration audit
 
 The five compiled highlighter integration tests pass at `5f2ddce0`, including

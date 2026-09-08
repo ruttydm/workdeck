@@ -762,6 +762,16 @@ pub fn merge_file_annotations_by_file_id(
     files: &[DiffFile],
     annotations_by_file_id: &BTreeMap<String, Vec<AgentAnnotation>>,
 ) -> Vec<DiffFile> {
+    merge_file_annotations_borrowed(files, annotations_by_file_id)
+        .into_iter()
+        .map(std::borrow::Cow::into_owned)
+        .collect()
+}
+
+pub(crate) fn merge_file_annotations_borrowed<'a>(
+    files: &'a [DiffFile],
+    annotations_by_file_id: &BTreeMap<String, Vec<AgentAnnotation>>,
+) -> Vec<std::borrow::Cow<'a, DiffFile>> {
     files
         .iter()
         .map(|file| {
@@ -769,7 +779,7 @@ pub fn merge_file_annotations_by_file_id(
                 .get(public_file_id(file))
                 .filter(|annotations| !annotations.is_empty())
             else {
-                return file.clone();
+                return std::borrow::Cow::Borrowed(file);
             };
             let mut merged = file.clone();
             let mut agent = merged.agent.take().unwrap_or_else(|| AgentFileContext {
@@ -777,9 +787,10 @@ pub fn merge_file_annotations_by_file_id(
                 summary: None,
                 annotations: Vec::new(),
             });
+            agent.path = merged.path.clone();
             agent.annotations.extend(annotations.iter().cloned());
             merged.agent = Some(agent);
-            merged
+            std::borrow::Cow::Owned(merged)
         })
         .collect()
 }

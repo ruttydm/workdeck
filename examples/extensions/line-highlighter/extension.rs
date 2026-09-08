@@ -10,6 +10,8 @@ use workdeck_extension_api::{
 
 pub fn serve<R: BufRead, W: Write>(mut input: R, mut output: W) -> io::Result<()> {
     let mut require_cleanup = false;
+    let mut mark_annotations = false;
+    let mut last_annotation_width: Option<usize> = None;
     let mut active_request = None;
     loop {
         let mut line = String::new();
@@ -30,12 +32,20 @@ pub fn serve<R: BufRead, W: Write>(mut input: R, mut output: W) -> io::Result<()
         }
         let request: JsonRpcRequest = serde_json::from_value(value).map_err(io::Error::other)?;
         match request.method.as_str() {
+            "example/last-annotation-width" => {
+                write_result(&mut output, request.id, last_annotation_width)?;
+            }
             "workdeck/handshake" => {
                 let input: HandshakeRequest =
                     serde_json::from_value(request.params).map_err(io::Error::other)?;
                 require_cleanup = input
                     .config
                     .get("requireCleanup")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                mark_annotations = input
+                    .config
+                    .get("markAnnotations")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
                 let mut registrations = vec![Registration::LineHighlighter {
@@ -99,13 +109,34 @@ pub fn serve<R: BufRead, W: Write>(mut input: R, mut output: W) -> io::Result<()
                     )?;
                     continue;
                 }
+                let width = if mark_annotations {
+                    input
+                        .file
+                        .agent
+                        .as_ref()
+                        .map_or(0, |agent| {
+                            agent
+                                .annotations
+                                .iter()
+                                .map(|note| note.summary.chars().count())
+                                .sum::<usize>()
+                        })
+                        .min(3)
+                } else {
+                    3
+                };
+                last_annotation_width = Some(width);
+                if width == 0 {
+                    write_result(&mut output, request.id, serde_json::json!([]))?;
+                    continue;
+                }
                 write_result(
                     &mut output,
                     request.id,
                     serde_json::json!([{
                         "side": "new",
                         "line": 1,
-                        "range": [0, 3],
+                        "range": [0, width],
                         "tone": "warning"
                     }]),
                 )?;

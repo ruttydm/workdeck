@@ -126,6 +126,112 @@ fn native_line_highlighter_receives_frozen_documents_and_returns_declarative_mar
 }
 
 #[test]
+fn saved_note_changes_reach_native_highlighter_and_terminal_marks() {
+    let (_directory, manifest) = staged_extension();
+    let extension = LoadedExtension::spawn_with_configuration(
+        &manifest,
+        "test",
+        serde_json::json!({ "includeHang": false, "markAnnotations": true }),
+    )
+    .unwrap();
+    let document = review_changeset("request.rs");
+    let mut probe = extension.clone();
+    let options = ReviewOptions {
+        sidebar: false,
+        line_numbers: false,
+        highlight: false,
+        ..ReviewOptions::default()
+    };
+    let base = ratatui_theme_color(&options.theme.added_content_bg);
+    let app = ReviewApp::new_with_extensions(document.clone(), options, vec![extension]);
+    let state = app.shared_state();
+    let mut terminal = Terminal::new(TestBackend::new(100, 25)).unwrap();
+    let note = workdeck_review::build_live_comment(
+        &document.files[0],
+        workdeck_review::CommentTargetInput {
+            file_path: "request.rs".into(),
+            hunk_index: Some(0),
+            side: None,
+            line: None,
+            summary: "x".into(),
+            rationale: None,
+            markup: None,
+            author: None,
+        },
+        "live-note".into(),
+        "2026-09-08T00:00:00Z".into(),
+        workdeck_review::ResolvedCommentTarget {
+            hunk_index: 0,
+            side: workdeck_core::ReviewSide::New,
+            line: 1,
+        },
+    );
+    state.lock().unwrap().add_comment(note.clone()).unwrap();
+    for (phase, width) in [1, 2, 0, 1].into_iter().enumerate() {
+        if phase == 3 {
+            let mut draft = note.clone();
+            draft.id = "draft".into();
+            draft.source = "user-draft".into();
+            let mut orphan = note.clone();
+            orphan.id = "orphan".into();
+            orphan.resolution = workdeck_review::ReviewNoteResolution::Orphaned;
+            let mut notes = state.lock().unwrap();
+            notes.add_comment(draft).unwrap();
+            notes.add_comment(orphan).unwrap();
+            notes.add_comment(note.clone()).unwrap();
+        }
+        if width == 2 {
+            state
+                .lock()
+                .unwrap()
+                .edit_comment_summary("live-note", "xx".into())
+                .unwrap();
+        } else if width == 0 {
+            state.lock().unwrap().remove_comment("live-note").unwrap();
+        }
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            terminal
+                .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            let mut matched = false;
+            for y in 0..buffer.area.height {
+                for x in 0..buffer.area.width.saturating_sub(2) {
+                    if (0..3)
+                        .map(|offset| buffer.cell((x + offset, y)).unwrap().symbol())
+                        .collect::<String>()
+                        == "new"
+                    {
+                        matched |= (0..3).all(|offset| {
+                            (buffer.cell((x + offset, y)).unwrap().bg != base)
+                                == (usize::from(offset) < width)
+                        });
+                    }
+                }
+            }
+            if matched
+                && probe
+                    .request(
+                        "example/last-annotation-width",
+                        serde_json::json!({}),
+                        Duration::from_millis(500),
+                    )
+                    .is_ok_and(|observed| observed == serde_json::json!(width))
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "note-derived highlight width {width} did not render"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+    assert_eq!(state.lock().unwrap().changeset(), &document);
+}
+
+#[test]
 fn compiled_highlighter_marks_reach_the_live_ratatui_cell_buffer() {
     let (_directory, manifest) = staged_extension();
     let extension = LoadedExtension::spawn_with_configuration(
