@@ -366,8 +366,17 @@ pub fn project_review_file(
                 }
             }
         }
-        let old_gap = hunk.old_start.saturating_sub(old_end);
-        let new_gap = hunk.new_start.saturating_sub(new_end);
+        // A zero-count unified range points *after* the last unchanged line,
+        // whereas a nonempty range starts at the first row inside the hunk.
+        // Count that positioned line in the leading gap on the empty side.
+        let old_gap = hunk
+            .old_start
+            .saturating_add(u32::from(hunk.old_count == 0))
+            .saturating_sub(old_end);
+        let new_gap = hunk
+            .new_start
+            .saturating_add(u32::from(hunk.new_count == 0))
+            .saturating_sub(new_end);
         projected_hunks.push(project_review_hunk(
             hunk,
             index,
@@ -607,6 +616,40 @@ mod tests {
             agent_summary: None,
             source: ChangesetSource::WorkingTree { staged: false },
             files,
+        }
+    }
+
+    #[test]
+    fn zero_count_hunks_include_the_positioned_line_in_the_leading_gap() {
+        for (old_start, old_count, new_start, new_count, expected) in [
+            (6, 0, 7, 1, 6),
+            (6, 1, 5, 0, 5),
+            (0, 0, 1, 1, 0),
+            (1, 1, 0, 0, 0),
+            (6, 1, 6, 1, 5),
+        ] {
+            let mut input = file("geometry", "geometry.rs", "new");
+            let hunk = &mut input.hunks[0];
+            hunk.old_start = old_start;
+            hunk.old_count = old_count;
+            hunk.new_start = new_start;
+            hunk.new_count = new_count;
+            hunk.lines.retain_mut(|line| match line.kind {
+                DiffLineKind::Addition => {
+                    line.new_line = Some(new_start);
+                    new_count != 0
+                }
+                DiffLineKind::Deletion => {
+                    line.old_line = Some(old_start);
+                    old_count != 0
+                }
+                _ => false,
+            });
+            assert_eq!(
+                project_review_file(&input, "conformance", 0).hunks[0].collapsed_before,
+                expected,
+                "@@ -{old_start},{old_count} +{new_start},{new_count} @@",
+            );
         }
     }
 

@@ -1421,8 +1421,15 @@ projections; the source test run includes them, but their frozen projections rem
 `cargo test -p workdeck-cli --test review_conformance` independently parses all six geometry
 inputs in Rust and checks core gaps, inclusive hunk ranges, default note targets, expansion
 text, and binary-rename labeling against both captured core consumers and expectations.
-The terminal planner and producer geometry consumers are not yet exercised by this test;
-neither are the captured navigation, snapshot, or event consumers. Capture-integrity tests
+The same corpus also exercises the actual terminal row planner, selected-hunk summaries,
+live-comment targeting, empty-file messaging, and producer publication/expansion intents.
+Producer canonical resources are checked against their published manifests. This exposed
+and fixed a canonical-projection bug: an empty side of a unified hunk positions the hunk
+after an unchanged line, which must be counted in the leading gap. The former producer
+manifest incorrectly omitted line 1 for the insertion and deletion cases despite correct
+renderer geometry. Direct core regressions also cover zero-count ranges at the file start.
+
+The captured navigation, snapshot, and event consumers are not yet exercised here. Capture-integrity tests
 in xtask reject changed outputs and wrong pins, but do not substitute for those translations.
 All corresponding incomplete ledger records remain unmapped.
 
