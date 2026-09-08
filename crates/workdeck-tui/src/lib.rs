@@ -10479,6 +10479,18 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             },
             line: paint.line,
         });
+    // Only open registered extension panes consume the full file projection
+    // below. Built-in and static panes render directly from their existing models.
+    let needs_visible_files = {
+        let runtime = app
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        runtime
+            .panes
+            .iter()
+            .any(|pane| runtime.open.contains(&pane.key))
+    };
     let (
         generation,
         selection,
@@ -10493,6 +10505,7 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         let visible_files = files
             .iter()
             .enumerate()
+            .filter(|_| needs_visible_files)
             .filter(|(_, file)| diff_file_matches_filter(file, &app.filter))
             .map(|(_, file)| project_extension_diff_file(file))
             .collect::<Vec<_>>();
@@ -10504,8 +10517,7 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             visible_files,
             files
                 .get(selection.file_index)
-                .map(project_extension_diff_file)
-                .map(|file| file.id),
+                .map(|file| file.runtime_id.clone()),
             selection.hunk_index,
         )
     });
