@@ -7175,7 +7175,10 @@ impl ReviewApp {
             &extensions,
             &registrations,
             &epochs,
-            &changeset.files,
+            changeset
+                .files
+                .iter()
+                .filter(|file| diff_file_matches_filter(file, &self.filter)),
         );
         merge_line_highlight_maps(
             runtime.line_highlight_preparation.resolved(),

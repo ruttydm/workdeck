@@ -1,5 +1,22 @@
 # Hunk semantic-port ledger
 
+## Visible-file highlighter routing
+
+Pinned `App.tsx` passes `review.visibleFiles` to the highlighter hook. The native
+reviewer was instead passing its complete changeset. It now applies the same
+review filter used by the canvas before submitting preparation work. The
+coordinator accepts borrowed file iterators, avoiding a cloned filtered diff
+tree while retaining its existing worker-owned copies.
+
+A regression switches alpha → beta → alpha and then to no matches. Only matching
+files invoke the highlighter, hidden marks disappear immediately, retired cache
+entries are not reused when a file returns, and an empty result retires all
+marks and cached derivations. This is filter-routing evidence, not a completed
+whole-hook mapping. Same-content document replacement still requires explicit
+identity/lifecycle verification; the ledger remains unchanged.
+Verification passes: all 33 highlighter tests, all 1,064 TUI unit tests, workspace
+Clippy, formatting, and architecture checks.
+
 ## Ineligible-file generation ownership
 
 The preparation generation now retains a lightweight identity for every file,

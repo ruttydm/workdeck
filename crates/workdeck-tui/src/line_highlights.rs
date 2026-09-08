@@ -352,17 +352,19 @@ impl LineHighlightPreparationController {
     /// The method never waits for extension code. Calling it from successive
     /// Ratatui frames publishes each file as soon as all of that file's
     /// registration-ordered parts have settled.
-    pub fn reconcile(
+    pub fn reconcile<'a>(
         &mut self,
         extensions: &[Arc<dyn LineHighlightRuntime>],
         registrations: &[RegisteredLineHighlighter],
         epochs: &workdeck_extension_host::LineHighlightEpochState,
-        files: &[DiffFile],
+        files: impl IntoIterator<Item = &'a DiffFile>,
     ) {
         if self.retired {
             return;
         }
-        let tasks = desired_line_highlight_tasks(extensions, registrations, epochs, files);
+        let files = files.into_iter().collect::<Vec<_>>();
+        let tasks =
+            desired_line_highlight_tasks(extensions, registrations, epochs, files.iter().copied());
         // A changed preparation pass aborts all unfinished work, even for a
         // file whose own key survived. Completed derivations remain reusable.
         if self
@@ -373,12 +375,15 @@ impl LineHighlightPreparationController {
             || self
                 .generation_files
                 .iter()
-                .zip(files)
+                .zip(&files)
                 .any(|(previous, file)| !previous.matches(file))
         {
             self.cancel_pending();
             self.generation = Some(tasks.iter().map(|task| task.key.clone()).collect());
-            self.generation_files = files.iter().map(PreparationFileIdentity::capture).collect();
+            self.generation_files = files
+                .iter()
+                .map(|file| PreparationFileIdentity::capture(file))
+                .collect();
         }
         let desired = tasks
             .iter()
@@ -457,7 +462,7 @@ impl LineHighlightPreparationController {
                 });
             });
         }
-        self.publish_complete_files(extensions, registrations, epochs, files);
+        self.publish_complete_files(extensions, registrations, epochs, &files);
     }
 
     fn poll_completions(
@@ -603,10 +608,10 @@ impl LineHighlightPreparationController {
         extensions: &[Arc<dyn LineHighlightRuntime>],
         registrations: &[RegisteredLineHighlighter],
         epochs: &workdeck_extension_host::LineHighlightEpochState,
-        files: &[DiffFile],
+        files: &[&DiffFile],
     ) {
         let mut resolved = BTreeMap::new();
-        for file in files {
+        for &file in files {
             if file.flags.binary || file.flags.too_large || file.hunks.is_empty() {
                 self.merged.remove(&file.runtime_id);
                 continue;
@@ -712,14 +717,14 @@ impl LineHighlightPreparationController {
     }
 }
 
-fn desired_line_highlight_tasks(
+fn desired_line_highlight_tasks<'a>(
     extensions: &[Arc<dyn LineHighlightRuntime>],
     registrations: &[RegisteredLineHighlighter],
     epochs: &workdeck_extension_host::LineHighlightEpochState,
-    files: &[DiffFile],
+    files: impl IntoIterator<Item = &'a DiffFile>,
 ) -> Vec<LineHighlightTask> {
     files
-        .iter()
+        .into_iter()
         .filter(|file| !file.flags.binary && !file.flags.too_large && !file.hunks.is_empty())
         .flat_map(|file| {
             registrations.iter().map(move |registration| {
@@ -1580,6 +1585,60 @@ mod tests {
         assert!(cancellation.load(Ordering::Acquire));
         assert_eq!(runtime.warnings().len(), 1);
         assert!(runtime.warnings()[0].contains("highlight timed out"));
+    }
+
+    #[test]
+    fn review_filter_limits_preparation_and_retires_hidden_marks() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("filter")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [test_file("alpha", "a"), test_file("beta", "b")];
+        let mut controller = LineHighlightPreparationController::default();
+        for (filter, expected) in [("alpha", "alpha"), ("beta", "beta"), ("alpha", "alpha")] {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                controller.reconcile(
+                    &extensions,
+                    &registrations,
+                    &epochs,
+                    files
+                        .iter()
+                        .filter(|file| crate::diff_file_matches_filter(file, filter)),
+                );
+                assert!(
+                    controller
+                        .resolved()
+                        .get(if expected == "alpha" { "beta" } else { "alpha" })
+                        .is_none()
+                );
+                if controller.pending_count() == 0 && controller.resolved().get(expected).is_some()
+                {
+                    break;
+                }
+                assert!(Instant::now() < deadline);
+                thread::sleep(Duration::from_millis(1));
+            }
+        }
+        assert_eq!(
+            runtime
+                .calls()
+                .iter()
+                .map(|(_, file)| file.as_str())
+                .collect::<Vec<_>>(),
+            ["alpha", "beta", "alpha"]
+        );
+        controller.reconcile(
+            &extensions,
+            &registrations,
+            &epochs,
+            files
+                .iter()
+                .filter(|file| crate::diff_file_matches_filter(file, "no-match")),
+        );
+        assert!(controller.resolved().is_empty());
+        assert!(controller.cache.is_empty());
+        assert_eq!(controller.pending_count(), 0);
     }
 
     #[test]
