@@ -1,5 +1,22 @@
 # Hunk semantic-port ledger
 
+## Identical-content reload highlight ownership
+
+Pinned `AppHost.tsx` adopts a replacement bootstrap on successful reload, and
+`useLineHighlights` requires the exact file object for cache reuse. A native
+regression using `ReviewApp::reload` reproduced old marks surviving an identical
+document reload. The successful reload commit now resets file-derived highlight
+state and cancels unfinished requests before the next frame. It does not retire
+the preparation owner, so the replacement document can prepare fresh marks.
+
+The reset preserves registration-scoped warning history. It is placed inside
+the committed-reload path, not the fallible preparation/publication path. The
+test verifies immediate removal and a second invocation for identical content.
+This closes that specific reload gap; it does not establish every collection
+identity or lifecycle case and adds no ledger coverage.
+Verification passes: 34 highlighter tests, all 1,065 TUI unit tests, workspace
+Clippy, formatting, and architecture checks.
+
 ## Visible-file highlighter routing
 
 Pinned `App.tsx` passes `review.visibleFiles` to the highlighter hook. The native

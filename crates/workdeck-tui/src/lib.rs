@@ -1983,6 +1983,7 @@ impl ReviewApp {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             runtime.pane_action_hits.clear();
+            runtime.line_highlight_preparation.replace_document();
             let file_ids = changeset
                 .files
                 .iter()

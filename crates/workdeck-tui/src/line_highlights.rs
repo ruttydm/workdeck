@@ -327,14 +327,20 @@ impl LineHighlightPreparationController {
             return;
         }
         self.retired = true;
+        self.replace_document();
+        self.reported_issues.clear();
+        self.issue_order.clear();
+    }
+
+    /// A committed reload replaces the file objects even when their text matches.
+    /// Keep registration-scoped warning history, but not old file derivations.
+    pub fn replace_document(&mut self) {
         self.cancel_pending();
         self.generation = None;
         self.generation_files.clear();
         self.cache.clear();
         self.merged.clear();
         self.resolved = LineHighlightMap::default();
-        self.reported_issues.clear();
-        self.issue_order.clear();
     }
 
     #[must_use]
@@ -1585,6 +1591,42 @@ mod tests {
         assert!(cancellation.load(Ordering::Acquire));
         assert_eq!(runtime.warnings().len(), 1);
         assert!(runtime.warnings()[0].contains("highlight timed out"));
+    }
+
+    #[test]
+    fn identical_document_reload_rederives_extension_marks() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("reload")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let document = reloaded_document(&[("file", Some("content"))], "test");
+        let mut app = crate::ReviewApp::new(document.clone(), crate::ReviewOptions::default());
+        {
+            let mut owner = app.extension_pane_runtime.lock().unwrap();
+            reconcile_until(
+                &mut owner.line_highlight_preparation,
+                &extensions,
+                &registrations,
+                &epochs,
+                &document.files,
+                |controller| controller.resolved().len() == 1,
+            );
+        }
+        assert_eq!(runtime.calls().len(), 1);
+        app.reload(document.clone());
+        {
+            let mut owner = app.extension_pane_runtime.lock().unwrap();
+            assert!(owner.line_highlight_preparation.resolved().is_empty());
+            reconcile_until(
+                &mut owner.line_highlight_preparation,
+                &extensions,
+                &registrations,
+                &epochs,
+                &document.files,
+                |controller| controller.resolved().len() == 1,
+            );
+        }
+        assert_eq!(runtime.calls().len(), 2);
     }
 
     #[test]
