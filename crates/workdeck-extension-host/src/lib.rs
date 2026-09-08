@@ -1282,7 +1282,9 @@ impl LoadedExtension {
                     }
                 }
             };
-            self.decode_response(id, &line)
+            settle_cancellable_response(&self.manifest.id, cancelled, || {
+                self.decode_response(id, &line)
+            })
         })();
         if let Some(documents) = documents.as_mut() {
             documents.retire();
@@ -3610,6 +3612,20 @@ struct ParsedExtensionNotification {
     notification_type: ExtensionNotifyType,
 }
 
+/// Match Hunk's post-await abort check: a successful result is not publishable
+/// if its parent was cancelled while the response was received or decoded.
+fn settle_cancellable_response<T>(
+    extension_id: &str,
+    cancelled: &AtomicBool,
+    decode: impl FnOnce() -> Result<T, HostError>,
+) -> Result<T, HostError> {
+    let result = decode()?;
+    if cancelled.load(Ordering::Acquire) {
+        return Err(HostError::Cancelled(extension_id.to_owned()));
+    }
+    Ok(result)
+}
+
 fn json_rpc_response_id(line: &str) -> Option<u64> {
     let value = serde_json::from_str::<Value>(line).ok()?;
     let object = value.as_object()?;
@@ -3738,6 +3754,31 @@ impl Drop for LoadedExtension {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn response_settlement_rechecks_parent_after_decoding_success() {
+        let cancelled = std::sync::atomic::AtomicBool::new(false);
+        let result = super::settle_cancellable_response("example", &cancelled, || {
+            cancelled.store(true, std::sync::atomic::Ordering::Release);
+            Ok(serde_json::json!({"marks":[]}))
+        });
+        assert!(matches!(result, Err(super::HostError::Cancelled(id)) if id == "example"));
+    }
+
+    #[test]
+    fn response_settlement_preserves_success_and_prior_decode_failure() {
+        let cancelled = std::sync::atomic::AtomicBool::new(false);
+        assert_eq!(
+            super::settle_cancellable_response("example", &cancelled, || Ok(7)).unwrap(),
+            7
+        );
+        let result: Result<(), _> =
+            super::settle_cancellable_response("example", &cancelled, || {
+                cancelled.store(true, std::sync::atomic::Ordering::Release);
+                Err(super::HostError::Closed("original".into()))
+            });
+        assert!(matches!(result, Err(super::HostError::Closed(id)) if id == "original"));
+    }
+
     use super::*;
     use std::sync::Mutex;
     use std::sync::atomic::AtomicBool;

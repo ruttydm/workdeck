@@ -17,6 +17,17 @@ Clippy with warnings denied passed for the SDK, host and examples; formatting
 and whitespace checks passed. This does not supersede the recorded
 full-workspace verification.
 
+### Post-response cancellation check
+
+Pinned `runLineHighlightRequest` checks the parent signal again after its awaited
+successful result. Native routed requests now recheck the parent after decoding,
+before accepting success and selecting cleanup metadata. A deterministic unit
+test cancels inside the decoding closure and verifies that success becomes
+`HostError::Cancelled`; a companion test preserves uncancelled success and the
+original decode failure. All 206 host unit tests, host all-target Clippy with
+warnings denied, formatting and whitespace checks pass. This closes that settlement
+race, not the outstanding arbitrary parent-reason propagation gap.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation
