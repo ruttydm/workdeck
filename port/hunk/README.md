@@ -2,6 +2,14 @@
 
 ## Native concurrency parity gap confirmed
 
+The host now has a parent-route primitive with four bounded inboxes and
+nonblocking dispatch. Tests cover out-of-order delivery, independent retirement,
+duplicate/limit rejection, overflow isolation, and disconnected consumers.
+Unknown/retired parent frames return to the caller for legacy dispatch or stale
+rejection. This primitive is not yet wired into stdout or request lifecycles;
+frame-byte validation and terminal-error propagation remain dispatcher work.
+It does not change the serialization gap described below or add ledger coverage.
+
 A fresh inspection of pinned `useLineHighlights.ts` shows four file workers
 sharing the same registered highlighter. The Rust coordinator's corresponding
 test uses `FakeLineHighlightRuntime`; it does not establish native process
