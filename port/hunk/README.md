@@ -105,6 +105,30 @@ lifetime without a stale warning, cached failure, or extension invocation.
 All 49 coordinator tests pass. These tests extend lifecycle evidence only; they
 do not close the whole-hook ledger record.
 
+## Full verifier checkpoint at `1f8d603d`
+
+With the checkout held unchanged, `CARGO_INCREMENTAL=0 cargo xtask verify`
+completed successfully. It passed theme assets/notices, skills, architecture,
+release fragments, formatting, locked full-workspace all-target tests, locked
+workspace all-target Clippy with warnings denied, the optimized sole `workdeck`
+executable build, and the large-repository smoke check. Test evidence includes
+73 extension SDK tests, 207 host tests, 572 session tests, 24 broker-adapter tests,
+1,084 TUI unit tests, 241 VCS tests, 25 compiled highlighter integration tests,
+and 198 tooling tests with one existing opt-in test ignored. Native filesystem
+watcher tests reported slow execution but completed successfully.
+
+`CARGO_INCREMENTAL=0 cargo deny check` also exited successfully for advisories,
+bans, licenses and sources. This used the existing three advisory exceptions in
+`deny.toml` (`RUSTSEC-2025-0141`, `RUSTSEC-2024-0320`, `RUSTSEC-2024-0436`) and
+reported duplicate-version warnings; neither the exceptions nor dependency
+policy were relaxed for the run.
+
+This checkpoint supersedes older repository-verifier results for the changes
+through this commit only. It does not establish complete source parity, clear
+the 290 unmapped ledger records or 11 cached upstream commits, satisfy the
+same-host benchmark gate, or prove native multi-platform CI, signing, archive,
+installer, website, or other release gates. No ledger disposition changed.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation
