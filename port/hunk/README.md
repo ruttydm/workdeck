@@ -1,5 +1,21 @@
 # Hunk semantic-port ledger
 
+## Synchronous native document SDK
+
+`workdeck-extension-api::read_extension_document` extracts the example's
+callback client into the native SDK. It accepts either side, uses the typed
+parent-bound wire request, bounds incoming frame allocation, validates response
+version/ID/result shape, and returns interruption for matching parent cleanup.
+The compiled example now delegates to it. Unit tests cover old-side encoding,
+Unicode text, null, malformed frames, mismatched IDs, and cancellation.
+
+This helper requires exclusive use of a single-request stream. It cannot impose
+a deadline on arbitrary blocking I/O and is not an asynchronous/multiplexed SDK.
+No complete SDK parity or ledger coverage is claimed.
+Verification passes: two SDK unit tests, all ten compiled highlighter integration
+tests using the extracted helper, workspace Clippy, formatting, and architecture
+checks.
+
 ## Unreadable native document regression
 
 A compiled highlighter fixture now requires an unreadable lazy document and

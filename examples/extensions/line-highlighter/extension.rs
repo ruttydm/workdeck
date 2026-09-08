@@ -201,39 +201,13 @@ fn read_document(
     parent_id: u64,
     child_id: u64,
 ) -> io::Result<Option<String>> {
-    serde_json::to_writer(
-        &mut *output,
-        &serde_json::json!({ "jsonrpc": "2.0", "id": child_id,
-        "method": workdeck_extension_api::EXTENSION_DOCUMENT_READ_METHOD,
-        "params": { "parentRequestId": parent_id, "side": "new" } }),
+    workdeck_extension_api::read_extension_document(
+        input,
+        output,
+        parent_id,
+        child_id,
+        workdeck_extension_api::ExtensionFileSide::New,
     )
-    .map_err(io::Error::other)?;
-    output.write_all(b"\n")?;
-    output.flush()?;
-    loop {
-        let mut line = String::new();
-        if input.read_line(&mut line)? == 0 {
-            return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
-        }
-        let value: Value = serde_json::from_str(&line).map_err(io::Error::other)?;
-        if value.get("method").and_then(Value::as_str) == Some("$/cancelRequest") {
-            if value.pointer("/params/id").and_then(Value::as_u64) == Some(parent_id) {
-                return Err(io::Error::from(io::ErrorKind::Interrupted));
-            }
-            continue;
-        }
-        if value.get("id").and_then(Value::as_u64) != Some(child_id) {
-            return Err(io::Error::other("unexpected document response ID"));
-        }
-        if let Some(error) = value.get("error") {
-            return Err(io::Error::other(error.to_string()));
-        }
-        return match value.get("result") {
-            Some(Value::Null) => Ok(None),
-            Some(Value::String(text)) => Ok(Some(text.clone())),
-            _ => Err(io::Error::other("invalid document response")),
-        };
-    }
 }
 
 fn write_result(output: &mut impl Write, id: u64, result: impl Serialize) -> io::Result<()> {

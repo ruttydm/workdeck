@@ -6,6 +6,7 @@
 
 mod authoring;
 mod bundled_ui;
+mod document_client;
 mod extension_ids;
 mod file_views;
 mod keys;
@@ -14,6 +15,7 @@ mod vcs;
 
 pub use authoring::*;
 pub use bundled_ui::*;
+pub use document_client::*;
 pub use extension_ids::*;
 pub use file_views::*;
 pub use keys::*;

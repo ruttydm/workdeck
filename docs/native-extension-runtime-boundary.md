@@ -32,7 +32,12 @@ cancellation during a held source read. The live TUI passes captured VCS source
 authority through this entry point without eagerly reading either side. Where
 no captured provider exists, the reader uses the file's frozen snapshots.
 Provider failures become unreadable results through the shared document reader.
-A general SDK callback helper remains unfinished.
+The API's `read_extension_document` helper serves single-request synchronous
+extension loops and is used by the compiled example. Callers allocate child IDs
+and must not multiplex other requests on those streams while it waits. The
+helper bounds response frames and observes matching parent cancellation, but
+arbitrary blocking streams require transport-level deadlines. General
+asynchronous/multiplexed SDK support remains unfinished.
 
 Line-highlighter requests receive `$/cancelRequest` with the original request ID
 on timeout, supersession, and after a decoded response (including an extension

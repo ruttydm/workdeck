@@ -1,0 +1,148 @@
+//! Synchronous document callbacks for single-request native extension loops.
+
+use crate::{
+    EXTENSION_DOCUMENT_READ_METHOD, ExtensionDocumentReadRequest, ExtensionFileSide,
+    JsonRpcRequest, MAX_MESSAGE_BYTES,
+};
+use serde_json::Value;
+use std::io::{self, BufRead, Read, Write};
+
+/// Request one captured source side from the host.
+///
+/// The caller owns child-ID allocation and must not multiplex other requests on
+/// these streams while waiting. Matching parent cancellation interrupts the wait.
+/// This helper bounds response allocation, but cannot impose an I/O deadline on
+/// arbitrary blocking streams; use a transport with its own deadline if needed.
+pub fn read_extension_document(
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+    parent_id: u64,
+    child_id: u64,
+    side: ExtensionFileSide,
+) -> io::Result<Option<String>> {
+    let request = JsonRpcRequest {
+        jsonrpc: "2.0".into(),
+        id: child_id,
+        method: EXTENSION_DOCUMENT_READ_METHOD.into(),
+        params: serde_json::to_value(ExtensionDocumentReadRequest {
+            parent_request_id: parent_id,
+            side,
+        })
+        .map_err(io::Error::other)?,
+    };
+    serde_json::to_writer(&mut *output, &request).map_err(io::Error::other)?;
+    output.write_all(b"\n")?;
+    output.flush()?;
+    loop {
+        let mut line = Vec::new();
+        let count = input
+            .take((MAX_MESSAGE_BYTES + 2) as u64)
+            .read_until(b'\n', &mut line)?;
+        if count == 0 {
+            return Err(io::ErrorKind::UnexpectedEof.into());
+        }
+        if line.last() != Some(&b'\n') || line.len() > MAX_MESSAGE_BYTES + 1 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "unterminated or oversized document response",
+            ));
+        }
+        let value: Value = serde_json::from_slice(&line)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        if value.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid JSON-RPC version",
+            ));
+        }
+        if value.get("method").and_then(Value::as_str) == Some("$/cancelRequest")
+            && value.get("id").is_none()
+        {
+            if value.pointer("/params/id").and_then(Value::as_u64) == Some(parent_id) {
+                return Err(io::ErrorKind::Interrupted.into());
+            }
+            continue;
+        }
+        if value.get("method").is_some()
+            || value.get("id").and_then(Value::as_u64) != Some(child_id)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "unexpected document response",
+            ));
+        }
+        if value.get("error").is_some_and(|error| !error.is_null()) {
+            return Err(io::Error::other("host rejected document request"));
+        }
+        return match value.get("result") {
+            Some(Value::Null) => Ok(None),
+            Some(Value::String(text)) => Ok(Some(text.clone())),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid document result",
+            )),
+        };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn callback_preserves_side_parent_text_and_null() {
+        for result in [Value::Null, Value::String("a\nλ".into())] {
+            let mut input = io::Cursor::new(format!(
+                "{}\n",
+                serde_json::json!({"jsonrpc":"2.0","id":3,"result":result})
+            ));
+            let mut output = Vec::new();
+            let actual =
+                read_extension_document(&mut input, &mut output, 8, 3, ExtensionFileSide::Old)
+                    .unwrap();
+            assert_eq!(actual, result.as_str().map(str::to_owned));
+            let request: JsonRpcRequest = serde_json::from_slice(&output).unwrap();
+            assert_eq!(request.id, 3);
+            assert_eq!(
+                request.params,
+                serde_json::json!({"parentRequestId":8,"side":"old"})
+            );
+        }
+    }
+
+    #[test]
+    fn callback_rejects_invalid_frames_and_observes_parent_cancellation() {
+        for frame in [
+            "{\"jsonrpc\":\"1.0\",\"id\":3,\"result\":null}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":4,\"result\":null}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":42}\n",
+            "{}",
+        ] {
+            assert_eq!(
+                read_extension_document(
+                    &mut io::Cursor::new(frame),
+                    &mut Vec::new(),
+                    8,
+                    3,
+                    ExtensionFileSide::New
+                )
+                .unwrap_err()
+                .kind(),
+                io::ErrorKind::InvalidData
+            );
+        }
+        let frame = "{\"jsonrpc\":\"2.0\",\"method\":\"$/cancelRequest\",\"params\":{\"id\":8}}\n";
+        assert_eq!(
+            read_extension_document(
+                &mut io::Cursor::new(frame),
+                &mut Vec::new(),
+                8,
+                3,
+                ExtensionFileSide::New
+            )
+            .unwrap_err()
+            .kind(),
+            io::ErrorKind::Interrupted
+        );
+    }
+}
