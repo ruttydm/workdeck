@@ -1729,6 +1729,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
         *disposition_counts.entry(&record.disposition).or_default() += 1;
     }
 
+    let mut test_sources = HashMap::new();
     for (path, entry) in &expected {
         let binary = binary_by_blob
             .get(&entry.blob)
@@ -1768,7 +1769,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
                 bail!("{} has invalid byte bounds", record.id);
             }
             validate_disposition(&repo, record)?;
-            validate_test_evidence(&repo, record)?;
+            validate_test_evidence_cached(&repo, record, &mut test_sources)?;
             cursor = record.byte_end;
         }
         if cursor != entry.bytes {
@@ -1957,31 +1958,79 @@ fn validate_disposition(repo: &Path, record: &LedgerRecord) -> Result<()> {
 }
 
 fn validate_test_evidence(repo: &Path, record: &LedgerRecord) -> Result<()> {
+    validate_test_evidence_cached(repo, record, &mut HashMap::new())
+}
+
+fn validate_test_evidence_cached(
+    repo: &Path,
+    record: &LedgerRecord,
+    sources: &mut HashMap<String, syn::File>,
+) -> Result<()> {
     if record.classification != "test" || record.disposition == "unmapped" {
         return Ok(());
     }
+    let mut has_test = false;
     for item in &record.evidence {
-        let path = item.split_once('#').map_or(item.as_str(), |(path, _)| path);
+        let (path, anchor) = item
+            .split_once('#')
+            .map_or((item.as_str(), None), |(path, anchor)| (path, Some(anchor)));
         if !path.ends_with(".rs") {
             continue;
         }
-        let source = fs::read_to_string(repo.join(path))
-            .with_context(|| format!("read test evidence {path}"))?;
-        if source.lines().any(|line| {
-            let line = line.trim_start();
-            line.starts_with("#[test]")
-                || line.starts_with("#[test(")
-                || line.starts_with("#[rstest")
-                || (line.starts_with("#[") && line.contains("::test"))
-                || line.starts_with("proptest!")
-        }) {
-            return Ok(());
+        if !sources.contains_key(path) {
+            let source = fs::read_to_string(repo.join(path))
+                .with_context(|| format!("read test evidence {path}"))?;
+            let parsed = syn::parse_file(&source)
+                .with_context(|| format!("parse Rust test evidence {path}"))?;
+            sources.insert(path.to_owned(), parsed);
         }
+        let parsed = &sources[path];
+        let matches = rust_items_have_test(&parsed.items, anchor);
+        if anchor.is_some() && !matches {
+            bail!(
+                "{} references missing executable Rust test anchor {item}",
+                record.id
+            );
+        }
+        has_test |= matches;
+    }
+    if has_test {
+        return Ok(());
     }
     bail!(
         "{} is a mapped Hunk test without executable Rust test evidence",
         record.id
     )
+}
+
+fn rust_items_have_test(items: &[syn::Item], anchor: Option<&str>) -> bool {
+    items.iter().any(|item| match item {
+        syn::Item::Fn(function) => {
+            anchor.is_none_or(|name| function.sig.ident == name)
+                && function.attrs.iter().any(|attribute| {
+                    attribute
+                        .path()
+                        .segments
+                        .last()
+                        .is_some_and(|segment| segment.ident == "test" || segment.ident == "rstest")
+                })
+        }
+        syn::Item::Mod(module) => module
+            .content
+            .as_ref()
+            .is_some_and(|(_, items)| match anchor {
+                None => rust_items_have_test(items, None),
+                Some(name) if module.ident == name => rust_items_have_test(items, None),
+                Some(name) if !name.contains("::") => rust_items_have_test(items, Some(name)),
+                Some(name) => name.split_once("::").is_some_and(|(head, tail)| {
+                    module.ident == head && rust_items_have_test(items, Some(tail))
+                }),
+            }),
+        syn::Item::Macro(item) => {
+            anchor.is_none() && item.mac.path.is_ident("proptest") && !item.mac.tokens.is_empty()
+        }
+        _ => false,
+    })
 }
 
 fn read_ledger(path: &Path) -> Result<Vec<LedgerRecord>> {
@@ -2634,6 +2683,41 @@ mod tests {
         )
         .unwrap();
         assert!(validate_test_evidence(directory.path(), &record).is_ok());
+
+        record.evidence = vec!["parity.rs#missing_test".into()];
+        assert!(validate_test_evidence(directory.path(), &record).is_err());
+        record.evidence = vec!["parity.rs#preserves_the_upstream_behavior".into()];
+        assert!(validate_test_evidence(directory.path(), &record).is_ok());
+
+        fs::write(
+            &evidence,
+            "/*\n#[test]\nfn preserves_the_upstream_behavior() {}\n*/\n",
+        )
+        .unwrap();
+        assert!(validate_test_evidence(directory.path(), &record).is_err());
+
+        fs::write(
+            &evidence,
+            "const EXAMPLE: &str = r#\"\n#[test]\nfn preserves_the_upstream_behavior() {}\n\"#;\n",
+        )
+        .unwrap();
+        assert!(validate_test_evidence(directory.path(), &record).is_err());
+
+        fs::write(
+            &evidence,
+            "mod tests { #[tokio::test] async fn parity() {} fn helper() {} }",
+        )
+        .unwrap();
+        for anchor in ["tests", "tests::parity", "parity"] {
+            record.evidence = vec![format!("parity.rs#{anchor}")];
+            assert!(validate_test_evidence(directory.path(), &record).is_ok());
+        }
+        for anchor in ["tests::missing", "tests::helper", "other::parity", ""] {
+            record.evidence = vec![format!("parity.rs#{anchor}")];
+            assert!(validate_test_evidence(directory.path(), &record).is_err());
+        }
+        record.evidence = vec!["parity.rs#tests::parity".into(), "parity.rs#missing".into()];
+        assert!(validate_test_evidence(directory.path(), &record).is_err());
 
         record.disposition = "unmapped".into();
         record.evidence.clear();

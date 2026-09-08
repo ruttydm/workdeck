@@ -1,5 +1,22 @@
 # Hunk semantic-port ledger
 
+## Executable test-anchor validation
+
+The mapped-test evidence gate parses Rust syntax instead of searching for test-looking
+lines. Comments and string literals cannot satisfy it. Every explicit Rust test anchor
+must resolve to an attributed test function or an inline module containing tests;
+qualified anchors follow the named module path, while an unqualified function name
+can identify a nested test. One valid evidence entry cannot hide another stale anchor.
+Unanchored Rust evidence still supports attributed tests and property-test macros.
+Parsed source is cached only for the duration of one audit invocation.
+
+This check found and corrected two stale CLI module names and two descriptive labels
+for existing scrollbar/file-presentation tests. No source intervals or dispositions
+changed. Strict audit still fails with 314 unmapped records and 11 pending upstream
+commits. Syntax validation is not execution evidence, per-source assertion coverage,
+or proof of semantic parity; the actual tests and remaining release gates are still
+required.
+
 ## Native planning-profile workload
 
 `cargo xtask benchmark large-stream-profile` runs the complete pinned
