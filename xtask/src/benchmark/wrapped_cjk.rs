@@ -1,5 +1,5 @@
 //! MIT translation of Hunk's wrapped Japanese Markdown first-paint/burst workload.
-//! Runner admission and ledger completion require the complete production checks to pass.
+//! Mount timing includes renderer setup; burst timing excludes synchronous syntax preparation.
 
 use super::*;
 use crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
@@ -126,6 +126,11 @@ fn wheel_burst(bootstrap: AppBootstrap) -> Result<[f64; 5]> {
         bail!("Wrapped CJK wheel benchmark requires one diff file");
     }
     let mut setup = Renderer::new(bootstrap);
+    // Unlike the source module-global cache, native cache ownership is per app. Resolve into
+    // that exact cache after construction, still before settlement and the wheel timer.
+    if !setup.app.prefetch_file_highlights(0) {
+        bail!("Wrapped CJK wheel benchmark could not prefetch its diff file");
+    }
     setup.render_pass(2);
     std::thread::sleep(Duration::from_millis(VIEWPORT_READ_COALESCE_MS + 1));
     setup.render_pass(2);
@@ -219,7 +224,62 @@ mod tests {
     }
     #[test]
     fn wrapped_cjk_production_frames_and_burst_do_not_expose_blank_rows() {
-        run(std::iter::empty()).unwrap();
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/benchmark-wrapped-cjk.json"
+        ))
+        .unwrap();
+        let lines = issue_lines();
+        assert_eq!(
+            lines.len(),
+            oracle["counts"]["physical_lines"].as_u64().unwrap() as usize
+        );
+        let long = PARAGRAPH.repeat(LONG_REPEATS);
+        assert_eq!(
+            long.encode_utf16().count(),
+            oracle["counts"]["long_line_characters"].as_u64().unwrap() as usize
+        );
+        assert!(first_frame(bootstrap("cjk-wrap-518-first-frame", &lines).unwrap()).unwrap() > 0.0);
+        assert!(
+            first_frame(bootstrap("cjk-wrap-single-long-line", &[long]).unwrap()).unwrap() > 0.0
+        );
+        let burst = wheel_burst(bootstrap("cjk-wrap-518-wheel-burst", &lines).unwrap()).unwrap();
+        for (index, name) in [
+            (2, "initial_content_rows"),
+            (3, "immediate_content_rows"),
+            (4, "settled_content_rows"),
+        ] {
+            assert_eq!(burst[index], oracle["counts"][name].as_f64().unwrap());
+        }
+        for run in oracle["runs"].as_array().unwrap() {
+            assert_eq!(run["exitCode"], 0);
+            let metrics = runner::parse_metrics(run["combinedOutput"].as_str().unwrap());
+            assert_eq!(metrics.len(), 10);
+            for (name, expected) in [
+                ("physical_lines", PHYSICAL_LINES),
+                ("long_line_characters", 8736),
+                ("wheel_burst_events", BURST_EVENTS),
+            ] {
+                assert_eq!(
+                    metrics.iter().find(|(key, _)| key == name).unwrap().1,
+                    expected as f64
+                );
+            }
+        }
         assert!(run(["extra".into()].into_iter()).is_err());
+    }
+
+    #[test]
+    fn explicit_highlight_prefetch_does_not_navigate_or_render() {
+        let setup = Renderer::new(bootstrap("prefetch-probe", &issue_lines()).unwrap());
+        let selection = setup.app.shared_state().lock().unwrap().selection();
+        let buffer = setup.buffer.clone();
+        assert!(setup.app.prefetch_file_highlights(0));
+        assert!(setup.app.prefetch_file_highlights(0));
+        assert!(!setup.app.prefetch_file_highlights(1));
+        assert_eq!(
+            setup.app.shared_state().lock().unwrap().selection(),
+            selection
+        );
+        assert_eq!(setup.buffer, buffer);
     }
 }

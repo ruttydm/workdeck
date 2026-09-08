@@ -1529,6 +1529,24 @@ impl ReviewApp {
         &self.options
     }
 
+    /// Resolve one file's highlighting synchronously into this app's rendering cache.
+    /// Embedders can separate syntax preparation from subsequent interaction measurements.
+    /// Does not navigate, render, or create repository state.
+    pub fn prefetch_file_highlights(&self, file_index: usize) -> bool {
+        if !self.options.highlight {
+            return false;
+        }
+        let Some(file) = self.with_state(|state| state.changeset().files.get(file_index).cloned())
+        else {
+            return false;
+        };
+        self.highlights
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .prefetch_highlighted_diff_shared(&file, &self.options.theme, false)
+            .is_some()
+    }
+
     /// Consume a reload requested by a host-mediated extension write.
     pub fn take_reload_requested(&mut self) -> bool {
         std::mem::take(&mut self.reload_requested)

@@ -64,7 +64,7 @@ workload. The default suite still reports `executionAvailable: false`.
 the completed render-layout workload in a native child process, drains both output pipes,
 aggregates repeated samples and writes a versioned report with Git/Cargo/native-platform metadata.
 `bootstrap-load.ts`, `working-tree-load.ts`, `changeset-parse.ts`, `highlight-prefetch.ts`, `large-stream.ts`
-`non-ascii-stream.ts` and `render-layout.ts` are currently admitted.
+`non-ascii-stream.ts`, `wrapped-cjk.ts` and `render-layout.ts` are currently admitted.
 Every selected workload is checked before execution
 or output-directory creation; default, huge, competitor and other incomplete selections fail.
 Fractional sample counts retain the source loop semantics, and repeated workload selections append
@@ -151,6 +151,15 @@ structural counts. Unlike the large-stream workload, the source interaction help
 box-drawing content is retained in both full source snapshots. App destruction is outside the
 timers. Frozen direct-workload output from both pins is diagnostic only, not controlled performance
 acceptance evidence; final latency and memory gates remain outstanding.
+
+`cargo xtask benchmark wrapped-cjk` reproduces the 518-line Japanese Markdown issue shape and
+an 8,736-UTF-16-unit single line in a 240×60 wrapped split view. First-paint timing includes
+production app creation; wheel timing excludes explicit synchronous highlighting into the app's
+own cache and initial viewport settlement. Twelve wheel events are dispatched as a burst before
+rendering, followed by a second frame after the source's coalescing delay. Character-only frame
+comparisons reject no-op scrolling; Japanese-content row floors expose blank first/burst frames.
+Dual-pin observations and native tests agree on 54 initial and 55 immediate/settled content rows.
+These geometry checks are not latency or memory acceptance evidence.
 
 The shared fixture generator is native in `xtask/src/benchmark/fixtures.rs`: it supports configurable
 line counts/change regions, patch prefixes/extensions, committed-before/modified-after repositories,
