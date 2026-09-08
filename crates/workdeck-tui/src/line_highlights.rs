@@ -232,7 +232,6 @@ struct LineHighlightCompletion {
 #[derive(Debug, Clone)]
 struct MergedLineHighlights {
     content_identity: String,
-    registrations: Vec<(String, u64)>,
     parts: Vec<Option<Arc<[ValidatedLineHighlight]>>>,
     merged: Arc<[ValidatedLineHighlight]>,
 }
@@ -689,13 +688,8 @@ impl LineHighlightPreparationController {
                 self.merged.remove(&file.runtime_id);
                 continue;
             }
-            let signature = keyed
-                .iter()
-                .map(|(_, key, epoch, _)| (key.clone(), *epoch))
-                .collect::<Vec<_>>();
             let reuse = self.merged.get(&file.runtime_id).filter(|previous| {
                 previous.content_identity == file.content_identity
-                    && previous.registrations == signature
                     && same_line_highlight_parts(&previous.parts, &accepted_parts)
             });
             let merged = reuse.map_or_else(
@@ -715,7 +709,6 @@ impl LineHighlightPreparationController {
                 file.runtime_id.clone(),
                 MergedLineHighlights {
                     content_identity: file.content_identity.clone(),
-                    registrations: signature,
                     parts: accepted_parts,
                     merged: Arc::clone(&merged),
                 },
@@ -1604,6 +1597,67 @@ mod tests {
             runtime.warnings()[0],
             "Extension test-extension line highlighter \"late\" failed highlighting file.rs • marks dropped"
         );
+    }
+
+    #[test]
+    fn refreshing_empty_contributor_preserves_merged_marks_identity() {
+        let runtime = FakeLineHighlightRuntime::new(|id, _, _| {
+            Ok(if id == "empty" {
+                json!([])
+            } else {
+                one_mark("match")
+            })
+        });
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("marks"), registration("empty")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [test_file("file", "content")];
+        let mut controller = LineHighlightPreparationController::default();
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            &files,
+            |controller| controller.resolved().len() == 1,
+        );
+        let original = controller.resolved().get_shared("file").unwrap().clone();
+        runtime.clear_calls();
+        let bumped = workdeck_extension_host::bump_scoped_epoch(
+            &epochs,
+            "test-extension:empty",
+            Some("file"),
+        );
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &bumped,
+            &files,
+            |controller| controller.pending_count() == 0 && controller.resolved().len() == 1,
+        );
+        assert_eq!(runtime.calls(), [("empty".into(), "file".into())]);
+        assert!(Arc::ptr_eq(
+            &original,
+            controller.resolved().get_shared("file").unwrap()
+        ));
+        let replaced = workdeck_extension_host::bump_scoped_epoch(
+            &bumped,
+            "test-extension:marks",
+            Some("file"),
+        );
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &replaced,
+            &files,
+            |controller| controller.pending_count() == 0 && controller.resolved().len() == 1,
+        );
+        assert!(!Arc::ptr_eq(
+            &original,
+            controller.resolved().get_shared("file").unwrap()
+        ));
     }
 
     #[test]

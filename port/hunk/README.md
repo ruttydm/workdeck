@@ -1,5 +1,19 @@
 # Hunk semantic-port ledger
 
+## Merged highlight identity after empty refresh
+
+A regression reproduced a merged array being replaced solely because an epoch
+changed for a contributor that still returned no marks. The pinned hook compares
+contributing part identities, not epoch labels, when deciding whether to reuse
+its merged array. Native reuse now follows that rule without retaining an extra
+epoch signature. The test verifies reuse after the empty contributor refreshes
+and replacement when a real contributing array is rederived.
+
+Pending-refresh publication remains a separate parity question; this change
+proves settled merged-array identity only and adds no ledger coverage.
+All 37 highlighter tests, workspace Clippy, formatting, and architecture checks
+pass for this checkpoint.
+
 ## Unwinding highlighter worker failures
 
 The whole worker invocation, including deferred source hydration, now contains
