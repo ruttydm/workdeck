@@ -327,3 +327,14 @@ Cursor initialization now requests geometry instead of eagerly highlighting the 
 Complex/wrapped reviews still use the full painter and all-file highlighting; wrapped-window
 warmup and full render-window lifecycle remain incomplete. This is not a complete `DiffPane.tsx`
 port, and its ledger record stays unmapped. End-to-end performance must be measured separately.
+
+### Live highlight halo at `e965fd7e`
+
+[Three optimized runs](interaction-diagnostic-e965fd7e.json) report 20.10 ms first frame,
+58.28 ms median navigation and 21.49 ms median scrolling. Against `a5fc87e9`, these decrease
+about 62.6%, 33.2% and 59.2%. Benchmark setup, workload counts and input dispatch are unchanged;
+production cursor initialization and live prefetch now avoid eager all-file highlighting.
+Current post-navigation RSS median is 190545920 bytes, not peak-memory proof. The first-frame
+result is close to earlier three-run source medians, but navigation and scrolling remain above
+the source budget. Fresh paired-source comparisons and full benchmark/memory gates remain
+required. No ledger coverage or overall performance gate is claimed complete.
