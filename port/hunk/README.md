@@ -1,5 +1,24 @@
 # Hunk semantic-port ledger
 
+## Generation-owned session source readers
+
+Each prepared publication owns its source reader and resource store. A successful
+reservation commit advances publication, resources, and reader together; cancellation
+does not replace current source authority. Future preparations inherit the committed
+reader, while retained old stores keep their original reader even if first read later.
+
+Initial interactive sessions use retained VCS capabilities for source resources.
+Dynamic reload prepares replacement source authority before broker registration and
+installs it only through the publication commit gate. Legacy snapshot-only reloads
+explicitly select the snapshot reader, preventing an old VCS cache from overriding
+fresh snapshots. Missing executable handles may use immutable snapshot values but
+cannot open files or invoke a provider.
+
+Tests cover cancelled/committed reader replacement, old-generation isolation, and
+initial/reloaded source resources through the live session adapter, including failed
+registration. Initial VCS reads remain eager pending the remaining deferred-input,
+cursor, and loaded-line validation work. Ledger coverage is unchanged.
+
 ## Live source loading presentation
 
 The real stack/split gap renderer consumes identity-bound pending, loading,

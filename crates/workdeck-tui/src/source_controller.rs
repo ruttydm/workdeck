@@ -5,6 +5,33 @@ use workdeck_review::ReviewSourceLoader;
 
 struct VcsSourceLoader(Arc<workdeck_vcs::VcsFileSourceCapability>);
 
+struct PublicationSourceLoader(workdeck_vcs::VcsSourceCapabilities);
+
+impl ReviewSourceLoader for PublicationSourceLoader {
+    fn get_full_text(
+        &self,
+        file: &DiffFile,
+        side: ReviewSide,
+    ) -> std::result::Result<Option<String>, workdeck_review::ReviewSourceLoadError> {
+        if let Some(capability) = self.0.get(file) {
+            VcsSourceLoader(capability).get_full_text(file, side)
+        } else {
+            // Existing immutable snapshots remain usable without executable
+            // authority. This fallback cannot open a path or invoke a provider.
+            workdeck_review::SnapshotReviewSourceLoader.get_full_text(file, side)
+        }
+    }
+}
+
+pub(crate) fn publication_source_loader(
+    capabilities: Option<workdeck_vcs::VcsSourceCapabilities>,
+) -> Arc<dyn ReviewSourceLoader> {
+    match capabilities {
+        Some(capabilities) => Arc::new(PublicationSourceLoader(capabilities)),
+        None => Arc::new(workdeck_review::SnapshotReviewSourceLoader),
+    }
+}
+
 impl ReviewSourceLoader for VcsSourceLoader {
     fn get_full_text(
         &self,

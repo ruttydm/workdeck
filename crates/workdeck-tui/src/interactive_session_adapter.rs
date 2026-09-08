@@ -92,7 +92,12 @@ impl InteractiveSessionBroker {
                 files: changeset.files.clone(),
                 source_label: Some(changeset.effective_source_label().to_owned()),
             },
-            ReviewProducerOptions::default(),
+            ReviewProducerOptions {
+                source_loader: crate::source_controller::publication_source_loader(
+                    options.source_capabilities.clone(),
+                ),
+                ..Default::default()
+            },
         )?;
         let publication = producer.get_publication();
         let registration_bootstrap = SessionRegistrationBootstrap {

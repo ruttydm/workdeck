@@ -349,10 +349,17 @@ impl ReviewApp {
         };
         let prepared = self
             .review_producer
-            .prepare_publication(&workdeck_review::PublishReviewInput {
-                files: changeset.files.clone(),
-                source_label: Some(changeset.effective_source_label().to_owned()),
-            })
+            .prepare_publication_with_source_loader(
+                &workdeck_review::PublishReviewInput {
+                    files: changeset.files.clone(),
+                    source_label: Some(changeset.effective_source_label().to_owned()),
+                },
+                crate::source_controller::publication_source_loader(
+                    host_options
+                        .as_ref()
+                        .and_then(|host| host.source_capabilities.clone()),
+                ),
+            )
             .map_err(|error| error.to_string())?;
         let initial_snapshot =
             create_initial_session_snapshot(&registration_bootstrap, &prepared.publication);
@@ -1045,6 +1052,27 @@ mod tests {
 
     #[test]
     fn replacing_unattested_vcs_handles_refetches_an_open_gap_with_unchanged_identity() {
+        fn published_source(app: &ReviewApp) -> String {
+            let producer = app.review_producer();
+            let descriptor = producer
+                .describe_resources()
+                .into_iter()
+                .find(|descriptor| {
+                    matches!(
+                        descriptor,
+                        workdeck_review::ReviewResourceDescriptor::Source {
+                            side: ReviewSide::New,
+                            ..
+                        }
+                    )
+                })
+                .unwrap();
+            let id = descriptor.base().id.clone();
+            let resources = producer
+                .materialize_resources(std::slice::from_ref(&id))
+                .unwrap();
+            String::from_utf8(resources[&id].as_ref().unwrap().bytes.to_vec()).unwrap()
+        }
         let (initial, initial_handles) = vcs_load("before-one\nbefore-two\nnew\n");
         let identity = initial.files[0].source_identity.clone();
         let mut app = ReviewApp::new(
@@ -1055,12 +1083,31 @@ mod tests {
                 ..ReviewOptions::default()
             },
         );
+        assert_eq!(published_source(&app), "before-one\nbefore-two\nnew\n");
         app.toggle_source_gap();
         crate::source_controller::tests::drain_one(&mut app);
         assert!(crate::source_controller::tests::rows(&app).contains("before-one"));
         let (replacement, replacement_handles) = vcs_load("after-one\nafter-two\nnew\n");
         assert_eq!(replacement.files[0].source_identity, identity);
         assert!(!replacement.files[0].source_attested);
+        let before = app.review_producer().get_publication_address();
+        let failed = app.session_commit_reload_with_runtime(
+            &patch_input("input.patch"),
+            replacement.clone(),
+            &ReloadSessionOptions {
+                reset_app: Some(false),
+                ..Default::default()
+            },
+            Some(crate::DynamicReviewHostOptions {
+                source_capabilities: Some(replacement_handles.clone()),
+                ..Default::default()
+            }),
+            None,
+            |_, _, _| Err("registration unavailable".into()),
+        );
+        assert_eq!(failed.unwrap_err(), "registration unavailable");
+        assert_eq!(app.review_producer().get_publication_address(), before);
+        assert_eq!(published_source(&app), "before-one\nbefore-two\nnew\n");
         app.session_commit_dynamic_reload(
             crate::DynamicReviewLoad {
                 input: workdeck_core::CliInput::Patch(workdeck_core::PatchCommandInput {
@@ -1083,6 +1130,7 @@ mod tests {
             },
         )
         .unwrap();
+        assert_eq!(published_source(&app), "after-one\nafter-two\nnew\n");
         assert!(!app.expanded_gaps.is_empty());
         crate::source_controller::tests::drain_one(&mut app);
         let text = crate::source_controller::tests::rows(&app);

@@ -115,6 +115,7 @@ pub struct PreparedReviewPublication {
     pub identity: ReviewGenerationIdentity,
     pub publication: Arc<ReviewPublication>,
     pub resource_store: Arc<ReviewResourceStore>,
+    source_loader: Arc<dyn ReviewSourceLoader>,
     owner_token: u64,
     base_generation: String,
     state: Mutex<PreparedState>,
@@ -129,6 +130,7 @@ struct ProducerInner {
     identity: ReviewGenerationIdentity,
     publication: Arc<ReviewPublication>,
     resource_store: Arc<ReviewResourceStore>,
+    source_loader: Arc<dyn ReviewSourceLoader>,
     store: Option<SemanticReviewStore>,
     store_generation: Option<String>,
     publication_reservation: Option<u64>,
@@ -140,7 +142,6 @@ pub struct ReviewProducer {
     token: u64,
     resource_concurrency: Option<usize>,
     digest: Arc<dyn ReviewDigestProvider>,
-    source_loader: Arc<dyn ReviewSourceLoader>,
     inner: Arc<Mutex<ProducerInner>>,
 }
 
@@ -232,6 +233,7 @@ impl ReservedReviewPublication {
             inner.identity = self.prepared.identity.clone();
             inner.publication = Arc::clone(&self.prepared.publication);
             inner.resource_store = Arc::clone(&self.prepared.resource_store);
+            inner.source_loader = Arc::clone(&self.prepared.source_loader);
             if options.detach_store {
                 inner.store = None;
                 inner.store_generation = None;
@@ -269,11 +271,11 @@ impl ReviewProducer {
             token,
             resource_concurrency: options.resource_concurrency,
             digest: options.digest,
-            source_loader: options.source_loader,
             inner: Arc::new(Mutex::new(ProducerInner {
                 identity,
                 publication,
                 resource_store,
+                source_loader: options.source_loader,
                 store: None,
                 store_generation: None,
                 publication_reservation: None,
@@ -311,7 +313,25 @@ impl ReviewProducer {
         &self,
         input: &PublishReviewInput,
     ) -> Result<Arc<PreparedReviewPublication>, ReviewProducerLifecycleError> {
-        let (previous, identity) = {
+        self.prepare_with_source_loader(input, None)
+    }
+
+    /// Bind replacement source authority to a prepared generation. Cancellation
+    /// leaves the current reader unchanged; commit advances both atomically.
+    pub fn prepare_publication_with_source_loader(
+        &self,
+        input: &PublishReviewInput,
+        source_loader: Arc<dyn ReviewSourceLoader>,
+    ) -> Result<Arc<PreparedReviewPublication>, ReviewProducerLifecycleError> {
+        self.prepare_with_source_loader(input, Some(source_loader))
+    }
+
+    fn prepare_with_source_loader(
+        &self,
+        input: &PublishReviewInput,
+        replacement_source_loader: Option<Arc<dyn ReviewSourceLoader>>,
+    ) -> Result<Arc<PreparedReviewPublication>, ReviewProducerLifecycleError> {
+        let (previous, identity, source_loader) = {
             let inner = self
                 .inner
                 .lock()
@@ -324,6 +344,7 @@ impl ReviewProducer {
                         .unwrap_or(0),
                 },
                 next_review_generation(&inner.identity),
+                replacement_source_loader.unwrap_or_else(|| Arc::clone(&inner.source_loader)),
             )
         };
         let generation = format_review_generation(&identity)?;
@@ -339,11 +360,13 @@ impl ReviewProducer {
             generation,
             input.source_label.as_deref(),
         ));
-        let resource_store = Arc::new(self.new_resource_store(Arc::clone(&publication)));
+        let resource_store =
+            Arc::new(self.new_resource_store(Arc::clone(&publication), Arc::clone(&source_loader)));
         Ok(Arc::new(PreparedReviewPublication {
             identity,
             publication,
             resource_store,
+            source_loader,
             owner_token: self.token,
             base_generation: previous.generation,
             state: Mutex::new(PreparedState::Prepared),
@@ -395,6 +418,17 @@ impl ReviewProducer {
         input: &PublishReviewInput,
     ) -> Result<Arc<ReviewPublication>, ReviewProducerLifecycleError> {
         let prepared = self.prepare_publication(input)?;
+        Ok(self
+            .reserve_publication(prepared)?
+            .commit(ReviewPublicationCommitOptions::default()))
+    }
+
+    pub fn publish_with_source_loader(
+        &self,
+        input: &PublishReviewInput,
+        source_loader: Arc<dyn ReviewSourceLoader>,
+    ) -> Result<Arc<ReviewPublication>, ReviewProducerLifecycleError> {
+        let prepared = self.prepare_publication_with_source_loader(input, source_loader)?;
         Ok(self
             .reserve_publication(prepared)?
             .commit(ReviewPublicationCommitOptions::default()))
@@ -550,13 +584,17 @@ impl ReviewProducer {
         ReviewResourceStore::new(store_options)
     }
 
-    fn new_resource_store(&self, publication: Arc<ReviewPublication>) -> ReviewResourceStore {
+    fn new_resource_store(
+        &self,
+        publication: Arc<ReviewPublication>,
+        source_loader: Arc<dyn ReviewSourceLoader>,
+    ) -> ReviewResourceStore {
         let mut options = ReviewResourceStoreOptions::new(publication);
         if let Some(concurrency) = self.resource_concurrency {
             options.concurrency = concurrency;
         }
         options.digest = Arc::clone(&self.digest);
-        options.source_loader = Arc::clone(&self.source_loader);
+        options.source_loader = source_loader;
         ReviewResourceStore::new(options)
     }
 
@@ -745,6 +783,71 @@ mod tests {
             producer.reserve_publication(competing).unwrap_err(),
             ReviewProducerLifecycleError::StalePreparation
         );
+    }
+
+    #[test]
+    fn source_readers_advance_only_on_commit_and_old_resources_keep_their_reader() {
+        struct Reader(&'static str);
+        impl ReviewSourceLoader for Reader {
+            fn get_full_text(
+                &self,
+                _: &DiffFile,
+                _: workdeck_core::ReviewSide,
+            ) -> Result<Option<String>, crate::ReviewSourceLoadError> {
+                Ok(Some(self.0.into()))
+            }
+        }
+        fn source_bytes(store: &ReviewResourceStore) -> Vec<u8> {
+            let descriptor = store
+                .describe_all()
+                .into_iter()
+                .find(|descriptor| {
+                    matches!(
+                        descriptor,
+                        ReviewResourceDescriptor::Source {
+                            side: workdeck_core::ReviewSide::New,
+                            ..
+                        }
+                    )
+                })
+                .expect("source capability must publish a source descriptor");
+            store
+                .materialize(&descriptor.base().id)
+                .unwrap()
+                .bytes
+                .to_vec()
+        }
+        let mut source_file = file("one", "source.rs", "patch", None);
+        source_file.set_source_capability(Some(workdeck_core::SourceCapabilityIdentity::default()));
+        let input = input(vec![source_file]);
+        let producer = ReviewProducer::new(
+            input.clone(),
+            ReviewProducerOptions {
+                source_loader: Arc::new(Reader("first")),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let original_store = Arc::clone(&producer.inner.lock().unwrap().resource_store);
+        let cancelled = producer
+            .prepare_publication_with_source_loader(&input, Arc::new(Reader("cancelled")))
+            .unwrap();
+        producer.reserve_publication(cancelled).unwrap().cancel();
+        let unchanged = producer.prepare_publication(&input).unwrap();
+        assert_eq!(source_bytes(&unchanged.resource_store), b"first");
+        let replacement = producer
+            .prepare_publication_with_source_loader(&input, Arc::new(Reader("second")))
+            .unwrap();
+        let _ = producer
+            .reserve_publication(replacement.clone())
+            .unwrap()
+            .commit(Default::default());
+        assert_eq!(source_bytes(&replacement.resource_store), b"second");
+        // First materialization happens after replacement: the old store must
+        // still consult its original reader, not a shared mutable registry.
+        assert_eq!(source_bytes(&original_store), b"first");
+        let following = producer.clone().prepare_publication(&input).unwrap();
+        assert_eq!(source_bytes(&following.resource_store), b"second");
     }
 
     #[test]

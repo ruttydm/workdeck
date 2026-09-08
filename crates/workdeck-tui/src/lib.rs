@@ -1236,7 +1236,12 @@ impl ReviewApp {
                 files: changeset.files.clone(),
                 source_label: Some(changeset.effective_source_label().to_owned()),
             },
-            workdeck_review::ReviewProducerOptions::default(),
+            workdeck_review::ReviewProducerOptions {
+                source_loader: source_controller::publication_source_loader(
+                    options.source_capabilities.clone(),
+                ),
+                ..Default::default()
+            },
         )
         .expect("the native review producer uses an internally valid generation identity");
         Self::new_with_extensions_and_session(changeset, options, extensions, review_producer, None)
@@ -1886,12 +1891,13 @@ impl ReviewApp {
     ) {
         let changeset = self.prepare_reloaded_changeset(changeset);
         if self.with_state(|state| state.changeset() != &changeset)
-            && let Err(error) = self
-                .review_producer
-                .publish(&workdeck_review::PublishReviewInput {
+            && let Err(error) = self.review_producer.publish_with_source_loader(
+                &workdeck_review::PublishReviewInput {
                     files: changeset.files.clone(),
                     source_label: Some(changeset.effective_source_label().to_owned()),
-                })
+                },
+                source_controller::publication_source_loader(None),
+            )
         {
             self.status = Some(format!("review publication failed: {error}"));
             return;
