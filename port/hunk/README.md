@@ -1,5 +1,18 @@
 # Hunk semantic-port ledger
 
+## Native document timeout during a held source read
+
+The compiled held-read fixture now exercises both explicit cancellation and the
+host's real highlighter deadline. The timeout case requires `HostError::Timeout`
+before the source is released, then completes an ordinary request while source
+I/O is still held. After release, the retained shared reader returns its text
+and another ordinary request succeeds. This verifies parent retirement without
+cancelling shared I/O or contaminating subsequent protocol exchanges. It does
+not verify deadlines during blocked pipe writes or complete lifecycle parity.
+No ledger mapping is added.
+Verification passes: all eleven compiled highlighter tests, examples Clippy
+with all targets, formatting, and architecture checks.
+
 ## Synchronous native document SDK
 
 Boundary regressions accept a JSON payload exactly at `MAX_MESSAGE_BYTES`,

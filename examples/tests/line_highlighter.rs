@@ -70,6 +70,15 @@ fn review_file(path: &str) -> workdeck_core::DiffFile {
 
 #[test]
 fn cancelling_lazy_read_keeps_host_responsive_and_shared_read_alive() {
+    assert_retired_lazy_read_keeps_shared_read_alive(true);
+}
+
+#[test]
+fn timed_out_lazy_read_keeps_host_responsive_and_shared_read_alive() {
+    assert_retired_lazy_read_keeps_shared_read_alive(false);
+}
+
+fn assert_retired_lazy_read_keeps_shared_read_alive(cancel: bool) {
     let (_directory, manifest) = staged_extension();
     let mut extension = LoadedExtension::spawn(&manifest, "test").unwrap();
     let (started_tx, started_rx) = std::sync::mpsc::channel();
@@ -98,12 +107,17 @@ fn cancelling_lazy_read_keeps_host_responsive_and_shared_read_alive() {
     });
     started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
     let started = Instant::now();
-    cancelled.store(true, Ordering::Release);
-    assert!(matches!(
-        worker.join().unwrap(),
-        Err(HostError::Cancelled(_))
-    ));
-    assert!(started.elapsed() < Duration::from_millis(500));
+    if cancel {
+        cancelled.store(true, Ordering::Release);
+    }
+    let result = worker.join().unwrap();
+    if cancel {
+        assert!(matches!(result, Err(HostError::Cancelled(_))));
+        assert!(started.elapsed() < Duration::from_millis(500));
+    } else {
+        assert!(matches!(result, Err(HostError::Timeout(_))));
+        assert!(started.elapsed() < Duration::from_secs(3));
+    }
     assert!(
         extension
             .highlight_file("attention", &review_file("request.rs"))
