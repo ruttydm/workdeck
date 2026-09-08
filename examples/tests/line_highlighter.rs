@@ -69,6 +69,29 @@ fn review_file(path: &str) -> workdeck_core::DiffFile {
 }
 
 #[test]
+fn native_request_cleanup_precedes_the_next_call_after_success_or_failure() {
+    let (_directory, manifest) = staged_extension();
+    let mut extension = LoadedExtension::spawn_with_configuration(
+        &manifest,
+        "test",
+        serde_json::json!({ "includeHang": false, "requireCleanup": true }),
+    )
+    .unwrap();
+    let file = review_file("request.rs");
+    assert!(extension.highlight_file("attention", &file).is_ok());
+    assert!(extension.highlight_file("attention", &file).is_ok());
+    let mut invalid = file.clone();
+    invalid.sources = FileSourceSnapshots::default();
+    let error = extension.highlight_file("attention", &invalid).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("expected immutable old/new documents")
+    );
+    assert!(extension.highlight_file("attention", &file).is_ok());
+}
+
+#[test]
 fn native_line_highlighter_receives_frozen_documents_and_returns_declarative_marks() {
     let (_directory, manifest) = staged_extension();
     let mut extension = LoadedExtension::spawn(&manifest, "test").unwrap();
@@ -170,7 +193,12 @@ fn compiled_highlighter_marks_reach_the_live_ratatui_cell_buffer() {
 #[test]
 fn hung_native_line_highlighter_times_out_without_holding_the_caller_forever() {
     let (_directory, manifest) = staged_extension();
-    let mut extension = LoadedExtension::spawn(&manifest, "test").unwrap();
+    let mut extension = LoadedExtension::spawn_with_configuration(
+        &manifest,
+        "test",
+        serde_json::json!({ "requireCleanup": true }),
+    )
+    .unwrap();
     let started = Instant::now();
     let error = extension
         .highlight_file("hang", &review_file("hang.rs"))
@@ -178,13 +206,23 @@ fn hung_native_line_highlighter_times_out_without_holding_the_caller_forever() {
     assert!(matches!(error, HostError::Timeout(_)));
     assert!(started.elapsed() >= Duration::from_millis(1_400));
     assert!(started.elapsed() < Duration::from_secs(3));
+    assert!(
+        extension
+            .highlight_file("attention", &review_file("request.rs"))
+            .is_ok()
+    );
     extension.retire();
 }
 
 #[test]
 fn superseded_native_line_highlighter_observes_cancellation_promptly() {
     let (_directory, manifest) = staged_extension();
-    let mut extension = LoadedExtension::spawn(&manifest, "test").unwrap();
+    let mut extension = LoadedExtension::spawn_with_configuration(
+        &manifest,
+        "test",
+        serde_json::json!({ "requireCleanup": true }),
+    )
+    .unwrap();
     let mut request = extension.clone();
     let cancelled = Arc::new(AtomicBool::new(false));
     let request_cancelled = Arc::clone(&cancelled);
@@ -200,5 +238,10 @@ fn superseded_native_line_highlighter_observes_cancellation_promptly() {
         Err(HostError::Cancelled(_))
     ));
     assert!(started.elapsed() < Duration::from_millis(500));
+    assert!(
+        extension
+            .highlight_file("attention", &review_file("request.rs"))
+            .is_ok()
+    );
     extension.retire();
 }

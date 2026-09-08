@@ -1165,7 +1165,16 @@ impl LoadedExtension {
                 }
             }
         };
-        self.decode_response(id, &line)
+        let result = self.decode_response(id, &line);
+        // Hunk's line-highlight request aborts its child signal in finally,
+        // including success and extension errors. Preserve the decoded result
+        // if the child closes before best-effort cleanup can be delivered.
+        let _ = self.send_notification_on(
+            &mut connection,
+            "$/cancelRequest",
+            serde_json::json!({ "id": id }),
+        );
+        result
     }
 
     fn vcs_adapter_registration(

@@ -3,14 +3,14 @@
 use serde::Serialize;
 use serde_json::Value;
 use std::io::{self, BufRead, Write};
-use std::thread;
-use std::time::Duration;
 use workdeck_extension_api::{
     API_VERSION, HandshakeRequest, HandshakeResponse, JsonRpcError, JsonRpcRequest,
     JsonRpcResponse, LineHighlightRequest, Registration,
 };
 
 pub fn serve<R: BufRead, W: Write>(mut input: R, mut output: W) -> io::Result<()> {
+    let mut require_cleanup = false;
+    let mut active_request = None;
     loop {
         let mut line = String::new();
         if input.read_line(&mut line)? == 0 {
@@ -18,6 +18,11 @@ pub fn serve<R: BufRead, W: Write>(mut input: R, mut output: W) -> io::Result<()
         }
         let value: Value = serde_json::from_str(&line).map_err(io::Error::other)?;
         if value.get("id").is_none() {
+            if value.get("method").and_then(Value::as_str) == Some("$/cancelRequest")
+                && value.pointer("/params/id").and_then(Value::as_u64) == active_request
+            {
+                active_request = None;
+            }
             if value.get("method").and_then(Value::as_str) == Some("workdeck/shutdown") {
                 return Ok(());
             }
@@ -28,6 +33,11 @@ pub fn serve<R: BufRead, W: Write>(mut input: R, mut output: W) -> io::Result<()
             "workdeck/handshake" => {
                 let input: HandshakeRequest =
                     serde_json::from_value(request.params).map_err(io::Error::other)?;
+                require_cleanup = input
+                    .config
+                    .get("requireCleanup")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 let mut registrations = vec![Registration::LineHighlighter {
                     id: "attention".into(),
                 }];
@@ -50,11 +60,21 @@ pub fn serve<R: BufRead, W: Write>(mut input: R, mut output: W) -> io::Result<()
                 )?;
             }
             "workdeck/line-highlighter/highlight" => {
+                if require_cleanup && active_request.is_some() {
+                    write_error(
+                        &mut output,
+                        request.id,
+                        -32602,
+                        "previous request signal was not cleaned up",
+                    )?;
+                    continue;
+                }
+                active_request = Some(request.id);
                 let input: LineHighlightRequest =
                     serde_json::from_value(request.params).map_err(io::Error::other)?;
                 if input.highlighter_id == "hang" {
-                    thread::sleep(Duration::from_secs(5));
-                    write_result(&mut output, request.id, Value::Null)?;
+                    // Leave the request unresolved while continuing to service
+                    // lifecycle notifications from the host.
                     continue;
                 }
                 let old = input

@@ -23,6 +23,14 @@ is no host module identity to split:
 - canonical manifest and directory paths collapse filesystem aliases to one runtime boundary;
 - files outside discovered and trusted manifest roots are never loaded or rewritten.
 
+Line-highlighter requests receive `$/cancelRequest` with the original request ID
+on timeout, supersession, and after a decoded response (including an extension
+error). This last notification is lifecycle cleanup, not a rejection of a
+successful response. Extensions should release retained request resources
+idempotently and continue reading notifications while asynchronous work is
+unresolved. Cleanup delivery is best-effort if the child has already closed;
+it does not replace the original decoded result.
+
 Loading is a two-stage host operation. `prepare_extension_load` validates every manifest, settles
 compatible IDs first-wins in discovery order, snapshots per-extension configuration, and returns a
 provisional load with phase `loading` before any executable starts. An API-incompatible or invalid

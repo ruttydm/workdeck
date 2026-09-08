@@ -1,5 +1,23 @@
 # Hunk semantic-port ledger
 
+## Native highlighter request cleanup
+
+The host now sends `$/cancelRequest` after decoding a highlighter response,
+including an extension error, matching the pinned request's final child-signal
+cleanup. The decoded result remains authoritative if cleanup delivery fails.
+A strict subprocess fixture rejects its next invocation unless it received
+cleanup for the previous request; the regression failed on its second call
+before the host change and now covers successful and failed responses.
+
+The example's hanging request now remains unresolved while its input loop keeps
+servicing notifications. Timeout and supersession tests require a subsequent
+successful invocation in strict mode, proving that cleanup reaches the child
+rather than only observing that the host returned. The live Ratatui cell-buffer
+example is retained. This closes the protocol gap noted below, not whole-hook
+coverage; no ledger mapping is added.
+Verification passes: all five executable highlighter tests, 13 host highlighter
+tests, workspace Clippy, formatting, and architecture checks.
+
 ## Worker-completion signal cleanup
 
 A regression receives the worker result without polling the coordinator and
