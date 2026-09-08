@@ -25,8 +25,17 @@ workspace Clippy, formatting, and architecture checks. The full workspace run
 started at `d510fd07` also completed successfully (including 190 xtask tests,
 one ignored); the focused tests above separately verify these later changes.
 
-This does not establish complete cache parity: registration identity changes
-and metadata-changing transforms still need explicit review. The previously
+Fresh highlighter registrations now receive process-local identities that are
+stable across clones and distinct even when public extension/highlighter names
+match. Both preparation/publication keys and warning deduplication use those
+identities. A regression reproduced a same-name replacement receiving its
+predecessor's cached result; tests now verify fresh execution and independent
+warning reporting while repeated renders of the same registration stay cached.
+All 21 preparation tests and 13 host highlighter tests pass, together with
+workspace Clippy, formatting, and architecture checks for this registration change.
+
+This does not establish complete cache parity: metadata-changing transforms
+and the remaining whole-hook contracts still need explicit review. The previously
 mapped full `useLineHighlights.ts` interval is
 reopened as unmapped. Its prior destination/evidence references are preserved in
 `highlighter-work-in-progress.json`, not as a completed ledger mapping.

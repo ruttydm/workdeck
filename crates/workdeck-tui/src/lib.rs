@@ -905,11 +905,11 @@ impl ExtensionPaneRuntime {
                         }),
                     }),
                     Registration::LineHighlighter { id } => {
-                        line_highlighters.push(RegisteredLineHighlighter {
+                        line_highlighters.push(RegisteredLineHighlighter::new(
                             extension_index,
-                            extension_id: extension.manifest.id.clone(),
-                            highlighter_id: id.clone(),
-                        });
+                            extension.manifest.id.clone(),
+                            id.clone(),
+                        ));
                     }
                     Registration::FileLanguage(registration) => {
                         file_languages.push(LanguageRegistration {
@@ -19579,11 +19579,7 @@ mod tests {
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             runtime.line_highlights = LineHighlightsController::new(
                 [file_id.clone()],
-                vec![RegisteredLineHighlighter {
-                    extension_index: 0,
-                    extension_id: "search".into(),
-                    highlighter_id: "matches".into(),
-                }],
+                vec![RegisteredLineHighlighter::new(0, "search", "matches")],
             );
         }
 

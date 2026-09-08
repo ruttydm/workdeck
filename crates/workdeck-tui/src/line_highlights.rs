@@ -198,6 +198,7 @@ struct LineHighlightTaskKey {
     source_identity: Option<String>,
     source_generation: Option<u64>,
     highlighter_key: String,
+    registration_identity: u64,
     epoch: u64,
 }
 
@@ -415,7 +416,7 @@ impl LineHighlightPreparationController {
     ) {
         let key = format!(
             "{}:{}:{}:{issue}",
-            task.extension_index, task.highlighter_id, task.file.runtime_id
+            task.key.registration_identity, task.highlighter_id, task.file.runtime_id
         );
         if self.reported_issues.contains(&key) {
             return;
@@ -459,6 +460,7 @@ impl LineHighlightPreparationController {
                             .get(registration.extension_index)
                             .and_then(|runtime| runtime.source_generation(file)),
                         highlighter_key: highlighter_key.clone(),
+                        registration_identity: registration.registration_identity(),
                         epoch,
                     };
                     (registration, highlighter_key, epoch, task_key)
@@ -567,6 +569,7 @@ fn desired_line_highlight_tasks(
                             .and_then(|runtime| runtime.source_generation(file)),
                         epoch: scoped_epoch(epochs, &highlighter_key, &file.runtime_id),
                         highlighter_key,
+                        registration_identity: registration.registration_identity(),
                     },
                     extension_index: registration.extension_index,
                     extension_id: registration.extension_id.clone(),
@@ -866,11 +869,7 @@ mod tests {
     }
 
     fn registration(id: &str) -> RegisteredLineHighlighter {
-        RegisteredLineHighlighter {
-            extension_index: 0,
-            extension_id: "test-extension".into(),
-            highlighter_id: id.into(),
-        }
+        RegisteredLineHighlighter::new(0, "test-extension", id)
     }
 
     fn test_file(id: &str, content_identity: &str) -> DiffFile {
@@ -1129,6 +1128,62 @@ mod tests {
             |controller| controller.pending_count() == 0,
         );
         assert_eq!(runtime.calls().len(), 2);
+    }
+
+    #[test]
+    fn replacement_registration_with_the_same_public_name_rederives_highlights() {
+        let first = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+        let second = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+        let files = [test_file("file", "same-patch")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let mut controller = LineHighlightPreparationController::default();
+        let registered = registration("same-name");
+        for _ in 0..2 {
+            reconcile_until(
+                &mut controller,
+                &runtime_list(&first),
+                std::slice::from_ref(&registered),
+                &epochs,
+                &files,
+                |controller| controller.pending_count() == 0,
+            );
+        }
+        assert_eq!(first.calls().len(), 1);
+        let replacement = registration("same-name");
+        reconcile_until(
+            &mut controller,
+            &runtime_list(&second),
+            &[replacement],
+            &epochs,
+            &files,
+            |controller| controller.pending_count() == 0,
+        );
+        assert_eq!(second.calls().len(), 1);
+    }
+
+    #[test]
+    fn replacement_registration_has_its_own_warning_deduplication() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, _| {
+            Err(LineHighlightRuntimeError::Failed("failure".into()))
+        });
+        let files = [test_file("file", "same-patch")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let mut controller = LineHighlightPreparationController::default();
+        for count in 1..=2 {
+            let registered = registration("same-name");
+            for _ in 0..2 {
+                reconcile_until(
+                    &mut controller,
+                    &runtime_list(&runtime),
+                    std::slice::from_ref(&registered),
+                    &epochs,
+                    &files,
+                    |controller| controller.pending_count() == 0,
+                );
+            }
+            assert_eq!(runtime.calls().len(), count);
+            assert_eq!(runtime.warnings().len(), count);
+        }
     }
 
     #[test]

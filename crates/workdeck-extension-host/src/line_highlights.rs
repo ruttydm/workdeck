@@ -12,11 +12,41 @@ pub type LineHighlightEpochState = crate::ScopedEpochState;
 /// Bound third-party native highlight work to Hunk's public 1.5 second lifetime.
 pub const LINE_HIGHLIGHT_TIMEOUT: Duration = Duration::from_millis(1_500);
 
+static NEXT_REGISTRATION_IDENTITY: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(1);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegisteredLineHighlighter {
+    registration_identity: u64,
     pub extension_index: usize,
     pub extension_id: String,
     pub highlighter_id: String,
+}
+
+impl RegisteredLineHighlighter {
+    pub fn new(
+        extension_index: usize,
+        extension_id: impl Into<String>,
+        highlighter_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            registration_identity: NEXT_REGISTRATION_IDENTITY
+                .fetch_update(
+                    std::sync::atomic::Ordering::Relaxed,
+                    std::sync::atomic::Ordering::Relaxed,
+                    |identity| identity.checked_add(1),
+                )
+                .expect("line highlighter registration identity exhausted"),
+            extension_index,
+            extension_id: extension_id.into(),
+            highlighter_id: highlighter_id.into(),
+        }
+    }
+
+    /// Stable across clones; a newly registered same-name highlighter is distinct.
+    pub fn registration_identity(&self) -> u64 {
+        self.registration_identity
+    }
 }
 
 /// Result of one extension-requested line-highlight invalidation.
@@ -289,11 +319,15 @@ mod tests {
 
     #[test]
     fn registered_highlighter_keys_share_the_extension_qualification_policy() {
-        let registered = RegisteredLineHighlighter {
-            extension_index: 0,
-            extension_id: "acme.review".into(),
-            highlighter_id: "attention".into(),
-        };
+        let registered = RegisteredLineHighlighter::new(0, "acme.review", "attention");
+        assert_eq!(
+            registered.registration_identity(),
+            registered.clone().registration_identity()
+        );
+        assert_ne!(
+            registered.registration_identity(),
+            RegisteredLineHighlighter::new(0, "acme.review", "attention").registration_identity()
+        );
         assert_eq!(
             registered_line_highlighter_key(&registered),
             "acme.review:attention"
@@ -303,16 +337,8 @@ mod tests {
     #[test]
     fn resolves_bare_and_qualified_highlighter_ids_to_the_first_registration() {
         let highlighters = vec![
-            RegisteredLineHighlighter {
-                extension_index: 0,
-                extension_id: "acme.review".into(),
-                highlighter_id: "attention".into(),
-            },
-            RegisteredLineHighlighter {
-                extension_index: 1,
-                extension_id: "other.review".into(),
-                highlighter_id: "attention".into(),
-            },
+            RegisteredLineHighlighter::new(0, "acme.review", "attention"),
+            RegisteredLineHighlighter::new(1, "other.review", "attention"),
         ];
         assert_eq!(
             resolve_registered_line_highlighter(&highlighters, "acme.review", "attention"),
@@ -335,11 +361,7 @@ mod tests {
     fn controller() -> LineHighlightsController {
         LineHighlightsController::new(
             ["reviewed".into()],
-            vec![RegisteredLineHighlighter {
-                extension_index: 0,
-                extension_id: "search".into(),
-                highlighter_id: "matches".into(),
-            }],
+            vec![RegisteredLineHighlighter::new(0, "search", "matches")],
         )
     }
 
@@ -415,11 +437,7 @@ mod tests {
 
         let mut replacement = LineHighlightsController::new(
             ["reviewed".into()],
-            vec![RegisteredLineHighlighter {
-                extension_index: 0,
-                extension_id: "other".into(),
-                highlighter_id: "matches".into(),
-            }],
+            vec![RegisteredLineHighlighter::new(0, "other", "matches")],
         );
         replacement.retain_epochs_from(&controller);
         assert!(replacement.epochs().is_empty());
