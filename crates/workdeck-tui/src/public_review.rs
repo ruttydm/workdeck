@@ -474,13 +474,23 @@ pub fn render_workdeck_file_nav_window(
     options: &WorkdeckFileNavOptions,
     scroll_top: usize,
 ) -> WorkdeckFileNavRenderMap {
-    let palette = public_palette(&options.theme);
     let entries =
         if resolve_file_sidebar_mode(area.width.saturating_sub(1)) == FileSidebarMode::Tree {
             build_tree_sidebar_entries(files)
         } else {
             build_flat_sidebar_entries(files)
         };
+    render_file_nav_entries(area, buffer, entries, options, scroll_top)
+}
+
+pub(crate) fn render_file_nav_entries(
+    area: Rect,
+    buffer: &mut Buffer,
+    entries: Vec<FileSidebarEntry>,
+    options: &WorkdeckFileNavOptions,
+    scroll_top: usize,
+) -> WorkdeckFileNavRenderMap {
+    let palette = public_palette(&options.theme);
     let stats_width = entries
         .iter()
         .filter_map(|entry| match entry {
@@ -776,9 +786,15 @@ pub fn merge_file_annotations_by_file_id(
 
 #[must_use]
 pub fn build_flat_sidebar_entries(files: &[DiffFile]) -> Vec<FileSidebarEntry> {
+    build_flat_sidebar_entries_borrowed(files.iter())
+}
+
+pub(crate) fn build_flat_sidebar_entries_borrowed<'a>(
+    files: impl IntoIterator<Item = &'a DiffFile>,
+) -> Vec<FileSidebarEntry> {
     let mut entries = Vec::new();
     let mut active_group = None::<String>;
-    for (index, file) in files.iter().enumerate() {
+    for (index, file) in files.into_iter().enumerate() {
         let path = sidebar_path(&file.path);
         let group = posix_dirname(&path).to_owned();
         if active_group.as_deref() != Some(group.as_str()) {
@@ -799,9 +815,15 @@ pub fn build_flat_sidebar_entries(files: &[DiffFile]) -> Vec<FileSidebarEntry> {
 
 #[must_use]
 pub fn build_tree_sidebar_entries(files: &[DiffFile]) -> Vec<FileSidebarEntry> {
+    build_tree_sidebar_entries_borrowed(files.iter())
+}
+
+pub(crate) fn build_tree_sidebar_entries_borrowed<'a>(
+    files: impl IntoIterator<Item = &'a DiffFile>,
+) -> Vec<FileSidebarEntry> {
     let mut entries = Vec::new();
     let mut active_directories = Vec::<String>::new();
-    for (file_index, file) in files.iter().enumerate() {
+    for (file_index, file) in files.into_iter().enumerate() {
         let path = sidebar_path(&file.path);
         let directories = sidebar_directory_segments(posix_dirname(&path));
         let shared = active_directories

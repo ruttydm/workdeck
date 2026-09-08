@@ -28,6 +28,12 @@ into that snapshot after releasing the review-state lock. Bulk targets still inc
 files hidden by the current filter; the existing menu/bulk-action regression exercises this,
 selection persistence, and reload removal.
 
+The live Files sidebar builds lightweight entries directly from filtered references and uses
+that same entry list for selection reveal and rendering. Public slice-based entry/render APIs
+remain unchanged. A differential test compares full cell buffers and hit maps with the owned,
+filtered public-renderer path over Unicode paths, both sidebar modes, narrow/zero widths,
+empty filters and out-of-range scrolling. File bodies are no longer copied for sidebar rows.
+
 ## Ledger transactions
 
 Ledger mutations hold a nonblocking OS lock for the entire read/modify/write transaction and

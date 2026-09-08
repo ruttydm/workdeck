@@ -11553,13 +11553,10 @@ fn render_sidebar(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     let mode = resolve_file_sidebar_mode(inner.width.saturating_sub(1));
     let visible_files = files
         .iter()
-        .enumerate()
-        .filter(|(_, file)| diff_file_matches_filter(file, &app.filter))
-        .map(|(_, file)| file.clone())
-        .collect::<Vec<_>>();
+        .filter(|file| diff_file_matches_filter(file, &app.filter));
     let entries = match mode {
-        FileSidebarMode::Flat => build_flat_sidebar_entries(&visible_files),
-        FileSidebarMode::Tree => build_tree_sidebar_entries(&visible_files),
+        FileSidebarMode::Flat => public_review::build_flat_sidebar_entries_borrowed(visible_files),
+        FileSidebarMode::Tree => public_review::build_tree_sidebar_entries_borrowed(visible_files),
     };
     let selected_entry = selected_file_id.as_deref().and_then(|selected_id| {
         entries.iter().position(
@@ -11595,10 +11592,10 @@ fn render_sidebar(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     scroll_top = scroll_top.min(max_scroll);
     app.sidebar_scroll_top.set(scroll_top);
 
-    let map = render_workdeck_file_nav_window(
+    let map = public_review::render_file_nav_entries(
         inner,
         buffer,
-        &visible_files,
+        entries,
         &WorkdeckFileNavOptions {
             selected_file_id,
             theme: app.options.theme.id.clone(),
@@ -21437,6 +21434,62 @@ mod tests {
         for (index, (actual, expected)) in actual.content.iter().zip(&expected.content).enumerate()
         {
             assert_eq!(actual, expected, "resized frame cell {index}");
+        }
+    }
+
+    #[test]
+    fn borrowed_sidebar_entries_match_owned_filtered_frames_and_hits() {
+        let review = navigation_changeset(vec![
+            ("src/日.rs".into(), "old\n".into(), "new\n".into()),
+            ("README.md".into(), "before\n".into(), "after\n".into()),
+            ("src/nested/🚀.rs".into(), "a\n".into(), "b\n".into()),
+        ]);
+        for filter in ["", "src/", "README", "absent"] {
+            let owned = review
+                .files
+                .iter()
+                .filter(|file| diff_file_matches_filter(file, filter))
+                .cloned()
+                .collect::<Vec<_>>();
+            for width in [0, 1, 12, 30, 80] {
+                for scroll_top in [0, 1, 4, 100] {
+                    let area = Rect::new(0, 0, width, 8);
+                    let options = WorkdeckFileNavOptions {
+                        selected_file_id: Some(review.files[2].runtime_id.clone()),
+                        theme: "github-light".into(),
+                    };
+                    let borrowed = review
+                        .files
+                        .iter()
+                        .filter(|file| diff_file_matches_filter(file, filter));
+                    let entries = match resolve_file_sidebar_mode(width.saturating_sub(1)) {
+                        FileSidebarMode::Flat => {
+                            public_review::build_flat_sidebar_entries_borrowed(borrowed)
+                        }
+                        FileSidebarMode::Tree => {
+                            public_review::build_tree_sidebar_entries_borrowed(borrowed)
+                        }
+                    };
+                    let mut actual = Buffer::empty(area);
+                    let mut expected = Buffer::empty(area);
+                    let actual_map = public_review::render_file_nav_entries(
+                        area,
+                        &mut actual,
+                        entries,
+                        &options,
+                        scroll_top,
+                    );
+                    let expected_map = render_workdeck_file_nav_window(
+                        area,
+                        &mut expected,
+                        &owned,
+                        &options,
+                        scroll_top,
+                    );
+                    assert_eq!(actual, expected);
+                    assert_eq!(actual_map, expected_map);
+                }
+            }
         }
     }
 
