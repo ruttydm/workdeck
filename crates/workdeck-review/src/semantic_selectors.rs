@@ -45,20 +45,33 @@ pub fn review_file_keys_with_retired_content(
     previous: &SemanticReviewDocument,
     next: &SemanticReviewDocument,
 ) -> BTreeSet<String> {
-    let next_by_key = next
-        .files
-        .iter()
-        .map(|file| (file.key.as_str(), file))
-        .collect::<BTreeMap<_, _>>();
+    review_keys_with_retired_source_identities(
+        previous
+            .files
+            .iter()
+            .map(|file| (file.key.as_str(), file.source_identity.as_deref())),
+        next.files
+            .iter()
+            .map(|file| (file.key.as_str(), file.source_identity.as_deref())),
+    )
+}
+
+/// The same retirement policy for native consumers that already own source metadata.
+/// Avoid projecting source text and hunks merely to compare their source identities.
+#[must_use]
+pub fn review_keys_with_retired_source_identities<'a>(
+    previous: impl IntoIterator<Item = (&'a str, Option<&'a str>)>,
+    next: impl IntoIterator<Item = (&'a str, Option<&'a str>)>,
+) -> BTreeSet<String> {
+    let next_by_key = next.into_iter().collect::<BTreeMap<_, _>>();
     previous
-        .files
-        .iter()
-        .filter(|file| {
+        .into_iter()
+        .filter(|(key, identity)| {
             next_by_key
-                .get(file.key.as_str())
-                .is_none_or(|replacement| replacement.source_identity != file.source_identity)
+                .get(key)
+                .is_none_or(|replacement| replacement != identity)
         })
-        .map(|file| file.key.clone())
+        .map(|(key, _)| key.to_owned())
         .collect()
 }
 
@@ -643,6 +656,32 @@ mod tests {
             ["beta".into(), "gamma".into()].into()
         );
         assert!(review_file_keys_with_retired_content(&previous, &previous).is_empty());
+    }
+
+    #[test]
+    fn borrowed_source_retirement_matches_semantic_documents_for_all_identity_pairs() {
+        for before in [None, Some("one"), Some("two")] {
+            for after in [None, Some("one"), Some("two")] {
+                let previous = document_with_sources(&[("alpha", before, false)]);
+                let next = document_with_sources(&[("alpha", after, true)]);
+                let borrowed = review_keys_with_retired_source_identities(
+                    [("alpha", before)],
+                    [("alpha", after)],
+                );
+                assert_eq!(
+                    borrowed,
+                    review_file_keys_with_retired_content(&previous, &next)
+                );
+                assert_eq!(borrowed.contains("alpha"), before != after);
+            }
+        }
+        assert_eq!(
+            review_keys_with_retired_source_identities(
+                [("removed", None), ("duplicate", Some("last"))],
+                [("duplicate", Some("first")), ("duplicate", Some("last"))],
+            ),
+            BTreeSet::from(["removed".into()])
+        );
     }
 
     #[test]

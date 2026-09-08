@@ -1,5 +1,26 @@
 # Hunk semantic-port ledger
 
+## Live gap retirement on reload
+
+The native TUI now uses the shared semantic source-identity retirement policy when
+committing a replacement changeset. Removed files and changed source identities
+retire both open gaps and saved cursor restore points. Reintroducing a removed
+file cannot resurrect its previous expansion. An unchanged source identity keeps
+its expansion, including when only the runtime file identifier changes.
+
+The changed/removed-source regression failed against the preceding live TUI and
+passes with this integration. The unchanged-source case verifies both retained
+state and rendered source rows. Its fixture refreshes derived identities after
+attaching full source text, matching provider preparation. The shared semantic
+query also tests all nine absent/present identity pairs and duplicate-key behavior.
+
+`oracles/terminal-review-gap-reload-execution.json` records actual execution of the
+two related upstream soft-reload tests from both pinned checkouts: two tests and
+22 assertions pass per pin. These are limited execution receipts, not full controller
+or terminal-frame fixtures. `useTerminalReview.ts` and its full test file remain
+unmapped; asynchronous source loading and the rest of their contracts are not
+certified by this fix.
+
 ## Commit provenance validation
 
 `cargo xtask port history` checks annotated Workdeck commits after the `dc2ac39`
@@ -35,8 +56,8 @@ Parsed source is cached only for the duration of one audit invocation.
 
 This check found and corrected two stale CLI module names and two descriptive labels
 for existing scrollbar/file-presentation tests. No source intervals or dispositions
-changed. Strict audit still fails with 314 unmapped records and 11 pending upstream
-commits. Syntax validation is not execution evidence, per-source assertion coverage,
+changed. At the `b559b5c7` checkpoint, strict audit still failed with 314 unmapped
+records and 11 pending upstream commits. Syntax validation is not execution evidence, per-source assertion coverage,
 or proof of semantic parity; the actual tests and remaining release gates are still
 required.
 

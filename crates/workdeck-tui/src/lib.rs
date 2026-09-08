@@ -1935,6 +1935,22 @@ impl ReviewApp {
             .reconcile_files(changeset.files.iter().map(|file| file.runtime_id.clone()));
         if self.with_state(|state| state.changeset() != &changeset) {
             let previous_changeset = self.with_state(|state| state.changeset().clone());
+            // Hunk MIT: useTerminalReview's document-reconcile effect and shared
+            // review reducer retire expansion state by semantic source identity.
+            let retired = workdeck_review::review_keys_with_retired_source_identities(
+                previous_changeset
+                    .files
+                    .iter()
+                    .map(|file| (file.key.as_str(), file.source_identity.as_deref())),
+                changeset
+                    .files
+                    .iter()
+                    .map(|file| (file.key.as_str(), file.source_identity.as_deref())),
+            );
+            self.expanded_gaps
+                .retain(|(file_key, _)| !retired.contains(file_key.as_str()));
+            self.gap_cursor_restore
+                .retain(|(file_key, _), _| !retired.contains(file_key.as_str()));
             let carried_agent_line_highlights = carry_over_line_highlights(
                 &self.agent_line_highlights,
                 &previous_changeset,
@@ -20543,6 +20559,7 @@ mod tests {
                     )),
                 });
                 review.files[0].flags.partial = false;
+                review.refresh_review_identities();
             }
             let app = ReviewApp::new(
                 review,
@@ -20680,6 +20697,50 @@ mod tests {
             assert!(!rendered_review_frame(&mut terminal, &app).contains("hiddenLine01"));
             press(&mut app, 'c');
             assert_eq!(app.note_composer.as_ref().unwrap().target, target);
+        }
+
+        #[test]
+        fn reload_retires_expanded_gaps_and_restore_points_for_changed_or_removed_sources() {
+            for removed in [false, true] {
+                let (mut app, mut terminal) = setup(true);
+                let original = app.with_state(|state| state.changeset().clone());
+                press(&mut app, 'z');
+                assert!(rendered_review_frame(&mut terminal, &app).contains("hiddenLine01"));
+                assert!(!app.gap_cursor_restore.is_empty());
+                let mut next = original.clone();
+                if removed {
+                    next.files.clear();
+                } else {
+                    let mut sources = next.files[0].sources.clone();
+                    sources.new = Some(SourceSnapshot::new(
+                        "replacement01\nreplacement02\nreplacement03\nnew\n".into(),
+                        SourceOrigin::WorkingTree,
+                        false,
+                    ));
+                    next.files[0].set_sources(sources);
+                }
+                app.reload(next);
+                assert!(app.expanded_gaps.is_empty(), "removed={removed}");
+                assert!(app.gap_cursor_restore.is_empty(), "removed={removed}");
+                app.reload(original);
+                assert!(!rendered_review_frame(&mut terminal, &app).contains("hiddenLine01"));
+            }
+        }
+
+        #[test]
+        fn reload_preserves_expansion_when_only_the_runtime_file_identity_changes() {
+            let (mut app, mut terminal) = setup(true);
+            press(&mut app, 'z');
+            let expanded = app.expanded_gaps.clone();
+            let restore = app.gap_cursor_restore.clone();
+            let mut replacement = app.with_state(|state| state.changeset().clone());
+            replacement.files[0].runtime_id = "replacement-runtime-id".into();
+            app.reload(replacement);
+            assert_eq!(app.expanded_gaps, expanded);
+            assert_eq!(app.gap_cursor_restore, restore);
+            assert!(rendered_review_frame(&mut terminal, &app).contains("hiddenLine01"));
+            press(&mut app, 'z');
+            assert!(!rendered_review_frame(&mut terminal, &app).contains("hiddenLine01"));
         }
     }
 
