@@ -186,6 +186,41 @@ fn core_canonical_projection(
 }
 
 #[test]
+fn terminal_consumer_scopes_stream_expansions_and_reports_missing_gap_rows() {
+    let first = fixture("binary-rename-with-no-rows").0;
+    let (second, gap, source) = fixture("pure-insertion-hunk");
+    let files = [first.clone(), second.clone()];
+    assert_eq!(
+        terminal_files_projection(&[], None, ""),
+        json!({"files": []})
+    );
+    let actual = terminal_files_projection(&files, Some((1, gap.unwrap())), &source);
+    assert_eq!(actual["files"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        actual["files"][0],
+        terminal_projection(&first, None, "")["files"][0]
+    );
+    assert_eq!(
+        actual["files"][1],
+        terminal_projection(&second, gap, &source)["files"][0]
+    );
+    assert_eq!(
+        terminal_files_projection(&files, Some((999, gap.unwrap())), &source),
+        terminal_files_projection(&files, None, &source)
+    );
+    for missing in ["before:999", "not-a-gap", ""] {
+        let actual = terminal_files_projection(&files, Some((1, missing)), &source);
+        assert!(actual["files"][0].get("expandedRows").is_none());
+        // Unlike core/producer, the source terminal adapter reports an empty
+        // array when a fixture asked to expand a nonexistent gap.
+        assert_eq!(actual["files"][1]["expandedRows"], json!([]));
+        let mut expected = terminal_files_projection(&files, None, &source);
+        expected["files"][1]["expandedRows"] = json!([]);
+        assert_eq!(actual, expected);
+    }
+}
+
+#[test]
 fn core_and_producer_project_complete_streams_and_scope_expansion_to_its_file() {
     let first = fixture("binary-rename-with-no-rows").0;
     let (second, gap, source) = fixture("pure-insertion-hunk");
@@ -372,6 +407,35 @@ fn producer_files_projection(
 }
 
 fn terminal_projection(file: &DiffFile, expansion: Option<&str>, source_text: &str) -> Value {
+    terminal_files_projection(
+        std::slice::from_ref(file),
+        expansion.map(|gap| (0, gap)),
+        source_text,
+    )
+}
+
+fn terminal_files_projection(
+    files: &[DiffFile],
+    expansion: Option<(usize, &str)>,
+    source_text: &str,
+) -> Value {
+    let files = files
+        .iter()
+        .enumerate()
+        .map(|(index, file)| {
+            terminal_file_projection(
+                file,
+                expansion
+                    .filter(|(file_index, _)| *file_index == index)
+                    .map(|(_, gap)| gap),
+                source_text,
+            )
+        })
+        .collect::<Vec<_>>();
+    json!({"files": files})
+}
+
+fn terminal_file_projection(file: &DiffFile, expansion: Option<&str>, source_text: &str) -> Value {
     use workdeck_core::ReviewEmptyDiffReason;
     use workdeck_diff::DiffRow;
     use workdeck_review::{
@@ -385,6 +449,7 @@ fn terminal_projection(file: &DiffFile, expansion: Option<&str>, source_text: &s
     let theme = resolve_theme(Some("github-dark-default"), None, &[]);
     let keys = expansion.into_iter().map(str::to_owned).collect();
     let mut options = BuildDiffSectionRowPlanOptions::new(Some(file), LayoutMode::Split, &theme);
+    options.show_hunk_headers = true;
     options.expanded_keys = &keys;
     if expansion.is_some() {
         options.source_status = ExpandedSourceStatus::Loaded(source_text);
@@ -473,7 +538,7 @@ fn terminal_projection(file: &DiffFile, expansion: Option<&str>, source_text: &s
     if expansion.is_some() {
         value["expandedRows"] = json!(expanded_rows);
     }
-    json!({"files": [value]})
+    value
 }
 
 fn check_geometry_consumer(name: &str, project: fn(&DiffFile, Option<&str>, &str) -> Value) {

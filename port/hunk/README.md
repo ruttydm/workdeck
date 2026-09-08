@@ -1485,7 +1485,7 @@ reassembles chunked publications with the native assembler, and requires byte-ex
 round trips of the native serialized publication. Exact-window and one-byte-over-window
 boundaries, resumable frame counts, and adjacent-only frame-name collapsing are checked
 against both pins. The event fixture and framing-helper source files are now mapped.
-The 18 Rust test functions execute the pinned corpus cases through registered native
+The 19 Rust test functions execute the pinned corpus cases through registered native
 consumer callbacks; registry and finding-coverage assertions guard accidental omissions.
 Core geometry first projects the canonical review file, then uses canonical gap selectors
 and content-manifest geometry, rather than observing only the parser's DiffFile.
@@ -1519,6 +1519,12 @@ producer adapter publishes the whole file stream together and checks every canon
 file against its manifest. Additional tests cover empty streams, expansion on a later
 file, and out-of-range file/gap targets. All 18 focused tests and focused Clippy pass;
 this newest test-helper increment was not part of the earlier full verification run.
+The terminal geometry consumer is now mapped after its separate adapter review. Its
+multi-file path drives the native row planner with explicit hunk headers, scopes expansion
+to the requested file, and preserves its source-specific empty `expandedRows` array for a
+missing gap (core and producer omit that field instead). Empty streams and out-of-range
+file targets are also covered. All 19 focused tests and focused Clippy pass. The shared
+conformance type definitions remain unmapped pending their complete Rust translation.
 Capture-integrity tests reject changed outputs and wrong pins but are not parity proof.
 
 Full `cargo xtask verify` passed at `e4f3c782` before this conformance increment, including
