@@ -1,5 +1,30 @@
 # Hunk semantic-port ledger
 
+## Live-comment highlighter integration audit
+
+The five compiled highlighter integration tests pass at `5f2ddce0`, including
+native lifecycle cleanup and the Ratatui cell-buffer case. They do not prove
+live-comment input parity. Pinned `useTerminalReview.ts` derives `visibleFiles`
+through `buildReviewStreamState`, which first calls
+`mergeFileAnnotationsByFileId`. `App.tsx` passes that merged stream to
+`useLineHighlights`. Thus saved live comments are part of the highlighter's
+agent annotations, not merely a separate overlay painted afterward.
+
+The current native `prepare_extension_line_highlights` filters the raw
+`Changeset.files`, while saved comments live separately in `ReviewState`.
+`merge_file_annotations_by_file_id` and `build_review_stream_state` exist, but
+are not used at this invocation boundary. The next integration must project
+saved comments into consumer-owned file views, preserve baseline annotations,
+and invalidate highlighter derivations on note creation, edit, and removal.
+It must not mutate the immutable review document or reacquire its already-held
+state lock during rendering. Borrow unchanged files rather than cloning the
+entire changeset merely to attach a note to one file.
+
+Required evidence remains a compiled extension observing those note transitions
+and refreshed terminal marks, plus checks for orphaned/draft notes and retained
+source-reader authority. The existing integration pass is not that evidence,
+and neither source file receives new ledger coverage from this audit.
+
 ## Published marks during a pending refresh
 
 A held-worker regression reproduced marks disappearing immediately when an
