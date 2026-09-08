@@ -232,6 +232,28 @@ Clippy with warnings denied, including the connection's `Send` and `Debug`
 requirements. This is focused validation, not a new full-workspace verification
 or a native Windows execution result.
 
+## Borrowed highlighter planning and warning retention
+
+Inspection of the pinned `useLineHighlights.ts` and its Rust coordinator found
+full `DiffFile` clones in every desired-task planning pass, including cache hits
+and busy/unstarted requests. Planning now borrows the live files. A task takes one
+owned immutable snapshot only when it starts; the worker, deadline and completion
+records share that snapshot through `Arc`. Merged-cap reporting also borrows its
+file rather than cloning the document merely to deduplicate a warning.
+
+An executable ownership regression checks that every planned registration points
+at the original file, that worker/deadline snapshots share one allocation, and that
+later edits to the original cannot mutate the worker snapshot. A separate test
+checks the pinned 256-key FIFO warning bound, oldest-key eviction, and duplicate
+reports not refreshing a key's age. This establishes those contracts, not a measured
+latency or peak-memory improvement. The full hook interval remains unmapped pending
+its complete semantic/evidence review.
+
+Validation passes all 41 highlighter coordinator tests, all 1,076 TUI unit tests,
+23 compiled native highlighter integration tests, TUI all-target Clippy with
+warnings denied, formatting, diff and architecture checks. No same-host benchmark
+result or new full-workspace verification is inferred from these checks.
+
 ## Native concurrency parity gap confirmed
 
 The current transport releases its connection lock while cancellable requests

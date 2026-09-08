@@ -266,12 +266,26 @@ impl LineHighlightTaskKey {
 }
 
 #[derive(Debug, Clone)]
-struct LineHighlightTask {
+struct LineHighlightTask<F = Arc<DiffFile>> {
     key: LineHighlightTaskKey,
     extension_index: usize,
     extension_id: String,
     highlighter_id: String,
-    file: DiffFile,
+    file: F,
+}
+
+impl LineHighlightTask<&DiffFile> {
+    /// Planning borrows the live review. Only a request that actually starts
+    /// needs an immutable owned snapshot; deadline and completion state share it.
+    fn freeze_for_worker(&self) -> LineHighlightTask {
+        LineHighlightTask {
+            key: self.key.clone(),
+            extension_index: self.extension_index,
+            extension_id: self.extension_id.clone(),
+            highlighter_id: self.highlighter_id.clone(),
+            file: Arc::new(self.file.clone()),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -500,6 +514,7 @@ impl LineHighlightPreparationController {
             if extension.request_pending() {
                 continue;
             }
+            let task = task.freeze_for_worker();
             let cancelled = Arc::new(AtomicBool::new(false));
             self.pending
                 .insert(task.key.clone(), Arc::clone(&cancelled));
@@ -511,7 +526,6 @@ impl LineHighlightPreparationController {
                 ),
             );
             let extension = Arc::clone(extension);
-            let task = task.clone();
             let sender = self.sender.clone();
             thread::spawn(move || {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -649,16 +663,16 @@ impl LineHighlightPreparationController {
         }
     }
 
-    fn report_once(
+    fn report_once<F>(
         &mut self,
         extensions: &[Arc<dyn LineHighlightRuntime>],
-        task: &LineHighlightTask,
+        task: &LineHighlightTask<F>,
         issue: &str,
         message: String,
     ) {
         let key = format!(
             "{}:{}:{}:{issue}",
-            task.key.registration_identity, task.highlighter_id, task.file.runtime_id
+            task.key.registration_identity, task.highlighter_id, task.key.file_id
         );
         if self.reported_issues.contains(&key) {
             return;
@@ -737,7 +751,7 @@ impl LineHighlightPreparationController {
                         extension_index: registration.extension_index,
                         extension_id: registration.extension_id.clone(),
                         highlighter_id: registration.highlighter_id.clone(),
-                        file: file.clone(),
+                        file,
                     };
                     self.report_once(
                         extensions,
@@ -799,7 +813,7 @@ fn desired_line_highlight_tasks<'a>(
     registrations: &[RegisteredLineHighlighter],
     epochs: &workdeck_extension_host::LineHighlightEpochState,
     files: impl IntoIterator<Item = &'a DiffFile>,
-) -> Vec<LineHighlightTask> {
+) -> Vec<LineHighlightTask<&'a DiffFile>> {
     files
         .into_iter()
         .filter(|file| !file.flags.binary && !file.flags.too_large && !file.hunks.is_empty())
@@ -823,7 +837,7 @@ fn desired_line_highlight_tasks<'a>(
                     extension_index: registration.extension_index,
                     extension_id: registration.extension_id.clone(),
                     highlighter_id: registration.highlighter_id.clone(),
-                    file: file.clone(),
+                    file,
                 }
             })
         })
@@ -1325,6 +1339,82 @@ mod tests {
     }
 
     #[test]
+    fn planning_borrows_files_and_started_work_shares_one_immutable_snapshot() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("first"), registration("second")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let mut files = [test_file("file", "content")];
+        let tasks = desired_line_highlight_tasks(&extensions, &registrations, &epochs, &files);
+        assert_eq!(tasks.len(), 2);
+        for task in &tasks {
+            assert!(std::ptr::eq(task.file, &files[0]));
+        }
+        let frozen = tasks[0].freeze_for_worker();
+        let deadline_copy = frozen.clone();
+        assert!(Arc::ptr_eq(&frozen.file, &deadline_copy.file));
+        assert!(!std::ptr::eq(frozen.file.as_ref(), &files[0]));
+        drop(tasks);
+        files[0].path = "replacement.rs".into();
+        files[0].hunks.clear();
+        assert_eq!(frozen.file.path, "file.rs");
+        assert!(!frozen.file.hunks.is_empty());
+        assert_eq!(deadline_copy.file.path, "file.rs");
+    }
+
+    #[test]
+    fn warning_deduplication_is_bounded_fifo_and_duplicates_do_not_refresh_age() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("warning")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = (0..=LINE_HIGHLIGHT_ISSUE_MAX_ENTRIES)
+            .map(|index| test_file(&format!("file-{index}"), "content"))
+            .collect::<Vec<_>>();
+        let tasks = desired_line_highlight_tasks(&extensions, &registrations, &epochs, &files);
+        let mut controller = LineHighlightPreparationController::default();
+        for (index, task) in tasks
+            .iter()
+            .take(LINE_HIGHLIGHT_ISSUE_MAX_ENTRIES)
+            .enumerate()
+        {
+            controller.report_once(&extensions, task, "highlight", format!("warning {index}"));
+        }
+        controller.report_once(&extensions, &tasks[0], "highlight", "duplicate".into());
+        assert_eq!(runtime.warnings().len(), LINE_HIGHLIGHT_ISSUE_MAX_ENTRIES);
+        controller.report_once(
+            &extensions,
+            &tasks[LINE_HIGHLIGHT_ISSUE_MAX_ENTRIES],
+            "highlight",
+            "new warning".into(),
+        );
+        controller.report_once(&extensions, &tasks[1], "highlight", "still retained".into());
+        assert_eq!(
+            runtime.warnings().len(),
+            LINE_HIGHLIGHT_ISSUE_MAX_ENTRIES + 1
+        );
+        controller.report_once(
+            &extensions,
+            &tasks[0],
+            "highlight",
+            "oldest reports again".into(),
+        );
+        assert_eq!(runtime.warnings().last().unwrap(), "oldest reports again");
+        assert_eq!(
+            runtime.warnings().len(),
+            LINE_HIGHLIGHT_ISSUE_MAX_ENTRIES + 2
+        );
+        assert_eq!(
+            controller.reported_issues.len(),
+            LINE_HIGHLIGHT_ISSUE_MAX_ENTRIES
+        );
+        assert_eq!(
+            controller.issue_order.len(),
+            LINE_HIGHLIGHT_ISSUE_MAX_ENTRIES
+        );
+    }
+
+    #[test]
     fn coordinator_validates_caches_and_preserves_identity_across_unrelated_frames() {
         let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
         let extensions = runtime_list(&runtime);
@@ -1681,13 +1771,14 @@ mod tests {
     fn queued_result_completed_after_deadline_is_not_published() {
         let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
         let extensions = runtime_list(&runtime);
+        let files = [test_file("file", "content")];
         let mut tasks = desired_line_highlight_tasks(
             &extensions,
             &[registration("late")],
             &workdeck_extension_host::LineHighlightEpochState::default(),
-            &[test_file("file", "content")],
+            &files,
         );
-        let task = tasks.remove(0);
+        let task = tasks.remove(0).freeze_for_worker();
         let desired = BTreeSet::from([task.key.clone()]);
         let cancellation = Arc::new(AtomicBool::new(false));
         let deadline = Instant::now();
@@ -2270,13 +2361,14 @@ mod tests {
     fn late_completion_cannot_settle_a_reused_key_owned_by_a_new_request() {
         let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
         let extensions = runtime_list(&runtime);
+        let files = [test_file("file", "content")];
         let mut tasks = desired_line_highlight_tasks(
             &extensions,
             &[registration("running")],
             &workdeck_extension_host::LineHighlightEpochState::default(),
-            &[test_file("file", "content")],
+            &files,
         );
-        let task = tasks.remove(0);
+        let task = tasks.remove(0).freeze_for_worker();
         let desired = BTreeSet::from([task.key.clone()]);
         let old = Arc::new(AtomicBool::new(true));
         let current = Arc::new(AtomicBool::new(false));
