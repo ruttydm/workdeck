@@ -69,6 +69,61 @@ fn review_file(path: &str) -> workdeck_core::DiffFile {
 }
 
 #[test]
+fn stderr_flood_is_bounded_while_native_requests_remain_responsive() {
+    let (_directory, manifest) = staged_extension();
+    let mut extension = LoadedExtension::spawn_with_configuration(
+        &manifest,
+        "test",
+        serde_json::json!({"includeHang":false}),
+    )
+    .unwrap();
+    assert_eq!(
+        extension
+            .request(
+                "example/stderr-flood",
+                serde_json::json!({}),
+                Duration::from_secs(5)
+            )
+            .unwrap(),
+        serde_json::json!({"completed":true})
+    );
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let entries = extension.logs();
+        if entries
+            .last()
+            .is_some_and(|entry| entry.message == "stderr flood finished")
+        {
+            let stats = extension.log_stats();
+            assert_eq!(
+                entries.len(),
+                workdeck_extension_host::MAX_EXTENSION_LOG_ENTRIES
+            );
+            assert_eq!(stats.dropped_entries, 78);
+            assert_eq!(stats.truncated_lines, 1);
+            assert!(stats.retained_bytes <= workdeck_extension_host::MAX_EXTENSION_LOG_BYTES);
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "stderr capture did not drain the complete flood"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // Exhausting log retention must not retire the protocol or block the child.
+    assert_eq!(
+        extension
+            .request(
+                "example/last-annotation-width",
+                serde_json::json!({}),
+                Duration::from_secs(2)
+            )
+            .unwrap(),
+        serde_json::Value::Null
+    );
+}
+
+#[test]
 fn exited_native_transport_is_closed_not_retryable_busy() {
     let (_directory, manifest) = staged_extension();
     let mut extension = LoadedExtension::spawn_with_configuration(

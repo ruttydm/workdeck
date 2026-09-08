@@ -12,3 +12,8 @@ deduplication. Callback IDs are unique across parents and late cancelled replies
 
 Extensions return source coordinates in UTF-16 code units; they never receive terminal or renderer
 ownership. The callback router does not supply framing or transport deadlines.
+
+The native diagnostic fixture method `example/stderr-flood` writes a 4 MiB diagnostic line,
+1,100 short diagnostic lines, and a completion marker to stderr before replying on
+stdout. Its integration test verifies bounded host retention, explicit truncation/drop
+accounting, complete pipe drainage, and a successful subsequent protocol request.

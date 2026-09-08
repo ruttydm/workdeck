@@ -50,11 +50,41 @@ routing, accepting at most `MAX_MESSAGE_BYTES` payload bytes plus a newline.
 Oversized, unterminated, and invalid UTF-8 frames return an input error and close
 the response routes through the existing terminal path. Unit tests verify exact
 limit acceptance, preserved CRLF/LF frames, EOF, and consumption limited to
-`MAX_MESSAGE_BYTES + 2` bytes on oversized unterminated input. This does not bound
-stderr or the legacy response queue and is not a whole-process memory gate.
+`MAX_MESSAGE_BYTES + 2` bytes on oversized unterminated input. The stdout bound is
+separate from the stderr limits below; it does not bound the legacy response queue
+and is not a whole-process memory gate.
 Verification passes: all fifteen compiled highlighter integration tests, all
 180 host unit tests, host Clippy, formatting, and architecture checks. No ledger
 coverage is added.
+
+## Bounded native stderr diagnostics
+
+The host now drains stderr with a bounded line reader rather than growing a buffer
+until a newline arrives. Normal LF/CRLF, empty lines, lossy UTF-8 and final EOF fragments
+retain their previous behavior. Captured messages are limited to 16 KiB of UTF-8 text;
+oversized lines include an explicit `... [truncated]` suffix. The capture loop drains
+the remainder of oversized lines instead of closing the pipe or treating stderr as
+protocol output.
+
+One shared log hub retains the newest 1,024 entries within a 1 MiB UTF-8 payload
+budget that includes extension IDs. `ExtensionLogHub::stats` and
+`LoadedExtension::log_stats` expose retained counts/bytes, discarded-entry counts and
+truncated-line counts. The budget is a payload bound, not a whole-process allocator
+or peak-memory benchmark claim. Reader scratch space and entry metadata are separately
+bounded by line and entry limits. Tests cover exact limits, overflow followed by a new
+line, long unterminated invalid UTF-8, concurrent writers, identity-byte accounting,
+and continued drainage after retention is exhausted.
+
+The compiled line-highlighter diagnostic fixture writes a 4 MiB line followed by
+1,100 short lines and a marker before sending its protocol reply. Its integration test
+requires a successful reply, exactly 1,024 retained entries, 78 discarded entries,
+one truncated line, the final marker, and a successful subsequent native request.
+This closes stderr accumulation only. The legacy response queue and stdin write
+deadlines remain separate gaps, and no source-ledger record is marked complete here.
+All 192 host unit tests and 19 compiled highlighter integration tests pass after
+this increment, along with host/examples all-target Clippy, formatting, and the
+architecture check. The earlier full verification at `c10ab4e8` predates these log
+changes and is not presented as a full-workspace verification of this increment.
 
 ## Native concurrency parity gap confirmed
 

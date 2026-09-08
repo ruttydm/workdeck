@@ -6,6 +6,7 @@ mod extension_application;
 mod extension_discovery;
 mod extension_document_reader;
 mod extension_loading;
+mod extension_logs;
 mod extension_registration;
 mod extension_selection;
 mod extension_trust;
@@ -28,6 +29,7 @@ pub use extension_application::*;
 pub use extension_discovery::*;
 pub use extension_document_reader::*;
 pub use extension_loading::*;
+pub use extension_logs::*;
 pub use extension_registration::*;
 pub use extension_selection::*;
 pub use extension_trust::*;
@@ -47,7 +49,7 @@ pub use synchronous_callbacks::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -170,39 +172,6 @@ pub enum ExtensionEventBusPhase {
     Ready = 1,
     Closing = 2,
     Closed = 3,
-}
-
-/// One line written by an extension to its reserved stderr log stream.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExtensionLogEntry {
-    pub extension_id: String,
-    pub message: String,
-}
-
-/// Shared ordered log collection for every process in one load result.
-#[derive(Debug, Clone, Default)]
-pub struct ExtensionLogHub {
-    entries: Arc<Mutex<Vec<ExtensionLogEntry>>>,
-}
-
-impl ExtensionLogHub {
-    fn record(&self, extension_id: &str, message: String) {
-        self.entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .push(ExtensionLogEntry {
-                extension_id: extension_id.to_owned(),
-                message,
-            });
-    }
-
-    #[must_use]
-    pub fn snapshot(&self) -> Vec<ExtensionLogEntry> {
-        self.entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone()
-    }
 }
 
 /// Maximum time a retiring native runtime may delay application teardown.
@@ -928,26 +897,11 @@ impl LoadedExtension {
         let log_extension_id = manifest.id.clone();
         let extension_logs = logs.clone();
         thread::spawn(move || {
-            let mut reader = BufReader::new(stderr);
-            loop {
-                let mut bytes = Vec::new();
-                match reader.read_until(b'\n', &mut bytes) {
-                    Ok(0) => break,
-                    Ok(_) => {
-                        if bytes.last() == Some(&b'\n') {
-                            bytes.pop();
-                        }
-                        if bytes.last() == Some(&b'\r') {
-                            bytes.pop();
-                        }
-                        extension_logs.record(
-                            &log_extension_id,
-                            String::from_utf8_lossy(&bytes).into_owned(),
-                        );
-                    }
-                    Err(_) => break,
-                }
-            }
+            let _ = extension_logs::capture_stderr(
+                BufReader::new(stderr),
+                &extension_logs,
+                &log_extension_id,
+            );
         });
         let (sender, responses) = mpsc::channel();
         let response_routes = Arc::new(Mutex::new(ExtensionResponseRoutes::default()));
@@ -1059,6 +1013,11 @@ impl LoadedExtension {
     #[must_use]
     pub fn logs(&self) -> Vec<ExtensionLogEntry> {
         self.logs.snapshot()
+    }
+
+    #[must_use]
+    pub fn log_stats(&self) -> ExtensionLogStats {
+        self.logs.stats()
     }
 
     #[must_use]
