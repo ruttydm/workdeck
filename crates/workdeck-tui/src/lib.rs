@@ -4099,6 +4099,10 @@ impl ReviewApp {
             }
             self.start_queued_extension_requests(Some(pending.extension_index));
         }
+        // Background file-view/highlight work can temporarily own a connection
+        // without creating a pending command/event here. Retry its deferred queue
+        // on every tick, not only when another command or event completes.
+        self.start_queued_extension_requests(None);
         if let Some((activation, key)) = self.deferred_file_view_keys.pop_front() {
             let current = self
                 .extension_pane_runtime

@@ -520,6 +520,55 @@ fn line_highlighter_preserves_text_and_reports_refresh_control_results() {
     drop(session);
 }
 
+#[test]
+fn queued_command_resumes_after_background_highlight_releases_connection() {
+    let root = super::layout::repository(&[(
+        "alpha.ts",
+        "export const alpha = 1;\n",
+        "export const alphaValue = 2;\n",
+    )]);
+    let extension_root = tempfile::tempdir().unwrap();
+    let extension = super::file_views::example(extension_root.path(), "pty-extension-probe");
+    fs::write(extension.join("fixture-kind"), "highlight").unwrap();
+    let hold = extension.join("hold-line-highlight");
+    fs::write(&hold, "hold\n").unwrap();
+    let mut session = Session::launch_in(
+        "",
+        &[
+            "diff",
+            "--mode",
+            "stack",
+            "--extension",
+            extension.to_str().unwrap(),
+        ],
+        false,
+        140,
+        24,
+        None,
+        Some(root.path()),
+    );
+    session.wait(|text| text.contains("export const alphaValue = 2;"));
+    let blocked = extension.join("line-highlight-blocked");
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !blocked.exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        blocked.exists(),
+        "background highlight never acquired the connection"
+    );
+    session.write(b"\x1b[19~");
+    session.wait(|text| text.contains("Second fixture action"));
+    assert!(
+        !extension.join("line-highlight-released").exists(),
+        "highlight hold expired before the command queued"
+    );
+    fs::remove_file(hold).unwrap();
+    session
+        .wait(|text| text.contains("Extension fixture targeted unknown line highlighter \"nope\""));
+    drop(session);
+}
+
 fn reveal_case(held: bool) {
     let before = (1..=130)
         .map(|line| format!("export const line{line:03} = {line};\n"))

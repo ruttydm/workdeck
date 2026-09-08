@@ -269,6 +269,21 @@ fn dispatch(
             })
         }
         "workdeck/line-highlighter/highlight" => {
+            let fixture_root = std::env::current_exe()?
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .to_path_buf();
+            let hold = fixture_root.join("hold-line-highlight");
+            if hold.exists() {
+                std::fs::write(fixture_root.join("line-highlight-blocked"), "blocked\n")?;
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                while hold.exists() && std::time::Instant::now() < deadline {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                std::fs::write(fixture_root.join("line-highlight-released"), "released\n")?;
+            }
             if request.params["file"]["path"]
                 .as_str()
                 .is_some_and(|path| path.contains("alpha"))

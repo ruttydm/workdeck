@@ -20,6 +20,17 @@ control-character revisions and extra arguments, and fails closed on Git diff fa
 The source process-substitution loop can instead report no code changes after a failed diff.
 These differences are explicit unresolved parity work, not a completed-file waiver.
 
+## Deferred native command scheduling
+
+Background highlighting and file-view work share an extension's ordered subprocess
+connection. Commands queued while that connection is busy must be retried on later
+host polls even when no command/event completion exists to wake the queue. The host
+now retries deferred queues each poll, retaining the existing FIFO and busy checks.
+A controlled PTY regression holds a real highlight request, queues F8, releases the
+connection, and requires its refresh-control result without any further input. It
+reproduced a permanent pending-command failure before the retry was added. The hold
+has a bounded deadline and the test checks that it did not expire before queuing.
+
 ## Immutable native review documents
 
 `ReviewState` owns its changeset through `Arc<Changeset>`. Its `changeset()` accessor remains
