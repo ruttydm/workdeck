@@ -8,8 +8,8 @@
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, mpsc};
-use std::time::Duration;
+use std::sync::{Arc, Mutex, mpsc};
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 use workdeck_core::{
@@ -172,8 +172,15 @@ struct PendingAppHostCommand {
     reply: mpsc::SyncSender<Result<WorkdeckSessionCommandResult, String>>,
 }
 
+struct PendingNativeQuit {
+    request_id: String,
+    deadline: Instant,
+    result_queued: bool,
+}
+
 /// Thread-safe broker endpoint; it owns no mutable UI state.
 struct AppHostCommandBridge {
+    pending_quit: Arc<Mutex<Option<PendingNativeQuit>>>,
     sender: mpsc::Sender<PendingAppHostCommand>,
     active: Arc<AtomicBool>,
     timeout: Duration,
@@ -182,6 +189,18 @@ struct AppHostCommandBridge {
 impl SessionBrokerConnectionBridge<WorkdeckSessionCommandInput, WorkdeckSessionCommandResult>
     for AppHostCommandBridge
 {
+    fn command_result_queued(&self, request_id: &str) {
+        let mut pending = self
+            .pending_quit
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some(quit) = pending
+            .as_mut()
+            .filter(|quit| quit.request_id == request_id)
+        {
+            quit.result_queued = true;
+        }
+    }
     fn dispatch_command(
         &self,
         message: SessionServerMessage<String, WorkdeckSessionCommandInput>,
@@ -205,6 +224,8 @@ impl SessionBrokerConnectionBridge<WorkdeckSessionCommandInput, WorkdeckSessionC
 }
 
 struct AppHostCommandReceiver {
+    pending_quit: Arc<Mutex<Option<PendingNativeQuit>>>,
+    timeout: Duration,
     receiver: mpsc::Receiver<PendingAppHostCommand>,
     active: Arc<AtomicBool>,
 }
@@ -214,6 +235,10 @@ impl AppHostCommandReceiver {
         if !self.active.swap(false, Ordering::AcqRel) {
             return;
         }
+        self.pending_quit
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
         while let Ok(pending) = self.receiver.try_recv() {
             let _ = pending.reply.send(Err(APP_HOST_RETIRED_MESSAGE.into()));
         }
@@ -231,12 +256,22 @@ fn app_host_command_channel(
 ) -> (Arc<WorkdeckSessionAppBridge>, AppHostCommandReceiver) {
     let (sender, receiver) = mpsc::channel();
     let active = Arc::new(AtomicBool::new(true));
+    let pending_quit = Arc::new(Mutex::new(None));
     let bridge: Arc<WorkdeckSessionAppBridge> = Arc::new(AppHostCommandBridge {
+        pending_quit: Arc::clone(&pending_quit),
         sender,
         active: Arc::clone(&active),
         timeout,
     });
-    (bridge, AppHostCommandReceiver { receiver, active })
+    (
+        bridge,
+        AppHostCommandReceiver {
+            receiver,
+            active,
+            pending_quit,
+            timeout,
+        },
+    )
 }
 
 struct MountedReviewHandlers<'a, R> {
@@ -383,6 +418,25 @@ impl AppHostController {
         }
         let mut processed = 0;
         while processed < APP_HOST_COMMAND_BURST {
+            let mut pending_quit = self
+                .receiver
+                .pending_quit
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if let Some(quit) = pending_quit.as_ref() {
+                if quit.result_queued {
+                    app.should_quit = true;
+                    pending_quit.take();
+                } else if Instant::now() >= quit.deadline {
+                    pending_quit.take();
+                    app.status =
+                        Some("Native quit reply was not queued; the review remains open.".into());
+                } else {
+                    // Do not start later mutations while shutdown awaits its reply.
+                    break;
+                }
+            }
+            drop(pending_quit);
             // Quit linearizes between complete owner-thread commands. Once it
             // wins, every command still queued receives the stable retirement
             // error instead of starting mutation, loading, or filesystem I/O.
@@ -394,6 +448,35 @@ impl AppHostController {
                 Ok(pending) => pending,
                 Err(mpsc::TryRecvError::Empty | mpsc::TryRecvError::Disconnected) => break,
             };
+            if matches!(
+                &pending.message.input,
+                WorkdeckSessionCommandInput::QuitSession(_)
+            ) {
+                *self
+                    .receiver
+                    .pending_quit
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner()) = Some(PendingNativeQuit {
+                    request_id: pending.message.request_id,
+                    deadline: Instant::now() + self.receiver.timeout,
+                    result_queued: false,
+                });
+                if pending
+                    .reply
+                    .send(Ok(WorkdeckSessionCommandResult::QuitSession(
+                        workdeck_session::QuitSessionResult { quitting: true },
+                    )))
+                    .is_err()
+                {
+                    self.receiver
+                        .pending_quit
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .take();
+                }
+                processed += 1;
+                continue;
+            }
             let handlers = MountedReviewHandlers {
                 app: RefCell::new(app),
                 reload: RefCell::new(reload),
@@ -607,7 +690,12 @@ mod tests {
         drop(sender);
         (
             AppHostController {
-                receiver: AppHostCommandReceiver { receiver, active },
+                receiver: AppHostCommandReceiver {
+                    receiver,
+                    active,
+                    pending_quit: Arc::new(Mutex::new(None)),
+                    timeout: APP_HOST_COMMAND_TIMEOUT,
+                },
                 binding: None,
                 last_snapshot: None,
                 retired: false,
@@ -852,6 +940,94 @@ mod tests {
         assert!(controller.retired);
     }
 
+    fn quit_message() -> SessionServerMessage<String, WorkdeckSessionCommandInput> {
+        message(
+            "native-quit",
+            WorkdeckSessionCommandInput::QuitSession(workdeck_session::QuitSessionToolInput {
+                target_session: SessionSelector::default(),
+            }),
+        )
+    }
+
+    #[test]
+    fn native_quit_waits_for_matching_queued_result_and_retires_later_commands() {
+        let (mut controller, replies) = queued_controller([quit_message(), reload_message(1)]);
+        let (sender, _receiver) = mpsc::channel();
+        let bridge = AppHostCommandBridge {
+            sender,
+            active: Arc::clone(&controller.receiver.active),
+            pending_quit: Arc::clone(&controller.receiver.pending_quit),
+            timeout: APP_HOST_COMMAND_TIMEOUT,
+        };
+        let mut app = app();
+        let mut reload = |_: &mut ReviewApp,
+                          _: &Value,
+                          _: ReloadSessionOptions|
+         -> Result<ReloadedSessionResult, String> {
+            panic!("commands following accepted quit must not start");
+        };
+        assert_eq!(controller.process_pending(&mut app, &mut reload), 1);
+        assert!(!app.shutdown_requested());
+        assert!(matches!(
+            replies[0].recv().unwrap().unwrap(),
+            WorkdeckSessionCommandResult::QuitSession(workdeck_session::QuitSessionResult {
+                quitting: true
+            })
+        ));
+        bridge.command_result_queued("unrelated-request");
+        assert_eq!(controller.process_pending(&mut app, &mut reload), 0);
+        assert!(!app.shutdown_requested());
+        assert!(matches!(
+            replies[1].try_recv(),
+            Err(mpsc::TryRecvError::Empty)
+        ));
+        bridge.command_result_queued("native-quit");
+        assert_eq!(controller.process_pending(&mut app, &mut reload), 0);
+        assert!(app.shutdown_requested());
+        assert!(controller.retired);
+        assert_eq!(
+            replies[1].recv().unwrap().unwrap_err(),
+            APP_HOST_RETIRED_MESSAGE
+        );
+        assert!(controller.receiver.pending_quit.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn native_quit_timeout_or_abandoned_request_keeps_review_open() {
+        let (mut controller, replies) = queued_controller([quit_message()]);
+        let mut app = app();
+        let mut reload =
+            |_: &mut ReviewApp,
+             _: &Value,
+             _: ReloadSessionOptions|
+             -> Result<ReloadedSessionResult, String> { panic!("unexpected reload") };
+        assert_eq!(controller.process_pending(&mut app, &mut reload), 1);
+        assert!(replies[0].recv().unwrap().is_ok());
+        controller
+            .receiver
+            .pending_quit
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .deadline = Instant::now();
+        assert_eq!(controller.process_pending(&mut app, &mut reload), 0);
+        assert!(!app.shutdown_requested());
+        assert!(
+            app.status
+                .as_deref()
+                .unwrap()
+                .contains("review remains open")
+        );
+        assert!(controller.receiver.pending_quit.lock().unwrap().is_none());
+
+        let (mut controller, replies) = queued_controller([quit_message()]);
+        drop(replies);
+        assert_eq!(controller.process_pending(&mut app, &mut reload), 1);
+        assert!(!app.shutdown_requested());
+        assert!(controller.receiver.pending_quit.lock().unwrap().is_none());
+    }
+
     #[test]
     fn snapshots_are_dependency_driven_and_retirement_detaches_once() {
         let host = Arc::new(MockHost::default());
@@ -897,11 +1073,14 @@ mod tests {
         let (sender, queue) = mpsc::channel();
         let active = Arc::new(AtomicBool::new(true));
         let bridge = AppHostCommandBridge {
+            pending_quit: Arc::new(Mutex::new(None)),
             sender: sender.clone(),
             active: Arc::clone(&active),
             timeout: Duration::from_secs(2),
         };
         let receiver = AppHostCommandReceiver {
+            pending_quit: Arc::clone(&bridge.pending_quit),
+            timeout: APP_HOST_COMMAND_TIMEOUT,
             receiver: queue,
             active,
         };
