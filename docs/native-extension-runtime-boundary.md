@@ -23,6 +23,14 @@ is no host module identity to split:
 - canonical manifest and directory paths collapse filesystem aliases to one runtime boundary;
 - files outside discovered and trusted manifest roots are never loaded or rewritten.
 
+The explicit lazy highlighter host entry point advertises `documentReader: true`
+and accepts child `workdeck/document/read` requests with `parentRequestId` and
+`side`. Child IDs are independently scoped; no child path can grant source
+authority. Reads are shared per side, bounded by the parent broker, and retired
+when the parent settles. The compiled example exercises duplicate reads and
+cancellation during a held source read. The live TUI still uses the eager
+snapshot entry point; a general SDK callback helper remains unfinished.
+
 Line-highlighter requests receive `$/cancelRequest` with the original request ID
 on timeout, supersession, and after a decoded response (including an extension
 error). This last notification is lifecycle cleanup, not a rejection of a

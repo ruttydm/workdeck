@@ -1115,6 +1115,7 @@ impl LoadedExtension {
         params: impl Serialize,
         timeout: Duration,
         cancelled: &AtomicBool,
+        documents: Option<ExtensionDocumentReader>,
     ) -> Result<Value, HostError> {
         let mut connection = self.try_connection()?;
         if connection.pending_request.is_some() {
@@ -1122,52 +1123,101 @@ impl LoadedExtension {
         }
         let id = self.send_request_on(&mut connection, method, params)?;
         let deadline = Instant::now() + timeout;
-        let line = loop {
-            if cancelled.load(Ordering::Acquire) {
-                let _ = self.send_notification_on(
-                    &mut connection,
-                    "$/cancelRequest",
-                    serde_json::json!({ "id": id }),
-                );
-                return Err(HostError::Cancelled(self.manifest.id.clone()));
-            }
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                let _ = self.send_notification_on(
-                    &mut connection,
-                    "$/cancelRequest",
-                    serde_json::json!({ "id": id }),
-                );
-                return Err(HostError::Timeout(self.manifest.id.clone()));
-            }
-            match connection
-                .responses
-                .recv_timeout(remaining.min(Duration::from_millis(25)))
-            {
-                Ok(Ok(line)) => {
-                    if parse_cli_output_notification(&line).is_some()
-                        || parse_cli_stdin_read_notification(&line).is_some()
-                    {
-                        continue;
+        let mut documents = documents.map(|reader| ExtensionDocumentRequests::new(id, reader));
+        let result = (|| {
+            let line = loop {
+                if cancelled.load(Ordering::Acquire) {
+                    return Err(HostError::Cancelled(self.manifest.id.clone()));
+                }
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return Err(HostError::Timeout(self.manifest.id.clone()));
+                }
+                if let Some(documents) = documents.as_mut() {
+                    for (child_id, value) in documents.poll() {
+                        if cancelled.load(Ordering::Acquire) {
+                            return Err(HostError::Cancelled(self.manifest.id.clone()));
+                        }
+                        if Instant::now() >= deadline {
+                            return Err(HostError::Timeout(self.manifest.id.clone()));
+                        }
+                        self.send_document_response_on(&mut connection, child_id, Ok(value))?;
                     }
-                    if json_rpc_response_id(&line).is_some_and(|response_id| response_id < id) {
-                        continue;
+                }
+                match connection
+                    .responses
+                    .recv_timeout(remaining.min(Duration::from_millis(25)))
+                {
+                    Ok(Ok(line)) => {
+                        if let Ok(value) = serde_json::from_str::<Value>(&line)
+                            && value.get("method").and_then(Value::as_str)
+                                == Some(workdeck_extension_api::EXTENSION_DOCUMENT_READ_METHOD)
+                        {
+                            let request: JsonRpcRequest =
+                                serde_json::from_value(value).map_err(|source| {
+                                    HostError::InvalidJson {
+                                        id: self.manifest.id.clone(),
+                                        source,
+                                    }
+                                })?;
+                            let accepted = if request.jsonrpc != "2.0" {
+                                Err("invalid JSON-RPC version".to_owned())
+                            } else {
+                                serde_json::from_value::<
+                                    workdeck_extension_api::ExtensionDocumentReadRequest,
+                                >(request.params)
+                                .map_err(|error| error.to_string())
+                                .and_then(|input| {
+                                    documents
+                                        .as_mut()
+                                        .ok_or_else(|| "document reader is unavailable".to_owned())
+                                        .and_then(|documents| {
+                                            documents
+                                                .request(
+                                                    request.id,
+                                                    input.parent_request_id,
+                                                    input.side,
+                                                )
+                                                .map_err(|error| error.to_string())
+                                        })
+                                })
+                            };
+                            if let Err(error) = accepted {
+                                self.send_document_response_on(
+                                    &mut connection,
+                                    request.id,
+                                    Err(error),
+                                )?;
+                            }
+                            continue;
+                        }
+                        if parse_cli_output_notification(&line).is_some()
+                            || parse_cli_stdin_read_notification(&line).is_some()
+                        {
+                            continue;
+                        }
+                        if json_rpc_response_id(&line).is_some_and(|response_id| response_id < id) {
+                            continue;
+                        }
+                        break line;
                     }
-                    break line;
+                    Ok(Err(source)) => {
+                        return Err(HostError::Io {
+                            id: self.manifest.id.clone(),
+                            source,
+                        });
+                    }
+                    Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        return Err(HostError::Closed(self.manifest.id.clone()));
+                    }
                 }
-                Ok(Err(source)) => {
-                    return Err(HostError::Io {
-                        id: self.manifest.id.clone(),
-                        source,
-                    });
-                }
-                Err(mpsc::RecvTimeoutError::Timeout) => continue,
-                Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    return Err(HostError::Closed(self.manifest.id.clone()));
-                }
-            }
-        };
-        let result = self.decode_response(id, &line);
+            };
+            self.decode_response(id, &line)
+        })();
+        if let Some(documents) = documents.as_mut() {
+            documents.retire();
+        }
         // Hunk's line-highlight request aborts its child signal in finally,
         // including success and extension errors. Preserve the decoded result
         // if the child closes before best-effort cleanup can be delivered.
@@ -1177,6 +1227,37 @@ impl LoadedExtension {
             serde_json::json!({ "id": id }),
         );
         result
+    }
+
+    fn send_document_response_on(
+        &self,
+        connection: &mut ExtensionConnection,
+        id: u64,
+        result: Result<Option<String>, String>,
+    ) -> Result<(), HostError> {
+        let response = match result {
+            Ok(value) => serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": value }),
+            Err(message) => {
+                serde_json::json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32602, "message": message } })
+            }
+        };
+        let mut encoded =
+            serde_json::to_vec(&response).map_err(|source| HostError::InvalidJson {
+                id: self.manifest.id.clone(),
+                source,
+            })?;
+        if encoded.len() > MAX_MESSAGE_BYTES {
+            encoded = serde_json::to_vec(&serde_json::json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32000, "message": "document response exceeds message limit" } })).expect("fixed JSON response is serializable");
+        }
+        encoded.push(b'\n');
+        connection
+            .stdin
+            .write_all(&encoded)
+            .and_then(|()| connection.stdin.flush())
+            .map_err(|source| HostError::Io {
+                id: self.manifest.id.clone(),
+                source,
+            })
     }
 
     fn vcs_adapter_registration(
@@ -2075,6 +2156,23 @@ impl LoadedExtension {
             },
             LINE_HIGHLIGHT_TIMEOUT,
             cancelled,
+            None,
+        )
+    }
+
+    /// Invoke a highlighter with request-scoped lazy source authority.
+    pub fn highlight_file_with_document_reader(
+        &mut self,
+        highlighter_id: &str,
+        file: &DiffFile,
+        cancelled: &AtomicBool,
+        documents: ExtensionDocumentReader,
+    ) -> Result<Value, HostError> {
+        self.require_line_highlighter(highlighter_id)?;
+        self.request_cancellable(
+            "workdeck/line-highlighter/highlight",
+            serde_json::json!({ "highlighterId": highlighter_id, "file": project_extension_diff_file(file), "documents": {}, "documentReader": true, "aborted": false }),
+            LINE_HIGHLIGHT_TIMEOUT, cancelled, Some(documents),
         )
     }
 

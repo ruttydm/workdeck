@@ -1,5 +1,24 @@
 # Hunk semantic-port ledger
 
+## Native highlighter document callback transport
+
+The cancellable JSON-RPC receive loop now serves parent-bound document requests
+through the shared reader. The explicit lazy highlighter entry point advertises
+`documentReader: true` without embedding source text. Responses respect the
+message-size limit; parent cancellation, timeout, success, and failure retire
+the broker and send best-effort child cleanup.
+
+The compiled example requests only the new side, twice. Its integration test
+verifies one source fetch, no old-side fetch, and a successful ordinary request
+afterward. A held-read cancellation test verifies prompt caller cancellation,
+continued child responsiveness, and completion of the retained shared read
+without publishing a stale callback into a later request.
+
+All eight compiled highlighter tests and workspace Clippy pass. This connects
+the host transport and example, not the live TUI source-bound runtime or a
+general executable SDK callback helper. Those still require integration;
+no ledger mapping or complete lazy-read parity is claimed.
+
 ## Parent-bound document callback broker
 
 The host now has a request-scoped broker around its existing shared document

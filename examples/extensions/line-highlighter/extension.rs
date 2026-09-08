@@ -8,14 +8,14 @@ use workdeck_extension_api::{
     JsonRpcResponse, LineHighlightRequest, Registration,
 };
 
-pub fn serve<R: BufRead, W: Write>(mut input: R, mut output: W) -> io::Result<()> {
+pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result<()> {
     let mut require_cleanup = false;
     let mut mark_annotations = false;
     let mut last_annotation_width: Option<usize> = None;
     let mut active_request = None;
-    loop {
+    'requests: loop {
         let mut line = String::new();
-        if input.read_line(&mut line)? == 0 {
+        if incoming.read_line(&mut line)? == 0 {
             return Ok(());
         }
         let value: Value = serde_json::from_str(&line).map_err(io::Error::other)?;
@@ -80,12 +80,36 @@ pub fn serve<R: BufRead, W: Write>(mut input: R, mut output: W) -> io::Result<()
                     continue;
                 }
                 active_request = Some(request.id);
-                let input: LineHighlightRequest =
+                let lazy = request
+                    .params
+                    .get("documentReader")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let mut input: LineHighlightRequest =
                     serde_json::from_value(request.params).map_err(io::Error::other)?;
                 if input.highlighter_id == "hang" {
                     // Leave the request unresolved while continuing to service
                     // lifecycle notifications from the host.
                     continue;
+                }
+                if lazy {
+                    for child_id in [1, 2] {
+                        match read_document(&mut incoming, &mut output, request.id, child_id) {
+                            Ok(text) => {
+                                input
+                                    .documents
+                                    .insert(workdeck_extension_api::ExtensionFileSide::New, text);
+                            }
+                            Err(error) if error.kind() == io::ErrorKind::Interrupted => {
+                                active_request = None;
+                                continue 'requests;
+                            }
+                            Err(error) => {
+                                write_error(&mut output, request.id, -32602, &error.to_string())?;
+                                continue 'requests;
+                            }
+                        }
+                    }
                 }
                 let old = input
                     .documents
@@ -98,7 +122,7 @@ pub fn serve<R: BufRead, W: Write>(mut input: R, mut output: W) -> io::Result<()
                     .cloned()
                     .flatten();
                 if input.aborted
-                    || old.as_deref() != Some("old\n")
+                    || (!lazy && old.as_deref() != Some("old\n"))
                     || new.as_deref() != Some("new\n")
                 {
                     write_error(
@@ -143,6 +167,47 @@ pub fn serve<R: BufRead, W: Write>(mut input: R, mut output: W) -> io::Result<()
             }
             _ => write_error(&mut output, request.id, -32601, "method not found")?,
         }
+    }
+}
+
+fn read_document(
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+    parent_id: u64,
+    child_id: u64,
+) -> io::Result<Option<String>> {
+    serde_json::to_writer(
+        &mut *output,
+        &serde_json::json!({ "jsonrpc": "2.0", "id": child_id,
+        "method": workdeck_extension_api::EXTENSION_DOCUMENT_READ_METHOD,
+        "params": { "parentRequestId": parent_id, "side": "new" } }),
+    )
+    .map_err(io::Error::other)?;
+    output.write_all(b"\n")?;
+    output.flush()?;
+    loop {
+        let mut line = String::new();
+        if input.read_line(&mut line)? == 0 {
+            return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
+        }
+        let value: Value = serde_json::from_str(&line).map_err(io::Error::other)?;
+        if value.get("method").and_then(Value::as_str) == Some("$/cancelRequest") {
+            if value.pointer("/params/id").and_then(Value::as_u64) == Some(parent_id) {
+                return Err(io::Error::from(io::ErrorKind::Interrupted));
+            }
+            continue;
+        }
+        if value.get("id").and_then(Value::as_u64) != Some(child_id) {
+            return Err(io::Error::other("unexpected document response ID"));
+        }
+        if let Some(error) = value.get("error") {
+            return Err(io::Error::other(error.to_string()));
+        }
+        return match value.get("result") {
+            Some(Value::Null) => Ok(None),
+            Some(Value::String(text)) => Ok(Some(text.clone())),
+            _ => Err(io::Error::other("invalid document response")),
+        };
     }
 }
 

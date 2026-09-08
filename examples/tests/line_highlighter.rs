@@ -69,6 +69,91 @@ fn review_file(path: &str) -> workdeck_core::DiffFile {
 }
 
 #[test]
+fn cancelling_lazy_read_keeps_host_responsive_and_shared_read_alive() {
+    let (_directory, manifest) = staged_extension();
+    let mut extension = LoadedExtension::spawn(&manifest, "test").unwrap();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let release_rx = std::sync::Mutex::new(release_rx);
+    let reader = workdeck_extension_host::ExtensionDocumentReader::new(move |_| {
+        started_tx.send(()).unwrap();
+        release_rx
+            .lock()
+            .unwrap()
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        Ok(Some("new\n".into()))
+    });
+    let retained = reader.clone();
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let worker_cancelled = cancelled.clone();
+    let mut worker_extension = extension.clone();
+    let worker = std::thread::spawn(move || {
+        worker_extension.highlight_file_with_document_reader(
+            "attention",
+            &review_file("request.rs"),
+            &worker_cancelled,
+            reader,
+        )
+    });
+    started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    let started = Instant::now();
+    cancelled.store(true, Ordering::Release);
+    assert!(matches!(
+        worker.join().unwrap(),
+        Err(HostError::Cancelled(_))
+    ));
+    assert!(started.elapsed() < Duration::from_millis(500));
+    assert!(
+        extension
+            .highlight_file("attention", &review_file("request.rs"))
+            .is_ok()
+    );
+    release_tx.send(()).unwrap();
+    assert_eq!(
+        retained
+            .read_document(workdeck_extension_api::ExtensionFileSide::New)
+            .wait_until(
+                &workdeck_extension_host::ExtensionRequestCancellation::default(),
+                Instant::now() + Duration::from_secs(5)
+            )
+            .unwrap(),
+        Some("new\n".into())
+    );
+    assert!(
+        extension
+            .highlight_file("attention", &review_file("request.rs"))
+            .is_ok()
+    );
+}
+
+#[test]
+fn lazy_native_highlighter_reads_only_requested_side_once_per_parent() {
+    let (_directory, manifest) = staged_extension();
+    let mut extension = LoadedExtension::spawn(&manifest, "test").unwrap();
+    let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let observed = reads.clone();
+    let reader = workdeck_extension_host::ExtensionDocumentReader::new(move |side| {
+        assert_eq!(side, workdeck_extension_api::ExtensionFileSide::New);
+        observed.fetch_add(1, Ordering::SeqCst);
+        Ok(Some("new\n".into()))
+    });
+    let mut file = review_file("request.rs");
+    file.sources = FileSourceSnapshots::default();
+    assert_eq!(reads.load(Ordering::SeqCst), 0);
+    let marks = extension
+        .highlight_file_with_document_reader("attention", &file, &AtomicBool::new(false), reader)
+        .unwrap();
+    assert_eq!(marks[0]["range"], serde_json::json!([0, 3]));
+    assert_eq!(reads.load(Ordering::SeqCst), 1);
+    assert!(
+        extension
+            .highlight_file("attention", &review_file("request.rs"))
+            .is_ok()
+    );
+}
+
+#[test]
 fn native_request_cleanup_precedes_the_next_call_after_success_or_failure() {
     let (_directory, manifest) = staged_extension();
     let mut extension = LoadedExtension::spawn_with_configuration(
