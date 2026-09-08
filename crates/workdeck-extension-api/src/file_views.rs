@@ -226,15 +226,16 @@ pub struct FileViewLayoutRequest {
 
 /// Immutable input for one native line-highlighter calculation.
 ///
-/// Hunk exposed a lazy `readDocument(side)` callback in-process. Workdeck
-/// transfers the same frozen old/new snapshots with the request so native
-/// subprocesses cannot race a reload or require nested JSON-RPC calls.
+/// When `document_reader` is true, source text is requested with parent-bound
+/// `workdeck/document/read` calls. Otherwise `documents` contains snapshots.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LineHighlightRequest {
     pub highlighter_id: String,
     pub file: ExtensionDiffFile,
     pub documents: BTreeMap<ExtensionFileSide, Option<String>>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub document_reader: bool,
     #[serde(default)]
     pub aborted: bool,
 }
@@ -336,15 +337,37 @@ mod tests {
             .into_iter()
             .collect(),
             aborted: false,
+            document_reader: false,
         };
         let encoded = serde_json::to_value(&request).unwrap();
         assert_eq!(encoded["highlighterId"], "attention");
         assert_eq!(encoded["documents"]["old"], "old\n");
         assert_eq!(encoded["documents"]["new"], "new\n");
         assert_eq!(encoded["aborted"], false);
+        assert!(encoded.get("documentReader").is_none());
         assert_eq!(
             serde_json::from_value::<LineHighlightRequest>(encoded).unwrap(),
             request
         );
+    }
+
+    #[test]
+    fn lazy_line_highlight_request_has_typed_callback_capability() {
+        let request = LineHighlightRequest {
+            highlighter_id: "attention".into(),
+            file: extension_file(),
+            documents: BTreeMap::new(),
+            document_reader: true,
+            aborted: false,
+        };
+        let mut encoded = serde_json::to_value(&request).unwrap();
+        assert_eq!(encoded["documentReader"], true);
+        assert_eq!(encoded["documents"], serde_json::json!({}));
+        assert_eq!(
+            serde_json::from_value::<LineHighlightRequest>(encoded.clone()).unwrap(),
+            request
+        );
+        encoded["documentReader"] = serde_json::json!("true");
+        assert!(serde_json::from_value::<LineHighlightRequest>(encoded).is_err());
     }
 }

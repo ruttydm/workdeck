@@ -80,13 +80,9 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
                     continue;
                 }
                 active_request = Some(request.id);
-                let lazy = request
-                    .params
-                    .get("documentReader")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
                 let mut input: LineHighlightRequest =
                     serde_json::from_value(request.params).map_err(io::Error::other)?;
+                let lazy = input.document_reader;
                 if input.highlighter_id == "hang" {
                     // Leave the request unresolved while continuing to service
                     // lifecycle notifications from the host.

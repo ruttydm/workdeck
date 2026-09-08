@@ -2,6 +2,12 @@
 
 ## Native highlighter document callback transport
 
+The callback capability is now a typed `LineHighlightRequest.document_reader`
+field shared by the host and compiled example. Omitted capability fields decode
+as false and the eager wire shape remains unchanged. Wire tests round-trip both
+modes and reject a string-valued capability. This does not switch the live TUI
+to lazy reads or supply a general SDK callback helper.
+
 The cancellable JSON-RPC receive loop now serves parent-bound document requests
 through the shared reader. The explicit lazy highlighter entry point advertises
 `documentReader: true` without embedding source text. Responses respect the

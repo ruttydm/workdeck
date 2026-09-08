@@ -2152,6 +2152,7 @@ impl LoadedExtension {
                 highlighter_id: highlighter_id.to_owned(),
                 file: project_extension_diff_file(file),
                 documents,
+                document_reader: false,
                 aborted: false,
             },
             LINE_HIGHLIGHT_TIMEOUT,
@@ -2171,8 +2172,16 @@ impl LoadedExtension {
         self.require_line_highlighter(highlighter_id)?;
         self.request_cancellable(
             "workdeck/line-highlighter/highlight",
-            serde_json::json!({ "highlighterId": highlighter_id, "file": project_extension_diff_file(file), "documents": {}, "documentReader": true, "aborted": false }),
-            LINE_HIGHLIGHT_TIMEOUT, cancelled, Some(documents),
+            LineHighlightRequest {
+                highlighter_id: highlighter_id.to_owned(),
+                file: project_extension_diff_file(file),
+                documents: BTreeMap::new(),
+                document_reader: true,
+                aborted: false,
+            },
+            LINE_HIGHLIGHT_TIMEOUT,
+            cancelled,
+            Some(documents),
         )
     }
 
