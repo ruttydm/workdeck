@@ -3,6 +3,73 @@
 use anyhow::{Result, bail};
 use serde::Serialize;
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+
+/// Resolve existing parent directories and at most eight executable symlink hops, matching
+/// the source installer even when the final binary has not been installed yet.
+fn canonical_executable_path(path: &Path) -> std::io::Result<PathBuf> {
+    let mut path = path.to_owned();
+    for depth in 0..=8 {
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        let physical = std::fs::canonicalize(parent)?;
+        let name = path
+            .file_name()
+            .ok_or_else(|| std::io::Error::other("executable path has no file name"))?;
+        let candidate = physical.join(name);
+        if depth < 8
+            && let Ok(target) = std::fs::read_link(&candidate)
+        {
+            path = if target.is_absolute() {
+                target
+            } else {
+                physical.join(target)
+            };
+            continue;
+        }
+        return Ok(candidate);
+    }
+    unreachable!()
+}
+
+fn executable_identity(path: &Path) -> PathBuf {
+    canonical_executable_path(path).unwrap_or_else(|_| path.to_owned())
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum Shadowing {
+    NotOnPath,
+    ShadowsTarget,
+    ShadowedByTarget,
+}
+
+fn shadowing(candidate: &Path, target: &Path, entries: &[PathBuf], executable: &str) -> Shadowing {
+    let candidate = executable_identity(candidate);
+    let target = executable_identity(target);
+    let identities: Vec<_> = entries
+        .iter()
+        .map(|entry| {
+            let directory = if entry.as_os_str().is_empty() {
+                Path::new(".")
+            } else {
+                entry
+            };
+            executable_identity(&directory.join(executable))
+        })
+        .collect();
+    match (
+        identities.iter().position(|path| path == &candidate),
+        identities.iter().position(|path| path == &target),
+    ) {
+        (None, _) => Shadowing::NotOnPath,
+        (Some(_), None) => Shadowing::ShadowsTarget,
+        (Some(candidate), Some(target)) if candidate < target => Shadowing::ShadowsTarget,
+        _ => Shadowing::ShadowedByTarget,
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -85,10 +152,32 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> Result<()> {
                     && output.stdout.strip_suffix(b"\n").unwrap_or(&output.stdout) == b"1"
             });
     let (os, arch) = platform(std::env::consts::OS, std::env::consts::ARCH, translated)?;
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("No home directory is available for installer preflight"))?;
+    let bin = std::env::var_os("WORKDECK_INSTALL_DIR")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(home).join(".workdeck/bin"));
+    let executable = if os == "windows" {
+        "workdeck.exe"
+    } else {
+        "workdeck"
+    };
+    let target = bin.join(executable);
+    let target_identity = executable_identity(&target);
+    let entries: Vec<_> =
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).collect();
+    // These are file observations, not completed executable/manager conflict classification.
+    let existing_path_files: Vec<_> = entries.iter().map(|entry| entry.join(executable))
+        .filter(|path| path.is_file() && executable_identity(path) != target_identity)
+        .map(|path| serde_json::json!({"path": path, "identity": executable_identity(&path), "shadowing": shadowing(&path, &target, &entries, executable)})).collect();
     println!(
         "{}",
         serde_json::to_string_pretty(&serde_json::json!({
-            "options": options, "os": os, "arch": arch, "executionAvailable": false,
+        "options": options, "os": os, "arch": arch, "executionAvailable": false,
+        "targetBinary": target, "targetIdentity": target_identity, "existingPathFiles": existing_path_files,
             "remaining": ["release resolution", "competing installs", "verified archive extraction", "atomic installation", "shell profile updates"]
         }))?
     );
@@ -98,6 +187,78 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn identity_handles_missing_binary_and_path_order_without_writes() {
+        let directory = tempfile::tempdir().unwrap();
+        let first = directory.path().join("first");
+        let second = directory.path().join("second");
+        std::fs::create_dir(&first).unwrap();
+        std::fs::create_dir(&second).unwrap();
+        let target = first.join("workdeck");
+        let candidate = second.join("workdeck");
+        assert_eq!(
+            canonical_executable_path(&target).unwrap(),
+            first.canonicalize().unwrap().join("workdeck")
+        );
+        assert_eq!(
+            shadowing(
+                &candidate,
+                &target,
+                &[second.clone(), first.clone()],
+                "workdeck"
+            ),
+            Shadowing::ShadowsTarget
+        );
+        assert_eq!(
+            shadowing(
+                &candidate,
+                &target,
+                &[first.clone(), second.clone()],
+                "workdeck"
+            ),
+            Shadowing::ShadowedByTarget
+        );
+        assert_eq!(
+            shadowing(&candidate, &target, &[first], "workdeck"),
+            Shadowing::NotOnPath
+        );
+        assert_eq!(
+            shadowing(&candidate, &target, &[second], "workdeck"),
+            Shadowing::ShadowsTarget
+        );
+        assert!(!target.exists() && !candidate.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn executable_symlinks_resolve_relative_absolute_and_stop_at_eight_hops() {
+        use std::os::unix::fs::symlink;
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().canonicalize().unwrap();
+        symlink("missing-workdeck", root.join("relative")).unwrap();
+        symlink(root.join("relative"), root.join("absolute")).unwrap();
+        assert_eq!(
+            canonical_executable_path(&root.join("absolute")).unwrap(),
+            root.join("missing-workdeck")
+        );
+        for index in 0..10 {
+            symlink(
+                format!("link{}", index + 1),
+                root.join(format!("link{index}")),
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            canonical_executable_path(&root.join("link0")).unwrap(),
+            root.join("link8")
+        );
+        symlink("loop", root.join("loop")).unwrap();
+        assert_eq!(
+            canonical_executable_path(&root.join("loop")).unwrap(),
+            root.join("loop")
+        );
+    }
 
     #[test]
     fn installer_options_preserve_source_order_environment_and_single_prefix_removal() {

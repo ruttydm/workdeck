@@ -11,6 +11,12 @@ only when exactly `1`. Last positional version wins, and one leading `v` is remo
 explicitly sets `executionAvailable: false`: release resolution, conflict checks, verified archive
 extraction, atomic installation and shell-profile updates remain unfinished. This is not an
 installer or updater replacement yet and must not justify removing the existing implementation.
+Preflight also reports the target binary (default `~/.workdeck/bin/workdeck`, or `workdeck.exe`
+on Windows; overridden by `WORKDECK_INSTALL_DIR`) and existing files found at PATH entries.
+Parent directories and up to eight executable symlink hops determine identity; diagnostics
+classify whether each observed path precedes or follows the target. Candidate programs are never
+executed. File observations are not full conflict validation: executable permission checks,
+manager-aware deduplication/remediation and inactive-manager scans are still pending.
 
 ```console
 cargo xtask release channel --event push --ref v0.19.0 --current-latest 0.18.2
