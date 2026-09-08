@@ -21,3 +21,10 @@ accounting, complete pipe drainage, and a successful subsequent protocol request
 `example/late-response-burst` settles a serialized request and then emits 128 late
 replies with that request's ID. The integration test immediately runs a routed
 highlighter and another serialized request; revoked output must not block either.
+
+`example/stop-reading` acknowledges its request and then stops consuming stdin.
+Unix integration tests send a large frame to saturate that pipe and require a
+write deadline or cancellation to return promptly, release routed ownership,
+reject later requests on the failed stream, and permit retirement. Windows uses
+the same fixture but does not yet have a cancellable native pipe implementation;
+these pipe-saturation tests are not claimed as Windows evidence.

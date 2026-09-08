@@ -102,6 +102,154 @@ fn late_serialized_reply_burst_cannot_block_a_routed_highlighter_request() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn stopped_native_reader_obeys_write_deadline_and_cannot_reuse_partial_stream() {
+    let (_directory, manifest) = staged_extension();
+    let mut extension = LoadedExtension::spawn_with_configuration(
+        &manifest,
+        "test",
+        serde_json::json!({"includeHang":false}),
+    )
+    .unwrap();
+    extension
+        .request(
+            "example/stop-reading",
+            serde_json::json!({}),
+            Duration::from_secs(2),
+        )
+        .unwrap();
+    // Exceed the native pipe capacity without spending the short transport
+    // budget serializing a multi-megabyte debug-build JSON value.
+    let payload = serde_json::json!({"data":"x".repeat(512 * 1024)});
+    let started = Instant::now();
+    assert!(matches!(
+        extension.request("example/blocked", payload, Duration::from_millis(500)),
+        Err(HostError::Timeout(_))
+    ));
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "pipe write exceeded its bounded request deadline"
+    );
+    assert!(matches!(
+        extension.request(
+            "example/last-annotation-width",
+            serde_json::json!({}),
+            Duration::from_secs(2)
+        ),
+        Err(HostError::Closed(_))
+    ));
+    let started = Instant::now();
+    extension.retire();
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "retirement attempted another blocking write"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn cancelled_native_write_releases_routed_parent_without_waiting_for_response_deadline() {
+    let (_directory, manifest) = staged_extension();
+    let mut extension = LoadedExtension::spawn_with_configuration(
+        &manifest,
+        "test",
+        serde_json::json!({"includeHang":false}),
+    )
+    .unwrap();
+    extension
+        .request(
+            "example/stop-reading",
+            serde_json::json!({}),
+            Duration::from_secs(2),
+        )
+        .unwrap();
+    let mut file = review_file("cancel-write.rs");
+    file.sources.new = Some(SourceSnapshot::new(
+        "x".repeat(512 * 1024),
+        SourceOrigin::WorkingTree,
+        true,
+    ));
+    let cancelled = AtomicBool::new(false);
+    let started = Instant::now();
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            std::thread::sleep(Duration::from_millis(200));
+            cancelled.store(true, Ordering::Release);
+        });
+        assert!(matches!(
+            extension.highlight_file_cancellable("attention", &file, &cancelled),
+            Err(HostError::Cancelled(_))
+        ));
+    });
+    assert!(started.elapsed() < Duration::from_secs(1));
+    assert!(!extension.request_pending());
+    assert!(matches!(
+        extension.request(
+            "example/last-annotation-width",
+            serde_json::json!({}),
+            Duration::from_secs(2)
+        ),
+        Err(HostError::Closed(_))
+    ));
+}
+
+#[test]
+fn pre_cancelled_write_preserves_an_existing_native_parent_and_zero_deadline_preserves_stream() {
+    let (_directory, manifest) = staged_extension();
+    let mut extension = LoadedExtension::spawn(&manifest, "test").unwrap();
+    let mut peer = extension.clone();
+    let peer_cancelled = AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        let waiting = scope.spawn(|| {
+            peer.highlight_file_cancellable("hang", &review_file("peer.rs"), &peer_cancelled)
+        });
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !extension.request_pending() || extension.line_highlight_request_pending() {
+            assert!(
+                Instant::now() < deadline,
+                "peer never acquired routed ownership"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(matches!(
+            extension.highlight_file_cancellable(
+                "attention",
+                &review_file("cancelled.rs"),
+                &AtomicBool::new(true)
+            ),
+            Err(HostError::Cancelled(_))
+        ));
+        assert!(
+            extension.request_pending(),
+            "pre-write cancellation revoked the unrelated parent"
+        );
+        peer_cancelled.store(true, Ordering::Release);
+        assert!(matches!(
+            waiting.join().unwrap(),
+            Err(HostError::Cancelled(_))
+        ));
+    });
+    assert!(matches!(
+        extension.request(
+            "example/last-annotation-width",
+            serde_json::json!({}),
+            Duration::ZERO
+        ),
+        Err(HostError::Timeout(_))
+    ));
+    assert_eq!(
+        extension
+            .request(
+                "example/last-annotation-width",
+                serde_json::json!({}),
+                Duration::from_secs(2)
+            )
+            .unwrap(),
+        serde_json::Value::Null
+    );
+}
+
 #[test]
 fn stderr_flood_is_bounded_while_native_requests_remain_responsive() {
     let (_directory, manifest) = staged_extension();

@@ -547,6 +547,7 @@ struct ExtensionSpawnContext {
 struct ExtensionConnection {
     child: Child,
     stdin: ChildStdin,
+    write_failed: bool,
     responses: response_queue::ResponseReceiver,
     response_routes: Arc<Mutex<ExtensionResponseRoutes>>,
     next_id: u64,
@@ -880,7 +881,7 @@ impl LoadedExtension {
             .stdin
             .take()
             .ok_or_else(|| HostError::MissingPipe(manifest.id.clone()))?;
-        #[cfg(target_os = "macos")]
+        #[cfg(unix)]
         if let Err(source) = child_pipe::configure_child_pipe(&stdin) {
             let _ = child.kill();
             let _ = child.wait();
@@ -956,6 +957,7 @@ impl LoadedExtension {
             connection: Arc::new(Mutex::new(ExtensionConnection {
                 child,
                 stdin,
+                write_failed: false,
                 responses,
                 response_routes,
                 next_id: 1,
@@ -1053,10 +1055,28 @@ impl LoadedExtension {
             })
     }
 
+    fn connection_for_write(
+        &self,
+        budget: child_pipe::WriteBudget<'_>,
+    ) -> Result<MutexGuard<'_, ExtensionConnection>, HostError> {
+        loop {
+            match self.try_connection() {
+                Err(HostError::Busy(_)) => budget.wait().map_err(|error| match error.kind() {
+                    std::io::ErrorKind::Interrupted => {
+                        HostError::Cancelled(self.manifest.id.clone())
+                    }
+                    _ => HostError::Timeout(self.manifest.id.clone()),
+                })?,
+                result => return result,
+            }
+        }
+    }
+
     /// Revoke all retained authority and start best-effort native shutdown exactly once.
     ///
-    /// This half is deliberately nonblocking so a collection of extensions can all receive the
-    /// retirement signal before sharing one global deadline.
+    /// On Unix this half never waits for pipe capacity, so a collection of extensions can all
+    /// receive the retirement signal before sharing one global deadline. Windows still needs
+    /// a cancellable replacement for its synchronous child pipe.
     #[must_use]
     pub fn begin_retirement(&mut self) -> bool {
         if !self.registry.begin_closing() {
@@ -1105,6 +1125,7 @@ impl LoadedExtension {
         params: impl Serialize,
         timeout: Duration,
     ) -> Result<Value, HostError> {
+        let deadline = Instant::now() + timeout;
         let mut connection = self.try_connection()?;
         if connection.pending_request.is_some()
             || connection
@@ -1116,8 +1137,13 @@ impl LoadedExtension {
             return Err(HostError::Busy(self.manifest.id.clone()));
         }
         let _response_lease = self.begin_response_lease(&connection)?;
-        let id = self.send_request_on(&mut connection, method, params)?;
-        let line = self.receive_protocol_line_on(&connection, id, Instant::now() + timeout)?;
+        let id = self.send_request_on(
+            &mut connection,
+            method,
+            params,
+            child_pipe::WriteBudget::Until(deadline, None),
+        )?;
+        let line = self.receive_protocol_line_on(&connection, id, deadline)?;
         self.decode_response(id, &line)
     }
 
@@ -1129,6 +1155,8 @@ impl LoadedExtension {
         cancelled: &AtomicBool,
         documents: Option<ExtensionDocumentReader>,
     ) -> Result<Value, HostError> {
+        let deadline = Instant::now() + timeout;
+        let budget = child_pipe::WriteBudget::Until(deadline, Some(cancelled));
         let mut connection = self.try_connection()?;
         if connection.pending_request.is_some() {
             return Err(HostError::Busy(self.manifest.id.clone()));
@@ -1143,7 +1171,7 @@ impl LoadedExtension {
                 ResponseRouteError::Closed => HostError::Closed(self.manifest.id.clone()),
                 _ => HostError::Busy(self.manifest.id.clone()),
             })?;
-        if let Err(error) = self.send_request_on(&mut connection, method, params) {
+        if let Err(error) = self.send_request_on(&mut connection, method, params, budget) {
             routes
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
@@ -1151,7 +1179,6 @@ impl LoadedExtension {
             return Err(error);
         }
         drop(connection);
-        let deadline = Instant::now() + timeout;
         let mut documents = documents.map(|reader| ExtensionDocumentRequests::new(id, reader));
         let result = (|| {
             let line = loop {
@@ -1174,12 +1201,10 @@ impl LoadedExtension {
                             break;
                         };
                         self.send_document_response_on(
-                            &mut self
-                                .connection
-                                .lock()
-                                .unwrap_or_else(|error| error.into_inner()),
+                            &mut *self.connection_for_write(budget)?,
                             child_id,
                             Ok(value),
+                            budget,
                         )?;
                     }
                 }
@@ -1220,12 +1245,10 @@ impl LoadedExtension {
                             };
                             if let Err(error) = accepted {
                                 self.send_document_response_on(
-                                    &mut self
-                                        .connection
-                                        .lock()
-                                        .unwrap_or_else(|error| error.into_inner()),
+                                    &mut *self.connection_for_write(budget)?,
                                     request.id,
                                     Err(error),
+                                    budget,
                                 )?;
                             }
                             continue;
@@ -1254,14 +1277,21 @@ impl LoadedExtension {
         // Hunk's line-highlight request aborts its child signal in finally,
         // including success and extension errors. Preserve the decoded result
         // if the child closes before best-effort cleanup can be delivered.
-        let _ = self.send_notification_on(
-            &mut self
-                .connection
-                .lock()
-                .unwrap_or_else(|error| error.into_inner()),
-            "$/cancelRequest",
-            serde_json::json!({ "id": id }),
-        );
+        let cleanup_budget = if cancelled.load(Ordering::Acquire) || Instant::now() >= deadline {
+            child_pipe::WriteBudget::Immediate
+        } else {
+            child_pipe::WriteBudget::Until(deadline, None)
+        };
+        let _ = self
+            .connection_for_write(cleanup_budget)
+            .and_then(|mut connection| {
+                self.send_notification_with_budget_on(
+                    &mut connection,
+                    "$/cancelRequest",
+                    serde_json::json!({ "id": id }),
+                    cleanup_budget,
+                )
+            });
         routes
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -1274,6 +1304,7 @@ impl LoadedExtension {
         connection: &mut ExtensionConnection,
         id: u64,
         result: Result<Option<String>, String>,
+        budget: child_pipe::WriteBudget<'_>,
     ) -> Result<(), HostError> {
         let response = match result {
             Ok(value) => serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": value }),
@@ -1290,12 +1321,7 @@ impl LoadedExtension {
             encoded = serde_json::to_vec(&serde_json::json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32000, "message": "document response exceeds message limit" } })).expect("fixed JSON response is serializable");
         }
         encoded.push(b'\n');
-        child_pipe::write_child_frame(&mut connection.stdin, &encoded).map_err(|source| {
-            HostError::Io {
-                id: self.manifest.id.clone(),
-                source,
-            }
-        })
+        self.write_frame_on(connection, &encoded, budget)
     }
 
     fn vcs_adapter_registration(
@@ -1496,6 +1522,7 @@ impl LoadedExtension {
         connection: &mut ExtensionConnection,
         method: &str,
         params: impl Serialize,
+        budget: child_pipe::WriteBudget<'_>,
     ) -> Result<u64, HostError> {
         let id = protocol_frame::allocate_request_id(&mut connection.next_id).ok_or_else(|| {
             HostError::InvalidPayload {
@@ -1521,12 +1548,7 @@ impl LoadedExtension {
             });
         }
         encoded.push(b'\n');
-        child_pipe::write_child_frame(&mut connection.stdin, &encoded).map_err(|source| {
-            HostError::Io {
-                id: self.manifest.id.clone(),
-                source,
-            }
-        })?;
+        self.write_frame_on(connection, &encoded, budget)?;
         Ok(id)
     }
 
@@ -1535,6 +1557,21 @@ impl LoadedExtension {
         connection: &mut ExtensionConnection,
         method: &str,
         params: impl Serialize,
+    ) -> Result<(), HostError> {
+        self.send_notification_with_budget_on(
+            connection,
+            method,
+            params,
+            child_pipe::WriteBudget::Immediate,
+        )
+    }
+
+    fn send_notification_with_budget_on(
+        &self,
+        connection: &mut ExtensionConnection,
+        method: &str,
+        params: impl Serialize,
+        budget: child_pipe::WriteBudget<'_>,
     ) -> Result<(), HostError> {
         let notification =
             JsonRpcNotification::new(method, params).map_err(|source| HostError::InvalidJson {
@@ -1553,10 +1590,47 @@ impl LoadedExtension {
             });
         }
         encoded.push(b'\n');
-        child_pipe::write_child_frame(&mut connection.stdin, &encoded).map_err(|source| {
-            HostError::Io {
-                id: self.manifest.id.clone(),
-                source,
+        self.write_frame_on(connection, &encoded, budget)
+    }
+
+    fn write_frame_on(
+        &self,
+        connection: &mut ExtensionConnection,
+        encoded: &[u8],
+        budget: child_pipe::WriteBudget<'_>,
+    ) -> Result<(), HostError> {
+        if connection.write_failed {
+            return Err(HostError::Closed(self.manifest.id.clone()));
+        }
+        child_pipe::write_child_frame(&mut connection.stdin, encoded, budget).map_err(|failure| {
+            // A failed write may have emitted a prefix. Never append another JSON
+            // frame to that stream, even if the extension starts reading again.
+            // Cancellation/deadline expiry before the first byte leaves the stream
+            // intact and must not revoke unrelated routed parents.
+            let kind = failure.kind();
+            if failure.written > 0
+                || !matches!(
+                    kind,
+                    std::io::ErrorKind::TimedOut | std::io::ErrorKind::Interrupted
+                )
+            {
+                connection.write_failed = true;
+                connection.pending_request = None;
+                connection
+                    .response_routes
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .close();
+                let _ = self.registry.begin_closing();
+                let _ = connection.child.kill();
+            }
+            match kind {
+                std::io::ErrorKind::TimedOut => HostError::Timeout(self.manifest.id.clone()),
+                std::io::ErrorKind::Interrupted => HostError::Cancelled(self.manifest.id.clone()),
+                _ => HostError::Io {
+                    id: self.manifest.id.clone(),
+                    source: failure.source,
+                },
             }
         })
     }
@@ -1788,6 +1862,7 @@ impl LoadedExtension {
             return Err(HostError::Busy(self.manifest.id.clone()));
         }
         let _response_lease = self.begin_response_lease(&connection)?;
+        let deadline = Instant::now() + timeout;
         let id = self.send_request_on(
             &mut connection,
             "workdeck/cli/invoke",
@@ -1796,8 +1871,8 @@ impl LoadedExtension {
                 args,
                 cwd: cwd.to_owned(),
             },
+            child_pipe::WriteBudget::Until(deadline, Some(cancelled)),
         )?;
-        let deadline = Instant::now() + timeout;
         let mut stdout_bytes = 0_usize;
         let mut cancellation_sent = false;
         let mut stdin_read_started = false;
@@ -1833,7 +1908,7 @@ impl LoadedExtension {
                         let done = bytes.is_empty();
                         stdin_consumed |= !done;
                         stdin_done |= done;
-                        self.send_notification_on(
+                        self.send_notification_with_budget_on(
                             &mut connection,
                             "workdeck/cli/stdin/chunk",
                             CliStdinChunk {
@@ -1843,6 +1918,7 @@ impl LoadedExtension {
                                 done,
                                 error: None,
                             },
+                            child_pipe::WriteBudget::Until(deadline, Some(cancelled)),
                         )?;
                         continue;
                     }
@@ -1853,7 +1929,7 @@ impl LoadedExtension {
                             deferred_io_error = Some(source);
                         }
                         stdin_done = true;
-                        self.send_notification_on(
+                        self.send_notification_with_budget_on(
                             &mut connection,
                             "workdeck/cli/stdin/chunk",
                             CliStdinChunk {
@@ -1863,6 +1939,7 @@ impl LoadedExtension {
                                 done: true,
                                 error: Some(message),
                             },
+                            child_pipe::WriteBudget::Until(deadline, Some(cancelled)),
                         )?;
                         continue;
                     }
@@ -1951,7 +2028,7 @@ impl LoadedExtension {
                     });
                 }
                 if stdin_done {
-                    self.send_notification_on(
+                    self.send_notification_with_budget_on(
                         &mut connection,
                         "workdeck/cli/stdin/chunk",
                         CliStdinChunk {
@@ -1961,6 +2038,7 @@ impl LoadedExtension {
                             done: true,
                             error: None,
                         },
+                        child_pipe::WriteBudget::Until(deadline, Some(cancelled)),
                     )?;
                 } else {
                     pending_stdin_read = Some(read);
@@ -2584,10 +2662,16 @@ impl LoadedExtension {
             });
         }
         let response_lease = self.begin_response_lease(&connection)?;
-        let id = self.send_request_on(&mut connection, "workdeck/event", event)?;
+        let deadline = Instant::now() + Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS);
+        let id = self.send_request_on(
+            &mut connection,
+            "workdeck/event",
+            event,
+            child_pipe::WriteBudget::Until(deadline, None),
+        )?;
         connection.pending_request = Some(PendingExecutionRequest {
             id,
-            deadline: Instant::now() + Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+            deadline,
             kind: PendingExecutionKind::Event,
             _response_lease: response_lease,
         });
@@ -2790,6 +2874,7 @@ impl LoadedExtension {
             });
         }
         let response_lease = self.begin_response_lease(&connection)?;
+        let deadline = Instant::now() + Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS);
         let id = self.send_request_on(
             &mut connection,
             "workdeck/command/invoke",
@@ -2805,10 +2890,11 @@ impl LoadedExtension {
                 commands,
                 file_views,
             },
+            child_pipe::WriteBudget::Until(deadline, None),
         )?;
         connection.pending_request = Some(PendingExecutionRequest {
             id,
-            deadline: Instant::now() + Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+            deadline,
             kind: PendingExecutionKind::Command,
             _response_lease: response_lease,
         });

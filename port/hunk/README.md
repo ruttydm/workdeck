@@ -107,8 +107,9 @@ requires the next routed highlighter and serialized query to complete, guarding 
 an idle queue holding up the shared stdout reader. An initial assertion incorrectly
 expected a null annotation-width diagnostic after highlighting; the fixture records
 width 3 on that path, and the assertion was corrected from the fixture implementation.
-Stdin writes still precede their response deadlines, so this is a buffering bound,
-not a claim that every native transport operation is deadline-safe.
+At this queue increment, stdin writes still preceded their response deadlines;
+the later Unix write work is described below. The queue bound alone is not a
+claim that every native transport operation is deadline-safe.
 
 The initial three queue tests and 195 host tests passed before request leases were added.
 The first compiled CLI run failed seven initial handshakes
@@ -134,11 +135,11 @@ upstream commits; this local verification is not a release or full-parity approv
 
 ### Remaining native stdin deadline work
 
-`request` and `request_cancellable` currently start response deadlines after
+At `b4eb78b6`, `request` and `request_cancellable` started response deadlines after
 `send_request_on` writes and flushes the child pipe. CLI, asynchronous command/event,
-notification and document-response paths also use blocking frame writes. Moreover,
-`begin_retirement` can write a shutdown notification despite its nonblocking contract.
-The next transport increment must cover the write itself, preserve frame ordering,
+notification and document-response paths also used blocking frame writes. Moreover,
+`begin_retirement` could write a shutdown notification despite its nonblocking contract.
+The replacement must cover the write itself, preserve frame ordering,
 and retire a partially written stream rather than append a new frame after timeout.
 Cancellation/shutdown must not introduce a second blocking write on the same pipe.
 
@@ -153,8 +154,41 @@ does not itself wait for cancellation completion. Merely moving a blocking write
 an unjoined worker is therefore not accepted as deadline-safe transport. A replacement
 must retain the existing owned-pipe/thread-scoped SIGPIPE protections, test a child
 that stops reading, and verify shutdown plus subsequent-request rejection after a
-partial-frame timeout. These are unfinished implementation requirements, not evidence
-or ledger mappings.
+partial-frame timeout.
+
+The subsequent Unix implementation configures the parent's owned stdin endpoint
+with `O_NONBLOCK`, retaining Darwin's per-pipe SIGPIPE protection and the existing
+thread-scoped signal guard elsewhere. Short writes preserve their offset; full pipes
+wait in at most 2 ms slices against the same deadline as the response. Cancellable
+writes check the flag between attempts. Document-response mutex acquisition uses
+that same budget. Shutdown and expired/cancelled cleanup never wait for capacity;
+successful request cleanup can use the unexpired original deadline.
+
+Any partial-frame failure or transport I/O error makes the stream permanently
+unavailable, revokes runtime authority, closes routed parents and starts child
+termination. A cancellation or deadline before the first byte leaves the stream
+intact and does not revoke unrelated routed parents. Subsequent writes
+cannot append JSON to a partial frame. Host tests include a real nonreading child
+with an observed nonzero partial write, plus short-write, backpressure, deadline
+and cancellation tests. The compiled highlighter fixture exercises a stopped reader
+through public host APIs. Windows still uses synchronous child pipes and requires
+a proper cancellable replacement; no cross-platform deadline parity or new source
+ledger mapping is claimed by this increment.
+
+Validation passes 203 host unit tests and 62 compiled integration tests (17 sidebar,
+11 workspace, eight CLI, 23 highlighter and three startup-lifecycle tests), plus
+host/examples all-target Clippy with warnings denied, formatting, diff and architecture
+checks. During development, three new integration tests failed: two assumed their
+3 MiB JSON frame had reached the pipe before a 100 ms budget expired, and one used
+the highlighter-exclusion indicator instead of routed-request ownership. The tests
+now use a 512 KiB saturation frame with a 500 ms request deadline / 200 ms cancellation
+trigger, and wait for a routed parent without a serialized writer holding its lock.
+The strict rejection-after-partial-write assertions remain; the lower-level real pipe
+test independently observes a nonzero partial write before timeout. No production
+timeout constant was increased to make these tests pass. Pre-write cancellation and
+a zero deadline are separately required to preserve an intact stream and its peer.
+The full verification at `e3c3d795` predates this Unix write change; focused validation
+does not substitute for final workspace, benchmark or native cross-platform gates.
 
 ## Native concurrency parity gap confirmed
 

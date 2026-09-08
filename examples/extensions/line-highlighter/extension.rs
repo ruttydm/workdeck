@@ -117,6 +117,12 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
         }
         let request: JsonRpcRequest = serde_json::from_value(value).map_err(io::Error::other)?;
         match request.method.as_str() {
+            "example/stop-reading" => {
+                write_result(&mut output, request.id, Value::Null)?;
+                loop {
+                    std::thread::park();
+                }
+            }
             "example/late-response-burst" => {
                 write_result(&mut output, request.id, Value::Null)?;
                 for _ in 0..128 {
