@@ -26,6 +26,18 @@ fn archive_entry_path(name: &str) -> Result<String> {
     Ok(name.to_owned())
 }
 
+fn verify_entry_bytes(reader: &mut impl std::io::Read, expected: u64) -> Result<()> {
+    use std::io::Read;
+    let limit = expected
+        .checked_add(1)
+        .ok_or_else(|| anyhow::anyhow!("Archive entry size overflow"))?;
+    let copied = std::io::copy(&mut reader.take(limit), &mut std::io::sink())?;
+    if copied != expected {
+        bail!("Archive entry size mismatch");
+    }
+    Ok(())
+}
+
 fn inspect_archive(path: &Path) -> Result<(usize, u64)> {
     let mut names = std::collections::BTreeSet::new();
     let mut total = 0u64;
@@ -54,10 +66,8 @@ fn inspect_archive(path: &Path) -> Result<(usize, u64)> {
                 bail!("Archive links and special files are not permitted");
             }
             record(entry.name(), entry.size())?;
-            let copied = std::io::copy(&mut entry, &mut std::io::sink())?;
-            if copied != entry.size() {
-                bail!("Archive entry size mismatch");
-            }
+            let expected = entry.size();
+            verify_entry_bytes(&mut entry, expected)?;
         }
     } else {
         let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(file));
@@ -68,7 +78,8 @@ fn inspect_archive(path: &Path) -> Result<(usize, u64)> {
             }
             let bytes = entry.path_bytes();
             record(std::str::from_utf8(&bytes)?, entry.size())?;
-            std::io::copy(&mut entry, &mut std::io::sink())?;
+            let expected = entry.size();
+            verify_entry_bytes(&mut entry, expected)?;
         }
     }
     Ok((names.len(), total))
@@ -539,6 +550,23 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn archive_payload_reads_are_bounded_and_require_exact_declared_size() {
+        use std::io::Cursor;
+        assert!(verify_entry_bytes(&mut Cursor::new(b"abc"), 3).is_ok());
+        assert!(verify_entry_bytes(&mut Cursor::new(b"ab"), 3).is_err());
+        let mut oversized = Cursor::new(b"abcdefghij");
+        assert!(verify_entry_bytes(&mut oversized, 3).is_err());
+        assert_eq!(
+            oversized.position(),
+            4,
+            "stop after one excess byte, not the whole payload"
+        );
+        assert!(verify_entry_bytes(&mut std::io::repeat(0), 0).is_err());
+        assert!(verify_entry_bytes(&mut std::io::empty(), 0).is_ok());
+        assert!(verify_entry_bytes(&mut std::io::empty(), u64::MAX).is_err());
+    }
 
     #[test]
     fn archive_paths_reject_cross_platform_traversal_and_reserved_names() {
