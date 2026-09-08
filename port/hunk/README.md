@@ -10,9 +10,13 @@ IDs equal an older state's values. A retained `Arc` prevents allocation-address 
 consumer uses its identity. Caller copy-on-write edits cannot mutate the state-owned document.
 
 The public `ReviewSnapshot` still contains an owned `Changeset`; its serialized schema is not
-changed. This ownership boundary enables future geometry reuse but does not itself implement
-a geometry cache or prove a performance gate. Such reuse must also account for layout, width,
-notes, expanded gaps, filtering and extension geometry; generation alone is insufficient.
+changed. A one-entry TUI content-height cache now retains this identity after a completed plain,
+unwrapped split render. Wheel handling reuses the exact height only when document identity,
+layout, width, filtering, file/hunk spacing, header/pager settings and registry generation match.
+Notes, wrapping, expanded gaps, agent line highlighting and active extensions bypass reuse;
+complex render paths clear the retained entry. Full row geometry and painting still rebuild.
+The cache stores no painted rows and does not by itself prove a performance gate. Broader
+geometry reuse must account for all dynamic content; generation alone is insufficient.
 
 ## Ledger transactions
 

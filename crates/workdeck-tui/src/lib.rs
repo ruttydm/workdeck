@@ -1160,6 +1160,7 @@ pub struct ReviewApp {
     review_bounds: Cell<Option<Rect>>,
     review_geometry_published: Cell<bool>,
     review_prefetch: Mutex<highlight_prefetch::RapidScrollPrefetch>,
+    review_plain_height: Mutex<Option<PlainReviewHeight>>,
     review_scrollbar: Mutex<VerticalScrollbarController>,
     review_scrollbar_hits: Cell<Option<VerticalScrollbarRenderMap>>,
     sidebar_bounds: Cell<Option<Rect>>,
@@ -1446,6 +1447,7 @@ impl ReviewApp {
             review_bounds: Cell::new(None),
             review_geometry_published: Cell::new(false),
             review_prefetch: Mutex::new(highlight_prefetch::RapidScrollPrefetch::default()),
+            review_plain_height: Mutex::new(None),
             review_scrollbar: Mutex::new(VerticalScrollbarController::default()),
             review_scrollbar_hits: Cell::new(None),
             sidebar_bounds: Cell::new(None),
@@ -8736,9 +8738,7 @@ impl ReviewApp {
                     .get()
                     .saturating_sub(2 + u16::from(!self.options.pager)),
             );
-            self.current_review_geometry_rows()
-                .lines
-                .len()
+            self.current_review_content_height()
                 .saturating_sub(viewport)
         } else {
             usize::MAX
@@ -8759,6 +8759,40 @@ impl ReviewApp {
         let mut options = self.options.clone();
         options.highlight = false;
         self.current_review_rows_with_options(&options, ReviewRowPurpose::Geometry)
+    }
+
+    fn current_review_content_height(&self) -> usize {
+        if !self.options.wrap_lines
+            && self.note_composer.is_none()
+            && self.expanded_gaps.is_empty()
+            && self.agent_line_highlights.is_empty()
+        {
+            let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+            let runtime = self
+                .extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if state.comments().is_empty()
+                && runtime.extensions.is_empty()
+                && runtime.file_views.is_empty()
+                && runtime.line_highlights.registrations().is_empty()
+                && let Some(cached) = self
+                    .review_plain_height
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .as_ref()
+                && cached.matches(
+                    &state,
+                    &self.options,
+                    self.review_width.get(),
+                    &self.filter,
+                    self.extension_registry_generation,
+                )
+            {
+                return cached.height;
+            }
+        }
+        self.current_review_geometry_rows().lines.len()
     }
 
     fn retire_interactive_authority(&mut self) {
@@ -11682,6 +11716,20 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         let start = app
             .scroll
             .min(geometry.lines.len().saturating_sub(viewport));
+        *app.review_plain_height
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(PlainReviewHeight {
+            document: state.changeset_snapshot(),
+            layout,
+            width: area.width,
+            filter: app.filter.clone(),
+            file_gap: app.options.file_gap,
+            hunk_gap: app.options.hunk_gap,
+            hunk_headers: app.options.hunk_headers,
+            pager: app.options.pager,
+            registry_generation: app.extension_registry_generation,
+            height: geometry.lines.len(),
+        });
         let rapid = app
             .review_prefetch
             .lock()
@@ -11734,6 +11782,9 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             highlight_files: Some(&highlight_files),
         }
     } else {
+        *app.review_plain_height
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = None;
         ReviewRowPurpose::Paint
     };
     let mut rows = build_live_review_rows(
@@ -12155,6 +12206,42 @@ fn render_vertical_review_scrollbar(
         geometry: presentation.geometry,
         scroll_top: presentation.scroll_top,
     })
+}
+
+#[derive(Debug)]
+struct PlainReviewHeight {
+    document: Arc<Changeset>,
+    layout: LayoutMode,
+    width: u16,
+    filter: String,
+    file_gap: u16,
+    hunk_gap: u16,
+    hunk_headers: bool,
+    pager: bool,
+    registry_generation: u64,
+    height: usize,
+}
+
+impl PlainReviewHeight {
+    fn matches(
+        &self,
+        state: &ReviewState,
+        options: &ReviewOptions,
+        width: u16,
+        filter: &str,
+        registry_generation: u64,
+    ) -> bool {
+        // The retained Arc prevents address reuse; document contents cannot mutate.
+        std::ptr::eq(self.document.as_ref(), state.changeset())
+            && self.layout == state.resolved_layout(width)
+            && self.width == width
+            && self.filter == filter
+            && self.file_gap == options.file_gap
+            && self.hunk_gap == options.hunk_gap
+            && self.hunk_headers == options.hunk_headers
+            && self.pager == options.pager
+            && self.registry_generation == registry_generation
+    }
 }
 
 #[derive(Debug)]
@@ -21264,6 +21351,114 @@ mod tests {
         let frame = rendered_review_frame(&mut terminal, &app);
         assert!(!frame.contains("@@ -1,16 +1,16 @@"), "{frame}");
         assert_eq!(app.review_height.get(), height);
+    }
+
+    #[test]
+    fn plain_height_cache_invalidates_settings_and_equal_generation_replacement() {
+        let review = navigation_changeset(vec![
+            ("a.rs".into(), "old\n".repeat(3), "new\n".repeat(3)),
+            ("b.rs".into(), "old\n".repeat(4), "new\n".repeat(4)),
+        ]);
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                wrap_lines: false,
+                sidebar: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        let original = app.options.clone();
+        let width = app.review_width.get();
+        let registry_generation = app.extension_registry_generation;
+        assert!(app.review_plain_height.lock().unwrap().is_some());
+        assert_eq!(
+            app.current_review_content_height(),
+            app.current_review_geometry_rows().lines.len()
+        );
+        for case in 0..8 {
+            app.options = original.clone();
+            app.extension_registry_generation = registry_generation;
+            app.filter.clear();
+            app.review_width.set(width);
+            app.with_state(|state| state.set_layout(LayoutMode::Split));
+            match case {
+                0 => app.options.file_gap += 1,
+                1 => app.options.hunk_gap += 1,
+                2 => app.options.hunk_headers = !app.options.hunk_headers,
+                3 => app.options.pager = !app.options.pager,
+                4 => app.review_width.set(width + 1),
+                5 => app.filter = "a.rs".into(),
+                6 => app.with_state(|state| state.set_layout(LayoutMode::Stack)),
+                _ => app.extension_registry_generation = registry_generation.wrapping_add(1),
+            }
+            app.with_state(|state| {
+                assert!(
+                    !app.review_plain_height
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .unwrap()
+                        .matches(
+                            state,
+                            &app.options,
+                            app.review_width.get(),
+                            &app.filter,
+                            app.extension_registry_generation
+                        )
+                )
+            });
+            assert_eq!(
+                app.current_review_content_height(),
+                app.current_review_geometry_rows().lines.len()
+            );
+        }
+        app.options = original;
+        app.extension_registry_generation = registry_generation;
+        app.filter.clear();
+        app.review_width.set(width);
+        let replacement = navigation_changeset(vec![(
+            "replacement.rs".into(),
+            "old\n".repeat(30),
+            "new\n".repeat(30),
+        )]);
+        let mut replacement = ReviewState::new(replacement);
+        replacement.set_layout(LayoutMode::Split);
+        assert_eq!(
+            app.with_state(|state| state.generation()),
+            replacement.generation()
+        );
+        *app.shared_state().lock().unwrap() = replacement;
+        assert_ne!(
+            app.current_review_content_height(),
+            app.review_plain_height
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .height
+        );
+        assert_eq!(
+            app.current_review_content_height(),
+            app.current_review_geometry_rows().lines.len()
+        );
+        // Notes/wrapping bypass the cache even on the same document.
+        rendered_review_frame(&mut terminal, &app);
+        let key = app.with_state(|state| state.changeset().files[0].key.clone());
+        app.with_state(|state| {
+            state
+                .add_comment(saved_comment(&key, "height-note", "extra note"))
+                .unwrap()
+        });
+        assert_eq!(
+            app.current_review_content_height(),
+            app.current_review_geometry_rows().lines.len()
+        );
+        app.options.wrap_lines = true;
+        rendered_review_frame(&mut terminal, &app);
+        assert!(app.review_plain_height.lock().unwrap().is_none());
     }
 
     #[test]
