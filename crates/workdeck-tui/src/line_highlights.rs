@@ -2470,6 +2470,60 @@ mod tests {
     }
 
     #[test]
+    fn queued_deadlines_are_retired_on_registration_removal_reload_and_shutdown() {
+        for transition in ["registrations", "files", "reload", "retire"] {
+            let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+            runtime.pending.store(true, Ordering::Release);
+            let extensions = runtime_list(&runtime);
+            let registrations = [registration("queued")];
+            let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+            let files = [test_file("file", "content")];
+            let mut controller = LineHighlightPreparationController::default();
+            controller.reconcile(&extensions, &registrations, &epochs, &files);
+            assert_eq!(controller.attempt_deadlines.len(), 1);
+            match transition {
+                "registrations" => controller.reconcile(&extensions, &[], &epochs, &files),
+                "files" => controller.reconcile(&extensions, &registrations, &epochs, &[]),
+                "reload" => controller.replace_document(),
+                "retire" => controller.retire(),
+                _ => unreachable!(),
+            }
+            assert!(controller.attempt_deadlines.is_empty(), "{transition}");
+            assert!(controller.deadlines.is_empty(), "{transition}");
+            assert_eq!(controller.pending_count(), 0);
+            assert!(runtime.calls().is_empty());
+            assert!(runtime.warnings().is_empty());
+        }
+    }
+
+    #[test]
+    fn epoch_replacement_gives_queued_work_a_new_lifetime_without_old_timeout_warning() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+        runtime.pending.store(true, Ordering::Release);
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("queued")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [test_file("file", "content")];
+        let mut controller = LineHighlightPreparationController::default();
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        let old_key = controller.attempt_deadlines.keys().next().unwrap().clone();
+        let expired = Instant::now();
+        *controller.attempt_deadlines.values_mut().next().unwrap() = expired;
+        let bumped = workdeck_extension_host::bump_scoped_epoch(
+            &epochs,
+            "test-extension:queued",
+            Some("file"),
+        );
+        controller.reconcile(&extensions, &registrations, &bumped, &files);
+        assert_eq!(controller.attempt_deadlines.len(), 1);
+        assert!(!controller.attempt_deadlines.contains_key(&old_key));
+        assert!(*controller.attempt_deadlines.values().next().unwrap() > expired);
+        assert!(controller.cache.is_empty());
+        assert!(runtime.warnings().is_empty());
+        assert!(runtime.calls().is_empty());
+    }
+
+    #[test]
     fn retry_reuses_original_attempt_deadline_and_cannot_extend_it() {
         let runtime =
             FakeLineHighlightRuntime::new(|_, _, _| Err(LineHighlightRuntimeError::Retry));

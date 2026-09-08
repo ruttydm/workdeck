@@ -96,6 +96,15 @@ All 47 coordinator tests and 25 compiled highlighter integration tests pass.
 TUI all-target Clippy with warnings denied, formatting and whitespace checks
 also pass. No whole-file ledger mapping is claimed.
 
+### Queued-deadline lifecycle regression coverage
+
+Follow-up executable tests cover clearing queued lifetimes on registration removal,
+file removal, document reload, and terminal retirement. A separate epoch-replacement
+test expires the old queued deadline, replaces its epoch, and verifies a fresh
+lifetime without a stale warning, cached failure, or extension invocation.
+All 49 coordinator tests pass. These tests extend lifecycle evidence only; they
+do not close the whole-hook ledger record.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation
