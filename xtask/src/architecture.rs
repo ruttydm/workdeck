@@ -700,4 +700,54 @@ mod tests {
         let violations = inspect_workspace(&repo, &metadata).unwrap();
         assert!(violations.is_empty(), "{violations:#?}");
     }
+
+    #[test]
+    fn migrated_source_ownership_map_retains_every_role_and_resolves_native_links() {
+        let repo = super::super::repo_root().unwrap();
+        let document = fs::read_to_string(repo.join("docs/source-architecture.md")).unwrap();
+        let roles = document
+            .lines()
+            .filter_map(|line| line.strip_prefix("| `src/"))
+            .map(|line| line.split_once('`').unwrap().0)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            roles,
+            [
+                "app/",
+                "app/session/",
+                "core/",
+                "core/changeset/",
+                "core/run/",
+                "core/process/",
+                "core/theme/",
+                "core/watch/",
+                "core/vcs/",
+                "extensions/",
+                "session/",
+                "session/client/",
+                "session/agent/",
+                "session/broker/",
+                "ui/",
+                "extension-api/",
+                "opentui/",
+                "lib/",
+            ]
+        );
+        // These are documentation links, not claims of source implementation parity.
+        for suffix in document.split("](").skip(1) {
+            let (target, _) = suffix.split_once(')').unwrap();
+            assert!(
+                repo.join("docs").join(target).exists(),
+                "missing link: {target}"
+            );
+        }
+        for section in [
+            "## Dependency direction",
+            "## Bootstrap invariant",
+            "## Migration policy",
+            "## Attribution",
+        ] {
+            assert!(document.contains(section), "missing section: {section}");
+        }
+    }
 }

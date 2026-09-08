@@ -4,6 +4,9 @@ Workdeck is a Rust workspace with one production composition root and one shippe
 `cargo xtask architecture check` to validate these boundaries against the live Cargo metadata and
 Rust module tree. `cargo xtask verify` runs the same check before its build and smoke gates.
 
+See the [source ownership map](source-architecture.md) for the complete pinned
+source-role migration, bootstrap invariant, and incremental migration policy.
+
 ## Crate ownership
 
 | Crate | May depend on these Workdeck crates |
