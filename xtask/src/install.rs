@@ -79,6 +79,55 @@ struct Options {
     allow_conflicts: bool,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PathFileObservation {
+    path: PathBuf,
+    identity: PathBuf,
+    aliases: Vec<PathBuf>,
+    shadowing: Shadowing,
+}
+
+fn observe_path_files(
+    target: &Path,
+    entries: &[PathBuf],
+    executable: &str,
+) -> Vec<PathFileObservation> {
+    let target_identity = executable_identity(target);
+    let mut observations: Vec<PathFileObservation> = Vec::new();
+    let mut positions = BTreeMap::new();
+    for entry in entries {
+        let directory = if entry.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            entry
+        };
+        let path = directory.join(executable);
+        if !path.is_file() {
+            continue;
+        }
+        let identity = executable_identity(&path);
+        if identity == target_identity {
+            continue;
+        }
+        if let Some(index) = positions.get(&identity).copied() {
+            let observation: &mut PathFileObservation = &mut observations[index];
+            if !observation.aliases.contains(&path) {
+                observation.aliases.push(path);
+            }
+            continue;
+        }
+        positions.insert(identity.clone(), observations.len());
+        observations.push(PathFileObservation {
+            shadowing: shadowing(&path, target, entries, executable),
+            aliases: vec![path.clone()],
+            path,
+            identity,
+        });
+    }
+    observations
+}
+
 fn options(
     args: impl Iterator<Item = String>,
     env: &BTreeMap<String, String>,
@@ -170,9 +219,7 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> Result<()> {
     let entries: Vec<_> =
         std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).collect();
     // These are file observations, not completed executable/manager conflict classification.
-    let existing_path_files: Vec<_> = entries.iter().map(|entry| entry.join(executable))
-        .filter(|path| path.is_file() && executable_identity(path) != target_identity)
-        .map(|path| serde_json::json!({"path": path, "identity": executable_identity(&path), "shadowing": shadowing(&path, &target, &entries, executable)})).collect();
+    let existing_path_files = observe_path_files(&target, &entries, executable);
     println!(
         "{}",
         serde_json::to_string_pretty(&serde_json::json!({
@@ -187,6 +234,59 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn path_observation_deduplicates_identity_but_retains_aliases_and_order() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().canonicalize().unwrap();
+        let owner = root.join("owner");
+        let alias = root.join("alias");
+        let destination = root.join("destination");
+        for path in [&owner, &alias, &destination] {
+            std::fs::create_dir(path).unwrap();
+        }
+        std::fs::write(owner.join("workdeck"), b"not executed").unwrap();
+        std::os::unix::fs::symlink(owner.join("workdeck"), alias.join("workdeck")).unwrap();
+        let target = destination.join("workdeck");
+        std::fs::write(&target, b"target unchanged").unwrap();
+        let entries = vec![
+            alias.clone(),
+            destination.clone(),
+            owner.clone(),
+            alias.clone(),
+        ];
+        let observations = observe_path_files(&target, &entries, "workdeck");
+        assert_eq!(observations.len(), 1);
+        let observation = &observations[0];
+        assert_eq!(observation.path, alias.join("workdeck"));
+        assert_eq!(observation.identity, owner.join("workdeck"));
+        assert_eq!(
+            observation.aliases,
+            [alias.join("workdeck"), owner.join("workdeck")]
+        );
+        assert_eq!(observation.shadowing, Shadowing::ShadowsTarget);
+        assert_eq!(std::fs::read(&target).unwrap(), b"target unchanged");
+        assert_eq!(
+            observe_path_files(&owner.join("workdeck"), &entries[..1], "workdeck").len(),
+            0
+        );
+    }
+
+    #[test]
+    fn empty_path_entry_has_current_directory_identity_without_changing_process_cwd() {
+        let cwd = std::env::current_dir().unwrap();
+        let candidate = cwd.join("workdeck");
+        assert_eq!(
+            shadowing(
+                &candidate,
+                &cwd.join("other/workdeck"),
+                &[PathBuf::new()],
+                "workdeck"
+            ),
+            Shadowing::ShadowsTarget
+        );
+    }
 
     #[test]
     fn identity_handles_missing_binary_and_path_order_without_writes() {
