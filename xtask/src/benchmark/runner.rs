@@ -29,6 +29,7 @@ fn workload_command(name: &str) -> Result<&'static str> {
         "changeset-parse.ts" => Ok("changeset-parse"),
         "highlight-prefetch.ts" => Ok("highlight-prefetch"),
         "large-stream.ts" => Ok("large-stream"),
+        "non-ascii-stream.ts" => Ok("non-ascii-stream"),
         "working-tree-load.ts" => Ok("working-tree"),
         "render-layout.ts" => Ok("render-layout"),
         _ => bail!("Native benchmark workload is not yet fully ported: {name}"),

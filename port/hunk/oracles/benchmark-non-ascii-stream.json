@@ -1,0 +1,20 @@
+{
+  "source": "benchmarks/non-ascii-stream.ts",
+  "runtime": "Bun 1.3.14 darwin-arm64",
+  "environment": {"HUNK_MCP_DISABLE": "1", "HUNK_DISABLE_UPDATE_NOTICE": "1"},
+  "purpose": "Frozen direct-workload output and structural counts; diagnostic timings only, not a same-host acceptance comparison. Native verification ran concurrently.",
+  "viewport": {"width": 240, "height": 28},
+  "counts": {"scroll_ticks": 8, "files": 120, "lines_per_file": 120},
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "combinedOutput": "The current testing environment is not configured to support act(...)\nMETRIC non_ascii_cold_first_frame_ms=8.09\nMETRIC non_ascii_scroll_tick_median_ms=1.61\nMETRIC non_ascii_scroll_tick_p95_ms=58.50\nMETRIC scroll_ticks=8\nMETRIC files=120\nMETRIC lines_per_file=120\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "combinedOutput": "The current testing environment is not configured to support act(...)\nMETRIC non_ascii_cold_first_frame_ms=17.60\nMETRIC non_ascii_scroll_tick_median_ms=2.08\nMETRIC non_ascii_scroll_tick_p95_ms=5.72\nMETRIC scroll_ticks=8\nMETRIC files=120\nMETRIC lines_per_file=120\n"
+    }
+  ]
+}

@@ -7,26 +7,28 @@ use std::time::{Duration, Instant};
 use workdeck_review::LayoutMode;
 use workdeck_tui::{ReviewApp, ReviewOptions, VIEWPORT_READ_COALESCE_MS, render, resolve_theme};
 
-const VIEWPORT: Rect = Rect::new(0, 0, 240, 28);
+pub(super) const VIEWPORT: Rect = Rect::new(0, 0, 240, 28);
 const SCROLL_TICKS: usize = 4;
 const SCROLL_TARGET: (u16, u16) = (170, 12);
 const SELECTED_HIGHLIGHT_MARKER: &str = "stream1_40";
 
-struct Renderer {
-    app: ReviewApp,
-    buffer: Buffer,
+pub(super) struct Renderer {
+    pub(super) app: ReviewApp,
+    pub(super) buffer: Buffer,
 }
 
 impl Renderer {
     fn new() -> Result<Self> {
-        let bootstrap = stream::large_bootstrap(
-            std::env::current_dir()?,
+        Self::with_content(
             stream::DEFAULT_FILE_COUNT,
             stream::DEFAULT_LINES_PER_FILE,
-            37,
-            84,
             false,
-        )?;
+        )
+    }
+
+    pub(super) fn with_content(files: usize, lines: usize, non_ascii: bool) -> Result<Self> {
+        let bootstrap =
+            stream::large_bootstrap(std::env::current_dir()?, files, lines, 37, 84, non_ascii)?;
         let app = ReviewApp::new(
             bootstrap.changeset,
             ReviewOptions {
@@ -43,7 +45,7 @@ impl Renderer {
         })
     }
 
-    fn render_pass(&mut self, passes: usize) {
+    pub(super) fn render_pass(&mut self, passes: usize) {
         for _ in 0..passes {
             self.buffer.reset();
             render(VIEWPORT, &mut self.buffer, &self.app);
