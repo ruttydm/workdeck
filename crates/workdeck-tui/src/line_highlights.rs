@@ -360,6 +360,7 @@ pub struct LineHighlightPreparationController {
     generation: Option<Vec<LineHighlightTaskKey>>,
     generation_epochs: Option<workdeck_extension_host::LineHighlightEpochState>,
     stream_filter: Option<String>,
+    stream_notes: Option<String>,
     generation_files: Vec<PreparationFileIdentity>,
     deadlines: BTreeMap<LineHighlightTaskKey, (Instant, LineHighlightTask)>,
     // One lifetime per provider attempt, including transport contention/retries.
@@ -388,6 +389,7 @@ impl Default for LineHighlightPreparationController {
             generation: None,
             generation_epochs: None,
             stream_filter: None,
+            stream_notes: None,
             generation_files: Vec::new(),
             deadlines: BTreeMap::new(),
             attempt_deadlines: BTreeMap::new(),
@@ -404,6 +406,16 @@ impl Default for LineHighlightPreparationController {
 }
 
 impl LineHighlightPreparationController {
+    pub(crate) fn set_stream_notes(&mut self, identity: String) -> bool {
+        if self.stream_notes.as_ref() == Some(&identity) {
+            return false;
+        }
+        self.cancel_pending();
+        self.generation = None;
+        self.stream_notes = Some(identity);
+        true
+    }
+
     /// A changed filter recreates Hunk's visible-file collection even when the
     /// matching files are unchanged. Retire unfinished work, not cached results.
     pub(crate) fn set_stream_filter(&mut self, filter: &str) -> bool {
@@ -922,9 +934,7 @@ fn desired_line_highlight_tasks<'a>(
 
 fn agent_context_identity(file: &DiffFile) -> Option<String> {
     file.agent.as_ref().map(|agent| {
-        workdeck_core::review_digest(
-            &serde_json::to_vec(agent).expect("agent context is serializable"),
-        )
+        workdeck_core::review_serialized_digest(agent).expect("agent context is serializable")
     })
 }
 
@@ -2264,6 +2274,41 @@ mod tests {
         );
         let marks = controller.resolved().clone();
         controller.set_stream_filter("alp");
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        assert!(controller.resolved().ptr_eq(&marks));
+        assert_eq!(runtime.calls().len(), 1);
+    }
+
+    #[test]
+    fn hidden_note_changes_restart_queued_work_without_invalidating_plain_file_results() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+        runtime.pending.store(true, Ordering::Release);
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("notes")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [test_file("plain", "content")];
+        let mut controller = LineHighlightPreparationController::default();
+        assert!(controller.set_stream_notes("initial".into()));
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        let deadline = *controller.attempt_deadlines.values().next().unwrap();
+        assert!(!controller.set_stream_notes("initial".into()));
+        assert_eq!(
+            *controller.attempt_deadlines.values().next().unwrap(),
+            deadline
+        );
+        assert!(controller.set_stream_notes("hidden-note-added".into()));
+        assert!(controller.attempt_deadlines.is_empty());
+        runtime.pending.store(false, Ordering::Release);
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            &files,
+            |controller| !controller.resolved().is_empty(),
+        );
+        let marks = controller.resolved().clone();
+        assert!(controller.set_stream_notes("hidden-note-edited".into()));
         controller.reconcile(&extensions, &registrations, &epochs, &files);
         assert!(controller.resolved().ptr_eq(&marks));
         assert_eq!(runtime.calls().len(), 1);

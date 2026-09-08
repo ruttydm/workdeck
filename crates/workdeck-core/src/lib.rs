@@ -609,6 +609,23 @@ pub fn review_digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
+/// Hash serialized JSON directly, without retaining a second copy of the payload.
+pub fn review_serialized_digest(value: &impl Serialize) -> Result<String, serde_json::Error> {
+    struct DigestWriter(Sha256);
+    impl std::io::Write for DigestWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.update(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut writer = DigestWriter(Sha256::new());
+    serde_json::to_writer(&mut writer, value)?;
+    Ok(format!("{:x}", writer.0.finalize()))
+}
+
 pub fn is_review_sha256_digest(value: &str) -> bool {
     value.len() == 64
         && value
@@ -665,6 +682,21 @@ mod tests {
                 .bytes()
                 .all(|byte| byte.is_ascii_hexdigit())
         );
+    }
+
+    #[test]
+    fn streamed_json_digest_matches_exact_serialized_bytes() {
+        for value in [
+            serde_json::json!(null),
+            serde_json::json!({"notes":["雪", "a".repeat(100_000)], "enabled":true}),
+        ] {
+            assert_eq!(
+                review_serialized_digest(&value).unwrap(),
+                review_digest(&serde_json::to_vec(&value).unwrap())
+            );
+        }
+        let invalid = std::collections::BTreeMap::from([(vec![1, 2], "invalid JSON key")]);
+        assert!(review_serialized_digest(&invalid).is_err());
     }
 
     #[test]

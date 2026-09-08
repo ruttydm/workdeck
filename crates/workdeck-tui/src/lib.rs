@@ -7205,10 +7205,14 @@ impl ReviewApp {
             .collect::<Vec<_>>();
         let registrations = runtime.line_highlights.registrations().to_vec();
         let epochs = runtime.line_highlights.epochs().clone();
-        if runtime
+        let filter_changed = runtime
             .line_highlight_preparation
-            .set_stream_filter(&self.filter)
-        {
+            .set_stream_filter(&self.filter);
+        let notes_changed = runtime.line_highlight_preparation.set_stream_notes(
+            workdeck_core::review_serialized_digest(&annotations)
+                .expect("saved annotations are serializable"),
+        );
+        if filter_changed || notes_changed {
             runtime.line_highlight_preparation.discard_file_results(
                 files
                     .iter()

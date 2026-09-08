@@ -164,6 +164,24 @@ denied, formatting and whitespace checks pass. The initial annotated-file build
 caught an extra reference in a map lookup, which was corrected before these
 successful runs. No whole-hook mapping is claimed.
 
+## Saved-note stream generation and streamed identity hashing
+
+The pinned visible-stream memo also depends on the saved-note map. Native
+preparation now tracks a digest of that whole projected map: changing a note on
+a hidden file restarts unfinished visible preparation, while unchanged plain-file
+results remain reusable. On a stream rebuild, current saved-note file projections
+discard their completed derivations because the pinned merge creates fresh file
+objects. Unchanged note-map content does not restart a request each frame.
+
+`workdeck_core::review_serialized_digest` streams serde JSON into SHA-256 rather
+than allocating the serialized payload. Both saved-note-map identity and existing
+agent-context identity use this path. A core test verifies byte-exact agreement
+with the prior buffered hash for null, Unicode, and a large value, and verifies
+serialization errors are returned. This is not a measured performance-gate claim.
+All 67 core unit tests, 54 coordinator tests, and 25 compiled highlighter
+integration tests pass. Core/TUI all-target Clippy with warnings denied,
+formatting and whitespace checks pass. No ledger mapping is changed.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation
