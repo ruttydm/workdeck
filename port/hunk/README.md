@@ -1,5 +1,16 @@
 # Hunk semantic-port ledger
 
+## No-read native highlighter regression
+
+The compiled example has a `skipDocuments` fixture mode that returns an empty
+mark array without issuing a document callback. Its integration test performs
+two lazy invocations with required lifecycle cleanup, checks settled host state,
+and verifies the captured provider was never called. This verifies the native
+host's no-read behavior; it does not by itself prove every TUI preparation path
+or complete callback/SDK parity. No ledger mapping is added.
+Verification passes: all nine compiled highlighter integration tests, workspace
+Clippy, formatting, and architecture checks.
+
 ## Live TUI lazy highlighter source binding
 
 The source-bound TUI runtime now builds a request-local document reader from

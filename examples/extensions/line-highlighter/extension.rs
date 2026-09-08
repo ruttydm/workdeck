@@ -11,6 +11,7 @@ use workdeck_extension_api::{
 pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result<()> {
     let mut require_cleanup = false;
     let mut mark_annotations = false;
+    let mut skip_documents = false;
     let mut last_annotation_width: Option<usize> = None;
     let mut active_request = None;
     'requests: loop {
@@ -48,6 +49,11 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
                     .get("markAnnotations")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
+                skip_documents = input
+                    .config
+                    .get("skipDocuments")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 let mut registrations = vec![Registration::LineHighlighter {
                     id: "attention".into(),
                 }];
@@ -83,6 +89,10 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
                 let mut input: LineHighlightRequest =
                     serde_json::from_value(request.params).map_err(io::Error::other)?;
                 let lazy = input.document_reader;
+                if skip_documents {
+                    write_result(&mut output, request.id, Vec::<Value>::new())?;
+                    continue;
+                }
                 if input.highlighter_id == "hang" {
                     // Leave the request unresolved while continuing to service
                     // lifecycle notifications from the host.

@@ -154,6 +154,38 @@ fn lazy_native_highlighter_reads_only_requested_side_once_per_parent() {
 }
 
 #[test]
+fn native_highlighter_without_document_requests_never_starts_source_io() {
+    let (_directory, manifest) = staged_extension();
+    let mut extension = LoadedExtension::spawn_with_configuration(
+        &manifest,
+        "test",
+        serde_json::json!({"includeHang": false, "requireCleanup": true, "skipDocuments": true}),
+    )
+    .unwrap();
+    let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let observed = reads.clone();
+    let reader = workdeck_extension_host::ExtensionDocumentReader::new(move |_| {
+        observed.fetch_add(1, Ordering::SeqCst);
+        Err("source must not be read".into())
+    });
+    let mut file = review_file("request.rs");
+    file.sources = FileSourceSnapshots::default();
+    for _ in 0..2 {
+        let result = extension
+            .highlight_file_with_document_reader(
+                "attention",
+                &file,
+                &AtomicBool::new(false),
+                reader.clone(),
+            )
+            .unwrap();
+        assert_eq!(result, serde_json::json!([]));
+        assert!(!extension.request_pending());
+    }
+    assert_eq!(reads.load(Ordering::SeqCst), 0);
+}
+
+#[test]
 fn native_request_cleanup_precedes_the_next_call_after_success_or_failure() {
     let (_directory, manifest) = staged_extension();
     let mut extension = LoadedExtension::spawn_with_configuration(
