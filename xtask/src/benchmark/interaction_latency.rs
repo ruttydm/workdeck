@@ -1,5 +1,5 @@
 //! Partial MIT translation of Hunk benchmarks/interaction-latency.ts.
-//! Not admitted to the suite: native retained-memory measurements and acceptance runs remain missing.
+//! Diagnostic only: cross-runtime heap semantics and acceptance runs remain incomplete.
 
 use super::*;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
@@ -54,13 +54,12 @@ fn renderer() -> Result<large_stream::Renderer> {
     )
 }
 
-#[test]
-fn source_interaction_sequence_drives_real_navigation_and_fresh_scroll_state() {
-    let mut navigation = renderer().unwrap();
+fn measure(memory: bool) -> Result<serde_json::Value> {
+    let mut navigation = renderer()?;
     let start = Instant::now();
     navigation.render_pass(1);
     let first_frame_ms = start.elapsed().as_secs_f64() * 1000.0;
-    assert!(first_frame_ms.is_finite() && first_frame_ms > 0.0);
+    let first_memory = memory.then(native_memory::snapshot).transpose()?;
     navigation.render_pass(2);
     let mut presses = Vec::new();
     for _ in 0..NAVIGATION_PRESSES {
@@ -73,13 +72,14 @@ fn source_interaction_sequence_drives_real_navigation_and_fresh_scroll_state() {
         std::thread::yield_now();
         presses.push(start.elapsed().as_secs_f64() * 1000.0);
         let after = navigation.app.shared_state().lock().unwrap().selection();
-        assert_ne!(
-            before, after,
+        anyhow::ensure!(
+            before != after,
             "each navigation press must change the real selection"
         );
     }
+    let navigation_memory = memory.then(native_memory::snapshot).transpose()?;
     drop(navigation);
-    let mut scrolling = renderer().unwrap();
+    let mut scrolling = renderer()?;
     scrolling.render_pass(2);
     let initial_scroll = scrolling.app.review_scroll();
     let mut ticks = Vec::new();
@@ -95,22 +95,56 @@ fn source_interaction_sequence_drives_real_navigation_and_fresh_scroll_state() {
         std::thread::yield_now();
         ticks.push(start.elapsed().as_secs_f64() * 1000.0);
     }
-    assert!(scrolling.app.review_scroll() > initial_scroll);
-    assert_eq!((presses.len(), ticks.len()), (6, 8));
-    assert_eq!(
-        (stream::DEFAULT_FILE_COUNT, stream::DEFAULT_LINES_PER_FILE),
-        (180, 120)
+    anyhow::ensure!(
+        scrolling.app.review_scroll() > initial_scroll,
+        "wheel ticks did not scroll"
     );
-    assert_eq!(
-        (large_stream::VIEWPORT.width, large_stream::VIEWPORT.height),
-        (240, 28)
-    );
-    for distribution in [presses, ticks] {
-        assert!(
+    for distribution in [&presses, &ticks] {
+        anyhow::ensure!(
             distribution
                 .iter()
-                .all(|value| value.is_finite() && *value > 0.0)
+                .all(|value| value.is_finite() && *value > 0.0),
+            "invalid timing sample"
         );
-        assert!(percentile(&distribution, 95.0) >= percentile(&distribution, 50.0));
     }
+    Ok(serde_json::json!({
+        "diagnosticOnly": true,
+        "firstFrameMs": first_frame_ms,
+        "navigationPressMs": presses,
+        "scrollTickMs": ticks,
+        "afterFirstFrame": first_memory,
+        "afterNavigation": navigation_memory,
+        "files": stream::DEFAULT_FILE_COUNT,
+        "linesPerFile": stream::DEFAULT_LINES_PER_FILE,
+        "viewport": {"width": large_stream::VIEWPORT.width, "height": large_stream::VIEWPORT.height},
+        "memorySemantics": "Current RSS and native malloc-zone usage, not peak RSS or JavaScript heapUsed"
+    }))
+}
+
+pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
+    if args.next().is_some() {
+        bail!("benchmark interaction-diagnostic accepts no arguments");
+    }
+    native_memory::snapshot()?; // Fail unsupported backends before constructing the workload.
+    println!("{}", serde_json::to_string_pretty(&measure(true)?)?);
+    Ok(())
+}
+
+#[test]
+fn source_interaction_sequence_drives_real_navigation_and_fresh_scroll_state() {
+    let report = measure(cfg!(target_os = "macos")).unwrap();
+    assert_eq!(report["navigationPressMs"].as_array().unwrap().len(), 6);
+    assert_eq!(report["scrollTickMs"].as_array().unwrap().len(), 8);
+    assert_eq!(report["files"], 180);
+    assert_eq!(report["linesPerFile"], 120);
+    assert_eq!(
+        report["viewport"],
+        serde_json::json!({"width":240,"height":28})
+    );
+    #[cfg(target_os = "macos")]
+    for key in ["afterFirstFrame", "afterNavigation"] {
+        assert!(report[key]["rssBytes"].as_u64().unwrap() > 0);
+        assert!(report[key]["mallocInUseBytes"].as_u64().unwrap() > 0);
+    }
+    assert!(run(["unexpected".into()].into_iter()).is_err());
 }

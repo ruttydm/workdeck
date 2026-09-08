@@ -157,8 +157,10 @@ fail against the pinned Hunk reports. Memory remains unmeasured.
 
 `xtask/src/benchmark/interaction_latency.rs` exercises the source's 180-file, 120-line,
 240x28 workload with six real `]` presses and eight wheel ticks on separate renderers. It checks
-selection changes, viewport movement and finite timing samples. It is currently test-only:
-native retained RSS/heap measurements and same-host optimized comparisons remain missing.
+selection changes, viewport movement and finite timing samples. The diagnostic command
+`cargo xtask benchmark interaction-diagnostic` now reports raw timing arrays plus native RSS and
+malloc-zone snapshots after first frame and navigation on macOS. It is explicitly not the source
+benchmark command: cross-runtime heap semantics and same-host optimized comparisons remain missing.
 Frozen single-run output from both pinned anchors is now recorded in
 [the interaction oracle](../oracles/benchmark-interaction-latency.json), covering all 13 metric
 names and source-scale counts. Those sequential original-runtime captures are diagnostic evidence,
@@ -170,5 +172,7 @@ still rejects `interaction-latency.ts`; this partial test is not benchmark parit
 The live native test reads both counters and repeats the read with a retained allocation. These
 are current snapshots, not peak usage; malloc zone usage is not JavaScript `heapUsed`, and no
 GC-equivalent operation is claimed. Linux/Windows backends currently return an explicit unsupported
-error. Integrating the counters at workload boundaries and defining/verifying cross-runtime memory
-comparisons remain required before the interaction benchmark can be mapped or admitted.
+error. Counters are integrated at the interaction workload boundaries, outside measured input/frame
+intervals. Defining/verifying cross-runtime memory comparisons remains required before the source
+interaction benchmark can be mapped or admitted. The diagnostic does not force allocator purges
+and cannot claim equivalence to Hunk's full-GC snapshots.

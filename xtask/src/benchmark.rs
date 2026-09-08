@@ -11,7 +11,6 @@ mod bootstrap;
 mod changeset_parse;
 mod fixtures;
 mod highlight_prefetch;
-#[cfg(test)]
 mod interaction_latency;
 mod large_stream;
 mod native_memory;
@@ -672,6 +671,9 @@ fn aggregate(source: &str, name: &str, samples: Vec<f64>) -> Metric {
 
 pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     let command = args.next();
+    if command.as_deref() == Some("interaction-diagnostic") {
+        return interaction_latency::run(args);
+    }
     if command.as_deref() == Some("memory-snapshot") {
         return native_memory::run(args);
     }
