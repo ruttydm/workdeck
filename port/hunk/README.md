@@ -37,7 +37,10 @@ delta. These observations use the locally fetched `hunk-upstream/main`, not a li
 the final fetch requirement remains mandatory. Currently this is the raw post-baseline range:
 there is no verified catch-up disposition registry yet, and commit trailers alone do not remove
 entries. Implementing and verifying that registry is outstanding; changing the baseline or
-moving the upstream ref backward is not an acceptable way to clear this gate.
+moving the upstream ref backward is not an acceptable way to clear this gate. Discovery requires
+the tracked upstream tip to descend from the baseline and rejects unrelated or truncated history.
+A temporary-repository test verifies missing/equal tips, two-parent ordering, and rejection of
+rewound and unrelated tips without modifying the real upstream refs.
 
 The five commits unique to Hunk `v0.20.1` are tracked separately in
 `port/hunk/stable-fixes.jsonl`; the four functional regressions have Rust implementations and

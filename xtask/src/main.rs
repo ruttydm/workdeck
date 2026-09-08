@@ -1825,6 +1825,12 @@ fn upstream_delta_commits(repo: &Path, baseline: &str) -> Result<Option<Vec<Stri
     if !probe.status.success() {
         return Ok(None);
     }
+    let ancestry = git_output(repo, ["merge-base", "--is-ancestor", baseline, upstream])?;
+    if !ancestry.status.success() {
+        bail!(
+            "tracked Hunk upstream must descend from the pinned baseline; refusing a truncated or unrelated delta"
+        );
+    }
     let range = format!("{baseline}..{upstream}");
     let output = git_stdout(repo, ["rev-list", "--reverse", "--topo-order", &range])?;
     Ok(Some(output.lines().map(str::to_owned).collect()))
@@ -2302,6 +2308,74 @@ fn print_help() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn upstream_discovery_preserves_merge_order_and_rejects_rewound_refs() {
+        let directory = tempfile::tempdir().unwrap();
+        let repo = directory.path();
+        let git = |args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .args([
+                    "-c",
+                    "user.name=Port Test",
+                    "-c",
+                    "user.email=port-test@example.invalid",
+                    "-c",
+                    "commit.gpgsign=false",
+                ])
+                .args(args)
+                .current_dir(repo)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8(output.stdout).unwrap().trim().to_owned()
+        };
+        git(&["init", "--quiet"]);
+        let tree = git(&["mktree"]);
+        let baseline = git(&["commit-tree", &tree, "-m", "baseline"]);
+        assert!(
+            super::upstream_delta_commits(repo, &baseline)
+                .unwrap()
+                .is_none()
+        );
+        let upstream = "refs/remotes/hunk-upstream/main";
+        git(&["update-ref", upstream, &baseline]);
+        assert_eq!(
+            super::upstream_delta_commits(repo, &baseline).unwrap(),
+            Some(vec![])
+        );
+        let left = git(&["commit-tree", &tree, "-p", &baseline, "-m", "left"]);
+        let right = git(&["commit-tree", &tree, "-p", &baseline, "-m", "right"]);
+        let merge = git(&[
+            "commit-tree",
+            &tree,
+            "-p",
+            &left,
+            "-p",
+            &right,
+            "-m",
+            "merge",
+        ]);
+        let tip = git(&["commit-tree", &tree, "-p", &merge, "-m", "tip"]);
+        git(&["update-ref", upstream, &tip]);
+        let queue = super::upstream_delta_commits(repo, &baseline)
+            .unwrap()
+            .unwrap();
+        assert_eq!(queue.len(), 4);
+        let position = |id: &str| queue.iter().position(|value| value == id).unwrap();
+        assert!(position(&left) < position(&merge));
+        assert!(position(&right) < position(&merge));
+        assert!(position(&merge) < position(&tip));
+        git(&["update-ref", upstream, &baseline]);
+        assert!(super::upstream_delta_commits(repo, &left).is_err());
+        let unrelated = git(&["commit-tree", &tree, "-m", "unrelated"]);
+        git(&["update-ref", upstream, &unrelated]);
+        assert!(super::upstream_delta_commits(repo, &baseline).is_err());
+    }
+
     #[test]
     fn strict_upstream_gate_rejects_unknown_and_pending_state() {
         assert!(super::validate_upstream_delta(None).is_err());
