@@ -198,7 +198,13 @@ pub fn measure_sanitized_text_width(text: &str) -> usize {
 /// Measure sanitized terminal cells, treating CJK and emoji clusters as wide.
 #[must_use]
 pub fn measure_text_width(text: &str) -> usize {
-    measure_sanitized_text_width(&sanitize_terminal_line(text))
+    if text.chars().any(char::is_control) {
+        measure_sanitized_text_width(&sanitize_terminal_line(text))
+    } else {
+        // The single-line sanitizer only changes control-containing input. Borrow ordinary
+        // Unicode text without allocating either its character vector or its output String.
+        measure_sanitized_text_width(text)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -510,6 +516,34 @@ mod tests {
 
     fn slice(text: &str, offset: usize, width: usize) -> TextWidthSlice {
         slice_text_by_width(text, offset, width)
+    }
+
+    #[test]
+    fn borrowed_width_path_preserves_the_complete_control_sanitizer_boundary() {
+        let reference = |text: &str| measure_sanitized_text_width(&sanitize_terminal_line(text));
+        for codepoint in (0..=0x9f).chain([0x202e, 0x2066, 0x200d, 0xfe0f, 0xf0000, 0xf0001]) {
+            let character = char::from_u32(codepoint).unwrap();
+            for text in [
+                character.to_string(),
+                format!("日本{character}🚀"),
+                format!("x{character}[31m赤\x1b[0m"),
+            ] {
+                assert_eq!(measure_text_width(&text), reference(&text), "{text:?}");
+            }
+        }
+        for text in [
+            "",
+            "plain ASCII",
+            "日本語 🚀 e\u{301} 👩‍🔬",
+            "\tfoo\nbar\r",
+            "x\x1b]8;;https://example.invalid\x07label\x1b]8;;\x07y",
+            "x\u{9d}title\u{9c}y",
+            "x\x1bPpayload\x1b\\y",
+            "x\x1b[31",
+            "x\x1b",
+        ] {
+            assert_eq!(measure_text_width(text), reference(text), "{text:?}");
+        }
     }
 
     #[test]
