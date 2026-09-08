@@ -287,3 +287,15 @@ layouts, zero/narrow/normal widths, Unicode, unequal pairs, horizontal offsets a
 All 1,022 TUI unit tests and scroll integration pass. This reduces repeated input-path work,
 but every pinned-Hunk latency gate still fails. Current post-navigation RSS median is
 224755712 bytes; peak-memory acceptance remains unproven. No ledger mapping was added.
+
+### Plain split viewport painting at `d2de3d88`
+
+[Three optimized runs](interaction-diagnostic-d2de3d88.json) report 57.76 ms first frame,
+94.18 ms median navigation and 58.44 ms median scrolling: approximately 47.9%, 37.5% and
+49.2% lower than `3310d9d8`. Exact geometry is measured before clamping the scroll window;
+offscreen plain split code then skips painting. Wrapped, annotated, expanded-source and
+extension-customized reviews retain the complete painter. Copy and public rendering also
+remain complete. The new differential test compares visible text/styles and all row maps
+against the full painter; all 1,023 TUI unit tests and scroll integration pass.
+These measurements do not pass any pinned-Hunk latency gate. Current post-navigation RSS
+median is 214597632 bytes, not peak-memory acceptance. Source-ledger coverage is unchanged.
