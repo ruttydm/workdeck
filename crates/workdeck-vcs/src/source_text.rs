@@ -26,30 +26,23 @@ pub enum SourceTextError {
     Io(#[from] io::Error),
 }
 
-/// Read one filesystem source without allocating beyond the supplied byte ceiling.
+/// Bound source bytes even if the file grows after its metadata is inspected.
+/// UTF-8 replacement decoding and the fixed read buffer have separate overhead.
 pub fn read_file_text_with_limit(path: &Path, max_bytes: usize) -> LimitedSourceTextResult {
-    let metadata = match fs::metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            return LimitedSourceTextResult::Missing;
-        }
-        Err(error) => {
-            log_source_diagnostic(
-                &format!("failed to read source file {}", path.display()),
-                &error,
-            );
-            return LimitedSourceTextResult::Missing;
-        }
+    let read = || -> Result<String, SourceTextError> {
+        let file = fs::File::open(path)?;
+        let length = file.metadata()?.len();
+        read_sized_source_with_limit(file, length, max_bytes)
     };
-    if metadata.len() > max_bytes as u64 {
-        return LimitedSourceTextResult::TooLarge { max_bytes };
-    }
-    match fs::read(path) {
-        Ok(bytes) if bytes.len() <= max_bytes => {
-            LimitedSourceTextResult::Text(String::from_utf8_lossy(&bytes).into_owned())
+    match read() {
+        Ok(text) => LimitedSourceTextResult::Text(text),
+        Err(SourceTextError::TooLarge { max_bytes }) => {
+            LimitedSourceTextResult::TooLarge { max_bytes }
         }
-        Ok(_) => LimitedSourceTextResult::TooLarge { max_bytes },
-        Err(error) => {
+        Err(SourceTextError::Io(error)) if error.kind() == io::ErrorKind::NotFound => {
+            LimitedSourceTextResult::Missing
+        }
+        Err(SourceTextError::Io(error)) => {
             log_source_diagnostic(
                 &format!("failed to read source file {}", path.display()),
                 &error,
@@ -57,6 +50,18 @@ pub fn read_file_text_with_limit(path: &Path, max_bytes: usize) -> LimitedSource
             LimitedSourceTextResult::Missing
         }
     }
+}
+
+fn read_sized_source_with_limit(
+    source: impl Read,
+    observed_length: u64,
+    max_bytes: usize,
+) -> Result<String, SourceTextError> {
+    if observed_length > max_bytes as u64 {
+        return Err(SourceTextError::TooLarge { max_bytes });
+    }
+    // Metadata permits an early rejection, never an unbounded subsequent read.
+    read_stream_text_with_limit(Some(source), max_bytes, None)
 }
 
 /// Read an optional byte stream while enforcing a caller-defined resource limit.
@@ -71,7 +76,10 @@ pub fn read_stream_text_with_limit<R: Read>(
     let mut bytes = Vec::with_capacity(max_bytes.min(64 * 1024));
     let mut buffer = [0_u8; 64 * 1024];
     loop {
-        let bytes_read = stream.read(&mut buffer)?;
+        let bytes_read = match stream.read(&mut buffer) {
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
         if bytes_read == 0 {
             break;
         }
@@ -251,6 +259,16 @@ mod tests {
             read_file_text_with_limit(&source, 5),
             LimitedSourceTextResult::TooLarge { max_bytes: 5 }
         );
+        fs::write(&source, []).unwrap();
+        assert_eq!(
+            read_file_text_with_limit(&source, 0),
+            LimitedSourceTextResult::Text(String::new())
+        );
+        fs::write(&source, [0xff]).unwrap();
+        assert_eq!(
+            read_file_text_with_limit(&source, 1),
+            LimitedSourceTextResult::Text("\u{fffd}".into())
+        );
     }
 
     #[test]
@@ -269,6 +287,65 @@ mod tests {
         assert_eq!(
             read_stream_text_with_limit::<Cursor<&[u8]>>(None, 4, None).unwrap(),
             ""
+        );
+    }
+
+    #[test]
+    fn stale_source_length_cannot_authorize_an_unbounded_read() {
+        struct GrowingSource {
+            consumed: usize,
+            ceiling: usize,
+        }
+        impl Read for GrowingSource {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                self.consumed += buffer.len();
+                assert!(self.consumed <= self.ceiling, "reader exceeded its bound");
+                buffer.fill(b'x');
+                Ok(buffer.len())
+            }
+        }
+        for limit in [0, 17, 65_536] {
+            let mut source = GrowingSource {
+                consumed: 0,
+                ceiling: limit + 65_536,
+            };
+            assert!(matches!(
+                read_sized_source_with_limit(&mut source, 0, limit),
+                Err(SourceTextError::TooLarge { max_bytes }) if max_bytes == limit
+            ));
+            assert!(source.consumed > limit);
+        }
+        let mut unread = GrowingSource {
+            consumed: 0,
+            ceiling: 0,
+        };
+        assert!(matches!(
+            read_sized_source_with_limit(&mut unread, 18, 17),
+            Err(SourceTextError::TooLarge { max_bytes: 17 })
+        ));
+        assert_eq!(unread.consumed, 0);
+        assert_eq!(
+            read_sized_source_with_limit(Cursor::new(b"okay"), 0, 4).unwrap(),
+            "okay"
+        );
+    }
+
+    #[test]
+    fn bounded_reads_retry_interrupted_io_without_losing_bytes() {
+        struct InterruptedOnce(bool);
+        impl Read for InterruptedOnce {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                if !self.0 {
+                    self.0 = true;
+                    return Err(io::ErrorKind::Interrupted.into());
+                }
+                buffer[0] = b'x';
+                Ok(1)
+            }
+        }
+        assert_eq!(
+            read_sized_source_with_limit(InterruptedOnce(false).take(1), 1, 1).unwrap(),
+            "x"
         );
     }
 

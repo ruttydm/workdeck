@@ -1,5 +1,19 @@
 # Hunk semantic-port ledger
 
+## Filesystem source-read ceiling
+
+Filesystem source reads now open one handle, inspect that handle's metadata, and
+use the bounded stream reader. Metadata can reject an oversized source early but
+cannot authorize an unbounded allocation if the file grows afterward. The byte
+ceiling bounds accumulated input, not UTF-8 replacement output or the fixed read
+buffer. Interrupted reads retry without discarding already-read bytes.
+
+VCS tests cover stale size hints with an unending reader that fails if consumption
+exceeds one fixed read buffer beyond the limit, early rejection without reading,
+exact limits, empty files, invalid UTF-8, and interrupted I/O. This hardens the
+existing source reader without adding ledger coverage or implementing the still
+missing live lazy-source-fetch integration.
+
 ## Native note-target lookup diagnostic
 
 The live stream now accumulates note targets in row order before constructing its
