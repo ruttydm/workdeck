@@ -1,5 +1,21 @@
 # Hunk semantic-port ledger
 
+## Native note-target lookup diagnostic
+
+The live stream now accumulates note targets in row order before constructing its
+ordered lookup once. It retains complete offscreen targets and cursor geometry;
+the existing full/viewport geometry comparisons and the complete TUI suite pass.
+This changes allocation strategy, not visible-row or note ownership semantics.
+
+`benchmarks/note-target-lookup-native-ab-7e95782d.json` records three alternating
+release-binary pairs with the exact source patch, binary hashes, and raw output.
+Aggregate median scroll latency was 3.656083 ms unchanged versus 3.211708 ms with
+bulk construction. Maximum measured process peak RSS was 167,608,320 versus
+168,951,808 bytes: this is not a memory improvement. The temporary target vector
+coexists with the final lookup during construction. These are native-only
+diagnostics, not a fresh Hunk comparison or a benchmark-gate pass. No interval is
+newly mapped by this optimization.
+
 ## Local verification checkpoint: fd0e52ce
 
 `cargo xtask verify` passed at clean commit `fd0e52ce`, including workspace

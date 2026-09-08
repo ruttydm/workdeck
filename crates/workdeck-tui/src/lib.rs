@@ -12842,7 +12842,9 @@ fn build_review_rows_with_chrome(
     let mut hunk_tops = std::collections::HashMap::new();
     let mut hunk_heights = std::collections::HashMap::new();
     let mut file_view_component_hits = Vec::new();
-    let mut note_targets = BTreeMap::new();
+    // Rows arrive in stream order. Collect once into the ordered lookup instead
+    // of rebalancing a B-tree for every source/code row in every frame.
+    let mut note_targets = Vec::new();
     let mut note_bounds = std::collections::HashMap::new();
     let mut line_cursors = Vec::new();
     let visible = |_file_index: usize, file: &DiffFile| {
@@ -13165,7 +13167,7 @@ fn build_review_rows_with_chrome(
     }
     ReviewRows {
         lines: rows,
-        note_targets,
+        note_targets: note_targets.into_iter().collect(),
         note_bounds,
         line_cursors,
         file_tops,
@@ -13500,7 +13502,7 @@ fn source_gap_rows(
     line_highlights: Option<&LineHighlightPaintIndex>,
     file_index: usize,
     row_base: usize,
-    note_targets: &mut BTreeMap<usize, ReviewNoteTarget>,
+    note_targets: &mut Vec<(usize, ReviewNoteTarget)>,
     line_cursors: &mut Vec<ReviewLineCursor>,
 ) -> Vec<Line<'static>> {
     let side = review_expansion_side(file.change_kind);
@@ -13583,7 +13585,7 @@ fn source_gap_rows(
         };
         for row in start..rows.len() {
             let row = row_base.saturating_add(row);
-            note_targets.insert(row, target);
+            note_targets.push((row, target));
             line_cursors.push(ReviewLineCursor { row, target });
         }
     }
