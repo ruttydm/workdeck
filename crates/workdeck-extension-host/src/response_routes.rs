@@ -10,6 +10,7 @@ pub const MAX_ROUTED_PARENTS: usize = 4;
 #[derive(Debug, Default)]
 pub struct ExtensionResponseRoutes {
     routes: BTreeMap<u64, SyncSender<String>>,
+    closed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,6 +19,7 @@ pub enum ResponseRouteError {
     ParentLimit,
     QueueFull,
     ReceiverClosed,
+    Closed,
 }
 
 impl ExtensionResponseRoutes {
@@ -50,6 +52,9 @@ impl ExtensionResponseRoutes {
     }
 
     pub fn register(&mut self, parent: u64) -> Result<Receiver<String>, ResponseRouteError> {
+        if self.closed {
+            return Err(ResponseRouteError::Closed);
+        }
         if self.routes.contains_key(&parent) {
             return Err(ResponseRouteError::DuplicateParent);
         }
@@ -86,11 +91,39 @@ impl ExtensionResponseRoutes {
     pub fn retire(&mut self, parent: u64) {
         self.routes.remove(&parent);
     }
+
+    /// Disconnect every waiter on stdout EOF or terminal transport failure.
+    /// Buffered frames can still be drained; registration cannot revive a dead child.
+    pub fn close(&mut self) {
+        self.closed = true;
+        self.routes.clear();
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn closing_routes_disconnects_all_waiters_and_cannot_be_reopened() {
+        let mut routes = ExtensionResponseRoutes::default();
+        let first = routes.register(1).unwrap();
+        let second = routes.register(2).unwrap();
+        routes.dispatch(1, "buffered".into()).unwrap();
+        routes.close();
+        routes.close();
+        assert_eq!(first.try_recv().unwrap(), "buffered");
+        assert_eq!(
+            first.try_recv().unwrap_err(),
+            mpsc::TryRecvError::Disconnected
+        );
+        assert_eq!(
+            second.try_recv().unwrap_err(),
+            mpsc::TryRecvError::Disconnected
+        );
+        assert_eq!(routes.register(1).unwrap_err(), ResponseRouteError::Closed);
+        assert_eq!(routes.register(3).unwrap_err(), ResponseRouteError::Closed);
+    }
 
     #[test]
     fn callbacks_route_by_parent_even_when_child_id_matches_another_parent() {
