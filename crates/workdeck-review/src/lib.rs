@@ -412,7 +412,58 @@ impl ReviewState {
         Ok(())
     }
 
+    /// Validate a rendered runtime source without modifying immutable provider
+    /// snapshots. The caller must supply the identity associated with that text.
+    pub fn reveal_loaded_source_line(
+        &mut self,
+        file_index: usize,
+        hunk_index: usize,
+        side: ReviewSide,
+        line: u32,
+        source_identity: Option<&str>,
+        text: &str,
+    ) -> Result<(), ReviewError> {
+        let file = self
+            .changeset
+            .files
+            .get(file_index)
+            .ok_or(ReviewError::FileOutOfRange(file_index))?;
+        if hunk_index >= file.hunks.len() {
+            return Err(ReviewError::HunkOutOfRange {
+                file: file_index,
+                hunk: hunk_index,
+            });
+        }
+        if file.source_identity.as_deref() != source_identity
+            || line == 0
+            || text.lines().nth(line.saturating_sub(1) as usize).is_none()
+        {
+            return Err(ReviewError::LineNotInHunk { side, line });
+        }
+        let selection = ReviewSelection {
+            file_index,
+            hunk_index: Some(hunk_index),
+            side: Some(side),
+            line: Some(line),
+        };
+        if self.selection != selection {
+            self.selection = selection;
+            self.state_revision = self.state_revision.saturating_add(1);
+        }
+        Ok(())
+    }
+
     pub fn reload(&mut self, changeset: Changeset) {
+        self.reload_with_selected_source(changeset, None);
+    }
+
+    /// Preserve the selected runtime source line only when its file/source
+    /// identity survives. The caller supplies text retained by its load state.
+    pub fn reload_with_selected_source(
+        &mut self,
+        changeset: Changeset,
+        selected_source: Option<&str>,
+    ) {
         let previous_file = self.selected_file().map(|file| {
             (
                 file.key.clone(),
@@ -453,8 +504,11 @@ impl ReviewState {
                         let source = match side {
                             ReviewSide::Old => file.sources.old.as_ref(),
                             ReviewSide::New => file.sources.new.as_ref(),
-                        }?;
-                        if line == 0 || line as usize > source.content.lines().count() {
+                        };
+                        let text = source
+                            .map(|source| source.content.as_str())
+                            .or(selected_source)?;
+                        if line == 0 || line as usize > text.lines().count() {
                             return None;
                         }
                         hunk.filter(|index| *index < file.hunks.len())
@@ -849,6 +903,57 @@ mod tests {
             assert_eq!(state.selection().line, Some(3));
             assert_eq!(state.state_revision(), revision + 1);
         }
+    }
+
+    #[test]
+    fn loaded_source_selection_checks_identity_bounds_and_keeps_the_document_immutable() {
+        let mut source_file = file("source.rs", "source", 1);
+        source_file.set_source_capability(Some(workdeck_core::SourceCapabilityIdentity {
+            cache_key: Some("snapshot".into()),
+        }));
+        let identity = source_file.source_identity.clone();
+        let mut state = ReviewState::new(changeset(vec![source_file]));
+        let original = state.changeset_snapshot();
+        let text = "first\r\nsecond\r\nthird\r\n";
+        assert!(state.reveal_line(0, ReviewSide::New, 3).is_err());
+        assert!(state.reveal_source_line(0, 0, ReviewSide::New, 3).is_err());
+        state
+            .reveal_loaded_source_line(0, 0, ReviewSide::New, 3, identity.as_deref(), text)
+            .unwrap();
+        assert_eq!(state.selection().line, Some(3));
+        let revision = state.state_revision();
+        state
+            .reveal_loaded_source_line(0, 0, ReviewSide::New, 3, identity.as_deref(), text)
+            .unwrap();
+        assert_eq!(state.state_revision(), revision);
+        for (file, hunk, line, source_identity) in [
+            (1, 0, 1, identity.as_deref()),
+            (0, 1, 1, identity.as_deref()),
+            (0, 0, 0, identity.as_deref()),
+            (0, 0, 4, identity.as_deref()),
+            (0, 0, 1, None),
+            (0, 0, 1, Some("stale")),
+        ] {
+            assert!(
+                state
+                    .reveal_loaded_source_line(
+                        file,
+                        hunk,
+                        ReviewSide::New,
+                        line,
+                        source_identity,
+                        text
+                    )
+                    .is_err()
+            );
+            assert_eq!(state.selection().line, Some(3));
+            assert_eq!(state.state_revision(), revision);
+        }
+        assert!(Arc::ptr_eq(&original, &state.changeset_snapshot()));
+        assert_eq!(
+            state.changeset().files[0].sources,
+            workdeck_core::FileSourceSnapshots::default()
+        );
     }
 
     fn comment(id: &str, file_key: &str, summary: &str) -> ReviewComment {

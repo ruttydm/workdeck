@@ -1,5 +1,23 @@
 # Hunk semantic-port ledger
 
+## Runtime-loaded cursor selection
+
+A live regression reproduced a panic when selecting an asynchronously rendered
+source line: selection validation consulted only provider snapshots. Runtime
+source selection now checks the current source identity, hunk/file bounds, and
+the loaded text's line bounds without modifying the immutable changeset. Ordinary
+diff-line and snapshot-backed selection retain their existing contracts.
+
+An expansion retains its pending cursor reveal until the requested rows exist.
+Completion selects the first requested source row; collapsing before completion
+cancels that reveal, while collapse after selection restores the earlier cursor.
+Attested runtime text can preserve its selected line across a matching reload;
+changed identities retire the text and selection. Channel-controlled live tests
+exercise these transitions, including the original failing cursor path.
+
+Remaining deferred-input and annotation/session validation work is still required.
+This does not complete the entire Hunk hook or add ledger coverage.
+
 ## Generation-owned session source readers
 
 Each prepared publication owns its source reader and resource store. A successful

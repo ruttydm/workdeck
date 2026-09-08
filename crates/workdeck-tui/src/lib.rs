@@ -1125,6 +1125,7 @@ impl Drop for ProvisionalExtensionPaneRuntime {
 #[derive(Debug)]
 pub struct ReviewApp {
     source_requests: workdeck_review::ReviewSourceRequests,
+    pending_source_reveal: Option<source_controller::PendingSourceReveal>,
     source_loaders: BTreeMap<String, source_controller::SourceLoaderBinding>,
     deferred_file_view_keys: std::collections::VecDeque<(u64, KeyEvent)>,
     replaying_file_view_key: bool,
@@ -1476,6 +1477,7 @@ impl ReviewApp {
             current_line_row: 0,
             expanded_gaps: BTreeSet::new(),
             source_requests: workdeck_review::ReviewSourceRequests::default(),
+            pending_source_reveal: None,
             source_loaders: BTreeMap::new(),
             gap_cursor_restore: BTreeMap::new(),
             agent_line_highlights: LineHighlightMap::default(),
@@ -1916,6 +1918,7 @@ impl ReviewApp {
         reset_app: bool,
     ) {
         if reset_app {
+            self.pending_source_reveal = None;
             self.source_requests
                 .retire(&self.source_loaders.keys().cloned().collect());
             self.source_loaders.clear();
@@ -2004,7 +2007,20 @@ impl ReviewApp {
                 &previous_changeset,
                 &changeset,
             );
-            self.with_state(|state| state.reload(changeset));
+            self.with_state(|state| {
+                let text = state.selected_file().and_then(|file| {
+                    if state.selection().side != Some(review_expansion_side(file.change_kind)) {
+                        return None;
+                    }
+                    match self.options.source_presentation.status(file) {
+                        Some(workdeck_review::ReviewSourceStatus::Loaded { text }) => {
+                            Some(text.as_str())
+                        }
+                        _ => None,
+                    }
+                });
+                state.reload_with_selected_source(changeset, text);
+            });
             self.agent_line_highlights = carried_agent_line_highlights;
             self.status = Some("review reloaded".into());
             self.highlights
@@ -3726,6 +3742,25 @@ impl ReviewApp {
                         target.hunk_index,
                         target.side,
                         target.line,
+                    )
+                })
+                .or_else(|error| {
+                    let Some(file) = state.changeset().files.get(target.file_index) else {
+                        return Err(error);
+                    };
+                    let Some(workdeck_review::ReviewSourceStatus::Loaded { text }) =
+                        self.options.source_presentation.status(file)
+                    else {
+                        return Err(error);
+                    };
+                    let identity = file.source_identity.clone();
+                    state.reveal_loaded_source_line(
+                        target.file_index,
+                        target.hunk_index,
+                        target.side,
+                        target.line,
+                        identity.as_deref(),
+                        text,
                     )
                 })
                 .expect("measured review cursor names a rendered diff line");
@@ -8058,6 +8093,21 @@ impl ReviewApp {
                 .remove(&key)
                 .map(|restore| restore.target)
         };
+        self.pending_source_reveal = if expanded {
+            target.and_then(|target| {
+                self.with_state(|state| {
+                    state.changeset().files.get(file_index).map(|file| {
+                        source_controller::PendingSourceReveal {
+                            runtime_id: file.runtime_id.clone(),
+                            gap: key.clone(),
+                            target,
+                        }
+                    })
+                })
+            })
+        } else {
+            None
+        };
         self.start_source_load(&key.0, side);
         let rows = self.current_review_rows();
         let cursors = review_line_cursors(&rows);
@@ -8074,6 +8124,7 @@ impl ReviewApp {
             .into_iter()
             .find(|cursor| Some(cursor.target) == target)
         {
+            self.pending_source_reveal = None;
             self.apply_review_line_cursor(cursor);
         } else {
             self.seed_current_line_cursor();

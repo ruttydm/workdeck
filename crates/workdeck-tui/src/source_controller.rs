@@ -58,6 +58,13 @@ pub(super) struct SourceLoaderBinding {
     loader: Arc<dyn ReviewSourceLoader>,
 }
 
+#[derive(Debug)]
+pub(super) struct PendingSourceReveal {
+    pub(super) runtime_id: String,
+    pub(super) gap: (String, usize),
+    pub(super) target: ReviewNoteTarget,
+}
+
 impl std::fmt::Debug for SourceLoaderBinding {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -200,7 +207,46 @@ impl ReviewApp {
                     .set_status(&file, update.status);
             }
         }
+        if count > 0 {
+            self.reveal_pending_source_cursor();
+        }
         count
+    }
+
+    fn reveal_pending_source_cursor(&mut self) {
+        let Some(pending) = &self.pending_source_reveal else {
+            return;
+        };
+        if !self.expanded_gaps.contains(&pending.gap) {
+            return;
+        }
+        let Some(file_index) =
+            self.with_state(|state| {
+                state.changeset().files.iter().position(|file| {
+                    file.runtime_id == pending.runtime_id && file.key == pending.gap.0
+                })
+            })
+        else {
+            return;
+        };
+        let mut target = pending.target;
+        target.file_index = file_index;
+        let rows = self.current_review_rows();
+        let Some(cursor) = review_line_cursors(&rows)
+            .into_iter()
+            .find(|cursor| cursor.target == target)
+        else {
+            return;
+        };
+        self.pending_source_reveal = None;
+        self.apply_review_line_cursor(cursor);
+        let viewport = usize::from(
+            self.review_height
+                .get()
+                .saturating_sub(2 + u16::from(!self.options.pager))
+                .max(1),
+        );
+        self.keep_current_line_visible(viewport, rows.lines.len().saturating_sub(1));
     }
 
     pub(super) fn reconcile_source_loaders(&mut self, changeset: &Changeset) {
@@ -291,6 +337,7 @@ pub(super) mod tests {
     fn gap_toggle_starts_a_worker_and_completion_reaches_the_live_rows() {
         let (mut app, sender) = setup();
         let original = app.with_state(|state| state.changeset().clone());
+        let original_selection = app.with_state(|state| state.selection());
         app.toggle_source_gap();
         assert!(rows(&app).contains("Loading 2 unchanged lines"));
         assert_eq!(app.poll_source_requests(), 0);
@@ -301,7 +348,60 @@ pub(super) mod tests {
         let text = rows(&app);
         assert!(text.contains("first-source-line"), "{text}");
         assert!(text.contains("Hide 2 unchanged lines"));
+        assert_eq!(app.with_state(|state| state.selection().line), Some(1));
+        assert!(app.pending_source_reveal.is_none());
+        let cursor = app
+            .current_review_rows()
+            .line_cursors
+            .into_iter()
+            .find(|cursor| cursor.target.line == 1)
+            .expect("loaded source line has a cursor");
+        app.apply_review_line_cursor(cursor);
+        assert_eq!(app.with_state(|state| state.selection().line), Some(1));
         assert_eq!(app.with_state(|state| state.changeset().clone()), original);
+        app.toggle_source_gap();
+        assert_eq!(
+            app.with_state(|state| state.selection()),
+            original_selection
+        );
+    }
+
+    #[test]
+    fn collapse_before_completion_cancels_the_pending_cursor_reveal() {
+        let (mut app, sender) = setup();
+        let selection = app.with_state(|state| state.selection());
+        app.toggle_source_gap();
+        assert!(app.pending_source_reveal.is_some());
+        app.toggle_source_gap();
+        assert!(app.pending_source_reveal.is_none());
+        sender
+            .send("hidden-source-one\nhidden-source-two\nnew\n".into())
+            .unwrap();
+        drain_one(&mut app);
+        assert!(!rows(&app).contains("hidden-source-one"));
+        assert_eq!(app.with_state(|state| state.selection()), selection);
+    }
+
+    #[test]
+    fn attested_loaded_selection_survives_reload_but_not_source_retirement() {
+        let (mut app, sender) = setup();
+        app.toggle_source_gap();
+        sender
+            .send("retained-one\nretained-two\nnew\n".into())
+            .unwrap();
+        drain_one(&mut app);
+        assert_eq!(app.with_state(|state| state.selection().line), Some(1));
+        let mut replacement = app.with_state(|state| state.changeset().clone());
+        replacement.files[0].runtime_id = "replacement-runtime".into();
+        app.reload(replacement.clone());
+        assert_eq!(app.with_state(|state| state.selection().line), Some(1));
+        assert!(rows(&app).contains("retained-one"));
+        replacement.files[0].set_source_capability(Some(workdeck_core::SourceCapabilityIdentity {
+            cache_key: Some("changed".into()),
+        }));
+        app.reload(replacement);
+        assert_ne!(app.with_state(|state| state.selection().line), Some(1));
+        assert!(!rows(&app).contains("retained-one"));
     }
 
     #[test]
