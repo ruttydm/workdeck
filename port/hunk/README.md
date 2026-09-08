@@ -1,5 +1,13 @@
 # Hunk semantic-port ledger
 
+## Local verification checkpoint: fd0e52ce
+
+`cargo xtask verify` passed at clean commit `fd0e52ce`, including workspace
+tests, Clippy, the release build, and the large-repository smoke test. This is
+local verification, not release or parity certification: 313 ledger records
+remain unmapped, the recorded upstream queue still contains 11 commits, and the
+historical trailer, benchmark, and cross-platform release gates remain open.
+
 ## Live context-gap mouse routing
 
 The live shell projects expandable-gap hits from its final row layout into the
@@ -22,6 +30,12 @@ source line appears and disappears. This integration currently exposes gaps with
 an available source snapshot; asynchronous source-fetch capability and the full
 DiffPane/controller port remain unfinished and unmapped. No source interval gains
 coverage from this partial controller integration.
+
+Gap labels now share the ported metadata-label helper: materialized source gaps
+show the interactive chevron, while gaps without a source snapshot use the
+noninteractive dotted label and publish no mouse target. A live row-builder
+regression checks both the label and absent hit metadata. This does not implement
+lazy source fetching or complete the metadata row's remaining paint integration.
 
 ## Live gap retirement on reload
 

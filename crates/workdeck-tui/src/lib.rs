@@ -13510,7 +13510,7 @@ fn source_gap_rows(
     );
     let plan = plan_expanded_gap(&file.key, address, expanded, status, side);
     let mut rows = Vec::with_capacity(plan.lines.len().saturating_add(1));
-    rows.push(source_gap_label(&plan.label, width));
+    rows.push(source_gap_label(&plan.label, width, source.is_some()));
     for expanded_line in plan.lines {
         let start = rows.len();
         let highlighted = highlighted_source
@@ -13593,10 +13593,10 @@ fn sanitized_syntax_tokens(tokens: &[SyntaxToken]) -> Vec<SyntaxToken> {
         .collect()
 }
 
-fn source_gap_label(label: &str, width: u16) -> Line<'static> {
+fn source_gap_label(label: &str, width: u16, expandable: bool) -> Line<'static> {
     let spans = clip_styled_spans(
         vec![Span::styled(
-            format!("▾ {label}"),
+            collapsed_diff_meta_row_label(label, expandable),
             Style::default().fg(Color::DarkGray),
         )],
         usize::from(width),
@@ -16819,6 +16819,28 @@ mod tests {
             ..ReviewOptions::default()
         };
         let mut highlights = HighlightedDiffRuntime::default();
+
+        let mut unavailable_changeset = changeset.clone();
+        unavailable_changeset.files[0].sources = FileSourceSnapshots::default();
+        let unavailable = build_review_rows(
+            &unavailable_changeset,
+            &[],
+            ReviewSelection::default(),
+            LayoutMode::Stack,
+            &options,
+            80,
+            &mut highlights,
+            &BTreeSet::new(),
+        );
+        let unavailable_text = unavailable
+            .lines
+            .iter()
+            .map(Line::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(unavailable_text.contains("··· 2 unchanged lines ···"));
+        assert!(!unavailable_text.contains('▾'));
+        assert!(unavailable.gap_rows.is_empty());
 
         let collapsed = build_review_rows(
             &changeset,
