@@ -7205,6 +7205,18 @@ impl ReviewApp {
             .collect::<Vec<_>>();
         let registrations = runtime.line_highlights.registrations().to_vec();
         let epochs = runtime.line_highlights.epochs().clone();
+        if runtime
+            .line_highlight_preparation
+            .set_stream_filter(&self.filter)
+        {
+            runtime.line_highlight_preparation.discard_file_results(
+                files
+                    .iter()
+                    .map(std::borrow::Cow::as_ref)
+                    .filter(|file| annotations.contains_key(public_review::public_file_id(file)))
+                    .map(|file| file.runtime_id.as_str()),
+            );
+        }
         runtime.line_highlight_preparation.reconcile(
             &extensions,
             &registrations,

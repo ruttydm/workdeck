@@ -146,6 +146,24 @@ including completed-cache and shared-clone identity checks. TUI all-target Clipp
 with warnings denied, formatting and whitespace checks pass. The full verifier
 checkpoint above predates this change. No whole-hook ledger disposition is changed.
 
+## Filter-driven visible-stream generation
+
+Pinned `useTerminalReview.ts` rebuilds `visibleFiles` on filter-text changes, and
+the highlighter hook restarts unfinished preparation when that collection changes.
+The native review painter now signals the filter text to its preparation owner.
+Repeated identical filters retain the current attempt; changed filters retire
+unfinished work even when matching file IDs remain equal.
+
+Pinned `mergeFileAnnotationsByFileId` also recreates file objects carrying saved
+notes during this rebuild. The painter explicitly discards those files' derived
+results while preserving unannotated completed marks. Tests cover equivalent
+matches, repeated filters, queued-lifetime retirement, unchanged map identity,
+and selective recreation of annotated-file results. All 53 coordinator tests,
+25 compiled highlighter integration tests, TUI all-target Clippy with warnings
+denied, formatting and whitespace checks pass. The initial annotated-file build
+caught an extra reference in a map lookup, which was corrected before these
+successful runs. No whole-hook mapping is claimed.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation

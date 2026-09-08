@@ -359,6 +359,7 @@ pub struct LineHighlightPreparationController {
     retired: bool,
     generation: Option<Vec<LineHighlightTaskKey>>,
     generation_epochs: Option<workdeck_extension_host::LineHighlightEpochState>,
+    stream_filter: Option<String>,
     generation_files: Vec<PreparationFileIdentity>,
     deadlines: BTreeMap<LineHighlightTaskKey, (Instant, LineHighlightTask)>,
     // One lifetime per provider attempt, including transport contention/retries.
@@ -386,6 +387,7 @@ impl Default for LineHighlightPreparationController {
             retired: false,
             generation: None,
             generation_epochs: None,
+            stream_filter: None,
             generation_files: Vec::new(),
             deadlines: BTreeMap::new(),
             attempt_deadlines: BTreeMap::new(),
@@ -402,6 +404,39 @@ impl Default for LineHighlightPreparationController {
 }
 
 impl LineHighlightPreparationController {
+    /// A changed filter recreates Hunk's visible-file collection even when the
+    /// matching files are unchanged. Retire unfinished work, not cached results.
+    pub(crate) fn set_stream_filter(&mut self, filter: &str) -> bool {
+        if self.stream_filter.as_deref() == Some(filter) {
+            return false;
+        }
+        self.cancel_pending();
+        self.generation = None;
+        self.stream_filter = Some(filter.to_owned());
+        true
+    }
+
+    /// Saved-note projection creates replacement file objects when the stream
+    /// is rebuilt. Retire only those file derivations, preserving other marks.
+    pub(crate) fn discard_file_results<'a>(&mut self, files: impl IntoIterator<Item = &'a str>) {
+        let files = files.into_iter().collect::<BTreeSet<_>>();
+        if files.is_empty() {
+            return;
+        }
+        self.cache
+            .retain(|key, _| !files.contains(key.file_id.as_str()));
+        self.merged.retain(|id, _| !files.contains(id.as_str()));
+        if self.resolved.0.keys().any(|id| files.contains(id.as_str())) {
+            self.resolved = LineHighlightMap::from_shared_entries(
+                self.resolved
+                    .0
+                    .iter()
+                    .filter(|(id, _)| !files.contains(id.as_str()))
+                    .map(|(id, marks)| (id.clone(), Arc::clone(marks))),
+            );
+        }
+    }
+
     fn cancel_pending(&mut self) {
         for cancellation in self.pending.values() {
             cancellation.cancel();
@@ -2194,6 +2229,95 @@ mod tests {
             );
         }
         assert_eq!(runtime.calls().len(), 2);
+    }
+
+    #[test]
+    fn equivalent_filter_matches_restart_queued_work_but_preserve_completed_marks() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+        runtime.pending.store(true, Ordering::Release);
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("filter")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [test_file("alpha", "content")];
+        let mut controller = LineHighlightPreparationController::default();
+        controller.set_stream_filter("a");
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        let deadline = *controller.attempt_deadlines.values().next().unwrap();
+        controller.set_stream_filter("a");
+        assert_eq!(
+            *controller.attempt_deadlines.values().next().unwrap(),
+            deadline
+        );
+        controller.set_stream_filter("alpha");
+        assert!(controller.attempt_deadlines.is_empty());
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        assert_eq!(controller.attempt_deadlines.len(), 1);
+        assert!(runtime.warnings().is_empty());
+        runtime.pending.store(false, Ordering::Release);
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            &files,
+            |controller| !controller.resolved().is_empty(),
+        );
+        let marks = controller.resolved().clone();
+        controller.set_stream_filter("alp");
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        assert!(controller.resolved().ptr_eq(&marks));
+        assert_eq!(runtime.calls().len(), 1);
+    }
+
+    #[test]
+    fn stream_rebuild_rederives_recreated_note_files_only() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("filter")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [test_file("annotated", "a"), test_file("plain", "b")];
+        let mut controller = LineHighlightPreparationController::default();
+        controller.set_stream_filter("");
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            &files,
+            |controller| controller.resolved().len() == 2,
+        );
+        let plain = controller.resolved().get_shared("plain").unwrap().clone();
+        assert!(controller.set_stream_filter("a"));
+        controller.discard_file_results(["annotated"]);
+        assert!(controller.resolved().get("annotated").is_none());
+        assert!(Arc::ptr_eq(
+            controller.resolved().get_shared("plain").unwrap(),
+            &plain
+        ));
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            &files,
+            |controller| controller.resolved().len() == 2,
+        );
+        assert_eq!(
+            runtime
+                .calls()
+                .iter()
+                .filter(|(_, file)| file == "annotated")
+                .count(),
+            2
+        );
+        assert_eq!(
+            runtime
+                .calls()
+                .iter()
+                .filter(|(_, file)| file == "plain")
+                .count(),
+            1
+        );
     }
 
     #[test]
