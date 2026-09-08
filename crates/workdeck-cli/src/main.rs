@@ -961,6 +961,7 @@ impl ReviewCliOptions {
             theme
         };
         ReviewOptions {
+            source_presentation: workdeck_tui::ReviewSourcePresentation::default(),
             layout: match self.mode.unwrap_or(ReviewLayoutArg::Auto) {
                 ReviewLayoutArg::Auto => LayoutMode::Auto,
                 ReviewLayoutArg::Split => LayoutMode::Split,

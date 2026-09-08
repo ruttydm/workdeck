@@ -83,6 +83,9 @@ mod review_state_helpers;
 mod row_style;
 mod session_review_controller;
 mod shutdown;
+mod source_controller;
+mod source_presentation;
+pub use source_presentation::ReviewSourcePresentation;
 mod spatial;
 mod startup_notices;
 mod static_diff_pager;
@@ -273,15 +276,15 @@ use workdeck_extension_host::{
     session_keyboard_mode_still_valid,
 };
 use workdeck_review::{
-    CommentAnchor, ExpandedSourceError, ExpandedSourceStatus, LayoutMode, PlannedFileViewRow,
-    ReviewComment, ReviewGapAddress, ReviewLineTarget, ReviewNavigationFile, ReviewNavigationModel,
-    ReviewNoteResolution, ReviewRevealAnchor, ReviewRevealNoteCandidate, ReviewRevealRequest,
-    ReviewSelectionMove, ReviewSelectionScope, ReviewState, SemanticReviewAnnotationIndex,
-    SemanticReviewSelection, VisibleFileViewNote, build_extension_review_snapshot,
-    build_file_view_render_plan, plan_expanded_gap, plan_review_selection_move,
-    project_extension_review_notes, resolve_review_reveal_note_id, review_annotated_hunk_indices,
-    review_default_hunk_line_target, review_expansion_side, review_file_fields_match_filter,
-    review_gap_source_for_file, review_leading_gap, review_line_anchor, review_trailing_gap,
+    CommentAnchor, LayoutMode, PlannedFileViewRow, ReviewComment, ReviewGapAddress,
+    ReviewLineTarget, ReviewNavigationFile, ReviewNavigationModel, ReviewNoteResolution,
+    ReviewRevealAnchor, ReviewRevealNoteCandidate, ReviewRevealRequest, ReviewSelectionMove,
+    ReviewSelectionScope, ReviewState, SemanticReviewAnnotationIndex, SemanticReviewSelection,
+    VisibleFileViewNote, build_extension_review_snapshot, build_file_view_render_plan,
+    plan_expanded_gap, plan_review_selection_move, project_extension_review_notes,
+    resolve_review_reveal_note_id, review_annotated_hunk_indices, review_default_hunk_line_target,
+    review_expansion_side, review_file_fields_match_filter, review_gap_source_for_file,
+    review_leading_gap, review_line_anchor, review_trailing_gap,
 };
 use workdeck_session::{ReviewSessionServer, default_discovery_directory};
 use workdeck_vcs::bundled_vcs_catalog;
@@ -292,6 +295,8 @@ use crate::extension_runtime_bridge::{
 
 #[derive(Debug, Clone)]
 pub struct ReviewOptions {
+    /// Identity-bound load presentation; executable source readers remain host-owned.
+    pub source_presentation: source_presentation::ReviewSourcePresentation,
     pub layout: LayoutMode,
     /// Initial and most recent explicit sidebar policy; `sidebar` retains the logical open state.
     pub sidebar_visibility: SidebarVisibility,
@@ -349,6 +354,7 @@ pub struct ReviewOptions {
 impl Default for ReviewOptions {
     fn default() -> Self {
         Self {
+            source_presentation: source_presentation::ReviewSourcePresentation::default(),
             layout: LayoutMode::Auto,
             sidebar_visibility: SidebarVisibility::Auto,
             sidebar: true,
@@ -1115,6 +1121,8 @@ impl Drop for ProvisionalExtensionPaneRuntime {
 
 #[derive(Debug)]
 pub struct ReviewApp {
+    source_requests: workdeck_review::ReviewSourceRequests,
+    source_loaders: BTreeMap<String, source_controller::SourceLoaderBinding>,
     deferred_file_view_keys: std::collections::VecDeque<(u64, KeyEvent)>,
     replaying_file_view_key: bool,
     state: Arc<Mutex<ReviewState>>,
@@ -1459,6 +1467,8 @@ impl ReviewApp {
             review_gap_hits: Mutex::new(Vec::new()),
             current_line_row: 0,
             expanded_gaps: BTreeSet::new(),
+            source_requests: workdeck_review::ReviewSourceRequests::default(),
+            source_loaders: BTreeMap::new(),
             gap_cursor_restore: BTreeMap::new(),
             agent_line_highlights: LineHighlightMap::default(),
             highlights: Mutex::new(HighlightedDiffRuntime::default()),
@@ -1893,6 +1903,14 @@ impl ReviewApp {
         emit_startup: bool,
         reset_app: bool,
     ) {
+        if reset_app {
+            self.source_requests
+                .retire(&self.source_loaders.keys().cloned().collect());
+            self.source_loaders.clear();
+            self.options.source_presentation = ReviewSourcePresentation::default();
+        } else {
+            self.reconcile_source_loaders(&changeset);
+        }
         self.cancel_copy_selection();
         self.reset_copy_click_sequence();
         self.extension_command_epoch = self.extension_command_epoch.saturating_add(1);
@@ -8028,6 +8046,7 @@ impl ReviewApp {
                 .remove(&key)
                 .map(|restore| restore.target)
         };
+        self.start_source_load(&key.0, side);
         let rows = self.current_review_rows();
         let cursors = review_line_cursors(&rows);
         // A collapse restores the saved anchor only if it actually removed the
@@ -9453,6 +9472,7 @@ fn run_loop(
             };
         app_host.process_pending(app, &mut session_reload_handler);
         app.poll_extension_commands();
+        app.poll_source_requests();
         app.tick_extension_notifications(Instant::now());
         if let Err(error) = app_host.publish_snapshot(app) {
             app.status = Some(format!("failed to publish session snapshot: {error}"));
@@ -12949,18 +12969,9 @@ fn build_review_rows_with_chrome(
             None
         };
         let gap_source = workdeck_review::review_gap_geometry_for_file(file);
-        let expansion_side = review_expansion_side(file.change_kind);
-        let selected_source = match expansion_side {
-            ReviewSide::Old => file.sources.old.as_ref(),
-            ReviewSide::New => file.sources.new.as_ref(),
-        };
+        let selected_source = options.source_presentation.text(file);
         let line_highlight_paint = line_highlights.get(&file.runtime_id).and_then(|marks| {
-            build_line_highlight_paint_index(
-                file,
-                marks,
-                options.tab_width,
-                selected_source.map(|source| source.content.as_str()),
-            )
+            build_line_highlight_paint_index(file, marks, options.tab_width, selected_source)
         });
         let expanded_source = expanded_gaps
             .iter()
@@ -12978,7 +12989,7 @@ fn build_review_rows_with_chrome(
             if live {
                 highlight_cache.highlight_source_with_syntax_theme_live(
                     file,
-                    &source.content,
+                    source,
                     workdeck_diff::SourceHighlightTheme {
                         id: &options.theme.id,
                         appearance,
@@ -12990,7 +13001,7 @@ fn build_review_rows_with_chrome(
             } else {
                 Some(highlight_cache.highlight_source_with_syntax_theme(
                     file,
-                    &source.content,
+                    source,
                     workdeck_diff::SourceHighlightTheme {
                         id: &options.theme.id,
                         appearance,
@@ -13024,7 +13035,7 @@ fn build_review_rows_with_chrome(
         }
         for (hunk_index, hunk) in file.hunks.iter().enumerate() {
             if let Some(address) = gap_source.leading_gap(hunk_index) {
-                if selected_source.is_some() {
+                if options.source_presentation.available(file) {
                     gap_rows.push((rows.len(), file_index, hunk_index));
                 }
                 rows.extend(source_gap_rows(
@@ -13143,7 +13154,7 @@ fn build_review_rows_with_chrome(
             );
         }
         if let Some(address) = gap_source.trailing_gap() {
-            if selected_source.is_some() {
+            if options.source_presentation.available(file) {
                 gap_rows.push((rows.len(), file_index, file.hunks.len()));
             }
             rows.extend(source_gap_rows(
@@ -13506,15 +13517,8 @@ fn source_gap_rows(
     line_cursors: &mut Vec<ReviewLineCursor>,
 ) -> Vec<Line<'static>> {
     let side = review_expansion_side(file.change_kind);
-    let source = match side {
-        ReviewSide::Old => file.sources.old.as_ref(),
-        ReviewSide::New => file.sources.new.as_ref(),
-    };
     let expanded = expanded_gaps.contains(&(file.key.clone(), gap_slot));
-    let status = source.map_or(
-        ExpandedSourceStatus::Error(ExpandedSourceError::Unavailable),
-        |source| ExpandedSourceStatus::Loaded(&source.content),
-    );
+    let status = options.source_presentation.expanded_status(file);
     let plan = plan_expanded_gap(&file.key, address, expanded, status, side);
     let mut rows = Vec::with_capacity(plan.lines.len().saturating_add(1));
     rows.push(source_gap_label(
@@ -13522,7 +13526,7 @@ fn source_gap_rows(
         address,
         &plan.label,
         width,
-        source.is_some(),
+        options.source_presentation.available(file),
         selected,
         &options.theme,
     ));
@@ -17033,6 +17037,99 @@ mod tests {
                 .count(),
             2
         );
+    }
+
+    #[test]
+    fn live_source_presentation_renders_pending_loading_errors_and_loaded_rows() {
+        use workdeck_review::{ReviewSourceErrorReason, ReviewSourceStatus};
+        let mut changeset = parse_patch(
+            "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -3 +3 @@\n-old\n+new\n",
+            "lazy-source",
+            "Lazy source",
+            ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap();
+        changeset.files[0].set_source_capability(Some(workdeck_core::SourceCapabilityIdentity {
+            cache_key: Some("snapshot-one".into()),
+        }));
+        let original = changeset.clone();
+        let file = &changeset.files[0];
+        let mut options = ReviewOptions {
+            highlight: false,
+            line_numbers: false,
+            ..ReviewOptions::default()
+        };
+        options.source_presentation.pending(file);
+        let gaps = BTreeSet::from([(file.key.clone(), 0)]);
+        let mut highlights = HighlightedDiffRuntime::default();
+        for layout in [LayoutMode::Stack, LayoutMode::Split] {
+            for (status, label, loaded) in [
+                (None, "2 unchanged lines", false),
+                (
+                    Some(ReviewSourceStatus::Loading),
+                    "Loading 2 unchanged lines",
+                    false,
+                ),
+                (
+                    Some(ReviewSourceStatus::Error { reason: None }),
+                    "Could not load 2 unchanged lines",
+                    false,
+                ),
+                (
+                    Some(ReviewSourceStatus::Error {
+                        reason: Some(ReviewSourceErrorReason::TooLarge),
+                    }),
+                    "Source too large to expand 2 unchanged lines",
+                    false,
+                ),
+                (
+                    Some(ReviewSourceStatus::Loaded {
+                        text: "one\ntwo\nnew\n".into(),
+                    }),
+                    "Hide 2 unchanged lines",
+                    true,
+                ),
+            ] {
+                if let Some(status) = status {
+                    options.source_presentation.set_status(file, status);
+                } else {
+                    options.source_presentation.pending(file);
+                }
+                let rows = build_review_rows(
+                    &changeset,
+                    &[],
+                    ReviewSelection::default(),
+                    layout,
+                    &options,
+                    120,
+                    &mut highlights,
+                    &gaps,
+                );
+                let text = rows
+                    .lines
+                    .iter()
+                    .map(Line::to_string)
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                assert!(text.contains(label), "{text}");
+                assert_eq!(text.contains("one"), loaded);
+                assert!(!rows.gap_rows.is_empty());
+                if loaded {
+                    assert!(rows.note_targets.values().any(|target| target.line == 1));
+                }
+            }
+        }
+        assert_eq!(
+            changeset, original,
+            "loading presentation must not mutate provider snapshots"
+        );
+        let mut changed = changeset.clone();
+        changed.files[0].set_source_capability(Some(workdeck_core::SourceCapabilityIdentity {
+            cache_key: Some("replacement".into()),
+        }));
+        assert!(!options.source_presentation.available(&changed.files[0]));
+        options.source_presentation.reconcile(&changed.files);
+        assert!(options.source_presentation.text(file).is_none());
     }
 
     #[test]

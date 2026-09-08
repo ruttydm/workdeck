@@ -1,5 +1,23 @@
 # Hunk semantic-port ledger
 
+## Live source loading presentation
+
+The real stack/split gap renderer consumes identity-bound pending, loading,
+loaded, unavailable, and too-large state. It preserves the immutable changeset:
+worker text does not become a fabricated provider snapshot. Pending/error rows
+remain addressable, and loaded text supplies expanded rows and syntax highlighting.
+
+`ReviewApp::install_source_loader` installs explicit host-owned authority for a
+mounted file. Gap toggles start the request owner; standalone and embedded loops
+poll completions on the UI thread. Reload retires changed/unattested bindings,
+and app reset retires all bindings. Tests use blocked workers to verify loading
+and completion in the live row builder and rejection of stale reload results.
+
+The CLI does not yet install retained VCS handles through this API. Replacement
+binding handoff, open-gap refetch, cursor reveal/restoration after asynchronous
+completion, and loaded-line selection/session semantics remain required. This
+integration does not complete the Hunk hook or increase ledger coverage.
+
 ## Asynchronous source request owner
 
 `workdeck-review::ReviewSourceRequests` provides the worker/completion boundary
@@ -9,10 +27,10 @@ Retirement removes authority without waiting on a provider; late successes are
 ignored and late failures retain diagnostics. Typed size failures preserve their
 distinct state. Workers cannot mutate the review store directly.
 
-Deterministic channel-controlled tests cover these transitions. This is the
-request-owner component, not yet a connected live TUI controller; integration of
-loading rows, cursor reveal, and reload refetch remains required. No source
-interval gains coverage from this component alone.
+Deterministic channel-controlled tests cover these transitions. The live canvas
+now uses this request owner as described above; provider installation, cursor
+reveal, and reload refetch remain required. No source interval gains coverage
+from this component alone.
 
 ## Runtime provider source ownership
 

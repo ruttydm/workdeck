@@ -49,6 +49,16 @@ pub struct ReviewSourceRequests {
     receiver: mpsc::Receiver<Completion>,
 }
 
+impl std::fmt::Debug for ReviewSourceRequests {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ReviewSourceRequests")
+            .field("next_id", &self.next_id)
+            .field("pending_count", &self.pending.len())
+            .finish_non_exhaustive()
+    }
+}
+
 impl Default for ReviewSourceRequests {
     fn default() -> Self {
         let (sender, receiver) = mpsc::channel();

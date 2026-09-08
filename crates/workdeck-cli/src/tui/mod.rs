@@ -185,6 +185,7 @@ fn run_loop(
         }
         if let Some(review) = &mut app.review {
             review.poll_extension_commands();
+            review.poll_source_requests();
             review.tick_extension_notifications(Instant::now());
             if review.take_quit_requested() {
                 return Ok(());
