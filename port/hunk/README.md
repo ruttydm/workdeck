@@ -1,5 +1,25 @@
 # Hunk semantic-port ledger
 
+## Native CI change detection (partial tooling port)
+
+`cargo xtask ci-changes <base-revision> <head-revision>` implements the pinned CI
+docs/assets classifier, all-zero-base empty-tree comparison, shallow-checkout object
+fetching from `origin`, and rename-disabled comparison. It appends `code_changed=true`
+or `false` to a nonempty `GITHUB_OUTPUT` and preserves existing output-file contents.
+Markdown suffix matching is case-sensitive; `docs/`, `assets/`, and root `LICENSE`
+are exempt. Git's original quoted filename output is preserved for classification.
+
+Frozen outputs from both source pins are in `oracles/ci-code-changes.json`; the ignored
+Rust capture test executes each script directly from its preserved Git blob in disposable
+fixture repositories. Regular Rust tests cover the decisions, append behavior, shallow
+fetch, and failures without requiring Bash or an upstream runtime.
+
+The source ledger record remains unmapped: workflow integration and the full error/input
+contract are not yet reconciled. In particular, the Rust command rejects option-like or
+control-character revisions and extra arguments, and fails closed on Git diff failures.
+The source process-substitution loop can instead report no code changes after a failed diff.
+These differences are explicit unresolved parity work, not a completed-file waiver.
+
 ## Immutable native review documents
 
 `ReviewState` owns its changeset through `Arc<Changeset>`. Its `changeset()` accessor remains

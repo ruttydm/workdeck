@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "runs": [
+    {
+      "sourceCommit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "cases": [
+        {
+          "name": "zero-base-docs",
+          "codeChanged": false,
+          "exitCode": 0,
+          "stdout": "Only docs/assets metadata changes detected; expensive CI jobs can be skipped.\n",
+          "stderr": "",
+          "githubOutput": "existing=value\ncode_changed=false\n"
+        },
+        {
+          "name": "unchanged",
+          "codeChanged": false,
+          "exitCode": 0,
+          "stdout": "Only docs/assets metadata changes detected; expensive CI jobs can be skipped.\n",
+          "stderr": "",
+          "githubOutput": "existing=value\ncode_changed=false\n"
+        },
+        {
+          "name": "code-added",
+          "codeChanged": true,
+          "exitCode": 0,
+          "stdout": "Code changes detected; expensive CI jobs should run.\n",
+          "stderr": "",
+          "githubOutput": "existing=value\ncode_changed=true\n"
+        },
+        {
+          "name": "code-to-docs-rename",
+          "codeChanged": true,
+          "exitCode": 0,
+          "stdout": "Code changes detected; expensive CI jobs should run.\n",
+          "stderr": "",
+          "githubOutput": "existing=value\ncode_changed=true\n"
+        },
+        {
+          "name": "docs-edit",
+          "codeChanged": false,
+          "exitCode": 0,
+          "stdout": "Only docs/assets metadata changes detected; expensive CI jobs can be skipped.\n",
+          "stderr": "",
+          "githubOutput": "existing=value\ncode_changed=false\n"
+        }
+      ]
+    },
+    {
+      "sourceCommit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "cases": [
+        {
+          "name": "zero-base-docs",
+          "codeChanged": false,
+          "exitCode": 0,
+          "stdout": "Only docs/assets metadata changes detected; expensive CI jobs can be skipped.\n",
+          "stderr": "",
+          "githubOutput": "existing=value\ncode_changed=false\n"
+        },
+        {
+          "name": "unchanged",
+          "codeChanged": false,
+          "exitCode": 0,
+          "stdout": "Only docs/assets metadata changes detected; expensive CI jobs can be skipped.\n",
+          "stderr": "",
+          "githubOutput": "existing=value\ncode_changed=false\n"
+        },
+        {
+          "name": "code-added",
+          "codeChanged": true,
+          "exitCode": 0,
+          "stdout": "Code changes detected; expensive CI jobs should run.\n",
+          "stderr": "",
+          "githubOutput": "existing=value\ncode_changed=true\n"
+        },
+        {
+          "name": "code-to-docs-rename",
+          "codeChanged": true,
+          "exitCode": 0,
+          "stdout": "Code changes detected; expensive CI jobs should run.\n",
+          "stderr": "",
+          "githubOutput": "existing=value\ncode_changed=true\n"
+        },
+        {
+          "name": "docs-edit",
+          "codeChanged": false,
+          "exitCode": 0,
+          "stdout": "Only docs/assets metadata changes detected; expensive CI jobs can be skipped.\n",
+          "stderr": "",
+          "githubOutput": "existing=value\ncode_changed=false\n"
+        }
+      ]
+    }
+  ]
+}
