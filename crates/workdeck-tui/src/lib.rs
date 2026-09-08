@@ -14190,7 +14190,9 @@ fn emphasize_spans(
     let mut result: Vec<Span<'static>> = Vec::new();
     let mut offset = 0;
     for span in spans {
-        for character in span.content.chars() {
+        let mut run_start = 0;
+        let mut run_style = None;
+        for (index, character) in span.content.char_indices() {
             let emphasized = ranges
                 .iter()
                 .any(|range| range.start <= offset && offset < range.end);
@@ -14199,15 +14201,26 @@ fn emphasize_spans(
             } else {
                 span.style
             };
-            if let Some(last) = result.last_mut().filter(|last| last.style == style) {
-                last.content.to_mut().push(character);
-            } else {
-                result.push(Span::styled(character.to_string(), style));
+            if let Some(previous) = run_style.filter(|previous| *previous != style) {
+                append_emphasis_run(&mut result, &span.content[run_start..index], previous);
+                run_start = index;
             }
+            run_style = Some(style);
             offset += character.len_utf8();
+        }
+        if let Some(style) = run_style {
+            append_emphasis_run(&mut result, &span.content[run_start..], style);
         }
     }
     result
+}
+
+fn append_emphasis_run(result: &mut Vec<Span<'static>>, text: &str, style: Style) {
+    if let Some(last) = result.last_mut().filter(|last| last.style == style) {
+        last.content.to_mut().push_str(text);
+    } else {
+        result.push(Span::styled(text.to_owned(), style));
+    }
 }
 
 fn wrap_styled_spans(spans: Vec<Span<'static>>, width: usize) -> Vec<Vec<Span<'static>>> {
@@ -14505,6 +14518,61 @@ mod tests {
     };
     use workdeck_diff::{create_two_files_patch, parse_patch};
     use workdeck_review::{CommentAnchor, ReviewComment};
+
+    #[test]
+    fn emphasis_runs_match_character_reference_for_unicode_and_overlapping_ranges() {
+        fn reference(spans: Vec<Span<'static>>, ranges: &[Range<usize>]) -> Vec<Span<'static>> {
+            if ranges.is_empty() {
+                return spans;
+            }
+            let mut result: Vec<Span<'static>> = Vec::new();
+            let mut offset = 0;
+            for span in spans {
+                for character in span.content.chars() {
+                    let style = if ranges.iter().any(|range| range.contains(&offset)) {
+                        span.style.bg(Color::Blue).add_modifier(Modifier::BOLD)
+                    } else {
+                        span.style
+                    };
+                    if let Some(last) = result.last_mut().filter(|last| last.style == style) {
+                        last.content.to_mut().push(character);
+                    } else {
+                        result.push(Span::styled(character.to_string(), style));
+                    }
+                    offset += character.len_utf8();
+                }
+            }
+            result
+        }
+        for text in ["", "ab cd", "日🚀e\u{301}\tZ"] {
+            for split in (0..=text.len()).filter(|index| text.is_char_boundary(*index)) {
+                for alternate_style in [Style::default(), Style::default().fg(Color::Red)] {
+                    let spans = vec![
+                        Span::raw(&text[..split]),
+                        Span::styled("", alternate_style),
+                        Span::styled(&text[split..], alternate_style),
+                    ];
+                    assert_eq!(emphasize_spans(spans.clone(), &[], Color::Blue), spans);
+                    // Include byte boundaries inside multibyte scalars, empty ranges,
+                    // overlapping ranges, and ranges extending beyond the content.
+                    for start in 0..=text.len() + 1 {
+                        for end in start..=text.len() + 1 {
+                            for ranges in [
+                                std::iter::once(start..end).collect::<Vec<_>>(),
+                                vec![end..end + 2, start..end],
+                            ] {
+                                assert_eq!(
+                                    emphasize_spans(spans.clone(), &ranges, Color::Blue),
+                                    reference(spans.clone(), &ranges),
+                                    "text={text:?} split={split} ranges={ranges:?}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     fn changeset() -> Changeset {
         parse_patch(
