@@ -282,7 +282,7 @@ impl LineHighlightPreparationController {
         self.pending.len()
     }
 
-    /// Poll completed work, retire stale derivations, and start at most four requests.
+    /// Prepare at most four files concurrently, with registration-ordered work per file.
     ///
     /// The method never waits for extension code. Calling it from successive
     /// Ratatui frames publishes each file as soon as all of that file's
@@ -315,12 +315,23 @@ impl LineHighlightPreparationController {
             })
         });
 
+        let mut blocked_files = BTreeSet::new();
         for task in &tasks {
+            if self.cache.contains_key(&task.key) {
+                continue;
+            }
+            // The first unresolved registration owns this file's turn, including
+            // while its native connection is busy. Later registrations cannot pass it.
+            if !blocked_files.insert(task.key.file_id.as_str())
+                || self
+                    .pending
+                    .keys()
+                    .any(|key| key.file_id == task.key.file_id)
+            {
+                continue;
+            }
             if self.pending.len() >= LINE_HIGHLIGHT_CONCURRENCY {
                 break;
-            }
-            if self.cache.contains_key(&task.key) || self.pending.contains_key(&task.key) {
-                continue;
             }
             let Some(extension) = extensions.get(task.extension_index) else {
                 continue;
@@ -1361,6 +1372,104 @@ mod tests {
         drop(controller);
         release_tx.send(()).unwrap();
         assert!(finished_rx.recv_timeout(Duration::from_secs(5)).unwrap());
+    }
+
+    #[test]
+    fn preparation_runs_four_files_but_orders_highlighters_within_each_file() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let release_rx = Mutex::new(release_rx);
+        let runtime = FakeLineHighlightRuntime::new(move |id, file, _| {
+            started_tx
+                .send((id.to_owned(), file.runtime_id.clone()))
+                .unwrap();
+            if id == "first" {
+                release_rx
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(5))
+                    .unwrap();
+            }
+            Ok(one_mark("match"))
+        });
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("first"), registration("second")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = (0..5)
+            .map(|index| test_file(&format!("file-{index}"), "content"))
+            .collect::<Vec<_>>();
+        let mut controller = LineHighlightPreparationController::default();
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        let initial = (0..4)
+            .map(|_| started_rx.recv_timeout(Duration::from_secs(5)).unwrap())
+            .collect::<Vec<_>>();
+        for _ in &files {
+            release_tx.send(()).unwrap();
+        }
+        assert!(initial.iter().all(|(id, _)| id == "first"), "{initial:?}");
+        assert_eq!(
+            initial
+                .iter()
+                .map(|(_, file)| file)
+                .collect::<BTreeSet<_>>()
+                .len(),
+            4
+        );
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            &files,
+            |controller| controller.resolved().len() == 5 && controller.pending_count() == 0,
+        );
+        let calls = runtime.calls();
+        for file in &files {
+            assert_eq!(
+                calls
+                    .iter()
+                    .filter(|(_, id)| id == &file.runtime_id)
+                    .map(|(id, _)| id.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["first", "second"]
+            );
+        }
+    }
+
+    #[test]
+    fn busy_first_registration_cannot_be_overtaken_by_a_later_extension() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let first_calls = Arc::clone(&calls);
+        let first = FakeLineHighlightRuntime::new(move |_, _, _| {
+            first_calls.lock().unwrap().push("first");
+            Ok(one_mark("match"))
+        });
+        let second_calls = Arc::clone(&calls);
+        let second = FakeLineHighlightRuntime::new(move |_, _, _| {
+            second_calls.lock().unwrap().push("second");
+            Ok(one_mark("match"))
+        });
+        let extensions: Vec<Arc<dyn LineHighlightRuntime>> = vec![first.clone(), second];
+        let mut second_registration = registration("second");
+        second_registration.extension_index = 1;
+        let registrations = [registration("first"), second_registration];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [test_file("file", "content")];
+        let mut controller = LineHighlightPreparationController::default();
+        first.pending.store(true, Ordering::Release);
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        assert_eq!(controller.pending_count(), 0);
+        assert!(calls.lock().unwrap().is_empty());
+        first.pending.store(false, Ordering::Release);
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            &files,
+            |controller| controller.resolved().len() == 1 && controller.pending_count() == 0,
+        );
+        assert_eq!(*calls.lock().unwrap(), vec!["first", "second"]);
     }
 
     #[test]

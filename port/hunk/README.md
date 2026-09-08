@@ -1,5 +1,21 @@
 # Hunk semantic-port ledger
 
+## Registration-ordered file preparation
+
+The pinned highlighter hook prepares up to four files concurrently and awaits
+each registration in order within a file. A controlled test reproduced the
+native scheduler instead starting two registrations for each of the first two
+files. Scheduling now gives each file's first unresolved registration its turn;
+an existing worker or busy earlier native connection blocks later registrations
+for that file without blocking independent files.
+
+Tests verify the initial four requests belong to four files, complete per-file
+registration ordering across five files, and a busy first extension that cannot
+be overtaken by the second. Remaining whole-hook generation semantics still
+require verification; this change adds no ledger coverage.
+All 27 highlighter tests, workspace Clippy, formatting, and architecture checks
+pass for this scheduler checkpoint.
+
 ## Highlighter disposal and completion ownership
 
 A controlled regression reproduced a running highlighter observing no
@@ -12,7 +28,7 @@ Completions carry their original cancellation token. Settlement checks token
 identity as well as the task key, preventing an old success, failure, or retry
 from consuming or publishing through a newer request that reused the same key.
 Tests cover real worker disposal and controlled late-result delivery. All 25
-highlighter tests pass. Per-file scheduling and remaining generation semantics
+highlighter tests pass. Remaining generation semantics
 still need verification; the complete hook remains unmapped.
 Workspace Clippy, formatting, and architecture checks also pass for this checkpoint.
 
