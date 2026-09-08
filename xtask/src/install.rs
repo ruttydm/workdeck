@@ -5,6 +5,65 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+fn expected_checksum(contents: &str, archive_name: &str) -> Result<String> {
+    let mut selected = None;
+    for line in contents.lines() {
+        let mut fields = line.split_ascii_whitespace();
+        let Some(hash) = fields.next() else {
+            continue;
+        };
+        let Some(name) = fields.next() else {
+            continue;
+        };
+        if name.strip_prefix('*').unwrap_or(name) != archive_name {
+            continue;
+        }
+        if fields.next().is_some()
+            || hash.len() != 64
+            || !hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            bail!("Malformed checksum entry for {archive_name}");
+        }
+        if selected.replace(hash.to_ascii_lowercase()).is_some() {
+            bail!("Duplicate checksum entry for {archive_name}");
+        }
+    }
+    selected.ok_or_else(|| {
+        anyhow::anyhow!(
+            "Checksum file has no entry for {archive_name}; refusing an unverified archive"
+        )
+    })
+}
+
+pub(super) fn verify(mut args: impl Iterator<Item = String>) -> Result<()> {
+    let archive = args
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("install-verify requires ARCHIVE CHECKSUM_FILE"))?;
+    let checksums = args
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("install-verify requires ARCHIVE CHECKSUM_FILE"))?;
+    if args.next().is_some() {
+        bail!("install-verify accepts exactly ARCHIVE CHECKSUM_FILE");
+    }
+    let archive = Path::new(&archive);
+    let name = archive
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow::anyhow!("Archive name is not valid UTF-8"))?;
+    let expected = expected_checksum(&std::fs::read_to_string(checksums)?, name)?;
+    let actual = super::sha256_file(archive)?;
+    if actual != expected {
+        bail!("Checksum verification failed for {name}; refusing a corrupted or tampered archive");
+    }
+    println!(
+        "{}",
+        serde_json::to_string(
+            &serde_json::json!({"archive": archive, "sha256": actual, "checksumVerified": true, "signatureVerified": false, "installed": false})
+        )?
+    );
+    Ok(())
+}
+
 /// Resolve existing parent directories and at most eight executable symlink hops, matching
 /// the source installer even when the final binary has not been installed yet.
 fn canonical_executable_path(path: &Path) -> std::io::Result<PathBuf> {
@@ -394,6 +453,53 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checksum_selection_requires_exact_unique_valid_archive_entry() {
+        let hash = "ab".repeat(32);
+        assert_eq!(
+            expected_checksum(&format!("{hash}  workdeck.tar.gz\n"), "workdeck.tar.gz").unwrap(),
+            hash
+        );
+        assert_eq!(
+            expected_checksum(
+                &format!("{} *workdeck.tar.gz\r\n", hash.to_uppercase()),
+                "workdeck.tar.gz"
+            )
+            .unwrap(),
+            hash
+        );
+        for text in [
+            format!("{hash} workdeck.tar.gz.extra"),
+            "bad workdeck.tar.gz".into(),
+            format!("{hash} workdeck.tar.gz extra"),
+            format!("{hash} workdeck.tar.gz\n{hash} workdeck.tar.gz"),
+        ] {
+            assert!(expected_checksum(&text, "workdeck.tar.gz").is_err());
+        }
+    }
+
+    #[test]
+    fn native_archive_checksum_verification_rejects_corruption_without_installing() {
+        let directory = tempfile::tempdir().unwrap();
+        let archive = directory.path().join("workdeck.tar.gz");
+        let checksums = directory.path().join("SHA256SUMS");
+        std::fs::write(&archive, b"fixture archive bytes").unwrap();
+        let hash = super::super::sha256_file(&archive).unwrap();
+        std::fs::write(&checksums, format!("{hash}  workdeck.tar.gz\n")).unwrap();
+        let args = || {
+            [
+                archive.to_string_lossy().into_owned(),
+                checksums.to_string_lossy().into_owned(),
+            ]
+            .into_iter()
+        };
+        verify(args()).unwrap();
+        std::fs::write(&archive, b"corrupt archive bytes").unwrap();
+        assert!(verify(args()).is_err());
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 2);
+        assert!(verify(std::iter::empty()).is_err());
+    }
 
     #[cfg(unix)]
     #[test]

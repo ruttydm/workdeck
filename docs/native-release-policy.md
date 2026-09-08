@@ -38,6 +38,16 @@ Unix access-probe failures other than confirmed denial/absence remain unknown. M
 are retained as unresolved observations, not omitted; a real symlink-loop regression verifies
 that such a candidate cannot become a clean conflict decision even with force enabled.
 
+`cargo xtask install-verify ARCHIVE CHECKSUM_FILE` verifies a local archive against an exact,
+unique SHA-256 entry in either a release-wide checksum manifest or a per-archive checksum file.
+Missing, malformed, duplicate and mismatched entries fail. Hashing reuses the native packaging
+implementation; no external checksum executable is required. Unlike Hunk's historical fallback
+for releases lacking checksums, this path never accepts an unverified archive, consistent with
+the strict Workdeck release gate. Successful JSON states `checksumVerified: true`,
+`signatureVerified: false`, and `installed: false`: this step neither authenticates the checksum
+manifest nor validates/extracts the archive or installs anything. Signature/provenance validation,
+safe extraction and atomic replacement remain required before installation execution is enabled.
+
 ```console
 cargo xtask release channel --event push --ref v0.19.0 --current-latest 0.18.2
 cargo xtask release channel --event workflow_dispatch --ref main --requested-tag beta
