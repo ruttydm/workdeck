@@ -432,3 +432,13 @@ no longer clones full file bodies or builds its lightweight entries twice. All 1
 TUI tests and scroll integration pass, including differential full-cell and mouse-hit
 comparisons against the public renderer. The remaining scroll-render cost still exceeds
 the earlier paired pinned-Hunk budget. No source-ledger or peak-memory gate is claimed.
+
+### Direct offscreen row append at `78520576`
+
+[Three optimized runs](interaction-stages-78520576.json) report 6.37 ms first frame,
+25.47 ms navigation and 3.25 ms scrolling. Navigation dispatch/render medians are
+21.06/4.44 ms; scroll dispatch/render medians are 0.024/3.22 ms. Appending an exact
+single offscreen geometry row directly removes its temporary vector allocation.
+The difference is small and host activity remains uncontrolled. All 1,032 TUI tests,
+scroll integration, Clippy and formatting pass. Scrolling parity and peak-memory
+acceptance remain unproven; no ledger interval is newly completed by this change.
