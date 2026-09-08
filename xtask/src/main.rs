@@ -217,6 +217,7 @@ fn run() -> Result<()> {
         Some("release") => match args.next().as_deref() {
             Some("package") => package_release(parse_package_options(args)?),
             Some("provenance-check") => provenance::inspect(args),
+            Some("provenance-verify") => provenance::verify(args),
             Some("channel") => release_channel::channel(args),
             Some("check-version") => release_channel::check_version(&repo_root()?, args),
             Some("validate-prerelease") => release_notes::validate_local(&repo_root()?, args),
@@ -2337,6 +2338,9 @@ fn print_help() {
         "cargo xtask release package --target TRIPLE --provenance STATEMENT [--binary PATH] [--output DIR]"
     );
     println!("cargo xtask release provenance-check BINARY STATEMENT");
+    println!(
+        "cargo xtask release provenance-verify BINARY BUNDLE OWNER/REPO SOURCE_COMMIT refs/tags/TAG"
+    );
 }
 
 #[cfg(test)]

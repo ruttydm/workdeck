@@ -95,6 +95,20 @@ the action's bundle output, then requests separate archive attestation. This wor
 not been executed remotely; successful local decoding tests are not signing/CI evidence.
 Nothing has been published or represented as a verified release.
 
+`cargo xtask release provenance-verify BINARY BUNDLE OWNER/REPO SOURCE_COMMIT refs/tags/TAG`
+invokes the declared native `gh` binary's attestation verifier without a shell. It requires the
+explicit repository, `.github/workflows/release.yml` signer, complete source commit and tag ref,
+GitHub Actions OIDC issuer, SLSA v1 predicate, and non-self-hosted runner. Nonzero exits, missing
+tools and a 120-second deadline fail the command; timed-out children are killed and reaped.
+CI invokes this before packaging with `--ci BINARY BUNDLE`, reading repository, commit and ref
+directly from GitHub's environment rather than interpolating tag names into shell commands.
+This relies on the installed verifier and its trusted roots;
+it is not a home-grown cryptographic implementation. Local policy tests check argument enforcement,
+not signatures. Real signed-fixture, negative-certificate, cross-platform and remote CI evidence
+remain pending. Packaging invoked alone still performs only subject binding, and installer-side
+verification of packaged evidence remains unfinished.
+Verifier reference: [GitHub CLI attestation verification](https://cli.github.com/manual/gh_attestation_verify).
+
 Verification checkpoint at `57769da3`: `cargo test -p xtask -- --quiet` passed all 161 tooling
 tests together, including the installer checks and production benchmark tests. This is a local
 development-profile integration result, not evidence of cross-platform installation, signed

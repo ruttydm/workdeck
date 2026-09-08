@@ -2,6 +2,106 @@
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 
+fn verification_args(repo: &str, digest: &str, reference: &str) -> Result<Vec<String>> {
+    let parts: Vec<_> = repo.split('/').collect();
+    if parts.len() != 2
+        || parts.iter().any(|part| {
+            part.is_empty()
+                || !part
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
+        })
+    {
+        bail!("expected explicit GitHub OWNER/REPO");
+    }
+    if !matches!(digest.len(), 40 | 64) || !digest.bytes().all(|b| b.is_ascii_hexdigit()) {
+        bail!("expected full source commit digest");
+    }
+    if !reference.starts_with("refs/tags/")
+        || reference.len() == "refs/tags/".len()
+        || reference.chars().any(char::is_whitespace)
+    {
+        bail!("release verification requires a full tag ref");
+    }
+    Ok(vec![
+        "--repo".into(),
+        repo.into(),
+        "--signer-workflow".into(),
+        format!("{repo}/.github/workflows/release.yml"),
+        "--source-digest".into(),
+        digest.into(),
+        "--source-ref".into(),
+        reference.into(),
+        "--cert-oidc-issuer".into(),
+        "https://token.actions.githubusercontent.com".into(),
+        "--predicate-type".into(),
+        "https://slsa.dev/provenance/v1".into(),
+        "--deny-self-hosted-runners".into(),
+    ])
+}
+
+/// Invoke the declared native GitHub CLI verifier; decoding alone is insufficient.
+pub(crate) fn verify(args: impl Iterator<Item = String>) -> Result<()> {
+    use std::{
+        process::{Command, Stdio},
+        time::{Duration, Instant},
+    };
+    let mut args: Vec<_> = args.collect();
+    if args.first().is_some_and(|arg| arg == "--ci") {
+        if args.len() != 3 {
+            bail!("usage: cargo xtask release provenance-verify --ci BINARY BUNDLE");
+        }
+        args.remove(0);
+        for name in ["GITHUB_REPOSITORY", "GITHUB_SHA", "GITHUB_REF"] {
+            args.push(std::env::var(name).with_context(|| format!("missing {name}"))?);
+        }
+    }
+    if args.len() != 5 {
+        bail!(
+            "usage: cargo xtask release provenance-verify BINARY BUNDLE OWNER/REPO SOURCE_COMMIT refs/tags/TAG"
+        );
+    }
+    let policy = verification_args(&args[2], &args[3], &args[4])?;
+    let binary = std::fs::canonicalize(&args[0]).context("resolve verification binary")?;
+    let bundle = std::fs::canonicalize(&args[1]).context("resolve verification bundle")?;
+    let mut child = Command::new("gh")
+        .args(["attestation", "verify"])
+        .arg(&binary)
+        .arg("--bundle")
+        .arg(&bundle)
+        .args(policy)
+        .stdin(Stdio::null())
+        .env("GH_PROMPT_DISABLED", "1")
+        .spawn()
+        .context("start required gh attestation verifier")?;
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if !status.success() {
+                    bail!("attestation verifier failed: {status}");
+                }
+                break;
+            }
+            Ok(None) if started.elapsed() < Duration::from_secs(120) => {
+                std::thread::sleep(Duration::from_millis(50))
+            }
+            result => {
+                let _ = child.kill();
+                let _ = child.wait();
+                if let Err(error) = result {
+                    return Err(error).context("poll attestation verifier");
+                }
+                bail!("attestation verifier exceeded 120 seconds");
+            }
+        }
+    }
+    println!(
+        "Attestation verified by gh for the specified repository, release workflow, commit and tag; other release gates remain independent."
+    );
+    Ok(())
+}
+
 /// Decode a supported Sigstore bundle without authenticating its contents.
 /// Retain the original bundle separately; the extracted statement alone loses its signature.
 pub(crate) fn decode_bundle(bytes: &[u8]) -> Result<Vec<u8>> {
@@ -126,6 +226,42 @@ pub(crate) fn inspect(args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn verification_policy_requires_explicit_release_identity() {
+        let digest = "a".repeat(40);
+        let args = verification_args("owner/workdeck", &digest, "refs/tags/v1.0.0").unwrap();
+        for (flag, expected) in [
+            ("--repo", "owner/workdeck"),
+            (
+                "--signer-workflow",
+                "owner/workdeck/.github/workflows/release.yml",
+            ),
+            ("--source-digest", digest.as_str()),
+            ("--source-ref", "refs/tags/v1.0.0"),
+            (
+                "--cert-oidc-issuer",
+                "https://token.actions.githubusercontent.com",
+            ),
+            ("--predicate-type", "https://slsa.dev/provenance/v1"),
+        ] {
+            let position = args.iter().position(|arg| arg == flag).unwrap();
+            assert_eq!(args[position + 1], expected);
+        }
+        assert!(args.iter().any(|arg| arg == "--deny-self-hosted-runners"));
+        for repo in [
+            "owner",
+            "owner/repo/extra",
+            "/repo",
+            "owner/",
+            "owner/repo --owner evil",
+        ] {
+            assert!(verification_args(repo, &digest, "refs/tags/v1").is_err());
+        }
+        assert!(verification_args("owner/repo", "short", "refs/tags/v1").is_err());
+        for reference in ["main", "refs/heads/main", "refs/tags/", "refs/tags/v1\n"] {
+            assert!(verification_args("owner/repo", &digest, reference).is_err());
+        }
+    }
     fn synthetic_statement() -> Value {
         serde_json::json!({
             "_type": "https://in-toto.io/Statement/v1",
