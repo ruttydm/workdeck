@@ -273,3 +273,17 @@ and tests remain recoverable in Git. The workload has 8,640 changed pairs compet
 No cache-size tuning is accepted as parity evidence. The remaining investigation is the
 cost of rebuilding offscreen rows while retaining exact geometry and all dynamic behavior.
 All source latency gates remain failed; ledger coverage and peak-memory status are unchanged.
+
+### Explicit unwrapped geometry at `3310d9d8`
+
+[Three optimized runs](interaction-diagnostic-3310d9d8.json) report 110.92 ms first frame,
+150.79 ms median navigation and 115.05 ms median scrolling. Against the last retained
+implementation (`da5f06e0`), navigation improves about 27.0% and scrolling about 32.2%; first
+frame is effectively unchanged. Geometry requests now skip painting unwrapped code, whose
+row count is exact, while retaining note/gap/extension geometry and cursor targets. Wrapped
+code still uses the existing builder; paint and copy always request complete text. Regression
+coverage compares row maps and separately preserves painted-content comparisons across both
+layouts, zero/narrow/normal widths, Unicode, unequal pairs, horizontal offsets and saved notes.
+All 1,022 TUI unit tests and scroll integration pass. This reduces repeated input-path work,
+but every pinned-Hunk latency gate still fails. Current post-navigation RSS median is
+224755712 bytes; peak-memory acceptance remains unproven. No ledger mapping was added.
