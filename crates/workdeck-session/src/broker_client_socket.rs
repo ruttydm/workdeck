@@ -398,6 +398,68 @@ mod tests {
     }
 
     #[test]
+    fn queued_command_results_reach_the_peer_before_local_close() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut websocket = tungstenite::accept(stream).unwrap();
+            for index in 0..4 {
+                let message = websocket.read().unwrap();
+                let value: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
+                assert_eq!(
+                    value,
+                    serde_json::json!({"type": "command-result",
+                    "requestId": format!("request-{index}"), "ok": true, "result": {}})
+                );
+            }
+            let Message::Close(Some(frame)) = websocket.read().unwrap() else {
+                panic!("all queued replies must precede the close frame");
+            };
+            assert_eq!(frame.code, CloseCode::Normal);
+            assert_eq!(frame.reason, "review quit");
+        });
+        let socket =
+            NativeSessionBrokerClientSocket::connect(format!("ws://127.0.0.1:{port}")).unwrap();
+        let closed = Arc::new(Mutex::new(Vec::new()));
+        let errored = Arc::new(AtomicBool::new(false));
+        // on_open runs before transport queue draining: enqueue the entire batch
+        // and close here so the ordering assertion does not depend on scheduling.
+        let weak = Arc::downgrade(&socket);
+        socket.set_on_open(Some(Arc::new(move || {
+            let socket = weak.upgrade().unwrap();
+            for index in 0..4 {
+                socket
+                    .send(
+                        &serde_json::json!({"type": "command-result",
+                    "requestId": format!("request-{index}"), "ok": true, "result": {}})
+                        .to_string(),
+                    )
+                    .unwrap();
+            }
+            socket.close(Some(1000), Some("review quit"));
+            assert!(socket.send("late reply").is_err());
+        })));
+        socket.set_on_message(Some(Arc::new(|_| {})));
+        let observed_closed = Arc::clone(&closed);
+        socket.set_on_close(Some(Arc::new(move |event| {
+            observed_closed.lock().unwrap().push(event)
+        })));
+        let observed_error = Arc::clone(&errored);
+        socket.set_on_error(Some(Arc::new(move || {
+            observed_error.store(true, Ordering::Release)
+        })));
+        wait_until(|| !closed.lock().unwrap().is_empty());
+        server.join().unwrap();
+        assert_eq!(closed.lock().unwrap().len(), 1);
+        assert_eq!(closed.lock().unwrap()[0].code, 1000);
+        assert!(!errored.load(Ordering::Acquire));
+    }
+
+    #[test]
     fn native_socket_reports_connection_failure_once() {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
