@@ -422,3 +422,13 @@ now borrows an immutable changeset snapshot instead of cloning every file body; 
 matching, draft, filtering and bulk-action behavior is unchanged. The full 1,031-test
 TUI suite and scroll integration pass. These diagnostic improvements still do not meet
 the earlier pinned-source scrolling budget or establish peak-memory/source parity.
+
+### Borrowed sidebar entries at `16900b67`
+
+[Three optimized runs](interaction-stages-16900b67.json) report 6.78 ms first frame,
+25.74 ms navigation and 3.44 ms scrolling. Navigation dispatch/render medians are
+21.03/4.63 ms; scroll dispatch/render medians are 0.024/3.42 ms. Sidebar construction
+no longer clones full file bodies or builds its lightweight entries twice. All 1,032
+TUI tests and scroll integration pass, including differential full-cell and mouse-hit
+comparisons against the public renderer. The remaining scroll-render cost still exceeds
+the earlier paired pinned-Hunk budget. No source-ledger or peak-memory gate is claimed.
