@@ -370,3 +370,15 @@ Duplicate/empty/missing IDs and line/hunk selection are compared against the ori
 projection. Current post-navigation RSS median is 169771008 bytes, not peak-memory evidence.
 Fresh paired-source results and the full benchmark gate remain outstanding; ledger coverage
 is unchanged.
+
+### Dispatch/render attribution at `230e582c`
+
+[Three instrumented optimized runs](interaction-stages-230e582c.json) separate input handling
+from the full render pass without changing the workload. Scrolling measures 3.92 ms dispatch
+and 17.14 ms rendering, with 21.01 ms total median. Navigation measures 23.91 ms dispatch and
+18.67 ms rendering, with 42.60 ms total median. These are independently aggregated nearest-rank
+medians; sums of aggregate medians are not asserted equal. Two additional clock reads per
+interaction instrument the boundaries, and per-sample tests ensure stage sums fit inside totals.
+Rendering, not just the wheel handler's geometry rebuild, dominates the remaining scroll cost.
+The next investigation should focus on the complete render pass. No performance or ledger gate
+is passed by this diagnostic attribution.
