@@ -418,13 +418,14 @@ impl ReviewState {
                 self.selection.hunk_index,
                 self.selection.side,
                 self.selection.line,
+                file.source_identity.clone(),
             )
         });
         self.changeset = Arc::new(changeset);
         self.generation = self.generation.saturating_add(1);
         self.state_revision = 0;
         self.selection = previous_file
-            .and_then(|(key, path, hunk, side, line)| {
+            .and_then(|(key, path, hunk, side, line, source_identity)| {
                 let file_index = self
                     .changeset
                     .files
@@ -438,7 +439,24 @@ impl ReviewState {
                     })?;
                 let file = &self.changeset.files[file_index];
                 let hunk_index = match (side, line) {
-                    (Some(side), Some(line)) => file.hunk_at_line(side, line),
+                    (Some(side), Some(line)) => file.hunk_at_line(side, line).or_else(|| {
+                        // Expanded source cursors are outside changed hunks. Keep their
+                        // owner and exact line only while the semantic source survives.
+                        if file.key != key
+                            || source_identity.is_none()
+                            || file.source_identity != source_identity
+                        {
+                            return None;
+                        }
+                        let source = match side {
+                            ReviewSide::Old => file.sources.old.as_ref(),
+                            ReviewSide::New => file.sources.new.as_ref(),
+                        }?;
+                        if line == 0 || line as usize > source.content.lines().count() {
+                            return None;
+                        }
+                        hunk.filter(|index| *index < file.hunks.len())
+                    }),
                     _ => hunk.filter(|index| *index < file.hunks.len()),
                 };
                 Some(ReviewSelection {
@@ -758,6 +776,47 @@ mod tests {
         let mut detached = first.changeset_snapshot();
         Arc::make_mut(&mut detached).files[0].path = "detached".into();
         assert_eq!(first.changeset().files[0].path, "a");
+    }
+
+    #[test]
+    fn reload_preserves_source_line_selection_only_for_the_same_key_and_source_identity() {
+        let mut source_file = file("source.rs", "source", 1);
+        source_file.set_sources(workdeck_core::FileSourceSnapshots {
+            old: None,
+            new: Some(workdeck_core::SourceSnapshot::new(
+                "first\nsecond\nthird\n".into(),
+                workdeck_core::SourceOrigin::WorkingTree,
+                false,
+            )),
+        });
+        let mut state = ReviewState::new(changeset(vec![source_file.clone()]));
+        state.reveal_source_line(0, 0, ReviewSide::New, 3).unwrap();
+        let mut replacement = source_file.clone();
+        replacement.runtime_id = "new-runtime-id".into();
+        state.reload(changeset(vec![file("other.rs", "other", 1), replacement]));
+        assert_eq!(state.selection().file_index, 1);
+        assert_eq!(state.selection().hunk_index, Some(0));
+        assert_eq!(state.selection().side, Some(ReviewSide::New));
+        assert_eq!(state.selection().line, Some(3));
+
+        for invalidation in ["key", "identity", "missing-source", "short-source", "hunk"] {
+            let mut state = ReviewState::new(changeset(vec![source_file.clone()]));
+            state.reveal_source_line(0, 0, ReviewSide::New, 3).unwrap();
+            let mut replacement = source_file.clone();
+            match invalidation {
+                "key" => replacement.key = "replacement-key".into(),
+                "identity" => replacement.source_identity = Some("replacement-source".into()),
+                "missing-source" => replacement.sources.new = None,
+                "short-source" => {
+                    replacement.sources.new.as_mut().unwrap().content = "first\n".into()
+                }
+                "hunk" => replacement.hunks.clear(),
+                _ => unreachable!(),
+            }
+            state.reload(changeset(vec![replacement]));
+            assert_eq!(state.selection().line, None);
+            assert_eq!(state.selection().side, None);
+        }
     }
 
     #[test]

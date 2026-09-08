@@ -18,6 +18,14 @@ restore. These cases are source-derived runtime tests, not additional frozen
 upstream terminal-frame comparisons. With no expansion state, reload skips this
 reconciliation work.
 
+The review core preserves an expanded source-line selection across a reload only
+when its semantic file key and present source identity survive, the owner hunk
+still exists, and the selected side still contains that line. This avoids losing
+the exact cursor line when an unchanged expanded file moves in the stream.
+Changed identities, changed keys, missing/short source snapshots, and removed
+owner hunks do not retain that source selection. Ordinary changed-line selection
+continues to use its existing hunk validation path.
+
 The changed/removed-source regression failed against the preceding live TUI and
 passes with this integration. The unchanged-source case verifies both retained
 state and rendered source rows. Its fixture refreshes derived identities after

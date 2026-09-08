@@ -20783,6 +20783,8 @@ mod tests {
             press(&mut app, 'z');
             assert!(rendered_review_frame(&mut terminal, &app).contains("hiddenLine01"));
             let restored_line = app.gap_cursor_restore.values().next().unwrap().line;
+            press(&mut app, 'j');
+            assert_eq!(app.current_review_line_cursor().unwrap().target.line, 2);
             let mut replacement = app.with_state(|state| state.changeset().clone());
             let mut other = navigation_changeset(vec![(
                 "other.ts".into(),
@@ -20796,6 +20798,7 @@ mod tests {
                 app.current_review_line_cursor().unwrap().target.file_index,
                 1
             );
+            assert_eq!(app.current_review_line_cursor().unwrap().target.line, 2);
             app.toggle_source_gap();
             assert_eq!(app.with_state(|state| state.selection().file_index), 1);
             let cursor = app.current_review_line_cursor().unwrap();
