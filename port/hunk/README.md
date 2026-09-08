@@ -30,6 +30,13 @@ callback cancellation/errors or a reusable multiplexed SDK.
 A multiplexed SDK remains unfinished. No complete concurrency parity or
 ledger coverage is claimed.
 
+The concurrent-callback fixture also has a mixed-result regression: one captured
+source provider returns an ordinary error while three return distinct text.
+Only that parent's document result may become null; every peer must retain its
+own source and file path. All fifteen compiled highlighter tests pass, along
+with examples Clippy, formatting, and architecture checks. This does not cover
+combined callback cancellation/failure or complete native lifecycle parity.
+
 The host now has a parent-route primitive with four bounded inboxes and
 nonblocking dispatch. Tests cover out-of-order delivery, independent retirement,
 duplicate/limit rejection, overflow isolation, and disconnected consumers.

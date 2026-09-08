@@ -70,20 +70,25 @@ fn review_file(path: &str) -> workdeck_core::DiffFile {
 
 #[test]
 fn four_native_parents_share_one_child_and_receive_reversed_responses() {
-    assert_four_native_parents(false, false);
+    assert_four_native_parents(false, false, false);
 }
 
 #[test]
 fn cancelling_one_native_parent_preserves_other_parent_results() {
-    assert_four_native_parents(true, false);
+    assert_four_native_parents(true, false, false);
 }
 
 #[test]
 fn concurrent_native_document_callbacks_keep_parent_source_authority_separate() {
-    assert_four_native_parents(false, true);
+    assert_four_native_parents(false, true, false);
 }
 
-fn assert_four_native_parents(cancel_one: bool, documents: bool) {
+#[test]
+fn concurrent_native_document_failure_does_not_replace_peer_sources() {
+    assert_four_native_parents(false, true, true);
+}
+
+fn assert_four_native_parents(cancel_one: bool, documents: bool, fail_one: bool) {
     let (_directory, manifest) = staged_extension();
     let extension = LoadedExtension::spawn_with_configuration(
         &manifest,
@@ -103,6 +108,9 @@ fn assert_four_native_parents(cancel_one: bool, documents: bool) {
                 let source_text = path.clone();
                 let reader = workdeck_extension_host::ExtensionDocumentReader::new(move |side| {
                     assert_eq!(side, workdeck_extension_api::ExtensionFileSide::New);
+                    if fail_one && index == 1 {
+                        return Err("one captured provider failed".into());
+                    }
                     Ok(Some(source_text.clone()))
                 });
                 loop {
@@ -135,7 +143,12 @@ fn assert_four_native_parents(cancel_one: bool, documents: bool) {
                                 break;
                             }
                             let expected = if documents {
-                                serde_json::json!({"path":path,"text":path,"simultaneous":4})
+                                let text = if fail_one && index == 1 {
+                                    None
+                                } else {
+                                    Some(&path)
+                                };
+                                serde_json::json!({"path":path,"text":text,"simultaneous":4})
                             } else {
                                 serde_json::json!({"path":path,"simultaneous":4})
                             };
