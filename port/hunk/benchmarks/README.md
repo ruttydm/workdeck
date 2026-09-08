@@ -220,3 +220,10 @@ remaining production rendering work, not changing workload counts or claiming su
 allocation, syntax parsing and word differences among the major top-of-stack observations during
 the optimized workload. It records the code correlation to repeated highlight identity construction
 and the limits of the partial-process sample. Sampled timings are not added to benchmark reports.
+
+The pinned `sha2` 0.10.9 source selects its ARM SHA-2 implementation only with the `asm` feature.
+`workdeck-core` now enables that feature for aarch64 targets, retaining the dependency's runtime
+CPU detection and software fallback. This changes neither cache-key inputs nor digest format.
+Canonical empty, short, multiblock and million-byte SHA-256 vectors cover digest compatibility.
+The feature adds the MIT-licensed `sha2-asm` dependency; optimized workload effect and native
+cross-platform execution still require verification. No hash identity has been truncated or waived.

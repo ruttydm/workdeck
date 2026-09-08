@@ -658,6 +658,22 @@ mod tests {
     }
 
     #[test]
+    fn review_digest_preserves_empty_and_multiblock_sha256_vectors() {
+        assert_eq!(
+            review_digest(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert_eq!(
+            review_digest(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
+            "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
+        );
+        assert_eq!(
+            review_digest(&vec![b'a'; 1_000_000]),
+            "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
+        );
+    }
+
+    #[test]
     fn review_boundary_validation_uses_utf8_bytes_and_exact_object_keys() {
         assert_eq!(utf8_byte_length(""), 0);
         assert_eq!(utf8_byte_length("abc"), 3);
