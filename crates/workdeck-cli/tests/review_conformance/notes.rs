@@ -88,6 +88,7 @@ fn blank_body_policy_and_draft_retirement_match_every_source_fixture() {
             &json!({"body": body}),
             &json!({"blank": is_blank_review_note_body(body), "actions": [action]}),
             8,
+            None,
         );
     }
 }
@@ -158,11 +159,19 @@ fn whole_note_size_counts_framing_combined_fields_and_utf8() {
             &json!({"maxReviewNoteBytes": MAX_REVIEW_NOTE_BYTES, "serializedBytes": bytes}),
             &json!(review_note_within_size_limit(&note)),
             6,
+            Some(json!((super::wire::CONSUMER.2)(&note))),
         );
     }
 }
 
-fn check_oracles(group: &str, id: &str, input: &Value, actual: &Value, expected_count: usize) {
+fn check_oracles(
+    group: &str,
+    id: &str,
+    input: &Value,
+    actual: &Value,
+    expected_count: usize,
+    wire_actual: Option<Value>,
+) {
     for encoded in [
         include_str!("../../../../port/hunk/oracles/review-conformance-main.json"),
         include_str!("../../../../port/hunk/oracles/review-conformance-stable.json"),
@@ -185,6 +194,13 @@ fn check_oracles(group: &str, id: &str, input: &Value, actual: &Value, expected_
         let consumers = case["actual"].as_array().unwrap();
         assert_eq!(consumers.len(), if group == "note-size" { 2 } else { 1 });
         for consumer in consumers {
+            let actual = if consumer["consumer"] == "review wire note size" {
+                wire_actual
+                    .as_ref()
+                    .expect("registered wire note policy was executed")
+            } else {
+                actual
+            };
             assert_eq!(
                 actual, &consumer["output"],
                 "captured {}: {id}",

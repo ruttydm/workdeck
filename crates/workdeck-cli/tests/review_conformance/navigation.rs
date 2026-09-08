@@ -13,6 +13,9 @@ use workdeck_review::{
 };
 use workdeck_tui::plan_terminal_selection_reconciliation;
 
+pub(super) const CONSUMERS: [(&str, bool); 2] =
+    [("core intent planner", false), ("terminal review", true)];
+
 #[derive(Clone, Copy)]
 enum FilePosition {
     Index(usize),
@@ -316,7 +319,7 @@ fn both_navigation_consumers_match_both_pinned_corpora() {
             }
             let id = case["id"].as_str().unwrap();
             let fixture = fixture(id);
-            for (name, terminal) in [("core intent planner", false), ("terminal review", true)] {
+            for (name, terminal) in CONSUMERS {
                 let actual = projection(&fixture, terminal);
                 assert_eq!(
                     actual, case["expected"],

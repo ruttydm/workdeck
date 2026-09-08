@@ -44,6 +44,8 @@ workdeck-tui = { path = "../workdeck-tui" }
 workdeck-vcs = { path = "../workdeck-vcs" }
 
 [dev-dependencies]
+base64 = "0.22"
+ureq = { version = "3.4", default-features = false }
 sha2 = "0.10"
 unicode-width = "0.2"
 assert_cmd = "2.0"

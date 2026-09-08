@@ -6,6 +6,27 @@ use workdeck_session::{
     to_semantic_review_intent,
 };
 
+type ActionParser = fn(&Value) -> Value;
+type NotePolicy = fn(&Value) -> bool;
+pub(super) const CONSUMER: (&str, ActionParser, NotePolicy) = (
+    "review wire protocol",
+    parse_action,
+    workdeck_review::review_note_within_size_limit,
+);
+
+fn parse_action(input: &Value) -> Value {
+    match parse_workdeck_review_action(input) {
+        WorkdeckReviewParseResult::Parsed(action) => {
+            assert!(
+                to_semantic_review_intent(&action).is_some(),
+                "typed lowering"
+            );
+            json!({"accepted": true, "intent": to_review_intent_value(&action)})
+        }
+        WorkdeckReviewParseResult::Failed(_) => json!({"accepted": false}),
+    }
+}
+
 #[test]
 fn wire_actions_lower_to_the_pinned_intents_and_reject_invalid_shapes() {
     for (encoded, expected_count) in [
@@ -24,17 +45,7 @@ fn wire_actions_lower_to_the_pinned_intents_and_reject_invalid_shapes() {
             if case["group"] != "wire" {
                 continue;
             }
-            let actual = match parse_workdeck_review_action(&case["input"]["action"]) {
-                WorkdeckReviewParseResult::Parsed(action) => {
-                    assert!(
-                        to_semantic_review_intent(&action).is_some(),
-                        "typed lowering: {}",
-                        case["id"]
-                    );
-                    json!({"accepted": true, "intent": to_review_intent_value(&action)})
-                }
-                WorkdeckReviewParseResult::Failed(_) => json!({"accepted": false}),
-            };
+            let actual = (CONSUMER.1)(&case["input"]["action"]);
             assert_eq!(
                 actual, case["expected"],
                 "{}: {}",
@@ -44,7 +55,7 @@ fn wire_actions_lower_to_the_pinned_intents_and_reject_invalid_shapes() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .find(|consumer| consumer["consumer"] == "review wire protocol")
+                .find(|consumer| consumer["consumer"] == CONSUMER.0)
                 .unwrap();
             assert_eq!(actual, captured["output"], "captured wire: {}", case["id"]);
             count += 1;

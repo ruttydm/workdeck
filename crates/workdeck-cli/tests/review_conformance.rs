@@ -1,6 +1,8 @@
 //! Partial translation of Hunk's MIT-licensed review-conformance geometry corpus.
 //! Other consumer families remain unmapped until independently exercised in Rust.
 
+#[path = "review_conformance/events.rs"]
+mod events;
 #[path = "review_conformance/navigation.rs"]
 mod navigation;
 #[path = "review_conformance/notes.rs"]
@@ -16,9 +18,16 @@ use serde_json::{Value, json};
 use workdeck_core::{DiffFile, FileChangeKind, project_review_file, review_empty_diff_reason};
 use workdeck_diff::{FileComparisonOptions, FileSnapshot, diff_from_file_snapshots};
 use workdeck_review::{
-    review_default_hunk_line_target, review_gap_address, review_gap_id, review_gap_source_for_file,
-    review_hunk_ranges, review_leading_gap, review_trailing_gap,
+    build_review_content_manifest_file, review_gap_address, review_gap_id, review_leading_gap,
+    review_trailing_gap, semantic_review_gap_source,
 };
+
+type GeometryProjection = fn(&DiffFile, Option<&str>, &str) -> Value;
+const GEOMETRY_CONSUMERS: [(&str, GeometryProjection); 3] = [
+    ("core review model", core_projection),
+    ("terminal render planning", terminal_projection),
+    ("review producer", producer_projection),
+];
 
 fn fixture(id: &str) -> (DiffFile, Option<&'static str>, String) {
     let base: Vec<_> = (1..=12).map(|line| format!("line {line}")).collect();
@@ -77,7 +86,11 @@ fn fixture(id: &str) -> (DiffFile, Option<&'static str>, String) {
 }
 
 fn core_projection(file: &DiffFile, expansion: Option<&str>, source_text: &str) -> Value {
-    let source = review_gap_source_for_file(file);
+    // The upstream core consumer observes the canonical document, not parser output.
+    // In particular, zero-count hunk positions must survive canonical projection.
+    let file = project_review_file(file, "/repo", 0);
+    let source = semantic_review_gap_source(&file);
+    let manifest = build_review_content_manifest_file(&file);
     let gaps = (0..file.hunks.len())
         .filter_map(|index| review_leading_gap(&source, index))
         .chain(review_trailing_gap(&source))
@@ -90,41 +103,43 @@ fn core_projection(file: &DiffFile, expansion: Option<&str>, source_text: &str) 
             })
         })
         .collect::<Vec<_>>();
-    let ranges = file
+    let ranges = manifest
         .hunks
         .iter()
-        .map(|hunk| {
-            let (old, new) = review_hunk_ranges(hunk);
-            json!({"oldRange": [old.start, old.end], "newRange": [new.start, new.end]})
-        })
+        .map(|hunk| json!({"oldRange": hunk.old_range, "newRange": hunk.new_range}))
         .collect::<Vec<_>>();
-    let targets = file
+    let targets = manifest
         .hunks
         .iter()
         .map(|hunk| {
-            let target = review_default_hunk_line_target(hunk);
+            let target = hunk.default_note_target;
             json!({"side": target.side, "line": target.line})
         })
         .collect::<Vec<_>>();
     let mut value = json!({"path": file.path, "gaps": gaps,
         "hunkRanges": ranges, "defaultNoteTargets": targets});
     if file.hunks.is_empty() {
-        let canonical = project_review_file(file, "/repo", 0);
         value["emptyDiffReason"] = json!(review_empty_diff_reason(
-            canonical.change_kind,
-            canonical.flags.binary,
-            canonical.flags.too_large
+            file.change_kind,
+            file.flags.binary,
+            file.flags.too_large
         ));
     }
     if let Some(id) = expansion {
         let gap = review_gap_address(&source, id).expect("fixture gap exists");
         let lines = workdeck_review::normalized_review_source_lines(source_text);
+        let range = if manifest.expansion_side == workdeck_core::ReviewSide::Old {
+            gap.old_range
+        } else {
+            gap.new_range
+        };
         value["expandedRows"] = json!(
             (0..gap.line_count)
                 .map(|offset| json!({
                     "oldLine": gap.old_range.start as usize + offset,
                     "newLine": gap.new_range.start as usize + offset,
-                    "text": lines[gap.new_range.start as usize + offset - 1],
+                    "text": lines.get(range.start as usize + offset - 1)
+                        .map(String::as_str).unwrap_or(""),
                 }))
                 .collect::<Vec<_>>()
         );
@@ -134,17 +149,17 @@ fn core_projection(file: &DiffFile, expansion: Option<&str>, source_text: &str) 
 
 #[test]
 fn parsed_core_geometry_matches_both_pinned_conformance_oracles() {
-    check_geometry_consumer("core review model", core_projection);
+    check_geometry_consumer(GEOMETRY_CONSUMERS[0].0, GEOMETRY_CONSUMERS[0].1);
 }
 
 #[test]
 fn terminal_planner_geometry_matches_both_pinned_conformance_oracles() {
-    check_geometry_consumer("terminal render planning", terminal_projection);
+    check_geometry_consumer(GEOMETRY_CONSUMERS[1].0, GEOMETRY_CONSUMERS[1].1);
 }
 
 #[test]
 fn producer_geometry_matches_both_pinned_conformance_oracles() {
-    check_geometry_consumer("review producer", producer_projection);
+    check_geometry_consumer(GEOMETRY_CONSUMERS[2].0, GEOMETRY_CONSUMERS[2].1);
 }
 
 fn producer_projection(file: &DiffFile, expansion: Option<&str>, source_text: &str) -> Value {
@@ -365,5 +380,105 @@ fn check_geometry_consumer(name: &str, project: fn(&DiffFile, Option<&str>, &str
             count += 1;
         }
         assert_eq!(count, 6);
+    }
+}
+
+#[test]
+fn registers_every_pinned_consumer_in_the_executable_rust_drivers() {
+    assert_eq!(
+        GEOMETRY_CONSUMERS.map(|(name, _)| name),
+        [
+            "core review model",
+            "terminal render planning",
+            "review producer"
+        ]
+    );
+    assert_eq!(
+        navigation::CONSUMERS.map(|(name, _)| name),
+        ["core intent planner", "terminal review"]
+    );
+    assert_eq!(
+        ordering::CONSUMERS.map(|(name, _)| name),
+        ["core publication ordering", "broker review mirror"]
+    );
+    assert_eq!([snapshot::CONSUMER.0], ["extension review snapshot"]);
+    assert_eq!([wire::CONSUMER.0], ["review wire protocol"]);
+    assert_eq!(
+        events::CONSUMERS.map(|(name, _)| name),
+        ["review event protocol", "browser review HTTP surface"]
+    );
+}
+
+#[test]
+fn conformance_corpus_covers_every_claimed_finding_and_source_case() {
+    use std::collections::BTreeSet;
+
+    let required = [
+        "A1", "A2", "A3", "A4", "A8", "A10", "B1", "B2", "B3", "B4", "B6", "B10", "B12", "C1",
+        "C4", "D1", "EXT1",
+    ];
+    for (encoded, expected_source_cases) in [
+        (
+            include_str!("../../../port/hunk/oracles/review-conformance-main.json"),
+            111,
+        ),
+        (
+            include_str!("../../../port/hunk/oracles/review-conformance-stable.json"),
+            106,
+        ),
+    ] {
+        let oracle: Value = serde_json::from_str(encoded).unwrap();
+        let cases = oracle["results"].as_array().unwrap();
+        let mut findings = cases
+            .iter()
+            .filter_map(|case| case["findings"].as_array())
+            .flatten()
+            .map(|finding| finding.as_str().unwrap())
+            .collect::<BTreeSet<_>>();
+        let count = |group: &str| cases.iter().filter(|case| case["group"] == group).count();
+        assert_eq!(count("note-size"), 6);
+        findings.insert("D1");
+        assert!(
+            required
+                .into_iter()
+                .all(|finding| findings.contains(finding))
+        );
+
+        // Count the upstream dynamically registered cases, not Rust test functions.
+        // Every term is executed by the corresponding module's fixture loop.
+        let source_cases = 2
+            + count("geometry") * GEOMETRY_CONSUMERS.len()
+            + count("navigation") * navigation::CONSUMERS.len()
+            + count("ordering") * ordering::CONSUMERS.len()
+            + count("snapshot")
+            + count("wire")
+            + count("producer-ordering")
+            + count("events") * events::CONSUMERS.len()
+            + count("note-body") * 2
+            + count("note-size") * 2;
+        assert_eq!(source_cases, expected_source_cases);
+        for case in cases {
+            let names = match case["group"].as_str().unwrap() {
+                "geometry" => GEOMETRY_CONSUMERS.map(|(name, _)| name).to_vec(),
+                "navigation" => navigation::CONSUMERS.map(|(name, _)| name).to_vec(),
+                "ordering" => ordering::CONSUMERS.map(|(name, _)| name).to_vec(),
+                "snapshot" => vec![snapshot::CONSUMER.0],
+                "wire" => vec![wire::CONSUMER.0],
+                "events" => events::CONSUMERS.map(|(name, _)| name).to_vec(),
+                "producer-ordering" => vec!["producer ordering"],
+                "note-body" => vec!["core note policy and draft planner"],
+                "note-size" => vec!["core note size", "review wire note size"],
+                other => panic!("untranslated conformance group {other}"),
+            };
+            assert_eq!(
+                case["actual"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|consumer| consumer["consumer"].as_str().unwrap())
+                    .collect::<Vec<_>>(),
+                names
+            );
+        }
     }
 }

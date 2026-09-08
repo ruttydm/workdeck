@@ -1452,9 +1452,19 @@ displays unsaved text. It retains the three-note stable input separately from ma
 input with its saved reply, preserves stale/orphaned anchors and collection order, and checks
 revision and file identity exactly. Those four complete fixture files are now mapped.
 
-The captured event consumers are not yet exercised here. Capture-integrity tests
-in xtask reject changed outputs and wrong pins, but do not substitute for those translations.
-All corresponding incomplete ledger records remain unmapped.
+The event module now drives all four window fixtures through both the shared protocol
+and an authenticated, real loopback HTTP listener. It parses the streamed SSE frames,
+reassembles chunked publications with the native assembler, and requires byte-exact
+round trips of the native serialized publication. Exact-window and one-byte-over-window
+boundaries, resumable frame counts, and adjacent-only frame-name collapsing are checked
+against both pins. The event fixture and framing-helper source files are now mapped.
+The 13 Rust test functions execute the pinned corpus cases through registered native
+consumer callbacks; registry and finding-coverage assertions guard accidental omissions.
+Core geometry first projects the canonical review file, then uses canonical gap selectors
+and content-manifest geometry, rather than observing only the parser's DiffFile.
+Focused conformance tests, formatting, and focused Clippy pass for this increment.
+The broader harness and individual consumer source mappings remain under review.
+Capture-integrity tests reject changed outputs and wrong pins but are not parity proof.
 
 Full `cargo xtask verify` passed at `e4f3c782` before this conformance increment, including
 workspace tests, Clippy, release build, and the large-repository smoke test. This does not

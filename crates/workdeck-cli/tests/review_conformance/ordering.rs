@@ -12,6 +12,19 @@ use workdeck_session::{
     WorkdeckReviewResourceCatalogV1,
 };
 
+type Classifier = fn(&ReviewPublicationAddress, &ReviewPublicationAddress) -> &'static str;
+pub(super) const CONSUMERS: [(&str, Classifier); 2] = [
+    ("core publication ordering", core_verdict),
+    ("broker review mirror", mirror_verdict),
+];
+
+fn core_verdict(
+    current: &ReviewPublicationAddress,
+    incoming: &ReviewPublicationAddress,
+) -> &'static str {
+    verdict(classify_review_publication(current, incoming))
+}
+
 fn verdict(order: ReviewPublicationOrder) -> &'static str {
     match order {
         ReviewPublicationOrder::Accepted => "accepted",
@@ -140,16 +153,10 @@ fn core_broker_and_producer_ordering_match_both_pinned_corpora() {
                     let incoming =
                         serde_json::from_value(case["input"]["incoming"].clone()).unwrap();
                     ordering_count += 1;
-                    vec![
-                        (
-                            "core publication ordering",
-                            json!(verdict(classify_review_publication(&current, &incoming))),
-                        ),
-                        (
-                            "broker review mirror",
-                            json!(mirror_verdict(&current, &incoming)),
-                        ),
-                    ]
+                    CONSUMERS
+                        .iter()
+                        .map(|(name, classify)| (*name, json!(classify(&current, &incoming))))
+                        .collect()
                 }
                 "producer-ordering" => {
                     producer_count += 1;
