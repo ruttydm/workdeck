@@ -442,3 +442,25 @@ single offscreen geometry row directly removes its temporary vector allocation.
 The difference is small and host activity remains uncontrolled. All 1,032 TUI tests,
 scroll integration, Clippy and formatting pass. Scrolling parity and peak-memory
 acceptance remain unproven; no ledger interval is newly completed by this change.
+
+### Fresh paired interaction and peak RSS at `c453574b`
+
+[All nine raw process outputs](interaction-paired-peak-c453574b.json) were captured in
+three alternating native/main/stable rounds after builds and tests finished. Timing
+aggregates use the nearest-rank median of each process's median, matching the source
+percentile function. Native runs retain the diagnostic stage instrumentation. Other
+host activity was uncontrolled; all source startup variability remains in the report.
+
+| Measurement | Workdeck | Hunk main | Hunk stable |
+| --- | ---: | ---: | ---: |
+| First frame median, ms | 6.35 | 19.51 | 18.71 |
+| Navigation median, ms | 24.42 | 46.13 | 47.45 |
+| Scroll tick median, ms | 3.23 | 1.43 | 1.38 |
+| Maximum process peak RSS across runs, bytes | 170754048 | 613482496 | 591872000 |
+
+Each invocation was wrapped with macOS `/usr/bin/time -l`. The installed Darwin
+`getrusage(2)` manual specifies `ru_maxrss` in bytes. These are process high-water
+measurements over the complete invocation, not point-in-time RSS, JavaScript heapUsed,
+or summed memory across a process tree. No peak-RSS regression appears in this workload;
+that does not establish the complete memory suite's gate. Scrolling still exceeds the
+10% latency budget against both pins. First frame is not full-process launch latency.

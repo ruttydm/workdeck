@@ -1,5 +1,21 @@
 # Hunk semantic-port ledger
 
+## Local verification checkpoint `c453574b`
+
+On 2026-09-08, `cargo xtask verify` passed the theme/skill/architecture/history checks,
+full workspace tests, workspace Clippy, release build and 300-change repository smoke.
+This rerun includes the deferred-command scheduling regression. A preceding verify run
+failed the line-highlighter PTY contract; a deterministic held-connection regression
+reproduced and fixed the queue starvation before this passing run. `cargo deny check`
+also passed during this work, with duplicate/dependency-policy warnings.
+
+Strict `port audit` still fails: 1,257 baseline files, 1,326 interval records, 315 unmapped
+records and 11 pending upstream commits. The upstream count reflects the preserved fetched
+refs, not a final release-time fetch. Remote native CI, signed archives, full benchmark
+parity and all remaining source work are not certified by this local checkpoint. See
+`benchmarks/interaction-paired-peak-c453574b.json` for the fresh, limited interaction/peak-RSS
+comparison; scrolling remains outside budget.
+
 ## Explicit native CI hosts
 
 CI and release build matrices name all five native targets: Linux x64/arm64, macOS

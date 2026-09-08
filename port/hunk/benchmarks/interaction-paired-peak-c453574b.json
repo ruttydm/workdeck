@@ -1,0 +1,121 @@
+{
+  "nativeCommit": "c453574b9f7558d60c669afc93dc487dcc069f28",
+  "sourceCommits": {
+    "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+  },
+  "host": "Apple M1 Pro, macOS 26.5.2 arm64",
+  "nativeProfile": "release",
+  "hunkRuntime": "Bun 1.3.14",
+  "method": "Three alternating native/baseline/stable rounds, fresh sequential processes after builds/tests finished. Other host activity uncontrolled. Aggregate latency is nearest-rank median of per-process medians, matching source percentile semantics. Every process wrapped with /usr/bin/time -l; Darwin getrusage ru_maxrss is bytes. Peak RSS is the maximum reported process resident set over the complete invocation, not JavaScript heapUsed or summed memory of a process tree. Only this interaction workload is measured, not the complete benchmark gate.",
+  "runs": [
+    {
+      "kind": "native",
+      "round": 1,
+      "exitCode": 0,
+      "peakRssBytes": 170754048,
+      "metrics": {
+        "firstFrameMs": 6.633709,
+        "navigationMedianMs": 24.57725,
+        "scrollMedianMs": 3.252208
+      },
+      "combinedOutput": "{\n  \"diagnosticOnly\": true,\n  \"firstFrameMs\": 6.633709,\n  \"navigationPressMs\": [\n    25.319667,\n    24.8225,\n    24.369333,\n    24.436583000000002,\n    24.799208999999998,\n    24.57725\n  ],\n  \"scrollTickMs\": [\n    3.273125,\n    3.252208,\n    3.248,\n    3.87925,\n    3.2236249999999997,\n    3.228542,\n    3.330583,\n    3.2908749999999998\n  ],\n  \"navigationDispatchMs\": [\n    20.919832999999997,\n    20.249333,\n    19.933583000000002,\n    19.971625,\n    20.256084,\n    20.145084\n  ],\n  \"navigationRenderMs\": [\n    4.39875,\n    4.572292,\n    4.4352089999999995,\n    4.460958,\n    4.542,\n    4.43125\n  ],\n  \"scrollDispatchMs\": [\n    0.02775,\n    0.024333,\n    0.024375,\n    0.023125,\n    0.024292,\n    0.024749999999999998,\n    0.024041,\n    0.028875\n  ],\n  \"scrollRenderMs\": [\n    3.241625,\n    3.226875,\n    3.2225420000000002,\n    3.8552920000000004,\n    3.1987500000000004,\n    3.200625,\n    3.305375,\n    3.261459\n  ],\n  \"stageSemantics\": \"Dispatch includes input handling and its geometry/events; render includes the complete frame pass. Total includes both stages and the scheduler yield. Two additional clock reads per interaction instrument the boundaries.\",\n  \"afterFirstFrame\": {\n    \"rssBytes\": 165806080,\n    \"mallocInUseBytes\": 52318848\n  },\n  \"afterNavigation\": {\n    \"rssBytes\": 166805504,\n    \"mallocInUseBytes\": 53535232\n  },\n  \"files\": 180,\n  \"linesPerFile\": 120,\n  \"viewport\": {\n    \"width\": 240,\n    \"height\": 28\n  },\n  \"memorySemantics\": \"Current RSS and native malloc-zone usage, not peak RSS or JavaScript heapUsed\"\n}\n        1.33 real         0.73 user         0.04 sys\n           170754048  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n               10664  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                 135  involuntary context switches\n         10497317313  instructions retired\n          2359010629  cycles elapsed\n           134758928  peak memory footprint\n"
+    },
+    {
+      "kind": "baseline",
+      "round": 1,
+      "exitCode": 0,
+      "peakRssBytes": 605978624,
+      "metrics": {
+        "firstFrameMs": 5.55,
+        "navigationMedianMs": 48.75,
+        "scrollMedianMs": 1.59
+      },
+      "combinedOutput": "METRIC first_frame_ms=5.55\nMETRIC after_first_frame_rss_bytes=278937600\nMETRIC after_first_frame_heap_used_bytes=40628165\nMETRIC hunk_nav_press_median_ms=48.75\nMETRIC hunk_nav_press_p95_ms=126.34\nMETRIC after_navigation_rss_bytes=437370880\nMETRIC after_navigation_heap_used_bytes=101511265\nMETRIC scroll_tick_median_ms=1.59\nMETRIC scroll_tick_p95_ms=24.63\nMETRIC navigation_presses=6\nMETRIC scroll_ticks=8\nMETRIC files=180\nMETRIC lines_per_file=120\n        1.59 real         2.53 user         0.24 sys\n           605978624  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n               38015  page reclaims\n                2215  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                1267  voluntary context switches\n                6040  involuntary context switches\n         26997328556  instructions retired\n          8522648346  cycles elapsed\n           520324560  peak memory footprint\n"
+    },
+    {
+      "kind": "stable",
+      "round": 1,
+      "exitCode": 0,
+      "peakRssBytes": 589611008,
+      "metrics": {
+        "firstFrameMs": 19.47,
+        "navigationMedianMs": 48.64,
+        "scrollMedianMs": 1.18
+      },
+      "combinedOutput": "METRIC first_frame_ms=19.47\nMETRIC after_first_frame_rss_bytes=290586624\nMETRIC after_first_frame_heap_used_bytes=40925659\nMETRIC hunk_nav_press_median_ms=48.64\nMETRIC hunk_nav_press_p95_ms=56.95\nMETRIC after_navigation_rss_bytes=429735936\nMETRIC after_navigation_heap_used_bytes=100730605\nMETRIC scroll_tick_median_ms=1.18\nMETRIC scroll_tick_p95_ms=4.79\nMETRIC navigation_presses=6\nMETRIC scroll_ticks=8\nMETRIC files=180\nMETRIC lines_per_file=120\n        1.41 real         2.48 user         0.19 sys\n           589611008  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n               40291  page reclaims\n                 131  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                 934  voluntary context switches\n                3911  involuntary context switches\n         26527745815  instructions retired\n          8183640187  cycles elapsed\n           509724136  peak memory footprint\n"
+    },
+    {
+      "kind": "native",
+      "round": 2,
+      "exitCode": 0,
+      "peakRssBytes": 170328064,
+      "metrics": {
+        "firstFrameMs": 6.091,
+        "navigationMedianMs": 24.423083000000002,
+        "scrollMedianMs": 3.2264160000000004
+      },
+      "combinedOutput": "{\n  \"diagnosticOnly\": true,\n  \"firstFrameMs\": 6.091,\n  \"navigationPressMs\": [\n    26.020875,\n    24.220417,\n    24.856375,\n    24.518874999999998,\n    24.300041,\n    24.423083000000002\n  ],\n  \"scrollTickMs\": [\n    3.249167,\n    3.278083,\n    3.26925,\n    3.8666669999999996,\n    3.210208,\n    3.2264160000000004,\n    3.215167,\n    3.195417\n  ],\n  \"navigationDispatchMs\": [\n    21.560958000000003,\n    19.868625,\n    20.228375,\n    20.137541,\n    19.905416,\n    19.901208\n  ],\n  \"navigationRenderMs\": [\n    4.458417,\n    4.350667,\n    4.626916,\n    4.380249999999999,\n    4.393875,\n    4.520874999999999\n  ],\n  \"scrollDispatchMs\": [\n    0.027334,\n    0.024083,\n    0.023958,\n    0.02275,\n    0.024083,\n    0.023208,\n    0.023958999999999998,\n    0.023833\n  ],\n  \"scrollRenderMs\": [\n    3.2192499999999997,\n    3.251292,\n    3.241875,\n    3.840792,\n    3.185667,\n    3.199875,\n    3.190708,\n    3.170917\n  ],\n  \"stageSemantics\": \"Dispatch includes input handling and its geometry/events; render includes the complete frame pass. Total includes both stages and the scheduler yield. Two additional clock reads per interaction instrument the boundaries.\",\n  \"afterFirstFrame\": {\n    \"rssBytes\": 167673856,\n    \"mallocInUseBytes\": 52301024\n  },\n  \"afterNavigation\": {\n    \"rssBytes\": 169050112,\n    \"mallocInUseBytes\": 53522368\n  },\n  \"files\": 180,\n  \"linesPerFile\": 120,\n  \"viewport\": {\n    \"width\": 240,\n    \"height\": 28\n  },\n  \"memorySemantics\": \"Current RSS and native malloc-zone usage, not peak RSS or JavaScript heapUsed\"\n}\n        0.61 real         0.72 user         0.03 sys\n           170328064  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n               10639  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                  34  involuntary context switches\n         10492793831  instructions retired\n          2349316342  cycles elapsed\n           134300176  peak memory footprint\n"
+    },
+    {
+      "kind": "baseline",
+      "round": 2,
+      "exitCode": 0,
+      "peakRssBytes": 613482496,
+      "metrics": {
+        "firstFrameMs": 19.51,
+        "navigationMedianMs": 46.13,
+        "scrollMedianMs": 1.43
+      },
+      "combinedOutput": "METRIC first_frame_ms=19.51\nMETRIC after_first_frame_rss_bytes=311443456\nMETRIC after_first_frame_heap_used_bytes=41032360\nMETRIC hunk_nav_press_median_ms=46.13\nMETRIC hunk_nav_press_p95_ms=52.98\nMETRIC after_navigation_rss_bytes=454901760\nMETRIC after_navigation_heap_used_bytes=99726457\nMETRIC scroll_tick_median_ms=1.43\nMETRIC scroll_tick_p95_ms=5.03\nMETRIC navigation_presses=6\nMETRIC scroll_ticks=8\nMETRIC files=180\nMETRIC lines_per_file=120\n        1.40 real         2.54 user         0.15 sys\n           613482496  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n               41602  page reclaims\n                  77  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   1  voluntary context switches\n                3247  involuntary context switches\n         26963516227  instructions retired\n          8261253619  cycles elapsed\n           522978792  peak memory footprint\n"
+    },
+    {
+      "kind": "stable",
+      "round": 2,
+      "exitCode": 0,
+      "peakRssBytes": 591872000,
+      "metrics": {
+        "firstFrameMs": 17.78,
+        "navigationMedianMs": 47.3,
+        "scrollMedianMs": 1.41
+      },
+      "combinedOutput": "METRIC first_frame_ms=17.78\nMETRIC after_first_frame_rss_bytes=291356672\nMETRIC after_first_frame_heap_used_bytes=40518566\nMETRIC hunk_nav_press_median_ms=47.30\nMETRIC hunk_nav_press_p95_ms=58.42\nMETRIC after_navigation_rss_bytes=432652288\nMETRIC after_navigation_heap_used_bytes=100836940\nMETRIC scroll_tick_median_ms=1.41\nMETRIC scroll_tick_p95_ms=5.74\nMETRIC navigation_presses=6\nMETRIC scroll_ticks=8\nMETRIC files=180\nMETRIC lines_per_file=120\n        1.38 real         2.50 user         0.16 sys\n           591872000  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n               40515  page reclaims\n                  73  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                3375  involuntary context switches\n         26417248025  instructions retired\n          8132015170  cycles elapsed\n           516589056  peak memory footprint\n"
+    },
+    {
+      "kind": "native",
+      "round": 3,
+      "exitCode": 0,
+      "peakRssBytes": 168198144,
+      "metrics": {
+        "firstFrameMs": 6.349791,
+        "navigationMedianMs": 24.352791,
+        "scrollMedianMs": 3.2085
+      },
+      "combinedOutput": "{\n  \"diagnosticOnly\": true,\n  \"firstFrameMs\": 6.349791,\n  \"navigationPressMs\": [\n    25.636334,\n    24.352791,\n    24.409083000000003,\n    24.241083,\n    24.179792,\n    24.358958\n  ],\n  \"scrollTickMs\": [\n    3.250625,\n    3.264916,\n    3.295209,\n    3.933708,\n    3.2085,\n    3.2070000000000003,\n    3.1870420000000004,\n    3.183208\n  ],\n  \"navigationDispatchMs\": [\n    21.27925,\n    19.968583000000002,\n    20.018083,\n    19.892958,\n    19.833417,\n    19.98875\n  ],\n  \"navigationRenderMs\": [\n    4.3556669999999995,\n    4.382375,\n    4.389958,\n    4.347208,\n    4.345458,\n    4.369458\n  ],\n  \"scrollDispatchMs\": [\n    0.025959,\n    0.022708,\n    0.023459,\n    0.022208000000000002,\n    0.023541,\n    0.0235,\n    0.023334,\n    0.023042\n  ],\n  \"scrollRenderMs\": [\n    3.223583,\n    3.241667,\n    3.271166,\n    3.910917,\n    3.1845,\n    3.1830000000000003,\n    3.1632499999999997,\n    3.159583\n  ],\n  \"stageSemantics\": \"Dispatch includes input handling and its geometry/events; render includes the complete frame pass. Total includes both stages and the scheduler yield. Two additional clock reads per interaction instrument the boundaries.\",\n  \"afterFirstFrame\": {\n    \"rssBytes\": 166559744,\n    \"mallocInUseBytes\": 52347824\n  },\n  \"afterNavigation\": {\n    \"rssBytes\": 167231488,\n    \"mallocInUseBytes\": 53550512\n  },\n  \"files\": 180,\n  \"linesPerFile\": 120,\n  \"viewport\": {\n    \"width\": 240,\n    \"height\": 28\n  },\n  \"memorySemantics\": \"Current RSS and native malloc-zone usage, not peak RSS or JavaScript heapUsed\"\n}\n        0.61 real         0.72 user         0.03 sys\n           168198144  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n               10497  page reclaims\n                  10  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   1  voluntary context switches\n                  31  involuntary context switches\n         10501040252  instructions retired\n          2340181494  cycles elapsed\n           135283192  peak memory footprint\n"
+    },
+    {
+      "kind": "baseline",
+      "round": 3,
+      "exitCode": 0,
+      "peakRssBytes": 602193920,
+      "metrics": {
+        "firstFrameMs": 20.33,
+        "navigationMedianMs": 45.42,
+        "scrollMedianMs": 1.42
+      },
+      "combinedOutput": "METRIC first_frame_ms=20.33\nMETRIC after_first_frame_rss_bytes=306642944\nMETRIC after_first_frame_heap_used_bytes=41434621\nMETRIC hunk_nav_press_median_ms=45.42\nMETRIC hunk_nav_press_p95_ms=53.07\nMETRIC after_navigation_rss_bytes=445923328\nMETRIC after_navigation_heap_used_bytes=99752323\nMETRIC scroll_tick_median_ms=1.42\nMETRIC scroll_tick_p95_ms=2.76\nMETRIC navigation_presses=6\nMETRIC scroll_ticks=8\nMETRIC files=180\nMETRIC lines_per_file=120\n        1.39 real         2.48 user         0.14 sys\n           602193920  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n               40919  page reclaims\n                  75  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                3425  involuntary context switches\n         26471591191  instructions retired\n          8101865586  cycles elapsed\n           507004416  peak memory footprint\n"
+    },
+    {
+      "kind": "stable",
+      "round": 3,
+      "exitCode": 0,
+      "peakRssBytes": 585940992,
+      "metrics": {
+        "firstFrameMs": 18.71,
+        "navigationMedianMs": 47.45,
+        "scrollMedianMs": 1.38
+      },
+      "combinedOutput": "METRIC first_frame_ms=18.71\nMETRIC after_first_frame_rss_bytes=289734656\nMETRIC after_first_frame_heap_used_bytes=40854224\nMETRIC hunk_nav_press_median_ms=47.45\nMETRIC hunk_nav_press_p95_ms=52.77\nMETRIC after_navigation_rss_bytes=426082304\nMETRIC after_navigation_heap_used_bytes=99372977\nMETRIC scroll_tick_median_ms=1.38\nMETRIC scroll_tick_p95_ms=3.00\nMETRIC navigation_presses=6\nMETRIC scroll_ticks=8\nMETRIC files=180\nMETRIC lines_per_file=120\n        1.34 real         2.39 user         0.15 sys\n           585940992  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n               40334  page reclaims\n                  73  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                3309  involuntary context switches\n         25614232571  instructions retired\n          7846604898  cycles elapsed\n           509330872  peak memory footprint\n"
+    }
+  ]
+}
