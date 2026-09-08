@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-08T00:03:46.944Z",
+  "gitSha": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "packageVersion": "0.20.1",
+  "runtime": {
+    "bunVersion": "1.3.14",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "samplesPerBenchmark": 3,
+  "results": [
+    {
+      "name": "non-ascii-stream/files",
+      "source": "non-ascii-stream",
+      "samples": [
+        120,
+        120,
+        120
+      ],
+      "median": 120,
+      "p75": 120,
+      "p95": 120,
+      "min": 120,
+      "max": 120,
+      "unit": "count",
+      "comparable": false
+    },
+    {
+      "name": "non-ascii-stream/lines_per_file",
+      "source": "non-ascii-stream",
+      "samples": [
+        120,
+        120,
+        120
+      ],
+      "median": 120,
+      "p75": 120,
+      "p95": 120,
+      "min": 120,
+      "max": 120,
+      "unit": "count",
+      "comparable": false
+    },
+    {
+      "name": "non-ascii-stream/non_ascii_cold_first_frame_ms",
+      "source": "non-ascii-stream",
+      "samples": [
+        19,
+        18.77,
+        19.81
+      ],
+      "median": 19,
+      "p75": 19.81,
+      "p95": 19.81,
+      "min": 18.77,
+      "max": 19.81,
+      "unit": "ms",
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5
+      }
+    },
+    {
+      "name": "non-ascii-stream/non_ascii_scroll_tick_median_ms",
+      "source": "non-ascii-stream",
+      "samples": [
+        2.23,
+        2.19,
+        2.15
+      ],
+      "median": 2.19,
+      "p75": 2.23,
+      "p95": 2.23,
+      "min": 2.15,
+      "max": 2.23,
+      "unit": "ms",
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5
+      }
+    },
+    {
+      "name": "non-ascii-stream/non_ascii_scroll_tick_p95_ms",
+      "source": "non-ascii-stream",
+      "samples": [
+        7.88,
+        7.62,
+        7.61
+      ],
+      "median": 7.62,
+      "p75": 7.88,
+      "p95": 7.88,
+      "min": 7.61,
+      "max": 7.88,
+      "unit": "ms",
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5
+      }
+    },
+    {
+      "name": "non-ascii-stream/scroll_ticks",
+      "source": "non-ascii-stream",
+      "samples": [
+        8,
+        8,
+        8
+      ],
+      "median": 8,
+      "p75": 8,
+      "p95": 8,
+      "min": 8,
+      "max": 8,
+      "unit": "count",
+      "comparable": false
+    }
+  ]
+}

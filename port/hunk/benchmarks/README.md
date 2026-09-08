@@ -1,4 +1,4 @@
-# Large-stream performance investigation
+# Review-stream performance investigations
 
 These reports expose an outstanding release-gate failure. They are **not** parity certification.
 
@@ -66,3 +66,29 @@ Raw reports retain every sample, source Git SHA, runtime identity, quantile and 
 - [Optimized native after borrowed-field filtering](large-stream-native-9780b4cf.json)
 - [Optimized native after borrowed fingerprint serialization](large-stream-native-f62e190e.json)
 - [Optimized native with shared token-cache reads](large-stream-native-dc3041ab.json)
+
+## Non-ASCII stream
+
+The native Unicode workload at `dfc2f4e8` ran three optimized subprocess samples, followed
+sequentially by three samples from each pinned Hunk checkout on the same host and runtimes
+described above. Compilation and native verification had finished before these runs. Other host
+activity was not controlled. Hunk emitted its React `act(...)` environment warning; the reports
+retain the workload's measured results, not a claim that its scheduler matches Ratatui's.
+
+| Median, milliseconds | Hunk main | Hunk stable | Workdeck |
+| --- | ---: | ---: | ---: |
+| Cold first frame | 19.48 | 19.00 | 146.11 |
+| Per-run median wheel tick | 1.79 | 2.19 | 259.83 |
+| Per-run p95 wheel tick | 11.48 | 7.62 | 276.14 |
+
+The latter rows aggregate each subprocess's eight-tick median/p95, not all ticks pooled together.
+Every report has 120 files, 120 lines per file and eight ticks. These measurements fail the 10%
+latency gate against both pins. No peak-memory or full-process launch acceptance is established.
+Unlike large-stream, this source workload has no explicit 17 ms pause between wheel dispatch and
+render; its native counterpart measures dispatch, render and a thread yield per tick.
+
+Use the commands above with `--script non-ascii-stream.ts` to reproduce these reports:
+
+- [Pinned main Unicode stream](non-ascii-stream-hunk-2c00f435.json)
+- [Pinned stable Unicode stream](non-ascii-stream-hunk-v0.20.1.json)
+- [Native Unicode stream](non-ascii-stream-native.json)
