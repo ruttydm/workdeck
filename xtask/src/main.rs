@@ -16,6 +16,7 @@ mod architecture;
 mod benchmark;
 mod changelog;
 mod ci_changes;
+mod ci_host;
 mod install;
 mod nix;
 mod provenance;
@@ -148,6 +149,7 @@ fn run() -> Result<()> {
         Some("licenses") => licenses(parse_output_option(args)?),
         Some("benchmark") => benchmark::run(args),
         Some("ci-changes") => ci_changes::run(args),
+        Some("ci-host") => ci_host::run(args),
         Some("themes") => match args.next().as_deref() {
             Some("vendor") => vendor_themes(parse_theme_vendor_options(args)?),
             Some("verify") => {
@@ -2300,6 +2302,7 @@ fn print_help() {
     println!("cargo xtask benchmark memory-snapshot");
     println!("cargo xtask benchmark interaction-diagnostic");
     println!("cargo xtask ci-changes <base-revision> <head-revision>");
+    println!("cargo xtask ci-host <expected-native-target>");
     println!("cargo xtask benchmark non-ascii-stream");
     println!("cargo xtask benchmark wrapped-cjk");
     println!("cargo xtask benchmark render-layout");

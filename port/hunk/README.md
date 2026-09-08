@@ -1,5 +1,19 @@
 # Hunk semantic-port ledger
 
+## Explicit native CI hosts
+
+CI and release build matrices name all five native targets: Linux x64/arm64, macOS
+x64/arm64 and Windows x64. Runner labels use `ubuntu-24.04`, `ubuntu-24.04-arm`,
+`macos-15-intel`, `macos-15` and `windows-2025`, following the
+[GitHub-hosted runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+checked on 2026-09-08. `cargo xtask ci-host <target>` requires the rustc host triple
+and xtask's compiled OS/architecture to match the matrix target. Local tests reject
+missing/duplicate/wrong host reports and check both complete YAML matrices.
+
+Only the local macOS arm64 host check has been executed here. The five remote jobs,
+installer smoke coverage and signed release verification remain unexecuted; matrix
+configuration is not native CI evidence. No workflow was pushed or triggered.
+
 ## Native CI change detection (partial tooling port)
 
 `cargo xtask ci-changes <base-revision> <head-revision>` implements the pinned CI
