@@ -36,6 +36,7 @@ struct Fixture {
     files: Vec<DiffFile>,
     filter: &'static str,
     annotations: Vec<(usize, Vec<usize>)>,
+    annotated_files: Option<Vec<usize>>,
     moves: Vec<Move>,
     selections: Vec<Position>,
 }
@@ -82,6 +83,7 @@ fn fixture(id: &str) -> Fixture {
         files: ["alpha", "beta", "gamma"].map(two_hunk_file).to_vec(),
         filter: "",
         annotations: Vec::new(),
+        annotated_files: None,
         moves: Vec::new(),
         selections: Vec::new(),
     };
@@ -155,7 +157,13 @@ fn fixture(id: &str) -> Fixture {
 fn selection(position: Position, document: &SemanticReviewDocument) -> SemanticReviewSelection {
     SemanticReviewSelection {
         file_key: match position.0 {
-            FilePosition::Index(index) => Some(document.files[index].key.clone()),
+            FilePosition::Index(index) => Some(
+                document
+                    .files
+                    .get(index)
+                    .map(|file| file.key.clone())
+                    .unwrap_or_else(|| "vanished:no-such-file".into()),
+            ),
             FilePosition::Vanished => Some("vanished:no-such-file".into()),
             FilePosition::None => None,
         },
@@ -187,6 +195,37 @@ fn reconcile(state: SemanticReviewState) -> SemanticReviewState {
     (*reconciled).clone()
 }
 
+fn annotation_index(
+    fixture: &Fixture,
+    document: &SemanticReviewDocument,
+) -> SemanticReviewAnnotationIndex {
+    SemanticReviewAnnotationIndex {
+        annotated_hunk_indices_by_file_key: fixture
+            .annotations
+            .iter()
+            .filter_map(|(index, hunks)| {
+                document
+                    .files
+                    .get(*index)
+                    .map(|file| (file.key.clone(), hunks.iter().copied().collect()))
+            })
+            .collect(),
+        annotated_file_keys: fixture
+            .annotated_files
+            .clone()
+            .unwrap_or_else(|| {
+                fixture
+                    .annotations
+                    .iter()
+                    .map(|(index, _)| *index)
+                    .collect()
+            })
+            .into_iter()
+            .filter_map(|index| document.files.get(index).map(|file| file.key.clone()))
+            .collect(),
+    }
+}
+
 fn projection(fixture: &Fixture, terminal: bool) -> Value {
     let document = Arc::new(SemanticReviewDocument {
         files: fixture
@@ -195,23 +234,7 @@ fn projection(fixture: &Fixture, terminal: bool) -> Value {
             .map(|file| project_review_file(file, "conformance", 0))
             .collect(),
     });
-    let annotations = SemanticReviewAnnotationIndex {
-        annotated_hunk_indices_by_file_key: fixture
-            .annotations
-            .iter()
-            .map(|(index, hunks)| {
-                (
-                    document.files[*index].key.clone(),
-                    hunks.iter().copied().collect(),
-                )
-            })
-            .collect(),
-        annotated_file_keys: fixture
-            .annotations
-            .iter()
-            .map(|(index, _)| document.files[*index].key.clone())
-            .collect(),
-    };
+    let annotations = annotation_index(fixture, &document);
     let facts = ReviewIntentFacts {
         annotations: Some(annotations),
         ..Default::default()
@@ -303,6 +326,77 @@ fn projection(fixture: &Fixture, terminal: bool) -> Value {
         })
         .collect::<Vec<_>>();
     json!({"moves": moves, "normalizedSelections": normalized, "revealTargets": targets})
+}
+
+#[test]
+fn positional_helpers_handle_vanished_files_and_independent_annotation_scopes() {
+    let mut fixture = fixture("scope-wrap-and-clamp");
+    let document = SemanticReviewDocument {
+        files: fixture
+            .files
+            .iter()
+            .map(|file| project_review_file(file, "conformance", 0))
+            .collect(),
+    };
+    assert_eq!(
+        selection(at(999, 7), &document),
+        selection(Position(FilePosition::Vanished, 7), &document)
+    );
+    assert_eq!(
+        report_selection(&selection(at(999, 7), &document), &document),
+        json!({"file": null, "hunkIndex": 7})
+    );
+    assert_eq!(
+        report_selection(
+            &selection(Position(FilePosition::None, 2), &document),
+            &document
+        ),
+        json!({"file": null, "hunkIndex": 2})
+    );
+    assert_eq!(
+        report_selection(&selection(at(1, 3), &document), &document),
+        json!({"file": 1, "hunkIndex": 3})
+    );
+
+    fixture.annotations = vec![(0, vec![0, 0, 1]), (999, vec![0])];
+    let inferred = annotation_index(&fixture, &document);
+    assert_eq!(inferred.annotated_file_keys.len(), 1);
+    assert!(
+        inferred
+            .annotated_file_keys
+            .contains(&document.files[0].key)
+    );
+    assert_eq!(inferred.annotated_hunk_indices_by_file_key.len(), 1);
+    assert_eq!(
+        inferred.annotated_hunk_indices_by_file_key[&document.files[0].key].len(),
+        2
+    );
+    fixture.annotated_files = Some(vec![1, 1, 999]);
+    let explicit = annotation_index(&fixture, &document);
+    assert_eq!(explicit.annotated_file_keys.len(), 1);
+    assert!(
+        explicit
+            .annotated_file_keys
+            .contains(&document.files[1].key)
+    );
+    assert_eq!(
+        explicit.annotated_hunk_indices_by_file_key,
+        inferred.annotated_hunk_indices_by_file_key
+    );
+    fixture.moves = vec![movement(ReviewSelectionScope::AnnotatedFile, 1, at(0, 0))];
+    for (_, terminal) in CONSUMERS {
+        assert_eq!(
+            projection(&fixture, terminal)["moves"][0]["to"],
+            json!({"file": 1, "hunkIndex": 0}),
+            "explicit file scope must reach both real navigation consumers"
+        );
+    }
+    fixture.annotated_files = Some(Vec::new());
+    assert!(
+        annotation_index(&fixture, &document)
+            .annotated_file_keys
+            .is_empty()
+    );
 }
 
 #[test]

@@ -1458,7 +1458,7 @@ reassembles chunked publications with the native assembler, and requires byte-ex
 round trips of the native serialized publication. Exact-window and one-byte-over-window
 boundaries, resumable frame counts, and adjacent-only frame-name collapsing are checked
 against both pins. The event fixture and framing-helper source files are now mapped.
-The 15 Rust test functions execute the pinned corpus cases through registered native
+The 16 Rust test functions execute the pinned corpus cases through registered native
 consumer callbacks; registry and finding-coverage assertions guard accidental omissions.
 Core geometry first projects the canonical review file, then uses canonical gap selectors
 and content-manifest geometry, rather than observing only the parser's DiffFile.
@@ -1473,6 +1473,14 @@ the former invokes the shared ordering classifier and the latter seeds a real mi
 with its resource catalog before classifying the observed update. The extension-snapshot
 consumer is also mapped to its public projection, preserving generation, revision, file
 identities, saved-note order, reply links, resolution, and all exported anchor fields.
+The intent-planner and terminal-navigation consumers are now mapped after completing
+their positional helper branches. Invalid file positions become vanished selections;
+annotation indices outside the document are ignored; duplicate annotations are sets;
+and an explicit annotated-file list (including an empty list) is independent of hunk
+annotations. Regression tests exercise that independent scope through both real consumers.
+All 16 focused conformance tests pass. The full workspace test phase and workspace Clippy
+also pass; the workspace test binary predates the final helper increment, which is covered
+by the separate focused run. Release-build and smoke verification are still in progress.
 Capture-integrity tests reject changed outputs and wrong pins but are not parity proof.
 
 Full `cargo xtask verify` passed at `e4f3c782` before this conformance increment, including
