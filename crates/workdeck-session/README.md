@@ -291,6 +291,18 @@ constructing a daemon starts its native lifecycle clock. Repository files are no
 construction, health, listing, or initial viewing. Discovery files and credential stores are managed
 by their explicit native composition APIs with private permissions and atomic replacement.
 
+## JSON-line compatibility transport
+
+The Workdeck-specific `ReviewSessionServer` and `SessionClient` retain their existing schemas and
+8 MiB received-line ceiling, including a received newline. Both readers consume at most one byte
+beyond that ceiling before rejecting an oversized message, even if the peer never sends a newline.
+UTF-8 and JSON decoding occur after the byte check. EOF without a newline remains supported, and
+malformed in-limit UTF-8 remains an I/O error. Socket tests verify oversized request and response
+rejection while the sender keeps its connection open, plus health after request rejection.
+
+This bounds incoming allocation; it does not add an absolute whole-message deadline or certify
+Hunk broker-wire parity for this Workdeck-specific transport. No Hunk ledger coverage is claimed.
+
 ## License
 
 MIT. Translated Hunk portions retain Hunk's MIT attribution in the repository notices and semantic

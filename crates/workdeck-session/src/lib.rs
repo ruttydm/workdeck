@@ -366,11 +366,11 @@ impl SessionClient {
         encoded.push(b'\n');
         stream.write_all(&encoded)?;
         stream.flush()?;
-        let mut response = String::new();
-        BufReader::new(stream).read_line(&mut response)?;
+        let response = read_bounded_session_line(BufReader::new(stream))?;
         if response.len() > MAX_ENVELOPE_BYTES {
             return Err(SessionError::Oversized);
         }
+        let response = decode_session_line(response)?;
         let response: ResponseEnvelope = serde_json::from_str(&response)?;
         if let Some(error) = response.error {
             return Err(SessionError::Remote {
@@ -380,6 +380,21 @@ impl SessionClient {
         }
         Ok(response.result.unwrap_or(Value::Null))
     }
+}
+
+fn read_bounded_session_line(input: impl BufRead) -> std::io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    // Preserve the existing line-byte ceiling (including a received newline).
+    // One sentinel byte detects overflow even if the peer never ends the line.
+    input
+        .take((MAX_ENVELOPE_BYTES + 1) as u64)
+        .read_until(b'\n', &mut bytes)?;
+    Ok(bytes)
+}
+
+fn decode_session_line(bytes: Vec<u8>) -> std::io::Result<String> {
+    String::from_utf8(bytes)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
 }
 
 fn handle_connection(
@@ -393,11 +408,11 @@ fn handle_connection(
     // platforms. The line protocol requires a complete request before reply.
     stream.set_nonblocking(false)?;
     stream.set_read_timeout(Some(Duration::from_secs(2)))?;
-    let mut line = String::new();
-    BufReader::new(stream.try_clone()?).read_line(&mut line)?;
+    let line = read_bounded_session_line(BufReader::new(stream.try_clone()?))?;
     let response = if line.len() > MAX_ENVELOPE_BYTES {
         failure(0, "too-large", "request exceeded the protocol size limit")
     } else {
+        let line = decode_session_line(line)?;
         match serde_json::from_str::<RequestEnvelope>(&line) {
             Ok(request) => dispatch(request, descriptor, state, stop, reload),
             Err(error) => failure(0, "invalid-request", &error.to_string()),
@@ -601,6 +616,103 @@ mod tests {
     use tempfile::TempDir;
     use workdeck_core::ChangesetSource;
     use workdeck_diff::parse_patch;
+
+    #[test]
+    fn session_line_reader_bounds_consumption_and_preserves_unicode_and_eof() {
+        let mut oversized = std::io::Cursor::new(vec![b'x'; MAX_ENVELOPE_BYTES * 2]);
+        let line = read_bounded_session_line(&mut oversized).unwrap();
+        assert_eq!(line.len(), MAX_ENVELOPE_BYTES + 1);
+        assert_eq!(oversized.position(), (MAX_ENVELOPE_BYTES + 1) as u64);
+        let mut exact = vec![b' '; MAX_ENVELOPE_BYTES];
+        *exact.last_mut().unwrap() = b'\n';
+        assert_eq!(
+            read_bounded_session_line(std::io::Cursor::new(&exact)).unwrap(),
+            exact
+        );
+        for (input, expected) in [("λ🙂\nnext", "λ🙂\n"), ("e\u{301}", "e\u{301}"), ("", "")]
+        {
+            let line = read_bounded_session_line(std::io::Cursor::new(input)).unwrap();
+            assert_eq!(decode_session_line(line).unwrap(), expected);
+        }
+        assert_eq!(
+            decode_session_line(vec![0xff, b'\n']).unwrap_err().kind(),
+            std::io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn rejects_oversized_request_before_the_sender_finishes_its_line() {
+        let changeset = parse_patch(
+            "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n",
+            "test",
+            "Test",
+            ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap();
+        let directory = TempDir::new().unwrap();
+        let server = ReviewSessionServer::spawn(
+            Arc::new(Mutex::new(ReviewState::new(changeset))),
+            directory.path().into(),
+            directory.path().join("sessions"),
+        )
+        .unwrap();
+        let mut stream = TcpStream::connect(server.descriptor().address).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        // No newline or write-half close: the size cap, not EOF, must end the read.
+        stream
+            .write_all(&vec![b' '; MAX_ENVELOPE_BYTES + 1])
+            .unwrap();
+        let mut response = String::new();
+        BufReader::new(stream).read_line(&mut response).unwrap();
+        let response: ResponseEnvelope = serde_json::from_str(&response).unwrap();
+        assert_eq!(response.error.unwrap().code, "too-large");
+        assert!(SessionClient::request(server.descriptor(), SessionAction::Health).is_ok());
+    }
+
+    #[test]
+    fn rejects_oversized_response_before_the_server_finishes_its_line() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let descriptor = SessionDescriptor {
+            protocol_version: PROTOCOL_VERSION,
+            id: "oversized-response".into(),
+            repo: PathBuf::from("/test"),
+            title: "Test".into(),
+            address: listener.local_addr().unwrap(),
+            token: "test-token".into(),
+            process_id: std::process::id(),
+            started_at_unix_ms: 0,
+        };
+        let (release, held) = std::sync::mpsc::channel();
+        let writer = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut request = String::new();
+            BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut request)
+                .unwrap();
+            stream
+                .write_all(&vec![b' '; MAX_ENVELOPE_BYTES + 1])
+                .unwrap();
+            held.recv_timeout(Duration::from_secs(3)).unwrap();
+        });
+        let response = SessionClient::request(&descriptor, SessionAction::Health);
+        release.send(()).unwrap();
+        writer.join().unwrap();
+        assert!(
+            matches!(response, Err(SessionError::Oversized)),
+            "{response:?}"
+        );
+    }
 
     #[test]
     fn serves_authenticated_snapshot_and_navigation() {
