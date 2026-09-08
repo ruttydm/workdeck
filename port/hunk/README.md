@@ -1,5 +1,21 @@
 # Hunk semantic-port ledger
 
+## Ineligible-file generation ownership
+
+The preparation generation now retains a lightweight identity for every file,
+including binary, oversized, and empty-diff files. Adding or replacing one of
+these files retires the previous unfinished pass without invoking a highlighter
+for the ineligible file. The regression first failed with a held worker observing
+no cancellation; it now covers addition and replacement for all three kinds.
+Unchanged polling still retains the original live request token.
+
+This closes the ineligible-file gap noted in the preceding checkpoint. Equivalent
+input collection identity and full hook lifecycle parity remain unproven; no
+ledger mapping is added. The additional identity storage contains keys and flags,
+not cloned diff trees, and remains subject to the release memory benchmark gate.
+All 32 highlighter tests, workspace Clippy, formatting, and architecture checks
+pass for this checkpoint.
+
 ## Preparation-pass supersession
 
 A held-worker regression reproduced an unfinished request surviving the addition

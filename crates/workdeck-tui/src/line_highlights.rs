@@ -236,11 +236,44 @@ struct MergedLineHighlights {
     merged: Arc<[ValidatedLineHighlight]>,
 }
 
+#[derive(Debug)]
+struct PreparationFileIdentity {
+    id: String,
+    content: String,
+    source: Option<String>,
+    binary: bool,
+    too_large: bool,
+    has_hunks: bool,
+}
+
+impl PreparationFileIdentity {
+    fn capture(file: &DiffFile) -> Self {
+        Self {
+            id: file.runtime_id.clone(),
+            content: file.content_identity.clone(),
+            source: file.source_identity.clone(),
+            binary: file.flags.binary,
+            too_large: file.flags.too_large,
+            has_hunks: !file.hunks.is_empty(),
+        }
+    }
+
+    fn matches(&self, file: &DiffFile) -> bool {
+        self.id == file.runtime_id
+            && self.content == file.content_identity
+            && self.source == file.source_identity
+            && self.binary == file.flags.binary
+            && self.too_large == file.flags.too_large
+            && self.has_hunks != file.hunks.is_empty()
+    }
+}
+
 /// Background preparation, caching, containment, and publication for native line highlighters.
 #[derive(Debug)]
 pub struct LineHighlightPreparationController {
     retired: bool,
     generation: Option<Vec<LineHighlightTaskKey>>,
+    generation_files: Vec<PreparationFileIdentity>,
     deadlines: BTreeMap<LineHighlightTaskKey, (Instant, LineHighlightTask)>,
     cache: BTreeMap<LineHighlightTaskKey, Option<Arc<[ValidatedLineHighlight]>>>,
     pending: BTreeMap<LineHighlightTaskKey, Arc<AtomicBool>>,
@@ -264,6 +297,7 @@ impl Default for LineHighlightPreparationController {
         Self {
             retired: false,
             generation: None,
+            generation_files: Vec::new(),
             deadlines: BTreeMap::new(),
             cache: BTreeMap::new(),
             pending: BTreeMap::new(),
@@ -295,6 +329,7 @@ impl LineHighlightPreparationController {
         self.retired = true;
         self.cancel_pending();
         self.generation = None;
+        self.generation_files.clear();
         self.cache.clear();
         self.merged.clear();
         self.resolved = LineHighlightMap::default();
@@ -334,9 +369,16 @@ impl LineHighlightPreparationController {
             .generation
             .as_ref()
             .is_none_or(|generation| generation.iter().ne(tasks.iter().map(|task| &task.key)))
+            || self.generation_files.len() != files.len()
+            || self
+                .generation_files
+                .iter()
+                .zip(files)
+                .any(|(previous, file)| !previous.matches(file))
         {
             self.cancel_pending();
             self.generation = Some(tasks.iter().map(|task| task.key.clone()).collect());
+            self.generation_files = files.iter().map(PreparationFileIdentity::capture).collect();
         }
         let desired = tasks
             .iter()
@@ -1542,6 +1584,30 @@ mod tests {
 
     #[test]
     fn changing_another_file_restarts_unfinished_generation_work() {
+        assert_file_change_restarts_generation(test_file("added", "new-content"), 2, false);
+    }
+
+    #[test]
+    fn ineligible_files_still_supersede_preparation_without_invoking_extensions() {
+        for kind in ["binary", "too-large", "empty"] {
+            let mut file = test_file("added", "new-content");
+            match kind {
+                "binary" => file.flags.binary = true,
+                "too-large" => file.flags.too_large = true,
+                "empty" => file.hunks.clear(),
+                _ => unreachable!(),
+            }
+            for replace in [false, true] {
+                assert_file_change_restarts_generation(file.clone(), 1, replace);
+            }
+        }
+    }
+
+    fn assert_file_change_restarts_generation(
+        added: DiffFile,
+        expected_files: usize,
+        replace: bool,
+    ) {
         let (started_tx, started_rx) = mpsc::channel();
         let (release_tx, release_rx) = mpsc::channel();
         let (finished_tx, finished_rx) = mpsc::channel();
@@ -1563,6 +1629,9 @@ mod tests {
         let registrations = [registration("highlight")];
         let epochs = workdeck_extension_host::LineHighlightEpochState::default();
         let mut files = vec![test_file("unchanged", "content")];
+        if replace {
+            files.push(added.clone());
+        }
         let mut controller = LineHighlightPreparationController::default();
         controller.reconcile(&extensions, &registrations, &epochs, &files);
         started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1573,7 +1642,11 @@ mod tests {
             controller.pending.values().next().unwrap(),
             &original
         ));
-        files.push(test_file("added", "new-content"));
+        if replace {
+            files[1].content_identity = "replacement".into();
+        } else {
+            files.push(added);
+        }
         controller.reconcile(&extensions, &registrations, &epochs, &files);
         release_tx.send(()).unwrap();
         assert!(finished_rx.recv_timeout(Duration::from_secs(5)).unwrap());
@@ -1583,7 +1656,9 @@ mod tests {
             &registrations,
             &epochs,
             &files,
-            |controller| controller.pending_count() == 0 && controller.resolved().len() == 2,
+            |controller| {
+                controller.pending_count() == 0 && controller.resolved().len() == expected_files
+            },
         );
         assert_eq!(
             runtime
@@ -1594,6 +1669,7 @@ mod tests {
             2
         );
         assert!(runtime.warnings().is_empty());
+        assert_eq!(runtime.calls().len(), expected_files + 1);
     }
 
     #[test]
