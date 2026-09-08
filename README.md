@@ -84,6 +84,9 @@ workdeck --init
 workdeck doctor
 ```
 
+See [Themes](docs/themes.md) for built-in and custom theme configuration, automatic
+terminal-background selection, and legacy syntax-scope migration.
+
 ## Validate
 
 ```sh

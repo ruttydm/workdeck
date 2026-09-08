@@ -2705,6 +2705,35 @@ mod tests {
     }
 
     #[test]
+    fn migrated_theme_guide_examples_load_with_workdeck_configuration_semantics() {
+        let guide = include_str!("../../../docs/themes.md");
+        let examples: Vec<_> = guide
+            .split("```toml\n")
+            .skip(1)
+            .map(|section| section.split_once("```").unwrap().0)
+            .collect();
+        assert_eq!(examples.len(), 3);
+        let built_in = load_theme_projection(examples[0], None).unwrap();
+        assert_eq!(built_in["theme"], "github-dark-default");
+        let custom = load_theme_projection(examples[1], None).unwrap();
+        assert_eq!(custom["theme"], "custom");
+        assert_eq!(custom["customThemes"][0]["id"], "custom");
+        assert_eq!(custom["customThemes"][0]["base"], "catppuccin-mocha");
+        assert_eq!(custom["customThemes"][0]["accent"], "#7fd1ff");
+        assert_eq!(
+            custom["customThemes"][0]["syntaxScopes"]["entity.name.function"],
+            "#8ed4ff"
+        );
+        let named = load_theme_projection(examples[2], None).unwrap();
+        assert_eq!(named["theme"], "ocean");
+        assert_eq!(named["customThemes"][0]["id"], "ocean");
+        assert_eq!(named["customThemes"][1]["id"], "paper-review");
+        for projection in [&built_in, &custom, &named] {
+            assert!(projection["startupNotices"].is_null());
+        }
+    }
+
+    #[test]
     fn custom_theme_config_matches_both_pinned_hunk_oracles() {
         let oracle: serde_json::Value = serde_json::from_str(include_str!(
             "../../../port/hunk/oracles/config-themes.json"
