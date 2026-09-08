@@ -22,7 +22,11 @@ These are layout-based hints, not verified ownership; `/usr/local/bin/workdeck` 
 Empty PATH entries resolve
 against the current directory without changing the process working directory. Candidate programs are never
 executed. File observations are not full conflict validation: executable permission checks,
-manager-aware remediation and inactive-manager scans are still pending.
+manager-aware remediation and legacy-manager scans are still pending. `existingInstallFiles`
+combines PATH observations with the bounded `~/.local/share/mise/installs/workdeck/*/workdeck`
+and `*/bin/workdeck` layouts (using `workdeck.exe` on Windows), preserving identity deduplication.
+Off-PATH installations are labeled `not-on-path`. Missing mise directories create no state;
+other directory-read failures are reported rather than silently hiding candidates.
 
 ```console
 cargo xtask release channel --event push --ref v0.19.0 --current-latest 0.18.2

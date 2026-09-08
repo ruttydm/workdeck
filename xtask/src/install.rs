@@ -124,21 +124,53 @@ fn manager_hint(path: &Path) -> Option<&'static str> {
     None
 }
 
+#[cfg(test)]
 fn observe_path_files(
     target: &Path,
     entries: &[PathBuf],
     executable: &str,
 ) -> Vec<PathFileObservation> {
+    observe_candidates(
+        target,
+        entries,
+        executable,
+        entries.iter().map(|entry| entry.join(executable)),
+    )
+}
+
+fn inactive_mise_candidates(home: &Path, executable: &str) -> std::io::Result<Vec<PathBuf>> {
+    let root = home.join(".local/share/mise/installs/workdeck");
+    let listing = match std::fs::read_dir(&root) {
+        Ok(listing) => listing,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
+    let mut versions = listing
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<std::io::Result<Vec<_>>>()?;
+    versions.sort();
+    // Source glob order: all version-root binaries, followed by all version/bin binaries.
+    Ok(versions
+        .iter()
+        .map(|version| version.join(executable))
+        .chain(
+            versions
+                .iter()
+                .map(|version| version.join("bin").join(executable)),
+        )
+        .collect())
+}
+
+fn observe_candidates(
+    target: &Path,
+    entries: &[PathBuf],
+    executable: &str,
+    candidates: impl IntoIterator<Item = PathBuf>,
+) -> Vec<PathFileObservation> {
     let target_identity = executable_identity(target);
     let mut observations: Vec<PathFileObservation> = Vec::new();
     let mut positions = BTreeMap::new();
-    for entry in entries {
-        let directory = if entry.as_os_str().is_empty() {
-            Path::new(".")
-        } else {
-            entry
-        };
-        let path = directory.join(executable);
+    for path in candidates {
         if !path.is_file() {
             continue;
         }
@@ -258,7 +290,7 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> Result<()> {
     let bin = std::env::var_os("WORKDECK_INSTALL_DIR")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(home).join(".workdeck/bin"));
+        .unwrap_or_else(|| PathBuf::from(&home).join(".workdeck/bin"));
     let executable = if os == "windows" {
         "workdeck.exe"
     } else {
@@ -269,12 +301,21 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> Result<()> {
     let entries: Vec<_> =
         std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).collect();
     // These are file observations, not completed executable/manager conflict classification.
-    let existing_path_files = observe_path_files(&target, &entries, executable);
+    let inactive = inactive_mise_candidates(Path::new(&home), executable)?;
+    let existing_path_files = observe_candidates(
+        &target,
+        &entries,
+        executable,
+        entries
+            .iter()
+            .map(|entry| entry.join(executable))
+            .chain(inactive),
+    );
     println!(
         "{}",
         serde_json::to_string_pretty(&serde_json::json!({
         "options": options, "os": os, "arch": arch, "executionAvailable": false,
-        "targetBinary": target, "targetIdentity": target_identity, "existingPathFiles": existing_path_files,
+        "targetBinary": target, "targetIdentity": target_identity, "existingInstallFiles": existing_path_files,
             "remaining": ["release resolution", "competing installs", "verified archive extraction", "atomic installation", "shell profile updates"]
         }))?
     );
@@ -284,6 +325,41 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inactive_mise_scan_is_bounded_ordered_and_marks_absent_path_candidates() {
+        let directory = tempfile::tempdir().unwrap();
+        let home = directory.path();
+        assert!(
+            inactive_mise_candidates(home, "workdeck")
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(std::fs::read_dir(home).unwrap().count(), 0);
+        let root = home.join(".local/share/mise/installs/workdeck");
+        for version in ["2", "1"] {
+            let bin = root.join(version).join("bin");
+            std::fs::create_dir_all(&bin).unwrap();
+            std::fs::write(root.join(version).join("workdeck"), b"not executed").unwrap();
+            std::fs::write(bin.join("workdeck"), b"not executed").unwrap();
+        }
+        let candidates = inactive_mise_candidates(home, "workdeck").unwrap();
+        assert_eq!(
+            candidates,
+            [
+                root.join("1/workdeck"),
+                root.join("2/workdeck"),
+                root.join("1/bin/workdeck"),
+                root.join("2/bin/workdeck")
+            ]
+        );
+        let observations =
+            observe_candidates(&home.join("target/workdeck"), &[], "workdeck", candidates);
+        assert_eq!(observations.len(), 4);
+        assert!(observations.iter().all(
+            |item| item.shadowing == Shadowing::NotOnPath && item.manager_hint == Some("mise")
+        ));
+    }
 
     #[test]
     fn manager_hints_are_layout_inferences_not_generic_substring_matches() {
