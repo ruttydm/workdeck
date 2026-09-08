@@ -1,5 +1,9 @@
 //! Hunk MIT navigation fixtures, exercised through two real consumer paths.
 
+use super::models::{
+    ConformanceFilePosition as FilePosition, ConformanceMove as Move,
+    ConformanceSelectionInput as Position, ReviewNavigationFixture, ReviewNavigationProjection,
+};
 use std::sync::Arc;
 
 use serde_json::{Value, json};
@@ -13,38 +17,37 @@ use workdeck_review::{
 };
 use workdeck_tui::plan_terminal_selection_reconciliation;
 
-type NavigationProjection = fn(&Fixture) -> Value;
+type NavigationProjection = fn(&ReviewNavigationFixture) -> ReviewNavigationProjection;
 pub(super) const CONSUMERS: [super::models::Consumer<NavigationProjection>; 2] = [
     super::models::Consumer::new("core intent planner", "Phase 1 PR 3", planner_projection),
     super::models::Consumer::new("terminal review", "Phase 1 PR 3", terminal_projection),
 ];
 
-fn planner_projection(fixture: &Fixture) -> Value {
-    projection(fixture, false)
+fn planner_projection(fixture: &ReviewNavigationFixture) -> ReviewNavigationProjection {
+    project_fixture(fixture, false)
 }
-fn terminal_projection(fixture: &Fixture) -> Value {
-    projection(fixture, true)
-}
-
-#[derive(Clone, Copy)]
-enum FilePosition {
-    Index(usize),
-    Vanished,
-    None,
+fn terminal_projection(fixture: &ReviewNavigationFixture) -> ReviewNavigationProjection {
+    project_fixture(fixture, true)
 }
 
-#[derive(Clone, Copy)]
-struct Position(FilePosition, usize);
-
-struct Move {
-    scope: ReviewSelectionScope,
-    delta: isize,
-    from: Position,
+fn project_fixture(
+    fixture: &ReviewNavigationFixture,
+    terminal: bool,
+) -> ReviewNavigationProjection {
+    let input = Fixture {
+        files: (fixture.build)(),
+        filter: fixture.filter.clone().unwrap_or_default(),
+        annotations: fixture.annotated_hunks.clone().unwrap_or_default(),
+        annotated_files: fixture.annotated_files.clone(),
+        moves: fixture.moves.clone(),
+        selections: fixture.selections.clone(),
+    };
+    super::models::navigation(&projection(&input, terminal))
 }
 
 pub(super) struct Fixture {
     files: Vec<DiffFile>,
-    filter: &'static str,
+    filter: String,
     annotations: Vec<(usize, Vec<usize>)>,
     annotated_files: Option<Vec<usize>>,
     moves: Vec<Move>,
@@ -91,7 +94,7 @@ fn fixture(id: &str) -> Fixture {
     use ReviewSelectionScope::{AnnotatedFile, AnnotatedHunk, File, Hunk};
     let mut fixture = Fixture {
         files: ["alpha", "beta", "gamma"].map(two_hunk_file).to_vec(),
-        filter: "",
+        filter: String::new(),
         annotations: Vec::new(),
         annotated_files: None,
         moves: Vec::new(),
@@ -131,7 +134,7 @@ fn fixture(id: &str) -> Fixture {
         }
         "selection-outliving-its-file" => {
             fixture.files.truncate(2);
-            fixture.filter = "beta";
+            fixture.filter = "beta".into();
             fixture.moves = vec![
                 movement(Hunk, 1, Position(FilePosition::Vanished, 0)),
                 movement(File, 1, at(0, 0)),
@@ -145,7 +148,7 @@ fn fixture(id: &str) -> Fixture {
         }
         "selection-with-nothing-visible" => {
             fixture.files.truncate(1);
-            fixture.filter = "matches-no-file";
+            fixture.filter = "matches-no-file".into();
             fixture.moves = vec![movement(Hunk, 1, at(0, 0))];
             fixture.selections = vec![
                 Position(FilePosition::Vanished, 0),
@@ -178,6 +181,42 @@ fn selection(position: Position, document: &SemanticReviewDocument) -> SemanticR
             FilePosition::None => None,
         },
         hunk_index: position.1,
+    }
+}
+
+fn conformance_fixture(case: &Value) -> ReviewNavigationFixture {
+    let id = case["id"].as_str().unwrap();
+    let input = fixture(id);
+    let description = match id {
+        "annotated-hunk-multi-step-carry" => {
+            "Stepping from an unannotated hunk: the first step reaches the nearest annotated hunk, and the rest of the count is spent from there rather than swallowed by the approach."
+        }
+        "scope-wrap-and-clamp" => {
+            "The same edge, four scopes: hunk re-reveals, file declines to move at all, annotated-hunk clamps, annotated-file cycles."
+        }
+        "selection-outliving-its-file" => {
+            "A filter hiding the selected file leaves the selection alone; a selection whose file the document lost falls back to the first visible file, never to a hidden one."
+        }
+        "selection-with-nothing-visible" => {
+            "A filter matching no file leaves nothing to select: the review renders no file rather than quietly falling back to the first one."
+        }
+        "pure-deletion-reveal-target" => {
+            "@@ -6,1 +5,0 @@ — the new side has no rows, so the reveal target is the old-side line; a file whose hunk opens with context reveals its first row, not its first change."
+        }
+        _ => unreachable!(),
+    };
+    let build_id = id.to_owned();
+    ReviewNavigationFixture {
+        id: id.into(),
+        findings: serde_json::from_value(case["findings"].clone()).unwrap(),
+        description: description.into(),
+        build: Box::new(move || fixture(&build_id).files),
+        filter: (!input.filter.is_empty()).then_some(input.filter),
+        annotated_hunks: (!input.annotations.is_empty()).then_some(input.annotations),
+        annotated_files: input.annotated_files,
+        moves: input.moves,
+        selections: input.selections,
+        expected: super::models::navigation(&case["expected"]),
     }
 }
 
@@ -251,7 +290,7 @@ fn projection(fixture: &Fixture, terminal: bool) -> Value {
     };
     let state_at = |position| {
         let mut state = SemanticReviewState::new(document.clone(), true);
-        state.filter = fixture.filter.into();
+        state.filter = fixture.filter.clone();
         state.selection = selection(position, &document);
         if terminal { reconcile(state) } else { state }
     };
@@ -328,7 +367,7 @@ fn projection(fixture: &Fixture, terminal: bool) -> Value {
             (0..file.hunks.len())
                 .map(|hunk| {
                     let mut state = SemanticReviewState::new(document.clone(), true);
-                    state.filter = fixture.filter.into();
+                    state.filter = fixture.filter.clone();
                     state.selection = selection(at(index, hunk), &document);
                     select_semantic_reveal_target(&state)
                 })
@@ -394,9 +433,9 @@ fn positional_helpers_handle_vanished_files_and_independent_annotation_scopes() 
         inferred.annotated_hunk_indices_by_file_key
     );
     fixture.moves = vec![movement(ReviewSelectionScope::AnnotatedFile, 1, at(0, 0))];
-    for consumer in CONSUMERS {
+    for terminal in [false, true] {
         assert_eq!(
-            (consumer.project)(&fixture)["moves"][0]["to"],
+            projection(&fixture, terminal)["moves"][0]["to"],
             json!({"file": 1, "hunkIndex": 0}),
             "explicit file scope must reach both real navigation consumers"
         );
@@ -422,14 +461,15 @@ fn both_navigation_consumers_match_both_pinned_corpora() {
                 continue;
             }
             let id = case["id"].as_str().unwrap();
-            let fixture = fixture(id);
+            let fixture = conformance_fixture(case);
+            assert_eq!(fixture.id, id);
+            assert!(!fixture.findings.is_empty());
+            assert!(!fixture.description.is_empty());
             for consumer in CONSUMERS {
                 let name = consumer.name;
                 let actual = (consumer.project)(&fixture);
-                assert_eq!(
-                    super::models::navigation(&actual),
-                    super::models::navigation(&case["expected"])
-                );
+                assert_eq!(actual, fixture.expected);
+                let actual = serde_json::to_value(actual).unwrap();
                 assert_eq!(
                     actual, case["expected"],
                     "{id}: {name}: {}",
@@ -447,4 +487,32 @@ fn both_navigation_consumers_match_both_pinned_corpora() {
         }
         assert_eq!(count, 5);
     }
+}
+
+#[test]
+fn navigation_consumers_build_fresh_inputs_from_the_registered_fixture() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let oracle: Value = serde_json::from_str(include_str!(
+        "../../../../port/hunk/oracles/review-conformance-main.json"
+    ))
+    .unwrap();
+    let case = oracle["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|case| case["group"] == "navigation" && case["id"] == "scope-wrap-and-clamp")
+        .unwrap();
+    let mut fixture = conformance_fixture(case);
+    let builds = Arc::new(AtomicUsize::new(0));
+    let observed_builds = Arc::clone(&builds);
+    let original_build = fixture.build;
+    fixture.build = Box::new(move || {
+        observed_builds.fetch_add(1, Ordering::SeqCst);
+        original_build()
+    });
+    for consumer in CONSUMERS {
+        assert_eq!((consumer.project)(&fixture), fixture.expected);
+    }
+    assert_eq!(builds.load(Ordering::SeqCst), CONSUMERS.len());
 }

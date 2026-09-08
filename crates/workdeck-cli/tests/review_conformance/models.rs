@@ -207,6 +207,36 @@ pub(super) struct ReviewWireFixture {
     pub expected: ReviewWireParseOutcome,
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum ConformanceFilePosition {
+    Index(usize),
+    Vanished,
+    None,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct ConformanceSelectionInput(pub ConformanceFilePosition, pub usize);
+
+#[derive(Clone)]
+pub(super) struct ConformanceMove {
+    pub scope: workdeck_review::ReviewSelectionScope,
+    pub delta: isize,
+    pub from: ConformanceSelectionInput,
+}
+
+pub(super) struct ReviewNavigationFixture {
+    pub id: String,
+    pub findings: Vec<String>,
+    pub description: String,
+    pub build: Box<dyn Fn() -> Vec<workdeck_core::DiffFile>>,
+    pub filter: Option<String>,
+    pub annotated_hunks: Option<Vec<(usize, Vec<usize>)>>,
+    pub annotated_files: Option<Vec<usize>>,
+    pub moves: Vec<ConformanceMove>,
+    pub selections: Vec<ConformanceSelectionInput>,
+    pub expected: ReviewNavigationProjection,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct ReviewEventFramingProjection {
