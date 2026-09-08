@@ -1480,7 +1480,11 @@ and an explicit annotated-file list (including an empty list) is independent of 
 annotations. Regression tests exercise that independent scope through both real consumers.
 All 16 focused conformance tests pass. The full workspace test phase and workspace Clippy
 also pass; the workspace test binary predates the final helper increment, which is covered
-by the separate focused run. Release-build and smoke verification are still in progress.
+by the separate focused run. The release build and large-repository smoke then passed,
+completing `cargo xtask verify`. During the full run, native watcher tests exceeded 60
+seconds but all 241 VCS tests finished successfully in 91.65 seconds; no watcher change
+or timeout adjustment was made. These results do not clear strict source coverage,
+upstream catch-up, performance, cross-platform, installer, signing, or release gates.
 Capture-integrity tests reject changed outputs and wrong pins but are not parity proof.
 
 Full `cargo xtask verify` passed at `e4f3c782` before this conformance increment, including
