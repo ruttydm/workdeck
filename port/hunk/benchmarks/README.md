@@ -315,10 +315,15 @@ bytes, not peak-memory evidence. No ledger record was newly mapped.
 
 Inspection of pinned `DiffPane.tsx` confirms that Hunk selects highlight requests using
 the selected file, adjacent files and a viewport halo of at least 24 rows or three viewport
-heights, enlarged by rapid-scroll overscan. The current native renderer still requests
-highlights for every file. `highlight_prefetch.rs` now translates the pure selection policy,
+heights, enlarged by rapid-scroll overscan. `highlight_prefetch.rs` translates the selection policy,
 verified against [executed baseline/stable fixtures](../oracles/highlight-prefetch-policy.json).
 The fixtures execute the unchanged extracted functions with each pin's actual file-section
 intersection implementation, not a reimplementation used as its own oracle.
-Live wiring, rapid-scroll idle timing and wrapped-window warmup remain incomplete. This is
-not a benchmark improvement or a complete `DiffPane.tsx` port, and its ledger record stays unmapped.
+Plain unwrapped split reviews now wire that policy into live highlight requests. The native
+clock state preserves first-read baselining, peak retention, positive-burst deadline extension,
+160 ms idle expiry and the wrapped-scroll activation threshold. A live 40-file test verifies
+that distant files are not requested until the viewport/halo reaches them, including an EOF jump.
+Cursor initialization now requests geometry instead of eagerly highlighting the entire stream.
+Complex/wrapped reviews still use the full painter and all-file highlighting; wrapped-window
+warmup and full render-window lifecycle remain incomplete. This is not a complete `DiffPane.tsx`
+port, and its ledger record stays unmapped. End-to-end performance must be measured separately.

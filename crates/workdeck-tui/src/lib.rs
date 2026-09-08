@@ -1159,6 +1159,7 @@ pub struct ReviewApp {
     review_height: Cell<u16>,
     review_bounds: Cell<Option<Rect>>,
     review_geometry_published: Cell<bool>,
+    review_prefetch: Mutex<highlight_prefetch::RapidScrollPrefetch>,
     review_scrollbar: Mutex<VerticalScrollbarController>,
     review_scrollbar_hits: Cell<Option<VerticalScrollbarRenderMap>>,
     sidebar_bounds: Cell<Option<Rect>>,
@@ -1444,6 +1445,7 @@ impl ReviewApp {
             review_height: Cell::new(20),
             review_bounds: Cell::new(None),
             review_geometry_published: Cell::new(false),
+            review_prefetch: Mutex::new(highlight_prefetch::RapidScrollPrefetch::default()),
             review_scrollbar: Mutex::new(VerticalScrollbarController::default()),
             review_scrollbar_hits: Cell::new(None),
             sidebar_bounds: Cell::new(None),
@@ -3656,7 +3658,7 @@ impl ReviewApp {
     }
 
     fn seed_current_line_cursor(&mut self) {
-        let rows = self.current_review_rows();
+        let rows = self.current_review_geometry_rows();
         let cursors = review_line_cursors(&rows);
         let selection = self.with_state(|state| state.selection());
         let cursor = cursors
@@ -11604,6 +11606,7 @@ fn paint_cursor_line(line: &mut Line<'_>, mode: CursorLineMode, theme: &AppTheme
 }
 
 fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+    let render_now = Instant::now();
     app.review_width.set(area.width);
     app.review_height.set(area.height);
     app.review_bounds.set(Some(area));
@@ -11631,6 +11634,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .saturating_sub(2 + u16::from(!app.options.pager)) as usize;
     // Only plain, unwrapped split streams use viewport painting for now. Complex
     // content retains the complete painter, including extension lifecycle calls.
+    let highlight_files;
     let purpose = if layout == LayoutMode::Split
         && !app.options.wrap_lines
         && comments.is_empty()
@@ -11666,9 +11670,56 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         let start = app
             .scroll
             .min(geometry.lines.len().saturating_sub(viewport));
+        let rapid = app
+            .review_prefetch
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .observe(start as i64, viewport as i64, false, render_now);
+        let ids = geometry
+            .visible_file_indices
+            .iter()
+            .map(usize::to_string)
+            .collect::<Vec<_>>();
+        let layouts = geometry
+            .visible_file_indices
+            .iter()
+            .enumerate()
+            .map(|(position, index)| {
+                let bottom = geometry
+                    .visible_file_indices
+                    .get(position + 1)
+                    .map_or(geometry.lines.len(), |next| geometry.file_tops[next]);
+                FileSectionLayout {
+                    file_id: index.to_string(),
+                    section_index: position,
+                    section_top: geometry.file_tops[index] as i64,
+                    header_top: geometry.file_header_tops[index] as i64,
+                    body_top: geometry.file_body_tops[index] as i64,
+                    body_height: bottom.saturating_sub(geometry.file_body_tops[index]) as i64,
+                    section_bottom: bottom as i64,
+                }
+            })
+            .collect::<Vec<_>>();
+        let selected = state.selection().file_index.to_string();
+        let adjacent = adjacent_highlight_prefetch_ids(
+            &ids.iter().map(String::as_str).collect::<Vec<_>>(),
+            Some(&selected),
+        );
+        highlight_files = highlight_prefetch_ids(
+            &adjacent,
+            &layouts,
+            rapid,
+            start as i64,
+            viewport as i64,
+            Some(&selected),
+        )
+        .into_iter()
+        .filter_map(|id| id.parse::<usize>().ok())
+        .collect::<BTreeSet<_>>();
         ReviewRowPurpose::Viewport {
             start,
             end: start.saturating_add(viewport),
+            highlight_files: Some(&highlight_files),
         }
     } else {
         ReviewRowPurpose::Paint
@@ -11717,6 +11768,15 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         app.scroll.min(max_scroll)
     };
     let content_height = rows.lines.len();
+    app.review_prefetch
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .observe(
+            scroll as i64,
+            viewport as i64,
+            app.options.wrap_lines,
+            render_now,
+        );
     let pinned_file_index = rows
         .visible_file_indices
         .iter()
@@ -12395,10 +12455,14 @@ fn build_review_rows(
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum ReviewRowPurpose {
+enum ReviewRowPurpose<'a> {
     Paint,
     Geometry,
-    Viewport { start: usize, end: usize },
+    Viewport {
+        start: usize,
+        end: usize,
+        highlight_files: Option<&'a BTreeSet<usize>>,
+    },
 }
 
 fn diff_file_matches_filter(file: &DiffFile, filter: &str) -> bool {
@@ -12574,7 +12638,9 @@ fn build_review_rows_with_chrome(
         {
             continue;
         }
-        let highlighted = if options.highlight {
+        let should_highlight = !matches!(purpose,
+            ReviewRowPurpose::Viewport { highlight_files: Some(files), .. } if !files.contains(&file_index));
+        let highlighted = if options.highlight && should_highlight {
             highlight_cache.prefetch_highlighted_diff_shared(file, &options.theme, live)
         } else {
             None
@@ -13671,7 +13737,7 @@ fn split_hunk_rows(
     for pair in plan_split_line_pairs(&hunk.lines) {
         let geometry_nowrap = geometry_nowrap
             || (!options.wrap_lines
-                && matches!(purpose, ReviewRowPurpose::Viewport { start, end }
+                && matches!(purpose, ReviewRowPurpose::Viewport { start, end, .. }
                     if !(start..end).contains(&row_offset.saturating_add(rows.len()))));
         let old = pair.old_index.and_then(|index| hunk.lines.get(index));
         let new = pair.new_index.and_then(|index| hunk.lines.get(index));
@@ -21186,6 +21252,59 @@ mod tests {
     }
 
     #[test]
+    fn live_plain_split_prefetch_requests_halo_not_every_file_and_follows_eof_jump() {
+        let mut app = ReviewApp::new(
+            navigation_changeset(
+                (0..40)
+                    .map(|index| {
+                        (
+                            format!("file{index}.ts"),
+                            "const old = 1;\n".repeat(15),
+                            "const new = 2;\n".repeat(15),
+                        )
+                    })
+                    .collect(),
+            ),
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                wrap_lines: false,
+                sidebar: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let keys = app.with_state(|state| {
+            state
+                .changeset()
+                .files
+                .iter()
+                .map(|file| {
+                    highlighted_diff_runtime::highlighted_diff_cache_key(&app.options.theme, file)
+                })
+                .collect::<Vec<_>>()
+        });
+        let cached = |app: &ReviewApp, index: usize| {
+            app.highlights
+                .lock()
+                .unwrap()
+                .coordinator_mut()
+                .peek(keys[index].as_str())
+                .is_some()
+        };
+        let mut terminal = Terminal::new(TestBackend::new(100, 14)).unwrap();
+        let first = rendered_review_frame(&mut terminal, &app);
+        assert!(first.contains("file0.ts"), "{first}");
+        assert!(cached(&app, 0));
+        assert!(cached(&app, 1));
+        assert!(!cached(&app, 10));
+        assert!(!cached(&app, 39));
+        app.scroll = usize::MAX;
+        let last = rendered_review_frame(&mut terminal, &app);
+        assert!(last.contains("file39.ts"), "{last}");
+        assert!(cached(&app, 39));
+        assert!(!cached(&app, 10));
+    }
+
+    #[test]
     fn viewport_split_rows_preserve_visible_styles_and_complete_geometry() {
         for width in [0, 1, 24, 80, 240] {
             for hunk_headers in [false, true] {
@@ -21215,7 +21334,11 @@ mod tests {
                         let end = start.saturating_add(height).min(full.lines.len());
                         let window = app.current_review_rows_with_options(
                             &app.options,
-                            ReviewRowPurpose::Viewport { start, end },
+                            ReviewRowPurpose::Viewport {
+                                start,
+                                end,
+                                highlight_files: None,
+                            },
                         );
                         assert_eq!(full.lines.len(), window.lines.len());
                         assert_eq!(full.lines[start..end], window.lines[start..end]);
