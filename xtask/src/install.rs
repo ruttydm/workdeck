@@ -75,6 +75,7 @@ fn verify_package_paths(names: &BTreeMap<String, bool>) -> Result<()> {
 }
 
 fn inspect_archive_entries(path: &Path) -> Result<(BTreeMap<String, bool>, u64)> {
+    validate_archive_input(&std::fs::metadata(path)?)?;
     let mut names: BTreeMap<String, bool> = BTreeMap::new();
     let mut original_names = BTreeMap::new();
     let mut total = 0u64;
@@ -113,6 +114,8 @@ fn inspect_archive_entries(path: &Path) -> Result<(BTreeMap<String, bool>, u64)>
         Ok(())
     };
     let file = std::fs::File::open(path)?;
+    // Recheck the opened file as well as the path metadata.
+    validate_archive_input(&file.metadata()?)?;
     if path.extension().is_some_and(|extension| extension == "zip") {
         let mut archive = zip::ZipArchive::new(file)?;
         for index in 0..archive.len() {
@@ -166,6 +169,16 @@ fn inspect_archive_entries(path: &Path) -> Result<(BTreeMap<String, bool>, u64)>
         }
     }
     Ok((original_names, total))
+}
+
+fn validate_archive_input(metadata: &std::fs::Metadata) -> Result<()> {
+    if !metadata.is_file() {
+        bail!("Installation archive must be a regular file");
+    }
+    if metadata.len() > 2 * 1024 * 1024 * 1024 {
+        bail!("Compressed archive exceeds 2 GiB installation limit");
+    }
+    Ok(())
 }
 
 pub(super) fn inspect(mut args: impl Iterator<Item = String>) -> Result<()> {
@@ -642,6 +655,31 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(unix)] // set_len creates sparse fixtures here; avoid allocating GiBs on Windows.
+    fn archive_input_rejects_oversized_sparse_files_and_directories() {
+        let directory = tempfile::tempdir().unwrap();
+        assert!(
+            inspect_archive(directory.path())
+                .unwrap_err()
+                .to_string()
+                .contains("regular file")
+        );
+        for name in ["oversized.zip", "oversized.tar.gz"] {
+            let path = directory.path().join(name);
+            let file = std::fs::File::create(&path).unwrap();
+            file.set_len(2 * 1024 * 1024 * 1024 + 1).unwrap();
+            assert!(
+                inspect_archive(&path)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("2 GiB")
+            );
+            file.set_len(2 * 1024 * 1024 * 1024).unwrap();
+            validate_archive_input(&file.metadata().unwrap()).unwrap();
+        }
+    }
 
     #[test]
     fn tar_inspection_checks_gzip_trailer_and_rejects_hidden_payloads() {

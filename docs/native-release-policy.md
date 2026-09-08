@@ -65,6 +65,12 @@ Tar inspection also drains the gzip decoder after tar's end marker to validate C
 permits at most 1 MiB of trailing zero tar padding, and rejects nonzero padding, extra compressed
 members and trailing compressed-stream bytes. Regression tests cover corrupt/truncated trailers,
 hidden trailing payloads, concatenated members and excessive zero padding without extraction.
+Before parsing, archive inspection requires a regular file of at most 2 GiB compressed bytes,
+and repeats the metadata check on the opened handle. Unix tests use sparse files to verify the
+exact size boundary without allocating GiBs. This is not a complete allocation bound: ZIP central
+directory allocation still occurs inside the dependency before entry iteration and needs its own
+limit. Concurrent hostile replacement of input paths also requires stronger open semantics before
+this inspection can become an installer security boundary.
 
 `install-inspect ARCHIVE --package` additionally requires one wrapper directory, exactly one
 `workdeck` or `workdeck.exe` regular file, and regular `LICENSE`, `THIRD_PARTY_NOTICES`,
