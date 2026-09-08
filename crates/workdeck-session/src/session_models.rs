@@ -279,6 +279,19 @@ pub struct ClearHighlightsToolInput {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct QuitSessionToolInput {
+    #[serde(flatten)]
+    pub target_session: SessionSelector,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QuitSessionResult {
+    pub quitting: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionLiveCommentSummary {
     pub comment_id: String,
     pub file_path: String,
@@ -510,6 +523,7 @@ pub struct SessionReview {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum WorkdeckSessionCommandResult {
+    QuitSession(QuitSessionResult),
     AppliedComment(AppliedCommentResult),
     AppliedCommentBatch(AppliedCommentBatchResult),
     NavigatedSelection(NavigatedSelectionResult),
@@ -524,6 +538,7 @@ pub enum WorkdeckSessionCommandResult {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum WorkdeckSessionServerMessage {
+    QuitSession(SessionServerMessage<String, QuitSessionToolInput>),
     Comment(SessionServerMessage<String, CommentToolInput>),
     CommentBatch(SessionServerMessage<String, CommentBatchToolInput>),
     NavigateToHunk(SessionServerMessage<String, NavigateToHunkToolInput>),

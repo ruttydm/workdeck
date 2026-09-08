@@ -33,6 +33,7 @@ fn typed_server_message(
         };
     }
     match input {
+        WorkdeckSessionCommandInput::QuitSession(input) => typed!(QuitSession, input),
         WorkdeckSessionCommandInput::Comment(input) => typed!(Comment, input),
         WorkdeckSessionCommandInput::CommentBatch(input) => typed!(CommentBatch, input),
         WorkdeckSessionCommandInput::NavigateToHunk(input) => typed!(NavigateToHunk, input),
@@ -63,6 +64,10 @@ where
 }
 
 pub trait WorkdeckSessionBridgeHandlers {
+    /// Request shutdown without closing transport before the result is queued.
+    fn quit_session(&self, _request_id: &str) -> Result<crate::QuitSessionResult, String> {
+        Err("This Workdeck session does not support native shutdown.".into())
+    }
     /// Called only by the connection after a validated successful result enters
     /// its socket queue; ordinary dispatch does not imply transport completion.
     fn command_result_queued(&self, _request_id: &str) {}
@@ -121,6 +126,9 @@ impl<T> WorkdeckSessionBridgeHandlers for &T
 where
     T: WorkdeckSessionBridgeHandlers + ?Sized,
 {
+    fn quit_session(&self, request_id: &str) -> Result<crate::QuitSessionResult, String> {
+        (**self).quit_session(request_id)
+    }
     fn command_result_queued(&self, request_id: &str) {
         (**self).command_result_queued(request_id);
     }
@@ -229,6 +237,11 @@ where
         message: &WorkdeckSessionServerMessage,
     ) -> Result<WorkdeckSessionCommandResult, String> {
         Ok(match message {
+            WorkdeckSessionServerMessage::QuitSession(message) => {
+                WorkdeckSessionCommandResult::QuitSession(
+                    self.handlers.quit_session(&message.request_id)?,
+                )
+            }
             WorkdeckSessionServerMessage::Comment(message) => {
                 let reveal = message.input.reveal.unwrap_or(false);
                 let result = self.handlers.add_live_comment(
@@ -839,6 +852,27 @@ mod tests {
         assert_eq!(calls.queued_results, ["borrowed-result"]);
         assert!(calls.comments.is_empty());
         assert!(calls.highlight_clears.is_empty());
+    }
+
+    #[test]
+    fn native_quit_refuses_unsupported_handlers_without_claiming_shutdown() {
+        let handlers = Handlers::default();
+        let result = dispatch_workdeck_session_command(
+            &handlers,
+            SessionServerMessage {
+                request_id: "quit-1".into(),
+                command: "quit_session".into(),
+                command_version: Some(1),
+                input: WorkdeckSessionCommandInput::QuitSession(crate::QuitSessionToolInput {
+                    target_session: SessionSelector::default(),
+                }),
+            },
+        );
+        assert_eq!(
+            result.unwrap_err(),
+            "This Workdeck session does not support native shutdown."
+        );
+        assert!(handlers.calls.lock().unwrap().queued_results.is_empty());
     }
 
     #[test]

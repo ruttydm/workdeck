@@ -27,6 +27,7 @@ const SELECTOR_FIELDS: [&str; 4] = ["sessionId", "sessionPath", "repoRoot", "rep
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(untagged)]
 pub enum WorkdeckSessionCommandInput {
+    QuitSession(crate::QuitSessionToolInput),
     Comment(CommentToolInput),
     CommentBatch(CommentBatchToolInput),
     NavigateToHunk(NavigateToHunkToolInput),
@@ -149,6 +150,11 @@ fn review_envelope_value(record: &Map<String, Value>, keys: &[&str]) -> Value {
 
 fn parse_command_input(command: &str, value: &Value) -> Option<WorkdeckSessionCommandInput> {
     match command {
+        "quit_session" => {
+            let record = exact_with_selectors(value, &[], &[])?;
+            valid_selector_fields(record)
+                .then(|| decode(value).map(WorkdeckSessionCommandInput::QuitSession))?
+        }
         "comment" => {
             let record = exact_with_selectors(
                 value,
@@ -410,6 +416,11 @@ fn parse_review_resource_result(value: &Value) -> Option<WorkdeckSessionCommandR
 
 fn parse_command_result(command: &str, value: &Value) -> Option<WorkdeckSessionCommandResult> {
     match command {
+        "quit_session" => {
+            let record = exact(value, &["quitting"], &[])?;
+            (record["quitting"] == true)
+                .then(|| decode(value).map(WorkdeckSessionCommandResult::QuitSession))?
+        }
         "read_review_resource" => parse_review_resource_result(value),
         "apply_review_action" => parse_review_action_result(value),
         _ => standard_result(command, value),
@@ -441,6 +452,7 @@ pub fn create_workdeck_session_protocol_parsers()
             parse_workdeck_session_snapshot(value)
         }),
         commands: [
+            "quit_session",
             "comment",
             "comment_batch",
             "navigate_to_hunk",
@@ -485,6 +497,60 @@ mod tests {
         assert_eq!(
             serde_json::to_value(input).unwrap(),
             json!({"sessionId": "session-1", "filePath": "src/main.rs"})
+        );
+    }
+
+    #[test]
+    fn native_quit_accepts_only_selectors_and_an_explicit_quitting_result() {
+        let parsers = parsers();
+        for value in [
+            json!({}),
+            json!({"sessionId": "session-1"}),
+            json!({"repoRoot": "/repo"}),
+        ] {
+            let parsed = parsers
+                .parse_command_input("quit_session", 1, &value)
+                .unwrap();
+            assert!(matches!(
+                parsed,
+                WorkdeckSessionCommandInput::QuitSession(_)
+            ));
+            assert_eq!(serde_json::to_value(parsed).unwrap(), value);
+        }
+        for invalid in [
+            json!({"sessionId": 7}),
+            json!({"force": true}),
+            json!({"filePath": "file"}),
+        ] {
+            assert!(
+                parsers
+                    .parse_command_input("quit_session", 1, &invalid)
+                    .is_err()
+            );
+        }
+        let result = parsers
+            .parse_command_result("quit_session", 1, &json!({"quitting": true}))
+            .unwrap();
+        assert!(matches!(
+            result,
+            WorkdeckSessionCommandResult::QuitSession(_)
+        ));
+        for invalid in [
+            json!({}),
+            json!({"quitting": false}),
+            json!({"quitting": "true"}),
+            json!({"quitting": true, "extra": 1}),
+        ] {
+            assert!(
+                parsers
+                    .parse_command_result("quit_session", 1, &invalid)
+                    .is_err()
+            );
+        }
+        assert!(
+            parsers
+                .parse_command_input("quit_session", 2, &json!({}))
+                .is_err()
         );
     }
 
