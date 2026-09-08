@@ -350,3 +350,11 @@ main 46.49 ms and stable 47.65 ms. Scroll medians are native 21.57 ms, main 1.29
 memory comparisons, and the overall benchmark gate remains failed. The next performance
 investigation should target native per-input geometry work, not claim completion from the
 first-frame aggregate alone.
+
+### Configuration-clone reduction at `4cca95b4`
+
+[Three optimized runs](interaction-diagnostic-4cca95b4.json) report 20.10 ms first frame,
+57.95 ms median navigation and 21.12 ms median scrolling. These are close to the preceding
+measurements; removing repeated configuration clones does not demonstrate a material latency
+gain. Mixed-width file tests verify that derived digit settings never leak between files.
+The per-input performance gap remains, as do peak-memory and complete source-ledger gates.
