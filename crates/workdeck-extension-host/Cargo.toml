@@ -19,5 +19,8 @@ workdeck-vcs = { path = "../workdeck-vcs" }
 unicode-segmentation = "1.12"
 unicode-width = "0.2"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tempfile = "3.13"

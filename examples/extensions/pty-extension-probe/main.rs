@@ -281,6 +281,10 @@ fn dispatch(
                 .parent()
                 .unwrap()
                 .to_path_buf();
+            if fixture_root.join("exit-line-highlight").exists() {
+                std::fs::write(fixture_root.join("line-highlight-exited"), "exiting\n")?;
+                std::process::exit(0);
+            }
             let hold = fixture_root.join("hold-line-highlight");
             if hold.exists() {
                 std::fs::write(fixture_root.join("line-highlight-blocked"), "blocked\n")?;

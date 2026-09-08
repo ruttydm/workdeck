@@ -1372,6 +1372,14 @@ router; all eighteen compiled line-highlighter integration tests pass together. 
 cover callback attribution, retirement, malformed responses, limits, and ID exhaustion. The router
 does not own framing or transport deadlines and does not complete the unmapped highlighter hook.
 
+A separate PTY regression deliberately exits the highlighter child and keeps the review open beyond
+the highlighter deadline. It reproduced an application shutdown from a broken extension pipe on
+macOS. Darwin's per-descriptor `F_SETNOSIGPIPE` fixes that path; thread masking alone did not.
+All twenty extension PTY cases, nine terminal lifecycle cases (including explicit SIGPIPE), and
+185 host unit tests pass with the fix. The process-wide signal handler is unchanged. The other
+Unix write path uses a scoped mask, with restoration tested locally; its Linux-native validation
+remains outstanding. This adds no source-ledger coverage or cross-platform release claim.
+
 Lifecycle capture now retains a separate stderr pipe for failures after terminal revocation and
 continues draining output while revoking. A zero-byte terminal write is classified as disconnect
 alongside EIO and broken pipes; it is not swallowed for unrelated I/O. Five consecutive native

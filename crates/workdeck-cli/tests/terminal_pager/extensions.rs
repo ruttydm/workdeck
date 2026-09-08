@@ -579,6 +579,50 @@ fn line_highlighter_preserves_text_and_reports_refresh_control_results() {
 }
 
 #[test]
+fn exited_highlighter_does_not_shut_down_the_review_terminal() {
+    let root = super::layout::repository(&[(
+        "alpha.ts",
+        "export const alpha = 1;\n",
+        "export const alphaValue = 2;\n",
+    )]);
+    let extension_root = tempfile::tempdir().unwrap();
+    let extension = super::file_views::example(extension_root.path(), "pty-extension-probe");
+    fs::write(extension.join("fixture-kind"), "highlight").unwrap();
+    fs::write(extension.join("exit-line-highlight"), "exit\n").unwrap();
+    let mut session = Session::launch_in(
+        "",
+        &[
+            "diff",
+            "--mode",
+            "stack",
+            "--extension",
+            extension.to_str().unwrap(),
+        ],
+        false,
+        140,
+        24,
+        None,
+        Some(root.path()),
+    );
+    session.wait(|text| text.contains("export const alphaValue = 2;"));
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !extension.join("line-highlight-exited").exists() && Instant::now() < deadline {
+        session.wait_for(Duration::from_millis(20), |_| false);
+    }
+    assert!(extension.join("line-highlight-exited").exists());
+    // Remain alive beyond the highlighter deadline as well as immediate EOF cleanup.
+    session.wait_for(Duration::from_secs(2), |_| false);
+    assert!(session.child.try_wait().unwrap().is_none());
+    assert!(
+        session
+            .parser
+            .terminal()
+            .plain_string()
+            .contains("export const alphaValue = 2;")
+    );
+}
+
+#[test]
 fn queued_command_resumes_after_background_highlight_releases_connection() {
     let root = super::layout::repository(&[(
         "alpha.ts",

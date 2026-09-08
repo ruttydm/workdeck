@@ -74,6 +74,16 @@ idempotently and continue reading notifications while asynchronous work is
 unresolved. Cleanup delivery is best-effort if the child has already closed;
 it does not replace the original decoded result.
 
+Extension pipe failures must not become application shutdown signals. On macOS,
+each extension stdin descriptor is configured with Darwin's `F_SETNOSIGPIPE`;
+thread masking alone did not contain the live terminal regression. Other Unix
+targets mask SIGPIPE around each extension write and consume a newly generated
+broken-pipe signal before restoring the calling thread's mask. Windows uses its
+ordinary pipe-error behavior. The application's process-wide signal handler is
+unchanged. The macOS PTY regression exits a highlighter child and requires the
+review terminal to remain alive beyond the highlighter deadline; Linux-native
+validation of the thread-local path remains outstanding.
+
 The reviewer's highlighter input includes baseline agent annotations followed by
 saved live notes for that file. Draft and orphaned notes are excluded. Note
 creation, editing, and removal invalidate the derived marks without rewriting

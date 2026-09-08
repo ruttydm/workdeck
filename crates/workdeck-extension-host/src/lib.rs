@@ -1,5 +1,6 @@
 //! Subprocess host for trusted native Workdeck extensions.
 
+mod child_pipe;
 mod document_requests;
 mod extension_application;
 mod extension_discovery;
@@ -907,6 +908,15 @@ impl LoadedExtension {
             .stdin
             .take()
             .ok_or_else(|| HostError::MissingPipe(manifest.id.clone()))?;
+        #[cfg(target_os = "macos")]
+        if let Err(source) = child_pipe::configure_child_pipe(&stdin) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(HostError::Io {
+                id: manifest.id.clone(),
+                source,
+            });
+        }
         let stdout = child
             .stdout
             .take()
@@ -1304,14 +1314,12 @@ impl LoadedExtension {
             encoded = serde_json::to_vec(&serde_json::json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32000, "message": "document response exceeds message limit" } })).expect("fixed JSON response is serializable");
         }
         encoded.push(b'\n');
-        connection
-            .stdin
-            .write_all(&encoded)
-            .and_then(|()| connection.stdin.flush())
-            .map_err(|source| HostError::Io {
+        child_pipe::write_child_frame(&mut connection.stdin, &encoded).map_err(|source| {
+            HostError::Io {
                 id: self.manifest.id.clone(),
                 source,
-            })
+            }
+        })
     }
 
     fn vcs_adapter_registration(
@@ -1537,16 +1545,11 @@ impl LoadedExtension {
             });
         }
         encoded.push(b'\n');
-        connection
-            .stdin
-            .write_all(&encoded)
-            .map_err(|source| HostError::Io {
+        child_pipe::write_child_frame(&mut connection.stdin, &encoded).map_err(|source| {
+            HostError::Io {
                 id: self.manifest.id.clone(),
                 source,
-            })?;
-        connection.stdin.flush().map_err(|source| HostError::Io {
-            id: self.manifest.id.clone(),
-            source,
+            }
         })?;
         Ok(id)
     }
@@ -1574,16 +1577,11 @@ impl LoadedExtension {
             });
         }
         encoded.push(b'\n');
-        connection
-            .stdin
-            .write_all(&encoded)
-            .map_err(|source| HostError::Io {
+        child_pipe::write_child_frame(&mut connection.stdin, &encoded).map_err(|source| {
+            HostError::Io {
                 id: self.manifest.id.clone(),
                 source,
-            })?;
-        connection.stdin.flush().map_err(|source| HostError::Io {
-            id: self.manifest.id.clone(),
-            source,
+            }
         })
     }
 
