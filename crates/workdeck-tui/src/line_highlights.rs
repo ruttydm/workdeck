@@ -223,6 +223,7 @@ enum LineHighlightTaskOutcome {
 struct LineHighlightCompletion {
     task: LineHighlightTask,
     outcome: LineHighlightTaskOutcome,
+    cancellation: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Clone)]
@@ -244,6 +245,14 @@ pub struct LineHighlightPreparationController {
     resolved: LineHighlightMap,
     reported_issues: BTreeSet<String>,
     issue_order: VecDeque<String>,
+}
+
+impl Drop for LineHighlightPreparationController {
+    fn drop(&mut self) {
+        for cancellation in self.pending.values() {
+            cancellation.store(true, Ordering::Release);
+        }
+    }
 }
 
 impl Default for LineHighlightPreparationController {
@@ -290,11 +299,14 @@ impl LineHighlightPreparationController {
             .iter()
             .map(|task| task.key.clone())
             .collect::<BTreeSet<_>>();
-        for (key, cancellation) in &self.pending {
+        self.pending.retain(|key, cancellation| {
             if !desired.contains(key) {
                 cancellation.store(true, Ordering::Release);
+                false
+            } else {
+                true
             }
-        }
+        });
         self.poll_completions(&desired, extensions);
         self.cache.retain(|key, _| desired.contains(key));
         self.merged.retain(|file_id, entry| {
@@ -331,7 +343,11 @@ impl LineHighlightPreparationController {
                             LineHighlightTaskOutcome::Failed(error)
                         }
                     };
-                let _ = sender.send(LineHighlightCompletion { task, outcome });
+                let _ = sender.send(LineHighlightCompletion {
+                    task,
+                    outcome,
+                    cancellation: cancelled,
+                });
             });
         }
         self.publish_complete_files(extensions, registrations, epochs, files);
@@ -343,8 +359,17 @@ impl LineHighlightPreparationController {
         extensions: &[Arc<dyn LineHighlightRuntime>],
     ) {
         while let Ok(completion) = self.receiver.try_recv() {
+            let current = self
+                .pending
+                .get(&completion.task.key)
+                .is_some_and(|cancellation| Arc::ptr_eq(cancellation, &completion.cancellation));
+            if !current {
+                continue;
+            }
             self.pending.remove(&completion.task.key);
-            if !desired.contains(&completion.task.key) {
+            if completion.cancellation.load(Ordering::Acquire)
+                || !desired.contains(&completion.task.key)
+            {
                 continue;
             }
             match completion.outcome {
@@ -1307,6 +1332,117 @@ mod tests {
         );
         assert_eq!(controller.resolved().get("file").unwrap()[0].end, 2);
         assert_eq!(runtime.calls().len(), 2);
+    }
+
+    #[test]
+    fn dropping_preparation_owner_cancels_its_running_worker() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (finished_tx, finished_rx) = mpsc::channel();
+        let release_rx = Mutex::new(release_rx);
+        let runtime = FakeLineHighlightRuntime::new(move |_, _, cancelled| {
+            started_tx.send(()).unwrap();
+            release_rx
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap();
+            finished_tx.send(cancelled.load(Ordering::Acquire)).unwrap();
+            Ok(one_mark("match"))
+        });
+        let mut controller = LineHighlightPreparationController::default();
+        controller.reconcile(
+            &runtime_list(&runtime),
+            &[registration("running")],
+            &workdeck_extension_host::LineHighlightEpochState::default(),
+            &[test_file("file", "content")],
+        );
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        drop(controller);
+        release_tx.send(()).unwrap();
+        assert!(finished_rx.recv_timeout(Duration::from_secs(5)).unwrap());
+    }
+
+    #[test]
+    fn retired_highlight_work_releases_current_generation_slots() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("running")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = (0..4)
+            .map(|index| test_file(&format!("file-{index}"), "content"))
+            .collect::<Vec<_>>();
+        let tasks = desired_line_highlight_tasks(&extensions, &registrations, &epochs, &files);
+        let mut controller = LineHighlightPreparationController::default();
+        let cancellations = tasks
+            .into_iter()
+            .map(|task| {
+                let cancellation = Arc::new(AtomicBool::new(false));
+                controller
+                    .pending
+                    .insert(task.key, Arc::clone(&cancellation));
+                cancellation
+            })
+            .collect::<Vec<_>>();
+        controller.reconcile(&extensions, &registrations, &epochs, &[]);
+        assert!(
+            cancellations
+                .iter()
+                .all(|cancelled| cancelled.load(Ordering::Acquire))
+        );
+        assert_eq!(controller.pending_count(), 0);
+    }
+
+    #[test]
+    fn late_completion_cannot_settle_a_reused_key_owned_by_a_new_request() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+        let extensions = runtime_list(&runtime);
+        let mut tasks = desired_line_highlight_tasks(
+            &extensions,
+            &[registration("running")],
+            &workdeck_extension_host::LineHighlightEpochState::default(),
+            &[test_file("file", "content")],
+        );
+        let task = tasks.remove(0);
+        let desired = BTreeSet::from([task.key.clone()]);
+        let old = Arc::new(AtomicBool::new(true));
+        let current = Arc::new(AtomicBool::new(false));
+        let mut controller = LineHighlightPreparationController::default();
+        controller
+            .pending
+            .insert(task.key.clone(), Arc::clone(&current));
+        for outcome in [
+            LineHighlightTaskOutcome::Value(one_mark("match")),
+            LineHighlightTaskOutcome::Failed("retired failure".into()),
+            LineHighlightTaskOutcome::Retry,
+        ] {
+            controller
+                .sender
+                .send(LineHighlightCompletion {
+                    task: task.clone(),
+                    outcome,
+                    cancellation: Arc::clone(&old),
+                })
+                .unwrap();
+        }
+        controller.poll_completions(&desired, &extensions);
+        assert!(Arc::ptr_eq(
+            controller.pending.get(&task.key).unwrap(),
+            &current
+        ));
+        assert!(controller.cache.is_empty());
+        assert!(runtime.warnings().is_empty());
+        controller
+            .sender
+            .send(LineHighlightCompletion {
+                task: task.clone(),
+                outcome: LineHighlightTaskOutcome::Value(one_mark("match")),
+                cancellation: current,
+            })
+            .unwrap();
+        controller.poll_completions(&desired, &extensions);
+        assert!(controller.pending.is_empty());
+        assert!(controller.cache.get(&task.key).unwrap().is_some());
     }
 
     #[test]

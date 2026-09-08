@@ -1,5 +1,21 @@
 # Hunk semantic-port ledger
 
+## Highlighter disposal and completion ownership
+
+A controlled regression reproduced a running highlighter observing no
+cancellation after its preparation owner was dropped. Owner disposal now signals
+all current cancellation flags without waiting on provider or extension code.
+Another regression showed retired jobs retaining all four preparation slots;
+retirement now removes them from the current owner's pending map immediately.
+
+Completions carry their original cancellation token. Settlement checks token
+identity as well as the task key, preventing an old success, failure, or retry
+from consuming or publishing through a newer request that reused the same key.
+Tests cover real worker disposal and controlled late-result delivery. All 25
+highlighter tests pass. Per-file scheduling and remaining generation semantics
+still need verification; the complete hook remains unmapped.
+Workspace Clippy, formatting, and architecture checks also pass for this checkpoint.
+
 ## Indexed runtime source binding
 
 Bulk provider installation uses files from the immutable review snapshot rather
