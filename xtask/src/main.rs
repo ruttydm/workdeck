@@ -2295,6 +2295,7 @@ fn print_help() {
     println!("cargo xtask benchmark changeset-parse");
     println!("cargo xtask benchmark highlight-prefetch");
     println!("cargo xtask benchmark large-stream");
+    println!("cargo xtask benchmark memory-snapshot");
     println!("cargo xtask benchmark non-ascii-stream");
     println!("cargo xtask benchmark wrapped-cjk");
     println!("cargo xtask benchmark render-layout");

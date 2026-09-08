@@ -14,6 +14,7 @@ mod highlight_prefetch;
 #[cfg(test)]
 mod interaction_latency;
 mod large_stream;
+mod native_memory;
 mod non_ascii_stream;
 mod release;
 mod render_layout;
@@ -671,6 +672,9 @@ fn aggregate(source: &str, name: &str, samples: Vec<f64>) -> Metric {
 
 pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     let command = args.next();
+    if command.as_deref() == Some("memory-snapshot") {
+        return native_memory::run(args);
+    }
     if command.as_deref() == Some("bootstrap-load") {
         return bootstrap::run(args);
     }

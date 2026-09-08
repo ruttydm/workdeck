@@ -164,3 +164,11 @@ Frozen single-run output from both pinned anchors is now recorded in
 names and source-scale counts. Those sequential original-runtime captures are diagnostic evidence,
 not repeated performance acceptance. The source ledger record remains unmapped and the default runner
 still rejects `interaction-latency.ts`; this partial test is not benchmark parity evidence.
+
+`cargo xtask benchmark memory-snapshot` provides a macOS native diagnostic: current process
+`rssBytes` from `proc_pidinfo(PROC_PIDTASKINFO)` and `mallocInUseBytes` summed across malloc zones.
+The live native test reads both counters and repeats the read with a retained allocation. These
+are current snapshots, not peak usage; malloc zone usage is not JavaScript `heapUsed`, and no
+GC-equivalent operation is claimed. Linux/Windows backends currently return an explicit unsupported
+error. Integrating the counters at workload boundaries and defining/verifying cross-runtime memory
+comparisons remain required before the interaction benchmark can be mapped or admitted.

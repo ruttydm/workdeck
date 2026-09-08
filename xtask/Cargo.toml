@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 anyhow = "1.0"
 base64 = "0.22"
+libc = "0.2"
 cargo_metadata = "0.19"
 chrono = "0.4"
 crossterm = { version = "0.28", features = ["use-dev-tty"] }

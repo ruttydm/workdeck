@@ -3384,6 +3384,7 @@ dependencies = [
  "chrono",
  "crossterm",
  "flate2",
+ "libc",
  "png",
  "portable-pty",
  "qwertty-term-vt",
