@@ -127,13 +127,29 @@ fn executable_access(path: &Path) -> Option<bool> {
     #[cfg(unix)]
     {
         use rustix::fs::{Access, AtFlags, CWD, accessat};
-        Some(path.is_file() && accessat(CWD, path, Access::EXEC_OK, AtFlags::EACCESS).is_ok())
+        match std::fs::metadata(path) {
+            Ok(metadata) if !metadata.is_file() => return Some(false),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Some(false),
+            Err(_) => return None,
+            _ => {}
+        }
+        classify_execute_access(accessat(CWD, path, Access::EXEC_OK, AtFlags::EACCESS))
     }
     #[cfg(not(unix))]
     {
         let _ = path;
         // File extension alone is not proof of native executable access on Windows.
         None
+    }
+}
+
+#[cfg(unix)]
+fn classify_execute_access(result: Result<(), rustix::io::Errno>) -> Option<bool> {
+    use rustix::io::Errno;
+    match result {
+        Ok(()) => Some(true),
+        Err(Errno::ACCESS | Errno::PERM | Errno::NOENT | Errno::NOTDIR) => Some(false),
+        Err(_) => None,
     }
 }
 
@@ -218,8 +234,11 @@ fn observe_candidates(
     let mut observations: Vec<PathFileObservation> = Vec::new();
     let mut positions = BTreeMap::new();
     for path in candidates {
-        if !path.is_file() {
-            continue;
+        match std::fs::metadata(&path) {
+            Ok(metadata) if !metadata.is_file() => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            // A metadata error is not proof that no competing executable exists.
+            _ => {}
         }
         let identity = executable_identity(&path);
         if identity == target_identity {
@@ -375,6 +394,42 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn access_probe_errors_remain_unknown_unless_the_os_confirmed_denial_or_absence() {
+        use rustix::io::Errno;
+        assert_eq!(classify_execute_access(Ok(())), Some(true));
+        for error in [Errno::ACCESS, Errno::PERM, Errno::NOENT, Errno::NOTDIR] {
+            assert_eq!(classify_execute_access(Err(error)), Some(false));
+        }
+        for error in [Errno::NOSYS, Errno::IO, Errno::INTR] {
+            assert_eq!(classify_execute_access(Err(error)), None);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn inaccessible_metadata_is_retained_as_unresolved_not_dropped_from_discovery() {
+        let directory = tempfile::tempdir().unwrap();
+        let candidate = directory.path().join("workdeck");
+        std::os::unix::fs::symlink("workdeck", &candidate).unwrap();
+        let observations = observe_path_files(
+            &directory.path().join("target/workdeck"),
+            &[directory.path().to_owned()],
+            "workdeck",
+        );
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].executable_access, None);
+        assert_eq!(
+            conflict_decision(&observations, false),
+            ConflictDecision::UnresolvedAccess
+        );
+        assert_eq!(
+            conflict_decision(&observations, true),
+            ConflictDecision::UnresolvedAccess
+        );
+    }
 
     #[test]
     fn conflict_decisions_preserve_force_and_do_not_waive_unknown_access() {

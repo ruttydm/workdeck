@@ -34,6 +34,9 @@ other directory-read failures are reported rather than silently hiding candidate
 Unknown access yields `unresolved-access`, including when force is set; it is not a successful
 permission check. `no-observed-executable-conflicts` describes only this incomplete discovery
 scope. Every preflight still reports `executionAvailable: false` and performs no installation.
+Unix access-probe failures other than confirmed denial/absence remain unknown. Metadata failures
+are retained as unresolved observations, not omitted; a real symlink-loop regression verifies
+that such a candidate cannot become a clean conflict decision even with force enabled.
 
 ```console
 cargo xtask release channel --event push --ref v0.19.0 --current-latest 0.18.2
