@@ -1401,3 +1401,31 @@ connection accepted before its first HTTP bytes arrived was dropped on `WouldBlo
 WebSocket-header regression reproduces the failure without retries and passes after the correction,
 alongside all twenty-four adapter tests. Existing message ceilings, admission/pressure checks, and
 timeouts remain unchanged. This repairs an already mapped transport path without adding coverage.
+
+### Cross-consumer review conformance (in progress)
+
+`cargo xtask port capture-review-conformance /absolute/path/to/bun` explicitly requires
+Bun 1.3.14 for disposable oracle execution only. The Rust command archives each exact pin
+into a temporary directory, installs its locked dependencies with lifecycle scripts disabled,
+runs its original conformance test file, and captures real geometry, navigation, snapshot,
+and event consumer projections. Each pin gets isolated configuration. No upstream source
+checkout or runtime dependency is retained in Workdeck. Both suites and capture validations
+must succeed before the command writes either tracked fixture.
+
+`oracles/review-conformance-main.json` and `oracles/review-conformance-stable.json` retain
+separate outputs because the pins differ. The source suites passed 111 and 106 tests,
+respectively, on macOS arm64 with Bun 1.3.14. These source-suite passes are not Rust parity.
+The capture currently excludes publication ordering, wire actions, and note-body/size
+projections; the source test run includes them, but their frozen projections remain work.
+
+`cargo test -p workdeck-cli --test review_conformance` independently parses all six geometry
+inputs in Rust and checks core gaps, inclusive hunk ranges, default note targets, expansion
+text, and binary-rename labeling against both captured core consumers and expectations.
+The terminal planner and producer geometry consumers are not yet exercised by this test;
+neither are the captured navigation, snapshot, or event consumers. Capture-integrity tests
+in xtask reject changed outputs and wrong pins, but do not substitute for those translations.
+All corresponding incomplete ledger records remain unmapped.
+
+Full `cargo xtask verify` passed at `e4f3c782` before this conformance increment, including
+workspace tests, Clippy, release build, and the large-repository smoke test. This does not
+clear strict source coverage, benchmark, native-platform, signing, or release gates.

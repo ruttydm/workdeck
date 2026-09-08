@@ -24,6 +24,7 @@ mod provenance;
 mod release_channel;
 mod release_notes;
 mod release_status;
+mod review_conformance;
 mod skill;
 mod term_video;
 
@@ -124,11 +125,21 @@ fn run() -> Result<()> {
                     | "audit"
                     | "status"
                     | "history"
+                    | "capture-review-conformance"
             ) {
                 bail!("unknown port command {command:?}");
             }
             if command == "fetch" {
                 return fetch_hunk();
+            }
+            if command == "capture-review-conformance" {
+                let bun = args.next().context(
+                    "capture-review-conformance requires an explicit Bun 1.3.14 executable path",
+                )?;
+                if args.next().is_some() {
+                    bail!("capture-review-conformance accepts only the Bun executable path");
+                }
+                return review_conformance::capture(&repo_root()?, Path::new(&bun));
             }
             if command == "history" {
                 if args.next().is_some() {
