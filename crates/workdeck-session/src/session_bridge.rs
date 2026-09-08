@@ -63,6 +63,10 @@ where
 }
 
 pub trait WorkdeckSessionBridgeHandlers {
+    /// Called only by the connection after a validated successful result enters
+    /// its socket queue; ordinary dispatch does not imply transport completion.
+    fn command_result_queued(&self, _request_id: &str) {}
+
     fn add_live_comment(
         &self,
         input: &CommentToolInput,
@@ -117,6 +121,10 @@ impl<T> WorkdeckSessionBridgeHandlers for &T
 where
     T: WorkdeckSessionBridgeHandlers + ?Sized,
 {
+    fn command_result_queued(&self, request_id: &str) {
+        (**self).command_result_queued(request_id);
+    }
+
     fn add_live_comment(
         &self,
         input: &CommentToolInput,
@@ -309,6 +317,10 @@ impl<H> SessionBrokerConnectionBridge<WorkdeckSessionCommandInput, WorkdeckSessi
 where
     H: WorkdeckSessionBridgeHandlers + Send + Sync + 'static,
 {
+    fn command_result_queued(&self, request_id: &str) {
+        self.handlers.command_result_queued(request_id);
+    }
+
     fn dispatch_command(
         &self,
         message: SessionServerMessage<String, WorkdeckSessionCommandInput>,
@@ -335,6 +347,7 @@ mod tests {
 
     #[derive(Default)]
     struct Calls {
+        queued_results: Vec<String>,
         opened: usize,
         comments: Vec<(String, bool)>,
         batches: Vec<(String, usize, bool)>,
@@ -354,6 +367,14 @@ mod tests {
     }
 
     impl WorkdeckSessionBridgeHandlers for Handlers {
+        fn command_result_queued(&self, request_id: &str) {
+            self.calls
+                .lock()
+                .unwrap()
+                .queued_results
+                .push(request_id.into());
+        }
+
         fn add_live_comment(
             &self,
             input: &CommentToolInput,
@@ -801,6 +822,23 @@ mod tests {
             calls.lock().unwrap().highlight_clears,
             [Some("src/example.ts".into())]
         );
+        assert!(
+            calls.lock().unwrap().queued_results.is_empty(),
+            "dispatch alone must not announce that a result was queued"
+        );
+        SessionBrokerConnectionBridge::command_result_queued(&bridge, "generic-clear");
+        assert_eq!(calls.lock().unwrap().queued_results, ["generic-clear"]);
+    }
+
+    #[test]
+    fn borrowed_handlers_forward_result_queue_notifications_without_dispatch() {
+        let handlers = Handlers::default();
+        let borrowed = &handlers;
+        WorkdeckSessionBridgeHandlers::command_result_queued(&borrowed, "borrowed-result");
+        let calls = handlers.calls.lock().unwrap();
+        assert_eq!(calls.queued_results, ["borrowed-result"]);
+        assert!(calls.comments.is_empty());
+        assert!(calls.highlight_clears.is_empty());
     }
 
     #[test]
