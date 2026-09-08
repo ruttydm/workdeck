@@ -133,3 +133,22 @@ satisfy the 10% regression limit versus either Hunk pin, nor establish a memory 
 The row planner still runs per event; no potentially stale geometry cache was introduced.
 
 - [Native wrapped CJK with geometry-only wheel limits](wrapped-cjk-native-bf92f7bb.json)
+
+## Control-free width borrowing follow-up
+
+Commit `8395004e` avoids allocating sanitized copies for control-free width input. After its
+optimized build completed, three subprocess samples each ran sequentially for wrapped-CJK and
+non-ASCII stream on the same host. The combined report retains both workloads and all samples.
+
+Wrapped-CJK medians are 146.75 ms (518-line first paint), 3.91 ms (long-line first paint),
+151.49 ms (immediate burst), and 192.42 ms (settled burst). These are within about 1% of the
+preceding run: they do not establish a meaningful end-to-end latency gain from this allocation
+change. Content rows remain 54/55/55.
+
+Non-ASCII medians are 147.26 ms (cold frame), 217.74 ms (per-run median tick), and 220.56 ms
+(per-run p95 tick), with unchanged 120-file/120-line/eight-tick counts. The last comparable native
+report was `dfc2f4e8`, before the geometry-only wheel-limit change; the roughly 16% reduction in
+median tick latency cannot be attributed solely to width borrowing. Both workload latency gates still
+fail against the pinned Hunk reports. Memory remains unmeasured.
+
+- [Combined native Unicode follow-up](unicode-native-8395004e.json)
