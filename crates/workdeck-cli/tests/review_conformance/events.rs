@@ -4,6 +4,7 @@ use std::io::{BufRead, BufReader};
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::models::{EventWindow as Window, ReviewEventFixture, ReviewEventFramingProjection};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
 use workdeck_review::{
@@ -15,17 +16,25 @@ use workdeck_session::*;
 const SESSION_ID: &str = "session-conformance";
 const GENERATION: &str = "generation:conformance:1";
 
-type EventProjection = fn(&WorkdeckReviewPublicationBodyV1, u64) -> Value;
+type EventProjection = fn(&ReviewEventFixture) -> ReviewEventFramingProjection;
 pub(super) const CONSUMERS: [super::models::Consumer<EventProjection>; 2] = [
-    super::models::Consumer::new("review event protocol", "Phase 4", protocol_projection),
-    super::models::Consumer::new("browser review HTTP surface", "Phase 4", http_projection),
+    super::models::Consumer::new("review event protocol", "Phase 4", |fixture| {
+        project_fixture(fixture, protocol_projection)
+    }),
+    super::models::Consumer::new("browser review HTTP surface", "Phase 4", |fixture| {
+        project_fixture(fixture, http_projection)
+    }),
 ];
 
-#[derive(Clone, Copy)]
-enum Window {
-    Bytes(u64),
-    PayloadSize,
-    PayloadSizeMinusOne,
+fn project_fixture(
+    fixture: &ReviewEventFixture,
+    project: fn(&WorkdeckReviewPublicationBodyV1, u64) -> Value,
+) -> ReviewEventFramingProjection {
+    let bytes = serde_json::to_vec(&fixture.body).unwrap().len() as u64;
+    super::models::event_framing(&project(
+        &fixture.body,
+        resolve_window(fixture.chunk_bytes, bytes),
+    ))
 }
 
 fn resolve_window(window: Window, payload_bytes: u64) -> u64 {
@@ -359,14 +368,43 @@ fn protocol_and_real_http_surface_match_all_pinned_event_windows() {
             if case["group"] != "events" {
                 continue;
             }
-            let (body, window) = fixture(case["id"].as_str().unwrap());
+            let id = case["id"].as_str().unwrap();
+            let (body, _) = fixture(id);
+            let (chunk_bytes, description) = match id {
+                "publication-in-one-frame" => (
+                    Window::Bytes(64 * 1024),
+                    "A payload inside one window is one frame carrying the body itself.",
+                ),
+                "publication-split-across-chunks" => (
+                    Window::Bytes(256),
+                    "A payload past one window becomes begin, chunks, end, with one id.",
+                ),
+                "publication-exactly-one-window" => (
+                    Window::PayloadSize,
+                    "A payload the size of one window is still a single frame.",
+                ),
+                "publication-one-byte-over-a-window" => (
+                    Window::PayloadSizeMinusOne,
+                    "A payload one byte past a window chunks rather than squeezing in.",
+                ),
+                _ => unreachable!(),
+            };
+            let fixture = ReviewEventFixture {
+                id: id.into(),
+                findings: serde_json::from_value(case["findings"].clone()).unwrap(),
+                description: description.into(),
+                body,
+                chunk_bytes,
+                expected: super::models::event_framing(&case["expected"]),
+            };
+            assert_eq!(fixture.id, id);
+            assert_eq!(fixture.findings, ["C4"]);
+            assert!(!fixture.description.is_empty());
             for consumer in CONSUMERS {
                 let name = consumer.name;
-                let actual = (consumer.project)(&body, window);
-                assert_eq!(
-                    super::models::event_framing(&actual),
-                    super::models::event_framing(&case["expected"])
-                );
+                let actual = (consumer.project)(&fixture);
+                assert_eq!(actual, fixture.expected);
+                let actual = serde_json::to_value(actual).unwrap();
                 assert_eq!(
                     actual, case["expected"],
                     "{}: {name}: {}",

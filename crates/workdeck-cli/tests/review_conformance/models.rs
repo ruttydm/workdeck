@@ -187,6 +187,22 @@ pub(super) fn event_framing(value: &Value) -> ReviewEventFramingProjection {
     checked(value)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum EventWindow {
+    Bytes(u64),
+    PayloadSize,
+    PayloadSizeMinusOne,
+}
+
+pub(super) struct ReviewEventFixture {
+    pub id: String,
+    pub findings: Vec<String>,
+    pub description: String,
+    pub body: workdeck_session::WorkdeckReviewPublicationBodyV1,
+    pub chunk_bytes: EventWindow,
+    pub expected: ReviewEventFramingProjection,
+}
+
 #[test]
 fn projection_contracts_preserve_required_nulls_and_reject_invalid_variants() {
     use serde_json::json;
