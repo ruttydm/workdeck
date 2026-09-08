@@ -2285,7 +2285,7 @@ fn print_help() {
     println!("cargo xtask site <build|check|serve>");
     println!("cargo xtask install-plan [version] [--no-modify-path] [-f|--force]");
     println!("cargo xtask install-verify ARCHIVE CHECKSUM_FILE");
-    println!("cargo xtask install-inspect ARCHIVE");
+    println!("cargo xtask install-inspect ARCHIVE [--package]");
     println!("cargo xtask changelog upstream-history [--check]");
     println!(
         "cargo xtask release channel --event EVENT --ref REF [--requested-tag CHANNEL] [--current-latest VERSION]"

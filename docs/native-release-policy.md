@@ -62,6 +62,13 @@ signatures/provenance and safe extraction remain unfinished. Output deliberately
 checksum verification or installation. Tests exercise tar and ZIP payload reads and path rejection
 without creating extracted directories.
 
+`install-inspect ARCHIVE --package` additionally requires one wrapper directory, exactly one
+`workdeck` or `workdeck.exe` regular file, and regular `LICENSE`, `THIRD_PARTY_NOTICES`,
+`licenses.json`, `sbom.cdx.json` and `provenance.json` files with their exact spelling. These are
+path/type checks only, not validation of metadata contents or provenance authenticity. The current
+packager does not yet emit provenance, so its archives intentionally fail this stricter path gate.
+No placeholder provenance is generated to make the check pass.
+
 ```console
 cargo xtask release channel --event push --ref v0.19.0 --current-latest 0.18.2
 cargo xtask release channel --event workflow_dispatch --ref main --requested-tag beta

@@ -38,8 +38,45 @@ fn verify_entry_bytes(reader: &mut impl std::io::Read, expected: u64) -> Result<
     Ok(())
 }
 
+#[cfg(test)]
 fn inspect_archive(path: &Path) -> Result<(usize, u64)> {
+    let (names, bytes) = inspect_archive_entries(path)?;
+    Ok((names.len(), bytes))
+}
+
+fn verify_package_paths(names: &BTreeMap<String, bool>) -> Result<()> {
+    let mut roots = std::collections::BTreeSet::new();
+    for (name, directory) in names {
+        if !directory && !name.contains('/') {
+            bail!("Package file is outside its wrapper directory: {name}");
+        }
+        roots.insert(name.split('/').next().unwrap_or_default());
+    }
+    if roots.len() != 1 {
+        bail!("Package must contain exactly one wrapper directory");
+    }
+    let root = roots.first().unwrap();
+    let file = |name: &str| names.get(&format!("{root}/{name}")) == Some(&false);
+    if usize::from(file("workdeck")) + usize::from(file("workdeck.exe")) != 1 {
+        bail!("Package must contain exactly one Workdeck executable");
+    }
+    for required in [
+        "LICENSE",
+        "THIRD_PARTY_NOTICES",
+        "licenses.json",
+        "sbom.cdx.json",
+        "provenance.json",
+    ] {
+        if !file(required) {
+            bail!("Package is missing required regular file: {required}");
+        }
+    }
+    Ok(())
+}
+
+fn inspect_archive_entries(path: &Path) -> Result<(BTreeMap<String, bool>, u64)> {
     let mut names: BTreeMap<String, bool> = BTreeMap::new();
+    let mut original_names = BTreeMap::new();
     let mut total = 0u64;
     let mut record = |name: &str, size: u64, directory: bool| -> Result<()> {
         let name = archive_entry_path(name)?;
@@ -66,6 +103,7 @@ fn inspect_archive(path: &Path) -> Result<(usize, u64)> {
             }
         }
         names.insert(key, directory);
+        original_names.insert(name, directory);
         total = total
             .checked_add(size)
             .ok_or_else(|| anyhow::anyhow!("Archive size overflow"))?;
@@ -106,21 +144,30 @@ fn inspect_archive(path: &Path) -> Result<(usize, u64)> {
             verify_entry_bytes(&mut entry, expected)?;
         }
     }
-    Ok((names.len(), total))
+    Ok((original_names, total))
 }
 
 pub(super) fn inspect(mut args: impl Iterator<Item = String>) -> Result<()> {
     let path = args
         .next()
         .ok_or_else(|| anyhow::anyhow!("install-inspect requires ARCHIVE"))?;
+    let require_package = match args.next().as_deref() {
+        None => false,
+        Some("--package") => true,
+        Some(_) => bail!("install-inspect accepts ARCHIVE [--package]"),
+    };
     if args.next().is_some() {
-        bail!("install-inspect accepts exactly ARCHIVE");
+        bail!("install-inspect accepts ARCHIVE [--package]");
     }
-    let (entries, bytes) = inspect_archive(Path::new(&path))?;
+    let (names, bytes) = inspect_archive_entries(Path::new(&path))?;
+    if require_package {
+        verify_package_paths(&names)?;
+    }
+    let entries = names.len();
     println!(
         "{}",
         serde_json::to_string(
-            &serde_json::json!({"entries": entries, "declaredBytes": bytes, "pathsChecked": true, "checksumVerified": false, "signatureVerified": false, "installed": false})
+            &serde_json::json!({"entries": entries, "declaredBytes": bytes, "pathsChecked": true, "requiredPackagePathsChecked": require_package, "checksumVerified": false, "signatureVerified": false, "installed": false})
         )?
     );
     Ok(())
@@ -574,6 +621,36 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn package_path_gate_requires_wrapper_executable_licenses_sbom_and_provenance() {
+        let mut names: BTreeMap<String, bool> = [
+            "workdeck",
+            "LICENSE",
+            "THIRD_PARTY_NOTICES",
+            "licenses.json",
+            "sbom.cdx.json",
+            "provenance.json",
+        ]
+        .map(|name| (format!("root/{name}"), false))
+        .into_iter()
+        .collect();
+        verify_package_paths(&names).unwrap();
+        for missing in names.keys().cloned().collect::<Vec<_>>() {
+            let mut incomplete = names.clone();
+            incomplete.remove(&missing);
+            assert!(verify_package_paths(&incomplete).is_err(), "{missing}");
+        }
+        names.insert("root/provenance.json".into(), true);
+        assert!(verify_package_paths(&names).is_err());
+        names.insert("root/provenance.json".into(), false);
+        names.insert("root/workdeck.exe".into(), false);
+        assert!(verify_package_paths(&names).is_err());
+        names.remove("root/workdeck");
+        verify_package_paths(&names).unwrap();
+        names.insert("other/file".into(), false);
+        assert!(verify_package_paths(&names).is_err());
+    }
 
     #[test]
     fn archive_payload_reads_are_bounded_and_require_exact_declared_size() {
