@@ -65,6 +65,10 @@ Tar inspection also drains the gzip decoder after tar's end marker to validate C
 permits at most 1 MiB of trailing zero tar padding, and rejects nonzero padding, extra compressed
 members and trailing compressed-stream bytes. Regression tests cover corrupt/truncated trailers,
 hidden trailing payloads, concatenated members and excessive zero padding without extraction.
+Checksum manifests are read from validated regular-file handles with a 1 MiB limit and UTF-8
+validation. The reader stops after at most one excess byte; tests cover the exact boundary,
+oversized and invalid-UTF-8 inputs, and directory rejection. This bounds manifest input only;
+checksum matching still does not establish publisher authenticity.
 Before parsing, archive inspection requires a regular file of at most 2 GiB compressed bytes,
 and repeats the metadata check on the opened handle. Unix tests use sparse files to verify the
 exact size boundary without allocating GiBs. This is not a complete allocation bound: ZIP central

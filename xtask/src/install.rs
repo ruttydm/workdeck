@@ -249,6 +249,18 @@ fn expected_checksum(contents: &str, archive_name: &str) -> Result<String> {
     })
 }
 
+fn read_checksum_manifest(path: &Path) -> Result<String> {
+    use std::io::Read;
+    const MAX_BYTES: u64 = 1024 * 1024;
+    let file = open_archive_input(path)?;
+    let mut bytes = Vec::new();
+    file.take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_BYTES {
+        bail!("Checksum manifest exceeds 1 MiB");
+    }
+    Ok(String::from_utf8(bytes)?)
+}
+
 pub(super) fn verify(mut args: impl Iterator<Item = String>) -> Result<()> {
     let archive = args
         .next()
@@ -264,7 +276,7 @@ pub(super) fn verify(mut args: impl Iterator<Item = String>) -> Result<()> {
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| anyhow::anyhow!("Archive name is not valid UTF-8"))?;
-    let expected = expected_checksum(&std::fs::read_to_string(checksums)?, name)?;
+    let expected = expected_checksum(&read_checksum_manifest(Path::new(&checksums))?, name)?;
     let actual = super::sha256_file(archive)?;
     if actual != expected {
         bail!("Checksum verification failed for {name}; refusing a corrupted or tampered archive");
@@ -667,6 +679,25 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checksum_manifest_reads_are_bounded_and_require_utf8() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("checksums.txt");
+        std::fs::write(&path, vec![b' '; 1024 * 1024]).unwrap();
+        assert_eq!(read_checksum_manifest(&path).unwrap().len(), 1024 * 1024);
+        std::fs::write(&path, vec![b' '; 1024 * 1024 + 1]).unwrap();
+        assert!(
+            read_checksum_manifest(&path)
+                .unwrap_err()
+                .to_string()
+                .contains("1 MiB")
+        );
+        std::fs::write(&path, [0xff]).unwrap();
+        assert!(read_checksum_manifest(&path).is_err());
+        assert!(read_checksum_manifest(directory.path()).is_err());
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
 
     #[test]
     #[cfg(unix)]
