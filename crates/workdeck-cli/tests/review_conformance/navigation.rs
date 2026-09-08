@@ -37,7 +37,12 @@ fn project_fixture(
     let input = Fixture {
         files: (fixture.build)(),
         filter: fixture.filter.clone().unwrap_or_default(),
-        annotations: fixture.annotated_hunks.clone().unwrap_or_default(),
+        annotations: fixture
+            .annotated_hunks
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .collect(),
         annotated_files: fixture.annotated_files.clone(),
         moves: fixture.moves.clone(),
         selections: fixture.selections.clone(),
@@ -212,7 +217,8 @@ fn conformance_fixture(case: &Value) -> ReviewNavigationFixture {
         description: description.into(),
         build: Box::new(move || fixture(&build_id).files),
         filter: (!input.filter.is_empty()).then_some(input.filter),
-        annotated_hunks: (!input.annotations.is_empty()).then_some(input.annotations),
+        annotated_hunks: (!input.annotations.is_empty())
+            .then(|| input.annotations.into_iter().collect()),
         annotated_files: input.annotated_files,
         moves: input.moves,
         selections: input.selections,
@@ -515,4 +521,68 @@ fn navigation_consumers_build_fresh_inputs_from_the_registered_fixture() {
         assert_eq!((consumer.project)(&fixture), fixture.expected);
     }
     assert_eq!(builds.load(Ordering::SeqCst), CONSUMERS.len());
+}
+
+#[test]
+fn registered_navigation_fixtures_preserve_explicit_and_empty_annotation_scopes() {
+    let oracle: Value = serde_json::from_str(include_str!(
+        "../../../../port/hunk/oracles/review-conformance-main.json"
+    ))
+    .unwrap();
+    let case = oracle["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|case| case["group"] == "navigation" && case["id"] == "scope-wrap-and-clamp")
+        .unwrap();
+    let mut fixture = conformance_fixture(case);
+    fixture.moves = vec![movement(ReviewSelectionScope::AnnotatedFile, 1, at(0, 0))];
+    // Keep the source's per-file reveal geometry and normalized selections.
+    // Only this test's explicitly stated move differs from the pinned fixture.
+    let mut expected = case["expected"].clone();
+    fixture.annotated_hunks = Some([(0, vec![0])].into_iter().collect());
+    fixture.annotated_files = Some(vec![1]);
+    // Pinned navigation.ts planAnnotatedFileMove explicitly reveals note-bearing
+    // hunk content, unlike the ordinary file-jump header reveal.
+    expected["moves"] = json!([{"to": {"file": 1, "hunkIndex": 0},
+        "reveal": {"anchor": "hunk", "scrollToNote": false}}]);
+    fixture.expected = super::models::navigation(&expected);
+    for consumer in CONSUMERS {
+        assert_eq!(
+            (consumer.project)(&fixture),
+            fixture.expected,
+            "{}: explicit file",
+            consumer.name
+        );
+    }
+    fixture.annotated_files = Some(Vec::new());
+    expected["moves"] = json!([{"to": null}]);
+    fixture.expected = super::models::navigation(&expected);
+    for consumer in CONSUMERS {
+        assert_eq!(
+            (consumer.project)(&fixture),
+            fixture.expected,
+            "{}: empty file scope",
+            consumer.name
+        );
+    }
+    fixture.annotated_files = None;
+    fixture.annotated_hunks = Some(Default::default());
+    for consumer in CONSUMERS {
+        assert_eq!(
+            (consumer.project)(&fixture),
+            fixture.expected,
+            "{}: empty hunk scope",
+            consumer.name
+        );
+    }
+    fixture.annotated_hunks = None;
+    for consumer in CONSUMERS {
+        assert_eq!(
+            (consumer.project)(&fixture),
+            fixture.expected,
+            "{}: absent scopes",
+            consumer.name
+        );
+    }
 }

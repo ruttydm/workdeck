@@ -292,7 +292,7 @@ pub(super) struct ReviewNavigationFixture {
     pub description: String,
     pub build: Box<dyn Fn() -> Vec<workdeck_core::DiffFile>>,
     pub filter: Option<String>,
-    pub annotated_hunks: Option<Vec<(usize, Vec<usize>)>>,
+    pub annotated_hunks: Option<std::collections::BTreeMap<usize, Vec<usize>>>,
     pub annotated_files: Option<Vec<usize>>,
     pub moves: Vec<ConformanceMove>,
     pub selections: Vec<ConformanceSelectionInput>,
