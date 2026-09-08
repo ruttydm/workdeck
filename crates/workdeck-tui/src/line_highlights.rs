@@ -498,14 +498,14 @@ impl LineHighlightPreparationController {
             completion.cancellation.store(true, Ordering::Release);
             match completion.outcome {
                 LineHighlightTaskOutcome::Retry => {}
-                LineHighlightTaskOutcome::Failed(error) => {
+                LineHighlightTaskOutcome::Failed(_error) => {
                     self.cache.insert(completion.task.key.clone(), None);
                     self.report_once(
                         extensions,
                         &completion.task,
                         "highlight",
                         format!(
-                            "Extension {} line highlighter {:?} failed highlighting {} ({error}) • marks dropped",
+                            "Extension {} line highlighter \"{}\" failed highlighting {} • marks dropped",
                             completion.task.extension_id,
                             completion.task.highlighter_id,
                             completion.task.file.path,
@@ -521,7 +521,7 @@ impl LineHighlightPreparationController {
                                 &completion.task,
                                 &issue,
                                 format!(
-                                    "Extension {} line highlighter {:?} {issue} for {} • marks dropped",
+                                    "Extension {} line highlighter \"{}\" {issue} for {} • marks dropped",
                                     completion.task.extension_id,
                                     completion.task.highlighter_id,
                                     completion.task.file.path,
@@ -538,7 +538,7 @@ impl LineHighlightPreparationController {
                                     &completion.task,
                                     "invalid-entries",
                                     format!(
-                                        "Extension {} line highlighter {:?} returned {dropped_invalid} invalid range{} for {} • dropped",
+                                        "Extension {} line highlighter \"{}\" returned {dropped_invalid} invalid range{} for {} • dropped",
                                         completion.task.extension_id,
                                         completion.task.highlighter_id,
                                         if dropped_invalid == 1 { "" } else { "s" },
@@ -576,7 +576,7 @@ impl LineHighlightPreparationController {
                 &task,
                 "highlight",
                 format!(
-                    "Extension {} line highlighter {:?} failed highlighting {} (highlight timed out) • marks dropped",
+                    "Extension {} line highlighter \"{}\" failed highlighting {} • marks dropped",
                     task.extension_id, task.highlighter_id, task.file.path,
                 ),
             );
@@ -668,7 +668,7 @@ impl LineHighlightPreparationController {
                         &task,
                         "merged-cap",
                         format!(
-                            "Extension {} line highlighter {:?} pushed {} past {} merged ranges • marks dropped",
+                            "Extension {} line highlighter \"{}\" pushed {} past {} merged ranges • marks dropped",
                             registration.extension_id,
                             registration.highlighter_id,
                             file.path,
@@ -1541,6 +1541,10 @@ mod tests {
         assert_eq!(controller.pending_count(), 0);
         assert!(controller.cache.values().all(Option::is_none));
         assert_eq!(runtime.warnings().len(), 1);
+        assert_eq!(
+            runtime.warnings()[0],
+            "Extension test-extension line highlighter \"blocked\" failed highlighting file.rs • marks dropped"
+        );
         release_tx.send(()).unwrap();
         assert!(finished_rx.recv_timeout(Duration::from_secs(5)).unwrap());
         let completion = controller
@@ -1590,7 +1594,10 @@ mod tests {
         assert!(controller.cache.get(&task.key).unwrap().is_none());
         assert!(cancellation.load(Ordering::Acquire));
         assert_eq!(runtime.warnings().len(), 1);
-        assert!(runtime.warnings()[0].contains("highlight timed out"));
+        assert_eq!(
+            runtime.warnings()[0],
+            "Extension test-extension line highlighter \"late\" failed highlighting file.rs • marks dropped"
+        );
     }
 
     #[test]
@@ -2016,7 +2023,10 @@ mod tests {
             HighlightTone::Info
         );
         assert_eq!(runtime.warnings().len(), 1);
-        assert!(runtime.warnings()[0].contains("failing"));
+        assert_eq!(
+            runtime.warnings()[0],
+            "Extension test-extension line highlighter \"failing\" failed highlighting request.rs • marks dropped"
+        );
         for _ in 0..3 {
             controller.reconcile(&extensions, &registrations, &epochs, &files);
         }

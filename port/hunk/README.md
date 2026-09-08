@@ -1,5 +1,19 @@
 # Hunk semantic-port ledger
 
+## Highlighter warning text
+
+Failure and timeout warnings now use the pinned hook's fixed attribution text,
+without appending native exception or timeout details. A regression first
+observed the extra `(boom)` suffix; exact assertions now cover a thrown failure,
+a queued result past its deadline, and a still-blocked request expiring during
+polling. Highlighter IDs use literal quoted interpolation rather than Rust debug
+escaping across failure, validation, invalid-range, and merged-cap notices.
+
+This verifies warning formatting at the coordinator boundary, not all native
+extension diagnostics or whole-hook parity. No ledger mapping is added.
+All 34 highlighter tests, workspace Clippy, formatting, and architecture checks
+pass for this checkpoint.
+
 ## Identical-content reload highlight ownership
 
 Pinned `AppHost.tsx` adopts a replacement bootstrap on successful reload, and
