@@ -382,3 +382,13 @@ interaction instrument the boundaries, and per-sample tests ensure stage sums fi
 Rendering, not just the wheel handler's geometry rebuild, dominates the remaining scroll cost.
 The next investigation should focus on the complete render pass. No performance or ledger gate
 is passed by this diagnostic attribution.
+
+### Unused extension-pane projection removal at `73f0d1d2`
+
+[Three optimized stage-instrumented runs](interaction-stages-73f0d1d2.json) report 11.03 ms
+first frame, 35.11 ms median navigation and 13.06 ms median scrolling. Scroll rendering falls
+from 17.14 ms to 9.22 ms while dispatch remains about 3.88 ms. Frames without open registered
+extension panes no longer serialize the complete visible-file metadata; open registered panes
+retain the same availability/render payloads. The selected ID is read directly without another
+file projection. All 1,029 TUI tests and scroll integration pass. Scrolling still fails the
+pinned-source budget, and peak-memory, full benchmark and source-ledger gates remain incomplete.

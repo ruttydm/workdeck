@@ -1,0 +1,249 @@
+{
+  "nativeCommit": "73f0d1d25c87c6147db58da547e39ed4070311d7",
+  "host": "macOS arm64",
+  "profile": "release",
+  "method": "Three sequential fresh processes after builds/tests; stage-instrumented unchanged workload. Independent nearest-rank medians; other host activity uncontrolled.",
+  "runs": [
+    {
+      "exitCode": 0,
+      "report": {
+        "diagnosticOnly": true,
+        "firstFrameMs": 11.183375,
+        "navigationPressMs": [
+          36.166167,
+          35.215875000000004,
+          35.114582999999996,
+          35.174375,
+          34.982416,
+          34.991625
+        ],
+        "scrollTickMs": [
+          14.277084,
+          13.609041000000001,
+          13.670917,
+          13.145417,
+          13.020292,
+          12.977667,
+          13.06,
+          12.949583
+        ],
+        "navigationDispatchMs": [
+          25.480333,
+          24.444875,
+          24.360625,
+          24.351208999999997,
+          24.286416000000003,
+          24.300417
+        ],
+        "navigationRenderMs": [
+          10.684334,
+          10.769,
+          10.750375,
+          10.821791000000001,
+          10.692834,
+          10.685458
+        ],
+        "scrollDispatchMs": [
+          3.927334,
+          3.976541,
+          3.868,
+          3.893083,
+          3.878,
+          3.864042,
+          3.843666,
+          3.858708
+        ],
+        "scrollRenderMs": [
+          10.347415999999999,
+          9.629334,
+          9.800667,
+          9.251542,
+          9.138667,
+          9.110541999999999,
+          9.215709,
+          9.089959
+        ],
+        "stageSemantics": "Dispatch includes input handling and its geometry/events; render includes the complete frame pass. Total includes both stages and the scheduler yield. Two additional clock reads per interaction instrument the boundaries.",
+        "afterFirstFrame": {
+          "rssBytes": 169115648,
+          "mallocInUseBytes": 52410304
+        },
+        "afterNavigation": {
+          "rssBytes": 170229760,
+          "mallocInUseBytes": 53675968
+        },
+        "files": 180,
+        "linesPerFile": 120,
+        "viewport": {
+          "width": 240,
+          "height": 28
+        },
+        "memorySemantics": "Current RSS and native malloc-zone usage, not peak RSS or JavaScript heapUsed"
+      }
+    },
+    {
+      "exitCode": 0,
+      "report": {
+        "diagnosticOnly": true,
+        "firstFrameMs": 11.02675,
+        "navigationPressMs": [
+          37.311249999999994,
+          34.763125,
+          34.634375,
+          34.68625,
+          34.764334,
+          35.692125
+        ],
+        "scrollTickMs": [
+          14.123167,
+          13.478708000000001,
+          13.751665999999998,
+          13.075333,
+          13.542083,
+          13.762458,
+          14.019375,
+          13.260375
+        ],
+        "navigationDispatchMs": [
+          26.614208,
+          23.987374999999997,
+          23.922292000000002,
+          23.939167,
+          23.969209,
+          24.592
+        ],
+        "navigationRenderMs": [
+          10.694749999999999,
+          10.774291,
+          10.708832999999998,
+          10.744,
+          10.79425,
+          11.095832999999999
+        ],
+        "scrollDispatchMs": [
+          3.967292,
+          4.00175,
+          3.873208,
+          3.886791,
+          3.874416,
+          3.942333,
+          4.25675,
+          3.9186669999999997
+        ],
+        "scrollRenderMs": [
+          10.1545,
+          9.475458000000001,
+          9.876958,
+          9.187792,
+          9.666209,
+          9.819375,
+          9.761624999999999,
+          9.340833
+        ],
+        "stageSemantics": "Dispatch includes input handling and its geometry/events; render includes the complete frame pass. Total includes both stages and the scheduler yield. Two additional clock reads per interaction instrument the boundaries.",
+        "afterFirstFrame": {
+          "rssBytes": 166412288,
+          "mallocInUseBytes": 52392880
+        },
+        "afterNavigation": {
+          "rssBytes": 169607168,
+          "mallocInUseBytes": 53689424
+        },
+        "files": 180,
+        "linesPerFile": 120,
+        "viewport": {
+          "width": 240,
+          "height": 28
+        },
+        "memorySemantics": "Current RSS and native malloc-zone usage, not peak RSS or JavaScript heapUsed"
+      }
+    },
+    {
+      "exitCode": 0,
+      "report": {
+        "diagnosticOnly": true,
+        "firstFrameMs": 10.653666,
+        "navigationPressMs": [
+          35.8685,
+          34.735875,
+          35.196333,
+          35.486708,
+          35.759209,
+          34.978833
+        ],
+        "scrollTickMs": [
+          14.038459,
+          13.459583,
+          13.628209,
+          13.091208,
+          13.023375,
+          12.999125,
+          13.036458000000001,
+          12.981667
+        ],
+        "navigationDispatchMs": [
+          25.22825,
+          23.922833,
+          24.278125000000003,
+          24.447042,
+          24.885334,
+          24.253583
+        ],
+        "navigationRenderMs": [
+          10.638542000000001,
+          10.812334,
+          10.915167,
+          11.03575,
+          10.873000000000001,
+          10.72175
+        ],
+        "scrollDispatchMs": [
+          3.896667,
+          3.998667,
+          3.886167,
+          3.892292,
+          3.868584,
+          3.8787079999999996,
+          3.8645,
+          3.882042
+        ],
+        "scrollRenderMs": [
+          10.140708,
+          9.457165999999999,
+          9.74075,
+          9.198082999999999,
+          9.151166,
+          9.119417,
+          9.166125000000001,
+          9.096417
+        ],
+        "stageSemantics": "Dispatch includes input handling and its geometry/events; render includes the complete frame pass. Total includes both stages and the scheduler yield. Two additional clock reads per interaction instrument the boundaries.",
+        "afterFirstFrame": {
+          "rssBytes": 167428096,
+          "mallocInUseBytes": 52393040
+        },
+        "afterNavigation": {
+          "rssBytes": 170246144,
+          "mallocInUseBytes": 53664368
+        },
+        "files": 180,
+        "linesPerFile": 120,
+        "viewport": {
+          "width": 240,
+          "height": 28
+        },
+        "memorySemantics": "Current RSS and native malloc-zone usage, not peak RSS or JavaScript heapUsed"
+      }
+    }
+  ],
+  "summary": {
+    "firstFrameMs": 11.02675,
+    "navigationPressMs": 35.114582999999996,
+    "navigationDispatchMs": 24.278125000000003,
+    "navigationRenderMs": 10.744,
+    "scrollTickMs": 13.06,
+    "scrollDispatchMs": 3.882042,
+    "scrollRenderMs": 9.215709
+  },
+  "acceptance": "Render time improves, but scrolling and overall parity still fail. No peak-memory or ledger completion claimed."
+}
