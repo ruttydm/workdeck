@@ -7762,12 +7762,16 @@ impl ReviewApp {
             .highlights
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Reveal consumes row geometry, not syntax styles. Painting still uses the
+        // highlighted plan; keep the same layout/extension/note inputs here.
+        let mut geometry_options = self.options.clone();
+        geometry_options.highlight = false;
         let rows = build_live_review_rows(
             state.changeset(),
             state.comments(),
             selected,
             layout,
-            &self.options,
+            &geometry_options,
             width,
             &mut highlights,
             &self.expanded_gaps,
