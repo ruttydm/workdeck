@@ -34,6 +34,44 @@ pub trait LineHighlightRuntime: Send + Sync {
     fn notify_warning(&self, message: String);
 }
 
+/// Capture source authority with the worker generation, not with public file metadata.
+pub(crate) struct SourceBoundLineHighlightRuntime {
+    pub runtime: Arc<dyn LineHighlightRuntime>,
+    pub sources: Option<workdeck_vcs::VcsSourceCapabilities>,
+}
+
+impl LineHighlightRuntime for SourceBoundLineHighlightRuntime {
+    fn request_pending(&self) -> bool {
+        self.runtime.request_pending()
+    }
+
+    fn highlight_file(
+        &self,
+        highlighter_id: &str,
+        file: &DiffFile,
+        cancelled: &AtomicBool,
+    ) -> Result<Value, LineHighlightRuntimeError> {
+        if cancelled.load(Ordering::Acquire) {
+            return Err(LineHighlightRuntimeError::Retry);
+        }
+        let loaded = self
+            .sources
+            .as_ref()
+            .map(|sources| sources.with_source_snapshots(file))
+            .transpose()
+            .map_err(|error| LineHighlightRuntimeError::Failed(error.to_string()))?;
+        if cancelled.load(Ordering::Acquire) {
+            return Err(LineHighlightRuntimeError::Retry);
+        }
+        self.runtime
+            .highlight_file(highlighter_id, loaded.as_ref().unwrap_or(file), cancelled)
+    }
+
+    fn notify_warning(&self, message: String) {
+        self.runtime.notify_warning(message);
+    }
+}
+
 impl LineHighlightRuntime for LoadedExtension {
     fn request_pending(&self) -> bool {
         LoadedExtension::request_pending(self)
@@ -144,6 +182,7 @@ impl LineHighlightMap {
 struct LineHighlightTaskKey {
     file_id: String,
     content_identity: String,
+    source_identity: Option<String>,
     highlighter_key: String,
     epoch: u64,
 }
@@ -401,6 +440,7 @@ impl LineHighlightPreparationController {
                     let task_key = LineHighlightTaskKey {
                         file_id: file.runtime_id.clone(),
                         content_identity: file.content_identity.clone(),
+                        source_identity: file.source_identity.clone(),
                         highlighter_key: highlighter_key.clone(),
                         epoch,
                     };
@@ -503,6 +543,7 @@ fn desired_line_highlight_tasks(
                     key: LineHighlightTaskKey {
                         file_id: file.runtime_id.clone(),
                         content_identity: file.content_identity.clone(),
+                        source_identity: file.source_identity.clone(),
                         epoch: scoped_epoch(epochs, &highlighter_key, &file.runtime_id),
                         highlighter_key,
                     },
@@ -615,6 +656,58 @@ mod tests {
     type HighlightHandler = dyn Fn(&str, &DiffFile, &AtomicBool) -> Result<Value, LineHighlightRuntimeError>
         + Send
         + Sync;
+
+    #[test]
+    fn bound_highlighter_loads_sources_only_in_worker_and_preserves_review_data() {
+        let reads = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&reads);
+        let (changeset, sources) = workdeck_vcs::materialize_vcs_patch_result_deferred(
+            workdeck_vcs::VcsPatchResult {
+                repo_root: ".".into(),
+                source_label: "highlight-source".into(),
+                title: "highlight-source".into(),
+                patch_text: "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n".into(),
+                untracked_paths: vec![],
+                extra_files: vec![],
+                source_cache_key: Some("pinned".into()),
+                source_reader: Some(Arc::new(move |request| {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    Ok(workdeck_vcs::VcsFileSourceResult::Source(workdeck_core::SourceSnapshot::new(
+                        match request.side { ReviewSide::Old => "old\n", ReviewSide::New => "new\n" }.into(),
+                        workdeck_core::SourceOrigin::WorkingTree,
+                        true,
+                    )))
+                })),
+            },
+            "review",
+            ChangesetSource::WorkingTree { staged: false },
+        ).unwrap();
+        let original = serde_json::to_value(&changeset).unwrap();
+        let runtime = FakeLineHighlightRuntime::new(|_, file, _| {
+            assert_eq!(file.sources.old.as_ref().unwrap().content, "old\n");
+            assert_eq!(file.sources.new.as_ref().unwrap().content, "new\n");
+            Ok(json!([]))
+        });
+        let bound = SourceBoundLineHighlightRuntime {
+            runtime: runtime.clone(),
+            sources: Some(sources),
+        };
+        assert_eq!(reads.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            bound.highlight_file("test", &changeset.files[0], &AtomicBool::new(true)),
+            Err(LineHighlightRuntimeError::Retry)
+        );
+        assert_eq!(reads.load(Ordering::SeqCst), 0);
+        assert!(runtime.calls().is_empty());
+        for _ in 0..2 {
+            bound
+                .highlight_file("test", &changeset.files[0], &AtomicBool::new(false))
+                .unwrap();
+        }
+        assert_eq!(reads.load(Ordering::SeqCst), 2);
+        assert_eq!(runtime.calls().len(), 2);
+        assert_eq!(serde_json::to_value(&changeset).unwrap(), original);
+    }
 
     struct FakeLineHighlightRuntime {
         pending: AtomicBool,
@@ -912,6 +1005,36 @@ mod tests {
             controller.resolved().get_shared("first").unwrap(),
             &first_marks
         ));
+    }
+
+    #[test]
+    fn changed_source_identity_invalidates_unchanged_patch_highlights() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("source-aware")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let mut file = test_file("file", "same-patch");
+        file.source_identity = Some("before".into());
+        let mut controller = LineHighlightPreparationController::default();
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            std::slice::from_ref(&file),
+            |controller| controller.pending_count() == 0,
+        );
+        assert_eq!(runtime.calls().len(), 1);
+        file.source_identity = Some("after".into());
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            std::slice::from_ref(&file),
+            |controller| controller.pending_count() == 0,
+        );
+        assert_eq!(runtime.calls().len(), 2);
     }
 
     #[test]

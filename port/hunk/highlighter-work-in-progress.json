@@ -1,0 +1,22 @@
+{
+  "id": "2c00f4358b89:src/ui/highlights/useLineHighlights.ts:0-16054",
+  "reason": "Full cache lifecycle parity is not established; prior mapping reopened. These paths are progress references, not a completed mapping.",
+  "destinations": [
+    "crates/workdeck-tui/src/line_highlights.rs",
+    "crates/workdeck-tui/src/lib.rs",
+    "crates/workdeck-extension-api/src/file_views.rs",
+    "crates/workdeck-extension-host/src/lib.rs",
+    "crates/workdeck-extension-host/src/line_highlights.rs",
+    "examples/extensions/line-highlighter/extension.rs"
+  ],
+  "evidence": [
+    "crates/workdeck-tui/src/line_highlights.rs",
+    "crates/workdeck-tui/src/lib.rs",
+    "crates/workdeck-extension-api/src/file_views.rs",
+    "crates/workdeck-extension-host/src/lib.rs",
+    "crates/workdeck-extension-host/src/line_highlights.rs",
+    "examples/extensions/line-highlighter/extension.rs",
+    "examples/tests/line_highlighter.rs",
+    "port/hunk/oracles/use-line-highlights.json"
+  ]
+}

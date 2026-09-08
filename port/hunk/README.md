@@ -1,5 +1,24 @@
 # Hunk semantic-port ledger
 
+## Deferred native line-highlighter sources
+
+Highlighter workers capture the current provider registry and obtain a
+consumer-owned source copy before invoking native extension code. Registration
+does not read sources; cancellation is checked before and after provider reads.
+The original review document remains unchanged and resolved sides use the same
+provider cache as other source consumers.
+
+A regression reproduced stale highlight reuse after source identity changed
+while patch content stayed unchanged: the extension ran once instead of twice.
+Source identity is now part of both scheduling and publication cache keys, so
+old-source completions cannot satisfy new-source tasks. This does not establish
+complete cache parity: unattested handle replacement with unchanged identity,
+registration identity changes, and metadata-changing transforms still need
+explicit review. The previously mapped full `useLineHighlights.ts` interval is
+reopened as unmapped. Its prior destination/evidence references are preserved in
+`highlighter-work-in-progress.json`, not as a completed ledger mapping.
+The honest unmapped count is now 313, not 312.
+
 ## Deferred interactive VCS inputs
 
 Interactive diff, show, stash, and dynamic VCS reloads now materialize patch
@@ -23,8 +42,9 @@ workspace contexts now obtain consumer-owned source copies through retained
 provider handles. Workspace writes use the same cached provider snapshots for
 origin/attestation and optimistic disk-content checks. The review document is not
 mutated; retirement removes handles from future consumers while already captured
-generations retain their own registry. Full-source line-highlighter input and
-source preservation through metadata-changing transforms still require follow-up.
+generations retain their own registry. Highlighter workers now use those sources
+as described above; source preservation through metadata-changing transforms
+still requires follow-up.
 
 Checkpoint verification: all 91 terminal tests and 1,045 TUI unit tests pass,
 along with the focused source-copy test, workspace Clippy, formatting, and

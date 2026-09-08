@@ -7136,7 +7136,12 @@ impl ReviewApp {
             .extensions
             .iter()
             .cloned()
-            .map(|extension| Arc::new(extension) as Arc<dyn LineHighlightRuntime>)
+            .map(|extension| {
+                Arc::new(line_highlights::SourceBoundLineHighlightRuntime {
+                    runtime: Arc::new(extension),
+                    sources: self.options.source_capabilities.clone(),
+                }) as Arc<dyn LineHighlightRuntime>
+            })
             .collect::<Vec<_>>();
         let registrations = runtime.line_highlights.registrations().to_vec();
         let epochs = runtime.line_highlights.epochs().clone();
