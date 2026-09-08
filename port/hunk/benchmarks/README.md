@@ -215,3 +215,8 @@ from the prior geometry-only reveal result; no material latency gain is demonstr
 workload. The newly adjusted keyboard/cursor paths need separately targeted performance coverage.
 All original interaction latency gates remain failed. Further optimization requires profiling the
 remaining production rendering work, not changing workload counts or claiming success from tests.
+
+[Native sampled profile](interaction-profile-7bc6ed7e.md) identifies SHA-256 compression,
+allocation, syntax parsing and word differences among the major top-of-stack observations during
+the optimized workload. It records the code correlation to repeated highlight identity construction
+and the limits of the partial-process sample. Sampled timings are not added to benchmark reports.
