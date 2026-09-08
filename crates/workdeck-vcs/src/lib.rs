@@ -3,6 +3,7 @@
 mod bundled;
 mod catalog;
 mod file_comparison;
+mod file_source;
 mod git_adapter;
 mod git_commands;
 mod git_source;
@@ -25,6 +26,7 @@ mod watch_signature;
 pub use bundled::*;
 pub use catalog::*;
 pub use file_comparison::*;
+pub use file_source::*;
 pub use git_adapter::*;
 pub use git_commands::*;
 pub use git_source::*;

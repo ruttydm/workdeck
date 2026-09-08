@@ -1,19 +1,31 @@
 # Hunk semantic-port ledger
 
-## Reopened filesystem fetcher coverage
+## Repaired filesystem fetcher coverage
 
 The mappings for `src/core/changeset/fileSource.ts` and its complete test file
-have been reopened as unmapped. Their previous destinations implement bounded
+were reopened as unmapped in `3acf785b`. Their previous destinations implemented bounded
 reads and snapshot storage, but not the source module's per-fetcher old/new cache
 of resolved text and missing results. In particular, the upstream test that
 rewrites a file after its first fetch has no corresponding cached-fetcher test in
 those destinations. A broad source/test file link was insufficient evidence.
 
-The original interval boundaries, blob hashes, classification, and provenance
-are unchanged; Git retains the withdrawn destination/evidence lists. Both
-intervals must regain genuine implementation and translated tests before being
-mapped again. The provider-to-live-review lazy-load integration remains a
-separate unfinished responsibility.
+The native `workdeck-vcs::FileSourceFetcher` contract and its filesystem
+implementation now provide both source specs, the default/configurable limit,
+typed limit errors, an absent attestation key, and independent caches for old/new
+resolved text or missing values. Errors are not cached. The cache mutex is not
+held during I/O, and in-flight requests are not cached. Host scheduling is separate
+from this synchronous, thread-safe source capability.
+
+All five source tests now have explicit Rust test anchors, plus a native regression
+for cached missing values and retryable size failures. Both pinned five-test files
+were executed successfully; `oracles/file-source-execution.json` retains the raw
+receipts and test mappings. The full 236-test VCS suite and VCS Clippy pass.
+
+The two intervals regain coverage only with this implementation and executable
+evidence. Their original boundaries, blob hashes, classification, and provenance
+are unchanged; Git retains the withdrawn mappings. The provider-to-live-review
+lazy-load integration remains a separate unfinished responsibility. These library
+tests do not certify that live controller integration.
 
 ## Source decoding parity
 

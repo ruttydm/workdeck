@@ -1,0 +1,27 @@
+{
+  "kind": "pinned-test-execution",
+  "runtime": "Bun 1.3.14",
+  "command": "bun test src/core/changeset/fileSource.test.ts",
+  "scope": "Complete five-test source file; execution receipts are not full live-controller parity evidence.",
+  "rustTests": [
+    "crates/workdeck-vcs/src/file_source.rs#tests::reads_fs_paths_for_old_and_new_sides",
+    "crates/workdeck-vcs/src/file_source.rs#tests::returns_none_for_none_specs",
+    "crates/workdeck-vcs/src/file_source.rs#tests::returns_none_when_an_fs_path_cannot_be_read",
+    "crates/workdeck-vcs/src/file_source.rs#tests::rejects_fs_source_reads_that_exceed_the_configured_byte_cap",
+    "crates/workdeck-vcs/src/file_source.rs#tests::caches_resolved_text_per_side"
+  ],
+  "runs": [
+    {
+      "pin": "baseline",
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "combinedOutput": "bun test v1.3.14 (0d9b296a)\n\nsrc/core/changeset/fileSource.test.ts:\n(pass) createFileSourceFetcher > reads fs paths for old and new sides [4.68ms]\n(pass) createFileSourceFetcher > returns null for `none` specs [0.38ms]\n(pass) createFileSourceFetcher > returns null when an fs path cannot be read [0.30ms]\n(pass) createFileSourceFetcher > rejects fs source reads that exceed the configured byte cap [1.24ms]\n(pass) createFileSourceFetcher > caches resolved text per side [0.46ms]\n\n 5 pass\n 0 fail\n 8 expect() calls\nRan 5 tests across 1 file. [107.00ms]\n"
+    },
+    {
+      "pin": "stable",
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "combinedOutput": "bun test v1.3.14 (0d9b296a)\n\nsrc/core/changeset/fileSource.test.ts:\n(pass) createFileSourceFetcher > reads fs paths for old and new sides [1.33ms]\n(pass) createFileSourceFetcher > returns null for `none` specs [0.06ms]\n(pass) createFileSourceFetcher > returns null when an fs path cannot be read [0.17ms]\n(pass) createFileSourceFetcher > rejects fs source reads that exceed the configured byte cap [0.54ms]\n(pass) createFileSourceFetcher > caches resolved text per side [0.42ms]\n\n 5 pass\n 0 fail\n 8 expect() calls\nRan 5 tests across 1 file. [16.00ms]\n"
+    }
+  ]
+}
