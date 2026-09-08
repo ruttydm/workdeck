@@ -28,6 +28,21 @@ original decode failure. All 206 host unit tests, host all-target Clippy with
 warnings denied, formatting and whitespace checks pass. This closes that settlement
 race, not the outstanding arbitrary parent-reason propagation gap.
 
+### Reason-carrying native parent cancellation
+
+The existing host `ExtensionRequestCancellation` handle now retains the first
+JSON-compatible reason under synchronized publication. Clones share that reason;
+later aborts and reasonless cleanup cannot overwrite it. The new
+`highlight_file_with_cancellation` lazy-document entry point forwards that reason
+in native cleanup notifications. Legacy atomic-boolean entry points remain valid.
+All 207 host unit tests pass, including first-reason retention. All 25 compiled
+highlighter integration tests pass, including nested JSON reason preservation
+through actual child-process cleanup. The TUI coordinator still uses its
+boolean path: integrating its timeout and supersession reasons remains required
+before claiming full hook parity.
+Host and examples all-target Clippy with warnings denied, formatting, and
+whitespace checks also pass for this increment.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation

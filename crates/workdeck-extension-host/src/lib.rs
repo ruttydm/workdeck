@@ -1165,9 +1165,10 @@ impl LoadedExtension {
         method: &str,
         params: impl Serialize,
         timeout: Duration,
-        cancelled: &AtomicBool,
+        cancellation: (&AtomicBool, Option<&ExtensionRequestCancellation>),
         documents: Option<ExtensionDocumentReader>,
     ) -> Result<Value, HostError> {
+        let (cancelled, parent_cancellation) = cancellation;
         let deadline = Instant::now() + timeout;
         let budget = child_pipe::WriteBudget::Until(deadline, Some(cancelled));
         let mut connection = self.try_connection()?;
@@ -1306,16 +1307,18 @@ impl LoadedExtension {
             }
             _ => workdeck_extension_api::ExtensionCancellationCause::Settled,
         };
+        let mut cleanup =
+            workdeck_extension_api::ExtensionRequestCancellation::new(id, cancellation_cause);
+        if cancellation_cause == workdeck_extension_api::ExtensionCancellationCause::Cancelled {
+            cleanup.reason = parent_cancellation.and_then(ExtensionRequestCancellation::reason);
+        }
         let _ = self
             .connection_for_write(cleanup_budget)
             .and_then(|mut connection| {
                 self.send_notification_with_budget_on(
                     &mut connection,
                     "$/cancelRequest",
-                    workdeck_extension_api::ExtensionRequestCancellation::new(
-                        id,
-                        cancellation_cause,
-                    ),
+                    cleanup,
                     cleanup_budget,
                 )
             });
@@ -2306,7 +2309,7 @@ impl LoadedExtension {
                 aborted: false,
             },
             LINE_HIGHLIGHT_TIMEOUT,
-            cancelled,
+            (cancelled, None),
             None,
         )
     }
@@ -2330,7 +2333,31 @@ impl LoadedExtension {
                 aborted: false,
             },
             LINE_HIGHLIGHT_TIMEOUT,
-            cancelled,
+            (cancelled, None),
+            Some(documents),
+        )
+    }
+
+    /// Invoke a lazy highlighter while retaining its parent's structured abort reason.
+    pub fn highlight_file_with_cancellation(
+        &mut self,
+        highlighter_id: &str,
+        file: &DiffFile,
+        cancellation: &ExtensionRequestCancellation,
+        documents: ExtensionDocumentReader,
+    ) -> Result<Value, HostError> {
+        self.require_line_highlighter(highlighter_id)?;
+        self.request_cancellable(
+            "workdeck/line-highlighter/highlight",
+            LineHighlightRequest {
+                highlighter_id: highlighter_id.to_owned(),
+                file: project_extension_diff_file(file),
+                documents: BTreeMap::new(),
+                document_reader: true,
+                aborted: false,
+            },
+            LINE_HIGHLIGHT_TIMEOUT,
+            (cancellation.flag(), Some(cancellation)),
             Some(documents),
         )
     }

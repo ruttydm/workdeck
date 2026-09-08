@@ -9,16 +9,48 @@ type DocumentFetcher =
     Arc<dyn Fn(ExtensionFileSide) -> Result<Option<String>, String> + Send + Sync + 'static>;
 
 #[derive(Debug, Clone, Default)]
-pub struct ExtensionRequestCancellation(Arc<AtomicBool>);
+pub struct ExtensionRequestCancellation(Arc<RequestCancellationState>);
+
+#[derive(Debug, Default)]
+struct RequestCancellationState {
+    cancelled: AtomicBool,
+    reason: Mutex<Option<serde_json::Value>>,
+}
 
 impl ExtensionRequestCancellation {
     pub fn cancel(&self) {
-        self.0.store(true, Ordering::Release);
+        self.cancel_with_reason(None);
+    }
+
+    /// Abort once, preserving the first parent's JSON-compatible reason.
+    pub fn cancel_with_reason(&self, reason: Option<serde_json::Value>) {
+        let mut stored = self
+            .0
+            .reason
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if !self.is_cancelled() {
+            *stored = reason;
+            self.0.cancelled.store(true, Ordering::Release);
+        }
+    }
+
+    #[must_use]
+    pub fn reason(&self) -> Option<serde_json::Value> {
+        self.0
+            .reason
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
+
+    pub(crate) fn flag(&self) -> &AtomicBool {
+        &self.0.cancelled
     }
 
     #[must_use]
     pub fn is_cancelled(&self) -> bool {
-        self.0.load(Ordering::Acquire)
+        self.0.cancelled.load(Ordering::Acquire)
     }
 
     #[must_use]
@@ -188,6 +220,23 @@ impl ExtensionDocumentReader {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn cancellation_retains_first_reason_across_clones_and_cleanup() {
+        let cancellation = super::ExtensionRequestCancellation::default();
+        let peer = cancellation.clone();
+        assert!(!peer.is_cancelled());
+        let reason = serde_json::json!({"message":"superseded","context":[1,true]});
+        cancellation.cancel_with_reason(Some(reason.clone()));
+        peer.cancel();
+        peer.cancel_with_reason(Some(serde_json::json!("replacement")));
+        assert!(peer.is_cancelled());
+        assert_eq!(peer.reason(), Some(reason));
+        let without_reason = super::ExtensionRequestCancellation::default();
+        without_reason.cancel();
+        without_reason.cancel_with_reason(Some(serde_json::json!("late")));
+        assert_eq!(without_reason.reason(), None);
+    }
+
     use std::sync::mpsc;
 
     use super::*;

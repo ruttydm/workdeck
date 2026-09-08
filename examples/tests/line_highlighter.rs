@@ -122,6 +122,53 @@ fn native_cleanup_distinguishes_settlement_timeout_and_parent_cancellation() {
 }
 
 #[test]
+fn native_parent_abort_preserves_structured_reason_through_cleanup() {
+    let (_directory, manifest) = staged_extension();
+    let mut extension = LoadedExtension::spawn(&manifest, "test").unwrap();
+    let cancellation = workdeck_extension_host::ExtensionRequestCancellation::default();
+    let reason = serde_json::json!({"message":"superseded","generation":42,"details":[true,null]});
+    let mut peer = extension.clone();
+    std::thread::scope(|scope| {
+        let waiting = scope.spawn(|| {
+            peer.highlight_file_with_cancellation(
+                "hang",
+                &review_file("reason.rs"),
+                &cancellation,
+                workdeck_extension_host::ExtensionDocumentReader::new(|_| Ok(None)),
+            )
+        });
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !extension.request_pending() || extension.line_highlight_request_pending() {
+            assert!(
+                Instant::now() < deadline,
+                "parent never acquired routed ownership"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        cancellation.cancel_with_reason(Some(reason.clone()));
+        cancellation.cancel();
+        assert!(matches!(
+            waiting.join().unwrap(),
+            Err(HostError::Cancelled(_))
+        ));
+    });
+    let value = extension
+        .request(
+            "example/last-cancellation",
+            serde_json::json!({}),
+            Duration::from_secs(2),
+        )
+        .unwrap();
+    let received: workdeck_extension_api::ExtensionRequestCancellation =
+        serde_json::from_value(value).unwrap();
+    assert_eq!(
+        received.cause,
+        Some(workdeck_extension_api::ExtensionCancellationCause::Cancelled)
+    );
+    assert_eq!(received.reason, Some(reason));
+}
+
+#[test]
 fn late_serialized_reply_burst_cannot_block_a_routed_highlighter_request() {
     let (_directory, manifest) = staged_extension();
     let mut extension = LoadedExtension::spawn_with_configuration(
