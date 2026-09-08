@@ -2,6 +2,48 @@
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 
+pub(crate) fn verify_ci_snapshot(binary: &[u8], bundle: &[u8], name: &str) -> Result<()> {
+    // Private temporary copies prevent later changes to original inputs from changing
+    // what the verifier reads. The caller archives these same in-memory bytes.
+    let snapshot = verification_snapshot(binary, bundle, name)?;
+    verify(
+        [
+            "--ci".to_owned(),
+            snapshot
+                .path()
+                .join(name)
+                .to_str()
+                .context("non-UTF-8 verifier snapshot path")?
+                .to_owned(),
+            snapshot
+                .path()
+                .join("bundle.json")
+                .to_str()
+                .context("non-UTF-8 verifier bundle path")?
+                .to_owned(),
+        ]
+        .into_iter(),
+    )
+}
+
+fn verification_snapshot(binary: &[u8], bundle: &[u8], name: &str) -> Result<tempfile::TempDir> {
+    if !matches!(name, "workdeck" | "workdeck.exe") {
+        bail!("unexpected executable name for verification snapshot");
+    }
+    decode_bundle(bundle)?;
+    let mut builder = tempfile::Builder::new();
+    builder.prefix("workdeck-provenance-");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    let directory = builder.tempdir()?;
+    std::fs::write(directory.path().join(name), binary)?;
+    std::fs::write(directory.path().join("bundle.json"), bundle)?;
+    Ok(directory)
+}
+
 fn verification_args(repo: &str, digest: &str, reference: &str) -> Result<Vec<String>> {
     let parts: Vec<_> = repo.split('/').collect();
     if parts.len() != 2
@@ -449,6 +491,24 @@ mod tests {
         });
         let bytes = serde_json::to_vec_pretty(&bundle).unwrap();
         assert_eq!(decode_bundle(&bytes).unwrap(), statement);
+        for name in ["workdeck", "workdeck.exe"] {
+            let snapshot = verification_snapshot(b"binary", &bytes, name).unwrap();
+            let path = snapshot.path().to_owned();
+            assert_eq!(std::fs::read(path.join(name)).unwrap(), b"binary");
+            assert_eq!(std::fs::read(path.join("bundle.json")).unwrap(), bytes);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                assert_eq!(
+                    std::fs::metadata(&path).unwrap().permissions().mode() & 0o077,
+                    0
+                );
+            }
+            drop(snapshot);
+            assert!(!path.exists());
+        }
+        assert!(verification_snapshot(b"binary", &bytes, "../workdeck").is_err());
+        assert!(verification_snapshot(b"binary", b"{}", "workdeck").is_err());
         let mut entries = vec![("root/workdeck".into(), b"binary".to_vec(), 0o755)];
         super::super::attach_release_provenance(&mut entries, "root", "workdeck", bytes.clone())
             .unwrap();

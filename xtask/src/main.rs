@@ -1048,6 +1048,7 @@ struct PackageOptions {
     target: String,
     binary: Option<PathBuf>,
     provenance: PathBuf,
+    verify_ci: bool,
     output: PathBuf,
 }
 
@@ -1066,6 +1067,7 @@ fn parse_package_options(mut args: impl Iterator<Item = String>) -> Result<Packa
     let mut target = None;
     let mut binary = None;
     let mut provenance = None;
+    let mut verify_ci = false;
     let mut output = PathBuf::from("dist");
     while let Some(argument) = args.next() {
         match argument.as_str() {
@@ -1074,6 +1076,7 @@ fn parse_package_options(mut args: impl Iterator<Item = String>) -> Result<Packa
             "--provenance" => {
                 provenance = Some(PathBuf::from(required_value(&mut args, "--provenance")?))
             }
+            "--verify-ci" => verify_ci = true,
             "--output" => output = PathBuf::from(required_value(&mut args, "--output")?),
             _ => bail!("unknown release package option {argument:?}"),
         }
@@ -1082,6 +1085,7 @@ fn parse_package_options(mut args: impl Iterator<Item = String>) -> Result<Packa
         target: target.context("release package requires --target")?,
         binary,
         provenance: provenance.context("release package requires --provenance STATEMENT")?,
+        verify_ci,
         output,
     })
 }
@@ -1180,6 +1184,17 @@ fn package_release(options: PackageOptions) -> Result<()> {
         .take(1024 * 1024 + 1)
         .read_to_end(&mut provenance_bytes)?;
     attach_release_provenance(&mut entries, &root, executable_name, provenance_bytes)?;
+    if options.verify_ci {
+        let binary = entries
+            .iter()
+            .find(|entry| entry.0 == format!("{root}/{executable_name}"))
+            .context("missing archive executable")?;
+        let bundle = entries
+            .iter()
+            .find(|entry| entry.0 == format!("{root}/provenance.sigstore.json"))
+            .context("verified packaging requires a signed Sigstore bundle")?;
+        provenance::verify_ci_snapshot(&binary.1, &bundle.1, executable_name)?;
+    }
     fs::create_dir_all(&output).with_context(|| format!("create {}", output.display()))?;
     let archive = if options.target.contains("windows") {
         let path = output.join(format!("{root}.zip"));
@@ -2335,7 +2350,7 @@ fn print_help() {
         "cargo xtask media launch encode [--work-dir DIR] [--ffmpeg FILE] [--mp4 FILE] [--webm FILE]"
     );
     println!(
-        "cargo xtask release package --target TRIPLE --provenance STATEMENT [--binary PATH] [--output DIR]"
+        "cargo xtask release package --target TRIPLE --provenance STATEMENT [--verify-ci] [--binary PATH] [--output DIR]"
     );
     println!("cargo xtask release provenance-check BINARY STATEMENT");
     println!(

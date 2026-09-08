@@ -76,12 +76,10 @@ jobs:
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: target/${{ matrix.target }}/release/${{ matrix.executable }}
-      - name: Verify binary attestation identity and source
+      - name: Package licenses, SBOM, binary provenance, and checksum
         env:
           GH_TOKEN: ${{ github.token }}
-        run: cargo xtask release provenance-verify --ci "target/${{ matrix.target }}/release/${{ matrix.executable }}" "${{ steps.binary-provenance.outputs.bundle-path }}"
-      - name: Package licenses, SBOM, binary provenance, and checksum
-        run: cargo xtask release package --target ${{ matrix.target }} --provenance "${{ steps.binary-provenance.outputs.bundle-path }}"
+        run: cargo xtask release package --target ${{ matrix.target }} --provenance "${{ steps.binary-provenance.outputs.bundle-path }}" --verify-ci
       - name: Attest archive provenance
         uses: actions/attest-build-provenance@v2
         with:

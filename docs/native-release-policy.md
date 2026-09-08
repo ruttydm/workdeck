@@ -100,12 +100,16 @@ invokes the declared native `gh` binary's attestation verifier without a shell. 
 explicit repository, `.github/workflows/release.yml` signer, complete source commit and tag ref,
 GitHub Actions OIDC issuer, SLSA v1 predicate, and non-self-hosted runner. Nonzero exits, missing
 tools and a 120-second deadline fail the command; timed-out children are killed and reaped.
-CI invokes this before packaging with `--ci BINARY BUNDLE`, reading repository, commit and ref
+The standalone command supports `--ci BINARY BUNDLE`, reading repository, commit and ref
 directly from GitHub's environment rather than interpolating tag names into shell commands.
 This relies on the installed verifier and its trusted roots;
 it is not a home-grown cryptographic implementation. Local policy tests check argument enforcement,
 not signatures. Real signed-fixture, negative-certificate, cross-platform and remote CI evidence
-remain pending. Packaging invoked alone still performs only subject binding, and installer-side
+remain pending. CI now uses `release package ... --verify-ci`: it verifies private temporary
+copies of the exact binary and bundle bytes held in the archive entries before creating output.
+The original paths are not reopened after verification. Snapshot tests verify contents, cleanup
+and Unix directory permissions; Windows ACL behavior still needs native verification.
+Packaging without `--verify-ci` still performs only subject binding, and installer-side
 verification of packaged evidence remains unfinished. The host is explicitly `github.com`,
 independent of a user's `GH_HOST`. Native subprocess tests exercise successful exit, nonzero exit,
 and deadline termination/reaping using the Rust test executable; these are process-control tests,
