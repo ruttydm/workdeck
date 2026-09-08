@@ -38,6 +38,45 @@ for (const [group, module, fixtureKey, consumerKey, method] of groups) {
     results.push({ group, id: fixture.id, findings: fixture.findings, expected: fixture.expected, actual });
   }
 }
+const ordering = await read('orderingFixtures');
+for (const fixture of ordering.REVIEW_PUBLICATION_ORDER_FIXTURES) {
+  const actual = consumers.REVIEW_ORDERING_CONSUMERS.map(consumer => ({
+    consumer: consumer.name, output: consumer.classify(fixture.current, fixture.incoming),
+  }));
+  for (const consumer of actual) {
+    if (consumer.output !== fixture.expected) throw new Error(`ordering/${fixture.id}/${consumer.consumer} differs`);
+  }
+  results.push({ group: 'ordering', id: fixture.id, findings: fixture.findings,
+    input: { current: fixture.current, incoming: fixture.incoming }, expected: fixture.expected, actual });
+}
+const source = path => import(pathToFileURL(`${root}/${path}.ts`).href);
+const { ReviewProducer } = await source('src/app/review/producer');
+const { createReviewStore } = await source('src/core/review/store');
+const { classifyReviewPublication } = await source('src/core/review/generationOrder');
+const { createTestDiffFile } = await source('test/helpers/diff-helpers');
+for (const fixture of ordering.REVIEW_PRODUCER_ORDER_FIXTURES) {
+  const files = [createTestDiffFile({ before: 'alpha\n', after: 'beta\n' })];
+  const producer = new ReviewProducer({ files, sourceLabel: '/repo' }, { producerId: 'conformance' });
+  producer.attachStore(createReviewStore(producer.getPublication().document));
+  let previous = producer.getPublicationAddress();
+  const output = fixture.steps.map((step, index) => {
+    if (step.kind === 'reload') {
+      producer.publish({ files, sourceLabel: '/repo' });
+      producer.attachStore(createReviewStore(producer.getPublication().document));
+    } else {
+      producer.applyIntent({ type: 'filter/set', filter: `step-${index}` });
+    }
+    const next = producer.getPublicationAddress();
+    const verdict = classifyReviewPublication(previous, next);
+    previous = next;
+    return verdict;
+  });
+  const expected = fixture.steps.map(step => step.expected);
+  if (!Bun.deepEquals(output, expected)) throw new Error(`producer-ordering/${fixture.id} differs`);
+  results.push({ group: 'producer-ordering', id: fixture.id, findings: fixture.findings,
+    input: { steps: fixture.steps.map(step => step.kind) }, expected,
+    actual: [{ consumer: 'producer ordering', output }] });
+}
 console.log(JSON.stringify({ schemaVersion: 1, upstream: pin, runtime: `bun ${Bun.version}`, results }, null, 2));
 "#;
 
@@ -122,7 +161,14 @@ fn validate_capture(bytes: &[u8], pin: &str) -> Result<()> {
     let results = value["results"]
         .as_array()
         .context("missing conformance results")?;
-    for group in ["geometry", "navigation", "snapshot", "events"] {
+    for group in [
+        "geometry",
+        "navigation",
+        "snapshot",
+        "events",
+        "ordering",
+        "producer-ordering",
+    ] {
         if !results.iter().any(|case| case["group"] == group) {
             bail!("missing conformance group {group}");
         }
@@ -131,7 +177,7 @@ fn validate_capture(bytes: &[u8], pin: &str) -> Result<()> {
         let actual = case["actual"]
             .as_array()
             .context("missing actual consumers")?;
-        if actual.is_empty() || !case["expected"].is_object() {
+        if actual.is_empty() || case.get("expected").is_none() {
             bail!("empty consumer output or missing expected projection");
         }
         for consumer in actual {

@@ -3063,6 +3063,347 @@
           }
         }
       ]
+    },
+    {
+      "group": "ordering",
+      "id": "next-revision",
+      "findings": [
+        "C1"
+      ],
+      "input": {
+        "current": {
+          "generation": "generation:p1:3",
+          "stateRevision": 7
+        },
+        "incoming": {
+          "generation": "generation:p1:3",
+          "stateRevision": 8
+        }
+      },
+      "expected": "accepted",
+      "actual": [
+        {
+          "consumer": "core publication ordering",
+          "output": "accepted"
+        },
+        {
+          "consumer": "broker review mirror",
+          "output": "accepted"
+        }
+      ]
+    },
+    {
+      "group": "ordering",
+      "id": "non-contiguous-revision",
+      "findings": [
+        "C1"
+      ],
+      "input": {
+        "current": {
+          "generation": "generation:p1:3",
+          "stateRevision": 7
+        },
+        "incoming": {
+          "generation": "generation:p1:3",
+          "stateRevision": 41
+        }
+      },
+      "expected": "accepted",
+      "actual": [
+        {
+          "consumer": "core publication ordering",
+          "output": "accepted"
+        },
+        {
+          "consumer": "broker review mirror",
+          "output": "accepted"
+        }
+      ]
+    },
+    {
+      "group": "ordering",
+      "id": "replayed-revision",
+      "findings": [
+        "C1"
+      ],
+      "input": {
+        "current": {
+          "generation": "generation:p1:3",
+          "stateRevision": 7
+        },
+        "incoming": {
+          "generation": "generation:p1:3",
+          "stateRevision": 7
+        }
+      },
+      "expected": "stale",
+      "actual": [
+        {
+          "consumer": "core publication ordering",
+          "output": "stale"
+        },
+        {
+          "consumer": "broker review mirror",
+          "output": "stale"
+        }
+      ]
+    },
+    {
+      "group": "ordering",
+      "id": "earlier-revision",
+      "findings": [
+        "C1"
+      ],
+      "input": {
+        "current": {
+          "generation": "generation:p1:3",
+          "stateRevision": 7
+        },
+        "incoming": {
+          "generation": "generation:p1:3",
+          "stateRevision": 6
+        }
+      },
+      "expected": "stale",
+      "actual": [
+        {
+          "consumer": "core publication ordering",
+          "output": "stale"
+        },
+        {
+          "consumer": "broker review mirror",
+          "output": "stale"
+        }
+      ]
+    },
+    {
+      "group": "ordering",
+      "id": "generation-swap",
+      "findings": [
+        "C1"
+      ],
+      "input": {
+        "current": {
+          "generation": "generation:p1:3",
+          "stateRevision": 7
+        },
+        "incoming": {
+          "generation": "generation:p1:4",
+          "stateRevision": 0
+        }
+      },
+      "expected": "gap",
+      "actual": [
+        {
+          "consumer": "core publication ordering",
+          "output": "gap"
+        },
+        {
+          "consumer": "broker review mirror",
+          "output": "gap"
+        }
+      ]
+    },
+    {
+      "group": "ordering",
+      "id": "generation-swap-with-lower-revision",
+      "findings": [
+        "C1"
+      ],
+      "input": {
+        "current": {
+          "generation": "generation:p1:3",
+          "stateRevision": 900
+        },
+        "incoming": {
+          "generation": "generation:p1:4",
+          "stateRevision": 1
+        }
+      },
+      "expected": "gap",
+      "actual": [
+        {
+          "consumer": "core publication ordering",
+          "output": "gap"
+        },
+        {
+          "consumer": "broker review mirror",
+          "output": "gap"
+        }
+      ]
+    },
+    {
+      "group": "ordering",
+      "id": "skipped-generation",
+      "findings": [
+        "C1"
+      ],
+      "input": {
+        "current": {
+          "generation": "generation:p1:3",
+          "stateRevision": 7
+        },
+        "incoming": {
+          "generation": "generation:p1:6",
+          "stateRevision": 0
+        }
+      },
+      "expected": "gap",
+      "actual": [
+        {
+          "consumer": "core publication ordering",
+          "output": "gap"
+        },
+        {
+          "consumer": "broker review mirror",
+          "output": "gap"
+        }
+      ]
+    },
+    {
+      "group": "ordering",
+      "id": "retired-generation",
+      "findings": [
+        "C1"
+      ],
+      "input": {
+        "current": {
+          "generation": "generation:p1:4",
+          "stateRevision": 1
+        },
+        "incoming": {
+          "generation": "generation:p1:3",
+          "stateRevision": 900
+        }
+      },
+      "expected": "stale",
+      "actual": [
+        {
+          "consumer": "core publication ordering",
+          "output": "stale"
+        },
+        {
+          "consumer": "broker review mirror",
+          "output": "stale"
+        }
+      ]
+    },
+    {
+      "group": "ordering",
+      "id": "foreign-producer",
+      "findings": [
+        "C1"
+      ],
+      "input": {
+        "current": {
+          "generation": "generation:p1:3",
+          "stateRevision": 7
+        },
+        "incoming": {
+          "generation": "generation:p2:9",
+          "stateRevision": 900
+        }
+      },
+      "expected": "stale",
+      "actual": [
+        {
+          "consumer": "core publication ordering",
+          "output": "stale"
+        },
+        {
+          "consumer": "broker review mirror",
+          "output": "stale"
+        }
+      ]
+    },
+    {
+      "group": "ordering",
+      "id": "unparseable-identity",
+      "findings": [
+        "C1"
+      ],
+      "input": {
+        "current": {
+          "generation": "generation:p1:3",
+          "stateRevision": 7
+        },
+        "incoming": {
+          "generation": "generation:p1",
+          "stateRevision": 900
+        }
+      },
+      "expected": "stale",
+      "actual": [
+        {
+          "consumer": "core publication ordering",
+          "output": "stale"
+        },
+        {
+          "consumer": "broker review mirror",
+          "output": "stale"
+        }
+      ]
+    },
+    {
+      "group": "producer-ordering",
+      "id": "revisions-then-reload",
+      "findings": [
+        "C1"
+      ],
+      "input": {
+        "steps": [
+          "state",
+          "state",
+          "reload",
+          "state"
+        ]
+      },
+      "expected": [
+        "accepted",
+        "accepted",
+        "gap",
+        "accepted"
+      ],
+      "actual": [
+        {
+          "consumer": "producer ordering",
+          "output": [
+            "accepted",
+            "accepted",
+            "gap",
+            "accepted"
+          ]
+        }
+      ]
+    },
+    {
+      "group": "producer-ordering",
+      "id": "back-to-back-reloads",
+      "findings": [
+        "C1"
+      ],
+      "input": {
+        "steps": [
+          "reload",
+          "reload",
+          "reload"
+        ]
+      },
+      "expected": [
+        "gap",
+        "gap",
+        "gap"
+      ],
+      "actual": [
+        {
+          "consumer": "producer ordering",
+          "output": [
+            "gap",
+            "gap",
+            "gap"
+          ]
+        }
+      ]
     }
   ]
 }

@@ -1415,8 +1415,9 @@ must succeed before the command writes either tracked fixture.
 `oracles/review-conformance-main.json` and `oracles/review-conformance-stable.json` retain
 separate outputs because the pins differ. The source suites passed 111 and 106 tests,
 respectively, on macOS arm64 with Bun 1.3.14. These source-suite passes are not Rust parity.
-The capture currently excludes publication ordering, wire actions, and note-body/size
-projections; the source test run includes them, but their frozen projections remain work.
+The capture includes publication ordering and producer lifecycle transitions, including
+their independent input addresses and step sequences. Wire actions and note-body/size
+projections remain uncaptured; their source-suite passes are not frozen differential evidence.
 
 `cargo test -p workdeck-cli --test review_conformance` independently parses all six geometry
 inputs in Rust and checks core gaps, inclusive hunk ranges, default note targets, expansion
@@ -1434,7 +1435,12 @@ intent planner and the terminal reconciliation/store path. It checks all request
 annotation scopes, clamping/wrapping, hidden/vanished/absent selections, and reveal targets.
 The terminal adapter reads reveal counters from the real store transition; it does not
 reuse the planner's returned reveal as its answer. Both consumers pass both pinned corpora.
-Only the complete geometry and navigation fixture source files are mapped by this increment.
+The ordering module drives all ten publication cases through both the shared classifier
+and a real broker mirror seeded with the current catalog/address. It also applies both
+producer lifecycle sequences, reattaching the new generation's store after each reload.
+Both pins pass, including revision jumps, replayed and retired positions, foreign producers,
+malformed identities, and successive reloads. The geometry, navigation, and ordering fixture
+source files are mapped only after these complete executable translations pass.
 The larger harness, consumer registry, and remaining consumer implementations remain unmapped.
 
 The captured snapshot and event consumers are not yet exercised here. Capture-integrity tests
@@ -1444,3 +1450,8 @@ All corresponding incomplete ledger records remain unmapped.
 Full `cargo xtask verify` passed at `e4f3c782` before this conformance increment, including
 workspace tests, Clippy, release build, and the large-repository smoke test. This does not
 clear strict source coverage, benchmark, native-platform, signing, or release gates.
+The later full-workspace run at `fc471e27` failed ten app-host workspace tests during
+extension-probe startup with handshake timeouts; its geometry conformance tests passed.
+That failure is under investigation and the run must not be reported as a workspace pass.
+An isolated rerun of all eleven app-host workspace tests passed without changing their
+deadlines or implementation. This does not establish the cause of the earlier timeout.
