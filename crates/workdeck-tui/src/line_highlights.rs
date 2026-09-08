@@ -358,6 +358,7 @@ impl PreparationFileIdentity {
 pub struct LineHighlightPreparationController {
     retired: bool,
     generation: Option<Vec<LineHighlightTaskKey>>,
+    generation_epochs: Option<workdeck_extension_host::LineHighlightEpochState>,
     generation_files: Vec<PreparationFileIdentity>,
     deadlines: BTreeMap<LineHighlightTaskKey, (Instant, LineHighlightTask)>,
     // One lifetime per provider attempt, including transport contention/retries.
@@ -384,6 +385,7 @@ impl Default for LineHighlightPreparationController {
         Self {
             retired: false,
             generation: None,
+            generation_epochs: None,
             generation_files: Vec::new(),
             deadlines: BTreeMap::new(),
             attempt_deadlines: BTreeMap::new(),
@@ -426,6 +428,7 @@ impl LineHighlightPreparationController {
     pub fn replace_document(&mut self) {
         self.cancel_pending();
         self.generation = None;
+        self.generation_epochs = None;
         self.generation_files.clear();
         self.cache.clear();
         self.merged.clear();
@@ -466,6 +469,10 @@ impl LineHighlightPreparationController {
             .generation
             .as_ref()
             .is_none_or(|generation| generation.iter().ne(tasks.iter().map(|task| &task.key)))
+            || self
+                .generation_epochs
+                .as_ref()
+                .is_none_or(|previous| !previous.ptr_eq(epochs))
             || self.generation_files.len() != files.len()
             || self
                 .generation_files
@@ -475,6 +482,7 @@ impl LineHighlightPreparationController {
         {
             self.cancel_pending();
             self.generation = Some(tasks.iter().map(|task| task.key.clone()).collect());
+            self.generation_epochs = Some(epochs.clone());
             self.generation_files = files
                 .iter()
                 .map(|file| PreparationFileIdentity::capture(file))
@@ -2467,6 +2475,68 @@ mod tests {
             |controller| !controller.resolved().is_empty(),
         );
         assert_eq!(runtime.calls().len(), 1);
+    }
+
+    #[test]
+    fn hidden_file_epoch_change_keeps_completed_visible_marks_cached() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("cached")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [test_file("visible", "content")];
+        let mut controller = LineHighlightPreparationController::default();
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            &files,
+            |controller| !controller.resolved().is_empty(),
+        );
+        let original = controller.resolved().clone();
+        let bumped = workdeck_extension_host::bump_scoped_epoch(
+            &epochs,
+            "test-extension:cached",
+            Some("hidden"),
+        );
+        controller.reconcile(&extensions, &registrations, &bumped, &files);
+        assert!(controller.resolved().ptr_eq(&original));
+        assert_eq!(runtime.calls().len(), 1);
+        assert_eq!(controller.pending_count(), 0);
+    }
+
+    #[test]
+    fn hidden_file_epoch_change_restarts_queued_visible_preparation() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+        runtime.pending.store(true, Ordering::Release);
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("queued")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [test_file("visible", "content")];
+        let mut controller = LineHighlightPreparationController::default();
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        let original_deadline = *controller.attempt_deadlines.values().next().unwrap();
+        controller.reconcile(&extensions, &registrations, &epochs.clone(), &files);
+        assert_eq!(
+            *controller.attempt_deadlines.values().next().unwrap(),
+            original_deadline
+        );
+        let expired = Instant::now();
+        *controller.attempt_deadlines.values_mut().next().unwrap() = expired;
+        let bumped = workdeck_extension_host::bump_scoped_epoch(
+            &epochs,
+            "test-extension:queued",
+            Some("hidden"),
+        );
+        controller.reconcile(&extensions, &registrations, &bumped, &files);
+        assert_eq!(
+            controller.attempt_deadlines.len(),
+            1,
+            "epoch replacement must restart unfinished preparation"
+        );
+        assert!(*controller.attempt_deadlines.values().next().unwrap() > expired);
+        assert!(controller.cache.is_empty());
+        assert!(runtime.warnings().is_empty());
     }
 
     #[test]

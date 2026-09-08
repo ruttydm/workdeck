@@ -129,6 +129,23 @@ the 290 unmapped ledger records or 11 cached upstream commits, satisfy the
 same-host benchmark gate, or prove native multi-platform CI, signing, archive,
 installer, website, or other release gates. No ledger disposition changed.
 
+## Epoch-state generation identity
+
+Pinned `useLineHighlights.ts` lists the epoch-state object as an effect dependency.
+A native regression reproduced a hidden-file epoch change leaving a visible
+file's old queued deadline active: it timed out rather than restarting unfinished
+preparation. The coordinator now retains the shared epoch-state identity for the
+generation, in addition to effective per-file cache keys. Clones of that state
+do not restart work, and completed visible derivations remain reusable when only
+a hidden file's counter changes. This adds one shared handle, not a copied epoch
+map. Document replacement releases that handle.
+
+The regression failed before the fix with zero queued attempts instead of one.
+All 51 coordinator tests and 25 compiled highlighter integration tests pass,
+including completed-cache and shared-clone identity checks. TUI all-target Clippy
+with warnings denied, formatting and whitespace checks pass. The full verifier
+checkpoint above predates this change. No whole-hook ledger disposition is changed.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation
