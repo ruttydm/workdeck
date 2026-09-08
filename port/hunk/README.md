@@ -22,6 +22,12 @@ holding scrollbar interaction history constant; it also checks section allocatio
 The cache stores no painted rows and does not by itself prove a performance gate. Broader
 geometry reuse must account for all dynamic content; generation alone is insufficient.
 
+File-presentation menu projection also retains the immutable document rather than cloning
+all file bodies. Selected-file matching, draft availability, and bulk targets use references
+into that snapshot after releasing the review-state lock. Bulk targets still include matching
+files hidden by the current filter; the existing menu/bulk-action regression exercises this,
+selection persistence, and reload removal.
+
 ## Ledger transactions
 
 Ledger mutations hold a nonblocking OS lock for the entire read/modify/write transaction and

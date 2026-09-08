@@ -3117,7 +3117,7 @@ impl ReviewApp {
     }
 
     fn file_presentation_menu_projection(&self) -> FilePresentationMenuProjection {
-        let (files, selected_file, draft_file_id) = self.with_state(|state| {
+        let (document, selected_index, draft_file_id) = self.with_state(|state| {
             let selection = state.selection();
             let draft_file_id = self.note_composer.as_ref().and_then(|composer| {
                 state
@@ -3127,15 +3127,16 @@ impl ReviewApp {
                     .map(|file| file.runtime_id.clone())
             });
             (
-                state.changeset().files.clone(),
-                state.changeset().files.get(selection.file_index).cloned(),
+                state.changeset_snapshot(),
+                selection.file_index,
                 draft_file_id,
             )
         });
-        let Some(selected_file) = selected_file else {
+        let files = &document.files;
+        let Some(selected_file) = files.get(selected_index) else {
             return FilePresentationMenuProjection::default();
         };
-        if !self.review_file_is_visible(&files, &selected_file) {
+        if !self.review_file_is_visible(files, selected_file) {
             return FilePresentationMenuProjection::default();
         }
         let unavailable_reason = file_view_unavailable_reason(
@@ -3151,7 +3152,7 @@ impl ReviewApp {
             .map(|registration| FilePresentationMenuCandidate {
                 key: registered_file_view_key(&registration.view),
                 title: registration.title.clone(),
-                matches: runtime.cached_file_view_matches(registration, &selected_file),
+                matches: runtime.cached_file_view_matches(registration, selected_file),
             })
             .collect::<Vec<_>>();
         let stored_key = runtime
