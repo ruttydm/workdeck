@@ -11624,6 +11624,53 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let comments = comments_with_thread_draft(state.comments(), app.note_composer.as_ref());
+    let viewport = area
+        .height
+        .saturating_sub(2 + u16::from(!app.options.pager)) as usize;
+    // Only plain, unwrapped split streams use viewport painting for now. Complex
+    // content retains the complete painter, including extension lifecycle calls.
+    let purpose = if layout == LayoutMode::Split
+        && !app.options.wrap_lines
+        && comments.is_empty()
+        && app.note_composer.is_none()
+        && app.expanded_gaps.is_empty()
+        && file_view_layouts.is_empty()
+        && line_highlights.is_empty()
+        && state
+            .changeset()
+            .files
+            .iter()
+            .all(|file| file.agent.is_none())
+    {
+        let mut geometry_options = app.options.clone();
+        geometry_options.highlight = false;
+        let geometry = build_live_review_rows(
+            state.changeset(),
+            &comments,
+            state.selection(),
+            layout,
+            &geometry_options,
+            area.width,
+            &mut highlights,
+            &app.expanded_gaps,
+            &line_highlights,
+            &file_view_layouts,
+            &component_expanded,
+            &app.file_presentation_rendering,
+            app.options.extension_notifications.as_ref(),
+            &app.filter,
+            ReviewRowPurpose::Geometry,
+        );
+        let start = app
+            .scroll
+            .min(geometry.lines.len().saturating_sub(viewport));
+        ReviewRowPurpose::Viewport {
+            start,
+            end: start.saturating_add(viewport),
+        }
+    } else {
+        ReviewRowPurpose::Paint
+    };
     let mut rows = build_live_review_rows(
         state.changeset(),
         &comments,
@@ -11639,7 +11686,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         &app.file_presentation_rendering,
         app.options.extension_notifications.as_ref(),
         &app.filter,
-        ReviewRowPurpose::Paint,
+        purpose,
     );
     if let Some(composer) = &app.note_composer {
         rows.insert_composer(
@@ -11650,9 +11697,6 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             state.changeset().files.get(composer.target.file_index),
         );
     }
-    let viewport = area
-        .height
-        .saturating_sub(2 + u16::from(!app.options.pager)) as usize;
     if rows.lines.is_empty() {
         rows.lines
             .extend(std::iter::repeat_with(Line::default).take(viewport.saturating_sub(1) / 2));
@@ -12352,6 +12396,7 @@ fn build_review_rows(
 enum ReviewRowPurpose {
     Paint,
     Geometry,
+    Viewport { start: usize, end: usize },
 }
 
 fn diff_file_matches_filter(file: &DiffFile, filter: &str) -> bool {
@@ -12658,6 +12703,7 @@ fn build_review_rows_with_chrome(
                     selected_hunk,
                     line_highlight_paint.as_ref(),
                     purpose,
+                    rows.len(),
                 ),
                 LayoutMode::Stack | LayoutMode::Auto => stack_hunk_rows(
                     file,
@@ -13610,6 +13656,7 @@ fn split_hunk_rows(
     hunk_selected: bool,
     line_highlights: Option<&LineHighlightPaintIndex>,
     purpose: ReviewRowPurpose,
+    row_offset: usize,
 ) -> TargetedHunkRows {
     let mut rows = Vec::new();
     let mut targets = Vec::new();
@@ -13620,6 +13667,10 @@ fn split_hunk_rows(
     let right_width = pane_widths.right_width;
     let geometry_nowrap = purpose == ReviewRowPurpose::Geometry && !options.wrap_lines;
     for pair in plan_split_line_pairs(&hunk.lines) {
+        let geometry_nowrap = geometry_nowrap
+            || (!options.wrap_lines
+                && matches!(purpose, ReviewRowPurpose::Viewport { start, end }
+                    if !(start..end).contains(&row_offset.saturating_add(rows.len()))));
         let old = pair.old_index.and_then(|index| hunk.lines.get(index));
         let new = pair.new_index.and_then(|index| hunk.lines.get(index));
         let emphasis = old
@@ -21130,6 +21181,58 @@ mod tests {
         let frame = rendered_review_frame(&mut terminal, &app);
         assert!(!frame.contains("@@ -1,16 +1,16 @@"), "{frame}");
         assert_eq!(app.review_height.get(), height);
+    }
+
+    #[test]
+    fn viewport_split_rows_preserve_visible_styles_and_complete_geometry() {
+        for width in [0, 1, 24, 80, 240] {
+            for hunk_headers in [false, true] {
+                let app = ReviewApp::new(
+                    navigation_changeset(vec![
+                        (
+                            "one.ts".into(),
+                            "old 日\ncontext\n".repeat(4),
+                            "new 🚀\ncontext\n".repeat(4),
+                        ),
+                        ("two.ts".into(), "remove\n".into(), "added\nextra\n".into()),
+                    ]),
+                    ReviewOptions {
+                        layout: LayoutMode::Split,
+                        wrap_lines: false,
+                        horizontal_offset: 3,
+                        hunk_headers,
+                        ..ReviewOptions::default()
+                    },
+                );
+                app.review_width.set(width);
+                app.prefetch_file_highlights(0);
+                app.prefetch_file_highlights(1);
+                let full = app.current_review_rows();
+                for start in [0, 1, full.lines.len() / 2, full.lines.len()] {
+                    for height in [0, 1, 10] {
+                        let end = start.saturating_add(height).min(full.lines.len());
+                        let window = app.current_review_rows_with_options(
+                            &app.options,
+                            ReviewRowPurpose::Viewport { start, end },
+                        );
+                        assert_eq!(full.lines.len(), window.lines.len());
+                        assert_eq!(full.lines[start..end], window.lines[start..end]);
+                        assert_eq!(full.line_cursors, window.line_cursors);
+                        assert_eq!(full.note_targets, window.note_targets);
+                        assert_eq!(full.file_tops, window.file_tops);
+                        assert_eq!(full.file_header_tops, window.file_header_tops);
+                        assert_eq!(full.file_body_tops, window.file_body_tops);
+                        assert_eq!(full.hunk_tops, window.hunk_tops);
+                        assert_eq!(full.hunk_heights, window.hunk_heights);
+                        for cursor in &window.line_cursors {
+                            if !(start..end).contains(&cursor.row) {
+                                assert!(window.lines[cursor.row].spans.is_empty());
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]
