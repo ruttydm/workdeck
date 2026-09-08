@@ -412,3 +412,13 @@ renders reuse exact section positions instead of repeating the geometry prepass.
 comparisons after theme and terminal-width changes. This remains a diagnostic result,
 not scrolling parity (the earlier paired Hunk sample was about 1.2 ms), peak-memory
 acceptance, or additional ledger coverage. Other host activity was not controlled.
+
+### Immutable menu input at `d5add8d1`
+
+[Three optimized runs](interaction-stages-d5add8d1.json) report 8.09 ms first frame,
+26.79 ms navigation and 4.31 ms scrolling. Navigation dispatch/render medians are
+21.23/5.55 ms, and scroll dispatch/render medians are 0.024/4.28 ms. Menu projection
+now borrows an immutable changeset snapshot instead of cloning every file body; its
+matching, draft, filtering and bulk-action behavior is unchanged. The full 1,031-test
+TUI suite and scroll integration pass. These diagnostic improvements still do not meet
+the earlier pinned-source scrolling budget or establish peak-memory/source parity.
