@@ -3,6 +3,14 @@
 use std::io::{self, BufRead, Read};
 use workdeck_extension_api::MAX_MESSAGE_BYTES;
 
+/// Never recycle a parent ID that late frames may still reference.
+pub(crate) fn allocate_request_id(next: &mut u64) -> Option<u64> {
+    let following = next.checked_add(1)?;
+    let id = *next;
+    *next = following;
+    Some(id)
+}
+
 pub(crate) fn read_protocol_frame(reader: &mut impl BufRead) -> io::Result<Option<String>> {
     let mut bytes = Vec::new();
     let count = reader
@@ -25,6 +33,18 @@ pub(crate) fn read_protocol_frame(reader: &mut impl BufRead) -> io::Result<Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exhausted_request_ids_never_repeat_or_wrap() {
+        let mut next = u64::MAX - 1;
+        assert_eq!(allocate_request_id(&mut next), Some(u64::MAX - 1));
+        assert_eq!(allocate_request_id(&mut next), None);
+        assert_eq!(allocate_request_id(&mut next), None);
+        assert_eq!(next, u64::MAX);
+        let mut next = 1;
+        assert_eq!(allocate_request_id(&mut next), Some(1));
+        assert_eq!(allocate_request_id(&mut next), Some(2));
+    }
 
     #[test]
     fn preserves_frames_and_accepts_exact_payload_limit() {

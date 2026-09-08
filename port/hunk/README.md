@@ -1,5 +1,13 @@
 # Hunk semantic-port ledger
 
+## Native request-ID exhaustion
+
+The host no longer saturates and reuses its final request ID. Checked allocation
+returns an explicit error before writing when the ID space is exhausted; the
+cancellable path's existing send-failure cleanup retires its reserved inbox.
+Tests verify normal allocation, the last allocatable ID, and repeated failure
+without wrap or reuse. This protects routing identity and adds no ledger coverage.
+
 ## Pending-state compatibility during concurrent highlighting
 
 The general pending probe also uses a nonblocking route-lock check: contention

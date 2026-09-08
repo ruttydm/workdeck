@@ -1513,8 +1513,13 @@ impl LoadedExtension {
         method: &str,
         params: impl Serialize,
     ) -> Result<u64, HostError> {
-        let id = connection.next_id;
-        connection.next_id = connection.next_id.saturating_add(1);
+        let id = protocol_frame::allocate_request_id(&mut connection.next_id).ok_or_else(|| {
+            HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "request ID",
+                message: "native request ID space exhausted".into(),
+            }
+        })?;
         let request =
             JsonRpcRequest::new(id, method, params).map_err(|source| HostError::InvalidJson {
                 id: self.manifest.id.clone(),
