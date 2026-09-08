@@ -197,3 +197,12 @@ snapshots do not establish peak-memory acceptance. Native malloc usage remains d
 in the raw report and is not compared to JavaScript heap usage. Source parity and ledger mapping
 remain incomplete. The next performance work must investigate per-event row planning/rendering;
 changing the benchmark scale or excluding input dispatch would not resolve the observed gap.
+
+### Geometry-only reveal follow-up at `4938978a`
+
+[Three optimized native runs](interaction-diagnostic-4938978a.json) repeat the same workload after
+removing syntax styling from reveal-only geometry calculations. Median navigation press latency
+fell from 320.58 to 263.72 ms (17.7%). First frame is 158.25 ms and scrolling 227.71 ms: these
+remain close to the preceding run and do not show a material improvement. Post-navigation RSS
+median is 225443840 bytes, still a snapshot rather than peak usage. All latency gates remain
+failed against both pinned Hunk reports; source ledger mapping remains incomplete.
