@@ -971,6 +971,7 @@ mod tests {
             content_identity: "test-content".into(),
             sources: FileSourceSnapshots::default(),
             source_identity: None,
+            source_capability: None,
             source_attested: false,
             agent: None,
         }

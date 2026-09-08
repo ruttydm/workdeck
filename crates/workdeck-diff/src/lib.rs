@@ -764,6 +764,7 @@ pub fn build_diff_file(
         content_identity: String::new(),
         sources: workdeck_core::FileSourceSnapshots::default(),
         source_identity: None,
+        source_capability: None,
         source_attested: false,
         agent: None,
     };

@@ -728,6 +728,7 @@ mod tests {
             content_identity: key.into(),
             sources: workdeck_core::FileSourceSnapshots::default(),
             source_identity: None,
+            source_capability: None,
             source_attested: false,
             agent: None,
         }

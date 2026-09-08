@@ -12,6 +12,7 @@ mod paths;
 mod run;
 mod run_errors;
 mod semantic;
+mod source_capability;
 mod startup_notice;
 mod theme;
 mod view_preferences;
@@ -24,6 +25,7 @@ pub use paths::*;
 pub use run::*;
 pub use run_errors::*;
 pub use semantic::*;
+pub use source_capability::*;
 pub use startup_notice::*;
 pub use theme::*;
 pub use view_preferences::*;
@@ -386,6 +388,9 @@ pub struct DiffFile {
     pub content_identity: String,
     #[serde(default)]
     pub sources: FileSourceSnapshots,
+    /// Identity metadata only; deserialization does not grant source access.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_capability: Option<SourceCapabilityIdentity>,
     pub source_identity: Option<String>,
     #[serde(default)]
     pub source_attested: bool,
@@ -430,6 +435,12 @@ impl DiffFile {
     }
 
     fn refresh_source_identity(&mut self) {
+        if let Some(capability) = &self.source_capability {
+            self.source_identity =
+                Some(capability.source_identity(&self.path, &self.content_identity));
+            self.source_attested = capability.attested();
+            return;
+        }
         self.source_identity =
             self.sources
                 .new
@@ -442,6 +453,18 @@ impl DiffFile {
                         Some(&snapshot.content_identity),
                     )
                 });
+    }
+
+    pub fn set_source_capability(&mut self, capability: Option<SourceCapabilityIdentity>) {
+        self.source_capability = capability;
+        self.source_attested = (self.sources.old.is_some() || self.sources.new.is_some())
+            && self
+                .sources
+                .old
+                .iter()
+                .chain(self.sources.new.iter())
+                .all(|source| source.attested);
+        self.refresh_source_identity();
     }
 }
 
@@ -619,6 +642,7 @@ mod tests {
             content_identity: String::new(),
             sources: FileSourceSnapshots::default(),
             source_identity: None,
+            source_capability: None,
             source_attested: false,
             agent: None,
         }
@@ -720,6 +744,82 @@ mod tests {
             ))
         );
         assert!(!file.source_attested);
+    }
+
+    #[test]
+    fn file_capability_projection_matches_frozen_oracles_before_and_after_loading() {
+        let oracle: Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/source-capability-identity.json"
+        ))
+        .unwrap();
+        for run in oracle["runs"].as_array().unwrap() {
+            for case in run["cases"].as_array().unwrap() {
+                let input = &case["input"];
+                let mut file = file();
+                file.path = input["path"].as_str().unwrap_or("source.ts").into();
+                file.runtime_id = input["runtimeId"].as_str().unwrap_or("one").into();
+                file.language = Some("typescript".into());
+                file.patch = input["patch"].as_str().unwrap_or("").into();
+                file.split_row_count = 0;
+                file.stack_row_count = 0;
+                file.flags.partial = true;
+                file.set_source_capability(input.get("capability").map(|capability| {
+                    SourceCapabilityIdentity {
+                        cache_key: capability["cacheKey"].as_str().map(str::to_owned),
+                    }
+                }));
+                file.refresh_identity();
+                assert_eq!(
+                    file.content_identity, case["contentIdentity"],
+                    "{}",
+                    input["name"]
+                );
+                assert_eq!(
+                    file.source_identity.as_deref(),
+                    case["sourceIdentity"].as_str()
+                );
+                assert_eq!(
+                    file.source_attested,
+                    case["sourceAttested"].as_bool().unwrap_or(false)
+                );
+                let projected = project_review_file(&file, "source-capability", 0);
+                assert_eq!(projected.content_identity, case["contentIdentity"]);
+                assert_eq!(projected.source_identity, file.source_identity);
+                assert_eq!(projected.source_attested, case["sourceAttested"].as_bool());
+                let serialized = serde_json::to_value(&file).unwrap();
+                assert_eq!(
+                    serialized.get("source_capability").is_some(),
+                    input.get("capability").is_some()
+                );
+                assert_eq!(
+                    serde_json::from_value::<DiffFile>(serialized).unwrap(),
+                    file
+                );
+                if file.source_capability.is_some() {
+                    let identity = file.source_identity.clone();
+                    let attested = file.source_attested;
+                    for content in ["first", "replacement"] {
+                        file.set_sources(FileSourceSnapshots {
+                            old: None,
+                            new: Some(SourceSnapshot::new(
+                                content.into(),
+                                SourceOrigin::WorkingTree,
+                                !attested,
+                            )),
+                        });
+                        file.refresh_identity();
+                        assert_eq!(file.source_identity, identity);
+                        assert_eq!(file.source_attested, attested);
+                    }
+                    file.set_source_capability(None);
+                    assert_ne!(file.source_identity, identity);
+                    assert_eq!(file.source_attested, !attested);
+                    file.set_sources(FileSourceSnapshots::default());
+                    assert_eq!(file.source_identity, None);
+                    assert!(!file.source_attested);
+                }
+            }
+        }
     }
 
     #[test]

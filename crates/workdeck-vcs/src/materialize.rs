@@ -101,6 +101,9 @@ pub fn materialize_vcs_patch_result(
             if file.flags.binary || file.flags.too_large {
                 continue;
             }
+            file.set_source_capability(Some(workdeck_core::SourceCapabilityIdentity {
+                cache_key: result.source_cache_key.clone(),
+            }));
             let old = reader(&VcsFileSourceRequest {
                 path: file.path.clone(),
                 previous_path: file.previous_path.clone(),
@@ -224,6 +227,25 @@ mod tests {
         );
         assert_eq!(changeset.files[1].change_kind, FileChangeKind::Added);
         assert!(changeset.files[1].flags.untracked);
+        let tracked = &changeset.files[0];
+        assert_eq!(
+            tracked
+                .source_capability
+                .as_ref()
+                .unwrap()
+                .cache_key
+                .as_deref(),
+            Some("sources")
+        );
+        assert!(tracked.source_attested);
+        assert_eq!(
+            tracked.source_identity,
+            Some(workdeck_core::review_source_identity(
+                &tracked.path,
+                &tracked.content_identity,
+                Some("sources"),
+            ))
+        );
     }
 
     #[test]
@@ -256,6 +278,12 @@ mod tests {
         .unwrap();
         assert_eq!(changeset.files.len(), 1);
         assert_eq!(changeset.files[0].sources, FileSourceSnapshots::default());
+        assert_eq!(
+            changeset.files[0].source_capability,
+            Some(workdeck_core::SourceCapabilityIdentity::default())
+        );
+        assert!(changeset.files[0].source_identity.is_some());
+        assert!(!changeset.files[0].source_attested);
     }
 
     #[test]
@@ -302,6 +330,7 @@ mod tests {
             content_identity: String::new(),
             sources: Default::default(),
             source_identity: None,
+            source_capability: None,
             source_attested: false,
             agent: None,
         };

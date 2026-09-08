@@ -331,6 +331,7 @@ fn skipped_tracked_file(file: GitNumstatFile, source_label: &str, index: usize) 
         content_identity: String::new(),
         sources: FileSourceSnapshots::default(),
         source_identity: None,
+        source_capability: None,
         source_attested: false,
         agent: None,
     };

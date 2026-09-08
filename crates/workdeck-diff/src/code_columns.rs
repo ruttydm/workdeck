@@ -328,6 +328,7 @@ mod tests {
                 )),
             },
             source_identity: None,
+            source_capability: None,
             source_attested: true,
             agent: None,
         };

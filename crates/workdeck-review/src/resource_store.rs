@@ -529,6 +529,7 @@ mod tests {
             content_identity: String::new(),
             sources: FileSourceSnapshots::default(),
             source_identity: None,
+            source_capability: None,
             source_attested: false,
             agent: None,
         };

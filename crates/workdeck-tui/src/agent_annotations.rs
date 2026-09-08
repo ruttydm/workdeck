@@ -287,6 +287,7 @@ mod tests {
             content_identity: "content".into(),
             sources: FileSourceSnapshots::default(),
             source_identity: None,
+            source_capability: None,
             source_attested: false,
             agent: Some(AgentFileContext {
                 path: "src/new.rs".into(),

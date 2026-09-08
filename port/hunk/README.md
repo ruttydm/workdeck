@@ -1,5 +1,21 @@
 # Hunk semantic-port ledger
 
+## Source capability identity integration
+
+The shared `DiffFile` model now retains optional source-capability identity
+metadata separately from loaded source snapshots. Frozen document projections
+from both pinned Hunk trees cover absent capabilities, absent and empty cache
+keys, changed keys, runtime IDs, content, and paths. Core tests reproduce those
+identities and attestations before loading and after replacing source text.
+Legacy serialized files omit the new optional field and remain readable.
+
+VCS materialization preserves the provider cache key instead of substituting a
+loaded text digest. The descriptor is data, not executable authority: reading it
+does not grant filesystem access. Provider fetcher handoff, asynchronous loading,
+retry, and reload retirement in the live review controller remain unfinished.
+This change adds no ledger coverage. See
+`oracles/source-capability-identity.json` for the pinned driver and raw outputs.
+
 ## Repaired filesystem fetcher coverage
 
 The mappings for `src/core/changeset/fileSource.ts` and its complete test file
