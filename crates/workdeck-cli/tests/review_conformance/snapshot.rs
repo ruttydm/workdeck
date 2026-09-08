@@ -1,5 +1,6 @@
 //! Hunk MIT saved-note snapshot corpus through the public native projection.
 
+use super::models::{ReviewSnapshotFixture, ReviewSnapshotProjection};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{buffer::Buffer, layout::Rect};
 use serde_json::{Value, json};
@@ -11,8 +12,9 @@ use workdeck_review::{
 };
 use workdeck_tui::{ReviewApp, ReviewOptions, render};
 
-pub(super) const CONSUMER: super::models::Consumer<fn(bool) -> Value> =
-    super::models::Consumer::new("extension review snapshot", "extension API v8", projection);
+pub(super) const CONSUMER: super::models::Consumer<
+    fn(&ReviewSnapshotFixture) -> ReviewSnapshotProjection,
+> = super::models::Consumer::new("extension review snapshot", "extension API v8", projection);
 
 fn comment(
     id: &str,
@@ -99,7 +101,7 @@ fn changeset() -> Changeset {
     }
 }
 
-fn projection(include_reply: bool) -> Value {
+fn build_state(include_reply: bool) -> ReviewState {
     use ReviewNoteResolution::{Active, Orphaned, Stale};
     let changeset = changeset();
     let mut state = ReviewState::new(changeset.clone());
@@ -122,8 +124,15 @@ fn projection(include_reply: bool) -> Value {
     state.select_file(1).unwrap();
     state.select_file(0).unwrap();
     assert_eq!(state.state_revision(), 6);
+    state
+}
+
+fn projection(fixture: &ReviewSnapshotFixture) -> ReviewSnapshotProjection {
+    let state = (fixture.build)();
+    let saved_count = state.comments().len();
+    let revision = state.state_revision();
     let mut app = ReviewApp::new(
-        changeset,
+        state.changeset().clone(),
         ReviewOptions {
             sidebar: false,
             highlight: false,
@@ -150,10 +159,9 @@ fn projection(include_reply: bool) -> Value {
     );
     let shared = app.shared_state();
     let state = shared.lock().unwrap();
-    let snapshot =
-        build_extension_review_snapshot_with_generation("generation:conformance:3", &state);
-    assert_eq!(state.comments().len(), if include_reply { 4 } else { 3 });
-    assert_eq!(snapshot.state_revision, 6);
+    let snapshot = build_extension_review_snapshot_with_generation(&fixture.generation, &state);
+    assert_eq!(state.comments().len(), saved_count);
+    assert_eq!(snapshot.state_revision, revision);
     let notes = snapshot.notes.iter().map(|note| {
         let mut value = json!({"id": note.id, "fileKey": note.file_key,
             "resolution": note.resolution, "intersectingHunkIndices": note.anchor.intersecting_hunk_indices});
@@ -162,9 +170,11 @@ fn projection(include_reply: bool) -> Value {
         if let Some(owner) = note.anchor.owner_hunk_index { value["ownerHunkIndex"] = json!(owner); }
         value
     }).collect::<Vec<_>>();
-    json!({"generation": snapshot.generation, "stateRevision": snapshot.state_revision,
+    super::models::snapshot(
+        &json!({"generation": snapshot.generation, "stateRevision": snapshot.state_revision,
         "files": snapshot.files.iter().map(|file| json!({"fileKey": file.file_key,
-            "contentIdentity": file.content_identity})).collect::<Vec<_>>(), "notes": notes})
+            "contentIdentity": file.content_identity})).collect::<Vec<_>>(), "notes": notes}),
+    )
 }
 
 #[test]
@@ -179,7 +189,6 @@ fn complete_saved_note_snapshot_excludes_a_real_unsaved_terminal_draft() {
             false,
         ),
     ] {
-        let actual = (CONSUMER.project)(include_reply);
         let oracle: Value = serde_json::from_str(encoded).unwrap();
         let cases = oracle["results"]
             .as_array()
@@ -188,12 +197,61 @@ fn complete_saved_note_snapshot_excludes_a_real_unsaved_terminal_draft() {
             .filter(|case| case["group"] == "snapshot")
             .collect::<Vec<_>>();
         assert_eq!(cases.len(), 1);
-        assert_eq!(
-            super::models::snapshot(&actual),
-            super::models::snapshot(&cases[0]["expected"])
-        );
+        let fixture = ReviewSnapshotFixture {
+            id: cases[0]["id"].as_str().unwrap().into(),
+            findings: serde_json::from_value(cases[0]["findings"].clone()).unwrap(),
+            description: "live, user, stale, and orphaned notes survive in collection order while a draft stays out".into(),
+            generation: "generation:conformance:3".into(),
+            build: Box::new(move || build_state(include_reply)),
+            expected: super::models::snapshot(&cases[0]["expected"]),
+        };
+        assert_eq!(fixture.id, "complete-saved-note-state");
+        assert_eq!(fixture.findings, ["EXT1"]);
+        assert!(!fixture.description.is_empty());
+        let actual = (CONSUMER.project)(&fixture);
+        assert_eq!(actual, fixture.expected);
+        let actual = serde_json::to_value(actual).unwrap();
         assert_eq!(actual, cases[0]["expected"]);
         assert_eq!(cases[0]["actual"][0]["consumer"], CONSUMER.name);
         assert_eq!(actual, cases[0]["actual"][0]["output"]);
     }
+}
+
+#[test]
+fn snapshot_consumer_uses_fixture_generation_and_rebuilds_state_for_each_call() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    let oracle: Value = serde_json::from_str(include_str!(
+        "../../../../port/hunk/oracles/review-conformance-main.json"
+    ))
+    .unwrap();
+    let case = oracle["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|case| case["group"] == "snapshot")
+        .unwrap();
+    let mut expected = case["expected"].clone();
+    expected["generation"] = json!("generation:alternate");
+    let builds = Arc::new(AtomicUsize::new(0));
+    let observed_builds = Arc::clone(&builds);
+    let fixture = ReviewSnapshotFixture {
+        id: "fresh-snapshot-state".into(),
+        findings: vec!["EXT1".into()],
+        description: "Each snapshot uses the requested generation and a fresh saved-note state."
+            .into(),
+        generation: "generation:alternate".into(),
+        build: Box::new(move || {
+            observed_builds.fetch_add(1, Ordering::SeqCst);
+            build_state(true)
+        }),
+        expected: super::models::snapshot(&expected),
+    };
+    for _ in 0..2 {
+        assert_eq!((CONSUMER.project)(&fixture), fixture.expected);
+    }
+    assert_eq!(builds.load(Ordering::SeqCst), 2);
 }

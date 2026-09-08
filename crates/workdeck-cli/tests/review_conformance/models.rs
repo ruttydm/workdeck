@@ -175,6 +175,15 @@ pub(super) fn snapshot(value: &Value) -> ReviewSnapshotProjection {
     checked(value)
 }
 
+pub(super) struct ReviewSnapshotFixture {
+    pub id: String,
+    pub findings: Vec<String>,
+    pub description: String,
+    pub generation: String,
+    pub build: Box<dyn Fn() -> workdeck_review::ReviewState>,
+    pub expected: ReviewSnapshotProjection,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct ReviewEventFramingProjection {
