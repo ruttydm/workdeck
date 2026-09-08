@@ -171,9 +171,8 @@ intact and does not revoke unrelated routed parents. Subsequent writes
 cannot append JSON to a partial frame. Host tests include a real nonreading child
 with an observed nonzero partial write, plus short-write, backpressure, deadline
 and cancellation tests. The compiled highlighter fixture exercises a stopped reader
-through public host APIs. Windows still uses synchronous child pipes and requires
-a proper cancellable replacement; no cross-platform deadline parity or new source
-ledger mapping is claimed by this increment.
+through public host APIs. At that increment Windows still needed a proper cancellable
+replacement; no cross-platform deadline parity or new source ledger mapping was claimed.
 
 Validation passes 203 host unit tests and 62 compiled integration tests (17 sidebar,
 11 workspace, eight CLI, 23 highlighter and three startup-lifecycle tests), plus
@@ -189,6 +188,49 @@ timeout constant was increased to make these tests pass. Pre-write cancellation 
 a zero deadline are separately required to preserve an intact stream and its peer.
 The full verification at `e3c3d795` predates this Unix write change; focused validation
 does not substitute for final workspace, benchmark or native cross-platform gates.
+
+### Windows nonblocking stdin implementation and outstanding native validation
+
+Windows now creates stdin with `std::io::pipe` rather than `Stdio::piped`: Rust
+1.95's [standard anonymous pipe](https://github.com/rust-lang/rust/blob/1.95.0/library/std/src/sys/pipe/windows.rs)
+uses synchronous `CreatePipe` handles, whereas its
+[child pipe](https://github.com/rust-lang/rust/blob/1.95.0/library/std/src/sys/process/windows/child_pipe.rs)
+uses overlapped I/O internally. The host passes the blocking reader directly through
+`Stdio::Handle` and drops its `Command` after spawning, releasing the parent's extra
+reader before the handshake. Only the retained writer is configured with
+`SetNamedPipeHandleState(PIPE_NOWAIT | PIPE_READMODE_BYTE)`. Failure to configure
+the mode fails startup; there is no fallback to an indefinitely blocking writer.
+
+Microsoft documents that [the mode setter accepts anonymous pipe handles](https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-setnamedpipehandlestate)
+and that [nonblocking byte writes return available progress immediately](https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-type-read-and-wait-modes).
+Its warning against using this legacy mode to achieve overlapped/asynchronous I/O
+is retained here: Workdeck uses synchronous, bounded write attempts, not background
+overlapped operations. Successful zero-byte writes on a full nonempty pipe become
+`WouldBlock`, not `WriteZero`; empty writes, short counts and actual errors are preserved.
+The same deadline/cancellation loop tracks accepted bytes and retires partial frames.
+Flushing is a no-op for this unbuffered endpoint, not `FlushFileBuffers` (which can
+wait for the child to drain it). No relay thread or pending borrowed buffer is introduced.
+
+Three Windows-only tests cover independent endpoint modes and round-trip bytes,
+partial progress then zero-progress backpressure and recovery, and reader closure.
+The compiled stopped-reader deadline and cancellation tests are no longer Unix-only;
+the existing native Windows CI job runs them through workspace all-target tests.
+
+The full host cross-check for `x86_64-pc-windows-gnu` stopped in `onig_sys` because
+this Mac has no `x86_64-w64-mingw32-gcc`. An isolated disposable Cargo harness includes
+the actual `child_pipe.rs` by path, pins `windows-sys` 0.61.2 with the same features,
+and checks that module, its tests and `Command::stdin(reader)` composition for the
+Windows target. That type-check passes; it does not execute the tests or validate
+the complete Windows host. Native Windows CI/execution remains required. No upstream
+commit or baseline interval is marked complete on the strength of this check.
+
+Local validation passes 204 host unit tests and 34 compiled integration tests
+(eight CLI, 23 highlighter and three startup-lifecycle tests), host/examples
+all-target Clippy with warnings denied, formatting, diff and architecture checks.
+The isolated Windows module/tests/composition harness also passes cross-target
+Clippy with warnings denied, including the connection's `Send` and `Debug`
+requirements. This is focused validation, not a new full-workspace verification
+or a native Windows execution result.
 
 ## Native concurrency parity gap confirmed
 

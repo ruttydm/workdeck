@@ -102,7 +102,6 @@ fn late_serialized_reply_burst_cannot_block_a_routed_highlighter_request() {
     );
 }
 
-#[cfg(unix)]
 #[test]
 fn stopped_native_reader_obeys_write_deadline_and_cannot_reuse_partial_stream() {
     let (_directory, manifest) = staged_extension();
@@ -147,7 +146,6 @@ fn stopped_native_reader_obeys_write_deadline_and_cannot_reuse_partial_stream() 
     );
 }
 
-#[cfg(unix)]
 #[test]
 fn cancelled_native_write_releases_routed_parent_without_waiting_for_response_deadline() {
     let (_directory, manifest) = staged_extension();

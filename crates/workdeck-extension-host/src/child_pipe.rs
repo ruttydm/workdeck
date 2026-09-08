@@ -4,6 +4,25 @@ use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+#[cfg(not(windows))]
+pub(crate) type NativeStdin = std::process::ChildStdin;
+
+#[cfg(windows)]
+#[path = "child_pipe/windows_pipe.rs"]
+mod windows_pipe;
+#[cfg(windows)]
+pub(crate) use windows_pipe::{NativeStdin, stdin_pair};
+
+#[cfg(any(windows, test))]
+fn nonblocking_byte_pipe_result(result: io::Result<usize>, empty: bool) -> io::Result<usize> {
+    match result {
+        // Windows byte pipes in PIPE_NOWAIT mode can succeed with zero bytes
+        // when full. This is backpressure, not a terminal WriteZero failure.
+        Ok(0) if !empty => Err(io::ErrorKind::WouldBlock.into()),
+        result => result,
+    }
+}
+
 #[cfg(unix)]
 pub(crate) fn configure_child_pipe(pipe: &std::process::ChildStdin) -> io::Result<()> {
     use std::os::fd::AsRawFd;
@@ -38,8 +57,8 @@ fn suppress_pipe_signal(pipe: &std::process::ChildStdin) -> io::Result<()> {
 }
 
 /// A single deadline includes all short writes and backpressure waits. Immediate
-/// cleanup may attempt writes but never waits for pipe space. On Windows the
-/// underlying synchronous pipe still requires a separately cancellable transport.
+/// cleanup may attempt writes but never waits for pipe space. Native endpoints
+/// must be configured nonblocking before entering this loop.
 #[derive(Clone, Copy)]
 pub(crate) enum WriteBudget<'a> {
     Until(Instant, Option<&'a AtomicBool>),
@@ -226,6 +245,24 @@ impl Drop for SigpipeGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_zero_progress_translation_preserves_empty_writes_counts_and_errors() {
+        assert_eq!(
+            nonblocking_byte_pipe_result(Ok(0), false)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::WouldBlock
+        );
+        assert_eq!(nonblocking_byte_pipe_result(Ok(0), true).unwrap(), 0);
+        assert_eq!(nonblocking_byte_pipe_result(Ok(7), false).unwrap(), 7);
+        assert_eq!(
+            nonblocking_byte_pipe_result(Err(io::ErrorKind::BrokenPipe.into()), false)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::BrokenPipe
+        );
+    }
 
     #[cfg(unix)]
     #[test]

@@ -53,7 +53,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError, mpsc};
 use std::thread;
@@ -546,7 +546,7 @@ struct ExtensionSpawnContext {
 #[derive(Debug)]
 struct ExtensionConnection {
     child: Child,
-    stdin: ChildStdin,
+    stdin: child_pipe::NativeStdin,
     write_failed: bool,
     responses: response_queue::ResponseReceiver,
     response_routes: Arc<Mutex<ExtensionResponseRoutes>>,
@@ -859,6 +859,17 @@ impl LoadedExtension {
             executable,
         } = entrypoint;
         let mut command = Command::new(&executable);
+        #[cfg(windows)]
+        let stdin = {
+            let (reader, writer) = child_pipe::stdin_pair().map_err(|source| HostError::Io {
+                id: manifest.id.clone(),
+                source,
+            })?;
+            command.stdin(reader);
+            writer
+        };
+        #[cfg(not(windows))]
+        command.stdin(Stdio::piped());
         // The host receives terminal interrupts and delivers ordered shutdown.
         // Keep native children alive to consume that notification.
         #[cfg(unix)]
@@ -869,7 +880,6 @@ impl LoadedExtension {
         let mut child = command
             .current_dir(&directory)
             .env("WORKDECK_EXTENSION_API_VERSION", API_VERSION.to_string())
-            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -877,6 +887,10 @@ impl LoadedExtension {
                 id: manifest.id.clone(),
                 source,
             })?;
+        // In particular, release the parent's copy of Windows' synchronous read
+        // endpoint before the handshake, so child exit really closes its reader.
+        drop(command);
+        #[cfg(not(windows))]
         let stdin = child
             .stdin
             .take()
@@ -1074,9 +1088,8 @@ impl LoadedExtension {
 
     /// Revoke all retained authority and start best-effort native shutdown exactly once.
     ///
-    /// On Unix this half never waits for pipe capacity, so a collection of extensions can all
-    /// receive the retirement signal before sharing one global deadline. Windows still needs
-    /// a cancellable replacement for its synchronous child pipe.
+    /// This half never waits for pipe capacity, so a collection of extensions can all
+    /// receive the retirement signal before sharing one global deadline.
     #[must_use]
     pub fn begin_retirement(&mut self) -> bool {
         if !self.registry.begin_closing() {
