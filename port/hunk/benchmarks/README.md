@@ -358,3 +358,15 @@ first-frame aggregate alone.
 measurements; removing repeated configuration clones does not demonstrate a material latency
 gain. Mixed-width file tests verify that derived digit settings never leak between files.
 The per-input performance gap remains, as do peak-memory and complete source-ledger gates.
+
+### Selected-file extension projection at `53852d0e`
+
+The [updated sample](interaction-profile-4cca95b4.md) exposed full-file serialization used
+only to resolve one selected extension file. [Three optimized runs](interaction-diagnostic-53852d0e.json)
+after narrowing that projection report 19.81 ms first frame, 42.70 ms median navigation and
+21.12 ms median scrolling. Navigation improves about 26.3% over `4cca95b4` and is below the
+last paired source medians; scrolling is effectively unchanged and still fails by a wide margin.
+Duplicate/empty/missing IDs and line/hunk selection are compared against the original full
+projection. Current post-navigation RSS median is 169771008 bytes, not peak-memory evidence.
+Fresh paired-source results and the full benchmark gate remain outstanding; ledger coverage
+is unchanged.
