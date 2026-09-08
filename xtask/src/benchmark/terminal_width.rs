@@ -41,6 +41,15 @@ fn exact_source_width_corpora_match_both_pinned_checksums_after_warmup() {
         ("emoji_scalar", EMOJI_SCALAR),
         ("complex_cluster", COMPLEX_CLUSTER),
     ] {
+        let expected = oracle["lineWidths"][name].as_array().unwrap();
+        assert_eq!(corpus.len(), expected.len());
+        for (line, width) in corpus.iter().zip(expected) {
+            assert_eq!(
+                workdeck_tui::measure_text_width(line),
+                width.as_u64().unwrap() as usize,
+                "individual width mismatch for {line:?}"
+            );
+        }
         let warmup = checksum(corpus, WARMUP_ITERATIONS);
         let measured = checksum(corpus, ITERATIONS);
         assert_eq!(measured, warmup * (ITERATIONS / WARMUP_ITERATIONS));
