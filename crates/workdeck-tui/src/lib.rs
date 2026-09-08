@@ -1168,9 +1168,10 @@ pub struct ReviewApp {
     sidebar_reveal_key: Mutex<Option<SidebarRevealKey>>,
     sidebar_file_hits: Mutex<Vec<SidebarFileHit>>,
     review_file_header_hits: Mutex<Vec<SidebarFileHit>>,
+    review_gap_hits: Mutex<Vec<ReviewGapMouseHit>>,
     current_line_row: usize,
     expanded_gaps: BTreeSet<(String, usize)>,
-    gap_cursor_restore: BTreeMap<(String, usize), ReviewNoteTarget>,
+    gap_cursor_restore: BTreeMap<(String, usize), GapCursorRestorePoint>,
     agent_line_highlights: LineHighlightMap,
     highlights: Mutex<HighlightedDiffRuntime>,
     themes: ThemeController,
@@ -1455,6 +1456,7 @@ impl ReviewApp {
             sidebar_reveal_key: Mutex::new(None),
             sidebar_file_hits: Mutex::new(Vec::new()),
             review_file_header_hits: Mutex::new(Vec::new()),
+            review_gap_hits: Mutex::new(Vec::new()),
             current_line_row: 0,
             expanded_gaps: BTreeSet::new(),
             gap_cursor_restore: BTreeMap::new(),
@@ -1954,16 +1956,16 @@ impl ReviewApp {
                 for (index, file) in changeset.files.iter().enumerate() {
                     file_indices.entry(file.key.as_str()).or_insert(index);
                 }
-                self.gap_cursor_restore.retain(|(file_key, _), target| {
+                self.gap_cursor_restore.retain(|(file_key, _), restore| {
                     if retired.contains(file_key.as_str()) {
                         return false;
                     }
-                    let Some(index) = file_indices.get(file_key.as_str()) else {
+                    let Some(index) = file_indices.get(restore.file_key.as_str()) else {
                         return false;
                     };
                     // Source cursors address a file identity, not its position in the
                     // stream. Rebase the native indexed target onto that same file.
-                    target.file_index = *index;
+                    restore.target.file_index = *index;
                     true
                 });
             }
@@ -7950,13 +7952,64 @@ impl ReviewApp {
             self.status = Some("source expansion is unavailable for this file".into());
             return;
         };
+        self.toggle_source_gap_target(key, file_index, address, side);
+    }
+
+    fn toggle_source_gap_for_file(&mut self, file_key: &str, gap_slot: usize) {
+        let target = self.with_state(|state| {
+            let (file_index, file) = state
+                .changeset()
+                .files
+                .iter()
+                .enumerate()
+                .find(|(_, file)| file.key == file_key)?;
+            let geometry = workdeck_review::review_gap_geometry_for_file(file);
+            let address = if gap_slot == file.hunks.len() {
+                geometry.trailing_gap()
+            } else {
+                geometry.leading_gap(gap_slot)
+            }?;
+            Some((
+                (file.key.clone(), gap_slot),
+                file_index,
+                address,
+                review_expansion_side(file.change_kind),
+            ))
+        });
+        if let Some((key, file_index, address, side)) = target {
+            self.toggle_source_gap_target(key, file_index, address, side);
+        }
+    }
+
+    fn toggle_source_gap_target(
+        &mut self,
+        key: (String, usize),
+        file_index: usize,
+        address: ReviewGapAddress,
+        side: ReviewSide,
+    ) {
         let previous = self
             .current_review_line_cursor()
             .map(|cursor| cursor.target);
         let expanded = !self.expanded_gaps.remove(&key);
         let target = if expanded {
             if let Some(previous) = previous {
-                self.gap_cursor_restore.insert(key.clone(), previous);
+                let file_key = self.with_state(|state| {
+                    state
+                        .changeset()
+                        .files
+                        .get(previous.file_index)
+                        .map(|file| file.key.clone())
+                });
+                if let Some(file_key) = file_key {
+                    self.gap_cursor_restore.insert(
+                        key.clone(),
+                        GapCursorRestorePoint {
+                            file_key,
+                            target: previous,
+                        },
+                    );
+                }
             }
             self.expanded_gaps.insert(key.clone());
             self.status = Some("source gap expanded".into());
@@ -7971,7 +8024,9 @@ impl ReviewApp {
             })
         } else {
             self.status = Some("source gap collapsed".into());
-            self.gap_cursor_restore.remove(&key)
+            self.gap_cursor_restore
+                .remove(&key)
+                .map(|restore| restore.target)
         };
         let rows = self.current_review_rows();
         let cursors = review_line_cursors(&rows);
@@ -8122,7 +8177,8 @@ impl ReviewApp {
         {
             return;
         }
-        if self.handle_copy_selection_mouse_at(&event, now)
+        if self.handle_review_gap_mouse(&event)
+            || self.handle_copy_selection_mouse_at(&event, now)
             || self.handle_review_file_header_mouse(&event)
             || self.handle_horizontal_mouse_scroll(&event)
         {
@@ -8511,6 +8567,36 @@ impl ReviewApp {
             }
             _ => false,
         }
+    }
+
+    fn handle_review_gap_mouse(&mut self, event: &MouseEvent) -> bool {
+        if !matches!(
+            event.kind,
+            MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Up(_)
+        ) {
+            return false;
+        }
+        let target = self
+            .review_gap_hits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .find(|hit| rect_contains(hit.bounds, event.column, event.row))
+            .map(|hit| (hit.file_key.clone(), hit.gap_slot, hit.generation));
+        let Some((file_key, gap_slot, generation)) = target else {
+            return false;
+        };
+        if self.with_state(|state| state.generation()) != generation {
+            return true;
+        }
+        if matches!(event.kind, MouseEventKind::Up(_)) {
+            self.toggle_source_gap_for_file(&file_key, gap_slot);
+            self.publish_extension_selection_events();
+        } else {
+            self.cancel_copy_selection();
+            self.reset_copy_click_sequence();
+        }
+        true
     }
 
     fn handle_review_file_header_mouse(&mut self, event: &MouseEvent) -> bool {
@@ -11704,6 +11790,10 @@ fn paint_cursor_line(line: &mut Line<'_>, mode: CursorLineMode, theme: &AppTheme
 }
 
 fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+    app.review_gap_hits
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clear();
     let render_now = Instant::now();
     app.review_width.set(area.width);
     app.review_height.set(area.height);
@@ -11975,6 +12065,28 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         }
     }
     drop(note_actions);
+    *app.review_gap_hits
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = rows
+        .gap_rows
+        .iter()
+        .filter(|(top, _, _)| {
+            *top >= scroll && *top < scroll.saturating_add(viewport) && area.width > 0
+        })
+        .map(|(top, file_index, gap_slot)| ReviewGapMouseHit {
+            bounds: Rect::new(
+                area.x,
+                area.y
+                    .saturating_add(2)
+                    .saturating_add(u16::try_from(top.saturating_sub(scroll)).unwrap_or(u16::MAX)),
+                area.width,
+                1,
+            ),
+            file_key: state.changeset().files[*file_index].key.clone(),
+            gap_slot: *gap_slot,
+            generation: state.generation(),
+        })
+        .collect();
     drop(state);
     let viewport_bottom = scroll.saturating_add(viewport);
     *app.review_file_header_hits
@@ -12312,6 +12424,20 @@ impl PlainReviewHeight {
 }
 
 #[derive(Debug)]
+struct ReviewGapMouseHit {
+    bounds: Rect,
+    file_key: String,
+    gap_slot: usize,
+    generation: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GapCursorRestorePoint {
+    file_key: String,
+    target: ReviewNoteTarget,
+}
+
+#[derive(Debug)]
 struct ReviewRows {
     lines: Vec<Line<'static>>,
     note_targets: BTreeMap<usize, ReviewNoteTarget>,
@@ -12322,6 +12448,8 @@ struct ReviewRows {
     file_body_tops: BTreeMap<usize, usize>,
     visible_file_indices: Vec<usize>,
     file_header_rows: Vec<(usize, usize)>,
+    /// Logical row, owning file index, and gap slot; projected only after final layout.
+    gap_rows: Vec<(usize, usize, usize)>,
     hunk_tops: std::collections::HashMap<(usize, usize), usize>,
     hunk_heights: std::collections::HashMap<(usize, usize), usize>,
     file_view_component_hits: Vec<FileViewComponentLogicalHit>,
@@ -12435,6 +12563,9 @@ impl ReviewRows {
             shift(top);
         }
         for (_, top) in &mut self.file_header_rows {
+            shift(top);
+        }
+        for (top, _, _) in &mut self.gap_rows {
             shift(top);
         }
         for top in self.hunk_tops.values_mut() {
@@ -12707,6 +12838,7 @@ fn build_review_rows_with_chrome(
     let mut file_body_tops = BTreeMap::new();
     let mut visible_file_indices = Vec::new();
     let mut file_header_rows = Vec::with_capacity(changeset.files.len());
+    let mut gap_rows = Vec::new();
     let mut hunk_tops = std::collections::HashMap::new();
     let mut hunk_heights = std::collections::HashMap::new();
     let mut file_view_component_hits = Vec::new();
@@ -12890,6 +13022,9 @@ fn build_review_rows_with_chrome(
         }
         for (hunk_index, hunk) in file.hunks.iter().enumerate() {
             if let Some(address) = gap_source.leading_gap(hunk_index) {
+                if selected_source.is_some() {
+                    gap_rows.push((rows.len(), file_index, hunk_index));
+                }
                 rows.extend(source_gap_rows(
                     file,
                     address,
@@ -13004,6 +13139,9 @@ fn build_review_rows_with_chrome(
             );
         }
         if let Some(address) = gap_source.trailing_gap() {
+            if selected_source.is_some() {
+                gap_rows.push((rows.len(), file_index, file.hunks.len()));
+            }
             rows.extend(source_gap_rows(
                 file,
                 address,
@@ -13031,6 +13169,7 @@ fn build_review_rows_with_chrome(
         file_body_tops,
         visible_file_indices,
         file_header_rows,
+        gap_rows,
         hunk_tops,
         hunk_heights,
         file_view_component_hits,
@@ -20782,7 +20921,7 @@ mod tests {
             let (mut app, mut terminal) = setup(true);
             press(&mut app, 'z');
             assert!(rendered_review_frame(&mut terminal, &app).contains("hiddenLine01"));
-            let restored_line = app.gap_cursor_restore.values().next().unwrap().line;
+            let restored_line = app.gap_cursor_restore.values().next().unwrap().target.line;
             press(&mut app, 'j');
             assert_eq!(app.current_review_line_cursor().unwrap().target.line, 2);
             let mut replacement = app.with_state(|state| state.changeset().clone());
@@ -20804,6 +20943,129 @@ mod tests {
             let cursor = app.current_review_line_cursor().unwrap();
             assert_eq!(cursor.target.file_index, 1);
             assert_eq!(cursor.target.line, restored_line);
+        }
+
+        #[test]
+        fn visible_gap_mouse_release_toggles_without_starting_copy_selection() {
+            let (mut app, mut terminal) = setup(true);
+            let frame = rendered_review_frame(&mut terminal, &app);
+            let hit = app.review_gap_hits.lock().unwrap()[0].bounds;
+            assert!(
+                frame
+                    .lines()
+                    .nth(usize::from(hit.y))
+                    .unwrap()
+                    .contains("unchanged")
+            );
+            let mouse = |kind| MouseEvent {
+                kind,
+                column: hit.x + hit.width / 2,
+                row: hit.y,
+                modifiers: KeyModifiers::NONE,
+            };
+            app.handle_mouse_event(mouse(MouseEventKind::Down(MouseButton::Left)));
+            assert!(app.copy_selection_drag.is_none());
+            assert!(app.expanded_gaps.is_empty());
+            app.handle_mouse_event(mouse(MouseEventKind::Up(MouseButton::Left)));
+            assert!(rendered_review_frame(&mut terminal, &app).contains("hiddenLine01"));
+            assert_eq!(app.expanded_gaps.len(), 1);
+            app.handle_mouse_event(mouse(MouseEventKind::Up(MouseButton::Left)));
+            assert!(!rendered_review_frame(&mut terminal, &app).contains("hiddenLine01"));
+            assert!(app.expanded_gaps.is_empty());
+        }
+
+        #[test]
+        fn gap_mouse_hits_reject_retired_frames_and_refresh_after_reload() {
+            let (mut app, mut terminal) = setup(true);
+            let hit = app.review_gap_hits.lock().unwrap()[0].bounds;
+            let mouse = MouseEvent {
+                kind: MouseEventKind::Up(MouseButton::Left),
+                column: hit.x,
+                row: hit.y,
+                modifiers: KeyModifiers::NONE,
+            };
+            let mut replacement = app.with_state(|state| state.changeset().clone());
+            replacement.files[0].runtime_id = "replacement".into();
+            app.reload(replacement);
+            app.handle_mouse_event(mouse);
+            assert!(app.expanded_gaps.is_empty());
+            rendered_review_frame(&mut terminal, &app);
+            app.handle_mouse_event(mouse);
+            assert_eq!(app.expanded_gaps.len(), 1);
+            rendered_review_frame(&mut terminal, &app);
+            app.scroll = usize::MAX;
+            terminal.backend_mut().resize(140, 6);
+            rendered_review_frame(&mut terminal, &app);
+            assert!(app.review_gap_hits.lock().unwrap().is_empty());
+            render_review(
+                Rect::new(0, 0, 0, 0),
+                &mut Buffer::empty(Rect::new(0, 0, 0, 0)),
+                &app,
+            );
+            assert!(app.review_gap_hits.lock().unwrap().is_empty());
+        }
+
+        #[test]
+        fn clicking_another_file_gap_restores_the_original_cursor_file_after_reordering() {
+            let (app, _) = setup(true);
+            let mut review = app.with_state(|state| state.changeset().clone());
+            let mut other = review.files[0].clone();
+            other.path = "other.ts".into();
+            other.runtime_id = "other".into();
+            review.files.push(other);
+            review.refresh_review_identities();
+            let original_key = review.files[0].key.clone();
+            let other_key = review.files[1].key.clone();
+            let mut app = ReviewApp::new(
+                review,
+                ReviewOptions {
+                    layout: LayoutMode::Stack,
+                    highlight: false,
+                    ..ReviewOptions::default()
+                },
+            );
+            let mut terminal = Terminal::new(TestBackend::new(140, 40)).unwrap();
+            rendered_review_frame(&mut terminal, &app);
+            let hit = app
+                .review_gap_hits
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|hit| hit.file_key == other_key)
+                .unwrap()
+                .bounds;
+            app.handle_mouse_event(MouseEvent {
+                kind: MouseEventKind::Up(MouseButton::Left),
+                column: hit.x,
+                row: hit.y,
+                modifiers: KeyModifiers::NONE,
+            });
+            assert_eq!(
+                app.with_state(|state| state.selected_file().unwrap().key.clone()),
+                other_key
+            );
+            let mut replacement = app.with_state(|state| state.changeset().clone());
+            replacement.files.reverse();
+            app.reload(replacement);
+            rendered_review_frame(&mut terminal, &app);
+            let hit = app
+                .review_gap_hits
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|hit| hit.file_key == other_key)
+                .unwrap()
+                .bounds;
+            app.handle_mouse_event(MouseEvent {
+                kind: MouseEventKind::Up(MouseButton::Left),
+                column: hit.x,
+                row: hit.y,
+                modifiers: KeyModifiers::NONE,
+            });
+            assert_eq!(
+                app.with_state(|state| state.selected_file().unwrap().key.clone()),
+                original_key
+            );
         }
 
         #[test]

@@ -1,5 +1,28 @@
 # Hunk semantic-port ledger
 
+## Live context-gap mouse routing
+
+The live shell projects expandable-gap hits from its final row layout into the
+visible Ratatui viewport. Gap rows outside that viewport, zero-size renders, and
+alternate file views do not publish raw-gap targets. Draft-note insertion shifts
+the logical gap rows with the rest of the row metadata. Hits carry a semantic file
+key, gap slot, and document generation; stale document frames cannot toggle a
+replacement review before it is painted.
+
+Mouse release uses the same toggle/cursor path as the keyboard. A press on a gap
+does not begin text selection, and an active copy drag retains precedence. Saved
+restore points carry their own cursor file key, separate from the gap's owner, so
+expanding another file's gap and reordering files still restores the original
+cursor file on collapse.
+
+Native tests cover expansion/collapse, stale frames, viewport clipping, zero-size
+rendering, and cross-file restoration after reordering. A real CLI PTY test sends
+SGR mouse presses/releases in both stack and split layouts and checks the hidden
+source line appears and disappears. This integration currently exposes gaps with
+an available source snapshot; asynchronous source-fetch capability and the full
+DiffPane/controller port remain unfinished and unmapped. No source interval gains
+coverage from this partial controller integration.
+
 ## Live gap retirement on reload
 
 The native TUI now uses the shared semantic source-identity retirement policy when

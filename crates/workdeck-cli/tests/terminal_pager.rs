@@ -565,6 +565,27 @@ fn piped_stdin_still_allows_concrete_theme_app_terminal_input() {
     session.quit();
 }
 
+#[test]
+fn real_terminal_gap_click_expands_and_collapses_source_in_both_layouts() {
+    for layout in ["stack", "split"] {
+        let (_fixture, mut session) = harness::launch_file_pair(
+            "createExpandableContextFilePair",
+            layout,
+            120,
+            20,
+            &["--theme", "github-dark-default"],
+        );
+        let initial = session.wait(|text| text.contains("1 unchanged line"));
+        assert!(!initial.contains("hiddenLine01"));
+        session.click_label("1 unchanged line");
+        session
+            .wait(|text| text.contains("hiddenLine01") && text.contains("Hide 1 unchanged line"));
+        session.click_label("Hide 1 unchanged line");
+        session.wait(|text| text.contains("1 unchanged line") && !text.contains("hiddenLine01"));
+        session.quit();
+    }
+}
+
 // Hunk MIT: test/pty/notes.test.ts. All nineteen baseline cases; eighteen in stable.
 mod notes {
     use super::*;
