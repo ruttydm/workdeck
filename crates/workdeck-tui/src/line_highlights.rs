@@ -453,14 +453,17 @@ impl LineHighlightPreparationController {
             let task = task.clone();
             let sender = self.sender.clone();
             thread::spawn(move || {
-                let outcome =
-                    match extension.highlight_file(&task.highlighter_id, &task.file, &cancelled) {
-                        Ok(value) => LineHighlightTaskOutcome::Value(value),
-                        Err(LineHighlightRuntimeError::Retry) => LineHighlightTaskOutcome::Retry,
-                        Err(LineHighlightRuntimeError::Failed(error)) => {
-                            LineHighlightTaskOutcome::Failed(error)
-                        }
-                    };
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    extension.highlight_file(&task.highlighter_id, &task.file, &cancelled)
+                }));
+                let outcome = match result {
+                    Ok(Ok(value)) => LineHighlightTaskOutcome::Value(value),
+                    Ok(Err(LineHighlightRuntimeError::Retry)) => LineHighlightTaskOutcome::Retry,
+                    Ok(Err(LineHighlightRuntimeError::Failed(error))) => {
+                        LineHighlightTaskOutcome::Failed(error)
+                    }
+                    Err(_) => LineHighlightTaskOutcome::Failed("highlight worker panicked".into()),
+                };
                 let completed_at = Instant::now();
                 let cancelled_before_completion = cancelled.swap(true, Ordering::AcqRel);
                 let _ = sender.send(LineHighlightCompletion {
@@ -1601,6 +1604,33 @@ mod tests {
             runtime.warnings()[0],
             "Extension test-extension line highlighter \"late\" failed highlighting file.rs • marks dropped"
         );
+    }
+
+    #[test]
+    fn panicking_worker_settles_and_cleans_up_without_waiting_for_deadline() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, _| panic!("fixture worker panic"));
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("panic")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [test_file("file", "content")];
+        let mut controller = LineHighlightPreparationController::default();
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        // Do not poll expiry: the worker must send its own terminal outcome.
+        let completion = controller
+            .receiver
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        assert!(completion.cancellation.load(Ordering::Acquire));
+        assert!(matches!(
+            completion.outcome,
+            LineHighlightTaskOutcome::Failed(_)
+        ));
+        controller.sender.send(completion).unwrap();
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        assert_eq!(controller.pending_count(), 0);
+        assert!(controller.resolved().is_empty());
+        assert_eq!(runtime.warnings().len(), 1);
+        assert_eq!(runtime.calls().len(), 1);
     }
 
     #[test]

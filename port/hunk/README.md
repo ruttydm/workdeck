@@ -1,5 +1,19 @@
 # Hunk semantic-port ledger
 
+## Unwinding highlighter worker failures
+
+The whole worker invocation, including deferred source hydration, now contains
+unwinding Rust panics as failed highlight derivations. Signal cleanup and terminal
+completion delivery still run. A regression deliberately panics, waits for the
+worker's own completion without polling deadlines, then verifies slot release,
+no marks, one warning, and no retry. Before the change it timed out waiting for
+the lost completion.
+
+This covers unwinding panics at the worker boundary, not process aborts, native
+crashes, or all extension isolation behavior. No whole-hook mapping is claimed.
+All 36 highlighter tests, workspace Clippy, formatting, and architecture checks
+pass. Strict audit still rejects the 313 unmapped records.
+
 ## Native highlighter request cleanup
 
 The host now sends `$/cancelRequest` after decoding a highlighter response,
