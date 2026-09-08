@@ -16,6 +16,7 @@ mod keyboard_mode;
 mod keyboard_mode_controller;
 mod line_highlights;
 mod native_vcs;
+mod protocol_frame;
 mod response_routes;
 mod runtime_boundary;
 mod startup;
@@ -945,10 +946,9 @@ impl LoadedExtension {
         thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
             loop {
-                let mut line = String::new();
-                match reader.read_line(&mut line) {
-                    Ok(0) => break,
-                    Ok(_) => {
+                match protocol_frame::read_protocol_frame(&mut reader) {
+                    Ok(None) => break,
+                    Ok(Some(line)) => {
                         if let Some(notification) = parse_extension_notification(&line) {
                             output_notifications
                                 .notify(notification.message, notification.notification_type);

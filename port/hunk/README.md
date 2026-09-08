@@ -1,5 +1,18 @@
 # Hunk semantic-port ledger
 
+## Bounded native stdout frames
+
+The host stdout reader now bounds each frame before JSON parsing or response
+routing, accepting at most `MAX_MESSAGE_BYTES` payload bytes plus a newline.
+Oversized, unterminated, and invalid UTF-8 frames return an input error and close
+the response routes through the existing terminal path. Unit tests verify exact
+limit acceptance, preserved CRLF/LF frames, EOF, and consumption limited to
+`MAX_MESSAGE_BYTES + 2` bytes on oversized unterminated input. This does not bound
+stderr or the legacy response queue and is not a whole-process memory gate.
+Verification passes: all fifteen compiled highlighter integration tests, all
+180 host unit tests, host Clippy, formatting, and architecture checks. No ledger
+coverage is added.
+
 ## Native concurrency parity gap confirmed
 
 The current transport releases its connection lock while cancellable requests
