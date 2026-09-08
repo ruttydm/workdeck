@@ -7139,6 +7139,10 @@ impl ReviewApp {
     }
 
     fn current_review_rows(&self) -> ReviewRows {
+        self.current_review_rows_with_options(&self.options)
+    }
+
+    fn current_review_rows_with_options(&self, options: &ReviewOptions) -> ReviewRows {
         let state = self
             .state
             .lock()
@@ -7163,7 +7167,7 @@ impl ReviewApp {
             &comments,
             state.selection(),
             layout,
-            &self.options,
+            options,
             width,
             &mut highlights,
             &self.expanded_gaps,
@@ -8718,7 +8722,7 @@ impl ReviewApp {
                     .get()
                     .saturating_sub(2 + u16::from(!self.options.pager)),
             );
-            self.current_review_rows()
+            self.current_review_geometry_rows()
                 .lines
                 .len()
                 .saturating_sub(viewport)
@@ -8735,6 +8739,12 @@ impl ReviewApp {
             self.scroll = self.scroll.saturating_sub(integer_scroll.unsigned_abs());
         }
         self.mouse_scroll_accumulator -= integer_scroll as f64;
+    }
+
+    fn current_review_geometry_rows(&self) -> ReviewRows {
+        let mut options = self.options.clone();
+        options.highlight = false;
+        self.current_review_rows_with_options(&options)
     }
 
     fn retire_interactive_authority(&mut self) {
@@ -21008,6 +21018,58 @@ mod tests {
         let frame = rendered_review_frame(&mut terminal, &app);
         assert!(!frame.contains("@@ -1,16 +1,16 @@"), "{frame}");
         assert_eq!(app.review_height.get(), height);
+    }
+
+    #[test]
+    fn wheel_geometry_matches_highlighted_rows_across_unicode_layouts_and_widths() {
+        let before = "export const label = '日本語 🚀';\n\t// café 短い\n".repeat(5);
+        let after =
+            "export const label = '中文 ✨ and a much longer wrapped value';\n\t// café 長い\n"
+                .repeat(5);
+        for layout in [LayoutMode::Split, LayoutMode::Stack] {
+            for wrap_lines in [false, true] {
+                for width in [24, 80, 240] {
+                    let app = ReviewApp::new(
+                        navigation_changeset(vec![(
+                            "unicode.ts".into(),
+                            before.clone(),
+                            after.clone(),
+                        )]),
+                        ReviewOptions {
+                            layout,
+                            wrap_lines,
+                            ..ReviewOptions::default()
+                        },
+                    );
+                    app.review_width.set(width);
+                    app.prefetch_file_highlights(0);
+                    let highlighted = app.current_review_rows();
+                    let geometry = app.current_review_geometry_rows();
+                    let text = |rows: &ReviewRows| {
+                        rows.lines
+                            .iter()
+                            .map(|line| {
+                                line.spans
+                                    .iter()
+                                    .map(|span| span.content.as_ref())
+                                    .collect::<String>()
+                            })
+                            .collect::<Vec<_>>()
+                    };
+                    assert_eq!(
+                        text(&highlighted),
+                        text(&geometry),
+                        "{layout:?} wrap={wrap_lines} width={width}"
+                    );
+                    assert_eq!(highlighted.line_cursors, geometry.line_cursors);
+                    assert_eq!(highlighted.file_tops, geometry.file_tops);
+                    assert_eq!(highlighted.file_header_tops, geometry.file_header_tops);
+                    assert_eq!(highlighted.file_body_tops, geometry.file_body_tops);
+                    assert_eq!(highlighted.hunk_tops, geometry.hunk_tops);
+                    assert_eq!(highlighted.hunk_heights, geometry.hunk_heights);
+                }
+            }
+        }
     }
 
     #[test]
