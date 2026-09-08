@@ -12559,11 +12559,14 @@ fn build_review_rows_with_chrome(
         .max()
         .unwrap_or_default();
     let mut visible_file_position = 0_usize;
+    // All file-local settings are read-only except the line-number width. Clone
+    // the configuration once, then derive that override from the original options
+    // for every file (never inherit the preceding file's digit count).
+    let mut file_options = options.clone();
     for (file_index, file) in changeset.files.iter().enumerate() {
         if !visible(file_index, file) {
             continue;
         }
-        let mut file_options = options.clone();
         file_options.line_number_digits = Some(
             options
                 .line_number_digits
@@ -21249,6 +21252,73 @@ mod tests {
         let frame = rendered_review_frame(&mut terminal, &app);
         assert!(!frame.contains("@@ -1,16 +1,16 @@"), "{frame}");
         assert_eq!(app.review_height.get(), height);
+    }
+
+    #[test]
+    fn per_file_digit_override_matches_isolated_rendering_after_large_line_numbers() {
+        let patch = [("a.rs", 1), ("b.rs", 1000), ("c.rs", 9)]
+            .into_iter()
+            .map(|(path, line)| format!(
+                "diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -{line} +{line} @@\n-old 日 value\n+new 🚀 value\n"
+            )).collect::<String>();
+        let review = parse_patch(
+            &patch,
+            "digits",
+            "Digits",
+            ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap();
+        for layout in [LayoutMode::Split, LayoutMode::Stack] {
+            for wrap_lines in [false, true] {
+                for line_number_digits in [None, Some(4)] {
+                    for width in [24, 80] {
+                        let options = ReviewOptions {
+                            layout,
+                            wrap_lines,
+                            line_number_digits,
+                            highlight: false,
+                            ..ReviewOptions::default()
+                        };
+                        let selection = ReviewSelection {
+                            file_index: usize::MAX,
+                            ..ReviewSelection::default()
+                        };
+                        let full = build_review_rows(
+                            &review,
+                            &[],
+                            selection,
+                            layout,
+                            &options,
+                            width,
+                            &mut HighlightedDiffRuntime::default(),
+                            &BTreeSet::new(),
+                        );
+                        for (index, file) in review.files.iter().enumerate() {
+                            let mut isolated = review.clone();
+                            isolated.files = vec![file.clone()];
+                            let single = build_review_rows(
+                                &isolated,
+                                &[],
+                                selection,
+                                layout,
+                                &options,
+                                width,
+                                &mut HighlightedDiffRuntime::default(),
+                                &BTreeSet::new(),
+                            );
+                            let full_top = full.hunk_tops[&(index, 0)];
+                            let single_top = single.hunk_tops[&(0, 0)];
+                            let height = full.hunk_heights[&(index, 0)];
+                            assert_eq!(height, single.hunk_heights[&(0, 0)]);
+                            assert_eq!(
+                                full.lines[full_top..full_top + height],
+                                single.lines[single_top..single_top + height]
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]
