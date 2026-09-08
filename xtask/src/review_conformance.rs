@@ -77,6 +77,49 @@ for (const fixture of ordering.REVIEW_PRODUCER_ORDER_FIXTURES) {
     input: { steps: fixture.steps.map(step => step.kind) }, expected,
     actual: [{ consumer: 'producer ordering', output }] });
 }
+for (const fixture of (await read('wireFixtures')).REVIEW_WIRE_FIXTURES) {
+  const actual = consumers.REVIEW_WIRE_CONSUMERS.map(consumer => ({
+    consumer: consumer.name, output: consumer.parseAction(fixture.action),
+  }));
+  for (const consumer of actual) {
+    if (!Bun.deepEquals(consumer.output, fixture.expected)) throw new Error(`wire/${fixture.id} differs`);
+  }
+  results.push({ group: 'wire', id: fixture.id, findings: fixture.findings,
+    input: { action: fixture.action }, expected: fixture.expected, actual });
+}
+const { isBlankReviewNoteBody, planReviewIntent } = await source('src/core/review/intents');
+const { createInitialReviewState } = await source('src/core/review/state');
+const { createTestReviewDocument } = await source('test/helpers/review-store-helpers');
+for (const fixture of (await read('noteBodies')).REVIEW_NOTE_BODY_FIXTURES) {
+  const document = createTestReviewDocument(['alpha']);
+  const state = { ...createInitialReviewState(document), draftNote: {
+    id: 'draft:1', fileKey: document.files[0].key, hunkIndex: 0,
+    side: 'new', line: 1, body: fixture.body,
+  }};
+  const plan = planReviewIntent(state, { type: 'notes/create-user', consumeDraft: true }, {
+    noteId: 'user:1', timestamp: '2024-01-01T00:00:00.000Z',
+  });
+  const output = { blank: isBlankReviewNoteBody(fixture.body), actions: plan.actions.map(action => action.type) };
+  const expected = { blank: fixture.blank, actions: [fixture.blank ? 'draft/cancel' : 'draft/save'] };
+  if (!Bun.deepEquals(output, expected)) throw new Error(`note-body/${fixture.id} differs`);
+  results.push({ group: 'note-body', id: fixture.id, input: { body: fixture.body }, expected,
+    actual: [{ consumer: 'core note policy and draft planner', output }] });
+}
+const { MAX_REVIEW_NOTE_BYTES, reviewNoteWithinSizeLimit } = await source('src/core/review/noteSize');
+for (const fixture of (await read('noteSize')).REVIEW_NOTE_SIZE_FIXTURES) {
+  const note = fixture.build();
+  const actual = [{ consumer: 'core note size', output: reviewNoteWithinSizeLimit(note) },
+    ...consumers.REVIEW_WIRE_CONSUMERS.map(consumer => ({
+      consumer: 'review wire note size', output: consumer.acceptsNote(note),
+    }))];
+  for (const consumer of actual) {
+    if (consumer.output !== fixture.withinSizeLimit) throw new Error(`note-size/${fixture.id} differs`);
+  }
+  results.push({ group: 'note-size', id: fixture.id,
+    input: { maxReviewNoteBytes: MAX_REVIEW_NOTE_BYTES,
+      serializedBytes: new TextEncoder().encode(JSON.stringify(note)).byteLength },
+    expected: fixture.withinSizeLimit, actual });
+}
 console.log(JSON.stringify({ schemaVersion: 1, upstream: pin, runtime: `bun ${Bun.version}`, results }, null, 2));
 "#;
 
@@ -168,6 +211,9 @@ fn validate_capture(bytes: &[u8], pin: &str) -> Result<()> {
         "events",
         "ordering",
         "producer-ordering",
+        "wire",
+        "note-body",
+        "note-size",
     ] {
         if !results.iter().any(|case| case["group"] == group) {
             bail!("missing conformance group {group}");

@@ -3404,6 +3404,1062 @@
           ]
         }
       ]
+    },
+    {
+      "group": "wire",
+      "id": "select-hunk",
+      "findings": [
+        "B12"
+      ],
+      "input": {
+        "action": {
+          "type": "selection/select",
+          "fileKey": "file:0123456789abcdef",
+          "hunkIndex": 2,
+          "reveal": {
+            "anchor": "hunk",
+            "scrollToNote": false
+          }
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "intent": {
+          "type": "selection/select",
+          "fileKey": "file:0123456789abcdef",
+          "hunkIndex": 2,
+          "reveal": {
+            "anchor": "hunk",
+            "scrollToNote": false
+          }
+        }
+      },
+      "actual": [
+        {
+          "consumer": "review wire protocol",
+          "output": {
+            "accepted": true,
+            "intent": {
+              "type": "selection/select",
+              "fileKey": "file:0123456789abcdef",
+              "hunkIndex": 2,
+              "reveal": {
+                "anchor": "hunk",
+                "scrollToNote": false
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "group": "wire",
+      "id": "move-annotated-hunk-backwards",
+      "findings": [
+        "B12"
+      ],
+      "input": {
+        "action": {
+          "type": "selection/move",
+          "scope": "annotated-hunk",
+          "delta": -1
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "intent": {
+          "type": "selection/move",
+          "scope": "annotated-hunk",
+          "delta": -1
+        }
+      },
+      "actual": [
+        {
+          "consumer": "review wire protocol",
+          "output": {
+            "accepted": true,
+            "intent": {
+              "type": "selection/move",
+              "scope": "annotated-hunk",
+              "delta": -1
+            }
+          }
+        }
+      ]
+    },
+    {
+      "group": "wire",
+      "id": "select-file",
+      "findings": [
+        "B12"
+      ],
+      "input": {
+        "action": {
+          "type": "selection/select-file",
+          "fileKey": "file:0123456789abcdef"
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "intent": {
+          "type": "selection/select-file",
+          "fileKey": "file:0123456789abcdef"
+        }
+      },
+      "actual": [
+        {
+          "consumer": "review wire protocol",
+          "output": {
+            "accepted": true,
+            "intent": {
+              "type": "selection/select-file",
+              "fileKey": "file:0123456789abcdef"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "group": "wire",
+      "id": "anchor-selection",
+      "findings": [
+        "B12"
+      ],
+      "input": {
+        "action": {
+          "type": "selection/anchor",
+          "fileKey": "file:0123456789abcdef",
+          "hunkIndex": 0
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "intent": {
+          "type": "selection/anchor",
+          "fileKey": "file:0123456789abcdef",
+          "hunkIndex": 0
+        }
+      },
+      "actual": [
+        {
+          "consumer": "review wire protocol",
+          "output": {
+            "accepted": true,
+            "intent": {
+              "type": "selection/anchor",
+              "fileKey": "file:0123456789abcdef",
+              "hunkIndex": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "group": "wire",
+      "id": "set-filter",
+      "findings": [
+        "B12"
+      ],
+      "input": {
+        "action": {
+          "type": "filter/set",
+          "filter": "src/ui"
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "intent": {
+          "type": "filter/set",
+          "filter": "src/ui"
+        }
+      },
+      "actual": [
+        {
+          "consumer": "review wire protocol",
+          "output": {
+            "accepted": true,
+            "intent": {
+              "type": "filter/set",
+              "filter": "src/ui"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "group": "wire",
+      "id": "set-note-visibility",
+      "findings": [
+        "B12"
+      ],
+      "input": {
+        "action": {
+          "type": "notes/set-visibility",
+          "visible": true
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "intent": {
+          "type": "notes/set-visibility",
+          "visible": true
+        }
+      },
+      "actual": [
+        {
+          "consumer": "review wire protocol",
+          "output": {
+            "accepted": true,
+            "intent": {
+              "type": "notes/set-visibility",
+              "visible": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "group": "wire",
+      "id": "start-draft-on-a-hunk",
+      "findings": [
+        "B12"
+      ],
+      "input": {
+        "action": {
+          "type": "notes/start-draft",
+          "fileKey": "file:0123456789abcdef",
+          "hunkIndex": 1
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "intent": {
+          "type": "notes/start-draft",
+          "fileKey": "file:0123456789abcdef",
+          "hunkIndex": 1
+        }
+      },
+      "actual": [
+        {
+          "consumer": "review wire protocol",
+          "output": {
+            "accepted": true,
+            "intent": {
+              "type": "notes/start-draft",
+              "fileKey": "file:0123456789abcdef",
+              "hunkIndex": 1
+            }
+          }
+        }
+      ]
+    },
+    {
+      "group": "wire",
+      "id": "start-edit-draft",
+      "findings": [
+        "B12"
+      ],
+      "input": {
+        "action": {
+          "type": "notes/start-edit",
+          "noteId": "user:1"
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "intent": {
+          "type": "notes/start-edit",
+          "noteId": "user:1"
+        }
+      },
+      "actual": [
+        {
+          "consumer": "review wire protocol",
+          "output": {
+            "accepted": true,
+            "intent": {
+              "type": "notes/start-edit",
+              "noteId": "user:1"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "group": "wire",
+      "id": "start-reply-draft",
+      "findings": [
+        "B12"
+      ],
+      "input": {
+        "action": {
+          "type": "notes/start-reply",
+          "noteId": "live:1"
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "intent": {
+          "type": "notes/start-reply",
+          "noteId": "live:1"
+        }
+      },
+      "actual": [
+        {
+          "consumer": "review wire protocol",
+          "output": {
+            "accepted": true,
+            "intent": {
+              "type": "notes/start-reply",
+              "noteId": "live:1"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "group": "wire",
+      "id": "update-draft-body",
+      "findings": [
+        "B12"
+      ],
+      "input": {
+        "action": {
+          "type": "notes/update-draft",
+          "body": "A remote reply"
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "intent": {
+          "type": "notes/update-draft",
+          "body": "A remote reply"
+        }
+      },
+      "actual": [
+        {
+          "consumer": "review wire protocol",
+          "output": {
+            "accepted": true,
+            "intent": {
+              "type": "notes/update-draft",
+              "body": "A remote reply"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "group": "wire",
+      "id": "cancel-draft",
+      "findings": [
+        "B12"
+      ],
+      "input": {
+        "action": {
+          "type": "notes/cancel-draft"
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "intent": {
+          "type": "notes/cancel-draft"
+        }
+      },
+      "actual": [
+        {
+          "consumer": "review wire protocol",
+          "output": {
+            "accepted": true,
+            "intent": {
+              "type": "notes/cancel-draft"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "group": "wire",
+      "id": "start-draft-on-an-expanded-line",
+      "findings": [
+        "B10"
+      ],
+      "input": {
+        "action": {
+          "type": "notes/start-draft",
+          "fileKey": "file:0123456789abcdef",
+          "hunkIndex": 1,
+          "target": {
+            "side": "new",
+            "line": 7
+          },
+          "expandedLineProof": {
+            "gapId": "before:1",
+            "side": "new",
+            "line": 7,
+            "sourceIdentity": "source:0123456789abcdef"
+          }
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "intent": {
+          "type": "notes/start-draft",
+          "fileKey": "file:0123456789abcdef",
+          "hunkIndex": 1,
+          "target": {
+            "side": "new",
+            "line": 7
+          }
+        }
+      },
+      "actual": [
+        {
+          "consumer": "review wire protocol",
+          "output": {
+            "accepted": true,
+            "intent": {
+              "type": "notes/start-draft",
+              "fileKey": "file:0123456789abcdef",
+              "hunkIndex": 1,
+              "target": {
+                "side": "new",
+                "line": 7
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "group": "wire",
+      "id": "start-draft-with-a-proof-about-nothing",
+      "findings": [
+        "B10"
+      ],
+      "input": {
+        "action": {
+          "type": "notes/start-draft",
+          "fileKey": "file:0123456789abcdef",
+          "hunkIndex": 1,
+          "expandedLineProof": {
+            "gapId": "before:1",
+            "side": "new",
+            "line": 7,
+            "sourceIdentity": "source:0123456789abcdef"
+          }
+        }
+      },
+      "expected": {
+        "accepted": false
+      },
+      "actual": [
+        {
+          "consumer": "review wire protocol",
+          "output": {
+            "accepted": false
+          }
+        }
+      ]
+    },
+    {
+      "group": "wire",
+      "id": "create-user-note",
+      "findings": [
+        "B12"
+      ],
+      "input": {
+        "action": {
+          "type": "notes/create-user",
+          "consumeDraft": true
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "intent": {
+          "type": "notes/create-user",
+          "consumeDraft": true
+        }
+      },
+      "actual": [
+        {
+          "consumer": "review wire protocol",
+          "output": {
+            "accepted": true,
+            "intent": {
+              "type": "notes/create-user",
+              "consumeDraft": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "group": "wire",
+      "id": "update-user-note",
+      "findings": [
+        "B12"
+      ],
+      "input": {
+        "action": {
+          "type": "notes/update-user",
+          "noteId": "user:1",
+          "consumeDraft": true
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "intent": {
+          "type": "notes/update-user",
+          "noteId": "user:1",
+          "consumeDraft": true
+        }
+      },
+      "actual": [
+        {
+          "consumer": "review wire protocol",
+          "output": {
+            "accepted": true,
+            "intent": {
+              "type": "notes/update-user",
+              "noteId": "user:1",
+              "consumeDraft": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "group": "wire",
+      "id": "create-user-note-at-an-expanded-line",
+      "findings": [
+        "B10"
+      ],
+      "input": {
+        "action": {
+          "type": "notes/create-user",
+          "consumeDraft": true,
+          "target": {
+            "side": "new",
+            "line": 7
+          },
+          "expandedLineProof": {
+            "gapId": "before:1",
+            "side": "new",
+            "line": 7,
+            "sourceIdentity": "source:0123456789abcdef"
+          }
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "intent": {
+          "type": "notes/create-user",
+          "consumeDraft": true
+        }
+      },
+      "actual": [
+        {
+          "consumer": "review wire protocol",
+          "output": {
+            "accepted": true,
+            "intent": {
+              "type": "notes/create-user",
+              "consumeDraft": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "group": "wire",
+      "id": "remove-user-note",
+      "findings": [
+        "B12"
+      ],
+      "input": {
+        "action": {
+          "type": "notes/remove-user",
+          "noteId": "user:1"
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "intent": {
+          "type": "notes/remove-user",
+          "noteId": "user:1"
+        }
+      },
+      "actual": [
+        {
+          "consumer": "review wire protocol",
+          "output": {
+            "accepted": true,
+            "intent": {
+              "type": "notes/remove-user",
+              "noteId": "user:1"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "group": "wire",
+      "id": "remove-live-note",
+      "findings": [
+        "B12"
+      ],
+      "input": {
+        "action": {
+          "type": "notes/remove-live",
+          "noteId": "live:1"
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "intent": {
+          "type": "notes/remove-live",
+          "noteId": "live:1"
+        }
+      },
+      "actual": [
+        {
+          "consumer": "review wire protocol",
+          "output": {
+            "accepted": true,
+            "intent": {
+              "type": "notes/remove-live",
+              "noteId": "live:1"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "group": "wire",
+      "id": "clear-notes-for-one-file",
+      "findings": [
+        "B12"
+      ],
+      "input": {
+        "action": {
+          "type": "notes/clear",
+          "fileKey": "file:0123456789abcdef",
+          "includeUser": true
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "intent": {
+          "type": "notes/clear",
+          "fileKey": "file:0123456789abcdef",
+          "includeUser": true
+        }
+      },
+      "actual": [
+        {
+          "consumer": "review wire protocol",
+          "output": {
+            "accepted": true,
+            "intent": {
+              "type": "notes/clear",
+              "fileKey": "file:0123456789abcdef",
+              "includeUser": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "group": "wire",
+      "id": "toggle-gap",
+      "findings": [
+        "B12"
+      ],
+      "input": {
+        "action": {
+          "type": "expansion/toggle",
+          "fileKey": "file:0123456789abcdef",
+          "gapId": "before:1"
+        }
+      },
+      "expected": {
+        "accepted": true,
+        "intent": {
+          "type": "expansion/toggle",
+          "fileKey": "file:0123456789abcdef",
+          "gapId": "before:1"
+        }
+      },
+      "actual": [
+        {
+          "consumer": "review wire protocol",
+          "output": {
+            "accepted": true,
+            "intent": {
+              "type": "expansion/toggle",
+              "fileKey": "file:0123456789abcdef",
+              "gapId": "before:1"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "group": "wire",
+      "id": "unknown-field-on-a-known-action",
+      "findings": [
+        "B12"
+      ],
+      "input": {
+        "action": {
+          "type": "filter/set",
+          "filter": "src",
+          "reveal": true
+        }
+      },
+      "expected": {
+        "accepted": false
+      },
+      "actual": [
+        {
+          "consumer": "review wire protocol",
+          "output": {
+            "accepted": false
+          }
+        }
+      ]
+    },
+    {
+      "group": "wire",
+      "id": "missing-field-on-a-known-action",
+      "findings": [
+        "B12"
+      ],
+      "input": {
+        "action": {
+          "type": "selection/select",
+          "fileKey": "file:0123456789abcdef",
+          "hunkIndex": 0
+        }
+      },
+      "expected": {
+        "accepted": false
+      },
+      "actual": [
+        {
+          "consumer": "review wire protocol",
+          "output": {
+            "accepted": false
+          }
+        }
+      ]
+    },
+    {
+      "group": "note-body",
+      "id": "empty",
+      "input": {
+        "body": ""
+      },
+      "expected": {
+        "blank": true,
+        "actions": [
+          "draft/cancel"
+        ]
+      },
+      "actual": [
+        {
+          "consumer": "core note policy and draft planner",
+          "output": {
+            "blank": true,
+            "actions": [
+              "draft/cancel"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "group": "note-body",
+      "id": "spaces",
+      "input": {
+        "body": "   "
+      },
+      "expected": {
+        "blank": true,
+        "actions": [
+          "draft/cancel"
+        ]
+      },
+      "actual": [
+        {
+          "consumer": "core note policy and draft planner",
+          "output": {
+            "blank": true,
+            "actions": [
+              "draft/cancel"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "group": "note-body",
+      "id": "newlines",
+      "input": {
+        "body": "\n\n"
+      },
+      "expected": {
+        "blank": true,
+        "actions": [
+          "draft/cancel"
+        ]
+      },
+      "actual": [
+        {
+          "consumer": "core note policy and draft planner",
+          "output": {
+            "blank": true,
+            "actions": [
+              "draft/cancel"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "group": "note-body",
+      "id": "tabs-and-newlines",
+      "input": {
+        "body": "\t \r\n "
+      },
+      "expected": {
+        "blank": true,
+        "actions": [
+          "draft/cancel"
+        ]
+      },
+      "actual": [
+        {
+          "consumer": "core note policy and draft planner",
+          "output": {
+            "blank": true,
+            "actions": [
+              "draft/cancel"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "group": "note-body",
+      "id": "unicode-space",
+      "input": {
+        "body": " "
+      },
+      "expected": {
+        "blank": true,
+        "actions": [
+          "draft/cancel"
+        ]
+      },
+      "actual": [
+        {
+          "consumer": "core note policy and draft planner",
+          "output": {
+            "blank": true,
+            "actions": [
+              "draft/cancel"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "group": "note-body",
+      "id": "single-character",
+      "input": {
+        "body": "x"
+      },
+      "expected": {
+        "blank": false,
+        "actions": [
+          "draft/save"
+        ]
+      },
+      "actual": [
+        {
+          "consumer": "core note policy and draft planner",
+          "output": {
+            "blank": false,
+            "actions": [
+              "draft/save"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "group": "note-body",
+      "id": "padded-text",
+      "input": {
+        "body": "  needs a test  "
+      },
+      "expected": {
+        "blank": false,
+        "actions": [
+          "draft/save"
+        ]
+      },
+      "actual": [
+        {
+          "consumer": "core note policy and draft planner",
+          "output": {
+            "blank": false,
+            "actions": [
+              "draft/save"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "group": "note-body",
+      "id": "markup-only",
+      "input": {
+        "body": "<hr/>"
+      },
+      "expected": {
+        "blank": false,
+        "actions": [
+          "draft/save"
+        ]
+      },
+      "actual": [
+        {
+          "consumer": "core note policy and draft planner",
+          "output": {
+            "blank": false,
+            "actions": [
+              "draft/save"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "group": "note-size",
+      "id": "empty-note",
+      "input": {
+        "maxReviewNoteBytes": 262144,
+        "serializedBytes": 141
+      },
+      "expected": true,
+      "actual": [
+        {
+          "consumer": "core note size",
+          "output": true
+        },
+        {
+          "consumer": "review wire note size",
+          "output": true
+        }
+      ]
+    },
+    {
+      "group": "note-size",
+      "id": "whole-note-exactly-at-the-bound",
+      "input": {
+        "maxReviewNoteBytes": 262144,
+        "serializedBytes": 262144
+      },
+      "expected": true,
+      "actual": [
+        {
+          "consumer": "core note size",
+          "output": true
+        },
+        {
+          "consumer": "review wire note size",
+          "output": true
+        }
+      ]
+    },
+    {
+      "group": "note-size",
+      "id": "whole-note-one-byte-over",
+      "input": {
+        "maxReviewNoteBytes": 262144,
+        "serializedBytes": 262145
+      },
+      "expected": false,
+      "actual": [
+        {
+          "consumer": "core note size",
+          "output": false
+        },
+        {
+          "consumer": "review wire note size",
+          "output": false
+        }
+      ]
+    },
+    {
+      "group": "note-size",
+      "id": "every-field-fits-but-the-note-does-not",
+      "input": {
+        "maxReviewNoteBytes": 262144,
+        "serializedBytes": 786597
+      },
+      "expected": false,
+      "actual": [
+        {
+          "consumer": "core note size",
+          "output": false
+        },
+        {
+          "consumer": "review wire note size",
+          "output": false
+        }
+      ]
+    },
+    {
+      "group": "note-size",
+      "id": "multibyte-summary-under-the-per-character-limit",
+      "input": {
+        "maxReviewNoteBytes": 262144,
+        "serializedBytes": 262285
+      },
+      "expected": false,
+      "actual": [
+        {
+          "consumer": "core note size",
+          "output": false
+        },
+        {
+          "consumer": "review wire note size",
+          "output": false
+        }
+      ]
+    },
+    {
+      "group": "note-size",
+      "id": "multibyte-summary-just-inside",
+      "input": {
+        "maxReviewNoteBytes": 262144,
+        "serializedBytes": 262141
+      },
+      "expected": true,
+      "actual": [
+        {
+          "consumer": "core note size",
+          "output": true
+        },
+        {
+          "consumer": "review wire note size",
+          "output": true
+        }
+      ]
     }
   ]
 }

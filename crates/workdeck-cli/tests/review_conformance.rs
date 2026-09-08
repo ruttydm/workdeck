@@ -3,8 +3,14 @@
 
 #[path = "review_conformance/navigation.rs"]
 mod navigation;
+#[path = "review_conformance/notes.rs"]
+mod notes;
 #[path = "review_conformance/ordering.rs"]
 mod ordering;
+#[path = "review_conformance/snapshot.rs"]
+mod snapshot;
+#[path = "review_conformance/wire.rs"]
+mod wire;
 
 use serde_json::{Value, json};
 use workdeck_core::{DiffFile, FileChangeKind, project_review_file, review_empty_diff_reason};

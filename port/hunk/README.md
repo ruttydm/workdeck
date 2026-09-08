@@ -1416,8 +1416,9 @@ must succeed before the command writes either tracked fixture.
 separate outputs because the pins differ. The source suites passed 111 and 106 tests,
 respectively, on macOS arm64 with Bun 1.3.14. These source-suite passes are not Rust parity.
 The capture includes publication ordering and producer lifecycle transitions, including
-their independent input addresses and step sequences. Wire actions and note-body/size
-projections remain uncaptured; their source-suite passes are not frozen differential evidence.
+their independent input addresses and step sequences. It also captures every wire action,
+note-body draft transition, and whole-note size verdict. Size fixtures retain exact UTF-8
+serialized byte measurements without storing large repeated filler strings.
 
 `cargo test -p workdeck-cli --test review_conformance` independently parses all six geometry
 inputs in Rust and checks core gaps, inclusive hunk ranges, default note targets, expansion
@@ -1443,7 +1444,15 @@ malformed identities, and successive reloads. The geometry, navigation, and orde
 source files are mapped only after these complete executable translations pass.
 The larger harness, consumer registry, and remaining consumer implementations remain unmapped.
 
-The captured snapshot and event consumers are not yet exercised here. Capture-integrity tests
+The wire module compares all 22 main and 17 stable actions through the strict native parser,
+JSON intent projection, and typed lowering. Note tests execute all eight body policies and
+their draft save/cancel actions, plus six whole-note byte-boundary cases at both pins.
+The snapshot test exercises the actual extension projection while a real terminal composer
+displays unsaved text. It retains the three-note stable input separately from main's four-note
+input with its saved reply, preserves stale/orphaned anchors and collection order, and checks
+revision and file identity exactly. Those four complete fixture files are now mapped.
+
+The captured event consumers are not yet exercised here. Capture-integrity tests
 in xtask reject changed outputs and wrong pins, but do not substitute for those translations.
 All corresponding incomplete ledger records remain unmapped.
 
@@ -1455,3 +1464,6 @@ extension-probe startup with handshake timeouts; its geometry conformance tests 
 That failure is under investigation and the run must not be reported as a workspace pass.
 An isolated rerun of all eleven app-host workspace tests passed without changing their
 deadlines or implementation. This does not establish the cause of the earlier timeout.
+Three runs of the exact earlier test executable also passed. A fresh full-workspace run at
+`2dc01b5d`, without concurrent builds or oracle execution, then passed, with one existing
+opt-in oracle capture test still ignored. The timeout is not claimed fixed or causally explained.
