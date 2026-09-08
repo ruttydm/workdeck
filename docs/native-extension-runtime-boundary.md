@@ -33,11 +33,17 @@ authority through this entry point without eagerly reading either side. Where
 no captured provider exists, the reader uses the file's frozen snapshots.
 Provider failures become unreadable results through the shared document reader.
 The API's `read_extension_document` helper serves single-request synchronous
-extension loops and is used by the compiled example. Callers allocate child IDs
+extension loops. Callers allocate child IDs
 and must not multiplex other requests on those streams while it waits. The
 helper bounds response frames and observes matching parent cancellation, but
-arbitrary blocking streams require transport-level deadlines. General
-asynchronous/multiplexed SDK support remains unfinished.
+arbitrary blocking streams require transport-level deadlines.
+
+The compiled line-highlighter example instead uses `ExtensionDocumentCallbacks`:
+its main input loop sends callbacks without waiting and routes replies back to
+the parent and source side. The SDK allocates non-reused child IDs, limits pending
+callbacks to 32 per parent and 128 overall, and retires only the cancelled parent's
+callbacks. The loop remains responsible for transport framing, lifecycle dispatch,
+and deadlines; this router is not a complete asynchronous extension server.
 
 Native highlighter requests use parent-specific response inboxes: up to four
 parents can wait concurrently in one child. Writes remain serialized. Ordinary
@@ -51,7 +57,8 @@ Multiplexed extension implementations must allocate unambiguous child response
 IDs across active parents. Each parent retains its own captured source reader.
 The compiled fixture verifies reversed parent completion, cancellation isolation,
 distinct concurrent document results, mixed source failure, and child EOF for
-all four waiters. These fixtures are not a reusable multiplexed SDK.
+all four waiters. The separate ordinary-mode regression requires all four source
+reads to start before any can complete, without enabling the batch fixture mode.
 
 Stdout frames are bounded before parsing to the API message limit plus a newline.
 Invalid UTF-8, oversized frames, unterminated frames, and EOF close the response

@@ -22,7 +22,10 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
     let mut batch: Vec<(u64, String)> = Vec::new();
     let mut last_annotation_width: Option<usize> = None;
     let mut active_request = None;
-    'requests: loop {
+    let mut callbacks = workdeck_extension_api::ExtensionDocumentCallbacks::default();
+    let mut pending_documents =
+        std::collections::BTreeMap::<u64, (LineHighlightRequest, bool)>::new();
+    loop {
         let mut line = String::new();
         if incoming.read_line(&mut line)? == 0 {
             return Ok(());
@@ -44,7 +47,48 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
             )?;
             continue;
         }
+        if let Some(reply) = callbacks.accept(&value)? {
+            let Some((mut input, second_read)) = pending_documents.remove(&reply.parent_id) else {
+                continue;
+            };
+            match reply.result {
+                Ok(text) => {
+                    input.documents.insert(reply.side, text);
+                }
+                Err(error) => {
+                    write_error(&mut output, reply.parent_id, error.code, &error.message)?;
+                    continue;
+                }
+            }
+            if !second_read {
+                callbacks.request(
+                    &mut output,
+                    reply.parent_id,
+                    workdeck_extension_api::ExtensionFileSide::New,
+                )?;
+                pending_documents.insert(reply.parent_id, (input, true));
+                continue;
+            }
+            finish_highlight(
+                &mut output,
+                reply.parent_id,
+                input,
+                expect_missing,
+                mark_annotations,
+                &mut last_annotation_width,
+            )?;
+            continue;
+        } else if value.get("method").is_none() {
+            // Late responses from retired parents must not become requests.
+            continue;
+        }
         if value.get("id").is_none() {
+            if value.get("method").and_then(Value::as_str) == Some("$/cancelRequest")
+                && let Some(parent) = value.pointer("/params/id").and_then(Value::as_u64)
+            {
+                callbacks.retire(parent);
+                pending_documents.remove(&parent);
+            }
             if cancel_batch
                 && value.get("method").and_then(Value::as_str) == Some("$/cancelRequest")
                 && batch.iter().any(|(id, path)| {
@@ -159,7 +203,7 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
                     continue;
                 }
                 active_request = Some(request.id);
-                let mut input: LineHighlightRequest =
+                let input: LineHighlightRequest =
                     serde_json::from_value(request.params).map_err(io::Error::other)?;
                 let lazy = input.document_reader;
                 if batch_four {
@@ -211,89 +255,21 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
                     continue;
                 }
                 if lazy {
-                    for child_id in [1, 2] {
-                        match read_document(&mut incoming, &mut output, request.id, child_id) {
-                            Ok(text) => {
-                                input
-                                    .documents
-                                    .insert(workdeck_extension_api::ExtensionFileSide::New, text);
-                            }
-                            Err(error) if error.kind() == io::ErrorKind::Interrupted => {
-                                active_request = None;
-                                continue 'requests;
-                            }
-                            Err(error) => {
-                                write_error(&mut output, request.id, -32602, &error.to_string())?;
-                                continue 'requests;
-                            }
-                        }
-                    }
-                }
-                let old = input
-                    .documents
-                    .get(&workdeck_extension_api::ExtensionFileSide::Old)
-                    .cloned()
-                    .flatten();
-                let new = input
-                    .documents
-                    .get(&workdeck_extension_api::ExtensionFileSide::New)
-                    .cloned()
-                    .flatten();
-                if expect_missing && lazy {
-                    if new.is_none() {
-                        write_result(&mut output, request.id, Vec::<Value>::new())?;
-                    } else {
-                        write_error(
-                            &mut output,
-                            request.id,
-                            -32602,
-                            "expected unreadable document",
-                        )?;
-                    }
-                    continue;
-                }
-                if input.aborted
-                    || (!lazy && old.as_deref() != Some("old\n"))
-                    || new.as_deref() != Some("new\n")
-                {
-                    write_error(
+                    callbacks.request(
                         &mut output,
                         request.id,
-                        -32602,
-                        "expected immutable old/new documents",
+                        workdeck_extension_api::ExtensionFileSide::New,
                     )?;
+                    pending_documents.insert(request.id, (input, false));
                     continue;
                 }
-                let width = if mark_annotations {
-                    input
-                        .file
-                        .agent
-                        .as_ref()
-                        .map_or(0, |agent| {
-                            agent
-                                .annotations
-                                .iter()
-                                .map(|note| note.summary.chars().count())
-                                .sum::<usize>()
-                        })
-                        .min(3)
-                } else {
-                    3
-                };
-                last_annotation_width = Some(width);
-                if width == 0 {
-                    write_result(&mut output, request.id, serde_json::json!([]))?;
-                    continue;
-                }
-                write_result(
+                finish_highlight(
                     &mut output,
                     request.id,
-                    serde_json::json!([{
-                        "side": "new",
-                        "line": 1,
-                        "range": [0, width],
-                        "tone": "warning"
-                    }]),
+                    input,
+                    expect_missing,
+                    mark_annotations,
+                    &mut last_annotation_width,
                 )?;
             }
             _ => write_error(&mut output, request.id, -32601, "method not found")?,
@@ -301,18 +277,63 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
     }
 }
 
-fn read_document(
-    input: &mut impl BufRead,
+fn finish_highlight(
     output: &mut impl Write,
-    parent_id: u64,
-    child_id: u64,
-) -> io::Result<Option<String>> {
-    workdeck_extension_api::read_extension_document(
-        input,
+    parent: u64,
+    input: LineHighlightRequest,
+    expect_missing: bool,
+    mark_annotations: bool,
+    last_annotation_width: &mut Option<usize>,
+) -> io::Result<()> {
+    let old = input
+        .documents
+        .get(&workdeck_extension_api::ExtensionFileSide::Old)
+        .and_then(|text| text.as_deref());
+    let new = input
+        .documents
+        .get(&workdeck_extension_api::ExtensionFileSide::New)
+        .and_then(|text| text.as_deref());
+    if expect_missing && input.document_reader {
+        return if new.is_none() {
+            write_result(output, parent, Vec::<Value>::new())
+        } else {
+            write_error(output, parent, -32602, "expected unreadable document")
+        };
+    }
+    if input.aborted || (!input.document_reader && old != Some("old\n")) || new != Some("new\n") {
+        return write_error(
+            output,
+            parent,
+            -32602,
+            "expected immutable old/new documents",
+        );
+    }
+    let width = if mark_annotations {
+        input
+            .file
+            .agent
+            .as_ref()
+            .map_or(0, |agent| {
+                agent
+                    .annotations
+                    .iter()
+                    .map(|note| note.summary.chars().count())
+                    .sum::<usize>()
+            })
+            .min(3)
+    } else {
+        3
+    };
+    *last_annotation_width = Some(width);
+    if width == 0 {
+        return write_result(output, parent, serde_json::json!([]));
+    }
+    write_result(
         output,
-        parent_id,
-        child_id,
-        workdeck_extension_api::ExtensionFileSide::New,
+        parent,
+        serde_json::json!([{
+            "side":"new", "line":1, "range":[0,width], "tone":"warning"
+        }]),
     )
 }
 

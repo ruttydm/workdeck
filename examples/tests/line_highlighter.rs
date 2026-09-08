@@ -110,6 +110,63 @@ fn native_child_exit_disconnects_all_four_waiting_parents() {
     assert_four_native_parents(false, false, false, true);
 }
 
+#[test]
+fn ordinary_native_highlighter_reads_four_files_without_batch_fixture_mode() {
+    let (_directory, manifest) = staged_extension();
+    let extension = LoadedExtension::spawn_with_configuration(
+        &manifest,
+        "test",
+        serde_json::json!({"includeHang":false}),
+    )
+    .unwrap();
+    let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let workers = (0..4)
+        .map(|index| {
+            let mut extension = extension.clone();
+            let reads = reads.clone();
+            std::thread::spawn(move || {
+                let reader = workdeck_extension_host::ExtensionDocumentReader::new(move |side| {
+                    assert_eq!(side, workdeck_extension_api::ExtensionFileSide::New);
+                    reads.fetch_add(1, Ordering::AcqRel);
+                    let deadline = Instant::now() + Duration::from_secs(1);
+                    while reads.load(Ordering::Acquire) < 4 && Instant::now() < deadline {
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                    if reads.load(Ordering::Acquire) != 4 {
+                        return Err("the extension did not start all four document reads".into());
+                    }
+                    Ok(Some("new\n".into()))
+                });
+                let file = review_file(&format!("ordinary-{index}.rs"));
+                let deadline = Instant::now() + Duration::from_secs(5);
+                loop {
+                    match extension.highlight_file_with_document_reader(
+                        "attention",
+                        &file,
+                        &AtomicBool::new(false),
+                        reader.clone(),
+                    ) {
+                        Err(HostError::Busy(_)) if Instant::now() < deadline => {
+                            std::thread::yield_now();
+                        }
+                        result => {
+                            assert_eq!(
+                                result.unwrap(),
+                                serde_json::json!([{"side":"new","line":1,"range":[0,3],"tone":"warning"}])
+                            );
+                            break;
+                        }
+                    }
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    for worker in workers {
+        worker.join().unwrap();
+    }
+    assert_eq!(reads.load(Ordering::Acquire), 4);
+}
+
 fn assert_four_native_parents(cancel_one: bool, documents: bool, fail_one: bool, exit_batch: bool) {
     let (_directory, manifest) = staged_extension();
     let extension = LoadedExtension::spawn_with_configuration(

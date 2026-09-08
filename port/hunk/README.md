@@ -1364,6 +1364,14 @@ factory verifies committed pre-change bytes, retained prepared entries, exact ch
 source author/message metadata, and owned temporary-directory cleanup. No compiled fixture is
 added to Workdeck's own tracked tree; the binary lives only in a disposable test repository.
 
+The ordinary compiled line-highlighter now uses the SDK's `ExtensionDocumentCallbacks` router
+instead of nesting a synchronous response wait inside its request loop. A four-file regression
+holds each captured source until all four reads have started, with the batch fixture mode disabled.
+It failed with unexpected-response errors and timeouts before the change and passes with the
+router; all eighteen compiled line-highlighter integration tests pass together. Four SDK tests
+cover callback attribution, retirement, malformed responses, limits, and ID exhaustion. The router
+does not own framing or transport deadlines and does not complete the unmapped highlighter hook.
+
 Lifecycle capture now retains a separate stderr pipe for failures after terminal revocation and
 continues draining output while revoking. A zero-byte terminal write is classified as disconnect
 alongside EIO and broken pipes; it is not swallowed for unrelated I/O. Five consecutive native
