@@ -17,7 +17,7 @@ enum ChangeKind {
     Added,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Change {
     kind: ChangeKind,
     text: String,
@@ -96,6 +96,27 @@ fn is_word_character(character: char) -> bool {
 }
 
 fn diff_tokens(old: &[Token<'_>], new: &[Token<'_>]) -> Vec<Change> {
+    // The traceback always consumes equal leading tokens. Remove only that forced
+    // prefix before allocating the quadratic table; suffix trimming can alter ties.
+    let prefix = old
+        .iter()
+        .zip(new)
+        .take_while(|(a, b)| a.text == b.text)
+        .count();
+    if prefix == 0 {
+        return diff_tokens_untrimmed(old, new);
+    }
+    let mut changes = Vec::new();
+    for token in &old[..prefix] {
+        push_change(&mut changes, ChangeKind::Neutral, token.text);
+    }
+    for change in diff_tokens_untrimmed(&old[prefix..], &new[prefix..]) {
+        push_change(&mut changes, change.kind, &change.text);
+    }
+    changes
+}
+
+fn diff_tokens_untrimmed(old: &[Token<'_>], new: &[Token<'_>]) -> Vec<Change> {
     let columns = new.len() + 1;
     let mut lcs = vec![0_u16; (old.len() + 1).saturating_mul(columns)];
     for old_index in (0..old.len()).rev() {
@@ -188,6 +209,41 @@ fn emphasis_ranges(changes: &[Change], side: ChangeKind) -> Vec<Range<usize>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prefix_reduction_preserves_traceback_and_emphasis_for_exhaustive_short_tokens() {
+        let alphabet = ["a", "b", " ", "+", "日", "🚀"];
+        let mut sequences = vec![Vec::new()];
+        for length in 1..=3 {
+            for encoded in 0..6usize.pow(length) {
+                let mut value = encoded;
+                sequences.push(
+                    (0..length)
+                        .map(|_| {
+                            let token = Token {
+                                text: alphabet[value % 6],
+                            };
+                            value /= 6;
+                            token
+                        })
+                        .collect(),
+                );
+            }
+        }
+        for old in &sequences {
+            for new in &sequences {
+                let expected = diff_tokens_untrimmed(old, new);
+                let actual = diff_tokens(old, new);
+                assert_eq!(actual, expected, "old={old:?} new={new:?}");
+                for side in [ChangeKind::Removed, ChangeKind::Added] {
+                    assert_eq!(
+                        emphasis_ranges(&actual, side),
+                        emphasis_ranges(&expected, side)
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn emphasizes_only_the_inserted_call_argument() {
