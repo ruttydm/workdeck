@@ -1678,3 +1678,13 @@ repositories, session runtime files, and nested Cargo query-cache/object outputs
 The verifier stopped at workspace tests, before its Clippy, release-build and smoke
 stages. Earlier focused test and standalone Clippy passes do not make this run green.
 Storage recovery and a fresh verification run are required.
+
+After Cargo's package-scoped cleanup removed 23.8 GiB of regenerable `workdeck-tui`
+build artifacts, `CARGO_INCREMENTAL=0 cargo xtask verify` passed at `c10ab4e8`.
+That fresh run passed full workspace tests, including all 93 terminal-pager tests,
+27 conformance tests, 572 session tests, 1,074 TUI tests, 241 VCS tests and 198 tooling
+tests with one existing opt-in test ignored. Workspace all-target Clippy, the release
+executable build and the large-repository smoke check also passed. Sources, fixtures,
+Git history and Workdeck state were not removed during storage recovery. This supersedes
+the storage-blocked verification result only; it does not clear strict ledger coverage,
+upstream catch-up, benchmark, native-platform, signing or other release gates.
