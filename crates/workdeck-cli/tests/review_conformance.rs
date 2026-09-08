@@ -29,10 +29,14 @@ use workdeck_review::{
 };
 
 type GeometryProjection = fn(&DiffFile, Option<&str>, &str) -> Value;
-const GEOMETRY_CONSUMERS: [(&str, GeometryProjection); 3] = [
-    ("core review model", core_projection),
-    ("terminal render planning", terminal_projection),
-    ("review producer", producer_projection),
+const GEOMETRY_CONSUMERS: [models::Consumer<GeometryProjection>; 3] = [
+    models::Consumer::new("core review model", "Phase 1 PR 2", core_projection),
+    models::Consumer::new(
+        "terminal render planning",
+        "Phase 1 PR 2",
+        terminal_projection,
+    ),
+    models::Consumer::new("review producer", "Phase 2", producer_projection),
 ];
 
 fn fixture(id: &str) -> (DiffFile, Option<&'static str>, String) {
@@ -253,7 +257,9 @@ fn core_and_producer_project_complete_streams_and_scope_expansion_to_its_file() 
 #[test]
 fn core_and_producer_expansion_helpers_preserve_absent_gaps_and_short_sources() {
     let (file, expansion, source) = fixture("pure-insertion-hunk");
-    for (name, project) in [GEOMETRY_CONSUMERS[0], GEOMETRY_CONSUMERS[2]] {
+    for consumer in [GEOMETRY_CONSUMERS[0], GEOMETRY_CONSUMERS[2]] {
+        let name = consumer.name;
+        let project = consumer.project;
         for missing in ["before:999", "not-a-gap"] {
             let actual = project(&file, Some(missing), &source);
             assert!(
@@ -281,17 +287,17 @@ fn core_and_producer_expansion_helpers_preserve_absent_gaps_and_short_sources() 
 
 #[test]
 fn parsed_core_geometry_matches_both_pinned_conformance_oracles() {
-    check_geometry_consumer(GEOMETRY_CONSUMERS[0].0, GEOMETRY_CONSUMERS[0].1);
+    check_geometry_consumer(GEOMETRY_CONSUMERS[0].name, GEOMETRY_CONSUMERS[0].project);
 }
 
 #[test]
 fn terminal_planner_geometry_matches_both_pinned_conformance_oracles() {
-    check_geometry_consumer(GEOMETRY_CONSUMERS[1].0, GEOMETRY_CONSUMERS[1].1);
+    check_geometry_consumer(GEOMETRY_CONSUMERS[1].name, GEOMETRY_CONSUMERS[1].project);
 }
 
 #[test]
 fn producer_geometry_matches_both_pinned_conformance_oracles() {
-    check_geometry_consumer(GEOMETRY_CONSUMERS[2].0, GEOMETRY_CONSUMERS[2].1);
+    check_geometry_consumer(GEOMETRY_CONSUMERS[2].name, GEOMETRY_CONSUMERS[2].project);
 }
 
 fn producer_projection(file: &DiffFile, expansion: Option<&str>, source_text: &str) -> Value {
@@ -582,7 +588,25 @@ fn check_geometry_consumer(name: &str, project: fn(&DiffFile, Option<&str>, &str
 #[test]
 fn registers_every_pinned_consumer_in_the_executable_rust_drivers() {
     assert_eq!(
-        GEOMETRY_CONSUMERS.map(|(name, _)| name),
+        navigation::CONSUMERS.map(|consumer| consumer.phase),
+        ["Phase 1 PR 3", "Phase 1 PR 3"]
+    );
+    assert_eq!(
+        ordering::CONSUMERS.map(|consumer| consumer.phase),
+        ["Phase 2", "Phase 3"]
+    );
+    assert_eq!(
+        events::CONSUMERS.map(|consumer| consumer.phase),
+        ["Phase 4", "Phase 4"]
+    );
+    assert_eq!(snapshot::CONSUMER.phase, "extension API v8");
+    assert_eq!(wire::CONSUMER.phase, "Phase 3");
+    assert_eq!(
+        GEOMETRY_CONSUMERS.map(|consumer| consumer.phase),
+        ["Phase 1 PR 2", "Phase 1 PR 2", "Phase 2"]
+    );
+    assert_eq!(
+        GEOMETRY_CONSUMERS.map(|consumer| consumer.name),
         [
             "core review model",
             "terminal render planning",
@@ -590,17 +614,17 @@ fn registers_every_pinned_consumer_in_the_executable_rust_drivers() {
         ]
     );
     assert_eq!(
-        navigation::CONSUMERS.map(|(name, _)| name),
+        navigation::CONSUMERS.map(|consumer| consumer.name),
         ["core intent planner", "terminal review"]
     );
     assert_eq!(
-        ordering::CONSUMERS.map(|(name, _)| name),
+        ordering::CONSUMERS.map(|consumer| consumer.name),
         ["core publication ordering", "broker review mirror"]
     );
-    assert_eq!([snapshot::CONSUMER.0], ["extension review snapshot"]);
-    assert_eq!([wire::CONSUMER.0], ["review wire protocol"]);
+    assert_eq!([snapshot::CONSUMER.name], ["extension review snapshot"]);
+    assert_eq!([wire::CONSUMER.name], ["review wire protocol"]);
     assert_eq!(
-        events::CONSUMERS.map(|(name, _)| name),
+        events::CONSUMERS.map(|consumer| consumer.name),
         ["review event protocol", "browser review HTTP surface"]
     );
 }
@@ -655,12 +679,12 @@ fn conformance_corpus_covers_every_claimed_finding_and_source_case() {
         assert_eq!(source_cases, expected_source_cases);
         for case in cases {
             let names = match case["group"].as_str().unwrap() {
-                "geometry" => GEOMETRY_CONSUMERS.map(|(name, _)| name).to_vec(),
-                "navigation" => navigation::CONSUMERS.map(|(name, _)| name).to_vec(),
-                "ordering" => ordering::CONSUMERS.map(|(name, _)| name).to_vec(),
-                "snapshot" => vec![snapshot::CONSUMER.0],
-                "wire" => vec![wire::CONSUMER.0],
-                "events" => events::CONSUMERS.map(|(name, _)| name).to_vec(),
+                "geometry" => GEOMETRY_CONSUMERS.map(|consumer| consumer.name).to_vec(),
+                "navigation" => navigation::CONSUMERS.map(|consumer| consumer.name).to_vec(),
+                "ordering" => ordering::CONSUMERS.map(|consumer| consumer.name).to_vec(),
+                "snapshot" => vec![snapshot::CONSUMER.name],
+                "wire" => vec![wire::CONSUMER.name],
+                "events" => events::CONSUMERS.map(|consumer| consumer.name).to_vec(),
                 "producer-ordering" => vec!["producer ordering"],
                 "note-body" => vec!["core note policy and draft planner"],
                 "note-size" => vec!["core note size", "review wire note size"],

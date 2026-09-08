@@ -8,10 +8,19 @@ use workdeck_session::{
 
 type ActionParser = fn(&Value) -> Value;
 type NotePolicy = fn(&Value) -> bool;
-pub(super) const CONSUMER: (&str, ActionParser, NotePolicy) = (
+#[derive(Clone, Copy)]
+pub(super) struct WireProjections {
+    pub parse_action: ActionParser,
+    pub accepts_note: NotePolicy,
+}
+
+pub(super) const CONSUMER: super::models::Consumer<WireProjections> = super::models::Consumer::new(
     "review wire protocol",
-    parse_action,
-    workdeck_review::review_note_within_size_limit,
+    "Phase 3",
+    WireProjections {
+        parse_action,
+        accepts_note: workdeck_review::review_note_within_size_limit,
+    },
 );
 
 fn parse_action(input: &Value) -> Value {
@@ -45,7 +54,7 @@ fn wire_actions_lower_to_the_pinned_intents_and_reject_invalid_shapes() {
             if case["group"] != "wire" {
                 continue;
             }
-            let actual = (CONSUMER.1)(&case["input"]["action"]);
+            let actual = (CONSUMER.project.parse_action)(&case["input"]["action"]);
             assert_eq!(
                 actual, case["expected"],
                 "{}: {}",
@@ -55,7 +64,7 @@ fn wire_actions_lower_to_the_pinned_intents_and_reject_invalid_shapes() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .find(|consumer| consumer["consumer"] == CONSUMER.0)
+                .find(|consumer| consumer["consumer"] == CONSUMER.name)
                 .unwrap();
             assert_eq!(actual, captured["output"], "captured wire: {}", case["id"]);
             count += 1;

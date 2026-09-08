@@ -11,7 +11,8 @@ use workdeck_review::{
 };
 use workdeck_tui::{ReviewApp, ReviewOptions, render};
 
-pub(super) const CONSUMER: (&str, fn(bool) -> Value) = ("extension review snapshot", projection);
+pub(super) const CONSUMER: super::models::Consumer<fn(bool) -> Value> =
+    super::models::Consumer::new("extension review snapshot", "extension API v8", projection);
 
 fn comment(
     id: &str,
@@ -178,7 +179,7 @@ fn complete_saved_note_snapshot_excludes_a_real_unsaved_terminal_draft() {
             false,
         ),
     ] {
-        let actual = (CONSUMER.1)(include_reply);
+        let actual = (CONSUMER.project)(include_reply);
         let oracle: Value = serde_json::from_str(encoded).unwrap();
         let cases = oracle["results"]
             .as_array()
@@ -192,7 +193,7 @@ fn complete_saved_note_snapshot_excludes_a_real_unsaved_terminal_draft() {
             super::models::snapshot(&cases[0]["expected"])
         );
         assert_eq!(actual, cases[0]["expected"]);
-        assert_eq!(cases[0]["actual"][0]["consumer"], CONSUMER.0);
+        assert_eq!(cases[0]["actual"][0]["consumer"], CONSUMER.name);
         assert_eq!(actual, cases[0]["actual"][0]["output"]);
     }
 }

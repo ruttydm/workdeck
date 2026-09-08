@@ -159,7 +159,7 @@ fn whole_note_size_counts_framing_combined_fields_and_utf8() {
             &json!({"maxReviewNoteBytes": MAX_REVIEW_NOTE_BYTES, "serializedBytes": bytes}),
             &json!(review_note_within_size_limit(&note)),
             6,
-            Some(json!((super::wire::CONSUMER.2)(&note))),
+            Some(json!((super::wire::CONSUMER.project.accepts_note)(&note))),
         );
     }
 }

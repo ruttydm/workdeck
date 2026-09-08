@@ -1532,6 +1532,13 @@ unknown fields, malformed ranges, invalid variants, and missing required null fi
 cannot disappear during comparison. All 21 focused tests pass. Fixture interfaces and
 consumer signatures are still incomplete, so the entire source types record remains
 unmapped; these checks do not substitute for its remaining translation.
+All six consumer registries now use named Rust descriptors containing their original
+registration phase and executable callbacks. Navigation registers callable adapters
+rather than dispatch flags, and wire parsing and note acceptance have named callback
+fields. The registry test verifies each phase as well as each name; phases describe the
+upstream harness history, not Workdeck's native SDK version. All 21 focused tests pass.
+Fixture interfaces and fixture-bound signatures remain unfinished, so the types record
+is still unmapped and the source-coverage count is unchanged.
 Capture-integrity tests reject changed outputs and wrong pins but are not parity proof.
 
 Full `cargo xtask verify` passed at `e4f3c782` before this conformance increment, including

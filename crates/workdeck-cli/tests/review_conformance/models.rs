@@ -5,6 +5,26 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use workdeck_core::ReviewSide;
 
+/// One registered native adapter, including the upstream phase that introduced it.
+/// `Project` carries its family's callable signature or named callback bundle.
+/// Phase labels record upstream history, not the Workdeck SDK's version.
+#[derive(Clone, Copy)]
+pub(super) struct Consumer<Project> {
+    pub name: &'static str,
+    pub phase: &'static str,
+    pub project: Project,
+}
+
+impl<Project> Consumer<Project> {
+    pub const fn new(name: &'static str, phase: &'static str, project: Project) -> Self {
+        Self {
+            name,
+            phase,
+            project,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct ConformanceGap {

@@ -13,8 +13,18 @@ use workdeck_review::{
 };
 use workdeck_tui::plan_terminal_selection_reconciliation;
 
-pub(super) const CONSUMERS: [(&str, bool); 2] =
-    [("core intent planner", false), ("terminal review", true)];
+type NavigationProjection = fn(&Fixture) -> Value;
+pub(super) const CONSUMERS: [super::models::Consumer<NavigationProjection>; 2] = [
+    super::models::Consumer::new("core intent planner", "Phase 1 PR 3", planner_projection),
+    super::models::Consumer::new("terminal review", "Phase 1 PR 3", terminal_projection),
+];
+
+fn planner_projection(fixture: &Fixture) -> Value {
+    projection(fixture, false)
+}
+fn terminal_projection(fixture: &Fixture) -> Value {
+    projection(fixture, true)
+}
 
 #[derive(Clone, Copy)]
 enum FilePosition {
@@ -32,7 +42,7 @@ struct Move {
     from: Position,
 }
 
-struct Fixture {
+pub(super) struct Fixture {
     files: Vec<DiffFile>,
     filter: &'static str,
     annotations: Vec<(usize, Vec<usize>)>,
@@ -384,9 +394,9 @@ fn positional_helpers_handle_vanished_files_and_independent_annotation_scopes() 
         inferred.annotated_hunk_indices_by_file_key
     );
     fixture.moves = vec![movement(ReviewSelectionScope::AnnotatedFile, 1, at(0, 0))];
-    for (_, terminal) in CONSUMERS {
+    for consumer in CONSUMERS {
         assert_eq!(
-            projection(&fixture, terminal)["moves"][0]["to"],
+            (consumer.project)(&fixture)["moves"][0]["to"],
             json!({"file": 1, "hunkIndex": 0}),
             "explicit file scope must reach both real navigation consumers"
         );
@@ -413,8 +423,9 @@ fn both_navigation_consumers_match_both_pinned_corpora() {
             }
             let id = case["id"].as_str().unwrap();
             let fixture = fixture(id);
-            for (name, terminal) in CONSUMERS {
-                let actual = projection(&fixture, terminal);
+            for consumer in CONSUMERS {
+                let name = consumer.name;
+                let actual = (consumer.project)(&fixture);
                 assert_eq!(
                     super::models::navigation(&actual),
                     super::models::navigation(&case["expected"])

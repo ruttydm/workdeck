@@ -16,9 +16,9 @@ const SESSION_ID: &str = "session-conformance";
 const GENERATION: &str = "generation:conformance:1";
 
 type EventProjection = fn(&WorkdeckReviewPublicationBodyV1, u64) -> Value;
-pub(super) const CONSUMERS: [(&str, EventProjection); 2] = [
-    ("review event protocol", protocol_projection),
-    ("browser review HTTP surface", http_projection),
+pub(super) const CONSUMERS: [super::models::Consumer<EventProjection>; 2] = [
+    super::models::Consumer::new("review event protocol", "Phase 4", protocol_projection),
+    super::models::Consumer::new("browser review HTTP surface", "Phase 4", http_projection),
 ];
 
 #[derive(Clone, Copy)]
@@ -360,8 +360,9 @@ fn protocol_and_real_http_surface_match_all_pinned_event_windows() {
                 continue;
             }
             let (body, window) = fixture(case["id"].as_str().unwrap());
-            for (name, project) in CONSUMERS {
-                let actual = project(&body, window);
+            for consumer in CONSUMERS {
+                let name = consumer.name;
+                let actual = (consumer.project)(&body, window);
                 assert_eq!(
                     super::models::event_framing(&actual),
                     super::models::event_framing(&case["expected"])

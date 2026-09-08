@@ -13,9 +13,9 @@ use workdeck_session::{
 };
 
 type Classifier = fn(&ReviewPublicationAddress, &ReviewPublicationAddress) -> &'static str;
-pub(super) const CONSUMERS: [(&str, Classifier); 2] = [
-    ("core publication ordering", core_verdict),
-    ("broker review mirror", mirror_verdict),
+pub(super) const CONSUMERS: [super::models::Consumer<Classifier>; 2] = [
+    super::models::Consumer::new("core publication ordering", "Phase 2", core_verdict),
+    super::models::Consumer::new("broker review mirror", "Phase 3", mirror_verdict),
 ];
 
 fn core_verdict(
@@ -155,7 +155,12 @@ fn core_broker_and_producer_ordering_match_both_pinned_corpora() {
                     ordering_count += 1;
                     CONSUMERS
                         .iter()
-                        .map(|(name, classify)| (*name, json!(classify(&current, &incoming))))
+                        .map(|consumer| {
+                            (
+                                consumer.name,
+                                json!((consumer.project)(&current, &incoming)),
+                            )
+                        })
                         .collect()
                 }
                 "producer-ordering" => {
