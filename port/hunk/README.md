@@ -1468,6 +1468,11 @@ their executable test entrypoints. The protocol-event, HTTP-event, and wire cons
 are also mapped after adapter review. Additional reader tests reject missing, duplicate,
 malformed, corrupt, and mismatched frames and check byte-fragmented SSE input stopping
 at the resumable event boundary. The other individual consumer mappings remain under review.
+The core-ordering and broker-mirror consumers are now separately reviewed and mapped:
+the former invokes the shared ordering classifier and the latter seeds a real mirror
+with its resource catalog before classifying the observed update. The extension-snapshot
+consumer is also mapped to its public projection, preserving generation, revision, file
+identities, saved-note order, reply links, resolution, and all exported anchor fields.
 Capture-integrity tests reject changed outputs and wrong pins but are not parity proof.
 
 Full `cargo xtask verify` passed at `e4f3c782` before this conformance increment, including
