@@ -1628,3 +1628,29 @@ deadlines or implementation. This does not establish the cause of the earlier ti
 Three runs of the exact earlier test executable also passed. A fresh full-workspace run at
 `2dc01b5d`, without concurrent builds or oracle execution, then passed, with one existing
 opt-in oracle capture test still ignored. The timeout is not claimed fixed or causally explained.
+
+### Native quit transport and caller policy
+
+The native broker now parses and dispatches `quit_session` and the HTTP `quit` action.
+The mounted review waits for the matching result to enter the producer socket queue
+before requesting shutdown; queue notification is not a peer acknowledgement. Timeout
+or an abandoned request leaves the review open. A real authenticated loopback test,
+`authenticated_native_quit_reply_survives_immediate_producer_disconnect`, verifies that
+the HTTP client receives the successful result even when the producer stops immediately
+after queuing it, and that the session subsequently disappears from discovery.
+
+The expanded local caller policy uses `security-v1/caller-v2.json` and grant/revocation ID
+`workdeck-caller-bootstrap-v2`. Its only new command is `quit_session` version 1. The
+stored credential format, daemon identity and producer identity remain unchanged.
+Existing `caller.json` is neither changed nor imported with broader privileges. New
+identity publication retains owner-private permissions and atomic first-writer adoption;
+subsequent loads reuse it. Exact command and operation validation remains mandatory.
+An older running daemon must be restarted before it can recognize the new caller key.
+Tests cover byte-for-byte preservation of old credentials, new identity reuse, and
+rejection of added, missing or version-altered command scopes.
+
+All 571 session library tests pass after this increment. This is transport and policy
+evidence, not a completed CLI or TUI end-to-end migration: `workdeck session quit` still
+uses the legacy listener at this point, and the remaining legacy routes and listener
+must be removed only after their native replacements have executable parity evidence.
+No source ledger interval or upstream catch-up commit is marked complete by this work.

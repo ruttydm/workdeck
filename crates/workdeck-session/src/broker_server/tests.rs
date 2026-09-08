@@ -1183,6 +1183,78 @@ fn native_server_authenticates_capabilities_and_session_list_over_one_state() {
 }
 
 #[test]
+fn authenticated_native_quit_reply_survives_immediate_producer_disconnect() {
+    struct QuitBridge {
+        connection: std::sync::Weak<NativeProducerConnection>,
+        queued: Arc<std::sync::atomic::AtomicBool>,
+    }
+    impl
+        crate::SessionBrokerConnectionBridge<
+            WorkdeckSessionCommandInput,
+            WorkdeckSessionCommandResult,
+        > for QuitBridge
+    {
+        fn dispatch_command(
+            &self,
+            message: crate::SessionServerMessage<String, WorkdeckSessionCommandInput>,
+        ) -> Result<WorkdeckSessionCommandResult, String> {
+            assert_eq!(message.command, "quit_session");
+            assert!(matches!(
+                message.input,
+                WorkdeckSessionCommandInput::QuitSession(_)
+            ));
+            Ok(WorkdeckSessionCommandResult::QuitSession(
+                crate::QuitSessionResult { quitting: true },
+            ))
+        }
+        fn command_result_queued(&self, _: &str) {
+            self.queued
+                .store(true, std::sync::atomic::Ordering::Release);
+            self.connection.upgrade().unwrap().stop();
+        }
+    }
+    let (_root, env, server) = live_server();
+    let producer = Arc::new(start_native_producer(
+        &env,
+        server.address().port(),
+        "native-quit",
+    ));
+    let queued = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    producer.set_bridge(Some(Arc::new(QuitBridge {
+        connection: Arc::downgrade(&producer),
+        queued: Arc::clone(&queued),
+    })));
+    let client =
+        crate::HttpWorkdeckSessionCliClient::from_environment(env, Duration::from_secs(2)).unwrap();
+    wait_until(
+        "native quit producer registration",
+        Duration::from_secs(5),
+        || {
+            client
+                .list_sessions()
+                .unwrap()
+                .iter()
+                .any(|session| session.session_id == "native-quit")
+        },
+    );
+    let result = client
+        .quit_session(SessionSelector {
+            session_id: Some("native-quit".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(result.quitting);
+    assert!(queued.load(std::sync::atomic::Ordering::Acquire));
+    wait_until(
+        "native quit producer retirement",
+        Duration::from_secs(5),
+        || client.list_sessions().unwrap().is_empty(),
+    );
+    server.stop();
+    assert!(server.wait_stopped(Duration::from_secs(2)));
+}
+
+#[test]
 fn native_server_refuses_non_loopback_binding_unless_explicitly_allowed() {
     let root = tempfile::tempdir().unwrap();
     let port = reserve_loopback_port();

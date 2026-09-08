@@ -32,7 +32,10 @@ const DIRECTORY_MODE: u32 = 0o700;
 // still creating its hierarchy.
 static CREDENTIAL_BOOTSTRAP_LOCK: Mutex<()> = Mutex::new(());
 
-const COMMAND_SCOPES: [&str; 8] = [
+// A broader caller policy receives a new identity rather than silently widening
+// a persisted v1 grant. Older binaries can still use their untouched caller.json.
+const CALLER_CREDENTIAL_FILE: &str = "caller-v2.json";
+const COMMAND_SCOPES: [&str; 9] = [
     "navigate_to_hunk",
     "reload_session",
     "comment",
@@ -41,6 +44,7 @@ const COMMAND_SCOPES: [&str; 8] = [
     "clear_comments",
     "highlight",
     "clear_highlights",
+    "quit_session",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,6 +56,11 @@ enum StoredRole {
 }
 
 impl StoredRole {
+    fn bootstrap_id(self) -> String {
+        let version = if self == Self::Caller { 2 } else { 1 };
+        format!("workdeck-{}-bootstrap-v{version}", self.name())
+    }
+
     const fn name(self) -> &'static str {
         match self {
             Self::Daemon => "daemon",
@@ -197,10 +206,10 @@ fn validate_grant(
         || grant.app_id != WORKDECK_SESSION_BROKER_APP_ID
         || grant.principal_id != format!("workdeck-{role_name}")
         || grant.key_id != key_id
-        || grant.grant_id != format!("workdeck-{role_name}-bootstrap-v1")
+        || grant.grant_id != role.bootstrap_id()
         || grant.algorithm != SESSION_BROKER_SIGNATURE_ALGORITHM
         || grant.issued_at >= grant.expires_at
-        || grant.revocation_id != format!("workdeck-{role_name}-bootstrap-v1")
+        || grant.revocation_id != role.bootstrap_id()
         || grant.may_delegate
         || grant.operations != operations
         || match role {
@@ -459,13 +468,13 @@ fn create_stored(role: StoredRole, now: u64) -> Result<StoredCredentialFile, Cre
                 app_id: WORKDECK_SESSION_BROKER_APP_ID.into(),
                 principal_id: format!("workdeck-{role_name}"),
                 key_id: key_id.clone(),
-                grant_id: format!("workdeck-{role_name}-bootstrap-v1"),
+                grant_id: role.bootstrap_id(),
                 algorithm: SESSION_BROKER_SIGNATURE_ALGORITHM.into(),
                 issued_at: now,
                 expires_at: now
                     .checked_add(CREDENTIAL_LIFETIME_MS)
                     .ok_or(CredentialStoreError::Security)?,
-                revocation_id: format!("workdeck-{role_name}-bootstrap-v1"),
+                revocation_id: role.bootstrap_id(),
                 may_delegate: false,
                 operations: expected_operations(role)
                     .iter()
@@ -621,7 +630,7 @@ pub fn load_or_create_workdeck_session_broker_credentials(
         now,
     )?;
     let caller = load_or_create(
-        &security_directory.join("caller.json"),
+        &security_directory.join(CALLER_CREDENTIAL_FILE),
         StoredRole::Caller,
         now,
     )?;
@@ -688,15 +697,90 @@ mod tests {
                 fs::symlink_metadata(&security).unwrap().mode() & 0o777,
                 0o700
             );
-            for name in ["daemon.json", "producer.json", "caller.json"] {
+            for name in ["daemon.json", "producer.json", CALLER_CREDENTIAL_FILE] {
                 assert_eq!(
                     fs::symlink_metadata(security.join(name)).unwrap().mode() & 0o777,
                     0o600
                 );
             }
         }
-        let caller = fs::read_to_string(security.join("caller.json")).unwrap();
+        let caller = fs::read_to_string(security.join(CALLER_CREDENTIAL_FILE)).unwrap();
         assert!(!caller.contains("workdeck-review-capability"));
+    }
+
+    #[test]
+    fn caller_policy_upgrade_preserves_legacy_credentials_and_reuses_new_identity() {
+        let root = TempDir::new().unwrap();
+        let env = isolated_env(&root);
+        let runtime = workdeck_session_broker_runtime_directory(&env);
+        let security = runtime.join("security-v1");
+        ensure_runtime_namespace(&runtime).unwrap();
+        ensure_security_directory(&security).unwrap();
+        for (name, role) in [
+            ("daemon.json", StoredRole::Daemon),
+            ("producer.json", StoredRole::Producer),
+        ] {
+            load_or_create(&security.join(name), role, 100).unwrap();
+        }
+        let mut legacy = create_stored(StoredRole::Caller, 100).unwrap();
+        let grant = legacy.grant.as_mut().unwrap();
+        grant.grant_id = "workdeck-caller-bootstrap-v1".into();
+        grant.revocation_id = grant.grant_id.clone();
+        grant
+            .commands
+            .as_mut()
+            .unwrap()
+            .retain(|scope| scope.name != "quit_session");
+        adopt_private_file(
+            &security.join("caller.json"),
+            &serde_json::to_vec(&legacy).unwrap(),
+        )
+        .unwrap();
+        let preserved = ["daemon.json", "producer.json", "caller.json"]
+            .map(|name| (name, fs::read(security.join(name)).unwrap()));
+
+        let upgraded = load_or_create_workdeck_session_broker_credentials(&env, Some(200)).unwrap();
+        let repeated = load_or_create_workdeck_session_broker_credentials(&env, Some(300)).unwrap();
+        assert_ne!(upgraded.caller.grant.base.key_id, legacy.key_id);
+        assert_eq!(
+            upgraded.caller.grant.base.key_id,
+            repeated.caller.grant.base.key_id
+        );
+        assert_eq!(
+            upgraded.caller.grant.base.grant_id,
+            "workdeck-caller-bootstrap-v2"
+        );
+        assert!(
+            upgraded
+                .caller
+                .grant
+                .commands
+                .iter()
+                .any(|scope| { scope.name == "quit_session" && scope.version == 1 })
+        );
+        for (name, bytes) in preserved {
+            assert_eq!(fs::read(security.join(name)).unwrap(), bytes);
+        }
+        // An old grant copied into the new policy file cannot be silently widened.
+        assert!(parse_stored(serde_json::to_value(legacy).unwrap(), StoredRole::Caller).is_err());
+    }
+
+    #[test]
+    fn caller_policy_rejects_added_missing_or_version_changed_commands() {
+        let stored = create_stored(StoredRole::Caller, 100).unwrap();
+        let canonical = serde_json::to_value(stored).unwrap();
+        for change in 0..3 {
+            let mut value = canonical.clone();
+            let commands = value["grant"]["commands"].as_array_mut().unwrap();
+            match change {
+                0 => commands.push(json!({"name": "shutdown_daemon", "version": 1})),
+                1 => {
+                    commands.pop();
+                }
+                _ => commands[0]["version"] = json!(2),
+            }
+            assert!(parse_stored(value, StoredRole::Caller).is_err());
+        }
     }
 
     #[test]
@@ -730,7 +814,10 @@ mod tests {
         let root = TempDir::new().unwrap();
         let env = isolated_env(&root);
         load_or_create_workdeck_session_broker_credentials(&env, Some(100)).unwrap();
-        let caller = root.path().join("workdeck-mcp/security-v1/caller.json");
+        let caller = root
+            .path()
+            .join("workdeck-mcp/security-v1")
+            .join(CALLER_CREDENTIAL_FILE);
         let secret = "private-secret-sentinel";
         fs::write(&caller, format!(r#"{{"privateKey":"{secret}"}}"#)).unwrap();
         #[cfg(unix)]
@@ -770,7 +857,10 @@ mod tests {
         let root = TempDir::new().unwrap();
         let env = isolated_env(&root);
         load_or_create_workdeck_session_broker_credentials(&env, Some(100)).unwrap();
-        let caller = root.path().join("workdeck-mcp/security-v1/caller.json");
+        let caller = root
+            .path()
+            .join("workdeck-mcp/security-v1")
+            .join(CALLER_CREDENTIAL_FILE);
         let mut value: Value = serde_json::from_slice(&fs::read(&caller).unwrap()).unwrap();
         value["grant"]["operations"] =
             json!(["list", "get", "dispatch", "diagnostics", "shutdown"]);
