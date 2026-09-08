@@ -12577,7 +12577,7 @@ fn build_review_rows_with_chrome(
         } else {
             None
         };
-        let gap_source = review_gap_source_for_file(file);
+        let gap_source = workdeck_review::review_gap_geometry_for_file(file);
         let expansion_side = review_expansion_side(file.change_kind);
         let selected_source = match expansion_side {
             ReviewSide::Old => file.sources.old.as_ref(),
@@ -12652,7 +12652,7 @@ fn build_review_rows_with_chrome(
             continue;
         }
         for (hunk_index, hunk) in file.hunks.iter().enumerate() {
-            if let Some(address) = review_leading_gap(&gap_source, hunk_index) {
+            if let Some(address) = gap_source.leading_gap(hunk_index) {
                 rows.extend(source_gap_rows(
                     file,
                     address,
@@ -12766,7 +12766,7 @@ fn build_review_rows_with_chrome(
                 ),
             );
         }
-        if let Some(address) = review_trailing_gap(&gap_source) {
+        if let Some(address) = gap_source.trailing_gap() {
             rows.extend(source_gap_rows(
                 file,
                 address,
@@ -21260,6 +21260,19 @@ mod tests {
                     );
                     app.with_state(|state| {
                         let key = state.changeset().files[0].key.clone();
+                        let file = &state.changeset().files[0];
+                        let owned = review_gap_source_for_file(file);
+                        let geometry = workdeck_review::review_gap_geometry_for_file(file);
+                        assert_eq!(owned.hunks, geometry.hunks);
+                        assert_eq!(owned.addition_lines.len(), geometry.addition_line_count);
+                        assert_eq!(owned.deletion_lines.len(), geometry.deletion_line_count);
+                        for index in 0..=file.hunks.len() {
+                            assert_eq!(
+                                review_leading_gap(&owned, index),
+                                geometry.leading_gap(index)
+                            );
+                        }
+                        assert_eq!(review_trailing_gap(&owned), geometry.trailing_gap());
                         state
                             .add_comment(saved_comment(&key, "agent-geometry", "日本語 note"))
                             .unwrap();

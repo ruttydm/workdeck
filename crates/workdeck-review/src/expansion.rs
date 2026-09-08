@@ -4,7 +4,7 @@ use workdeck_core::{DiffFile, FileChangeKind, LineRange, ReviewSide};
 
 pub use workdeck_core::ReviewGapPosition;
 
-use crate::normalized_review_source_lines;
+use crate::{normalized_review_source_line_count, normalized_review_source_lines};
 
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
@@ -67,6 +67,43 @@ pub struct ReviewGapSource {
     pub addition_lines: Vec<String>,
     pub deletion_lines: Vec<String>,
     pub is_partial: bool,
+}
+
+/// Gap-address metadata, independent of owned source text used for expansion.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReviewGapGeometry {
+    pub hunks: Vec<ReviewGapHunk>,
+    pub addition_line_count: usize,
+    pub deletion_line_count: usize,
+    pub is_partial: bool,
+}
+
+impl ReviewGapGeometry {
+    pub fn leading_gap(&self, hunk_index: usize) -> Option<ReviewGapAddress> {
+        leading_gap(&self.hunks, hunk_index)
+    }
+
+    pub fn trailing_gap(&self) -> Option<ReviewGapAddress> {
+        trailing_gap(
+            &self.hunks,
+            self.deletion_line_count,
+            self.addition_line_count,
+            self.is_partial,
+        )
+    }
+}
+
+pub fn review_gap_geometry_for_file(file: &DiffFile) -> ReviewGapGeometry {
+    ReviewGapGeometry {
+        hunks: review_gap_hunks(file),
+        addition_line_count: file.sources.new.as_ref().map_or(0, |source| {
+            normalized_review_source_line_count(&source.content)
+        }),
+        deletion_line_count: file.sources.old.as_ref().map_or(0, |source| {
+            normalized_review_source_line_count(&source.content)
+        }),
+        is_partial: file.flags.partial,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,10 +170,18 @@ pub fn review_gap_source_for_file(file: &DiffFile) -> ReviewGapSource {
         .as_ref()
         .map(|source| normalized_review_source_lines(&source.content))
         .unwrap_or_default();
+    ReviewGapSource {
+        hunks: review_gap_hunks(file),
+        addition_lines,
+        deletion_lines,
+        is_partial: file.flags.partial,
+    }
+}
+
+fn review_gap_hunks(file: &DiffFile) -> Vec<ReviewGapHunk> {
     let mut old_cursor = 1_u32;
     let mut new_cursor = 1_u32;
-    let hunks = file
-        .hunks
+    file.hunks
         .iter()
         .map(|hunk| {
             let old_end = hunk.old_start.saturating_sub(u32::from(hunk.old_count > 0));
@@ -159,17 +204,15 @@ pub fn review_gap_source_for_file(file: &DiffFile) -> ReviewGapSource {
             new_cursor = hunk.new_start.saturating_add(hunk.new_count);
             projected
         })
-        .collect();
-    ReviewGapSource {
-        hunks,
-        addition_lines,
-        deletion_lines,
-        is_partial: file.flags.partial,
-    }
+        .collect()
 }
 
 pub fn review_leading_gap(source: &ReviewGapSource, hunk_index: usize) -> Option<ReviewGapAddress> {
-    let hunk = source.hunks.get(hunk_index)?;
+    leading_gap(&source.hunks, hunk_index)
+}
+
+fn leading_gap(hunks: &[ReviewGapHunk], hunk_index: usize) -> Option<ReviewGapAddress> {
+    let hunk = hunks.get(hunk_index)?;
     if hunk.collapsed_before == 0 {
         return None;
     }
@@ -201,9 +244,23 @@ pub fn review_leading_gap(source: &ReviewGapSource, hunk_index: usize) -> Option
 }
 
 pub fn review_trailing_gap(source: &ReviewGapSource) -> Option<ReviewGapAddress> {
-    let hunk_index = source.hunks.len().checked_sub(1)?;
-    let hunk = source.hunks.get(hunk_index)?;
-    if source.is_partial {
+    trailing_gap(
+        &source.hunks,
+        source.deletion_lines.len(),
+        source.addition_lines.len(),
+        source.is_partial,
+    )
+}
+
+fn trailing_gap(
+    hunks: &[ReviewGapHunk],
+    deletion_lines: usize,
+    addition_lines: usize,
+    is_partial: bool,
+) -> Option<ReviewGapAddress> {
+    let hunk_index = hunks.len().checked_sub(1)?;
+    let hunk = hunks.get(hunk_index)?;
+    if is_partial {
         return None;
     }
     let old_used = hunk
@@ -212,8 +269,8 @@ pub fn review_trailing_gap(source: &ReviewGapSource) -> Option<ReviewGapAddress>
     let new_used = hunk
         .addition_line_index
         .checked_add(usize::try_from(hunk.addition_count).ok()?)?;
-    let old_count = source.deletion_lines.len().checked_sub(old_used)?;
-    let new_count = source.addition_lines.len().checked_sub(new_used)?;
+    let old_count = deletion_lines.checked_sub(old_used)?;
+    let new_count = addition_lines.checked_sub(new_used)?;
     if old_count == 0 || old_count != new_count {
         return None;
     }

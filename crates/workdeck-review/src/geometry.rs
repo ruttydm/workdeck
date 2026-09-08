@@ -201,10 +201,47 @@ pub fn normalized_review_source_lines(source: &str) -> Vec<String> {
     }
 }
 
+/// Exact length of `normalized_review_source_lines`, without allocating its text.
+pub fn normalized_review_source_line_count(source: &str) -> usize {
+    if matches!(source, "" | "\n" | "\r\n") {
+        0
+    } else {
+        source.bytes().filter(|byte| *byte == b'\n').count() + usize::from(!source.ends_with('\n'))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use workdeck_core::DiffLine;
+
+    #[test]
+    fn source_line_count_matches_normalization_exhaustively() {
+        let mut inputs = vec![String::new()];
+        for _ in 0..6 {
+            let next = inputs
+                .iter()
+                .flat_map(|prefix| {
+                    ['a', '\r', '\n', '日'].map(|suffix| format!("{prefix}{suffix}"))
+                })
+                .collect::<Vec<_>>();
+            for source in &inputs {
+                assert_eq!(
+                    normalized_review_source_line_count(source),
+                    normalized_review_source_lines(source).len(),
+                    "{source:?}"
+                );
+            }
+            inputs = next;
+        }
+        for source in &inputs {
+            assert_eq!(
+                normalized_review_source_line_count(source),
+                normalized_review_source_lines(source).len(),
+                "{source:?}"
+            );
+        }
+    }
 
     fn hunk(start: u32, count: u32) -> DiffHunk {
         DiffHunk {
