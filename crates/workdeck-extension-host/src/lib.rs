@@ -575,6 +575,7 @@ struct ExtensionConnection {
     child: Child,
     stdin: ChildStdin,
     responses: mpsc::Receiver<Result<String, std::io::Error>>,
+    response_routes: Arc<Mutex<ExtensionResponseRoutes>>,
     next_id: u64,
     pending_request: Option<PendingExecutionRequest>,
     registry: Arc<ExtensionRuntimeRegistry>,
@@ -582,6 +583,10 @@ struct ExtensionConnection {
 
 impl Drop for ExtensionConnection {
     fn drop(&mut self) {
+        self.response_routes
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .close();
         if self.registry.phase() != ExtensionEventBusPhase::Closed {
             let _ = self.registry.begin_closing();
             let _ = self.child.kill();
@@ -934,6 +939,8 @@ impl LoadedExtension {
             }
         });
         let (sender, responses) = mpsc::channel();
+        let response_routes = Arc::new(Mutex::new(ExtensionResponseRoutes::default()));
+        let output_routes = Arc::clone(&response_routes);
         let output_notifications = notifications.clone();
         thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
@@ -947,7 +954,13 @@ impl LoadedExtension {
                                 .notify(notification.message, notification.notification_type);
                             continue;
                         }
-                        if sender.send(Ok(line)).is_err() {
+                        let routed = output_routes
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner())
+                            .dispatch_frame(line);
+                        if let Ok(Some(line)) = routed
+                            && sender.send(Ok(line)).is_err()
+                        {
                             break;
                         }
                     }
@@ -957,6 +970,10 @@ impl LoadedExtension {
                     }
                 }
             }
+            output_routes
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .close();
         });
         let registry = Arc::new(ExtensionRuntimeRegistry::new());
         let mut loaded = Self {
@@ -973,6 +990,7 @@ impl LoadedExtension {
                 child,
                 stdin,
                 responses,
+                response_routes,
                 next_id: 1,
                 pending_request: None,
                 registry: Arc::clone(&registry),

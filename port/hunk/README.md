@@ -14,11 +14,15 @@ not itself validate callback authority or payloads.
 Unknown/retired parent frames return to the caller for legacy dispatch or stale
 rejection. This primitive is not yet wired into stdout or request lifecycles;
 frame-byte validation and terminal-error propagation remain dispatcher work.
-It does not change the serialization gap described below or add ledger coverage.
+The stdout reader now consults these routes before forwarding unmatched frames
+to the existing response channel. EOF, reader failure, and connection teardown
+close the route registry. Native request methods still use the legacy inbox;
+parent registration and releasing the connection lock during waits remain next.
+This does not change the serialization gap described below or add ledger coverage.
 The route primitive also has idempotent terminal closure: it disconnects all
 parent inboxes after buffered frames drain and permanently rejects registration.
-Tests cover both empty and buffered waiters. Stdout EOF/error handling still
-needs to invoke this lifecycle when the dispatcher is connected.
+Tests cover both empty and buffered waiters. Stdout EOF/error handling now invokes
+this lifecycle; active parent transport behavior still needs compiled coverage.
 
 A fresh inspection of pinned `useLineHighlights.ts` shows four file workers
 sharing the same registered highlighter. The Rust coordinator's corresponding
