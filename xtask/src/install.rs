@@ -86,6 +86,42 @@ struct PathFileObservation {
     identity: PathBuf,
     aliases: Vec<PathBuf>,
     shadowing: Shadowing,
+    manager_hint: Option<&'static str>,
+    diagnostic_path: PathBuf,
+}
+
+fn manager_hint(path: &Path) -> Option<&'static str> {
+    let path = path.to_string_lossy().replace('\\', "/");
+    let segments: Vec<_> = path.split('/').filter(|part| !part.is_empty()).collect();
+    if !matches!(segments.last().copied(), Some("workdeck" | "workdeck.exe")) {
+        return None;
+    }
+    let adjacent = |first, second| segments.windows(2).any(|parts| parts == [first, second]);
+    if adjacent(".cargo", "bin") {
+        return Some("Cargo");
+    }
+    if path.starts_with("/nix/store/")
+        || adjacent(".nix-profile", "bin")
+        || adjacent("profiles", "per-user")
+    {
+        return Some("Nix");
+    }
+    if segments.contains(&"Cellar")
+        || path.starts_with("/opt/homebrew/")
+        || path.starts_with("/home/linuxbrew/.linuxbrew/")
+    {
+        return Some("Homebrew");
+    }
+    if path == "/usr/local/bin/workdeck" {
+        return Some("Homebrew or another package manager");
+    }
+    if adjacent("mise", "installs") {
+        return Some("mise");
+    }
+    if adjacent(".workdeck", "bin") {
+        return Some("Workdeck standalone installer");
+    }
+    None
 }
 
 fn observe_path_files(
@@ -121,9 +157,23 @@ fn observe_path_files(
         observations.push(PathFileObservation {
             shadowing: shadowing(&path, target, entries, executable),
             aliases: vec![path.clone()],
+            diagnostic_path: path.clone(),
+            manager_hint: None,
             path,
             identity,
         });
+    }
+    // Preserve discovery order for PATH behavior, but prefer the first recognized alias for
+    // ownership diagnostics, as the source installer does. Hints are not verified provenance.
+    for observation in &mut observations {
+        if let Some((path, owner)) = observation
+            .aliases
+            .iter()
+            .find_map(|path| manager_hint(path).map(|owner| (path, owner)))
+        {
+            observation.diagnostic_path = path.clone();
+            observation.manager_hint = Some(owner);
+        }
     }
     observations
 }
@@ -234,6 +284,58 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manager_hints_are_layout_inferences_not_generic_substring_matches() {
+        for (path, owner) in [
+            ("/users/test/.cargo/bin/workdeck", "Cargo"),
+            ("C:\\Users\\test\\.cargo\\bin\\workdeck.exe", "Cargo"),
+            ("/opt/homebrew/bin/workdeck", "Homebrew"),
+            (
+                "/usr/local/bin/workdeck",
+                "Homebrew or another package manager",
+            ),
+            ("/nix/store/hash-workdeck/bin/workdeck", "Nix"),
+            ("/users/test/.nix-profile/bin/workdeck", "Nix"),
+            (
+                "/users/test/.local/share/mise/installs/workdeck/1/bin/workdeck",
+                "mise",
+            ),
+        ] {
+            assert_eq!(manager_hint(Path::new(path)), Some(owner), "{path}");
+        }
+        for path in [
+            "/tmp/cargo/bin/workdeck",
+            "/tmp/myCellar/workdeck",
+            "/tmp/.cargo/bin/not-workdeck",
+            "/tmp/workdeck",
+        ] {
+            assert_eq!(manager_hint(Path::new(path)), None, "{path}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn manager_shaped_alias_is_preferred_without_changing_first_path_or_identity() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().canonicalize().unwrap();
+        let opaque = root.join("opaque");
+        let managed = root.join(".cargo/bin");
+        std::fs::create_dir(&opaque).unwrap();
+        std::fs::create_dir_all(&managed).unwrap();
+        std::fs::write(opaque.join("workdeck"), b"not executed").unwrap();
+        std::os::unix::fs::symlink(opaque.join("workdeck"), managed.join("workdeck")).unwrap();
+        let observations = observe_path_files(
+            &root.join("destination/workdeck"),
+            &[opaque.clone(), managed.clone()],
+            "workdeck",
+        );
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].path, opaque.join("workdeck"));
+        assert_eq!(observations[0].identity, opaque.join("workdeck"));
+        assert_eq!(observations[0].diagnostic_path, managed.join("workdeck"));
+        assert_eq!(observations[0].manager_hint, Some("Cargo"));
+    }
 
     #[cfg(unix)]
     #[test]

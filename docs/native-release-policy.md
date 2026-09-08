@@ -16,10 +16,13 @@ on Windows; overridden by `WORKDECK_INSTALL_DIR`) and existing files found at PA
 Parent directories and up to eight executable symlink hops determine identity; diagnostics
 classify whether each observed path precedes or follows the target. Observations are grouped by
 canonical identity in first-PATH-occurrence order while retaining distinct aliases for future
-manager-aware diagnostics; aliases of the target itself are excluded. Empty PATH entries resolve
+manager-aware diagnostics; aliases of the target itself are excluded. The first recognized alias
+supplies `diagnosticPath` and `managerHint` for Cargo, Homebrew, Nix, mise, or standalone layouts.
+These are layout-based hints, not verified ownership; `/usr/local/bin/workdeck` remains ambiguous.
+Empty PATH entries resolve
 against the current directory without changing the process working directory. Candidate programs are never
 executed. File observations are not full conflict validation: executable permission checks,
-manager-aware diagnostic selection/remediation and inactive-manager scans are still pending.
+manager-aware remediation and inactive-manager scans are still pending.
 
 ```console
 cargo xtask release channel --event push --ref v0.19.0 --current-latest 0.18.2
