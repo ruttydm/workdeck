@@ -39,6 +39,26 @@ helper bounds response frames and observes matching parent cancellation, but
 arbitrary blocking streams require transport-level deadlines. General
 asynchronous/multiplexed SDK support remains unfinished.
 
+Native highlighter requests use parent-specific response inboxes: up to four
+parents can wait concurrently in one child. Writes remain serialized. Ordinary
+requests, CLI commands, commands, and events remain busy while routed parents
+are active, including their cleanup. General UI pending-state probes report that
+activity without blocking on the dispatcher; the highlighter scheduler uses a
+separate probe so it can admit concurrent highlighter work.
+
+Document callback routing uses `parentRequestId`, not the callback's child ID.
+Multiplexed extension implementations must allocate unambiguous child response
+IDs across active parents. Each parent retains its own captured source reader.
+The compiled fixture verifies reversed parent completion, cancellation isolation,
+distinct concurrent document results, mixed source failure, and child EOF for
+all four waiters. These fixtures are not a reusable multiplexed SDK.
+
+Stdout frames are bounded before parsing to the API message limit plus a newline.
+Invalid UTF-8, oversized frames, unterminated frames, and EOF close the response
+routes. Subsequent parent registration reports a terminal closed error rather
+than retryable contention. Stderr and the legacy response queue are not bounded
+by this frame-reader change; blocked pipe-write deadlines remain unfinished.
+
 Line-highlighter requests receive `$/cancelRequest` with the original request ID
 on timeout, supersession, and after a decoded response (including an extension
 error). This last notification is lifecycle cleanup, not a rejection of a
