@@ -13,6 +13,7 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
     let mut mark_annotations = false;
     let mut skip_documents = false;
     let mut expect_missing = false;
+    let mut exit_on_highlight = false;
     let mut batch_four = false;
     let mut batch_documents = false;
     let mut document_parents = std::collections::BTreeMap::<u64, (u64, String)>::new();
@@ -77,6 +78,11 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
             "workdeck/handshake" => {
                 let input: HandshakeRequest =
                     serde_json::from_value(request.params).map_err(io::Error::other)?;
+                exit_on_highlight = input
+                    .config
+                    .get("exitOnHighlight")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 batch_four = input
                     .config
                     .get("batchFour")
@@ -134,6 +140,9 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
                 )?;
             }
             "workdeck/line-highlighter/highlight" => {
+                if exit_on_highlight {
+                    return Ok(());
+                }
                 if require_cleanup && active_request.is_some() {
                     write_error(
                         &mut output,

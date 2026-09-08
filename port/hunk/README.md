@@ -1,5 +1,16 @@
 # Hunk semantic-port ledger
 
+## Closed native transport is not retryable contention
+
+A compiled fixture exits when it receives a highlight invocation. Its regression
+requires both the interrupted call and a subsequent call to return
+`HostError::Closed`. The first run failed because parent-inbox registration
+mapped every route error to Busy. Closed registries now retain their terminal
+error instead of inviting retries. All sixteen compiled integration tests pass,
+along with examples Clippy, formatting, and architecture checks. This does not
+establish all crash, malformed-frame, or lifecycle semantics.
+No ledger coverage is added.
+
 ## Bounded native stdout frames
 
 The host stdout reader now bounds each frame before JSON parsing or response

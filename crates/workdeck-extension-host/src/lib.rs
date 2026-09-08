@@ -1153,7 +1153,10 @@ impl LoadedExtension {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .register(id)
-            .map_err(|_| HostError::Busy(self.manifest.id.clone()))?;
+            .map_err(|error| match error {
+                ResponseRouteError::Closed => HostError::Closed(self.manifest.id.clone()),
+                _ => HostError::Busy(self.manifest.id.clone()),
+            })?;
         if let Err(error) = self.send_request_on(&mut connection, method, params) {
             routes
                 .lock()

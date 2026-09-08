@@ -69,6 +69,23 @@ fn review_file(path: &str) -> workdeck_core::DiffFile {
 }
 
 #[test]
+fn exited_native_transport_is_closed_not_retryable_busy() {
+    let (_directory, manifest) = staged_extension();
+    let mut extension = LoadedExtension::spawn_with_configuration(
+        &manifest,
+        "test",
+        serde_json::json!({"exitOnHighlight":true}),
+    )
+    .unwrap();
+    for _ in 0..2 {
+        assert!(matches!(
+            extension.highlight_file("attention", &review_file("request.rs")),
+            Err(HostError::Closed(_))
+        ));
+    }
+}
+
+#[test]
 fn four_native_parents_share_one_child_and_receive_reversed_responses() {
     assert_four_native_parents(false, false, false);
 }
