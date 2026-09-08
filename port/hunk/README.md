@@ -2,6 +2,22 @@
 
 ## Native concurrency parity gap confirmed
 
+The current transport releases its connection lock while cancellable requests
+wait in parent-specific inboxes, retaining serialized writes. A compiled fixture
+holds four invocations in one child before replying in reverse order; each host
+caller checks its own file path. The initial unlocked implementation regressed
+saved-note highlighting because an ordinary query could enter a synchronous
+document wait. Legacy requests, CLI commands, commands, and events now remain
+Busy until routed parents finish cleanup. This preserves their serialized
+behavior while allowing independent highlighter waits.
+
+Final verification passes after all legacy guards: twelve compiled highlighter
+tests, all 178 host unit tests, workspace Clippy, formatting, and architecture
+checks. The integration suite includes both the four-parent case and saved notes.
+Concurrent document callbacks, independent cancellation among four live parents,
+and a multiplexed SDK remain unfinished. No complete concurrency parity or
+ledger coverage is claimed.
+
 The host now has a parent-route primitive with four bounded inboxes and
 nonblocking dispatch. Tests cover out-of-order delivery, independent retirement,
 duplicate/limit rejection, overflow isolation, and disconnected consumers.
@@ -12,41 +28,38 @@ the callback. Notifications, malformed JSON/version/parent IDs, and unknown
 parents stay with the caller for explicit legacy or error handling. Routing does
 not itself validate callback authority or payloads.
 Unknown/retired parent frames return to the caller for legacy dispatch or stale
-rejection. This primitive is not yet wired into stdout or request lifecycles;
-frame-byte validation and terminal-error propagation remain dispatcher work.
+rejection. Frame-byte validation and precise terminal-error propagation remain
+dispatcher work.
 The stdout reader now consults these routes before forwarding unmatched frames
 to the existing response channel. EOF, reader failure, and connection teardown
-close the route registry. Native request methods still use the legacy inbox;
-parent registration and releasing the connection lock during waits remain next.
+close the route registry. Legacy request methods retain their original inbox.
 The cancellable request path now registers its parent inbox before sending,
 receives responses/callbacks through that inbox, and retires it on send failure
-or request completion. Connection locking is still held across the wait, so
-native concurrency remains unfinished. Transport failures disconnect routed
+or request completion after cleanup. Transport failures disconnect routed
 waiters; more precise transport-error propagation remains follow-up work.
-This does not change the serialization gap described below or add ledger coverage.
+This addresses response-wait serialization without adding ledger coverage.
 The route primitive also has idempotent terminal closure: it disconnects all
 parent inboxes after buffered frames drain and permanently rejects registration.
 Tests cover both empty and buffered waiters. Stdout EOF/error handling now invokes
 this lifecycle; active parent transport behavior still needs compiled coverage.
 
-A fresh inspection of pinned `useLineHighlights.ts` shows four file workers
+The original gap was identified by inspecting pinned `useLineHighlights.ts`: four file workers
 sharing the same registered highlighter. The Rust coordinator's corresponding
 test uses `FakeLineHighlightRuntime`; it does not establish native process
-concurrency. `LoadedExtension::request_cancellable` holds the connection mutex
-through the response loop, `try_connection` returns Busy under contention, and
-`request_pending` treats that lock as an in-flight request. Consequently one
-held native calculation prevents other files from invoking that same extension.
+concurrency. Previously `LoadedExtension::request_cancellable` held the connection mutex
+through the response loop, `try_connection` returned Busy under contention, and
+`request_pending` treated that lock as an in-flight request. Consequently one
+held native calculation prevented other files from invoking that same extension.
 The baseline highlighter hook remains unmapped; prior four-worker unit evidence
 must not be used as native concurrency parity evidence.
 
-The next transport change needs one response dispatcher with per-parent request
-state, request-local document authority, independent cancellation/deadlines, and
-serialized writes without locking the connection for the whole calculation.
+The remaining transport work must preserve independent cancellation/deadlines
+and request-local document authority across concurrent parent calculations.
 Child callback response IDs must be unambiguous across simultaneous parents;
 the synchronous SDK/example does not currently provide a multiplexed serving
-loop. A compiled fixture must hold four parent calculations simultaneously,
-complete them out of order, and verify cancellation of one does not retire the
-others. Additional processes per file would duplicate extension lifecycle/state
+loop. The four-parent reversed-response fixture now passes; a further compiled
+case must verify cancellation of one does not retire the others. Additional
+processes per file would duplicate extension lifecycle/state
 and are not a substitute for this behavior. No ledger coverage is added.
 
 ## Native document timeout during a held source read

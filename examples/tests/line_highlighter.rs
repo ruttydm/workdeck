@@ -69,6 +69,44 @@ fn review_file(path: &str) -> workdeck_core::DiffFile {
 }
 
 #[test]
+fn four_native_parents_share_one_child_and_receive_reversed_responses() {
+    let (_directory, manifest) = staged_extension();
+    let extension = LoadedExtension::spawn_with_configuration(
+        &manifest,
+        "test",
+        serde_json::json!({"includeHang":false,"batchFour":true}),
+    )
+    .unwrap();
+    let workers = (0..4)
+        .map(|index| {
+            let mut extension = extension.clone();
+            std::thread::spawn(move || {
+                let path = format!("file-{index}.rs");
+                let file = review_file(&path);
+                let deadline = Instant::now() + Duration::from_secs(5);
+                loop {
+                    match extension.highlight_file("attention", &file) {
+                        Err(HostError::Busy(_)) if Instant::now() < deadline => {
+                            std::thread::yield_now()
+                        }
+                        result => {
+                            assert_eq!(
+                                result.unwrap(),
+                                serde_json::json!({"path":path,"simultaneous":4})
+                            );
+                            break;
+                        }
+                    }
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    for worker in workers {
+        worker.join().unwrap();
+    }
+}
+
+#[test]
 fn cancelling_lazy_read_keeps_host_responsive_and_shared_read_alive() {
     assert_retired_lazy_read_keeps_shared_read_alive(true);
 }

@@ -1121,7 +1121,13 @@ impl LoadedExtension {
         timeout: Duration,
     ) -> Result<Value, HostError> {
         let mut connection = self.try_connection()?;
-        if connection.pending_request.is_some() {
+        if connection.pending_request.is_some()
+            || connection
+                .response_routes
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .has_active_parents()
+        {
             return Err(HostError::Busy(self.manifest.id.clone()));
         }
         let id = self.send_request_on(&mut connection, method, params)?;
@@ -1155,6 +1161,7 @@ impl LoadedExtension {
                 .retire(id);
             return Err(error);
         }
+        drop(connection);
         let deadline = Instant::now() + timeout;
         let mut documents = documents.map(|reader| ExtensionDocumentRequests::new(id, reader));
         let result = (|| {
@@ -1177,7 +1184,14 @@ impl LoadedExtension {
                         let Some((child_id, value)) = documents.poll_next() else {
                             break;
                         };
-                        self.send_document_response_on(&mut connection, child_id, Ok(value))?;
+                        self.send_document_response_on(
+                            &mut self
+                                .connection
+                                .lock()
+                                .unwrap_or_else(|error| error.into_inner()),
+                            child_id,
+                            Ok(value),
+                        )?;
                     }
                 }
                 match responses.recv_timeout(remaining.min(Duration::from_millis(25))) {
@@ -1217,7 +1231,10 @@ impl LoadedExtension {
                             };
                             if let Err(error) = accepted {
                                 self.send_document_response_on(
-                                    &mut connection,
+                                    &mut self
+                                        .connection
+                                        .lock()
+                                        .unwrap_or_else(|error| error.into_inner()),
                                     request.id,
                                     Err(error),
                                 )?;
@@ -1245,18 +1262,21 @@ impl LoadedExtension {
         if let Some(documents) = documents.as_mut() {
             documents.retire();
         }
-        routes
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .retire(id);
         // Hunk's line-highlight request aborts its child signal in finally,
         // including success and extension errors. Preserve the decoded result
         // if the child closes before best-effort cleanup can be delivered.
         let _ = self.send_notification_on(
-            &mut connection,
+            &mut self
+                .connection
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()),
             "$/cancelRequest",
             serde_json::json!({ "id": id }),
         );
+        routes
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .retire(id);
         result
     }
 
@@ -1775,6 +1795,14 @@ impl LoadedExtension {
 
         let mut connection = self.try_connection()?;
         if connection.pending_request.is_some() {
+            return Err(HostError::Busy(self.manifest.id.clone()));
+        }
+        if connection
+            .response_routes
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .has_active_parents()
+        {
             return Err(HostError::Busy(self.manifest.id.clone()));
         }
         let id = self.send_request_on(
@@ -2556,7 +2584,13 @@ impl LoadedExtension {
             return Ok(());
         }
         let mut connection = self.try_connection()?;
-        if connection.pending_request.is_some() {
+        if connection.pending_request.is_some()
+            || connection
+                .response_routes
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .has_active_parents()
+        {
             return Err(HostError::Busy(self.manifest.id.clone()));
         }
         if !self.subscribes_to_event(&event.name) {
@@ -2752,7 +2786,13 @@ impl LoadedExtension {
             return Err(HostError::Closed(self.manifest.id.clone()));
         }
         let mut connection = self.try_connection()?;
-        if connection.pending_request.is_some() {
+        if connection.pending_request.is_some()
+            || connection
+                .response_routes
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .has_active_parents()
+        {
             return Err(HostError::Busy(self.manifest.id.clone()));
         }
         if !self.handshake.registrations.iter().any(|registration| {

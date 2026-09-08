@@ -23,6 +23,9 @@ pub enum ResponseRouteError {
 }
 
 impl ExtensionResponseRoutes {
+    pub fn has_active_parents(&self) -> bool {
+        !self.routes.is_empty()
+    }
     /// Classify without granting authority: callbacks are validated by their
     /// owning parent after routing. Notifications and malformed frames remain
     /// available to the legacy/error dispatcher, never an arbitrary inbox.
