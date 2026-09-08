@@ -75,6 +75,22 @@ pub(super) struct ReviewGeometryProjection {
     files: Vec<ConformanceFileProjection>,
 }
 
+pub(super) struct ConformanceExpansion {
+    pub file_index: usize,
+    pub gap_id: String,
+    pub source_text: String,
+}
+
+pub(super) struct ReviewGeometryFixture {
+    pub id: String,
+    pub findings: Vec<String>,
+    pub description: String,
+    pub build: Box<dyn Fn() -> Vec<workdeck_core::DiffFile>>,
+    pub expansion: Option<ConformanceExpansion>,
+    /// The source corpus's hand-written expectation, not a consumer result.
+    pub expected: ReviewGeometryProjection,
+}
+
 pub(super) fn geometry(value: &Value) -> ReviewGeometryProjection {
     checked(value)
 }

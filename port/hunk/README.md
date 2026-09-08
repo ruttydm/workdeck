@@ -1485,7 +1485,7 @@ reassembles chunked publications with the native assembler, and requires byte-ex
 round trips of the native serialized publication. Exact-window and one-byte-over-window
 boundaries, resumable frame counts, and adjacent-only frame-name collapsing are checked
 against both pins. The event fixture and framing-helper source files are now mapped.
-The 21 Rust test functions execute the pinned corpus cases through registered native
+The 22 Rust test functions execute the pinned corpus cases through registered native
 consumer callbacks; registry and finding-coverage assertions guard accidental omissions.
 Core geometry first projects the canonical review file, then uses canonical gap selectors
 and content-manifest geometry, rather than observing only the parser's DiffFile.
@@ -1539,6 +1539,13 @@ fields. The registry test verifies each phase as well as each name; phases descr
 upstream harness history, not Workdeck's native SDK version. All 21 focused tests pass.
 Fixture interfaces and fixture-bound signatures remain unfinished, so the types record
 is still unmapped and the source-coverage count is unchanged.
+Geometry now uses a fixture-bound callable signature returning its typed projection.
+Its fixture retains the source ID, finding IDs, original adversarial description, real
+builder, file-scoped expansion request, and hand-written expected projection. All three
+geometry consumers use that interface in both pinned corpus runs. An additional test
+counts one builder invocation per registered consumer and checks expansion on the second
+file against the composed pinned expectations. All 22 focused tests pass. The other
+fixture families still need their complete interfaces; the types record remains unmapped.
 Capture-integrity tests reject changed outputs and wrong pins but are not parity proof.
 
 Full `cargo xtask verify` passed at `e4f3c782` before this conformance increment, including

@@ -28,16 +28,46 @@ use workdeck_review::{
     review_trailing_gap, semantic_review_gap_source,
 };
 
-type GeometryProjection = fn(&DiffFile, Option<&str>, &str) -> Value;
+type GeometryProjection = fn(&models::ReviewGeometryFixture) -> models::ReviewGeometryProjection;
+type SingleFileProjection = fn(&DiffFile, Option<&str>, &str) -> Value;
+type FilesProjection = fn(&[DiffFile], Option<(usize, &str)>, &str) -> Value;
 const GEOMETRY_CONSUMERS: [models::Consumer<GeometryProjection>; 3] = [
-    models::Consumer::new("core review model", "Phase 1 PR 2", core_projection),
+    models::Consumer::new("core review model", "Phase 1 PR 2", core_consumer),
     models::Consumer::new(
         "terminal render planning",
         "Phase 1 PR 2",
-        terminal_projection,
+        terminal_consumer,
     ),
-    models::Consumer::new("review producer", "Phase 2", producer_projection),
+    models::Consumer::new("review producer", "Phase 2", producer_consumer),
 ];
+
+fn project_geometry_fixture(
+    fixture: &models::ReviewGeometryFixture,
+    project: FilesProjection,
+) -> models::ReviewGeometryProjection {
+    let files = (fixture.build)();
+    let expansion = fixture
+        .expansion
+        .as_ref()
+        .map(|expansion| (expansion.file_index, expansion.gap_id.as_str()));
+    let source = fixture
+        .expansion
+        .as_ref()
+        .map_or("", |expansion| expansion.source_text.as_str());
+    models::geometry(&project(&files, expansion, source))
+}
+
+fn core_consumer(fixture: &models::ReviewGeometryFixture) -> models::ReviewGeometryProjection {
+    project_geometry_fixture(fixture, core_files_projection)
+}
+
+fn terminal_consumer(fixture: &models::ReviewGeometryFixture) -> models::ReviewGeometryProjection {
+    project_geometry_fixture(fixture, terminal_files_projection)
+}
+
+fn producer_consumer(fixture: &models::ReviewGeometryFixture) -> models::ReviewGeometryProjection {
+    project_geometry_fixture(fixture, producer_files_projection)
+}
 
 fn fixture(id: &str) -> (DiffFile, Option<&'static str>, String) {
     let base: Vec<_> = (1..=12).map(|line| format!("line {line}")).collect();
@@ -93,6 +123,45 @@ fn fixture(id: &str) -> (DiffFile, Option<&'static str>, String) {
         file.hunks.clear();
     }
     (file, expansion, after)
+}
+
+fn geometry_fixture(case: &Value) -> models::ReviewGeometryFixture {
+    let id = case["id"].as_str().unwrap();
+    let description = match id {
+        "pure-insertion-hunk" => {
+            "@@ -6,0 +7,1 @@ — the old side has no rows, so its leading gap ends at the line the hunk is positioned at, not one before it."
+        }
+        "pure-deletion-hunk" => {
+            "@@ -6,1 +5,0 @@ — the new side has no rows, so its leading gap ends at new line 5 and its text must match the old-side labels beside it."
+        }
+        "hunk-with-leading-context" => {
+            "@@ -3,7 +3,7 @@ — the hunk's extent covers its context rows, and a whole-hunk note skips past them to the changed line."
+        }
+        "crlf-source" => {
+            "A Windows-authored file: expanded rows must carry no carriage return, and line N must still be the Nth line."
+        }
+        "source-without-trailing-newline" => {
+            "A file whose last line has no terminator: the trailing gap must still reach line 12, with no phantom line after it."
+        }
+        "binary-rename-with-no-rows" => {
+            "A renamed binary file: what the change is outranks how it is stored, so every surface calls it a rename."
+        }
+        _ => panic!("untranslated geometry fixture: {id}"),
+    };
+    let (_, gap, source_text) = fixture(id);
+    let build_id = id.to_owned();
+    models::ReviewGeometryFixture {
+        id: id.into(),
+        findings: serde_json::from_value(case["findings"].clone()).unwrap(),
+        description: description.into(),
+        build: Box::new(move || vec![fixture(&build_id).0]),
+        expansion: gap.map(|gap| models::ConformanceExpansion {
+            file_index: 0,
+            gap_id: gap.into(),
+            source_text,
+        }),
+        expected: models::geometry(&case["expected"]),
+    }
 }
 
 fn core_projection(file: &DiffFile, expansion: Option<&str>, source_text: &str) -> Value {
@@ -192,6 +261,59 @@ fn core_canonical_projection(
 }
 
 #[test]
+fn geometry_fixture_callbacks_build_each_consumer_input_and_target_later_files() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    let oracle: Value = serde_json::from_str(include_str!(
+        "../../../port/hunk/oracles/review-conformance-main.json"
+    ))
+    .unwrap();
+    let expected_file = |id: &str| {
+        oracle["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|case| case["group"] == "geometry" && case["id"] == id)
+            .unwrap()["expected"]["files"][0]
+            .clone()
+    };
+    let builds = Arc::new(AtomicUsize::new(0));
+    let count = builds.clone();
+    let (_, gap, source_text) = fixture("pure-insertion-hunk");
+    let input = models::ReviewGeometryFixture {
+        id: "multi-file-builder".into(),
+        findings: vec!["D4".into()],
+        description: "Every consumer builds the full stream and expands its second file.".into(),
+        build: Box::new(move || {
+            count.fetch_add(1, Ordering::SeqCst);
+            vec![
+                fixture("binary-rename-with-no-rows").0,
+                fixture("pure-insertion-hunk").0,
+            ]
+        }),
+        expansion: Some(models::ConformanceExpansion {
+            file_index: 1,
+            gap_id: gap.unwrap().into(),
+            source_text,
+        }),
+        expected: models::geometry(
+            &json!({"files": [expected_file("binary-rename-with-no-rows"), expected_file("pure-insertion-hunk")]}),
+        ),
+    };
+    for consumer in GEOMETRY_CONSUMERS {
+        assert_eq!(
+            (consumer.project)(&input),
+            input.expected,
+            "{}",
+            consumer.name
+        );
+    }
+    assert_eq!(builds.load(Ordering::SeqCst), GEOMETRY_CONSUMERS.len());
+}
+
+#[test]
 fn terminal_consumer_scopes_stream_expansions_and_reports_missing_gap_rows() {
     let first = fixture("binary-rename-with-no-rows").0;
     let (second, gap, source) = fixture("pure-insertion-hunk");
@@ -257,9 +379,11 @@ fn core_and_producer_project_complete_streams_and_scope_expansion_to_its_file() 
 #[test]
 fn core_and_producer_expansion_helpers_preserve_absent_gaps_and_short_sources() {
     let (file, expansion, source) = fixture("pure-insertion-hunk");
-    for consumer in [GEOMETRY_CONSUMERS[0], GEOMETRY_CONSUMERS[2]] {
-        let name = consumer.name;
-        let project = consumer.project;
+    let consumers: [(&str, SingleFileProjection); 2] = [
+        ("core review model", core_projection),
+        ("review producer", producer_projection),
+    ];
+    for (name, project) in consumers {
         for missing in ["before:999", "not-a-gap"] {
             let actual = project(&file, Some(missing), &source);
             assert!(
@@ -549,7 +673,7 @@ fn terminal_file_projection(file: &DiffFile, expansion: Option<&str>, source_tex
     value
 }
 
-fn check_geometry_consumer(name: &str, project: fn(&DiffFile, Option<&str>, &str) -> Value) {
+fn check_geometry_consumer(name: &str, project: GeometryProjection) {
     for encoded in [
         include_str!("../../../port/hunk/oracles/review-conformance-main.json"),
         include_str!("../../../port/hunk/oracles/review-conformance-stable.json"),
@@ -561,8 +685,17 @@ fn check_geometry_consumer(name: &str, project: fn(&DiffFile, Option<&str>, &str
                 continue;
             }
             let id = case["id"].as_str().unwrap();
-            let (file, expansion, source) = fixture(id);
-            let actual = project(&file, expansion, &source);
+            let fixture = geometry_fixture(case);
+            assert_eq!(fixture.id, id);
+            assert!(!fixture.description.is_empty());
+            assert_eq!(json!(fixture.findings), case["findings"]);
+            let actual = project(&fixture);
+            assert_eq!(
+                actual, fixture.expected,
+                "{name}: {}: {}",
+                fixture.id, fixture.description
+            );
+            let actual = serde_json::to_value(actual).unwrap();
             assert_eq!(
                 models::geometry(&actual),
                 models::geometry(&case["expected"])
