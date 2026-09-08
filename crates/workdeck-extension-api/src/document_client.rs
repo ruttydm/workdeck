@@ -90,6 +90,77 @@ mod tests {
     use super::*;
 
     #[test]
+    fn callback_enforces_exact_frame_limit_without_draining_oversized_input() {
+        let prefix = "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":\"";
+        let suffix = "\"}";
+        let text_len = MAX_MESSAGE_BYTES - prefix.len() - suffix.len();
+        let mut exact = io::Cursor::new(format!("{prefix}{}{suffix}\n", "x".repeat(text_len)));
+        let result =
+            read_extension_document(&mut exact, &mut Vec::new(), 8, 3, ExtensionFileSide::New)
+                .unwrap()
+                .unwrap();
+        assert_eq!(result.len(), text_len);
+        assert_eq!(exact.position(), (MAX_MESSAGE_BYTES + 1) as u64);
+
+        let mut oversized = io::Cursor::new(vec![b'x'; MAX_MESSAGE_BYTES * 2]);
+        assert_eq!(
+            read_extension_document(
+                &mut oversized,
+                &mut Vec::new(),
+                8,
+                3,
+                ExtensionFileSide::New
+            )
+            .unwrap_err()
+            .kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert_eq!(oversized.position(), (MAX_MESSAGE_BYTES + 2) as u64);
+        let mut over_by_one =
+            io::Cursor::new(format!("{prefix}{}{suffix}\n", "x".repeat(text_len + 1)));
+        assert_eq!(
+            read_extension_document(
+                &mut over_by_one,
+                &mut Vec::new(),
+                8,
+                3,
+                ExtensionFileSide::New
+            )
+            .unwrap_err()
+            .kind(),
+            io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn callback_ignores_other_parent_cleanup_and_reports_eof() {
+        let frames = "{\"jsonrpc\":\"2.0\",\"method\":\"$/cancelRequest\",\"params\":{\"id\":7}}\n{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":null}\n";
+        assert_eq!(
+            read_extension_document(
+                &mut io::Cursor::new(frames),
+                &mut Vec::new(),
+                8,
+                3,
+                ExtensionFileSide::New
+            )
+            .unwrap(),
+            None
+        );
+        assert_eq!(
+            read_extension_document(
+                &mut io::Cursor::new(b""),
+                &mut Vec::new(),
+                8,
+                3,
+                ExtensionFileSide::New
+            )
+            .unwrap_err()
+            .kind(),
+            io::ErrorKind::UnexpectedEof
+        );
+    }
+
+    #[test]
     fn callback_preserves_side_parent_text_and_null() {
         for result in [Value::Null, Value::String("a\nλ".into())] {
             let mut input = io::Cursor::new(format!(

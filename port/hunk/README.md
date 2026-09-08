@@ -2,6 +2,12 @@
 
 ## Synchronous native document SDK
 
+Boundary regressions accept a JSON payload exactly at `MAX_MESSAGE_BYTES`,
+reject one extra byte, and prove an oversized unterminated stream consumes only
+`MAX_MESSAGE_BYTES + 2` bytes before rejection. Additional cases distinguish EOF
+and ignore cleanup for another parent. These checks verify frame consumption,
+not peak process memory or the repository-wide benchmark gate.
+
 `workdeck-extension-api::read_extension_document` extracts the example's
 callback client into the native SDK. It accepts either side, uses the typed
 parent-bound wire request, bounds incoming frame allocation, validates response
