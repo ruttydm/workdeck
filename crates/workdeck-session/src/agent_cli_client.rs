@@ -268,6 +268,18 @@ impl std::fmt::Debug for HttpWorkdeckSessionCliClient {
 }
 
 impl HttpWorkdeckSessionCliClient {
+    /// Request a review-only shutdown through the authenticated native daemon.
+    /// Success means the review accepted quitting, not that its process has exited.
+    pub fn quit_session(
+        &self,
+        selector: SessionSelector,
+    ) -> Result<crate::QuitSessionResult, WorkdeckSessionCliClientError> {
+        match self.request(SessionDaemonRequest::Quit { selector })? {
+            SessionDaemonResponse::Quit { result } => Ok(result),
+            _ => unreachable!("action parser returns the requested response variant"),
+        }
+    }
+
     #[must_use]
     pub fn with_caller(
         timeout: Duration,
@@ -1123,6 +1135,43 @@ mod tests {
             ))
         };
         HttpWorkdeckSessionCliClient::with_caller(Duration::from_secs(1), Arc::new(caller))
+    }
+
+    #[test]
+    fn native_quit_client_preserves_selector_and_rejects_ambiguous_success() {
+        for (body, succeeds) in [
+            (json!({"result": {"quitting": true}}), true),
+            (json!({"result": {"quitting": false}}), false),
+            (json!({"result": {"quitting": true, "extra": 1}}), false),
+            (json!({"result": {}}), false),
+        ] {
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let observed = Arc::clone(&calls);
+            let client = HttpWorkdeckSessionCliClient::with_caller(
+                Duration::from_secs(1),
+                Arc::new(move |path: &str, init: SessionBrokerSignedRequestInit| {
+                    observed.lock().unwrap().push((path.to_owned(), init));
+                    Ok(WorkdeckSessionCliHttpResponse::json(200, &body))
+                }),
+            );
+            let selector = SessionSelector {
+                session_id: Some("native-session".into()),
+                ..Default::default()
+            };
+            let result = client.quit_session(selector);
+            assert_eq!(result.is_ok(), succeeds);
+            if let Ok(result) = result {
+                assert!(result.quitting);
+            }
+            let calls = calls.lock().unwrap();
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0].0, WORKDECK_SESSION_API_PATH);
+            let request: Value = serde_json::from_str(calls[0].1.body.as_deref().unwrap()).unwrap();
+            assert_eq!(
+                request,
+                json!({"action": "quit", "selector": {"sessionId": "native-session"}})
+            );
+        }
     }
 
     #[test]
