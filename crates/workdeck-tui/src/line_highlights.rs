@@ -226,6 +226,7 @@ struct LineHighlightCompletion {
     outcome: LineHighlightTaskOutcome,
     cancellation: Arc<AtomicBool>,
     completed_at: Instant,
+    cancelled_before_completion: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -460,11 +461,14 @@ impl LineHighlightPreparationController {
                             LineHighlightTaskOutcome::Failed(error)
                         }
                     };
+                let completed_at = Instant::now();
+                let cancelled_before_completion = cancelled.swap(true, Ordering::AcqRel);
                 let _ = sender.send(LineHighlightCompletion {
                     task,
                     outcome,
                     cancellation: cancelled,
-                    completed_at: Instant::now(),
+                    completed_at,
+                    cancelled_before_completion,
                 });
             });
         }
@@ -490,9 +494,7 @@ impl LineHighlightPreparationController {
             {
                 completion.outcome = LineHighlightTaskOutcome::Failed("highlight timed out".into());
             }
-            if completion.cancellation.load(Ordering::Acquire)
-                || !desired.contains(&completion.task.key)
-            {
+            if completion.cancelled_before_completion || !desired.contains(&completion.task.key) {
                 continue;
             }
             completion.cancellation.store(true, Ordering::Release);
@@ -1586,6 +1588,7 @@ mod tests {
                 outcome: LineHighlightTaskOutcome::Value(one_mark("match")),
                 cancellation: cancellation.clone(),
                 completed_at: deadline,
+                cancelled_before_completion: false,
             })
             .unwrap();
         controller.poll_completions(&desired, &extensions);
@@ -1598,6 +1601,28 @@ mod tests {
             runtime.warnings()[0],
             "Extension test-extension line highlighter \"late\" failed highlighting file.rs • marks dropped"
         );
+    }
+
+    #[test]
+    fn worker_completion_cleans_up_signal_before_coordinator_polling() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("cleanup")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [test_file("file", "content")];
+        let mut controller = LineHighlightPreparationController::default();
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        let completion = controller
+            .receiver
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        assert!(completion.cancellation.load(Ordering::Acquire));
+        assert!(controller.cache.is_empty());
+        controller.sender.send(completion).unwrap();
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        assert_eq!(controller.resolved().len(), 1);
+        assert_eq!(controller.pending_count(), 0);
+        assert!(runtime.warnings().is_empty());
     }
 
     #[test]
@@ -1974,6 +1999,7 @@ mod tests {
                     outcome,
                     cancellation: Arc::clone(&old),
                     completed_at: Instant::now(),
+                    cancelled_before_completion: true,
                 })
                 .unwrap();
         }
@@ -1991,6 +2017,7 @@ mod tests {
                 outcome: LineHighlightTaskOutcome::Value(one_mark("match")),
                 cancellation: current,
                 completed_at: Instant::now(),
+                cancelled_before_completion: false,
             })
             .unwrap();
         controller.poll_completions(&desired, &extensions);

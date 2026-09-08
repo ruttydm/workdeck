@@ -1,5 +1,24 @@
 # Hunk semantic-port ledger
 
+## Worker-completion signal cleanup
+
+A regression receives the worker result without polling the coordinator and
+checks its cancellation signal. Previously the signal remained live until UI
+settlement. Workers now perform cleanup before sending a completion and record
+whether cancellation preceded that cleanup. Settlement can therefore accept a
+successful completed request while continuing to reject genuinely cancelled or
+retired requests through the existing token-identity checks.
+
+The test also returns the queued completion to the coordinator and verifies
+that valid marks publish without warnings. This proves the in-process worker
+boundary, not every native subprocess signal/lifecycle behavior. No whole-hook
+mapping or additional ledger coverage is claimed.
+The native host's cancellable RPC currently sends cancellation on timeout or
+supersession, but returns a successful response without a cleanup notification;
+that separate protocol boundary still needs lifecycle verification.
+Verification passes: 35 highlighter tests, all 1,066 TUI unit tests, workspace
+Clippy, formatting, and architecture checks.
+
 ## Highlighter warning text
 
 Failure and timeout warnings now use the pinned hook's fixed attribution text,
