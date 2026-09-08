@@ -88,28 +88,48 @@ fn fixture(id: &str) -> (WorkdeckReviewPublicationBodyV1, u64) {
     (body, resolve_window(window, bytes))
 }
 
-fn summarize(frames: &[ReviewEventSseFrame], expected: &[u8]) -> Value {
-    assert!(!frames.is_empty());
-    let round_trips = if frames.len() == 1 {
+fn round_trips_to(frames: &[ReviewEventSseFrame], expected: &[u8]) -> bool {
+    if frames.len() == 1 {
         parse_review_event_frame(&frames[0].data)
             .is_some_and(|frame| serde_json::to_vec(&frame.payload).unwrap() == expected)
     } else {
-        let begin = parse_review_event_begin(&frames[0].data).unwrap();
-        let end = parse_review_event_end(&frames.last().unwrap().data).unwrap();
+        let Some(begin) = frames
+            .first()
+            .and_then(|frame| parse_review_event_begin(&frame.data))
+        else {
+            return false;
+        };
+        let Some(end) = frames
+            .last()
+            .and_then(|frame| parse_review_event_end(&frame.data))
+        else {
+            return false;
+        };
         let mut assembler =
             ReviewEventAssembler::new(begin, Arc::new(workdeck_core::review_digest));
         for frame in &frames[1..frames.len() - 1] {
-            let chunk = parse_review_event_chunk(&frame.data).unwrap();
-            assert!(matches!(
-                assembler.accept(&chunk, &STANDARD.decode(&chunk.data).unwrap()),
+            let Some(chunk) = parse_review_event_chunk(&frame.data) else {
+                return false;
+            };
+            let Ok(bytes) = STANDARD.decode(&chunk.data) else {
+                return false;
+            };
+            if !matches!(
+                assembler.accept(&chunk, &bytes),
                 ReviewAssemblyStep::Accepted { .. }
-            ));
+            ) {
+                return false;
+            }
         }
         match assembler.finish(&end) {
             ReviewAssemblyResult::Assembled { bytes } => bytes == expected,
             ReviewAssemblyResult::Failed(_) => false,
         }
-    };
+    }
+}
+
+fn summarize(frames: &[ReviewEventSseFrame], expected: &[u8]) -> Value {
+    let round_trips = round_trips_to(frames, expected);
     let names = frames
         .iter()
         .map(|frame| frame.event.clone())
@@ -121,7 +141,13 @@ fn summarize(frames: &[ReviewEventSseFrame], expected: &[u8]) -> Value {
 
 fn protocol_projection(body: &WorkdeckReviewPublicationBodyV1, window: u64) -> Value {
     let payload = serde_json::to_vec(body).unwrap();
-    let frames = plan_review_event_frames(PlanReviewEventInput {
+    let frames = planned_frames(body, window);
+    summarize(&frames, &payload)
+}
+
+fn planned_frames(body: &WorkdeckReviewPublicationBodyV1, window: u64) -> Vec<ReviewEventSseFrame> {
+    let payload = serde_json::to_vec(body).unwrap();
+    plan_review_event_frames(PlanReviewEventInput {
         event_type: ReviewEventTypeV1::Publication,
         address: &body.publication,
         body: serde_json::to_value(body).unwrap(),
@@ -130,8 +156,7 @@ fn protocol_projection(body: &WorkdeckReviewPublicationBodyV1, window: u64) -> V
         encode_chunk: |bytes: &[u8]| STANDARD.encode(bytes),
         chunk_bytes: Some(window),
     })
-    .unwrap();
-    summarize(&frames, &payload)
+    .unwrap()
 }
 
 struct FixtureSocket;
@@ -245,6 +270,65 @@ fn read_one_event(mut reader: impl BufRead) -> Vec<ReviewEventSseFrame> {
             has_data = true;
         }
     }
+}
+
+#[test]
+fn event_readers_reject_incomplete_corrupt_or_mismatched_publications() {
+    let (body, window) = fixture("publication-split-across-chunks");
+    let payload = serde_json::to_vec(&body).unwrap();
+    let frames = planned_frames(&body, window);
+    assert!(frames.len() > 3);
+    assert!(round_trips_to(&frames, &payload));
+    assert!(!round_trips_to(&[], &payload));
+    assert!(!round_trips_to(&frames[1..], &payload));
+    assert!(!round_trips_to(&frames[..frames.len() - 1], &payload));
+    assert!(!round_trips_to(&frames, b"wrong publication"));
+    for index in [0, 1, frames.len() - 1] {
+        let mut corrupt = frames.clone();
+        corrupt[index].data = Value::Null;
+        assert!(!round_trips_to(&corrupt, &payload), "invalid frame {index}");
+    }
+    let mut invalid_base64 = frames.clone();
+    invalid_base64[1].data["data"] = json!("!");
+    assert!(!round_trips_to(&invalid_base64, &payload));
+    let mut wrong_offset = frames.clone();
+    wrong_offset[1].data["offset"] = json!(1);
+    assert!(!round_trips_to(&wrong_offset, &payload));
+    let mut missing_chunk = frames.clone();
+    missing_chunk.remove(1);
+    assert!(!round_trips_to(&missing_chunk, &payload));
+    let mut duplicate_chunk = frames.clone();
+    duplicate_chunk.insert(2, frames[1].clone());
+    assert!(!round_trips_to(&duplicate_chunk, &payload));
+    let (single_body, single_window) = fixture("publication-in-one-frame");
+    let single = planned_frames(&single_body, single_window);
+    assert!(!round_trips_to(&single, &payload));
+    assert!(!round_trips_to(
+        &[ReviewEventSseFrame {
+            id: None,
+            event: "publication".into(),
+            data: Value::Null,
+        }],
+        &payload
+    ));
+}
+
+#[test]
+fn sse_reader_handles_fragmented_records_and_stops_at_the_resumable_frame() {
+    let (body, window) = fixture("publication-split-across-chunks");
+    let frames = planned_frames(&body, window);
+    let mut encoded = String::from(": keepalive\n\n");
+    for frame in &frames {
+        encoded.push_str(&encode_review_event_frame(frame).unwrap());
+    }
+    // The next event is deliberately invalid: the first event's id must stop reading.
+    encoded.push_str("event: publication\ndata: invalid JSON\n\n");
+    let decoded = read_one_event(BufReader::with_capacity(1, encoded.as_bytes()));
+    assert_eq!(decoded, frames);
+    assert!(round_trips_to(
+        &decoded,
+        &serde_json::to_vec(&body).unwrap()
+    ));
 }
 
 #[test]

@@ -1442,7 +1442,7 @@ producer lifecycle sequences, reattaching the new generation's store after each 
 Both pins pass, including revision jumps, replayed and retired positions, foreign producers,
 malformed identities, and successive reloads. The geometry, navigation, and ordering fixture
 source files are mapped only after these complete executable translations pass.
-The larger harness, consumer registry, and remaining consumer implementations remain unmapped.
+Individual consumer source files remain unmapped until their adapters are separately reviewed.
 
 The wire module compares all 22 main and 17 stable actions through the strict native parser,
 JSON intent projection, and typed lowering. Note tests execute all eight body policies and
@@ -1458,12 +1458,16 @@ reassembles chunked publications with the native assembler, and requires byte-ex
 round trips of the native serialized publication. Exact-window and one-byte-over-window
 boundaries, resumable frame counts, and adjacent-only frame-name collapsing are checked
 against both pins. The event fixture and framing-helper source files are now mapped.
-The 13 Rust test functions execute the pinned corpus cases through registered native
+The 15 Rust test functions execute the pinned corpus cases through registered native
 consumer callbacks; registry and finding-coverage assertions guard accidental omissions.
 Core geometry first projects the canonical review file, then uses canonical gap selectors
 and content-manifest geometry, rather than observing only the parser's DiffFile.
 Focused conformance tests, formatting, and focused Clippy pass for this increment.
-The broader harness and individual consumer source mappings remain under review.
+The complete harness and registry are now mapped to all participating Rust modules and
+their executable test entrypoints. The protocol-event, HTTP-event, and wire consumers
+are also mapped after adapter review. Additional reader tests reject missing, duplicate,
+malformed, corrupt, and mismatched frames and check byte-fragmented SSE input stopping
+at the resumable event boundary. The other individual consumer mappings remain under review.
 Capture-integrity tests reject changed outputs and wrong pins but are not parity proof.
 
 Full `cargo xtask verify` passed at `e4f3c782` before this conformance increment, including

@@ -1,5 +1,9 @@
-//! Partial translation of Hunk's MIT-licensed review-conformance geometry corpus.
-//! Other consumer families remain unmapped until independently exercised in Rust.
+//! Translation of Hunk's MIT-licensed cross-consumer review conformance harness.
+//! Separate geometry, navigation, ordering, snapshot, wire, and event registries run
+//! the full applicable corpus against every registered native consumer. New consumers
+//! must join their registry and preserve earlier adversarial cases; these independent
+//! projections keep a renderer or transport from defining its own expected semantics.
+//! This harness is one upstream test file, not the complete upstream test corpus.
 
 #[path = "review_conformance/events.rs"]
 mod events;
