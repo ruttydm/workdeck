@@ -169,7 +169,7 @@ fn push_change(changes: &mut Vec<Change>, kind: ChangeKind, text: &str) {
 }
 
 fn emphasis_ranges(changes: &[Change], side: ChangeKind) -> Vec<Range<usize>> {
-    let mut spans: Vec<(bool, String)> = Vec::new();
+    let mut spans: Vec<(bool, usize)> = Vec::new();
     for (index, change) in changes.iter().enumerate() {
         if change.kind != ChangeKind::Neutral && change.kind != side {
             continue;
@@ -184,20 +184,16 @@ fn emphasis_ranges(changes: &[Change], side: ChangeKind) -> Vec<Range<usize>> {
                     && *highlighted)
         });
         if join && !is_last_item {
-            spans
-                .last_mut()
-                .expect("span exists")
-                .1
-                .push_str(&change.text);
+            spans.last_mut().expect("span exists").1 += change.text.len();
         } else {
-            spans.push((!neutral, change.text.clone()));
+            spans.push((!neutral, change.text.len()));
         }
     }
 
     let mut offset = 0;
     let mut ranges = Vec::new();
-    for (highlighted, text) in spans {
-        let end = offset + text.len();
+    for (highlighted, length) in spans {
+        let end = offset + length;
         if highlighted && end > offset {
             ranges.push(offset..end);
         }
@@ -209,6 +205,37 @@ fn emphasis_ranges(changes: &[Change], side: ChangeKind) -> Vec<Range<usize>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Frozen allocation-heavy implementation used to verify the length-only plan.
+    fn emphasis_ranges_reference(changes: &[Change], side: ChangeKind) -> Vec<Range<usize>> {
+        let mut spans: Vec<(bool, String)> = Vec::new();
+        for (index, change) in changes.iter().enumerate() {
+            if change.kind != ChangeKind::Neutral && change.kind != side {
+                continue;
+            }
+            let neutral = change.kind == ChangeKind::Neutral;
+            let last = index + 1 == changes.len();
+            let join = spans.last().is_some_and(|(highlighted, _)| {
+                neutral != *highlighted
+                    || (neutral && !last && change.text.encode_utf16().count() == 1 && *highlighted)
+            });
+            if join && !last {
+                spans.last_mut().unwrap().1.push_str(&change.text);
+            } else {
+                spans.push((!neutral, change.text.clone()));
+            }
+        }
+        let mut offset = 0;
+        let mut ranges = Vec::new();
+        for (highlighted, text) in spans {
+            let end = offset + text.len();
+            if highlighted && end > offset {
+                ranges.push(offset..end);
+            }
+            offset = end;
+        }
+        ranges
+    }
 
     #[test]
     fn prefix_reduction_preserves_traceback_and_emphasis_for_exhaustive_short_tokens() {
@@ -238,7 +265,7 @@ mod tests {
                 for side in [ChangeKind::Removed, ChangeKind::Added] {
                     assert_eq!(
                         emphasis_ranges(&actual, side),
-                        emphasis_ranges(&expected, side)
+                        emphasis_ranges_reference(&expected, side)
                     );
                 }
             }
