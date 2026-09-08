@@ -233,3 +233,13 @@ these improve approximately 19.8%, 10.4% and 11.7% respectively with unchanged w
 All still fail the 10% gate versus pinned Hunk. Post-navigation RSS median is 224755712 bytes;
 peak usage and cross-runtime heap acceptance remain unproven. Native platform-matrix execution
 also remains outstanding.
+
+### Common-prefix word-diff follow-up at `7b8a0b48`
+
+[Three optimized runs](interaction-diagnostic-7b8a0b48.json) report 115.57 ms first frame,
+214.49 ms median navigation and 178.11 ms median scrolling. Compared with `18fdc4b9`, these
+improve approximately 8.9%, 9.4% and 11.7%. The comparison table now excludes only forced equal
+leading tokens, with full change sequences and emphasis ranges checked against the prior
+algorithm for 67,081 short token pairs. Workload counts, viewport and input dispatch are unchanged.
+All latency gates still fail against Hunk; current RSS median after navigation is 225214464 bytes,
+not peak-memory acceptance. No source ledger record was newly mapped.
