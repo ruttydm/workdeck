@@ -102,6 +102,72 @@ pub(super) fn status(repo: &Path, mut args: impl Iterator<Item = String>) -> Res
     Ok(())
 }
 
+fn next_stable_version(
+    current: &cargo_metadata::semver::Version,
+    bump: Option<&str>,
+) -> Result<cargo_metadata::semver::Version> {
+    ensure!(
+        current.pre.is_empty() && current.build.is_empty(),
+        "stable planning requires a version without prerelease or build metadata"
+    );
+    let mut next = current.clone();
+    match bump {
+        None => {}
+        Some("major") => {
+            next.major = next
+                .major
+                .checked_add(1)
+                .ok_or_else(|| anyhow::anyhow!("major version overflow"))?;
+            next.minor = 0;
+            next.patch = 0;
+        }
+        Some("minor") => {
+            next.minor = next
+                .minor
+                .checked_add(1)
+                .ok_or_else(|| anyhow::anyhow!("minor version overflow"))?;
+            next.patch = 0;
+        }
+        Some("patch") => {
+            next.patch = next
+                .patch
+                .checked_add(1)
+                .ok_or_else(|| anyhow::anyhow!("patch version overflow"))?;
+        }
+        Some(_) => bail!("invalid version bump"),
+    }
+    Ok(next)
+}
+
+pub(super) fn plan(repo: &Path, mut args: impl Iterator<Item = String>) -> Result<()> {
+    ensure!(
+        args.next().is_none(),
+        "changelog plan does not accept arguments"
+    );
+    let fragments = pending(repo)?;
+    let metadata = cargo_metadata::MetadataCommand::new()
+        .manifest_path(repo.join("Cargo.toml"))
+        .no_deps()
+        .other_options(vec!["--offline".into(), "--locked".into()])
+        .exec()?;
+    let package = metadata
+        .packages
+        .iter()
+        .find(|package| {
+            package.name == "workdeck-cli" && metadata.workspace_members.contains(&package.id)
+        })
+        .ok_or_else(|| anyhow::anyhow!("workdeck-cli workspace package missing"))?;
+    let bump = highest_bump(&fragments);
+    let next = next_stable_version(&package.version, bump)?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(
+            &serde_json::json!({"current":package.version.to_string(),"next":next.to_string(),"bump":bump,"fragments":fragments,"applied":false})
+        )?
+    );
+    Ok(())
+}
+
 pub(super) fn add(repo: &Path, mut args: impl Iterator<Item = String>) -> Result<()> {
     let id = args
         .next()
@@ -203,6 +269,33 @@ mod tests {
             assert_eq!(highest_bump(&fragments), expected);
         }
         assert_eq!(highest_bump(&[]), None);
+    }
+
+    #[test]
+    fn stable_version_plans_reset_lower_components_and_reject_unsafe_inputs() {
+        use cargo_metadata::semver::Version;
+        let current = Version::parse("1.2.3").unwrap();
+        for (bump, expected) in [
+            (None, "1.2.3"),
+            (Some("patch"), "1.2.4"),
+            (Some("minor"), "1.3.0"),
+            (Some("major"), "2.0.0"),
+        ] {
+            assert_eq!(
+                next_stable_version(&current, bump).unwrap().to_string(),
+                expected
+            );
+        }
+        for version in ["1.2.3-beta.1", "1.2.3+build"] {
+            assert!(next_stable_version(&Version::parse(version).unwrap(), Some("patch")).is_err());
+        }
+        for bump in ["major", "minor", "patch"] {
+            assert!(
+                next_stable_version(&Version::new(u64::MAX, u64::MAX, u64::MAX), Some(bump))
+                    .is_err()
+            );
+        }
+        assert!(next_stable_version(&current, Some("unknown")).is_err());
     }
 
     #[cfg(unix)]

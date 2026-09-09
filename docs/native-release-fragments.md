@@ -30,6 +30,14 @@ fragments). Malformed frontmatter, unsupported products/bumps and missing
 user-visible text fail validation. Reading does not create `changes/` when it
 is absent and does not consume fragments or change versions.
 
+`cargo xtask changelog plan` combines pending fragments with the actual
+`workdeck-cli` workspace version, read through locked, offline Cargo metadata.
+It reports `current`, `next`, the requested bump, fragments and `applied: false`.
+Stable patch/minor/major increments reset lower version components as needed;
+maintenance-only plans retain the current version. Overflow is rejected.
+Prerelease/build-metadata versions are explicitly rejected until the separate
+prerelease workflow is integrated. No version, lockfile or fragment is changed.
+
 Bump precedence is tested across every patch/minor/major combination in both
 orders. Unix tests also verify that directory and fragment symlinks are not
 followed and that an existing symlink target cannot be overwritten. These

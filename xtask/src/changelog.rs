@@ -194,6 +194,7 @@ pub(super) fn run(repo: &Path, mut args: impl Iterator<Item = String>) -> Result
     match args.next().as_deref() {
         Some("add") => return fragments::add(repo, args),
         Some("status") => return fragments::status(repo, args),
+        Some("plan") => return fragments::plan(repo, args),
         Some("upstream-history") => {}
         _ => bail!(
             "changelog requires upstream-history [--check] or add <id> <patch|minor|major|empty> [body]"

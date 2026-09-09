@@ -2781,6 +2781,14 @@ products/bumps, empty user-facing notes and nonempty maintenance-only notes
 are rejected. Four fragment tests, xtask Clippy and formatting passed; release
 preparation and the complete source workflow remain unfinished.
 
+`cargo xtask changelog plan` reads locked/offline Cargo metadata and pending
+fragments to report a stable-version proposal with `applied: false`. Tests
+cover bump precedence, component resets, maintenance-only/no-change plans,
+overflow and explicit rejection of prerelease/build metadata. The actual
+checkout returned `0.1.0` to `0.1.0` with no fragments. Seven fragment tests,
+Clippy and formatting passed. Applying plans and prerelease integration remain
+unfinished; this is not release readiness.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.
