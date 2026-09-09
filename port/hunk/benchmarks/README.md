@@ -513,3 +513,14 @@ The results are native-only and host activity was uncontrolled. They do not prov
 causal improvement, a fresh paired Hunk comparison, or the full memory acceptance
 matrix. Scrolling still exceeds the older paired Hunk budget. Full launch and reload
 are not measured; no ledger mapping or benchmark gate is completed.
+
+### Split-row vector reservation at `ece40ecf`
+
+[Three optimized native runs](interaction-diagnostic-ece40ecf.json) report medians
+of 6.54 ms first frame, 24.74 ms navigation and 2.45 ms scrolling, with 2.40 ms in
+scroll rendering. Maximum process peak RSS was 170,442,752 bytes. The preceding
+native run measured 2.64 ms scrolling and 170,328,064 bytes maximum peak RSS.
+Every raw process output is retained. Other host activity was uncontrolled, so
+this is not a controlled causal comparison or a fresh paired Hunk gate. Scrolling
+remains above the older paired source budget; full launch, reload and the complete
+memory suite remain unverified.
