@@ -34,5 +34,5 @@
     "shiftedEarlyExit": "Same visible-fragment conditions as source"
   },
   "scope": "Maps only these two complete source tests and their eleven assertions. Does not establish arbitrary-distance horizontal scrolling, mouse-wheel parity, full cell frames or complete App behavior.",
-  "openRuntimeGap": "Pinned App.tsx:780-812 computes maxCodeHorizontalOffset from filtered source widths and viewport width, clamps on extent changes and clamps each scroll. Native keyboard and wheel handlers currently only saturate at zero; no upper bound is applied. These passing source scenarios do not exercise the missing boundary. App.tsx remains unmapped; its clamp semantics still require implementation and executable regression coverage."
+  "openRuntimeGap": "Pinned App.tsx:780-812 computes maxCodeHorizontalOffset from filtered source widths and viewport width, clamps on extent changes and clamps each scroll. Native keyboard/wheel commands now clamp to the computed upper bound, with cached source-width measurements and additional boundary tests. Immediate stored-offset reconciliation on resize/filter/reload without another input event is still missing. App.tsx remains unmapped."
 }

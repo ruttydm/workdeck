@@ -1208,6 +1208,7 @@ pub struct ReviewApp {
     review_geometry_published: Cell<bool>,
     review_prefetch: Mutex<highlight_prefetch::RapidScrollPrefetch>,
     review_plain_height: Mutex<Option<PlainReviewHeight>>,
+    horizontal_code_extent: Mutex<Option<HorizontalCodeExtent>>,
     review_scrollbar: Mutex<VerticalScrollbarController>,
     review_scrollbar_hits: Cell<Option<VerticalScrollbarRenderMap>>,
     sidebar_bounds: Cell<Option<Rect>>,
@@ -1505,6 +1506,7 @@ impl ReviewApp {
             review_geometry_published: Cell::new(false),
             review_prefetch: Mutex::new(highlight_prefetch::RapidScrollPrefetch::default()),
             review_plain_height: Mutex::new(None),
+            horizontal_code_extent: Mutex::new(None),
             review_scrollbar: Mutex::new(VerticalScrollbarController::default()),
             review_scrollbar_hits: Cell::new(None),
             sidebar_bounds: Cell::new(None),
@@ -2399,6 +2401,72 @@ impl ReviewApp {
         // Hunk App resolves responsive layout before subtracting shell/pane widths.
         // Row wrapping independently uses review_width (diff-content width).
         self.terminal_width.get()
+    }
+
+    fn max_horizontal_offset(&self) -> usize {
+        if self.options.wrap_lines {
+            return 0;
+        }
+        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        let mut cached = self
+            .horizontal_code_extent
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let current = cached.as_ref().is_some_and(|extent| {
+            extent
+                .document
+                .upgrade()
+                .is_some_and(|document| std::ptr::eq(document.as_ref(), state.changeset()))
+                && extent.filter == self.filter
+                && extent.tab_width == self.options.tab_width
+        });
+        if !current {
+            let mut max_width = 0;
+            let mut max_line_number = 1;
+            for file in state
+                .changeset()
+                .files
+                .iter()
+                .filter(|file| diff_file_matches_filter(file, &self.filter))
+            {
+                max_width = max_width.max(workdeck_diff::max_file_code_line_width(
+                    file,
+                    self.options.tab_width,
+                ));
+                max_line_number = max_line_number.max(find_max_line_number(file));
+            }
+            *cached = Some(HorizontalCodeExtent {
+                document: Arc::downgrade(&state.changeset_snapshot()),
+                filter: self.filter.clone(),
+                tab_width: self.options.tab_width,
+                max_width,
+                line_number_digits: max_line_number.ilog10() as usize + 1,
+            });
+        }
+        let extent = cached.as_ref().expect("horizontal extent initialized");
+        let layout = match state.resolved_layout(self.review_layout_width()) {
+            LayoutMode::Split => workdeck_diff::CodeLayout::Split,
+            _ => workdeck_diff::CodeLayout::Stack,
+        };
+        extent
+            .max_width
+            .saturating_sub(workdeck_diff::resolve_code_viewport_width(
+                layout,
+                usize::from(self.review_width.get()),
+                extent.line_number_digits,
+                self.options.line_numbers,
+            ))
+    }
+
+    fn scroll_code_horizontally(&mut self, delta: isize) {
+        if self.options.wrap_lines || delta == 0 {
+            return;
+        }
+        self.options.horizontal_offset = self
+            .options
+            .horizontal_offset
+            .saturating_add_signed(delta)
+            .min(self.max_horizontal_offset());
     }
 
     /// Review content follows the optional border/padding and pinned file header.
@@ -3485,8 +3553,7 @@ impl ReviewApp {
             }
             AppCommandAction::StepDiffLine(delta) => self.step_diff_line(delta),
             AppCommandAction::ScrollCodeHorizontally(delta) => {
-                self.options.horizontal_offset =
-                    self.options.horizontal_offset.saturating_add_signed(delta);
+                self.scroll_code_horizontally(delta);
             }
             AppCommandAction::AlignCurrentLine(alignment) => {
                 self.align_current_line(alignment);
@@ -8803,8 +8870,7 @@ impl ReviewApp {
             MouseEventKind::ScrollDown if event.modifiers.contains(KeyModifiers::SHIFT) => 1,
             _ => return false,
         };
-        self.options.horizontal_offset =
-            self.options.horizontal_offset.saturating_add_signed(delta);
+        self.scroll_code_horizontally(delta);
         self.mouse_scroll_acceleration.reset();
         self.mouse_scroll_accumulator = 0.0;
         true
@@ -12801,6 +12867,15 @@ impl PlainFileGeometry {
                 .collect(),
         }
     }
+}
+
+#[derive(Debug)]
+struct HorizontalCodeExtent {
+    document: std::sync::Weak<Changeset>,
+    filter: String,
+    tab_width: u16,
+    max_width: usize,
+    line_number_digits: usize,
 }
 
 #[derive(Debug)]
@@ -24942,7 +25017,14 @@ mod tests {
 
     #[test]
     fn shifted_and_native_horizontal_wheel_events_never_move_the_vertical_viewport() {
-        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        let mut app = ReviewApp::new(
+            navigation_changeset(vec![(
+                "wide.txt".into(),
+                "old".repeat(100),
+                "new".repeat(100),
+            )]),
+            ReviewOptions::default(),
+        );
         let start = Instant::now();
         app.handle_mouse_at(MouseEventKind::ScrollDown, start);
         app.handle_mouse_at(
@@ -25807,6 +25889,88 @@ mod tests {
                     "bottom padding must not target an offscreen code row"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn horizontal_extent_tracks_filter_tabs_viewport_and_replacement_document() {
+        let mut app = ReviewApp::new(
+            navigation_changeset(vec![
+                (
+                    "wide.txt".into(),
+                    "old\n".into(),
+                    format!("\t{}\n", "x".repeat(100)),
+                ),
+                ("short.txt".into(), "old\n".into(), "new\n".into()),
+            ]),
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                sidebar: false,
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(92, 20)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        let initial = app.max_horizontal_offset();
+        assert!(initial > 0);
+        assert_eq!(app.max_horizontal_offset(), initial);
+        app.filter = "short.txt".into();
+        assert_eq!(app.max_horizontal_offset(), 0);
+        app.filter = "missing.txt".into();
+        assert_eq!(app.max_horizontal_offset(), 0);
+        app.filter.clear();
+        assert_eq!(app.max_horizontal_offset(), initial);
+        app.options.tab_width = 8;
+        assert_eq!(app.max_horizontal_offset(), initial + 4);
+        let mut larger = Terminal::new(TestBackend::new(300, 20)).unwrap();
+        rendered_review_frame(&mut larger, &app);
+        assert_eq!(app.max_horizontal_offset(), 0);
+        rendered_review_frame(&mut terminal, &app);
+        assert_eq!(app.max_horizontal_offset(), initial + 4);
+        app.reload(navigation_changeset(vec![(
+            "wide.txt".into(),
+            "old\n".into(),
+            "new\n".into(),
+        )]));
+        assert_eq!(app.max_horizontal_offset(), 0);
+        app.options.wrap_lines = true;
+        assert_eq!(app.max_horizontal_offset(), 0);
+    }
+
+    #[test]
+    fn horizontal_scroll_commands_and_wheel_stop_at_the_code_extent() {
+        for wheel in [false, true] {
+            let mut app = ReviewApp::new(
+                navigation_changeset(vec![(
+                    "wide.txt".into(),
+                    "old\n".into(),
+                    format!("{}TAIL\n", "x".repeat(100)),
+                )]),
+                ReviewOptions {
+                    layout: LayoutMode::Split,
+                    ..Default::default()
+                },
+            );
+            let mut terminal = Terminal::new(TestBackend::new(92, 20)).unwrap();
+            rendered_review_frame(&mut terminal, &app);
+            for _ in 0..256 {
+                if wheel {
+                    app.handle_mouse_event(MouseEvent {
+                        kind: MouseEventKind::ScrollRight,
+                        column: 60,
+                        row: 10,
+                        modifiers: KeyModifiers::NONE,
+                    });
+                } else {
+                    app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+                }
+            }
+            let frame = rendered_review_frame(&mut terminal, &app);
+            assert!(frame.contains("TAIL"), "wheel={wheel}: {frame}");
+            assert_eq!(app.options.horizontal_offset, app.max_horizontal_offset());
+            assert!(app.options.horizontal_offset < 104);
+            app.scroll_code_horizontally(isize::MIN);
+            assert_eq!(app.options.horizontal_offset, 0);
         }
     }
 

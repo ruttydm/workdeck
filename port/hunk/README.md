@@ -11,11 +11,17 @@ the Rust matrix passes in 1.03s. See [oracle evidence](oracles/app-host-horizont
 These scenarios do not test the full horizontal extent. Inspection of pinned
 `App.tsx:780–812` found an open runtime gap: Hunk clamps the offset to the widest
 filtered code line minus code viewport width, and reclamps when that extent
-changes. Native keyboard/wheel handlers currently only saturate at zero.
-The existing Rust `max_file_code_line_width` and `resolve_code_viewport_width`
-helpers provide the calculation primitives, but app-level integration and
-boundary/reload/filter/resize regressions remain necessary. `App.tsx` stays
-unmapped; the two passing interaction scenarios do not waive that missing code.
+changes. Keyboard and wheel handlers now clamp to that upper bound using the
+ported `max_file_code_line_width` and `resolve_code_viewport_width` helpers.
+A weak-document cache avoids rescanning unchanged source text on each key and
+does not retain a superseded changeset. Tests cover repeated keyboard/wheel
+overscroll, returning to zero, and extent recalculation after filtering, tab-width
+changes, viewport resizing and document replacement.
+
+Immediate reconciliation after those changes, without another input event, is
+still missing: a stored offset can exceed the newly computed extent until a
+horizontal command arrives. `App.tsx` stays unmapped; the two passing source
+interaction scenarios do not waive that remaining lifecycle behavior.
 
 ## Narrow wrap-toggle geometry: corrected and mapped
 
