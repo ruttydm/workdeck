@@ -49,3 +49,8 @@ headers returned from bridge getters, checking that committed and preview
 projections remain unchanged. A weak-reference assertion verifies that cache
 replacement releases the old document, while retained projected values remain
 readable. Shared internal storage does not change the owned-value getter boundary.
+
+The complete TUI library suite also passed after these changes: 1,101 tests,
+zero failures, ignored tests or filters on Darwin arm64 at `afbe27fb`.
+See [verification record](tui-verification-afbe27fb.json). This expands native
+regression coverage beyond the focused bridge tests, not the release-gate claim.

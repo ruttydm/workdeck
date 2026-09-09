@@ -1,0 +1,19 @@
+{
+  "commit": "afbe27fb2d70e563accabd110d935a6790a3121b",
+  "command": "CARGO_INCREMENTAL=0 cargo test -p workdeck-tui --lib",
+  "host": "Darwin arm64",
+  "rustc": "1.95.0 (59807616e 2026-04-14)",
+  "cargo": "1.95.0 (f2d3ce0bd 2026-03-21)",
+  "exitCode": 0,
+  "passed": 1101,
+  "failed": 0,
+  "ignored": 0,
+  "filteredOut": 0,
+  "testDurationSeconds": 57.57,
+  "scope": "Full TUI library suite after settled highlighter and immutable extension-file projection optimizations.",
+  "limitations": [
+    "Not a full workspace or all-targets run.",
+    "Not native cross-platform CI or a release performance comparison.",
+    "Passing tests do not close remaining source-ledger mappings."
+  ]
+}
