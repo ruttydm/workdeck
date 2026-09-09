@@ -534,3 +534,13 @@ sample was 2.45 ms scrolling and 170,442,752 bytes peak RSS. These uncontrolled
 native-only samples show no demonstrated improvement from the frame-capacity hint.
 Raw process output and all distributions are retained. No paired Hunk comparison,
 complete memory-suite result, or performance-gate success is claimed.
+
+### Compact note-target lookup at `acaaf092`
+
+[Three raw optimized native runs](interaction-diagnostic-acaaf092.json) report
+6.14 ms first frame, 24.40 ms navigation and 2.27 ms scrolling, with 2.24 ms in
+scroll rendering. Maximum process peak RSS was 172,392,448 bytes, versus
+170,934,272 bytes in the preceding 2.50 ms scroll sample. Both the lower observed
+latency and higher observed memory are retained; no metric is normalized away.
+Host activity remains uncontrolled, and these native-only samples are not a causal
+comparison, a paired Hunk acceptance run or a complete memory-suite result.
