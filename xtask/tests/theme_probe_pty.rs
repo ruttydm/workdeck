@@ -7,16 +7,17 @@ use std::time::{Duration, Instant};
 
 #[test]
 fn theme_probe_exchanges_osc11_and_reports_timeout_on_a_real_pty() {
-    for (response, redirect_stdout, redirect_stdin) in [
-        (Some("\x1b]11;rgb:00/00/00\x07"), false, false),
-        (None, false, false),
-        (Some("\x1b]11;rgb:00/00/00\x07"), true, false),
-        (None, true, false),
-        (Some("\x1b]11;rgb:00/00/00\x07"), false, true),
-        (None, false, true),
-        (Some("\x1b]11;rgb:00/00/00\x07"), true, true),
-        (None, true, true),
-    ] {
+    let cases = [Some("\x1b]11;rgb:00/00/00\x07"), None]
+        .into_iter()
+        .flat_map(|response| {
+            [false, true].into_iter().flat_map(move |stdout| {
+                ["tty", "file", "pipe"]
+                    .into_iter()
+                    .map(move |stdin| (response, stdout, stdin))
+            })
+        });
+    for (response, redirect_stdout, stdin_kind) in cases {
+        let redirect_stdin = stdin_kind != "tty";
         let pair = native_pty_system()
             .openpty(PtySize {
                 rows: 24,
@@ -33,7 +34,11 @@ fn theme_probe_exchanges_osc11_and_reports_timeout_on_a_real_pty() {
         let remainder = tempfile::NamedTempFile::new().unwrap();
         let command = if redirect_stdin {
             let mut command = CommandBuilder::new("/bin/sh");
-            let script = if redirect_stdout {
+            let script = if stdin_kind == "pipe" && redirect_stdout {
+                "/bin/cat \"$3\" | { \"$1\" themes probe > \"$2\"; probe_status=$?; /bin/cat > \"$4\"; exit \"$probe_status\"; }"
+            } else if stdin_kind == "pipe" {
+                "/bin/cat \"$3\" | { \"$1\" themes probe; probe_status=$?; /bin/cat > \"$4\"; exit \"$probe_status\"; }"
+            } else if redirect_stdout {
                 "exec 3< \"$3\"; \"$1\" themes probe <&3 > \"$2\"; probe_status=$?; /bin/cat <&3 > \"$4\"; exit \"$probe_status\""
             } else {
                 "exec 3< \"$3\"; \"$1\" themes probe <&3; probe_status=$?; /bin/cat <&3 > \"$4\"; exit \"$probe_status\""

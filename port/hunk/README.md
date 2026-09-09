@@ -2469,6 +2469,13 @@ Earlier exploratory Bun 1.3.5 runs showed the same symptom but are not the retai
 runtime evidence. All disposable probe processes were stopped; no runtime or
 TypeScript mirror was added to the product.
 
+The native probe matrix now has 12 cases: response/timeout, attached/redirected
+stdout, and terminal/file/pipe stdin. The actual-pipe cases run the probe and
+then drain the same pipe, proving the sentinel bytes remain unread. All cases
+passed on macOS, along with the frozen timeout JSON comparison, exact terminal
+restoration, xtask Clippy and formatting. This closes the previous native Unix
+pipe-input test gap, not the source lifecycle or Windows parity gaps.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.
