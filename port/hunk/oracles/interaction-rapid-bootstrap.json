@@ -1,0 +1,1385 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceInterval": {"byteStart": 10134, "byteEnd": 11617, "lineStart": 328, "lineEnd": 367},
+  "baselines": {"main": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2", "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"},
+  "validation": {"tuiTestsPassed": 1175, "failed": 0, "seconds": 8.41, "scopedClippy": "passed"},
+  "method": "Execute exact pinned numbered-line and rapid-bootstrap helper bodies via Bun TypeScript transpilation, using each pin's real diff and bootstrap helper imports. Project bootstrap settings, identities, full source bytes, annotations, stats, partial flags and hunk ranges/counts. Internal parser cache and row-index representations are not compared here.",
+  "runs": [
+    {
+      "pin": "main",
+      "bootstrap": {
+        "reloadContext": {
+          "cwd": "repo"
+        },
+        "input": {
+          "kind": "vcs",
+          "staged": false,
+          "options": {
+            "mode": "stack",
+            "pager": false,
+            "agentNotes": true
+          }
+        },
+        "changeset": {
+          "files": [
+            {
+              "id": "rapid-1",
+              "path": "rapid-1.ts",
+              "language": "typescript",
+              "patch": "",
+              "agent": {
+                "path": "rapid-1.ts",
+                "summary": "rapid 1",
+                "annotations": [
+                  {
+                    "newRange": [
+                      101,
+                      101
+                    ],
+                    "summary": "note start 1"
+                  },
+                  {
+                    "newRange": [
+                      131,
+                      131
+                    ],
+                    "summary": "note middle 1"
+                  },
+                  {
+                    "newRange": [
+                      161,
+                      161
+                    ],
+                    "summary": "note late 1"
+                  }
+                ]
+              },
+              "stats": {
+                "additions": 3,
+                "deletions": 3
+              },
+              "partial": false,
+              "before": "export const line101 = 101;\nexport const line102 = 102;\nexport const line103 = 103;\nexport const line104 = 104;\nexport const line105 = 105;\nexport const line106 = 106;\nexport const line107 = 107;\nexport const line108 = 108;\nexport const line109 = 109;\nexport const line110 = 110;\nexport const line111 = 111;\nexport const line112 = 112;\nexport const line113 = 113;\nexport const line114 = 114;\nexport const line115 = 115;\nexport const line116 = 116;\nexport const line117 = 117;\nexport const line118 = 118;\nexport const line119 = 119;\nexport const line120 = 120;\nexport const line121 = 121;\nexport const line122 = 122;\nexport const line123 = 123;\nexport const line124 = 124;\nexport const line125 = 125;\nexport const line126 = 126;\nexport const line127 = 127;\nexport const line128 = 128;\nexport const line129 = 129;\nexport const line130 = 130;\nexport const line131 = 131;\nexport const line132 = 132;\nexport const line133 = 133;\nexport const line134 = 134;\nexport const line135 = 135;\nexport const line136 = 136;\nexport const line137 = 137;\nexport const line138 = 138;\nexport const line139 = 139;\nexport const line140 = 140;\nexport const line141 = 141;\nexport const line142 = 142;\nexport const line143 = 143;\nexport const line144 = 144;\nexport const line145 = 145;\nexport const line146 = 146;\nexport const line147 = 147;\nexport const line148 = 148;\nexport const line149 = 149;\nexport const line150 = 150;\nexport const line151 = 151;\nexport const line152 = 152;\nexport const line153 = 153;\nexport const line154 = 154;\nexport const line155 = 155;\nexport const line156 = 156;\nexport const line157 = 157;\nexport const line158 = 158;\nexport const line159 = 159;\nexport const line160 = 160;\nexport const line161 = 161;\nexport const line162 = 162;\nexport const line163 = 163;\nexport const line164 = 164;\nexport const line165 = 165;\nexport const line166 = 166;\nexport const line167 = 167;\nexport const line168 = 168;\nexport const line169 = 169;\nexport const line170 = 170;\nexport const line171 = 171;\nexport const line172 = 172;\nexport const line173 = 173;\nexport const line174 = 174;\nexport const line175 = 175;\nexport const line176 = 176;\nexport const line177 = 177;\nexport const line178 = 178;\nexport const line179 = 179;\nexport const line180 = 180;\nexport const line181 = 181;\nexport const line182 = 182;\nexport const line183 = 183;\nexport const line184 = 184;\nexport const line185 = 185;\nexport const line186 = 186;\nexport const line187 = 187;\nexport const line188 = 188;\nexport const line189 = 189;\nexport const line190 = 190;\n",
+              "after": "export const line101 = 1101;\nexport const line102 = 102;\nexport const line103 = 103;\nexport const line104 = 104;\nexport const line105 = 105;\nexport const line106 = 106;\nexport const line107 = 107;\nexport const line108 = 108;\nexport const line109 = 109;\nexport const line110 = 110;\nexport const line111 = 111;\nexport const line112 = 112;\nexport const line113 = 113;\nexport const line114 = 114;\nexport const line115 = 115;\nexport const line116 = 116;\nexport const line117 = 117;\nexport const line118 = 118;\nexport const line119 = 119;\nexport const line120 = 120;\nexport const line121 = 121;\nexport const line122 = 122;\nexport const line123 = 123;\nexport const line124 = 124;\nexport const line125 = 125;\nexport const line126 = 126;\nexport const line127 = 127;\nexport const line128 = 128;\nexport const line129 = 129;\nexport const line130 = 130;\nexport const line131 = 3101;\nexport const line132 = 132;\nexport const line133 = 133;\nexport const line134 = 134;\nexport const line135 = 135;\nexport const line136 = 136;\nexport const line137 = 137;\nexport const line138 = 138;\nexport const line139 = 139;\nexport const line140 = 140;\nexport const line141 = 141;\nexport const line142 = 142;\nexport const line143 = 143;\nexport const line144 = 144;\nexport const line145 = 145;\nexport const line146 = 146;\nexport const line147 = 147;\nexport const line148 = 148;\nexport const line149 = 149;\nexport const line150 = 150;\nexport const line151 = 151;\nexport const line152 = 152;\nexport const line153 = 153;\nexport const line154 = 154;\nexport const line155 = 155;\nexport const line156 = 156;\nexport const line157 = 157;\nexport const line158 = 158;\nexport const line159 = 159;\nexport const line160 = 160;\nexport const line161 = 6101;\nexport const line162 = 162;\nexport const line163 = 163;\nexport const line164 = 164;\nexport const line165 = 165;\nexport const line166 = 166;\nexport const line167 = 167;\nexport const line168 = 168;\nexport const line169 = 169;\nexport const line170 = 170;\nexport const line171 = 171;\nexport const line172 = 172;\nexport const line173 = 173;\nexport const line174 = 174;\nexport const line175 = 175;\nexport const line176 = 176;\nexport const line177 = 177;\nexport const line178 = 178;\nexport const line179 = 179;\nexport const line180 = 180;\nexport const line181 = 181;\nexport const line182 = 182;\nexport const line183 = 183;\nexport const line184 = 184;\nexport const line185 = 185;\nexport const line186 = 186;\nexport const line187 = 187;\nexport const line188 = 188;\nexport const line189 = 189;\nexport const line190 = 190;\n",
+              "hunks": [
+                {
+                  "oldStart": 1,
+                  "oldCount": 4,
+                  "newStart": 1,
+                  "newCount": 4,
+                  "splitRows": 4,
+                  "stackRows": 5
+                },
+                {
+                  "oldStart": 28,
+                  "oldCount": 7,
+                  "newStart": 28,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                },
+                {
+                  "oldStart": 58,
+                  "oldCount": 7,
+                  "newStart": 58,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                }
+              ]
+            },
+            {
+              "id": "rapid-2",
+              "path": "rapid-2.ts",
+              "language": "typescript",
+              "patch": "",
+              "agent": {
+                "path": "rapid-2.ts",
+                "summary": "rapid 2",
+                "annotations": [
+                  {
+                    "newRange": [
+                      201,
+                      201
+                    ],
+                    "summary": "note start 2"
+                  },
+                  {
+                    "newRange": [
+                      231,
+                      231
+                    ],
+                    "summary": "note middle 2"
+                  },
+                  {
+                    "newRange": [
+                      261,
+                      261
+                    ],
+                    "summary": "note late 2"
+                  }
+                ]
+              },
+              "stats": {
+                "additions": 3,
+                "deletions": 3
+              },
+              "partial": false,
+              "before": "export const line201 = 201;\nexport const line202 = 202;\nexport const line203 = 203;\nexport const line204 = 204;\nexport const line205 = 205;\nexport const line206 = 206;\nexport const line207 = 207;\nexport const line208 = 208;\nexport const line209 = 209;\nexport const line210 = 210;\nexport const line211 = 211;\nexport const line212 = 212;\nexport const line213 = 213;\nexport const line214 = 214;\nexport const line215 = 215;\nexport const line216 = 216;\nexport const line217 = 217;\nexport const line218 = 218;\nexport const line219 = 219;\nexport const line220 = 220;\nexport const line221 = 221;\nexport const line222 = 222;\nexport const line223 = 223;\nexport const line224 = 224;\nexport const line225 = 225;\nexport const line226 = 226;\nexport const line227 = 227;\nexport const line228 = 228;\nexport const line229 = 229;\nexport const line230 = 230;\nexport const line231 = 231;\nexport const line232 = 232;\nexport const line233 = 233;\nexport const line234 = 234;\nexport const line235 = 235;\nexport const line236 = 236;\nexport const line237 = 237;\nexport const line238 = 238;\nexport const line239 = 239;\nexport const line240 = 240;\nexport const line241 = 241;\nexport const line242 = 242;\nexport const line243 = 243;\nexport const line244 = 244;\nexport const line245 = 245;\nexport const line246 = 246;\nexport const line247 = 247;\nexport const line248 = 248;\nexport const line249 = 249;\nexport const line250 = 250;\nexport const line251 = 251;\nexport const line252 = 252;\nexport const line253 = 253;\nexport const line254 = 254;\nexport const line255 = 255;\nexport const line256 = 256;\nexport const line257 = 257;\nexport const line258 = 258;\nexport const line259 = 259;\nexport const line260 = 260;\nexport const line261 = 261;\nexport const line262 = 262;\nexport const line263 = 263;\nexport const line264 = 264;\nexport const line265 = 265;\nexport const line266 = 266;\nexport const line267 = 267;\nexport const line268 = 268;\nexport const line269 = 269;\nexport const line270 = 270;\nexport const line271 = 271;\nexport const line272 = 272;\nexport const line273 = 273;\nexport const line274 = 274;\nexport const line275 = 275;\nexport const line276 = 276;\nexport const line277 = 277;\nexport const line278 = 278;\nexport const line279 = 279;\nexport const line280 = 280;\nexport const line281 = 281;\nexport const line282 = 282;\nexport const line283 = 283;\nexport const line284 = 284;\nexport const line285 = 285;\nexport const line286 = 286;\nexport const line287 = 287;\nexport const line288 = 288;\nexport const line289 = 289;\nexport const line290 = 290;\n",
+              "after": "export const line201 = 1201;\nexport const line202 = 202;\nexport const line203 = 203;\nexport const line204 = 204;\nexport const line205 = 205;\nexport const line206 = 206;\nexport const line207 = 207;\nexport const line208 = 208;\nexport const line209 = 209;\nexport const line210 = 210;\nexport const line211 = 211;\nexport const line212 = 212;\nexport const line213 = 213;\nexport const line214 = 214;\nexport const line215 = 215;\nexport const line216 = 216;\nexport const line217 = 217;\nexport const line218 = 218;\nexport const line219 = 219;\nexport const line220 = 220;\nexport const line221 = 221;\nexport const line222 = 222;\nexport const line223 = 223;\nexport const line224 = 224;\nexport const line225 = 225;\nexport const line226 = 226;\nexport const line227 = 227;\nexport const line228 = 228;\nexport const line229 = 229;\nexport const line230 = 230;\nexport const line231 = 3201;\nexport const line232 = 232;\nexport const line233 = 233;\nexport const line234 = 234;\nexport const line235 = 235;\nexport const line236 = 236;\nexport const line237 = 237;\nexport const line238 = 238;\nexport const line239 = 239;\nexport const line240 = 240;\nexport const line241 = 241;\nexport const line242 = 242;\nexport const line243 = 243;\nexport const line244 = 244;\nexport const line245 = 245;\nexport const line246 = 246;\nexport const line247 = 247;\nexport const line248 = 248;\nexport const line249 = 249;\nexport const line250 = 250;\nexport const line251 = 251;\nexport const line252 = 252;\nexport const line253 = 253;\nexport const line254 = 254;\nexport const line255 = 255;\nexport const line256 = 256;\nexport const line257 = 257;\nexport const line258 = 258;\nexport const line259 = 259;\nexport const line260 = 260;\nexport const line261 = 6201;\nexport const line262 = 262;\nexport const line263 = 263;\nexport const line264 = 264;\nexport const line265 = 265;\nexport const line266 = 266;\nexport const line267 = 267;\nexport const line268 = 268;\nexport const line269 = 269;\nexport const line270 = 270;\nexport const line271 = 271;\nexport const line272 = 272;\nexport const line273 = 273;\nexport const line274 = 274;\nexport const line275 = 275;\nexport const line276 = 276;\nexport const line277 = 277;\nexport const line278 = 278;\nexport const line279 = 279;\nexport const line280 = 280;\nexport const line281 = 281;\nexport const line282 = 282;\nexport const line283 = 283;\nexport const line284 = 284;\nexport const line285 = 285;\nexport const line286 = 286;\nexport const line287 = 287;\nexport const line288 = 288;\nexport const line289 = 289;\nexport const line290 = 290;\n",
+              "hunks": [
+                {
+                  "oldStart": 1,
+                  "oldCount": 4,
+                  "newStart": 1,
+                  "newCount": 4,
+                  "splitRows": 4,
+                  "stackRows": 5
+                },
+                {
+                  "oldStart": 28,
+                  "oldCount": 7,
+                  "newStart": 28,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                },
+                {
+                  "oldStart": 58,
+                  "oldCount": 7,
+                  "newStart": 58,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                }
+              ]
+            },
+            {
+              "id": "rapid-3",
+              "path": "rapid-3.ts",
+              "language": "typescript",
+              "patch": "",
+              "agent": {
+                "path": "rapid-3.ts",
+                "summary": "rapid 3",
+                "annotations": [
+                  {
+                    "newRange": [
+                      301,
+                      301
+                    ],
+                    "summary": "note start 3"
+                  },
+                  {
+                    "newRange": [
+                      331,
+                      331
+                    ],
+                    "summary": "note middle 3"
+                  },
+                  {
+                    "newRange": [
+                      361,
+                      361
+                    ],
+                    "summary": "note late 3"
+                  }
+                ]
+              },
+              "stats": {
+                "additions": 3,
+                "deletions": 3
+              },
+              "partial": false,
+              "before": "export const line301 = 301;\nexport const line302 = 302;\nexport const line303 = 303;\nexport const line304 = 304;\nexport const line305 = 305;\nexport const line306 = 306;\nexport const line307 = 307;\nexport const line308 = 308;\nexport const line309 = 309;\nexport const line310 = 310;\nexport const line311 = 311;\nexport const line312 = 312;\nexport const line313 = 313;\nexport const line314 = 314;\nexport const line315 = 315;\nexport const line316 = 316;\nexport const line317 = 317;\nexport const line318 = 318;\nexport const line319 = 319;\nexport const line320 = 320;\nexport const line321 = 321;\nexport const line322 = 322;\nexport const line323 = 323;\nexport const line324 = 324;\nexport const line325 = 325;\nexport const line326 = 326;\nexport const line327 = 327;\nexport const line328 = 328;\nexport const line329 = 329;\nexport const line330 = 330;\nexport const line331 = 331;\nexport const line332 = 332;\nexport const line333 = 333;\nexport const line334 = 334;\nexport const line335 = 335;\nexport const line336 = 336;\nexport const line337 = 337;\nexport const line338 = 338;\nexport const line339 = 339;\nexport const line340 = 340;\nexport const line341 = 341;\nexport const line342 = 342;\nexport const line343 = 343;\nexport const line344 = 344;\nexport const line345 = 345;\nexport const line346 = 346;\nexport const line347 = 347;\nexport const line348 = 348;\nexport const line349 = 349;\nexport const line350 = 350;\nexport const line351 = 351;\nexport const line352 = 352;\nexport const line353 = 353;\nexport const line354 = 354;\nexport const line355 = 355;\nexport const line356 = 356;\nexport const line357 = 357;\nexport const line358 = 358;\nexport const line359 = 359;\nexport const line360 = 360;\nexport const line361 = 361;\nexport const line362 = 362;\nexport const line363 = 363;\nexport const line364 = 364;\nexport const line365 = 365;\nexport const line366 = 366;\nexport const line367 = 367;\nexport const line368 = 368;\nexport const line369 = 369;\nexport const line370 = 370;\nexport const line371 = 371;\nexport const line372 = 372;\nexport const line373 = 373;\nexport const line374 = 374;\nexport const line375 = 375;\nexport const line376 = 376;\nexport const line377 = 377;\nexport const line378 = 378;\nexport const line379 = 379;\nexport const line380 = 380;\nexport const line381 = 381;\nexport const line382 = 382;\nexport const line383 = 383;\nexport const line384 = 384;\nexport const line385 = 385;\nexport const line386 = 386;\nexport const line387 = 387;\nexport const line388 = 388;\nexport const line389 = 389;\nexport const line390 = 390;\n",
+              "after": "export const line301 = 1301;\nexport const line302 = 302;\nexport const line303 = 303;\nexport const line304 = 304;\nexport const line305 = 305;\nexport const line306 = 306;\nexport const line307 = 307;\nexport const line308 = 308;\nexport const line309 = 309;\nexport const line310 = 310;\nexport const line311 = 311;\nexport const line312 = 312;\nexport const line313 = 313;\nexport const line314 = 314;\nexport const line315 = 315;\nexport const line316 = 316;\nexport const line317 = 317;\nexport const line318 = 318;\nexport const line319 = 319;\nexport const line320 = 320;\nexport const line321 = 321;\nexport const line322 = 322;\nexport const line323 = 323;\nexport const line324 = 324;\nexport const line325 = 325;\nexport const line326 = 326;\nexport const line327 = 327;\nexport const line328 = 328;\nexport const line329 = 329;\nexport const line330 = 330;\nexport const line331 = 3301;\nexport const line332 = 332;\nexport const line333 = 333;\nexport const line334 = 334;\nexport const line335 = 335;\nexport const line336 = 336;\nexport const line337 = 337;\nexport const line338 = 338;\nexport const line339 = 339;\nexport const line340 = 340;\nexport const line341 = 341;\nexport const line342 = 342;\nexport const line343 = 343;\nexport const line344 = 344;\nexport const line345 = 345;\nexport const line346 = 346;\nexport const line347 = 347;\nexport const line348 = 348;\nexport const line349 = 349;\nexport const line350 = 350;\nexport const line351 = 351;\nexport const line352 = 352;\nexport const line353 = 353;\nexport const line354 = 354;\nexport const line355 = 355;\nexport const line356 = 356;\nexport const line357 = 357;\nexport const line358 = 358;\nexport const line359 = 359;\nexport const line360 = 360;\nexport const line361 = 6301;\nexport const line362 = 362;\nexport const line363 = 363;\nexport const line364 = 364;\nexport const line365 = 365;\nexport const line366 = 366;\nexport const line367 = 367;\nexport const line368 = 368;\nexport const line369 = 369;\nexport const line370 = 370;\nexport const line371 = 371;\nexport const line372 = 372;\nexport const line373 = 373;\nexport const line374 = 374;\nexport const line375 = 375;\nexport const line376 = 376;\nexport const line377 = 377;\nexport const line378 = 378;\nexport const line379 = 379;\nexport const line380 = 380;\nexport const line381 = 381;\nexport const line382 = 382;\nexport const line383 = 383;\nexport const line384 = 384;\nexport const line385 = 385;\nexport const line386 = 386;\nexport const line387 = 387;\nexport const line388 = 388;\nexport const line389 = 389;\nexport const line390 = 390;\n",
+              "hunks": [
+                {
+                  "oldStart": 1,
+                  "oldCount": 4,
+                  "newStart": 1,
+                  "newCount": 4,
+                  "splitRows": 4,
+                  "stackRows": 5
+                },
+                {
+                  "oldStart": 28,
+                  "oldCount": 7,
+                  "newStart": 28,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                },
+                {
+                  "oldStart": 58,
+                  "oldCount": 7,
+                  "newStart": 58,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                }
+              ]
+            },
+            {
+              "id": "rapid-4",
+              "path": "rapid-4.ts",
+              "language": "typescript",
+              "patch": "",
+              "agent": {
+                "path": "rapid-4.ts",
+                "summary": "rapid 4",
+                "annotations": [
+                  {
+                    "newRange": [
+                      401,
+                      401
+                    ],
+                    "summary": "note start 4"
+                  },
+                  {
+                    "newRange": [
+                      431,
+                      431
+                    ],
+                    "summary": "note middle 4"
+                  },
+                  {
+                    "newRange": [
+                      461,
+                      461
+                    ],
+                    "summary": "note late 4"
+                  }
+                ]
+              },
+              "stats": {
+                "additions": 3,
+                "deletions": 3
+              },
+              "partial": false,
+              "before": "export const line401 = 401;\nexport const line402 = 402;\nexport const line403 = 403;\nexport const line404 = 404;\nexport const line405 = 405;\nexport const line406 = 406;\nexport const line407 = 407;\nexport const line408 = 408;\nexport const line409 = 409;\nexport const line410 = 410;\nexport const line411 = 411;\nexport const line412 = 412;\nexport const line413 = 413;\nexport const line414 = 414;\nexport const line415 = 415;\nexport const line416 = 416;\nexport const line417 = 417;\nexport const line418 = 418;\nexport const line419 = 419;\nexport const line420 = 420;\nexport const line421 = 421;\nexport const line422 = 422;\nexport const line423 = 423;\nexport const line424 = 424;\nexport const line425 = 425;\nexport const line426 = 426;\nexport const line427 = 427;\nexport const line428 = 428;\nexport const line429 = 429;\nexport const line430 = 430;\nexport const line431 = 431;\nexport const line432 = 432;\nexport const line433 = 433;\nexport const line434 = 434;\nexport const line435 = 435;\nexport const line436 = 436;\nexport const line437 = 437;\nexport const line438 = 438;\nexport const line439 = 439;\nexport const line440 = 440;\nexport const line441 = 441;\nexport const line442 = 442;\nexport const line443 = 443;\nexport const line444 = 444;\nexport const line445 = 445;\nexport const line446 = 446;\nexport const line447 = 447;\nexport const line448 = 448;\nexport const line449 = 449;\nexport const line450 = 450;\nexport const line451 = 451;\nexport const line452 = 452;\nexport const line453 = 453;\nexport const line454 = 454;\nexport const line455 = 455;\nexport const line456 = 456;\nexport const line457 = 457;\nexport const line458 = 458;\nexport const line459 = 459;\nexport const line460 = 460;\nexport const line461 = 461;\nexport const line462 = 462;\nexport const line463 = 463;\nexport const line464 = 464;\nexport const line465 = 465;\nexport const line466 = 466;\nexport const line467 = 467;\nexport const line468 = 468;\nexport const line469 = 469;\nexport const line470 = 470;\nexport const line471 = 471;\nexport const line472 = 472;\nexport const line473 = 473;\nexport const line474 = 474;\nexport const line475 = 475;\nexport const line476 = 476;\nexport const line477 = 477;\nexport const line478 = 478;\nexport const line479 = 479;\nexport const line480 = 480;\nexport const line481 = 481;\nexport const line482 = 482;\nexport const line483 = 483;\nexport const line484 = 484;\nexport const line485 = 485;\nexport const line486 = 486;\nexport const line487 = 487;\nexport const line488 = 488;\nexport const line489 = 489;\nexport const line490 = 490;\n",
+              "after": "export const line401 = 1401;\nexport const line402 = 402;\nexport const line403 = 403;\nexport const line404 = 404;\nexport const line405 = 405;\nexport const line406 = 406;\nexport const line407 = 407;\nexport const line408 = 408;\nexport const line409 = 409;\nexport const line410 = 410;\nexport const line411 = 411;\nexport const line412 = 412;\nexport const line413 = 413;\nexport const line414 = 414;\nexport const line415 = 415;\nexport const line416 = 416;\nexport const line417 = 417;\nexport const line418 = 418;\nexport const line419 = 419;\nexport const line420 = 420;\nexport const line421 = 421;\nexport const line422 = 422;\nexport const line423 = 423;\nexport const line424 = 424;\nexport const line425 = 425;\nexport const line426 = 426;\nexport const line427 = 427;\nexport const line428 = 428;\nexport const line429 = 429;\nexport const line430 = 430;\nexport const line431 = 3401;\nexport const line432 = 432;\nexport const line433 = 433;\nexport const line434 = 434;\nexport const line435 = 435;\nexport const line436 = 436;\nexport const line437 = 437;\nexport const line438 = 438;\nexport const line439 = 439;\nexport const line440 = 440;\nexport const line441 = 441;\nexport const line442 = 442;\nexport const line443 = 443;\nexport const line444 = 444;\nexport const line445 = 445;\nexport const line446 = 446;\nexport const line447 = 447;\nexport const line448 = 448;\nexport const line449 = 449;\nexport const line450 = 450;\nexport const line451 = 451;\nexport const line452 = 452;\nexport const line453 = 453;\nexport const line454 = 454;\nexport const line455 = 455;\nexport const line456 = 456;\nexport const line457 = 457;\nexport const line458 = 458;\nexport const line459 = 459;\nexport const line460 = 460;\nexport const line461 = 6401;\nexport const line462 = 462;\nexport const line463 = 463;\nexport const line464 = 464;\nexport const line465 = 465;\nexport const line466 = 466;\nexport const line467 = 467;\nexport const line468 = 468;\nexport const line469 = 469;\nexport const line470 = 470;\nexport const line471 = 471;\nexport const line472 = 472;\nexport const line473 = 473;\nexport const line474 = 474;\nexport const line475 = 475;\nexport const line476 = 476;\nexport const line477 = 477;\nexport const line478 = 478;\nexport const line479 = 479;\nexport const line480 = 480;\nexport const line481 = 481;\nexport const line482 = 482;\nexport const line483 = 483;\nexport const line484 = 484;\nexport const line485 = 485;\nexport const line486 = 486;\nexport const line487 = 487;\nexport const line488 = 488;\nexport const line489 = 489;\nexport const line490 = 490;\n",
+              "hunks": [
+                {
+                  "oldStart": 1,
+                  "oldCount": 4,
+                  "newStart": 1,
+                  "newCount": 4,
+                  "splitRows": 4,
+                  "stackRows": 5
+                },
+                {
+                  "oldStart": 28,
+                  "oldCount": 7,
+                  "newStart": 28,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                },
+                {
+                  "oldStart": 58,
+                  "oldCount": 7,
+                  "newStart": 58,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                }
+              ]
+            },
+            {
+              "id": "rapid-5",
+              "path": "rapid-5.ts",
+              "language": "typescript",
+              "patch": "",
+              "agent": {
+                "path": "rapid-5.ts",
+                "summary": "rapid 5",
+                "annotations": [
+                  {
+                    "newRange": [
+                      501,
+                      501
+                    ],
+                    "summary": "note start 5"
+                  },
+                  {
+                    "newRange": [
+                      531,
+                      531
+                    ],
+                    "summary": "note middle 5"
+                  },
+                  {
+                    "newRange": [
+                      561,
+                      561
+                    ],
+                    "summary": "note late 5"
+                  }
+                ]
+              },
+              "stats": {
+                "additions": 3,
+                "deletions": 3
+              },
+              "partial": false,
+              "before": "export const line501 = 501;\nexport const line502 = 502;\nexport const line503 = 503;\nexport const line504 = 504;\nexport const line505 = 505;\nexport const line506 = 506;\nexport const line507 = 507;\nexport const line508 = 508;\nexport const line509 = 509;\nexport const line510 = 510;\nexport const line511 = 511;\nexport const line512 = 512;\nexport const line513 = 513;\nexport const line514 = 514;\nexport const line515 = 515;\nexport const line516 = 516;\nexport const line517 = 517;\nexport const line518 = 518;\nexport const line519 = 519;\nexport const line520 = 520;\nexport const line521 = 521;\nexport const line522 = 522;\nexport const line523 = 523;\nexport const line524 = 524;\nexport const line525 = 525;\nexport const line526 = 526;\nexport const line527 = 527;\nexport const line528 = 528;\nexport const line529 = 529;\nexport const line530 = 530;\nexport const line531 = 531;\nexport const line532 = 532;\nexport const line533 = 533;\nexport const line534 = 534;\nexport const line535 = 535;\nexport const line536 = 536;\nexport const line537 = 537;\nexport const line538 = 538;\nexport const line539 = 539;\nexport const line540 = 540;\nexport const line541 = 541;\nexport const line542 = 542;\nexport const line543 = 543;\nexport const line544 = 544;\nexport const line545 = 545;\nexport const line546 = 546;\nexport const line547 = 547;\nexport const line548 = 548;\nexport const line549 = 549;\nexport const line550 = 550;\nexport const line551 = 551;\nexport const line552 = 552;\nexport const line553 = 553;\nexport const line554 = 554;\nexport const line555 = 555;\nexport const line556 = 556;\nexport const line557 = 557;\nexport const line558 = 558;\nexport const line559 = 559;\nexport const line560 = 560;\nexport const line561 = 561;\nexport const line562 = 562;\nexport const line563 = 563;\nexport const line564 = 564;\nexport const line565 = 565;\nexport const line566 = 566;\nexport const line567 = 567;\nexport const line568 = 568;\nexport const line569 = 569;\nexport const line570 = 570;\nexport const line571 = 571;\nexport const line572 = 572;\nexport const line573 = 573;\nexport const line574 = 574;\nexport const line575 = 575;\nexport const line576 = 576;\nexport const line577 = 577;\nexport const line578 = 578;\nexport const line579 = 579;\nexport const line580 = 580;\nexport const line581 = 581;\nexport const line582 = 582;\nexport const line583 = 583;\nexport const line584 = 584;\nexport const line585 = 585;\nexport const line586 = 586;\nexport const line587 = 587;\nexport const line588 = 588;\nexport const line589 = 589;\nexport const line590 = 590;\n",
+              "after": "export const line501 = 1501;\nexport const line502 = 502;\nexport const line503 = 503;\nexport const line504 = 504;\nexport const line505 = 505;\nexport const line506 = 506;\nexport const line507 = 507;\nexport const line508 = 508;\nexport const line509 = 509;\nexport const line510 = 510;\nexport const line511 = 511;\nexport const line512 = 512;\nexport const line513 = 513;\nexport const line514 = 514;\nexport const line515 = 515;\nexport const line516 = 516;\nexport const line517 = 517;\nexport const line518 = 518;\nexport const line519 = 519;\nexport const line520 = 520;\nexport const line521 = 521;\nexport const line522 = 522;\nexport const line523 = 523;\nexport const line524 = 524;\nexport const line525 = 525;\nexport const line526 = 526;\nexport const line527 = 527;\nexport const line528 = 528;\nexport const line529 = 529;\nexport const line530 = 530;\nexport const line531 = 3501;\nexport const line532 = 532;\nexport const line533 = 533;\nexport const line534 = 534;\nexport const line535 = 535;\nexport const line536 = 536;\nexport const line537 = 537;\nexport const line538 = 538;\nexport const line539 = 539;\nexport const line540 = 540;\nexport const line541 = 541;\nexport const line542 = 542;\nexport const line543 = 543;\nexport const line544 = 544;\nexport const line545 = 545;\nexport const line546 = 546;\nexport const line547 = 547;\nexport const line548 = 548;\nexport const line549 = 549;\nexport const line550 = 550;\nexport const line551 = 551;\nexport const line552 = 552;\nexport const line553 = 553;\nexport const line554 = 554;\nexport const line555 = 555;\nexport const line556 = 556;\nexport const line557 = 557;\nexport const line558 = 558;\nexport const line559 = 559;\nexport const line560 = 560;\nexport const line561 = 6501;\nexport const line562 = 562;\nexport const line563 = 563;\nexport const line564 = 564;\nexport const line565 = 565;\nexport const line566 = 566;\nexport const line567 = 567;\nexport const line568 = 568;\nexport const line569 = 569;\nexport const line570 = 570;\nexport const line571 = 571;\nexport const line572 = 572;\nexport const line573 = 573;\nexport const line574 = 574;\nexport const line575 = 575;\nexport const line576 = 576;\nexport const line577 = 577;\nexport const line578 = 578;\nexport const line579 = 579;\nexport const line580 = 580;\nexport const line581 = 581;\nexport const line582 = 582;\nexport const line583 = 583;\nexport const line584 = 584;\nexport const line585 = 585;\nexport const line586 = 586;\nexport const line587 = 587;\nexport const line588 = 588;\nexport const line589 = 589;\nexport const line590 = 590;\n",
+              "hunks": [
+                {
+                  "oldStart": 1,
+                  "oldCount": 4,
+                  "newStart": 1,
+                  "newCount": 4,
+                  "splitRows": 4,
+                  "stackRows": 5
+                },
+                {
+                  "oldStart": 28,
+                  "oldCount": 7,
+                  "newStart": 28,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                },
+                {
+                  "oldStart": 58,
+                  "oldCount": 7,
+                  "newStart": 58,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                }
+              ]
+            },
+            {
+              "id": "rapid-6",
+              "path": "rapid-6.ts",
+              "language": "typescript",
+              "patch": "",
+              "agent": {
+                "path": "rapid-6.ts",
+                "summary": "rapid 6",
+                "annotations": [
+                  {
+                    "newRange": [
+                      601,
+                      601
+                    ],
+                    "summary": "note start 6"
+                  },
+                  {
+                    "newRange": [
+                      631,
+                      631
+                    ],
+                    "summary": "note middle 6"
+                  },
+                  {
+                    "newRange": [
+                      661,
+                      661
+                    ],
+                    "summary": "note late 6"
+                  }
+                ]
+              },
+              "stats": {
+                "additions": 3,
+                "deletions": 3
+              },
+              "partial": false,
+              "before": "export const line601 = 601;\nexport const line602 = 602;\nexport const line603 = 603;\nexport const line604 = 604;\nexport const line605 = 605;\nexport const line606 = 606;\nexport const line607 = 607;\nexport const line608 = 608;\nexport const line609 = 609;\nexport const line610 = 610;\nexport const line611 = 611;\nexport const line612 = 612;\nexport const line613 = 613;\nexport const line614 = 614;\nexport const line615 = 615;\nexport const line616 = 616;\nexport const line617 = 617;\nexport const line618 = 618;\nexport const line619 = 619;\nexport const line620 = 620;\nexport const line621 = 621;\nexport const line622 = 622;\nexport const line623 = 623;\nexport const line624 = 624;\nexport const line625 = 625;\nexport const line626 = 626;\nexport const line627 = 627;\nexport const line628 = 628;\nexport const line629 = 629;\nexport const line630 = 630;\nexport const line631 = 631;\nexport const line632 = 632;\nexport const line633 = 633;\nexport const line634 = 634;\nexport const line635 = 635;\nexport const line636 = 636;\nexport const line637 = 637;\nexport const line638 = 638;\nexport const line639 = 639;\nexport const line640 = 640;\nexport const line641 = 641;\nexport const line642 = 642;\nexport const line643 = 643;\nexport const line644 = 644;\nexport const line645 = 645;\nexport const line646 = 646;\nexport const line647 = 647;\nexport const line648 = 648;\nexport const line649 = 649;\nexport const line650 = 650;\nexport const line651 = 651;\nexport const line652 = 652;\nexport const line653 = 653;\nexport const line654 = 654;\nexport const line655 = 655;\nexport const line656 = 656;\nexport const line657 = 657;\nexport const line658 = 658;\nexport const line659 = 659;\nexport const line660 = 660;\nexport const line661 = 661;\nexport const line662 = 662;\nexport const line663 = 663;\nexport const line664 = 664;\nexport const line665 = 665;\nexport const line666 = 666;\nexport const line667 = 667;\nexport const line668 = 668;\nexport const line669 = 669;\nexport const line670 = 670;\nexport const line671 = 671;\nexport const line672 = 672;\nexport const line673 = 673;\nexport const line674 = 674;\nexport const line675 = 675;\nexport const line676 = 676;\nexport const line677 = 677;\nexport const line678 = 678;\nexport const line679 = 679;\nexport const line680 = 680;\nexport const line681 = 681;\nexport const line682 = 682;\nexport const line683 = 683;\nexport const line684 = 684;\nexport const line685 = 685;\nexport const line686 = 686;\nexport const line687 = 687;\nexport const line688 = 688;\nexport const line689 = 689;\nexport const line690 = 690;\n",
+              "after": "export const line601 = 1601;\nexport const line602 = 602;\nexport const line603 = 603;\nexport const line604 = 604;\nexport const line605 = 605;\nexport const line606 = 606;\nexport const line607 = 607;\nexport const line608 = 608;\nexport const line609 = 609;\nexport const line610 = 610;\nexport const line611 = 611;\nexport const line612 = 612;\nexport const line613 = 613;\nexport const line614 = 614;\nexport const line615 = 615;\nexport const line616 = 616;\nexport const line617 = 617;\nexport const line618 = 618;\nexport const line619 = 619;\nexport const line620 = 620;\nexport const line621 = 621;\nexport const line622 = 622;\nexport const line623 = 623;\nexport const line624 = 624;\nexport const line625 = 625;\nexport const line626 = 626;\nexport const line627 = 627;\nexport const line628 = 628;\nexport const line629 = 629;\nexport const line630 = 630;\nexport const line631 = 3601;\nexport const line632 = 632;\nexport const line633 = 633;\nexport const line634 = 634;\nexport const line635 = 635;\nexport const line636 = 636;\nexport const line637 = 637;\nexport const line638 = 638;\nexport const line639 = 639;\nexport const line640 = 640;\nexport const line641 = 641;\nexport const line642 = 642;\nexport const line643 = 643;\nexport const line644 = 644;\nexport const line645 = 645;\nexport const line646 = 646;\nexport const line647 = 647;\nexport const line648 = 648;\nexport const line649 = 649;\nexport const line650 = 650;\nexport const line651 = 651;\nexport const line652 = 652;\nexport const line653 = 653;\nexport const line654 = 654;\nexport const line655 = 655;\nexport const line656 = 656;\nexport const line657 = 657;\nexport const line658 = 658;\nexport const line659 = 659;\nexport const line660 = 660;\nexport const line661 = 6601;\nexport const line662 = 662;\nexport const line663 = 663;\nexport const line664 = 664;\nexport const line665 = 665;\nexport const line666 = 666;\nexport const line667 = 667;\nexport const line668 = 668;\nexport const line669 = 669;\nexport const line670 = 670;\nexport const line671 = 671;\nexport const line672 = 672;\nexport const line673 = 673;\nexport const line674 = 674;\nexport const line675 = 675;\nexport const line676 = 676;\nexport const line677 = 677;\nexport const line678 = 678;\nexport const line679 = 679;\nexport const line680 = 680;\nexport const line681 = 681;\nexport const line682 = 682;\nexport const line683 = 683;\nexport const line684 = 684;\nexport const line685 = 685;\nexport const line686 = 686;\nexport const line687 = 687;\nexport const line688 = 688;\nexport const line689 = 689;\nexport const line690 = 690;\n",
+              "hunks": [
+                {
+                  "oldStart": 1,
+                  "oldCount": 4,
+                  "newStart": 1,
+                  "newCount": 4,
+                  "splitRows": 4,
+                  "stackRows": 5
+                },
+                {
+                  "oldStart": 28,
+                  "oldCount": 7,
+                  "newStart": 28,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                },
+                {
+                  "oldStart": 58,
+                  "oldCount": 7,
+                  "newStart": 58,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                }
+              ]
+            },
+            {
+              "id": "rapid-7",
+              "path": "rapid-7.ts",
+              "language": "typescript",
+              "patch": "",
+              "agent": {
+                "path": "rapid-7.ts",
+                "summary": "rapid 7",
+                "annotations": [
+                  {
+                    "newRange": [
+                      701,
+                      701
+                    ],
+                    "summary": "note start 7"
+                  },
+                  {
+                    "newRange": [
+                      731,
+                      731
+                    ],
+                    "summary": "note middle 7"
+                  },
+                  {
+                    "newRange": [
+                      761,
+                      761
+                    ],
+                    "summary": "note late 7"
+                  }
+                ]
+              },
+              "stats": {
+                "additions": 3,
+                "deletions": 3
+              },
+              "partial": false,
+              "before": "export const line701 = 701;\nexport const line702 = 702;\nexport const line703 = 703;\nexport const line704 = 704;\nexport const line705 = 705;\nexport const line706 = 706;\nexport const line707 = 707;\nexport const line708 = 708;\nexport const line709 = 709;\nexport const line710 = 710;\nexport const line711 = 711;\nexport const line712 = 712;\nexport const line713 = 713;\nexport const line714 = 714;\nexport const line715 = 715;\nexport const line716 = 716;\nexport const line717 = 717;\nexport const line718 = 718;\nexport const line719 = 719;\nexport const line720 = 720;\nexport const line721 = 721;\nexport const line722 = 722;\nexport const line723 = 723;\nexport const line724 = 724;\nexport const line725 = 725;\nexport const line726 = 726;\nexport const line727 = 727;\nexport const line728 = 728;\nexport const line729 = 729;\nexport const line730 = 730;\nexport const line731 = 731;\nexport const line732 = 732;\nexport const line733 = 733;\nexport const line734 = 734;\nexport const line735 = 735;\nexport const line736 = 736;\nexport const line737 = 737;\nexport const line738 = 738;\nexport const line739 = 739;\nexport const line740 = 740;\nexport const line741 = 741;\nexport const line742 = 742;\nexport const line743 = 743;\nexport const line744 = 744;\nexport const line745 = 745;\nexport const line746 = 746;\nexport const line747 = 747;\nexport const line748 = 748;\nexport const line749 = 749;\nexport const line750 = 750;\nexport const line751 = 751;\nexport const line752 = 752;\nexport const line753 = 753;\nexport const line754 = 754;\nexport const line755 = 755;\nexport const line756 = 756;\nexport const line757 = 757;\nexport const line758 = 758;\nexport const line759 = 759;\nexport const line760 = 760;\nexport const line761 = 761;\nexport const line762 = 762;\nexport const line763 = 763;\nexport const line764 = 764;\nexport const line765 = 765;\nexport const line766 = 766;\nexport const line767 = 767;\nexport const line768 = 768;\nexport const line769 = 769;\nexport const line770 = 770;\nexport const line771 = 771;\nexport const line772 = 772;\nexport const line773 = 773;\nexport const line774 = 774;\nexport const line775 = 775;\nexport const line776 = 776;\nexport const line777 = 777;\nexport const line778 = 778;\nexport const line779 = 779;\nexport const line780 = 780;\nexport const line781 = 781;\nexport const line782 = 782;\nexport const line783 = 783;\nexport const line784 = 784;\nexport const line785 = 785;\nexport const line786 = 786;\nexport const line787 = 787;\nexport const line788 = 788;\nexport const line789 = 789;\nexport const line790 = 790;\n",
+              "after": "export const line701 = 1701;\nexport const line702 = 702;\nexport const line703 = 703;\nexport const line704 = 704;\nexport const line705 = 705;\nexport const line706 = 706;\nexport const line707 = 707;\nexport const line708 = 708;\nexport const line709 = 709;\nexport const line710 = 710;\nexport const line711 = 711;\nexport const line712 = 712;\nexport const line713 = 713;\nexport const line714 = 714;\nexport const line715 = 715;\nexport const line716 = 716;\nexport const line717 = 717;\nexport const line718 = 718;\nexport const line719 = 719;\nexport const line720 = 720;\nexport const line721 = 721;\nexport const line722 = 722;\nexport const line723 = 723;\nexport const line724 = 724;\nexport const line725 = 725;\nexport const line726 = 726;\nexport const line727 = 727;\nexport const line728 = 728;\nexport const line729 = 729;\nexport const line730 = 730;\nexport const line731 = 3701;\nexport const line732 = 732;\nexport const line733 = 733;\nexport const line734 = 734;\nexport const line735 = 735;\nexport const line736 = 736;\nexport const line737 = 737;\nexport const line738 = 738;\nexport const line739 = 739;\nexport const line740 = 740;\nexport const line741 = 741;\nexport const line742 = 742;\nexport const line743 = 743;\nexport const line744 = 744;\nexport const line745 = 745;\nexport const line746 = 746;\nexport const line747 = 747;\nexport const line748 = 748;\nexport const line749 = 749;\nexport const line750 = 750;\nexport const line751 = 751;\nexport const line752 = 752;\nexport const line753 = 753;\nexport const line754 = 754;\nexport const line755 = 755;\nexport const line756 = 756;\nexport const line757 = 757;\nexport const line758 = 758;\nexport const line759 = 759;\nexport const line760 = 760;\nexport const line761 = 6701;\nexport const line762 = 762;\nexport const line763 = 763;\nexport const line764 = 764;\nexport const line765 = 765;\nexport const line766 = 766;\nexport const line767 = 767;\nexport const line768 = 768;\nexport const line769 = 769;\nexport const line770 = 770;\nexport const line771 = 771;\nexport const line772 = 772;\nexport const line773 = 773;\nexport const line774 = 774;\nexport const line775 = 775;\nexport const line776 = 776;\nexport const line777 = 777;\nexport const line778 = 778;\nexport const line779 = 779;\nexport const line780 = 780;\nexport const line781 = 781;\nexport const line782 = 782;\nexport const line783 = 783;\nexport const line784 = 784;\nexport const line785 = 785;\nexport const line786 = 786;\nexport const line787 = 787;\nexport const line788 = 788;\nexport const line789 = 789;\nexport const line790 = 790;\n",
+              "hunks": [
+                {
+                  "oldStart": 1,
+                  "oldCount": 4,
+                  "newStart": 1,
+                  "newCount": 4,
+                  "splitRows": 4,
+                  "stackRows": 5
+                },
+                {
+                  "oldStart": 28,
+                  "oldCount": 7,
+                  "newStart": 28,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                },
+                {
+                  "oldStart": 58,
+                  "oldCount": 7,
+                  "newStart": 58,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                }
+              ]
+            },
+            {
+              "id": "rapid-8",
+              "path": "rapid-8.ts",
+              "language": "typescript",
+              "patch": "",
+              "agent": {
+                "path": "rapid-8.ts",
+                "summary": "rapid 8",
+                "annotations": [
+                  {
+                    "newRange": [
+                      801,
+                      801
+                    ],
+                    "summary": "note start 8"
+                  },
+                  {
+                    "newRange": [
+                      831,
+                      831
+                    ],
+                    "summary": "note middle 8"
+                  },
+                  {
+                    "newRange": [
+                      861,
+                      861
+                    ],
+                    "summary": "note late 8"
+                  }
+                ]
+              },
+              "stats": {
+                "additions": 3,
+                "deletions": 3
+              },
+              "partial": false,
+              "before": "export const line801 = 801;\nexport const line802 = 802;\nexport const line803 = 803;\nexport const line804 = 804;\nexport const line805 = 805;\nexport const line806 = 806;\nexport const line807 = 807;\nexport const line808 = 808;\nexport const line809 = 809;\nexport const line810 = 810;\nexport const line811 = 811;\nexport const line812 = 812;\nexport const line813 = 813;\nexport const line814 = 814;\nexport const line815 = 815;\nexport const line816 = 816;\nexport const line817 = 817;\nexport const line818 = 818;\nexport const line819 = 819;\nexport const line820 = 820;\nexport const line821 = 821;\nexport const line822 = 822;\nexport const line823 = 823;\nexport const line824 = 824;\nexport const line825 = 825;\nexport const line826 = 826;\nexport const line827 = 827;\nexport const line828 = 828;\nexport const line829 = 829;\nexport const line830 = 830;\nexport const line831 = 831;\nexport const line832 = 832;\nexport const line833 = 833;\nexport const line834 = 834;\nexport const line835 = 835;\nexport const line836 = 836;\nexport const line837 = 837;\nexport const line838 = 838;\nexport const line839 = 839;\nexport const line840 = 840;\nexport const line841 = 841;\nexport const line842 = 842;\nexport const line843 = 843;\nexport const line844 = 844;\nexport const line845 = 845;\nexport const line846 = 846;\nexport const line847 = 847;\nexport const line848 = 848;\nexport const line849 = 849;\nexport const line850 = 850;\nexport const line851 = 851;\nexport const line852 = 852;\nexport const line853 = 853;\nexport const line854 = 854;\nexport const line855 = 855;\nexport const line856 = 856;\nexport const line857 = 857;\nexport const line858 = 858;\nexport const line859 = 859;\nexport const line860 = 860;\nexport const line861 = 861;\nexport const line862 = 862;\nexport const line863 = 863;\nexport const line864 = 864;\nexport const line865 = 865;\nexport const line866 = 866;\nexport const line867 = 867;\nexport const line868 = 868;\nexport const line869 = 869;\nexport const line870 = 870;\nexport const line871 = 871;\nexport const line872 = 872;\nexport const line873 = 873;\nexport const line874 = 874;\nexport const line875 = 875;\nexport const line876 = 876;\nexport const line877 = 877;\nexport const line878 = 878;\nexport const line879 = 879;\nexport const line880 = 880;\nexport const line881 = 881;\nexport const line882 = 882;\nexport const line883 = 883;\nexport const line884 = 884;\nexport const line885 = 885;\nexport const line886 = 886;\nexport const line887 = 887;\nexport const line888 = 888;\nexport const line889 = 889;\nexport const line890 = 890;\n",
+              "after": "export const line801 = 1801;\nexport const line802 = 802;\nexport const line803 = 803;\nexport const line804 = 804;\nexport const line805 = 805;\nexport const line806 = 806;\nexport const line807 = 807;\nexport const line808 = 808;\nexport const line809 = 809;\nexport const line810 = 810;\nexport const line811 = 811;\nexport const line812 = 812;\nexport const line813 = 813;\nexport const line814 = 814;\nexport const line815 = 815;\nexport const line816 = 816;\nexport const line817 = 817;\nexport const line818 = 818;\nexport const line819 = 819;\nexport const line820 = 820;\nexport const line821 = 821;\nexport const line822 = 822;\nexport const line823 = 823;\nexport const line824 = 824;\nexport const line825 = 825;\nexport const line826 = 826;\nexport const line827 = 827;\nexport const line828 = 828;\nexport const line829 = 829;\nexport const line830 = 830;\nexport const line831 = 3801;\nexport const line832 = 832;\nexport const line833 = 833;\nexport const line834 = 834;\nexport const line835 = 835;\nexport const line836 = 836;\nexport const line837 = 837;\nexport const line838 = 838;\nexport const line839 = 839;\nexport const line840 = 840;\nexport const line841 = 841;\nexport const line842 = 842;\nexport const line843 = 843;\nexport const line844 = 844;\nexport const line845 = 845;\nexport const line846 = 846;\nexport const line847 = 847;\nexport const line848 = 848;\nexport const line849 = 849;\nexport const line850 = 850;\nexport const line851 = 851;\nexport const line852 = 852;\nexport const line853 = 853;\nexport const line854 = 854;\nexport const line855 = 855;\nexport const line856 = 856;\nexport const line857 = 857;\nexport const line858 = 858;\nexport const line859 = 859;\nexport const line860 = 860;\nexport const line861 = 6801;\nexport const line862 = 862;\nexport const line863 = 863;\nexport const line864 = 864;\nexport const line865 = 865;\nexport const line866 = 866;\nexport const line867 = 867;\nexport const line868 = 868;\nexport const line869 = 869;\nexport const line870 = 870;\nexport const line871 = 871;\nexport const line872 = 872;\nexport const line873 = 873;\nexport const line874 = 874;\nexport const line875 = 875;\nexport const line876 = 876;\nexport const line877 = 877;\nexport const line878 = 878;\nexport const line879 = 879;\nexport const line880 = 880;\nexport const line881 = 881;\nexport const line882 = 882;\nexport const line883 = 883;\nexport const line884 = 884;\nexport const line885 = 885;\nexport const line886 = 886;\nexport const line887 = 887;\nexport const line888 = 888;\nexport const line889 = 889;\nexport const line890 = 890;\n",
+              "hunks": [
+                {
+                  "oldStart": 1,
+                  "oldCount": 4,
+                  "newStart": 1,
+                  "newCount": 4,
+                  "splitRows": 4,
+                  "stackRows": 5
+                },
+                {
+                  "oldStart": 28,
+                  "oldCount": 7,
+                  "newStart": 28,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                },
+                {
+                  "oldStart": 58,
+                  "oldCount": 7,
+                  "newStart": 58,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                }
+              ]
+            },
+            {
+              "id": "rapid-9",
+              "path": "rapid-9.ts",
+              "language": "typescript",
+              "patch": "",
+              "agent": {
+                "path": "rapid-9.ts",
+                "summary": "rapid 9",
+                "annotations": [
+                  {
+                    "newRange": [
+                      901,
+                      901
+                    ],
+                    "summary": "note start 9"
+                  },
+                  {
+                    "newRange": [
+                      931,
+                      931
+                    ],
+                    "summary": "note middle 9"
+                  },
+                  {
+                    "newRange": [
+                      961,
+                      961
+                    ],
+                    "summary": "note late 9"
+                  }
+                ]
+              },
+              "stats": {
+                "additions": 3,
+                "deletions": 3
+              },
+              "partial": false,
+              "before": "export const line901 = 901;\nexport const line902 = 902;\nexport const line903 = 903;\nexport const line904 = 904;\nexport const line905 = 905;\nexport const line906 = 906;\nexport const line907 = 907;\nexport const line908 = 908;\nexport const line909 = 909;\nexport const line910 = 910;\nexport const line911 = 911;\nexport const line912 = 912;\nexport const line913 = 913;\nexport const line914 = 914;\nexport const line915 = 915;\nexport const line916 = 916;\nexport const line917 = 917;\nexport const line918 = 918;\nexport const line919 = 919;\nexport const line920 = 920;\nexport const line921 = 921;\nexport const line922 = 922;\nexport const line923 = 923;\nexport const line924 = 924;\nexport const line925 = 925;\nexport const line926 = 926;\nexport const line927 = 927;\nexport const line928 = 928;\nexport const line929 = 929;\nexport const line930 = 930;\nexport const line931 = 931;\nexport const line932 = 932;\nexport const line933 = 933;\nexport const line934 = 934;\nexport const line935 = 935;\nexport const line936 = 936;\nexport const line937 = 937;\nexport const line938 = 938;\nexport const line939 = 939;\nexport const line940 = 940;\nexport const line941 = 941;\nexport const line942 = 942;\nexport const line943 = 943;\nexport const line944 = 944;\nexport const line945 = 945;\nexport const line946 = 946;\nexport const line947 = 947;\nexport const line948 = 948;\nexport const line949 = 949;\nexport const line950 = 950;\nexport const line951 = 951;\nexport const line952 = 952;\nexport const line953 = 953;\nexport const line954 = 954;\nexport const line955 = 955;\nexport const line956 = 956;\nexport const line957 = 957;\nexport const line958 = 958;\nexport const line959 = 959;\nexport const line960 = 960;\nexport const line961 = 961;\nexport const line962 = 962;\nexport const line963 = 963;\nexport const line964 = 964;\nexport const line965 = 965;\nexport const line966 = 966;\nexport const line967 = 967;\nexport const line968 = 968;\nexport const line969 = 969;\nexport const line970 = 970;\nexport const line971 = 971;\nexport const line972 = 972;\nexport const line973 = 973;\nexport const line974 = 974;\nexport const line975 = 975;\nexport const line976 = 976;\nexport const line977 = 977;\nexport const line978 = 978;\nexport const line979 = 979;\nexport const line980 = 980;\nexport const line981 = 981;\nexport const line982 = 982;\nexport const line983 = 983;\nexport const line984 = 984;\nexport const line985 = 985;\nexport const line986 = 986;\nexport const line987 = 987;\nexport const line988 = 988;\nexport const line989 = 989;\nexport const line990 = 990;\n",
+              "after": "export const line901 = 1901;\nexport const line902 = 902;\nexport const line903 = 903;\nexport const line904 = 904;\nexport const line905 = 905;\nexport const line906 = 906;\nexport const line907 = 907;\nexport const line908 = 908;\nexport const line909 = 909;\nexport const line910 = 910;\nexport const line911 = 911;\nexport const line912 = 912;\nexport const line913 = 913;\nexport const line914 = 914;\nexport const line915 = 915;\nexport const line916 = 916;\nexport const line917 = 917;\nexport const line918 = 918;\nexport const line919 = 919;\nexport const line920 = 920;\nexport const line921 = 921;\nexport const line922 = 922;\nexport const line923 = 923;\nexport const line924 = 924;\nexport const line925 = 925;\nexport const line926 = 926;\nexport const line927 = 927;\nexport const line928 = 928;\nexport const line929 = 929;\nexport const line930 = 930;\nexport const line931 = 3901;\nexport const line932 = 932;\nexport const line933 = 933;\nexport const line934 = 934;\nexport const line935 = 935;\nexport const line936 = 936;\nexport const line937 = 937;\nexport const line938 = 938;\nexport const line939 = 939;\nexport const line940 = 940;\nexport const line941 = 941;\nexport const line942 = 942;\nexport const line943 = 943;\nexport const line944 = 944;\nexport const line945 = 945;\nexport const line946 = 946;\nexport const line947 = 947;\nexport const line948 = 948;\nexport const line949 = 949;\nexport const line950 = 950;\nexport const line951 = 951;\nexport const line952 = 952;\nexport const line953 = 953;\nexport const line954 = 954;\nexport const line955 = 955;\nexport const line956 = 956;\nexport const line957 = 957;\nexport const line958 = 958;\nexport const line959 = 959;\nexport const line960 = 960;\nexport const line961 = 6901;\nexport const line962 = 962;\nexport const line963 = 963;\nexport const line964 = 964;\nexport const line965 = 965;\nexport const line966 = 966;\nexport const line967 = 967;\nexport const line968 = 968;\nexport const line969 = 969;\nexport const line970 = 970;\nexport const line971 = 971;\nexport const line972 = 972;\nexport const line973 = 973;\nexport const line974 = 974;\nexport const line975 = 975;\nexport const line976 = 976;\nexport const line977 = 977;\nexport const line978 = 978;\nexport const line979 = 979;\nexport const line980 = 980;\nexport const line981 = 981;\nexport const line982 = 982;\nexport const line983 = 983;\nexport const line984 = 984;\nexport const line985 = 985;\nexport const line986 = 986;\nexport const line987 = 987;\nexport const line988 = 988;\nexport const line989 = 989;\nexport const line990 = 990;\n",
+              "hunks": [
+                {
+                  "oldStart": 1,
+                  "oldCount": 4,
+                  "newStart": 1,
+                  "newCount": 4,
+                  "splitRows": 4,
+                  "stackRows": 5
+                },
+                {
+                  "oldStart": 28,
+                  "oldCount": 7,
+                  "newStart": 28,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                },
+                {
+                  "oldStart": 58,
+                  "oldCount": 7,
+                  "newStart": 58,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                }
+              ]
+            },
+            {
+              "id": "rapid-10",
+              "path": "rapid-10.ts",
+              "language": "typescript",
+              "patch": "",
+              "agent": {
+                "path": "rapid-10.ts",
+                "summary": "rapid 10",
+                "annotations": [
+                  {
+                    "newRange": [
+                      1001,
+                      1001
+                    ],
+                    "summary": "note start 10"
+                  },
+                  {
+                    "newRange": [
+                      1031,
+                      1031
+                    ],
+                    "summary": "note middle 10"
+                  },
+                  {
+                    "newRange": [
+                      1061,
+                      1061
+                    ],
+                    "summary": "note late 10"
+                  }
+                ]
+              },
+              "stats": {
+                "additions": 3,
+                "deletions": 3
+              },
+              "partial": false,
+              "before": "export const line1001 = 1001;\nexport const line1002 = 1002;\nexport const line1003 = 1003;\nexport const line1004 = 1004;\nexport const line1005 = 1005;\nexport const line1006 = 1006;\nexport const line1007 = 1007;\nexport const line1008 = 1008;\nexport const line1009 = 1009;\nexport const line1010 = 1010;\nexport const line1011 = 1011;\nexport const line1012 = 1012;\nexport const line1013 = 1013;\nexport const line1014 = 1014;\nexport const line1015 = 1015;\nexport const line1016 = 1016;\nexport const line1017 = 1017;\nexport const line1018 = 1018;\nexport const line1019 = 1019;\nexport const line1020 = 1020;\nexport const line1021 = 1021;\nexport const line1022 = 1022;\nexport const line1023 = 1023;\nexport const line1024 = 1024;\nexport const line1025 = 1025;\nexport const line1026 = 1026;\nexport const line1027 = 1027;\nexport const line1028 = 1028;\nexport const line1029 = 1029;\nexport const line1030 = 1030;\nexport const line1031 = 1031;\nexport const line1032 = 1032;\nexport const line1033 = 1033;\nexport const line1034 = 1034;\nexport const line1035 = 1035;\nexport const line1036 = 1036;\nexport const line1037 = 1037;\nexport const line1038 = 1038;\nexport const line1039 = 1039;\nexport const line1040 = 1040;\nexport const line1041 = 1041;\nexport const line1042 = 1042;\nexport const line1043 = 1043;\nexport const line1044 = 1044;\nexport const line1045 = 1045;\nexport const line1046 = 1046;\nexport const line1047 = 1047;\nexport const line1048 = 1048;\nexport const line1049 = 1049;\nexport const line1050 = 1050;\nexport const line1051 = 1051;\nexport const line1052 = 1052;\nexport const line1053 = 1053;\nexport const line1054 = 1054;\nexport const line1055 = 1055;\nexport const line1056 = 1056;\nexport const line1057 = 1057;\nexport const line1058 = 1058;\nexport const line1059 = 1059;\nexport const line1060 = 1060;\nexport const line1061 = 1061;\nexport const line1062 = 1062;\nexport const line1063 = 1063;\nexport const line1064 = 1064;\nexport const line1065 = 1065;\nexport const line1066 = 1066;\nexport const line1067 = 1067;\nexport const line1068 = 1068;\nexport const line1069 = 1069;\nexport const line1070 = 1070;\nexport const line1071 = 1071;\nexport const line1072 = 1072;\nexport const line1073 = 1073;\nexport const line1074 = 1074;\nexport const line1075 = 1075;\nexport const line1076 = 1076;\nexport const line1077 = 1077;\nexport const line1078 = 1078;\nexport const line1079 = 1079;\nexport const line1080 = 1080;\nexport const line1081 = 1081;\nexport const line1082 = 1082;\nexport const line1083 = 1083;\nexport const line1084 = 1084;\nexport const line1085 = 1085;\nexport const line1086 = 1086;\nexport const line1087 = 1087;\nexport const line1088 = 1088;\nexport const line1089 = 1089;\nexport const line1090 = 1090;\n",
+              "after": "export const line1001 = 2001;\nexport const line1002 = 1002;\nexport const line1003 = 1003;\nexport const line1004 = 1004;\nexport const line1005 = 1005;\nexport const line1006 = 1006;\nexport const line1007 = 1007;\nexport const line1008 = 1008;\nexport const line1009 = 1009;\nexport const line1010 = 1010;\nexport const line1011 = 1011;\nexport const line1012 = 1012;\nexport const line1013 = 1013;\nexport const line1014 = 1014;\nexport const line1015 = 1015;\nexport const line1016 = 1016;\nexport const line1017 = 1017;\nexport const line1018 = 1018;\nexport const line1019 = 1019;\nexport const line1020 = 1020;\nexport const line1021 = 1021;\nexport const line1022 = 1022;\nexport const line1023 = 1023;\nexport const line1024 = 1024;\nexport const line1025 = 1025;\nexport const line1026 = 1026;\nexport const line1027 = 1027;\nexport const line1028 = 1028;\nexport const line1029 = 1029;\nexport const line1030 = 1030;\nexport const line1031 = 4001;\nexport const line1032 = 1032;\nexport const line1033 = 1033;\nexport const line1034 = 1034;\nexport const line1035 = 1035;\nexport const line1036 = 1036;\nexport const line1037 = 1037;\nexport const line1038 = 1038;\nexport const line1039 = 1039;\nexport const line1040 = 1040;\nexport const line1041 = 1041;\nexport const line1042 = 1042;\nexport const line1043 = 1043;\nexport const line1044 = 1044;\nexport const line1045 = 1045;\nexport const line1046 = 1046;\nexport const line1047 = 1047;\nexport const line1048 = 1048;\nexport const line1049 = 1049;\nexport const line1050 = 1050;\nexport const line1051 = 1051;\nexport const line1052 = 1052;\nexport const line1053 = 1053;\nexport const line1054 = 1054;\nexport const line1055 = 1055;\nexport const line1056 = 1056;\nexport const line1057 = 1057;\nexport const line1058 = 1058;\nexport const line1059 = 1059;\nexport const line1060 = 1060;\nexport const line1061 = 7001;\nexport const line1062 = 1062;\nexport const line1063 = 1063;\nexport const line1064 = 1064;\nexport const line1065 = 1065;\nexport const line1066 = 1066;\nexport const line1067 = 1067;\nexport const line1068 = 1068;\nexport const line1069 = 1069;\nexport const line1070 = 1070;\nexport const line1071 = 1071;\nexport const line1072 = 1072;\nexport const line1073 = 1073;\nexport const line1074 = 1074;\nexport const line1075 = 1075;\nexport const line1076 = 1076;\nexport const line1077 = 1077;\nexport const line1078 = 1078;\nexport const line1079 = 1079;\nexport const line1080 = 1080;\nexport const line1081 = 1081;\nexport const line1082 = 1082;\nexport const line1083 = 1083;\nexport const line1084 = 1084;\nexport const line1085 = 1085;\nexport const line1086 = 1086;\nexport const line1087 = 1087;\nexport const line1088 = 1088;\nexport const line1089 = 1089;\nexport const line1090 = 1090;\n",
+              "hunks": [
+                {
+                  "oldStart": 1,
+                  "oldCount": 4,
+                  "newStart": 1,
+                  "newCount": 4,
+                  "splitRows": 4,
+                  "stackRows": 5
+                },
+                {
+                  "oldStart": 28,
+                  "oldCount": 7,
+                  "newStart": 28,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                },
+                {
+                  "oldStart": 58,
+                  "oldCount": 7,
+                  "newStart": 58,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                }
+              ]
+            }
+          ],
+          "id": "changeset:rapid-viewport",
+          "sourceLabel": "repo",
+          "title": "repo working tree"
+        },
+        "initialMode": "stack",
+        "initialShowAgentNotes": true,
+        "initialShowMenuBar": true,
+        "initialTheme": "github-dark-default"
+      }
+    },
+    {
+      "pin": "stable",
+      "bootstrap": {
+        "reloadContext": {
+          "cwd": "repo"
+        },
+        "input": {
+          "kind": "vcs",
+          "staged": false,
+          "options": {
+            "mode": "stack",
+            "pager": false,
+            "agentNotes": true
+          }
+        },
+        "changeset": {
+          "files": [
+            {
+              "id": "rapid-1",
+              "path": "rapid-1.ts",
+              "language": "typescript",
+              "patch": "",
+              "agent": {
+                "path": "rapid-1.ts",
+                "summary": "rapid 1",
+                "annotations": [
+                  {
+                    "newRange": [
+                      101,
+                      101
+                    ],
+                    "summary": "note start 1"
+                  },
+                  {
+                    "newRange": [
+                      131,
+                      131
+                    ],
+                    "summary": "note middle 1"
+                  },
+                  {
+                    "newRange": [
+                      161,
+                      161
+                    ],
+                    "summary": "note late 1"
+                  }
+                ]
+              },
+              "stats": {
+                "additions": 3,
+                "deletions": 3
+              },
+              "partial": false,
+              "before": "export const line101 = 101;\nexport const line102 = 102;\nexport const line103 = 103;\nexport const line104 = 104;\nexport const line105 = 105;\nexport const line106 = 106;\nexport const line107 = 107;\nexport const line108 = 108;\nexport const line109 = 109;\nexport const line110 = 110;\nexport const line111 = 111;\nexport const line112 = 112;\nexport const line113 = 113;\nexport const line114 = 114;\nexport const line115 = 115;\nexport const line116 = 116;\nexport const line117 = 117;\nexport const line118 = 118;\nexport const line119 = 119;\nexport const line120 = 120;\nexport const line121 = 121;\nexport const line122 = 122;\nexport const line123 = 123;\nexport const line124 = 124;\nexport const line125 = 125;\nexport const line126 = 126;\nexport const line127 = 127;\nexport const line128 = 128;\nexport const line129 = 129;\nexport const line130 = 130;\nexport const line131 = 131;\nexport const line132 = 132;\nexport const line133 = 133;\nexport const line134 = 134;\nexport const line135 = 135;\nexport const line136 = 136;\nexport const line137 = 137;\nexport const line138 = 138;\nexport const line139 = 139;\nexport const line140 = 140;\nexport const line141 = 141;\nexport const line142 = 142;\nexport const line143 = 143;\nexport const line144 = 144;\nexport const line145 = 145;\nexport const line146 = 146;\nexport const line147 = 147;\nexport const line148 = 148;\nexport const line149 = 149;\nexport const line150 = 150;\nexport const line151 = 151;\nexport const line152 = 152;\nexport const line153 = 153;\nexport const line154 = 154;\nexport const line155 = 155;\nexport const line156 = 156;\nexport const line157 = 157;\nexport const line158 = 158;\nexport const line159 = 159;\nexport const line160 = 160;\nexport const line161 = 161;\nexport const line162 = 162;\nexport const line163 = 163;\nexport const line164 = 164;\nexport const line165 = 165;\nexport const line166 = 166;\nexport const line167 = 167;\nexport const line168 = 168;\nexport const line169 = 169;\nexport const line170 = 170;\nexport const line171 = 171;\nexport const line172 = 172;\nexport const line173 = 173;\nexport const line174 = 174;\nexport const line175 = 175;\nexport const line176 = 176;\nexport const line177 = 177;\nexport const line178 = 178;\nexport const line179 = 179;\nexport const line180 = 180;\nexport const line181 = 181;\nexport const line182 = 182;\nexport const line183 = 183;\nexport const line184 = 184;\nexport const line185 = 185;\nexport const line186 = 186;\nexport const line187 = 187;\nexport const line188 = 188;\nexport const line189 = 189;\nexport const line190 = 190;\n",
+              "after": "export const line101 = 1101;\nexport const line102 = 102;\nexport const line103 = 103;\nexport const line104 = 104;\nexport const line105 = 105;\nexport const line106 = 106;\nexport const line107 = 107;\nexport const line108 = 108;\nexport const line109 = 109;\nexport const line110 = 110;\nexport const line111 = 111;\nexport const line112 = 112;\nexport const line113 = 113;\nexport const line114 = 114;\nexport const line115 = 115;\nexport const line116 = 116;\nexport const line117 = 117;\nexport const line118 = 118;\nexport const line119 = 119;\nexport const line120 = 120;\nexport const line121 = 121;\nexport const line122 = 122;\nexport const line123 = 123;\nexport const line124 = 124;\nexport const line125 = 125;\nexport const line126 = 126;\nexport const line127 = 127;\nexport const line128 = 128;\nexport const line129 = 129;\nexport const line130 = 130;\nexport const line131 = 3101;\nexport const line132 = 132;\nexport const line133 = 133;\nexport const line134 = 134;\nexport const line135 = 135;\nexport const line136 = 136;\nexport const line137 = 137;\nexport const line138 = 138;\nexport const line139 = 139;\nexport const line140 = 140;\nexport const line141 = 141;\nexport const line142 = 142;\nexport const line143 = 143;\nexport const line144 = 144;\nexport const line145 = 145;\nexport const line146 = 146;\nexport const line147 = 147;\nexport const line148 = 148;\nexport const line149 = 149;\nexport const line150 = 150;\nexport const line151 = 151;\nexport const line152 = 152;\nexport const line153 = 153;\nexport const line154 = 154;\nexport const line155 = 155;\nexport const line156 = 156;\nexport const line157 = 157;\nexport const line158 = 158;\nexport const line159 = 159;\nexport const line160 = 160;\nexport const line161 = 6101;\nexport const line162 = 162;\nexport const line163 = 163;\nexport const line164 = 164;\nexport const line165 = 165;\nexport const line166 = 166;\nexport const line167 = 167;\nexport const line168 = 168;\nexport const line169 = 169;\nexport const line170 = 170;\nexport const line171 = 171;\nexport const line172 = 172;\nexport const line173 = 173;\nexport const line174 = 174;\nexport const line175 = 175;\nexport const line176 = 176;\nexport const line177 = 177;\nexport const line178 = 178;\nexport const line179 = 179;\nexport const line180 = 180;\nexport const line181 = 181;\nexport const line182 = 182;\nexport const line183 = 183;\nexport const line184 = 184;\nexport const line185 = 185;\nexport const line186 = 186;\nexport const line187 = 187;\nexport const line188 = 188;\nexport const line189 = 189;\nexport const line190 = 190;\n",
+              "hunks": [
+                {
+                  "oldStart": 1,
+                  "oldCount": 4,
+                  "newStart": 1,
+                  "newCount": 4,
+                  "splitRows": 4,
+                  "stackRows": 5
+                },
+                {
+                  "oldStart": 28,
+                  "oldCount": 7,
+                  "newStart": 28,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                },
+                {
+                  "oldStart": 58,
+                  "oldCount": 7,
+                  "newStart": 58,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                }
+              ]
+            },
+            {
+              "id": "rapid-2",
+              "path": "rapid-2.ts",
+              "language": "typescript",
+              "patch": "",
+              "agent": {
+                "path": "rapid-2.ts",
+                "summary": "rapid 2",
+                "annotations": [
+                  {
+                    "newRange": [
+                      201,
+                      201
+                    ],
+                    "summary": "note start 2"
+                  },
+                  {
+                    "newRange": [
+                      231,
+                      231
+                    ],
+                    "summary": "note middle 2"
+                  },
+                  {
+                    "newRange": [
+                      261,
+                      261
+                    ],
+                    "summary": "note late 2"
+                  }
+                ]
+              },
+              "stats": {
+                "additions": 3,
+                "deletions": 3
+              },
+              "partial": false,
+              "before": "export const line201 = 201;\nexport const line202 = 202;\nexport const line203 = 203;\nexport const line204 = 204;\nexport const line205 = 205;\nexport const line206 = 206;\nexport const line207 = 207;\nexport const line208 = 208;\nexport const line209 = 209;\nexport const line210 = 210;\nexport const line211 = 211;\nexport const line212 = 212;\nexport const line213 = 213;\nexport const line214 = 214;\nexport const line215 = 215;\nexport const line216 = 216;\nexport const line217 = 217;\nexport const line218 = 218;\nexport const line219 = 219;\nexport const line220 = 220;\nexport const line221 = 221;\nexport const line222 = 222;\nexport const line223 = 223;\nexport const line224 = 224;\nexport const line225 = 225;\nexport const line226 = 226;\nexport const line227 = 227;\nexport const line228 = 228;\nexport const line229 = 229;\nexport const line230 = 230;\nexport const line231 = 231;\nexport const line232 = 232;\nexport const line233 = 233;\nexport const line234 = 234;\nexport const line235 = 235;\nexport const line236 = 236;\nexport const line237 = 237;\nexport const line238 = 238;\nexport const line239 = 239;\nexport const line240 = 240;\nexport const line241 = 241;\nexport const line242 = 242;\nexport const line243 = 243;\nexport const line244 = 244;\nexport const line245 = 245;\nexport const line246 = 246;\nexport const line247 = 247;\nexport const line248 = 248;\nexport const line249 = 249;\nexport const line250 = 250;\nexport const line251 = 251;\nexport const line252 = 252;\nexport const line253 = 253;\nexport const line254 = 254;\nexport const line255 = 255;\nexport const line256 = 256;\nexport const line257 = 257;\nexport const line258 = 258;\nexport const line259 = 259;\nexport const line260 = 260;\nexport const line261 = 261;\nexport const line262 = 262;\nexport const line263 = 263;\nexport const line264 = 264;\nexport const line265 = 265;\nexport const line266 = 266;\nexport const line267 = 267;\nexport const line268 = 268;\nexport const line269 = 269;\nexport const line270 = 270;\nexport const line271 = 271;\nexport const line272 = 272;\nexport const line273 = 273;\nexport const line274 = 274;\nexport const line275 = 275;\nexport const line276 = 276;\nexport const line277 = 277;\nexport const line278 = 278;\nexport const line279 = 279;\nexport const line280 = 280;\nexport const line281 = 281;\nexport const line282 = 282;\nexport const line283 = 283;\nexport const line284 = 284;\nexport const line285 = 285;\nexport const line286 = 286;\nexport const line287 = 287;\nexport const line288 = 288;\nexport const line289 = 289;\nexport const line290 = 290;\n",
+              "after": "export const line201 = 1201;\nexport const line202 = 202;\nexport const line203 = 203;\nexport const line204 = 204;\nexport const line205 = 205;\nexport const line206 = 206;\nexport const line207 = 207;\nexport const line208 = 208;\nexport const line209 = 209;\nexport const line210 = 210;\nexport const line211 = 211;\nexport const line212 = 212;\nexport const line213 = 213;\nexport const line214 = 214;\nexport const line215 = 215;\nexport const line216 = 216;\nexport const line217 = 217;\nexport const line218 = 218;\nexport const line219 = 219;\nexport const line220 = 220;\nexport const line221 = 221;\nexport const line222 = 222;\nexport const line223 = 223;\nexport const line224 = 224;\nexport const line225 = 225;\nexport const line226 = 226;\nexport const line227 = 227;\nexport const line228 = 228;\nexport const line229 = 229;\nexport const line230 = 230;\nexport const line231 = 3201;\nexport const line232 = 232;\nexport const line233 = 233;\nexport const line234 = 234;\nexport const line235 = 235;\nexport const line236 = 236;\nexport const line237 = 237;\nexport const line238 = 238;\nexport const line239 = 239;\nexport const line240 = 240;\nexport const line241 = 241;\nexport const line242 = 242;\nexport const line243 = 243;\nexport const line244 = 244;\nexport const line245 = 245;\nexport const line246 = 246;\nexport const line247 = 247;\nexport const line248 = 248;\nexport const line249 = 249;\nexport const line250 = 250;\nexport const line251 = 251;\nexport const line252 = 252;\nexport const line253 = 253;\nexport const line254 = 254;\nexport const line255 = 255;\nexport const line256 = 256;\nexport const line257 = 257;\nexport const line258 = 258;\nexport const line259 = 259;\nexport const line260 = 260;\nexport const line261 = 6201;\nexport const line262 = 262;\nexport const line263 = 263;\nexport const line264 = 264;\nexport const line265 = 265;\nexport const line266 = 266;\nexport const line267 = 267;\nexport const line268 = 268;\nexport const line269 = 269;\nexport const line270 = 270;\nexport const line271 = 271;\nexport const line272 = 272;\nexport const line273 = 273;\nexport const line274 = 274;\nexport const line275 = 275;\nexport const line276 = 276;\nexport const line277 = 277;\nexport const line278 = 278;\nexport const line279 = 279;\nexport const line280 = 280;\nexport const line281 = 281;\nexport const line282 = 282;\nexport const line283 = 283;\nexport const line284 = 284;\nexport const line285 = 285;\nexport const line286 = 286;\nexport const line287 = 287;\nexport const line288 = 288;\nexport const line289 = 289;\nexport const line290 = 290;\n",
+              "hunks": [
+                {
+                  "oldStart": 1,
+                  "oldCount": 4,
+                  "newStart": 1,
+                  "newCount": 4,
+                  "splitRows": 4,
+                  "stackRows": 5
+                },
+                {
+                  "oldStart": 28,
+                  "oldCount": 7,
+                  "newStart": 28,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                },
+                {
+                  "oldStart": 58,
+                  "oldCount": 7,
+                  "newStart": 58,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                }
+              ]
+            },
+            {
+              "id": "rapid-3",
+              "path": "rapid-3.ts",
+              "language": "typescript",
+              "patch": "",
+              "agent": {
+                "path": "rapid-3.ts",
+                "summary": "rapid 3",
+                "annotations": [
+                  {
+                    "newRange": [
+                      301,
+                      301
+                    ],
+                    "summary": "note start 3"
+                  },
+                  {
+                    "newRange": [
+                      331,
+                      331
+                    ],
+                    "summary": "note middle 3"
+                  },
+                  {
+                    "newRange": [
+                      361,
+                      361
+                    ],
+                    "summary": "note late 3"
+                  }
+                ]
+              },
+              "stats": {
+                "additions": 3,
+                "deletions": 3
+              },
+              "partial": false,
+              "before": "export const line301 = 301;\nexport const line302 = 302;\nexport const line303 = 303;\nexport const line304 = 304;\nexport const line305 = 305;\nexport const line306 = 306;\nexport const line307 = 307;\nexport const line308 = 308;\nexport const line309 = 309;\nexport const line310 = 310;\nexport const line311 = 311;\nexport const line312 = 312;\nexport const line313 = 313;\nexport const line314 = 314;\nexport const line315 = 315;\nexport const line316 = 316;\nexport const line317 = 317;\nexport const line318 = 318;\nexport const line319 = 319;\nexport const line320 = 320;\nexport const line321 = 321;\nexport const line322 = 322;\nexport const line323 = 323;\nexport const line324 = 324;\nexport const line325 = 325;\nexport const line326 = 326;\nexport const line327 = 327;\nexport const line328 = 328;\nexport const line329 = 329;\nexport const line330 = 330;\nexport const line331 = 331;\nexport const line332 = 332;\nexport const line333 = 333;\nexport const line334 = 334;\nexport const line335 = 335;\nexport const line336 = 336;\nexport const line337 = 337;\nexport const line338 = 338;\nexport const line339 = 339;\nexport const line340 = 340;\nexport const line341 = 341;\nexport const line342 = 342;\nexport const line343 = 343;\nexport const line344 = 344;\nexport const line345 = 345;\nexport const line346 = 346;\nexport const line347 = 347;\nexport const line348 = 348;\nexport const line349 = 349;\nexport const line350 = 350;\nexport const line351 = 351;\nexport const line352 = 352;\nexport const line353 = 353;\nexport const line354 = 354;\nexport const line355 = 355;\nexport const line356 = 356;\nexport const line357 = 357;\nexport const line358 = 358;\nexport const line359 = 359;\nexport const line360 = 360;\nexport const line361 = 361;\nexport const line362 = 362;\nexport const line363 = 363;\nexport const line364 = 364;\nexport const line365 = 365;\nexport const line366 = 366;\nexport const line367 = 367;\nexport const line368 = 368;\nexport const line369 = 369;\nexport const line370 = 370;\nexport const line371 = 371;\nexport const line372 = 372;\nexport const line373 = 373;\nexport const line374 = 374;\nexport const line375 = 375;\nexport const line376 = 376;\nexport const line377 = 377;\nexport const line378 = 378;\nexport const line379 = 379;\nexport const line380 = 380;\nexport const line381 = 381;\nexport const line382 = 382;\nexport const line383 = 383;\nexport const line384 = 384;\nexport const line385 = 385;\nexport const line386 = 386;\nexport const line387 = 387;\nexport const line388 = 388;\nexport const line389 = 389;\nexport const line390 = 390;\n",
+              "after": "export const line301 = 1301;\nexport const line302 = 302;\nexport const line303 = 303;\nexport const line304 = 304;\nexport const line305 = 305;\nexport const line306 = 306;\nexport const line307 = 307;\nexport const line308 = 308;\nexport const line309 = 309;\nexport const line310 = 310;\nexport const line311 = 311;\nexport const line312 = 312;\nexport const line313 = 313;\nexport const line314 = 314;\nexport const line315 = 315;\nexport const line316 = 316;\nexport const line317 = 317;\nexport const line318 = 318;\nexport const line319 = 319;\nexport const line320 = 320;\nexport const line321 = 321;\nexport const line322 = 322;\nexport const line323 = 323;\nexport const line324 = 324;\nexport const line325 = 325;\nexport const line326 = 326;\nexport const line327 = 327;\nexport const line328 = 328;\nexport const line329 = 329;\nexport const line330 = 330;\nexport const line331 = 3301;\nexport const line332 = 332;\nexport const line333 = 333;\nexport const line334 = 334;\nexport const line335 = 335;\nexport const line336 = 336;\nexport const line337 = 337;\nexport const line338 = 338;\nexport const line339 = 339;\nexport const line340 = 340;\nexport const line341 = 341;\nexport const line342 = 342;\nexport const line343 = 343;\nexport const line344 = 344;\nexport const line345 = 345;\nexport const line346 = 346;\nexport const line347 = 347;\nexport const line348 = 348;\nexport const line349 = 349;\nexport const line350 = 350;\nexport const line351 = 351;\nexport const line352 = 352;\nexport const line353 = 353;\nexport const line354 = 354;\nexport const line355 = 355;\nexport const line356 = 356;\nexport const line357 = 357;\nexport const line358 = 358;\nexport const line359 = 359;\nexport const line360 = 360;\nexport const line361 = 6301;\nexport const line362 = 362;\nexport const line363 = 363;\nexport const line364 = 364;\nexport const line365 = 365;\nexport const line366 = 366;\nexport const line367 = 367;\nexport const line368 = 368;\nexport const line369 = 369;\nexport const line370 = 370;\nexport const line371 = 371;\nexport const line372 = 372;\nexport const line373 = 373;\nexport const line374 = 374;\nexport const line375 = 375;\nexport const line376 = 376;\nexport const line377 = 377;\nexport const line378 = 378;\nexport const line379 = 379;\nexport const line380 = 380;\nexport const line381 = 381;\nexport const line382 = 382;\nexport const line383 = 383;\nexport const line384 = 384;\nexport const line385 = 385;\nexport const line386 = 386;\nexport const line387 = 387;\nexport const line388 = 388;\nexport const line389 = 389;\nexport const line390 = 390;\n",
+              "hunks": [
+                {
+                  "oldStart": 1,
+                  "oldCount": 4,
+                  "newStart": 1,
+                  "newCount": 4,
+                  "splitRows": 4,
+                  "stackRows": 5
+                },
+                {
+                  "oldStart": 28,
+                  "oldCount": 7,
+                  "newStart": 28,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                },
+                {
+                  "oldStart": 58,
+                  "oldCount": 7,
+                  "newStart": 58,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                }
+              ]
+            },
+            {
+              "id": "rapid-4",
+              "path": "rapid-4.ts",
+              "language": "typescript",
+              "patch": "",
+              "agent": {
+                "path": "rapid-4.ts",
+                "summary": "rapid 4",
+                "annotations": [
+                  {
+                    "newRange": [
+                      401,
+                      401
+                    ],
+                    "summary": "note start 4"
+                  },
+                  {
+                    "newRange": [
+                      431,
+                      431
+                    ],
+                    "summary": "note middle 4"
+                  },
+                  {
+                    "newRange": [
+                      461,
+                      461
+                    ],
+                    "summary": "note late 4"
+                  }
+                ]
+              },
+              "stats": {
+                "additions": 3,
+                "deletions": 3
+              },
+              "partial": false,
+              "before": "export const line401 = 401;\nexport const line402 = 402;\nexport const line403 = 403;\nexport const line404 = 404;\nexport const line405 = 405;\nexport const line406 = 406;\nexport const line407 = 407;\nexport const line408 = 408;\nexport const line409 = 409;\nexport const line410 = 410;\nexport const line411 = 411;\nexport const line412 = 412;\nexport const line413 = 413;\nexport const line414 = 414;\nexport const line415 = 415;\nexport const line416 = 416;\nexport const line417 = 417;\nexport const line418 = 418;\nexport const line419 = 419;\nexport const line420 = 420;\nexport const line421 = 421;\nexport const line422 = 422;\nexport const line423 = 423;\nexport const line424 = 424;\nexport const line425 = 425;\nexport const line426 = 426;\nexport const line427 = 427;\nexport const line428 = 428;\nexport const line429 = 429;\nexport const line430 = 430;\nexport const line431 = 431;\nexport const line432 = 432;\nexport const line433 = 433;\nexport const line434 = 434;\nexport const line435 = 435;\nexport const line436 = 436;\nexport const line437 = 437;\nexport const line438 = 438;\nexport const line439 = 439;\nexport const line440 = 440;\nexport const line441 = 441;\nexport const line442 = 442;\nexport const line443 = 443;\nexport const line444 = 444;\nexport const line445 = 445;\nexport const line446 = 446;\nexport const line447 = 447;\nexport const line448 = 448;\nexport const line449 = 449;\nexport const line450 = 450;\nexport const line451 = 451;\nexport const line452 = 452;\nexport const line453 = 453;\nexport const line454 = 454;\nexport const line455 = 455;\nexport const line456 = 456;\nexport const line457 = 457;\nexport const line458 = 458;\nexport const line459 = 459;\nexport const line460 = 460;\nexport const line461 = 461;\nexport const line462 = 462;\nexport const line463 = 463;\nexport const line464 = 464;\nexport const line465 = 465;\nexport const line466 = 466;\nexport const line467 = 467;\nexport const line468 = 468;\nexport const line469 = 469;\nexport const line470 = 470;\nexport const line471 = 471;\nexport const line472 = 472;\nexport const line473 = 473;\nexport const line474 = 474;\nexport const line475 = 475;\nexport const line476 = 476;\nexport const line477 = 477;\nexport const line478 = 478;\nexport const line479 = 479;\nexport const line480 = 480;\nexport const line481 = 481;\nexport const line482 = 482;\nexport const line483 = 483;\nexport const line484 = 484;\nexport const line485 = 485;\nexport const line486 = 486;\nexport const line487 = 487;\nexport const line488 = 488;\nexport const line489 = 489;\nexport const line490 = 490;\n",
+              "after": "export const line401 = 1401;\nexport const line402 = 402;\nexport const line403 = 403;\nexport const line404 = 404;\nexport const line405 = 405;\nexport const line406 = 406;\nexport const line407 = 407;\nexport const line408 = 408;\nexport const line409 = 409;\nexport const line410 = 410;\nexport const line411 = 411;\nexport const line412 = 412;\nexport const line413 = 413;\nexport const line414 = 414;\nexport const line415 = 415;\nexport const line416 = 416;\nexport const line417 = 417;\nexport const line418 = 418;\nexport const line419 = 419;\nexport const line420 = 420;\nexport const line421 = 421;\nexport const line422 = 422;\nexport const line423 = 423;\nexport const line424 = 424;\nexport const line425 = 425;\nexport const line426 = 426;\nexport const line427 = 427;\nexport const line428 = 428;\nexport const line429 = 429;\nexport const line430 = 430;\nexport const line431 = 3401;\nexport const line432 = 432;\nexport const line433 = 433;\nexport const line434 = 434;\nexport const line435 = 435;\nexport const line436 = 436;\nexport const line437 = 437;\nexport const line438 = 438;\nexport const line439 = 439;\nexport const line440 = 440;\nexport const line441 = 441;\nexport const line442 = 442;\nexport const line443 = 443;\nexport const line444 = 444;\nexport const line445 = 445;\nexport const line446 = 446;\nexport const line447 = 447;\nexport const line448 = 448;\nexport const line449 = 449;\nexport const line450 = 450;\nexport const line451 = 451;\nexport const line452 = 452;\nexport const line453 = 453;\nexport const line454 = 454;\nexport const line455 = 455;\nexport const line456 = 456;\nexport const line457 = 457;\nexport const line458 = 458;\nexport const line459 = 459;\nexport const line460 = 460;\nexport const line461 = 6401;\nexport const line462 = 462;\nexport const line463 = 463;\nexport const line464 = 464;\nexport const line465 = 465;\nexport const line466 = 466;\nexport const line467 = 467;\nexport const line468 = 468;\nexport const line469 = 469;\nexport const line470 = 470;\nexport const line471 = 471;\nexport const line472 = 472;\nexport const line473 = 473;\nexport const line474 = 474;\nexport const line475 = 475;\nexport const line476 = 476;\nexport const line477 = 477;\nexport const line478 = 478;\nexport const line479 = 479;\nexport const line480 = 480;\nexport const line481 = 481;\nexport const line482 = 482;\nexport const line483 = 483;\nexport const line484 = 484;\nexport const line485 = 485;\nexport const line486 = 486;\nexport const line487 = 487;\nexport const line488 = 488;\nexport const line489 = 489;\nexport const line490 = 490;\n",
+              "hunks": [
+                {
+                  "oldStart": 1,
+                  "oldCount": 4,
+                  "newStart": 1,
+                  "newCount": 4,
+                  "splitRows": 4,
+                  "stackRows": 5
+                },
+                {
+                  "oldStart": 28,
+                  "oldCount": 7,
+                  "newStart": 28,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                },
+                {
+                  "oldStart": 58,
+                  "oldCount": 7,
+                  "newStart": 58,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                }
+              ]
+            },
+            {
+              "id": "rapid-5",
+              "path": "rapid-5.ts",
+              "language": "typescript",
+              "patch": "",
+              "agent": {
+                "path": "rapid-5.ts",
+                "summary": "rapid 5",
+                "annotations": [
+                  {
+                    "newRange": [
+                      501,
+                      501
+                    ],
+                    "summary": "note start 5"
+                  },
+                  {
+                    "newRange": [
+                      531,
+                      531
+                    ],
+                    "summary": "note middle 5"
+                  },
+                  {
+                    "newRange": [
+                      561,
+                      561
+                    ],
+                    "summary": "note late 5"
+                  }
+                ]
+              },
+              "stats": {
+                "additions": 3,
+                "deletions": 3
+              },
+              "partial": false,
+              "before": "export const line501 = 501;\nexport const line502 = 502;\nexport const line503 = 503;\nexport const line504 = 504;\nexport const line505 = 505;\nexport const line506 = 506;\nexport const line507 = 507;\nexport const line508 = 508;\nexport const line509 = 509;\nexport const line510 = 510;\nexport const line511 = 511;\nexport const line512 = 512;\nexport const line513 = 513;\nexport const line514 = 514;\nexport const line515 = 515;\nexport const line516 = 516;\nexport const line517 = 517;\nexport const line518 = 518;\nexport const line519 = 519;\nexport const line520 = 520;\nexport const line521 = 521;\nexport const line522 = 522;\nexport const line523 = 523;\nexport const line524 = 524;\nexport const line525 = 525;\nexport const line526 = 526;\nexport const line527 = 527;\nexport const line528 = 528;\nexport const line529 = 529;\nexport const line530 = 530;\nexport const line531 = 531;\nexport const line532 = 532;\nexport const line533 = 533;\nexport const line534 = 534;\nexport const line535 = 535;\nexport const line536 = 536;\nexport const line537 = 537;\nexport const line538 = 538;\nexport const line539 = 539;\nexport const line540 = 540;\nexport const line541 = 541;\nexport const line542 = 542;\nexport const line543 = 543;\nexport const line544 = 544;\nexport const line545 = 545;\nexport const line546 = 546;\nexport const line547 = 547;\nexport const line548 = 548;\nexport const line549 = 549;\nexport const line550 = 550;\nexport const line551 = 551;\nexport const line552 = 552;\nexport const line553 = 553;\nexport const line554 = 554;\nexport const line555 = 555;\nexport const line556 = 556;\nexport const line557 = 557;\nexport const line558 = 558;\nexport const line559 = 559;\nexport const line560 = 560;\nexport const line561 = 561;\nexport const line562 = 562;\nexport const line563 = 563;\nexport const line564 = 564;\nexport const line565 = 565;\nexport const line566 = 566;\nexport const line567 = 567;\nexport const line568 = 568;\nexport const line569 = 569;\nexport const line570 = 570;\nexport const line571 = 571;\nexport const line572 = 572;\nexport const line573 = 573;\nexport const line574 = 574;\nexport const line575 = 575;\nexport const line576 = 576;\nexport const line577 = 577;\nexport const line578 = 578;\nexport const line579 = 579;\nexport const line580 = 580;\nexport const line581 = 581;\nexport const line582 = 582;\nexport const line583 = 583;\nexport const line584 = 584;\nexport const line585 = 585;\nexport const line586 = 586;\nexport const line587 = 587;\nexport const line588 = 588;\nexport const line589 = 589;\nexport const line590 = 590;\n",
+              "after": "export const line501 = 1501;\nexport const line502 = 502;\nexport const line503 = 503;\nexport const line504 = 504;\nexport const line505 = 505;\nexport const line506 = 506;\nexport const line507 = 507;\nexport const line508 = 508;\nexport const line509 = 509;\nexport const line510 = 510;\nexport const line511 = 511;\nexport const line512 = 512;\nexport const line513 = 513;\nexport const line514 = 514;\nexport const line515 = 515;\nexport const line516 = 516;\nexport const line517 = 517;\nexport const line518 = 518;\nexport const line519 = 519;\nexport const line520 = 520;\nexport const line521 = 521;\nexport const line522 = 522;\nexport const line523 = 523;\nexport const line524 = 524;\nexport const line525 = 525;\nexport const line526 = 526;\nexport const line527 = 527;\nexport const line528 = 528;\nexport const line529 = 529;\nexport const line530 = 530;\nexport const line531 = 3501;\nexport const line532 = 532;\nexport const line533 = 533;\nexport const line534 = 534;\nexport const line535 = 535;\nexport const line536 = 536;\nexport const line537 = 537;\nexport const line538 = 538;\nexport const line539 = 539;\nexport const line540 = 540;\nexport const line541 = 541;\nexport const line542 = 542;\nexport const line543 = 543;\nexport const line544 = 544;\nexport const line545 = 545;\nexport const line546 = 546;\nexport const line547 = 547;\nexport const line548 = 548;\nexport const line549 = 549;\nexport const line550 = 550;\nexport const line551 = 551;\nexport const line552 = 552;\nexport const line553 = 553;\nexport const line554 = 554;\nexport const line555 = 555;\nexport const line556 = 556;\nexport const line557 = 557;\nexport const line558 = 558;\nexport const line559 = 559;\nexport const line560 = 560;\nexport const line561 = 6501;\nexport const line562 = 562;\nexport const line563 = 563;\nexport const line564 = 564;\nexport const line565 = 565;\nexport const line566 = 566;\nexport const line567 = 567;\nexport const line568 = 568;\nexport const line569 = 569;\nexport const line570 = 570;\nexport const line571 = 571;\nexport const line572 = 572;\nexport const line573 = 573;\nexport const line574 = 574;\nexport const line575 = 575;\nexport const line576 = 576;\nexport const line577 = 577;\nexport const line578 = 578;\nexport const line579 = 579;\nexport const line580 = 580;\nexport const line581 = 581;\nexport const line582 = 582;\nexport const line583 = 583;\nexport const line584 = 584;\nexport const line585 = 585;\nexport const line586 = 586;\nexport const line587 = 587;\nexport const line588 = 588;\nexport const line589 = 589;\nexport const line590 = 590;\n",
+              "hunks": [
+                {
+                  "oldStart": 1,
+                  "oldCount": 4,
+                  "newStart": 1,
+                  "newCount": 4,
+                  "splitRows": 4,
+                  "stackRows": 5
+                },
+                {
+                  "oldStart": 28,
+                  "oldCount": 7,
+                  "newStart": 28,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                },
+                {
+                  "oldStart": 58,
+                  "oldCount": 7,
+                  "newStart": 58,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                }
+              ]
+            },
+            {
+              "id": "rapid-6",
+              "path": "rapid-6.ts",
+              "language": "typescript",
+              "patch": "",
+              "agent": {
+                "path": "rapid-6.ts",
+                "summary": "rapid 6",
+                "annotations": [
+                  {
+                    "newRange": [
+                      601,
+                      601
+                    ],
+                    "summary": "note start 6"
+                  },
+                  {
+                    "newRange": [
+                      631,
+                      631
+                    ],
+                    "summary": "note middle 6"
+                  },
+                  {
+                    "newRange": [
+                      661,
+                      661
+                    ],
+                    "summary": "note late 6"
+                  }
+                ]
+              },
+              "stats": {
+                "additions": 3,
+                "deletions": 3
+              },
+              "partial": false,
+              "before": "export const line601 = 601;\nexport const line602 = 602;\nexport const line603 = 603;\nexport const line604 = 604;\nexport const line605 = 605;\nexport const line606 = 606;\nexport const line607 = 607;\nexport const line608 = 608;\nexport const line609 = 609;\nexport const line610 = 610;\nexport const line611 = 611;\nexport const line612 = 612;\nexport const line613 = 613;\nexport const line614 = 614;\nexport const line615 = 615;\nexport const line616 = 616;\nexport const line617 = 617;\nexport const line618 = 618;\nexport const line619 = 619;\nexport const line620 = 620;\nexport const line621 = 621;\nexport const line622 = 622;\nexport const line623 = 623;\nexport const line624 = 624;\nexport const line625 = 625;\nexport const line626 = 626;\nexport const line627 = 627;\nexport const line628 = 628;\nexport const line629 = 629;\nexport const line630 = 630;\nexport const line631 = 631;\nexport const line632 = 632;\nexport const line633 = 633;\nexport const line634 = 634;\nexport const line635 = 635;\nexport const line636 = 636;\nexport const line637 = 637;\nexport const line638 = 638;\nexport const line639 = 639;\nexport const line640 = 640;\nexport const line641 = 641;\nexport const line642 = 642;\nexport const line643 = 643;\nexport const line644 = 644;\nexport const line645 = 645;\nexport const line646 = 646;\nexport const line647 = 647;\nexport const line648 = 648;\nexport const line649 = 649;\nexport const line650 = 650;\nexport const line651 = 651;\nexport const line652 = 652;\nexport const line653 = 653;\nexport const line654 = 654;\nexport const line655 = 655;\nexport const line656 = 656;\nexport const line657 = 657;\nexport const line658 = 658;\nexport const line659 = 659;\nexport const line660 = 660;\nexport const line661 = 661;\nexport const line662 = 662;\nexport const line663 = 663;\nexport const line664 = 664;\nexport const line665 = 665;\nexport const line666 = 666;\nexport const line667 = 667;\nexport const line668 = 668;\nexport const line669 = 669;\nexport const line670 = 670;\nexport const line671 = 671;\nexport const line672 = 672;\nexport const line673 = 673;\nexport const line674 = 674;\nexport const line675 = 675;\nexport const line676 = 676;\nexport const line677 = 677;\nexport const line678 = 678;\nexport const line679 = 679;\nexport const line680 = 680;\nexport const line681 = 681;\nexport const line682 = 682;\nexport const line683 = 683;\nexport const line684 = 684;\nexport const line685 = 685;\nexport const line686 = 686;\nexport const line687 = 687;\nexport const line688 = 688;\nexport const line689 = 689;\nexport const line690 = 690;\n",
+              "after": "export const line601 = 1601;\nexport const line602 = 602;\nexport const line603 = 603;\nexport const line604 = 604;\nexport const line605 = 605;\nexport const line606 = 606;\nexport const line607 = 607;\nexport const line608 = 608;\nexport const line609 = 609;\nexport const line610 = 610;\nexport const line611 = 611;\nexport const line612 = 612;\nexport const line613 = 613;\nexport const line614 = 614;\nexport const line615 = 615;\nexport const line616 = 616;\nexport const line617 = 617;\nexport const line618 = 618;\nexport const line619 = 619;\nexport const line620 = 620;\nexport const line621 = 621;\nexport const line622 = 622;\nexport const line623 = 623;\nexport const line624 = 624;\nexport const line625 = 625;\nexport const line626 = 626;\nexport const line627 = 627;\nexport const line628 = 628;\nexport const line629 = 629;\nexport const line630 = 630;\nexport const line631 = 3601;\nexport const line632 = 632;\nexport const line633 = 633;\nexport const line634 = 634;\nexport const line635 = 635;\nexport const line636 = 636;\nexport const line637 = 637;\nexport const line638 = 638;\nexport const line639 = 639;\nexport const line640 = 640;\nexport const line641 = 641;\nexport const line642 = 642;\nexport const line643 = 643;\nexport const line644 = 644;\nexport const line645 = 645;\nexport const line646 = 646;\nexport const line647 = 647;\nexport const line648 = 648;\nexport const line649 = 649;\nexport const line650 = 650;\nexport const line651 = 651;\nexport const line652 = 652;\nexport const line653 = 653;\nexport const line654 = 654;\nexport const line655 = 655;\nexport const line656 = 656;\nexport const line657 = 657;\nexport const line658 = 658;\nexport const line659 = 659;\nexport const line660 = 660;\nexport const line661 = 6601;\nexport const line662 = 662;\nexport const line663 = 663;\nexport const line664 = 664;\nexport const line665 = 665;\nexport const line666 = 666;\nexport const line667 = 667;\nexport const line668 = 668;\nexport const line669 = 669;\nexport const line670 = 670;\nexport const line671 = 671;\nexport const line672 = 672;\nexport const line673 = 673;\nexport const line674 = 674;\nexport const line675 = 675;\nexport const line676 = 676;\nexport const line677 = 677;\nexport const line678 = 678;\nexport const line679 = 679;\nexport const line680 = 680;\nexport const line681 = 681;\nexport const line682 = 682;\nexport const line683 = 683;\nexport const line684 = 684;\nexport const line685 = 685;\nexport const line686 = 686;\nexport const line687 = 687;\nexport const line688 = 688;\nexport const line689 = 689;\nexport const line690 = 690;\n",
+              "hunks": [
+                {
+                  "oldStart": 1,
+                  "oldCount": 4,
+                  "newStart": 1,
+                  "newCount": 4,
+                  "splitRows": 4,
+                  "stackRows": 5
+                },
+                {
+                  "oldStart": 28,
+                  "oldCount": 7,
+                  "newStart": 28,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                },
+                {
+                  "oldStart": 58,
+                  "oldCount": 7,
+                  "newStart": 58,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                }
+              ]
+            },
+            {
+              "id": "rapid-7",
+              "path": "rapid-7.ts",
+              "language": "typescript",
+              "patch": "",
+              "agent": {
+                "path": "rapid-7.ts",
+                "summary": "rapid 7",
+                "annotations": [
+                  {
+                    "newRange": [
+                      701,
+                      701
+                    ],
+                    "summary": "note start 7"
+                  },
+                  {
+                    "newRange": [
+                      731,
+                      731
+                    ],
+                    "summary": "note middle 7"
+                  },
+                  {
+                    "newRange": [
+                      761,
+                      761
+                    ],
+                    "summary": "note late 7"
+                  }
+                ]
+              },
+              "stats": {
+                "additions": 3,
+                "deletions": 3
+              },
+              "partial": false,
+              "before": "export const line701 = 701;\nexport const line702 = 702;\nexport const line703 = 703;\nexport const line704 = 704;\nexport const line705 = 705;\nexport const line706 = 706;\nexport const line707 = 707;\nexport const line708 = 708;\nexport const line709 = 709;\nexport const line710 = 710;\nexport const line711 = 711;\nexport const line712 = 712;\nexport const line713 = 713;\nexport const line714 = 714;\nexport const line715 = 715;\nexport const line716 = 716;\nexport const line717 = 717;\nexport const line718 = 718;\nexport const line719 = 719;\nexport const line720 = 720;\nexport const line721 = 721;\nexport const line722 = 722;\nexport const line723 = 723;\nexport const line724 = 724;\nexport const line725 = 725;\nexport const line726 = 726;\nexport const line727 = 727;\nexport const line728 = 728;\nexport const line729 = 729;\nexport const line730 = 730;\nexport const line731 = 731;\nexport const line732 = 732;\nexport const line733 = 733;\nexport const line734 = 734;\nexport const line735 = 735;\nexport const line736 = 736;\nexport const line737 = 737;\nexport const line738 = 738;\nexport const line739 = 739;\nexport const line740 = 740;\nexport const line741 = 741;\nexport const line742 = 742;\nexport const line743 = 743;\nexport const line744 = 744;\nexport const line745 = 745;\nexport const line746 = 746;\nexport const line747 = 747;\nexport const line748 = 748;\nexport const line749 = 749;\nexport const line750 = 750;\nexport const line751 = 751;\nexport const line752 = 752;\nexport const line753 = 753;\nexport const line754 = 754;\nexport const line755 = 755;\nexport const line756 = 756;\nexport const line757 = 757;\nexport const line758 = 758;\nexport const line759 = 759;\nexport const line760 = 760;\nexport const line761 = 761;\nexport const line762 = 762;\nexport const line763 = 763;\nexport const line764 = 764;\nexport const line765 = 765;\nexport const line766 = 766;\nexport const line767 = 767;\nexport const line768 = 768;\nexport const line769 = 769;\nexport const line770 = 770;\nexport const line771 = 771;\nexport const line772 = 772;\nexport const line773 = 773;\nexport const line774 = 774;\nexport const line775 = 775;\nexport const line776 = 776;\nexport const line777 = 777;\nexport const line778 = 778;\nexport const line779 = 779;\nexport const line780 = 780;\nexport const line781 = 781;\nexport const line782 = 782;\nexport const line783 = 783;\nexport const line784 = 784;\nexport const line785 = 785;\nexport const line786 = 786;\nexport const line787 = 787;\nexport const line788 = 788;\nexport const line789 = 789;\nexport const line790 = 790;\n",
+              "after": "export const line701 = 1701;\nexport const line702 = 702;\nexport const line703 = 703;\nexport const line704 = 704;\nexport const line705 = 705;\nexport const line706 = 706;\nexport const line707 = 707;\nexport const line708 = 708;\nexport const line709 = 709;\nexport const line710 = 710;\nexport const line711 = 711;\nexport const line712 = 712;\nexport const line713 = 713;\nexport const line714 = 714;\nexport const line715 = 715;\nexport const line716 = 716;\nexport const line717 = 717;\nexport const line718 = 718;\nexport const line719 = 719;\nexport const line720 = 720;\nexport const line721 = 721;\nexport const line722 = 722;\nexport const line723 = 723;\nexport const line724 = 724;\nexport const line725 = 725;\nexport const line726 = 726;\nexport const line727 = 727;\nexport const line728 = 728;\nexport const line729 = 729;\nexport const line730 = 730;\nexport const line731 = 3701;\nexport const line732 = 732;\nexport const line733 = 733;\nexport const line734 = 734;\nexport const line735 = 735;\nexport const line736 = 736;\nexport const line737 = 737;\nexport const line738 = 738;\nexport const line739 = 739;\nexport const line740 = 740;\nexport const line741 = 741;\nexport const line742 = 742;\nexport const line743 = 743;\nexport const line744 = 744;\nexport const line745 = 745;\nexport const line746 = 746;\nexport const line747 = 747;\nexport const line748 = 748;\nexport const line749 = 749;\nexport const line750 = 750;\nexport const line751 = 751;\nexport const line752 = 752;\nexport const line753 = 753;\nexport const line754 = 754;\nexport const line755 = 755;\nexport const line756 = 756;\nexport const line757 = 757;\nexport const line758 = 758;\nexport const line759 = 759;\nexport const line760 = 760;\nexport const line761 = 6701;\nexport const line762 = 762;\nexport const line763 = 763;\nexport const line764 = 764;\nexport const line765 = 765;\nexport const line766 = 766;\nexport const line767 = 767;\nexport const line768 = 768;\nexport const line769 = 769;\nexport const line770 = 770;\nexport const line771 = 771;\nexport const line772 = 772;\nexport const line773 = 773;\nexport const line774 = 774;\nexport const line775 = 775;\nexport const line776 = 776;\nexport const line777 = 777;\nexport const line778 = 778;\nexport const line779 = 779;\nexport const line780 = 780;\nexport const line781 = 781;\nexport const line782 = 782;\nexport const line783 = 783;\nexport const line784 = 784;\nexport const line785 = 785;\nexport const line786 = 786;\nexport const line787 = 787;\nexport const line788 = 788;\nexport const line789 = 789;\nexport const line790 = 790;\n",
+              "hunks": [
+                {
+                  "oldStart": 1,
+                  "oldCount": 4,
+                  "newStart": 1,
+                  "newCount": 4,
+                  "splitRows": 4,
+                  "stackRows": 5
+                },
+                {
+                  "oldStart": 28,
+                  "oldCount": 7,
+                  "newStart": 28,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                },
+                {
+                  "oldStart": 58,
+                  "oldCount": 7,
+                  "newStart": 58,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                }
+              ]
+            },
+            {
+              "id": "rapid-8",
+              "path": "rapid-8.ts",
+              "language": "typescript",
+              "patch": "",
+              "agent": {
+                "path": "rapid-8.ts",
+                "summary": "rapid 8",
+                "annotations": [
+                  {
+                    "newRange": [
+                      801,
+                      801
+                    ],
+                    "summary": "note start 8"
+                  },
+                  {
+                    "newRange": [
+                      831,
+                      831
+                    ],
+                    "summary": "note middle 8"
+                  },
+                  {
+                    "newRange": [
+                      861,
+                      861
+                    ],
+                    "summary": "note late 8"
+                  }
+                ]
+              },
+              "stats": {
+                "additions": 3,
+                "deletions": 3
+              },
+              "partial": false,
+              "before": "export const line801 = 801;\nexport const line802 = 802;\nexport const line803 = 803;\nexport const line804 = 804;\nexport const line805 = 805;\nexport const line806 = 806;\nexport const line807 = 807;\nexport const line808 = 808;\nexport const line809 = 809;\nexport const line810 = 810;\nexport const line811 = 811;\nexport const line812 = 812;\nexport const line813 = 813;\nexport const line814 = 814;\nexport const line815 = 815;\nexport const line816 = 816;\nexport const line817 = 817;\nexport const line818 = 818;\nexport const line819 = 819;\nexport const line820 = 820;\nexport const line821 = 821;\nexport const line822 = 822;\nexport const line823 = 823;\nexport const line824 = 824;\nexport const line825 = 825;\nexport const line826 = 826;\nexport const line827 = 827;\nexport const line828 = 828;\nexport const line829 = 829;\nexport const line830 = 830;\nexport const line831 = 831;\nexport const line832 = 832;\nexport const line833 = 833;\nexport const line834 = 834;\nexport const line835 = 835;\nexport const line836 = 836;\nexport const line837 = 837;\nexport const line838 = 838;\nexport const line839 = 839;\nexport const line840 = 840;\nexport const line841 = 841;\nexport const line842 = 842;\nexport const line843 = 843;\nexport const line844 = 844;\nexport const line845 = 845;\nexport const line846 = 846;\nexport const line847 = 847;\nexport const line848 = 848;\nexport const line849 = 849;\nexport const line850 = 850;\nexport const line851 = 851;\nexport const line852 = 852;\nexport const line853 = 853;\nexport const line854 = 854;\nexport const line855 = 855;\nexport const line856 = 856;\nexport const line857 = 857;\nexport const line858 = 858;\nexport const line859 = 859;\nexport const line860 = 860;\nexport const line861 = 861;\nexport const line862 = 862;\nexport const line863 = 863;\nexport const line864 = 864;\nexport const line865 = 865;\nexport const line866 = 866;\nexport const line867 = 867;\nexport const line868 = 868;\nexport const line869 = 869;\nexport const line870 = 870;\nexport const line871 = 871;\nexport const line872 = 872;\nexport const line873 = 873;\nexport const line874 = 874;\nexport const line875 = 875;\nexport const line876 = 876;\nexport const line877 = 877;\nexport const line878 = 878;\nexport const line879 = 879;\nexport const line880 = 880;\nexport const line881 = 881;\nexport const line882 = 882;\nexport const line883 = 883;\nexport const line884 = 884;\nexport const line885 = 885;\nexport const line886 = 886;\nexport const line887 = 887;\nexport const line888 = 888;\nexport const line889 = 889;\nexport const line890 = 890;\n",
+              "after": "export const line801 = 1801;\nexport const line802 = 802;\nexport const line803 = 803;\nexport const line804 = 804;\nexport const line805 = 805;\nexport const line806 = 806;\nexport const line807 = 807;\nexport const line808 = 808;\nexport const line809 = 809;\nexport const line810 = 810;\nexport const line811 = 811;\nexport const line812 = 812;\nexport const line813 = 813;\nexport const line814 = 814;\nexport const line815 = 815;\nexport const line816 = 816;\nexport const line817 = 817;\nexport const line818 = 818;\nexport const line819 = 819;\nexport const line820 = 820;\nexport const line821 = 821;\nexport const line822 = 822;\nexport const line823 = 823;\nexport const line824 = 824;\nexport const line825 = 825;\nexport const line826 = 826;\nexport const line827 = 827;\nexport const line828 = 828;\nexport const line829 = 829;\nexport const line830 = 830;\nexport const line831 = 3801;\nexport const line832 = 832;\nexport const line833 = 833;\nexport const line834 = 834;\nexport const line835 = 835;\nexport const line836 = 836;\nexport const line837 = 837;\nexport const line838 = 838;\nexport const line839 = 839;\nexport const line840 = 840;\nexport const line841 = 841;\nexport const line842 = 842;\nexport const line843 = 843;\nexport const line844 = 844;\nexport const line845 = 845;\nexport const line846 = 846;\nexport const line847 = 847;\nexport const line848 = 848;\nexport const line849 = 849;\nexport const line850 = 850;\nexport const line851 = 851;\nexport const line852 = 852;\nexport const line853 = 853;\nexport const line854 = 854;\nexport const line855 = 855;\nexport const line856 = 856;\nexport const line857 = 857;\nexport const line858 = 858;\nexport const line859 = 859;\nexport const line860 = 860;\nexport const line861 = 6801;\nexport const line862 = 862;\nexport const line863 = 863;\nexport const line864 = 864;\nexport const line865 = 865;\nexport const line866 = 866;\nexport const line867 = 867;\nexport const line868 = 868;\nexport const line869 = 869;\nexport const line870 = 870;\nexport const line871 = 871;\nexport const line872 = 872;\nexport const line873 = 873;\nexport const line874 = 874;\nexport const line875 = 875;\nexport const line876 = 876;\nexport const line877 = 877;\nexport const line878 = 878;\nexport const line879 = 879;\nexport const line880 = 880;\nexport const line881 = 881;\nexport const line882 = 882;\nexport const line883 = 883;\nexport const line884 = 884;\nexport const line885 = 885;\nexport const line886 = 886;\nexport const line887 = 887;\nexport const line888 = 888;\nexport const line889 = 889;\nexport const line890 = 890;\n",
+              "hunks": [
+                {
+                  "oldStart": 1,
+                  "oldCount": 4,
+                  "newStart": 1,
+                  "newCount": 4,
+                  "splitRows": 4,
+                  "stackRows": 5
+                },
+                {
+                  "oldStart": 28,
+                  "oldCount": 7,
+                  "newStart": 28,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                },
+                {
+                  "oldStart": 58,
+                  "oldCount": 7,
+                  "newStart": 58,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                }
+              ]
+            },
+            {
+              "id": "rapid-9",
+              "path": "rapid-9.ts",
+              "language": "typescript",
+              "patch": "",
+              "agent": {
+                "path": "rapid-9.ts",
+                "summary": "rapid 9",
+                "annotations": [
+                  {
+                    "newRange": [
+                      901,
+                      901
+                    ],
+                    "summary": "note start 9"
+                  },
+                  {
+                    "newRange": [
+                      931,
+                      931
+                    ],
+                    "summary": "note middle 9"
+                  },
+                  {
+                    "newRange": [
+                      961,
+                      961
+                    ],
+                    "summary": "note late 9"
+                  }
+                ]
+              },
+              "stats": {
+                "additions": 3,
+                "deletions": 3
+              },
+              "partial": false,
+              "before": "export const line901 = 901;\nexport const line902 = 902;\nexport const line903 = 903;\nexport const line904 = 904;\nexport const line905 = 905;\nexport const line906 = 906;\nexport const line907 = 907;\nexport const line908 = 908;\nexport const line909 = 909;\nexport const line910 = 910;\nexport const line911 = 911;\nexport const line912 = 912;\nexport const line913 = 913;\nexport const line914 = 914;\nexport const line915 = 915;\nexport const line916 = 916;\nexport const line917 = 917;\nexport const line918 = 918;\nexport const line919 = 919;\nexport const line920 = 920;\nexport const line921 = 921;\nexport const line922 = 922;\nexport const line923 = 923;\nexport const line924 = 924;\nexport const line925 = 925;\nexport const line926 = 926;\nexport const line927 = 927;\nexport const line928 = 928;\nexport const line929 = 929;\nexport const line930 = 930;\nexport const line931 = 931;\nexport const line932 = 932;\nexport const line933 = 933;\nexport const line934 = 934;\nexport const line935 = 935;\nexport const line936 = 936;\nexport const line937 = 937;\nexport const line938 = 938;\nexport const line939 = 939;\nexport const line940 = 940;\nexport const line941 = 941;\nexport const line942 = 942;\nexport const line943 = 943;\nexport const line944 = 944;\nexport const line945 = 945;\nexport const line946 = 946;\nexport const line947 = 947;\nexport const line948 = 948;\nexport const line949 = 949;\nexport const line950 = 950;\nexport const line951 = 951;\nexport const line952 = 952;\nexport const line953 = 953;\nexport const line954 = 954;\nexport const line955 = 955;\nexport const line956 = 956;\nexport const line957 = 957;\nexport const line958 = 958;\nexport const line959 = 959;\nexport const line960 = 960;\nexport const line961 = 961;\nexport const line962 = 962;\nexport const line963 = 963;\nexport const line964 = 964;\nexport const line965 = 965;\nexport const line966 = 966;\nexport const line967 = 967;\nexport const line968 = 968;\nexport const line969 = 969;\nexport const line970 = 970;\nexport const line971 = 971;\nexport const line972 = 972;\nexport const line973 = 973;\nexport const line974 = 974;\nexport const line975 = 975;\nexport const line976 = 976;\nexport const line977 = 977;\nexport const line978 = 978;\nexport const line979 = 979;\nexport const line980 = 980;\nexport const line981 = 981;\nexport const line982 = 982;\nexport const line983 = 983;\nexport const line984 = 984;\nexport const line985 = 985;\nexport const line986 = 986;\nexport const line987 = 987;\nexport const line988 = 988;\nexport const line989 = 989;\nexport const line990 = 990;\n",
+              "after": "export const line901 = 1901;\nexport const line902 = 902;\nexport const line903 = 903;\nexport const line904 = 904;\nexport const line905 = 905;\nexport const line906 = 906;\nexport const line907 = 907;\nexport const line908 = 908;\nexport const line909 = 909;\nexport const line910 = 910;\nexport const line911 = 911;\nexport const line912 = 912;\nexport const line913 = 913;\nexport const line914 = 914;\nexport const line915 = 915;\nexport const line916 = 916;\nexport const line917 = 917;\nexport const line918 = 918;\nexport const line919 = 919;\nexport const line920 = 920;\nexport const line921 = 921;\nexport const line922 = 922;\nexport const line923 = 923;\nexport const line924 = 924;\nexport const line925 = 925;\nexport const line926 = 926;\nexport const line927 = 927;\nexport const line928 = 928;\nexport const line929 = 929;\nexport const line930 = 930;\nexport const line931 = 3901;\nexport const line932 = 932;\nexport const line933 = 933;\nexport const line934 = 934;\nexport const line935 = 935;\nexport const line936 = 936;\nexport const line937 = 937;\nexport const line938 = 938;\nexport const line939 = 939;\nexport const line940 = 940;\nexport const line941 = 941;\nexport const line942 = 942;\nexport const line943 = 943;\nexport const line944 = 944;\nexport const line945 = 945;\nexport const line946 = 946;\nexport const line947 = 947;\nexport const line948 = 948;\nexport const line949 = 949;\nexport const line950 = 950;\nexport const line951 = 951;\nexport const line952 = 952;\nexport const line953 = 953;\nexport const line954 = 954;\nexport const line955 = 955;\nexport const line956 = 956;\nexport const line957 = 957;\nexport const line958 = 958;\nexport const line959 = 959;\nexport const line960 = 960;\nexport const line961 = 6901;\nexport const line962 = 962;\nexport const line963 = 963;\nexport const line964 = 964;\nexport const line965 = 965;\nexport const line966 = 966;\nexport const line967 = 967;\nexport const line968 = 968;\nexport const line969 = 969;\nexport const line970 = 970;\nexport const line971 = 971;\nexport const line972 = 972;\nexport const line973 = 973;\nexport const line974 = 974;\nexport const line975 = 975;\nexport const line976 = 976;\nexport const line977 = 977;\nexport const line978 = 978;\nexport const line979 = 979;\nexport const line980 = 980;\nexport const line981 = 981;\nexport const line982 = 982;\nexport const line983 = 983;\nexport const line984 = 984;\nexport const line985 = 985;\nexport const line986 = 986;\nexport const line987 = 987;\nexport const line988 = 988;\nexport const line989 = 989;\nexport const line990 = 990;\n",
+              "hunks": [
+                {
+                  "oldStart": 1,
+                  "oldCount": 4,
+                  "newStart": 1,
+                  "newCount": 4,
+                  "splitRows": 4,
+                  "stackRows": 5
+                },
+                {
+                  "oldStart": 28,
+                  "oldCount": 7,
+                  "newStart": 28,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                },
+                {
+                  "oldStart": 58,
+                  "oldCount": 7,
+                  "newStart": 58,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                }
+              ]
+            },
+            {
+              "id": "rapid-10",
+              "path": "rapid-10.ts",
+              "language": "typescript",
+              "patch": "",
+              "agent": {
+                "path": "rapid-10.ts",
+                "summary": "rapid 10",
+                "annotations": [
+                  {
+                    "newRange": [
+                      1001,
+                      1001
+                    ],
+                    "summary": "note start 10"
+                  },
+                  {
+                    "newRange": [
+                      1031,
+                      1031
+                    ],
+                    "summary": "note middle 10"
+                  },
+                  {
+                    "newRange": [
+                      1061,
+                      1061
+                    ],
+                    "summary": "note late 10"
+                  }
+                ]
+              },
+              "stats": {
+                "additions": 3,
+                "deletions": 3
+              },
+              "partial": false,
+              "before": "export const line1001 = 1001;\nexport const line1002 = 1002;\nexport const line1003 = 1003;\nexport const line1004 = 1004;\nexport const line1005 = 1005;\nexport const line1006 = 1006;\nexport const line1007 = 1007;\nexport const line1008 = 1008;\nexport const line1009 = 1009;\nexport const line1010 = 1010;\nexport const line1011 = 1011;\nexport const line1012 = 1012;\nexport const line1013 = 1013;\nexport const line1014 = 1014;\nexport const line1015 = 1015;\nexport const line1016 = 1016;\nexport const line1017 = 1017;\nexport const line1018 = 1018;\nexport const line1019 = 1019;\nexport const line1020 = 1020;\nexport const line1021 = 1021;\nexport const line1022 = 1022;\nexport const line1023 = 1023;\nexport const line1024 = 1024;\nexport const line1025 = 1025;\nexport const line1026 = 1026;\nexport const line1027 = 1027;\nexport const line1028 = 1028;\nexport const line1029 = 1029;\nexport const line1030 = 1030;\nexport const line1031 = 1031;\nexport const line1032 = 1032;\nexport const line1033 = 1033;\nexport const line1034 = 1034;\nexport const line1035 = 1035;\nexport const line1036 = 1036;\nexport const line1037 = 1037;\nexport const line1038 = 1038;\nexport const line1039 = 1039;\nexport const line1040 = 1040;\nexport const line1041 = 1041;\nexport const line1042 = 1042;\nexport const line1043 = 1043;\nexport const line1044 = 1044;\nexport const line1045 = 1045;\nexport const line1046 = 1046;\nexport const line1047 = 1047;\nexport const line1048 = 1048;\nexport const line1049 = 1049;\nexport const line1050 = 1050;\nexport const line1051 = 1051;\nexport const line1052 = 1052;\nexport const line1053 = 1053;\nexport const line1054 = 1054;\nexport const line1055 = 1055;\nexport const line1056 = 1056;\nexport const line1057 = 1057;\nexport const line1058 = 1058;\nexport const line1059 = 1059;\nexport const line1060 = 1060;\nexport const line1061 = 1061;\nexport const line1062 = 1062;\nexport const line1063 = 1063;\nexport const line1064 = 1064;\nexport const line1065 = 1065;\nexport const line1066 = 1066;\nexport const line1067 = 1067;\nexport const line1068 = 1068;\nexport const line1069 = 1069;\nexport const line1070 = 1070;\nexport const line1071 = 1071;\nexport const line1072 = 1072;\nexport const line1073 = 1073;\nexport const line1074 = 1074;\nexport const line1075 = 1075;\nexport const line1076 = 1076;\nexport const line1077 = 1077;\nexport const line1078 = 1078;\nexport const line1079 = 1079;\nexport const line1080 = 1080;\nexport const line1081 = 1081;\nexport const line1082 = 1082;\nexport const line1083 = 1083;\nexport const line1084 = 1084;\nexport const line1085 = 1085;\nexport const line1086 = 1086;\nexport const line1087 = 1087;\nexport const line1088 = 1088;\nexport const line1089 = 1089;\nexport const line1090 = 1090;\n",
+              "after": "export const line1001 = 2001;\nexport const line1002 = 1002;\nexport const line1003 = 1003;\nexport const line1004 = 1004;\nexport const line1005 = 1005;\nexport const line1006 = 1006;\nexport const line1007 = 1007;\nexport const line1008 = 1008;\nexport const line1009 = 1009;\nexport const line1010 = 1010;\nexport const line1011 = 1011;\nexport const line1012 = 1012;\nexport const line1013 = 1013;\nexport const line1014 = 1014;\nexport const line1015 = 1015;\nexport const line1016 = 1016;\nexport const line1017 = 1017;\nexport const line1018 = 1018;\nexport const line1019 = 1019;\nexport const line1020 = 1020;\nexport const line1021 = 1021;\nexport const line1022 = 1022;\nexport const line1023 = 1023;\nexport const line1024 = 1024;\nexport const line1025 = 1025;\nexport const line1026 = 1026;\nexport const line1027 = 1027;\nexport const line1028 = 1028;\nexport const line1029 = 1029;\nexport const line1030 = 1030;\nexport const line1031 = 4001;\nexport const line1032 = 1032;\nexport const line1033 = 1033;\nexport const line1034 = 1034;\nexport const line1035 = 1035;\nexport const line1036 = 1036;\nexport const line1037 = 1037;\nexport const line1038 = 1038;\nexport const line1039 = 1039;\nexport const line1040 = 1040;\nexport const line1041 = 1041;\nexport const line1042 = 1042;\nexport const line1043 = 1043;\nexport const line1044 = 1044;\nexport const line1045 = 1045;\nexport const line1046 = 1046;\nexport const line1047 = 1047;\nexport const line1048 = 1048;\nexport const line1049 = 1049;\nexport const line1050 = 1050;\nexport const line1051 = 1051;\nexport const line1052 = 1052;\nexport const line1053 = 1053;\nexport const line1054 = 1054;\nexport const line1055 = 1055;\nexport const line1056 = 1056;\nexport const line1057 = 1057;\nexport const line1058 = 1058;\nexport const line1059 = 1059;\nexport const line1060 = 1060;\nexport const line1061 = 7001;\nexport const line1062 = 1062;\nexport const line1063 = 1063;\nexport const line1064 = 1064;\nexport const line1065 = 1065;\nexport const line1066 = 1066;\nexport const line1067 = 1067;\nexport const line1068 = 1068;\nexport const line1069 = 1069;\nexport const line1070 = 1070;\nexport const line1071 = 1071;\nexport const line1072 = 1072;\nexport const line1073 = 1073;\nexport const line1074 = 1074;\nexport const line1075 = 1075;\nexport const line1076 = 1076;\nexport const line1077 = 1077;\nexport const line1078 = 1078;\nexport const line1079 = 1079;\nexport const line1080 = 1080;\nexport const line1081 = 1081;\nexport const line1082 = 1082;\nexport const line1083 = 1083;\nexport const line1084 = 1084;\nexport const line1085 = 1085;\nexport const line1086 = 1086;\nexport const line1087 = 1087;\nexport const line1088 = 1088;\nexport const line1089 = 1089;\nexport const line1090 = 1090;\n",
+              "hunks": [
+                {
+                  "oldStart": 1,
+                  "oldCount": 4,
+                  "newStart": 1,
+                  "newCount": 4,
+                  "splitRows": 4,
+                  "stackRows": 5
+                },
+                {
+                  "oldStart": 28,
+                  "oldCount": 7,
+                  "newStart": 28,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                },
+                {
+                  "oldStart": 58,
+                  "oldCount": 7,
+                  "newStart": 58,
+                  "newCount": 7,
+                  "splitRows": 7,
+                  "stackRows": 8
+                }
+              ]
+            }
+          ],
+          "id": "changeset:rapid-viewport",
+          "sourceLabel": "repo",
+          "title": "repo working tree"
+        },
+        "initialMode": "stack",
+        "initialShowAgentNotes": true,
+        "initialShowMenuBar": true,
+        "initialTheme": "github-dark-default"
+      }
+    }
+  ]
+}

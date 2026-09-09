@@ -26480,25 +26480,47 @@ mod tests {
         }
     }
 
-    #[test]
-    fn pinned_rapid_navigation_and_wheel_rendering_settles() {
-        let mut review = navigation_changeset(
-            (1..=10)
-                .map(|index| {
-                    let start = index * 100 + 1;
-                    let before = numbered_exports(start, 90, 0, true);
-                    let mut after = before.lines().map(str::to_owned).collect::<Vec<_>>();
-                    for (line, offset) in [(0, 1000), (30, 3000), (60, 6000)] {
-                        after[line] =
-                            format!("export const line{} = {};", start + line, start + offset);
-                    }
-                    (format!("rapid-{index}.ts"), before, after.join("\n") + "\n")
-                })
-                .collect(),
-        );
+    fn pinned_rapid_viewport_bootstrap() -> workdeck_core::AppBootstrap {
+        let files = (1..=10)
+            .map(|index| {
+                let start = index * 100 + 1;
+                let before = numbered_exports(start, 90, 0, true);
+                let mut after = before.lines().map(str::to_owned).collect::<Vec<_>>();
+                for (line, offset) in [(0, 1000), (30, 3000), (60, 6000)] {
+                    after[line] =
+                        format!("export const line{} = {};", start + line, start + offset);
+                }
+                (format!("rapid-{index}.ts"), before, after.join("\n") + "\n")
+            })
+            .collect::<Vec<_>>();
+        let mut review = navigation_changeset(files.clone());
+        review.id = "changeset:rapid-viewport".into();
+        review.source_label = "repo".into();
+        review.title = "repo working tree".into();
         for (index, file) in review.files.iter_mut().enumerate() {
+            let (_, before, after) = &files[index];
             let index = index + 1;
             let start = index * 100 + 1;
+            file.runtime_id = format!("rapid-{index}");
+            file.language = Some("typescript".into());
+            file.patch.clear();
+            file.flags.partial = false;
+            file.set_sources(FileSourceSnapshots {
+                old: Some(SourceSnapshot::new(
+                    before.clone(),
+                    SourceOrigin::File {
+                        path: file.path.clone(),
+                    },
+                    false,
+                )),
+                new: Some(SourceSnapshot::new(
+                    after.clone(),
+                    SourceOrigin::File {
+                        path: file.path.clone(),
+                    },
+                    false,
+                )),
+            });
             assert_eq!(file.hunks.len(), 3);
             file.agent = Some(AgentFileContext {
                 path: file.path.clone(),
@@ -26518,11 +26540,106 @@ mod tests {
             });
         }
         review.refresh_review_identities();
-        let mut app = ReviewApp::new(
+        let mut bootstrap = workdeck_core::AppBootstrap::new(
+            CliInput::Vcs(VcsDiffCommandInput {
+                range: None,
+                range_endpoints: None,
+                staged: false,
+                pathspecs: Vec::new(),
+                options: CommonOptions {
+                    mode: Some(workdeck_core::InputLayoutMode::Stack),
+                    pager: Some(false),
+                    agent_notes: Some(true),
+                    ..Default::default()
+                },
+            }),
+            workdeck_core::ReloadContext {
+                cwd: "repo".into(),
+                repo_root: None,
+                initial_watch_signature: None,
+                vcs_catalog: None,
+            },
             review,
+        );
+        bootstrap.initial_theme = Some("github-dark-default".into());
+        bootstrap
+    }
+
+    #[test]
+    fn rapid_viewport_bootstrap_matches_both_pinned_source_fixtures() {
+        let bootstrap = pinned_rapid_viewport_bootstrap();
+        let CliInput::Vcs(input) = &bootstrap.input else {
+            panic!("expected VCS input");
+        };
+        assert_eq!(
+            input.options.mode,
+            Some(workdeck_core::InputLayoutMode::Stack)
+        );
+        assert_eq!(
+            bootstrap.initial_mode,
+            workdeck_core::InputLayoutMode::Stack
+        );
+        assert!(input.range.is_none());
+        assert!(input.range_endpoints.is_none());
+        assert!(input.pathspecs.is_empty());
+        assert!(bootstrap.reload_context.repo_root.is_none());
+        let files = bootstrap.changeset.files.iter().map(|file| {
+            let agent = file.agent.as_ref().unwrap();
+            serde_json::json!({
+                "id": file.runtime_id,
+                "path": file.path,
+                "language": file.language,
+                "patch": file.patch,
+                "partial": file.flags.partial,
+                "stats": {"additions": file.stats.additions, "deletions": file.stats.deletions},
+                "before": file.sources.old.as_ref().unwrap().content,
+                "after": file.sources.new.as_ref().unwrap().content,
+                "agent": {
+                    "path": agent.path, "summary": agent.summary,
+                    "annotations": agent.annotations.iter().map(|note| {
+                        let range = note.new_range.unwrap();
+                        serde_json::json!({"newRange": [range.start, range.end], "summary": note.summary})
+                    }).collect::<Vec<_>>()
+                },
+                "hunks": file.hunks.iter().map(|hunk| serde_json::json!({
+                    "oldStart": hunk.old_start, "oldCount": hunk.old_count,
+                    "newStart": hunk.new_start, "newCount": hunk.new_count,
+                    "splitRows": hunk.split_row_count, "stackRows": hunk.stack_row_count,
+                })).collect::<Vec<_>>()
+            })
+        }).collect::<Vec<_>>();
+        let actual = serde_json::json!({
+            "reloadContext": {"cwd": bootstrap.reload_context.cwd},
+            "input": {"kind": "vcs", "staged": input.staged, "options": {
+                "mode": "stack", "pager": input.options.pager, "agentNotes": input.options.agent_notes
+            }},
+            "changeset": {"id": bootstrap.changeset.id, "sourceLabel": bootstrap.changeset.source_label,
+                "title": bootstrap.changeset.title, "files": files},
+            "initialMode": "stack",
+            "initialShowAgentNotes": bootstrap.initial_show_agent_notes,
+            "initialShowMenuBar": bootstrap.initial_show_menu_bar,
+            "initialTheme": bootstrap.initial_theme,
+        });
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/interaction-rapid-bootstrap.json"
+        ))
+        .unwrap();
+        for run in oracle["runs"].as_array().unwrap() {
+            assert_eq!(actual, run["bootstrap"], "{}", run["pin"]);
+        }
+    }
+
+    #[test]
+    fn pinned_rapid_navigation_and_wheel_rendering_settles() {
+        let bootstrap = pinned_rapid_viewport_bootstrap();
+        let mut app = ReviewApp::new(
+            bootstrap.changeset,
             ReviewOptions {
                 layout: LayoutMode::Stack,
-                agent_notes: true,
+                agent_notes: bootstrap.initial_show_agent_notes,
+                show_menu_bar: bootstrap.initial_show_menu_bar,
+                command_cwd: Some(bootstrap.reload_context.cwd),
+                review_input: Some(bootstrap.input),
                 ..Default::default()
             },
         );

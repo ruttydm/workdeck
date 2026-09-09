@@ -1,5 +1,21 @@
 # Hunk semantic-port ledger
 
+## Complete rapid-viewport fixture bootstrap
+
+The fixture helper at bytes 10,134–11,617 now returns a native core bootstrap
+with the pinned changeset/file IDs, title, source label, reload context, command
+options, initial theme, and full before/after source texts. The earlier regression
+fixture had generic identities and patch-only source data. Both pinned helpers
+were executed with their real diff/bootstrap dependencies; a differential test
+compares all ten files' source bytes, annotations (including the original
+out-of-source ranges), stats, partial flags, and hunk ranges/counts. Internal
+parser cache and row-index representations are not compared by this fixture test.
+The original rapid-input regression also passes with the corrected fixture.
+All 1,175 TUI unit tests and scoped Clippy pass; see
+[bootstrap evidence](oracles/interaction-rapid-bootstrap.json).
+Only this 1,483-byte helper is newly mapped, leaving 270 incomplete intervals
+after splitting its unfinished neighbors.
+
 ## Frame-extraction helper parity
 
 The three complete helper bodies at bytes 17,425–17,755 now use shared Rust
