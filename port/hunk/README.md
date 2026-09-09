@@ -2450,6 +2450,14 @@ complete terminal settings are restored. This verifies the non-terminal output
 fallback on macOS; stdin is still attached in these cases. xtask Clippy and
 formatting passed, and source-oracle and Windows coverage remain outstanding.
 
+The matrix now covers all eight combinations of response/timeout and attached
+or redirected stdin/stdout. Redirected stdin is a file descriptor shared with
+the parent test shell; after the probe exits, the shell reads its remaining
+bytes and verifies the complete sentinel is untouched. All eight macOS PTY
+cases passed, including terminal flags and full termios restoration. This
+supersedes the attached-stdin limitation above; an actual pipe and Windows
+transport remain separate unverified cases. xtask Clippy and formatting passed.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

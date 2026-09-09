@@ -7,11 +7,15 @@ use std::time::{Duration, Instant};
 
 #[test]
 fn theme_probe_exchanges_osc11_and_reports_timeout_on_a_real_pty() {
-    for (response, redirect_stdout) in [
-        (Some("\x1b]11;rgb:00/00/00\x07"), false),
-        (None, false),
-        (Some("\x1b]11;rgb:00/00/00\x07"), true),
-        (None, true),
+    for (response, redirect_stdout, redirect_stdin) in [
+        (Some("\x1b]11;rgb:00/00/00\x07"), false, false),
+        (None, false, false),
+        (Some("\x1b]11;rgb:00/00/00\x07"), true, false),
+        (None, true, false),
+        (Some("\x1b]11;rgb:00/00/00\x07"), false, true),
+        (None, false, true),
+        (Some("\x1b]11;rgb:00/00/00\x07"), true, true),
+        (None, true, true),
     ] {
         let pair = native_pty_system()
             .openpty(PtySize {
@@ -23,7 +27,28 @@ fn theme_probe_exchanges_osc11_and_reports_timeout_on_a_real_pty() {
             .unwrap();
         let initial_mode = pair.master.get_termios().expect("initial PTY termios");
         let redirected = tempfile::NamedTempFile::new().unwrap();
-        let command = if redirect_stdout {
+        let mut stdin_file = tempfile::NamedTempFile::new().unwrap();
+        let untouched = b"diff input must remain unread\n";
+        stdin_file.write_all(untouched).unwrap();
+        let remainder = tempfile::NamedTempFile::new().unwrap();
+        let command = if redirect_stdin {
+            let mut command = CommandBuilder::new("/bin/sh");
+            let script = if redirect_stdout {
+                "exec 3< \"$3\"; \"$1\" themes probe <&3 > \"$2\"; probe_status=$?; /bin/cat <&3 > \"$4\"; exit \"$probe_status\""
+            } else {
+                "exec 3< \"$3\"; \"$1\" themes probe <&3; probe_status=$?; /bin/cat <&3 > \"$4\"; exit \"$probe_status\""
+            };
+            command.args([
+                "-c",
+                script,
+                "theme-probe-test",
+                env!("CARGO_BIN_EXE_xtask"),
+            ]);
+            command.arg(redirected.path());
+            command.arg(stdin_file.path());
+            command.arg(remainder.path());
+            command
+        } else if redirect_stdout {
             let mut command = CommandBuilder::new("/bin/sh");
             command.args([
                 "-c",
@@ -97,7 +122,14 @@ fn theme_probe_exchanges_osc11_and_reports_timeout_on_a_real_pty() {
             std::fs::read(redirected.path()).unwrap().is_empty(),
             "stdout must not contain query or diagnostic output"
         );
-        assert_eq!(report["stdinIsTTY"], true);
+        assert_eq!(report["stdinIsTTY"], !redirect_stdin);
+        if redirect_stdin {
+            assert_eq!(
+                std::fs::read(remainder.path()).unwrap(),
+                untouched,
+                "probe must not consume redirected stdin"
+            );
+        }
         if response.is_some() {
             assert_eq!(report["mode"], "dark");
             assert_eq!(report["classified"], "dark");
