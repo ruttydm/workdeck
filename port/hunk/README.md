@@ -1,5 +1,16 @@
 # Hunk semantic-port ledger
 
+## AppHost CJK draft wrapping and capture correction
+
+Bytes 90,177–91,167 map to chunked CJK draft input at 160×40. Both pinned
+source tests pass. The Rust test initially exposed a capture-helper error:
+covered wide-character cells were concatenated as visible text. The helper now
+advances by display width, matching Ratatui's output semantics. Production
+rendering was unchanged. All 1,125 TUI tests pass (51.28 seconds), as does TUI
+Clippy. See [capture, correction and validation](oracles/app-host-draft-cjk.json).
+There remain 268 unmapped intervals across 1,355 records and 1,257 baseline
+files, plus 11 cached upstream commits pending. This is not complete parity.
+
 ## AppHost draft focus and shortcut suppression
 
 Bytes 89,162–90,177 map to draft input ownership at 240×24. Both pinned source

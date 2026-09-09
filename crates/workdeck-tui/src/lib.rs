@@ -17091,8 +17091,13 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let mut rendered = String::new();
         for y in buffer.area.y..buffer.area.bottom() {
-            for x in buffer.area.x..buffer.area.right() {
-                rendered.push_str(buffer.cell((x, y)).unwrap().symbol());
+            let mut x = buffer.area.x;
+            while x < buffer.area.right() {
+                let symbol = buffer.cell((x, y)).unwrap().symbol();
+                rendered.push_str(symbol);
+                // A terminal does not print the buffer cells covered by a wide
+                // glyph. TestBackend can retain old symbols in these cells.
+                x = x.saturating_add(measure_text_width(symbol).max(1) as u16);
             }
             rendered.push('\n');
         }
@@ -19473,6 +19478,35 @@ mod tests {
                 assert!(implementation.contains(&format!("fn {function}()")));
             }
         }
+    }
+
+    #[test]
+    fn draft_note_wraps_chunked_cjk_input_without_losing_either_end() {
+        let mut app = ReviewApp::new(responsive_changeset(), ReviewOptions::default());
+        let mut terminal = Terminal::new(TestBackend::new(160, 40)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+        rendered_review_frame(&mut terminal, &app);
+        let body =
+            "这个包主要是为了在普通的chatmodel外面包一层,在外层把toolcallid统一转换,方便后续处理";
+        let chars = body.chars().collect::<Vec<_>>();
+        for chunk in chars.chunks(12) {
+            for character in chunk {
+                app.handle_key(KeyEvent::new(KeyCode::Char(*character), KeyModifiers::NONE));
+            }
+            rendered_review_frame(&mut terminal, &app);
+        }
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(frame.contains("Draft note"));
+        assert!(
+            frame.contains(&chars[..10].iter().collect::<String>()),
+            "{frame}"
+        );
+        assert!(
+            frame.contains(&chars[chars.len() - 4..].iter().collect::<String>()),
+            "{frame}"
+        );
+        assert_eq!(app.note_composer.as_ref().unwrap().body, body);
     }
 
     #[test]
