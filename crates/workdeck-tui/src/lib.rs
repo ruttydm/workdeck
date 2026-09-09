@@ -15680,7 +15680,7 @@ mod tests {
                 summary: Some(format!("{} note", file.path)),
                 annotations: vec![
                     serde_json::from_value(serde_json::json!({
-                        "newRange": [1, 1],
+                        "newRange": if file.path == "alpha.ts" { [2, 2] } else { [1, 1] },
                         "summary": format!("Annotation for {}", file.path),
                         "rationale": format!("Why {} changed", file.path)
                     }))
@@ -23642,7 +23642,7 @@ mod tests {
                 summary: Some("scroll.ts note".into()),
                 annotations: vec![
                     serde_json::from_value(serde_json::json!({
-                        "newRange": [1,1], "summary": "Annotation for scroll.ts",
+                        "newRange": [2,2], "summary": "Annotation for scroll.ts",
                         "rationale": "Why scroll.ts changed"
                     }))
                     .unwrap(),
@@ -23681,6 +23681,70 @@ mod tests {
                 }
             }
             assert!(frame.contains("line01"), "pager={pager}\n{frame}");
+        }
+    }
+
+    #[test]
+    fn wrap_toggle_preserves_first_visible_added_line_after_arrow_scrolling() {
+        let before = numbered_exports(1, 18, 0, true);
+        let after = numbered_exports(1, 18, 100, true)
+            .lines()
+            .map(|line| {
+                format!(
+                    "{line} // this is intentionally long wrap coverage for viewport anchoring\n"
+                )
+            })
+            .collect::<String>();
+        let mut review = navigation_changeset(vec![("wrap-scroll.ts".into(), before, after)]);
+        review.files[0].agent = Some(
+            serde_json::from_value(serde_json::json!({
+                "path": "wrap-scroll.ts", "summary": "wrap-scroll.ts note",
+            "annotations": [{"newRange": [2, 2], "summary": "Annotation for wrap-scroll.ts",
+                    "rationale": "Why wrap-scroll.ts changed"}]
+            }))
+            .unwrap(),
+        );
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(102, 12)).unwrap();
+        let first_added = |frame: &str| {
+            frame.as_bytes().windows(12).find_map(|bytes| {
+                let text = std::str::from_utf8(bytes).ok()?;
+                (text.starts_with("line")
+                    && bytes[4..6].iter().all(u8::is_ascii_digit)
+                    && &bytes[6..10] == b" = 1"
+                    && bytes[10..12].iter().all(u8::is_ascii_digit))
+                .then(|| text.to_owned())
+            })
+        };
+        let mut frame = rendered_review_frame(&mut terminal, &app);
+        assert!(frame.contains("line01 = 101"), "{frame}");
+        assert!(!frame.contains("line08 = 108"), "{frame}");
+        for _ in 0..24 {
+            app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+            frame = rendered_review_frame(&mut terminal, &app);
+            if frame.contains("line08 = 108") && !frame.contains("line01 = 101") {
+                break;
+            }
+        }
+        assert!(frame.contains("line08 = 108"), "{frame}");
+        assert!(!frame.contains("line01 = 101"), "{frame}");
+        let anchor = first_added(&frame).expect("visible added line");
+        for _ in 0..2 {
+            app.handle_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+            frame = rendered_review_frame(&mut terminal, &app);
+            assert!(frame.contains(&anchor), "{frame}");
+            assert_eq!(
+                first_added(&frame).as_deref(),
+                Some(anchor.as_str()),
+                "{frame}"
+            );
         }
     }
 

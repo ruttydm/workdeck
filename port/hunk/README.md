@@ -1,5 +1,19 @@
 # Hunk semantic-port ledger
 
+## AppHost wrap anchor (partial interaction corpus)
+
+Bytes 66,207–67,995 map to the executed wrap-toggle viewport regression. At
+102×12, both `w` toggles retain the first visible added line after Down-key
+scrolling. Both pinned source runs pass nine assertions. Inspection also corrected
+helper-default annotations to line two in the wrap/arrow fixtures and alpha's
+viewport-note fixture; beta keeps its explicit line-one override. All three
+affected native tests pass together, with formatting and TUI all-target Clippy
+clean. See [results and scope](oracles/app-host-wrap-anchor.json).
+
+Current ledger has 1,257 files, 1,338 records, 380 translated-test records and
+268 unmapped intervals; eleven cached upstream commits remain pending. Strict
+completion and whole-frame parity remain unproven.
+
 ## AppHost arrow scrolling (partial interaction corpus)
 
 Four test bodies, bytes 60,795–66,207, map individually to executed native
@@ -11,7 +25,7 @@ See [raw source output and intervals](oracles/app-host-arrow-scroll.json) and th
 source polling predicate is not promoted to a guarantee; complete cell-frame
 equivalence remains a separate gate.
 
-Current strict audit validates partitions/evidence and reports 1,257 files,
+At this earlier arrow checkpoint, strict audit validated partitions/evidence and reported 1,257 files,
 1,337 records, 379 translated-test records and 268 unmapped intervals, then
 fails on unfinished mappings. Eleven cached upstream commits remain pending.
 
@@ -19,8 +33,9 @@ fails on unfinished mappings. Eleven cached upstream commits remain pending.
 
 Bytes 59,772–60,795 map to the executed Rust viewport-note toggle test. At
 240×32 in split layout, pressing `a` reveals both alpha.ts and beta.ts annotation
-summaries and rationales. The fixture uses the source file contents and line-one
-annotations and additionally verifies annotations are hidden before the toggle.
+summaries and rationales. The fixture uses the source file contents and
+annotations (alpha on line two, beta on line one) and additionally verifies
+annotations are hidden before the toggle.
 Both pinned source tests pass; see [capture and scope](oracles/app-host-viewport-notes.json).
 Focused Rust test, formatting and TUI all-target Clippy pass. This reproduces the
 source text assertions, not complete cell-frame parity.

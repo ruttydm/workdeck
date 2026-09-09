@@ -23,7 +23,7 @@
     "test": "tests::annotation_toggle_shows_notes_for_both_files_in_current_viewport",
     "command": "CARGO_INCREMENTAL=0 cargo test -p workdeck-tui --lib annotation_toggle_shows_notes_for_both_files_in_current_viewport",
     "exitCode": 0, "passed": 1, "failed": 0, "ignored": 0, "filteredOut": 1108, "seconds": 0.78,
-    "assertions": "240x32 split-layout Ratatui buffer with the source alpha.ts/beta.ts contents and line-one annotations. Before a both annotation summaries are hidden; after a both summaries and both rationales are visible."
+    "assertions": "240x32 split-layout Ratatui buffer with the source alpha.ts/beta.ts contents. Alpha uses the shared helper's line-two annotation; beta uses the test's explicit line-one annotation. Before a both annotation summaries are hidden; after a both summaries and both rationales are visible."
   },
   "limitations": [
     "Only this 1023-byte test body is mapped; shared helpers and remaining AppHost tests are not declared complete.",
