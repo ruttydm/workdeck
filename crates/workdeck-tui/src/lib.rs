@@ -19514,6 +19514,20 @@ mod tests {
     }
 
     #[test]
+    fn sidebar_toggle_removes_and_restores_the_second_file_path_occurrence() {
+        let mut app = ReviewApp::new(responsive_changeset(), ReviewOptions::default());
+        let mut terminal = Terminal::new(TestBackend::new(240, 24)).unwrap();
+        let initial = rendered_review_frame(&mut terminal, &app);
+        assert_eq!(initial.matches("alpha.ts").count(), 2, "{initial}");
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        let hidden = rendered_review_frame(&mut terminal, &app);
+        assert_eq!(hidden.matches("alpha.ts").count(), 1, "{hidden}");
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        let restored = rendered_review_frame(&mut terminal, &app);
+        assert_eq!(restored.matches("alpha.ts").count(), 2, "{restored}");
+    }
+
+    #[test]
     fn draft_blur_restores_sidebar_shortcut_without_discarding_draft() {
         let mut app = ReviewApp::new(responsive_changeset(), ReviewOptions::default());
         let mut terminal = Terminal::new(TestBackend::new(240, 24)).unwrap();

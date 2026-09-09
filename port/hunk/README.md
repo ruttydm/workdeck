@@ -1,5 +1,14 @@
 # Hunk semantic-port ledger
 
+## AppHost sidebar visibility toggle
+
+Bytes 94,201–95,078 map to the 240×24 sidebar off/on regression, checking
+rendered alpha.ts counts of two, one, then two. Both pinned source tests and
+the native translation pass, as do formatting and TUI Clippy.
+See [capture and scope](oracles/app-host-sidebar-toggle.json).
+Strict audit remains incomplete: 268 unmapped intervals, 1,359 records,
+1,257 baseline files and 11 cached upstream commits pending.
+
 ## Draft focus lifecycle correction
 
 The native draft now releases input focus on outside clicks without losing its
