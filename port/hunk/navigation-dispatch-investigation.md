@@ -89,3 +89,17 @@ resident-memory improvement. Navigation median was about 705.65 ms versus
 observations do not establish causality or pass the release benchmark gate.
 Further investigation must include initialization/publication allocations and
 allocator retention rather than equating reduced live allocations with peak RSS.
+
+## Borrowed initialization input
+
+`ReviewApp::new_with_extensions` now uses `ReviewProducer::from_files` with a
+borrowed file slice and source label. Previously it cloned the entire file vector
+into `PublishReviewInput`, only for `ReviewProducer::new` to borrow that temporary
+while constructing its separately owned publication. The original owned-input
+constructor remains available and delegates to the same builder. Publication,
+resource-store and session ownership are unchanged; this removes only the
+temporary input copy. The new regression compares owned/borrowed documents and
+reads patch and source resources after mutating and clearing the original input.
+All 11 producer tests and the TUI authority regression pass, as do scoped
+review/TUI all-target Clippy, formatting and diff checks. Peak-memory benefit
+remains unmeasured.

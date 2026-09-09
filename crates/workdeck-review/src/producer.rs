@@ -248,6 +248,15 @@ impl ReviewProducer {
         input: PublishReviewInput,
         options: ReviewProducerOptions,
     ) -> Result<Self, ReviewProducerLifecycleError> {
+        Self::from_files(&input.files, input.source_label.as_deref(), options)
+    }
+
+    /// Build an owned publication without requiring a temporary copy of input files.
+    pub fn from_files(
+        files: &[DiffFile],
+        source_label: Option<&str>,
+        options: ReviewProducerOptions,
+    ) -> Result<Self, ReviewProducerLifecycleError> {
         static NEXT_PRODUCER: AtomicU64 = AtomicU64::new(1);
         let token = NEXT_PRODUCER.fetch_add(1, Ordering::Relaxed);
         let identity = ReviewGenerationIdentity {
@@ -258,11 +267,7 @@ impl ReviewProducer {
             sequence: 0,
         };
         let generation = format_review_generation(&identity)?;
-        let publication = Arc::new(build_review_publication(
-            &input.files,
-            generation,
-            input.source_label.as_deref(),
-        ));
+        let publication = Arc::new(build_review_publication(files, generation, source_label));
         let resource_store = Arc::new(Self::create_resource_store(
             Arc::clone(&publication),
             &options,
@@ -693,6 +698,31 @@ mod tests {
             },
         )
         .unwrap()
+    }
+
+    #[test]
+    fn borrowed_initial_files_produce_independent_owned_resources() {
+        let mut files = vec![file("a", "a.rs", "original patch", Some("original source"))];
+        let borrowed = ReviewProducer::from_files(
+            &files,
+            Some("/repo"),
+            ReviewProducerOptions {
+                producer_id: Some("test".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let owned = producer(files.clone());
+        assert_eq!(
+            borrowed.get_publication().document,
+            owned.get_publication().document
+        );
+        files[0].patch = "mutated".into();
+        files.clear();
+        let patch = resource_id(&borrowed, ReviewResourceKind::Patch);
+        assert_eq!(read_whole(&borrowed, &patch, 1024), "original patch");
+        let source = resource_id(&borrowed, ReviewResourceKind::Source);
+        assert_eq!(read_whole(&borrowed, &source, 1024), "original source");
     }
 
     fn resource_id(producer: &ReviewProducer, kind: ReviewResourceKind) -> String {

@@ -1267,11 +1267,9 @@ impl ReviewApp {
         options: ReviewOptions,
         extensions: Vec<LoadedExtension>,
     ) -> Self {
-        let review_producer = workdeck_review::ReviewProducer::new(
-            workdeck_review::PublishReviewInput {
-                files: changeset.files.clone(),
-                source_label: Some(changeset.effective_source_label().to_owned()),
-            },
+        let review_producer = workdeck_review::ReviewProducer::from_files(
+            &changeset.files,
+            Some(changeset.effective_source_label()),
             workdeck_review::ReviewProducerOptions {
                 source_loader: source_controller::publication_source_loader(
                     options.source_capabilities.clone(),
