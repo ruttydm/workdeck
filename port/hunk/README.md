@@ -2673,6 +2673,13 @@ non-HTTP destinations and credential-bearing redirect URLs are rejected.
 Redirect chains and cross-origin credential stripping still require dedicated
 executable parity tests; this implementation is not a completed mapping.
 
+The redirect transport test now makes actual two-hop loopback requests for a
+relative same-origin Location and an absolute cross-origin Location (different
+port). It verifies the final JSON and GET paths, retention of a synthetic
+authorization token on the same origin, and absence of authorization at the
+other origin. Server accepts and socket I/O are bounded. Multi-hop limits,
+TLS and comparison with the pinned runtime's redirect behavior remain pending.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

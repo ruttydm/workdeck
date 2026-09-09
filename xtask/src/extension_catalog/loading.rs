@@ -173,6 +173,86 @@ mod tests {
     use std::sync::{Barrier, Mutex};
 
     #[test]
+    fn redirects_preserve_same_origin_auth_and_strip_cross_origin_auth() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        for cross_origin in [false, true] {
+            let first = TcpListener::bind("127.0.0.1:0").unwrap();
+            let second = if cross_origin {
+                Some(TcpListener::bind("127.0.0.1:0").unwrap())
+            } else {
+                None
+            };
+            let first_address = first.local_addr().unwrap();
+            let destination = second
+                .as_ref()
+                .map(|listener| format!("http://{}/next", listener.local_addr().unwrap()))
+                .unwrap_or_else(|| "/next".into());
+            let server = std::thread::spawn(move || {
+                let mut requests = Vec::new();
+                for index in 0..2 {
+                    let listener = if index == 1 {
+                        second.as_ref().unwrap_or(&first)
+                    } else {
+                        &first
+                    };
+                    listener.set_nonblocking(true).unwrap();
+                    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                    let mut stream = loop {
+                        match listener.accept() {
+                            Ok((stream, _)) => break stream,
+                            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                                assert!(
+                                    std::time::Instant::now() < deadline,
+                                    "redirect connection missing"
+                                );
+                                std::thread::sleep(Duration::from_millis(2));
+                            }
+                            Err(error) => panic!("accept: {error}"),
+                        }
+                    };
+                    stream.set_nonblocking(false).unwrap();
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(5)))
+                        .unwrap();
+                    stream
+                        .set_write_timeout(Some(Duration::from_secs(5)))
+                        .unwrap();
+                    let mut request = Vec::new();
+                    while !request.ends_with(b"\r\n\r\n") {
+                        let mut byte = [0];
+                        stream.read_exact(&mut byte).unwrap();
+                        request.push(byte[0]);
+                        assert!(request.len() < 8192);
+                    }
+                    requests.push(String::from_utf8(request).unwrap().to_lowercase());
+                    if index == 0 {
+                        write!(stream, "HTTP/1.1 302 Found\r\nLocation: {destination}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+                    } else {
+                        write!(
+                            stream,
+                            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}"
+                        )
+                        .unwrap();
+                    }
+                }
+                requests
+            });
+            let result = fetch_json(
+                &format!("http://{first_address}/start"),
+                Some("fixture-token"),
+                Duration::from_secs(5),
+            );
+            let requests = server.join().unwrap();
+            assert_eq!(result.unwrap(), json!({}));
+            assert!(requests[0].starts_with("get /start http/1.1\r\n"));
+            assert!(requests[1].starts_with("get /next http/1.1\r\n"));
+            assert!(requests[0].contains("authorization: bearer fixture-token\r\n"));
+            assert_eq!(requests[1].contains("authorization:"), !cross_origin);
+        }
+    }
+
+    #[test]
     fn topic_http_status_warning_preserves_status_and_direct_fallback() {
         for status in [302, 304, 403, 404, 429, 503] {
             let (entries, warnings) = resolve(
