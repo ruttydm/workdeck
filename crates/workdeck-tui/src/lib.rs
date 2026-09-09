@@ -24597,6 +24597,75 @@ mod tests {
         review
     }
 
+    fn first_visible_added_line(frame: &str) -> Option<String> {
+        frame.as_bytes().windows(12).find_map(|bytes| {
+            (bytes.starts_with(b"line")
+                && bytes[4..6].iter().all(u8::is_ascii_digit)
+                && &bytes[6..10] == b" = 1"
+                && bytes[10..12].iter().all(u8::is_ascii_digit))
+            .then(|| String::from_utf8(bytes.to_vec()).unwrap())
+        })
+    }
+
+    fn first_visible_source_line_number(frame: &str) -> Option<String> {
+        frame.as_bytes().windows(8).find_map(|bytes| {
+            (bytes.starts_with(b"line")
+                && bytes[4..6].iter().all(u8::is_ascii_digit)
+                && &bytes[6..8] == b" =")
+                .then(|| String::from_utf8(bytes[4..6].to_vec()).unwrap())
+        })
+    }
+
+    fn first_visible_added_line_number(frame: &str) -> Option<String> {
+        let source_space = |ch: char| {
+            matches!(
+                ch,
+                '\t' | '\n' | '\x0b' | '\x0c' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
+                    ..='\u{200a}'
+                        | '\u{2028}'
+                        | '\u{2029}'
+                        | '\u{202f}'
+                        | '\u{205f}'
+                        | '\u{3000}'
+                        | '\u{feff}'
+            )
+        };
+        frame.split('▌').skip(1).find_map(|part| {
+            let part = part.trim_start_matches(source_space);
+            let digits = part.bytes().take_while(u8::is_ascii_digit).count();
+            if digits == 0 {
+                return None;
+            }
+            let tail = &part[digits..];
+            let after_space = tail.trim_start_matches(source_space);
+            (after_space.len() < tail.len() && after_space.starts_with('+'))
+                .then(|| part[..digits].to_owned())
+        })
+    }
+
+    #[test]
+    fn frame_extractors_match_both_pinned_source_oracles() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/interaction-frame-extractors.json"
+        ))
+        .unwrap();
+        for run in oracle["runs"].as_array().unwrap() {
+            for case in run["cases"].as_array().unwrap() {
+                let input = case["input"].as_str().unwrap();
+                assert_eq!(
+                    serde_json::json!([
+                        first_visible_added_line(input),
+                        first_visible_source_line_number(input),
+                        first_visible_added_line_number(input)
+                    ]),
+                    case["outputs"],
+                    "{}: {input:?}",
+                    run["pin"]
+                );
+            }
+        }
+    }
+
     #[test]
     fn shifted_wheel_preserves_the_pinned_first_visible_added_line() {
         for kind in [MouseEventKind::ScrollDown, MouseEventKind::ScrollRight] {
@@ -24607,14 +24676,7 @@ mod tests {
                     ..Default::default()
                 },
             );
-            let first_added = |frame: &str| {
-                frame.split('▌').skip(1).find_map(|part| {
-                    let mut fields = part.split_whitespace();
-                    let number = fields.next()?;
-                    (number.bytes().all(|byte| byte.is_ascii_digit()) && fields.next() == Some("+"))
-                        .then(|| number.to_owned())
-                })
-            };
+            let first_added = first_visible_added_line_number;
             let mut terminal = Terminal::new(TestBackend::new(92, 20)).unwrap();
             let mut frame = rendered_review_frame(&mut terminal, &app);
             let initial = first_added(&frame).expect("visible added line in pinned fixture");
@@ -24646,16 +24708,7 @@ mod tests {
             },
         );
         let mut terminal = Terminal::new(TestBackend::new(102, 12)).unwrap();
-        let first_added = |frame: &str| {
-            frame.as_bytes().windows(12).find_map(|bytes| {
-                let text = std::str::from_utf8(bytes).ok()?;
-                (text.starts_with("line")
-                    && bytes[4..6].iter().all(u8::is_ascii_digit)
-                    && &bytes[6..10] == b" = 1"
-                    && bytes[10..12].iter().all(u8::is_ascii_digit))
-                .then(|| text.to_owned())
-            })
-        };
+        let first_added = first_visible_added_line;
         let mut frame = rendered_review_frame(&mut terminal, &app);
         assert!(frame.contains("line01 = 101"), "{frame}");
         assert!(!frame.contains("line08 = 108"), "{frame}");
@@ -24706,14 +24759,7 @@ mod tests {
             },
         );
         let mut terminal = Terminal::new(TestBackend::new(220, 12)).unwrap();
-        let first_line = |frame: &str| {
-            frame.as_bytes().windows(8).find_map(|bytes| {
-                (bytes.starts_with(b"line")
-                    && bytes[4..6].iter().all(u8::is_ascii_digit)
-                    && &bytes[6..8] == b" =")
-                    .then(|| String::from_utf8_lossy(&bytes[4..6]).into_owned())
-            })
-        };
+        let first_line = first_visible_source_line_number;
         let mut frame = rendered_review_frame(&mut terminal, &app);
         assert!(frame.contains("line01 = 101"), "{frame}");
         assert!(!frame.contains("line08 = 108"), "{frame}");

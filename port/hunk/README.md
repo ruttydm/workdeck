@@ -1,5 +1,17 @@
 # Hunk semantic-port ledger
 
+## Frame-extraction helper parity
+
+The three complete helper bodies at bytes 17,425–17,755 now use shared Rust
+implementations in their wrapping/layout consumers. Frozen execution of the
+exact helper bodies from both pins supplies 32 cases per baseline, including
+ASCII-only digits, first-match behavior, required whitespace before `+`, BOM,
+nonbreaking space, U+0085 rejection, and multiline/Unicode input. All 1,174 TUI
+unit tests and scoped Clippy pass. See
+[oracle vectors](oracles/interaction-frame-extractors.json).
+Only 330 source bytes are newly mapped. Surrounding async helpers and suite
+setup remain unmapped; splitting them raises the incomplete-record count to 269.
+
 ## Hunkless-note sanitization and complete background matching
 
 The hunkless-note display path also allowed controls in annotation summaries and

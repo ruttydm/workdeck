@@ -1,0 +1,535 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceInterval": {"byteStart": 17425, "byteEnd": 17755, "lineStart": 579, "lineEnd": 590},
+  "sourceBlobs": {"main": "e7c707496160915b1caae48b1d1d5d214c34e948", "stable": "cf44eb62f3c35977cc7bec12b22a46a345d83a26"},
+  "validation": {"tuiUnitTestsPassed": 1174, "tuiUnitTestsFailed": 0, "seconds": 8.86, "scopedClippy": "passed"},
+  "baselines": {
+    "main": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+  },
+  "method": "Execute each exact pinned helper body in Bun after removing only its TypeScript parameter annotation. Source read from disposable oracle checkouts; no TypeScript mirror retained.",
+  "runs": [
+    {
+      "pin": "main",
+      "cases": [
+        {
+          "input": "",
+          "outputs": [
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "input": "header",
+          "outputs": [
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "input": "line01 = 101",
+          "outputs": [
+            "line01 = 101",
+            "01",
+            null
+          ]
+        },
+        {
+          "input": "line99 = 1999",
+          "outputs": [
+            "line99 = 199",
+            "99",
+            null
+          ]
+        },
+        {
+          "input": "line１2 = 123",
+          "outputs": [
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "input": "line123 = 123",
+          "outputs": [
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "input": "line02 = 202\nline03 = 103",
+          "outputs": [
+            "line03 = 103",
+            "02",
+            null
+          ]
+        },
+        {
+          "input": "▌12+ code",
+          "outputs": [
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "input": "▌ 001 + code",
+          "outputs": [
+            null,
+            null,
+            "001"
+          ]
+        },
+        {
+          "input": "▌﻿09 + code",
+          "outputs": [
+            null,
+            null,
+            "09"
+          ]
+        },
+        {
+          "input": "▌12+ code",
+          "outputs": [
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "input": "▌ no ▌ 7 + code",
+          "outputs": [
+            null,
+            null,
+            "7"
+          ]
+        },
+        {
+          "input": "▌\n42\n+ code",
+          "outputs": [
+            null,
+            null,
+            "42"
+          ]
+        },
+        {
+          "input": "😀 line08 = 108",
+          "outputs": [
+            "line08 = 108",
+            "08",
+            null
+          ]
+        },
+        {
+          "input": "▌\t12\t+suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌\n12\n+suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌\u000b12\u000b+suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌\f12\f+suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌\r12\r+suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌ 12 +suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌ 12 +suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌ 12 +suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌ 12 +suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌ 12 +suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌ 12 +suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌ 12 +suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌ 12 +suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌ 12 +suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌　12　+suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌﻿12﻿+suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌12+suffix",
+          "outputs": [
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "input": "▌​12​+suffix",
+          "outputs": [
+            null,
+            null,
+            null
+          ]
+        }
+      ]
+    },
+    {
+      "pin": "stable",
+      "cases": [
+        {
+          "input": "",
+          "outputs": [
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "input": "header",
+          "outputs": [
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "input": "line01 = 101",
+          "outputs": [
+            "line01 = 101",
+            "01",
+            null
+          ]
+        },
+        {
+          "input": "line99 = 1999",
+          "outputs": [
+            "line99 = 199",
+            "99",
+            null
+          ]
+        },
+        {
+          "input": "line１2 = 123",
+          "outputs": [
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "input": "line123 = 123",
+          "outputs": [
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "input": "line02 = 202\nline03 = 103",
+          "outputs": [
+            "line03 = 103",
+            "02",
+            null
+          ]
+        },
+        {
+          "input": "▌12+ code",
+          "outputs": [
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "input": "▌ 001 + code",
+          "outputs": [
+            null,
+            null,
+            "001"
+          ]
+        },
+        {
+          "input": "▌﻿09 + code",
+          "outputs": [
+            null,
+            null,
+            "09"
+          ]
+        },
+        {
+          "input": "▌12+ code",
+          "outputs": [
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "input": "▌ no ▌ 7 + code",
+          "outputs": [
+            null,
+            null,
+            "7"
+          ]
+        },
+        {
+          "input": "▌\n42\n+ code",
+          "outputs": [
+            null,
+            null,
+            "42"
+          ]
+        },
+        {
+          "input": "😀 line08 = 108",
+          "outputs": [
+            "line08 = 108",
+            "08",
+            null
+          ]
+        },
+        {
+          "input": "▌\t12\t+suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌\n12\n+suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌\u000b12\u000b+suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌\f12\f+suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌\r12\r+suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌ 12 +suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌ 12 +suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌ 12 +suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌ 12 +suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌ 12 +suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌ 12 +suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌ 12 +suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌ 12 +suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌ 12 +suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌　12　+suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌﻿12﻿+suffix",
+          "outputs": [
+            null,
+            null,
+            "12"
+          ]
+        },
+        {
+          "input": "▌12+suffix",
+          "outputs": [
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "input": "▌​12​+suffix",
+          "outputs": [
+            null,
+            null,
+            null
+          ]
+        }
+      ]
+    }
+  ]
+}
