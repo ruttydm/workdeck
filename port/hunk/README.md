@@ -2438,6 +2438,11 @@ It checks successful exit, exact response diagnostics and terminal attachment
 flags. Both cases passed on macOS. This is native command evidence, not a frozen
 Hunk comparison, Windows execution or a real-terminal raw-mode restoration check.
 
+The subsequent PTY test also compares the complete terminal settings before
+launch and after successful process exit. Exact restoration passed on macOS
+for both the background-response and unanswered-query paths, superseding the
+real-terminal restoration limitation above for those two paths only.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

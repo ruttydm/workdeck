@@ -16,6 +16,7 @@ fn theme_probe_exchanges_osc11_and_reports_timeout_on_a_real_pty() {
                 pixel_height: 0,
             })
             .unwrap();
+        let initial_mode = pair.master.get_termios().expect("initial PTY termios");
         let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_xtask"));
         command.args(["themes", "probe"]);
         let mut child = pair.slave.spawn_command(command).unwrap();
@@ -55,6 +56,7 @@ fn theme_probe_exchanges_osc11_and_reports_timeout_on_a_real_pty() {
             let _ = child.kill();
             let _ = child.wait();
         }
+        let restored_mode = pair.master.get_termios();
         drop(writer);
         drop(pair.master);
         reader_thread.join().unwrap();
@@ -63,6 +65,11 @@ fn theme_probe_exchanges_osc11_and_reports_timeout_on_a_real_pty() {
         }
         let text = String::from_utf8_lossy(&output);
         assert!(exited.is_some_and(|status| status.success()), "{text}");
+        assert_eq!(
+            restored_mode.as_ref(),
+            Some(&initial_mode),
+            "PTY mode must be restored after response or timeout"
+        );
         assert!(queried, "{text}");
         let json_start = text.find('{').expect("diagnostic JSON");
         let report: serde_json::Value = serde_json::from_str(text[json_start..].trim()).unwrap();
