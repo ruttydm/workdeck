@@ -2568,6 +2568,12 @@ historical gap fixture remains unchanged as provenance. This closes those four
 observed cases, not all possible JSON parsing/serialization differences or the
 remaining website port.
 
+The executable-level JSON-LD test now feeds every frozen source case through
+the CLI's actual JSON parser and serializer and compares exact stdout (plus the
+command's trailing newline), successful exit and empty stderr. All three catalog
+CLI integration tests and xtask all-target Clippy passed. Historical mismatch
+observations stay in the fixture; the test uses the captured source expectations.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

@@ -14,6 +14,35 @@ fn run(input: &[u8], args: &[&str]) -> std::process::Output {
 }
 
 #[test]
+fn json_ld_cli_matches_frozen_source_number_and_property_formatting() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../port/hunk/oracles/json-ld-serialization-gaps.json"
+    ))
+    .unwrap();
+    for capture in fixture["sourceCaptures"].as_array().unwrap() {
+        for case in capture["cases"].as_array().unwrap() {
+            let output = run(
+                case["input"].as_str().unwrap().as_bytes(),
+                &["extension-catalog", "json-ld"],
+            );
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(output.stderr.is_empty());
+            assert_eq!(
+                String::from_utf8(output.stdout).unwrap(),
+                format!("{}\n", case["expected"].as_str().unwrap()),
+                "{}: {}",
+                capture["kind"],
+                case["input"]
+            );
+        }
+    }
+}
+
+#[test]
 fn json_ld_command_escapes_script_closers_and_round_trips() {
     let input = br#"{"name":"</script><img src=x onerror=alert(1)>"}"#;
     let output = run(input, &["extension-catalog", "json-ld"]);
