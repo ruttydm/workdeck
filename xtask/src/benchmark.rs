@@ -13,6 +13,9 @@ mod fixtures;
 mod geometry_memory;
 mod highlight_prefetch;
 mod historical;
+pub(crate) use historical::{
+    verify as verify_historical, verify_for_baseline as verify_historical_for_baseline,
+};
 mod interaction_latency;
 mod large_stream;
 mod large_stream_profile;

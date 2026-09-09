@@ -1504,6 +1504,7 @@ fn sha256_file(path: &Path) -> Result<String> {
 
 fn verify() -> Result<()> {
     let repo = repo_root()?;
+    benchmark::verify_historical(&repo)?;
     verify_vendored_themes()?;
     skill::check(&repo)?;
     architecture::check(&repo)?;
@@ -1813,6 +1814,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
         .transpose()?;
     let baseline = requested_baseline.unwrap_or_else(|| records[0].baseline.clone());
     port_oracles::verify(&repo, &baseline)?;
+    benchmark::verify_historical_for_baseline(&repo, &baseline)?;
     let entries = read_tree(&repo, &baseline)?;
     let expected = entries
         .iter()

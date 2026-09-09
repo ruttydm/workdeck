@@ -21,5 +21,11 @@ its bytes. It neither executes historical tooling nor treats historical threshol
 as Workdeck's stricter performance gate. Hunk attribution is retained in the archive
 and `THIRD_PARTY_NOTICES`.
 
+`cargo xtask verify` and the pinned `cargo xtask port audit` run the same
+read-only archive check. A disposable shared Git checkout tests both missing
+archive data and modified report contents, verifies rejection, and confirms
+that checking never repairs the input. Custom-baseline inventory audits do not
+require this Hunk-specific archive.
+
 The release-directory README and marker file have separate ledger records and
 are not covered by this archive.
