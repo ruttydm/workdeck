@@ -113,6 +113,10 @@ fn main() {
 fn run() -> Result<()> {
     let mut args = env::args().skip(1);
     match args.next().as_deref() {
+        Some("test") => {
+            ensure!(args.next().is_none(), "test accepts no arguments");
+            run_workspace_tests(&repo_root()?)
+        }
         Some("port") => {
             let command = args
                 .next()
@@ -1534,6 +1538,44 @@ fn test_git_isolation_replaces_inherited_global_and_system_configuration() {
     }
 }
 
+fn workspace_test_command(repo: &Path) -> std::process::Command {
+    let mut tests = std::process::Command::new("cargo");
+    tests
+        .current_dir(repo)
+        .args(["test", "--locked", "--workspace", "--all-targets"]);
+    isolate_test_git_config(&mut tests);
+    tests
+}
+
+#[test]
+fn workspace_test_command_keeps_full_locked_scope_and_isolated_git() {
+    let command = workspace_test_command(Path::new("/workspace"));
+    assert_eq!(command.get_current_dir(), Some(Path::new("/workspace")));
+    assert_eq!(
+        command.get_args().collect::<Vec<_>>(),
+        ["test", "--locked", "--workspace", "--all-targets"]
+    );
+    let variables = command
+        .get_envs()
+        .collect::<std::collections::BTreeMap<_, _>>();
+    for key in ["GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"] {
+        assert_eq!(
+            variables[std::ffi::OsStr::new(key)],
+            Some(std::ffi::OsStr::new(if cfg!(windows) {
+                "NUL"
+            } else {
+                "/dev/null"
+            }))
+        );
+    }
+}
+
+fn run_workspace_tests(repo: &Path) -> Result<()> {
+    let mut tests = workspace_test_command(repo);
+    ensure!(tests.status()?.success(), "workspace tests failed");
+    Ok(())
+}
+
 fn verify() -> Result<()> {
     let repo = repo_root()?;
     benchmark::verify_historical(&repo)?;
@@ -1545,12 +1587,7 @@ fn verify() -> Result<()> {
         ["upstream-history".into(), "--check".into()].into_iter(),
     )?;
     run_checked(&repo, "cargo", &["fmt", "--all", "--check"])?;
-    let mut tests = std::process::Command::new("cargo");
-    tests
-        .current_dir(&repo)
-        .args(["test", "--locked", "--workspace", "--all-targets"]);
-    isolate_test_git_config(&mut tests);
-    ensure!(tests.status()?.success(), "workspace tests failed");
+    run_workspace_tests(&repo)?;
     run_checked(
         &repo,
         "cargo",
@@ -2521,6 +2558,7 @@ fn print_help() {
     );
     println!("cargo xtask licenses [--output PATH]");
     println!("cargo xtask verify");
+    println!("cargo xtask test");
     println!("cargo xtask architecture check");
     println!("cargo xtask nix check");
     println!("cargo xtask skill <generate|check>");

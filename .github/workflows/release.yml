@@ -30,7 +30,7 @@ jobs:
       - name: Clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Test
-        run: cargo test --locked --workspace --all-targets
+        run: cargo xtask test
       - name: Dependency license policy
         uses: EmbarkStudios/cargo-deny-action@v2
       - name: Dependency security audit

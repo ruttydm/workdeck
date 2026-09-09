@@ -81,7 +81,7 @@ jobs:
         run: cargo xtask licenses
 
       - name: Test terminal workspace
-        run: cargo test --locked --workspace --all-targets
+        run: cargo xtask test
 
       - name: Clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
