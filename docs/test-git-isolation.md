@@ -26,3 +26,9 @@ validates the VCS-library scope only, not the new workflow runs or Windows.
 The shared command regression verifies locked workspace/all-targets arguments,
 working directory, and both explicit configuration overrides; xtask all-target
 Clippy and formatting also pass.
+
+`xtask/tests/test_cli.rs` additionally executes the built tool with unsupported
+arguments from an empty non-repository directory and a PATH without Cargo or Git.
+All four cases report `test accepts no arguments`, exit 1, emit no stdout and
+create no files. This confirms validation happens before repository discovery or
+test spawning; it does not exercise a successful whole-workspace child run.
