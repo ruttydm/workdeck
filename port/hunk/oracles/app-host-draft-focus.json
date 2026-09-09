@@ -1,0 +1,34 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTest": "draft note focus suppresses app shortcuts while accepting typed shortcut keys",
+  "baselineInterval": {
+    "byteStart": 89162,
+    "byteEnd": 90177,
+    "lineStart": 3008,
+    "lineEnd": 3042,
+    "sha256": "62276482d07c3cee1c2806aa64b0c62d5707043f42e317b4dbf7674c5c4d5cd7"
+  },
+  "runtime": "Bun 1.3.14 (0d9b296a), disposable oracle only",
+  "command": "GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null bun test <pinned-checkout>/src/ui/AppHost.interactions.test.tsx -t 'draft note focus suppresses app shortcuts'",
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > draft note focus suppresses app shortcuts while accepting typed shortcut keys [219.48ms]\n\n 1 pass\n 75 filtered out\n 0 fail\n 5 expect() calls\nRan 1 test across 1 file. [840.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > draft note focus suppresses app shortcuts while accepting typed shortcut keys [181.67ms]\n\n 1 pass\n 73 filtered out\n 0 fail\n 5 expect() calls\nRan 1 test across 1 file. [599.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "tests::draft_note_focus_accepts_sidebar_shortcut_as_text_without_toggling_sidebar",
+    "passed": 1,
+    "failed": 0,
+    "filtered": 1123,
+    "seconds": 0.78,
+    "command": "CARGO_INCREMENTAL=0 cargo test -p workdeck-tui --lib tests::draft_note_focus_accepts_sidebar_shortcut_as_text_without_toggling_sidebar -- --exact"
+  },
+  "scope": "240x24, c then s; draft remains open and sidebar filename count stays unchanged. Native additionally checks sidebar state and exact composer body. Typed native events do not prove terminal escape decoding."
+}

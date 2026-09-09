@@ -1,5 +1,14 @@
 # Hunk semantic-port ledger
 
+## AppHost draft focus and shortcut suppression
+
+Bytes 89,162–90,177 map to draft input ownership at 240×24. Both pinned source
+tests pass five assertions; native coverage additionally checks the exact draft
+body is `s` and the sidebar option is unchanged. The strengthened test, formatting
+and TUI Clippy pass. See [captures and scope](oracles/app-host-draft-focus.json).
+Strict audit still fails: 268 unmapped intervals in 1,354 records across the
+unchanged 1,257 baseline files; 11 cached upstream commits remain pending.
+
 ## AppHost burst movement and draft anchoring
 
 Bytes 87,481–89,162 map to the rapid eight-Down-then-comment regression.

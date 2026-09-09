@@ -19476,6 +19476,26 @@ mod tests {
     }
 
     #[test]
+    fn draft_note_focus_accepts_sidebar_shortcut_as_text_without_toggling_sidebar() {
+        let mut app = ReviewApp::new(responsive_changeset(), ReviewOptions::default());
+        let mut terminal = Terminal::new(TestBackend::new(240, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+        let before = rendered_review_frame(&mut terminal, &app);
+        assert!(before.contains("Draft note"));
+        let beta_count = before.matches("beta.ts").count();
+        assert!(beta_count > 1, "{before}");
+        let sidebar = app.options.sidebar;
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        let after = rendered_review_frame(&mut terminal, &app);
+        assert!(after.contains("Draft note"));
+        assert!(after.contains('s'));
+        assert_eq!(after.matches("beta.ts").count(), beta_count);
+        assert_eq!(app.options.sidebar, sidebar);
+        assert_eq!(app.note_composer.as_ref().unwrap().body, "s");
+    }
+
+    #[test]
     fn burst_line_movement_opens_draft_at_latest_cursor_without_shifting_source_row() {
         let review = navigation_changeset(vec![(
             "scroll.ts".into(),
