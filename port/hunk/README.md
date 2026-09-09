@@ -2763,6 +2763,17 @@ key ordering and final newline, against `site/data/legacy-extensions.json` in
 addition to its semantic comparison. This makes this data artifact exactly
 reproducible from pinned Git; the surrounding source file remains incomplete.
 
+### Native release-fragment authoring (partial)
+
+`cargo xtask changelog add <id> <patch|minor|major|empty> [body]` creates a
+Workdeck fragment under `changes/`, without invoking the source package
+runtime. Invalid requests create no state; atomic no-clobber publication
+preserves existing fragments. Tests cover all bump types, Unicode content,
+maintenance-only fragments, overwrite rejection and invalid arguments.
+See [native release fragments](../../docs/native-release-fragments.md).
+Version preparation, consumption, prerelease policy and publication remain
+unfinished, so `.changeset/README.md` remains unmapped.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

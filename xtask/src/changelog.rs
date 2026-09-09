@@ -12,6 +12,8 @@ const DATA: &str = "port/hunk/release-fragments.json";
 const DOCUMENT: &str = "docs/upstream-release-fragments.md";
 const BASELINE: &str = "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2";
 
+mod fragments;
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Archive {
@@ -189,8 +191,12 @@ fn verify_sources(repo: &Path, archive: &Archive) -> Result<()> {
 }
 
 pub(super) fn run(repo: &Path, mut args: impl Iterator<Item = String>) -> Result<()> {
-    if args.next().as_deref() != Some("upstream-history") {
-        bail!("changelog requires upstream-history [--check]");
+    match args.next().as_deref() {
+        Some("add") => return fragments::add(repo, args),
+        Some("upstream-history") => {}
+        _ => bail!(
+            "changelog requires upstream-history [--check] or add <id> <patch|minor|major|empty> [body]"
+        ),
     }
     let check = match args.next().as_deref() {
         Some("--check") => true,
