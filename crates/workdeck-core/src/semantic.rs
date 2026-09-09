@@ -281,10 +281,14 @@ pub fn project_review_document(
     source_label: Option<&str>,
 ) -> SemanticReviewDocument {
     let source_label = source_label.unwrap_or_else(|| changeset.effective_source_label());
+    project_review_files(&changeset.files, source_label)
+}
+
+/// Project owned semantic content without copying the renderer-model input first.
+pub fn project_review_files(files: &[DiffFile], source_label: &str) -> SemanticReviewDocument {
     let mut occurrences = HashMap::<&str, usize>::new();
     SemanticReviewDocument {
-        files: changeset
-            .files
+        files: files
             .iter()
             .map(|file| {
                 let occurrence = occurrences.entry(file.path.as_str()).or_default();

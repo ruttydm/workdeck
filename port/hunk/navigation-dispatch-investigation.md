@@ -140,3 +140,17 @@ navigation figure should not drive performance decisions for shipped builds.
 First-frame work and memory remain substantial compared with the retained source
 observations. This is not a repeated paired comparison, and source/native flush
 semantics remain unverified, so no benchmark acceptance is claimed.
+
+## Borrowed semantic projection
+
+Publication construction also copied every renderer file into a temporary
+`Changeset` solely to invoke semantic projection, then independently retained
+owned files for resource materialization. `project_review_files` now accepts
+the borrowed slice and explicit source label. The existing changeset API delegates
+to this projector while retaining its source-label fallback. Publications still
+own semantic content and renderer files; only the temporary wrapper copy is
+removed. A duplicate-path regression checks occurrence-based keys and retained
+content after caller input mutation and removal. Performance remains unmeasured
+for this change.
+Validation passed: six core semantic tests, three publication tests, 11 producer
+tests, core/review all-target Clippy, formatting and diff checks.

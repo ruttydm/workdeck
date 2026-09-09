@@ -3,8 +3,8 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use workdeck_core::{
-    Changeset, ChangesetSource, DiffFile, ReviewFileChangeKind, ReviewSide, SemanticReviewDocument,
-    SemanticReviewFile, project_review_document,
+    DiffFile, ReviewFileChangeKind, ReviewSide, SemanticReviewDocument, SemanticReviewFile,
+    project_review_files,
 };
 
 use crate::{
@@ -90,18 +90,7 @@ pub fn build_review_publication(
 ) -> ReviewPublication {
     let generation = generation.into();
     let source_label = source_label.unwrap_or("review");
-    let changeset = Changeset {
-        id: source_label.to_owned(),
-        source_label: source_label.to_owned(),
-        title: source_label.to_owned(),
-        summary: None,
-        agent_summary: None,
-        source: ChangesetSource::Patch {
-            label: source_label.to_owned(),
-        },
-        files: files.to_vec(),
-    };
-    let document = Arc::new(project_review_document(&changeset, Some(source_label)));
+    let document = Arc::new(project_review_files(files, source_label));
     let manifest = build_review_content_manifest(&document);
     let resources = document
         .files
@@ -210,6 +199,32 @@ mod tests {
             file.set_sources(snapshots);
         }
         file
+    }
+
+    #[test]
+    fn borrowed_publication_projection_preserves_duplicate_keys_and_owned_content() {
+        let mut files = vec![
+            file("same.rs", FileChangeKind::Modified, Some("first\n")),
+            file("same.rs", FileChangeKind::Modified, Some("second\n")),
+        ];
+        let publication = build_review_publication(&files, "generation:test:0", None);
+        let first = &publication.document.files[0];
+        let second = &publication.document.files[1];
+        assert_ne!(first.key, second.key);
+        assert_eq!(
+            first.key,
+            workdeck_core::project_review_file(&files[0], "review", 0).key
+        );
+        assert_eq!(
+            second.key,
+            workdeck_core::project_review_file(&files[1], "review", 1).key
+        );
+        let expected = publication.document.as_ref().clone();
+        files[0].path = "changed.rs".into();
+        files.clear();
+        assert_eq!(publication.document.as_ref(), &expected);
+        assert_eq!(publication.document.files[0].path, "same.rs");
+        assert_eq!(publication.diff_files_by_key.len(), 2);
     }
 
     #[test]
