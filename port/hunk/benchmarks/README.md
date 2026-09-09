@@ -524,3 +524,13 @@ Every raw process output is retained. Other host activity was uncontrolled, so
 this is not a controlled causal comparison or a fresh paired Hunk gate. Scrolling
 remains above the older paired source budget; full launch, reload and the complete
 memory suite remain unverified.
+
+### Frame capacity hint at `43bb5f4e`
+
+[Three fresh optimized native runs](interaction-diagnostic-43bb5f4e.json) measured
+6.40 ms first frame, 25.26 ms navigation and 2.50 ms scrolling, including 2.47 ms
+scroll rendering. Maximum process peak RSS was 170,934,272 bytes. The preceding
+sample was 2.45 ms scrolling and 170,442,752 bytes peak RSS. These uncontrolled
+native-only samples show no demonstrated improvement from the frame-capacity hint.
+Raw process output and all distributions are retained. No paired Hunk comparison,
+complete memory-suite result, or performance-gate success is claimed.
