@@ -375,6 +375,14 @@ fn site(command: Option<&str>) -> Result<()> {
                 .context("legacy catalog entries missing")?
                 .len();
             extension_catalog::validate_legacy_catalog(&catalog)?;
+            let source = git_stdout(
+                &repo,
+                [
+                    "show",
+                    "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2:website/src/data/extensions.ts",
+                ],
+            )?;
+            extension_catalog::verify_legacy_source(&catalog, &source)?;
             for entry in catalog["entries"].as_array().unwrap() {
                 let link = format!(
                     "href=\"https://github.com/{}\"",

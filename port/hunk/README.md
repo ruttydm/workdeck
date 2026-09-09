@@ -2717,6 +2717,15 @@ missing entries, duplicates, malformed repository strings, blank metadata,
 unknown categories and false native compatibility. These checks protect the
 migrated seed; they do not prove source runtime or interactive site parity.
 
+The site check now reads the catalog's source directly from the pinned Git
+commit and compares every original field and list position with migrated JSON.
+A narrow Rust literal decoder accepts only JSON strings, integer literals,
+punctuation, trailing commas and the six declared field identifiers; it never
+executes TypeScript and rejects other syntax. The only added field excluded
+from comparison is the separately validated rewrite status. A structurally
+valid summary change fails this source comparison. Source refs must therefore
+be available when checking the site. No TypeScript mirror or runtime is added.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

@@ -69,6 +69,88 @@ pub fn validate_legacy_catalog(catalog: &Value) -> Result<()> {
     Ok(())
 }
 
+// Decode only the pinned declarative catalog literal, never execute source.
+// Reject syntax outside JSON strings, integers, punctuation and known keys.
+pub fn verify_legacy_source(catalog: &Value, source: &str) -> Result<()> {
+    validate_legacy_catalog(catalog)?;
+    let literal = source
+        .split_once("export const EXTENSION_CATALOG: readonly ExtensionListing[] = [")
+        .and_then(|(_, tail)| {
+            tail.split_once("\n];")
+                .map(|(body, _)| format!("[{body}\n]"))
+        })
+        .ok_or_else(|| anyhow::anyhow!("pinned catalog literal not found"))?;
+    let token_pattern =
+        regex::Regex::new(r#""(?:[^"\\]|\\.)*"|[A-Za-z_][A-Za-z_0-9]*|[0-9]+|[\[\]{},:]"#)?;
+    let tokens: Vec<_> = token_pattern.find_iter(&literal).collect();
+    let mut end = 0;
+    let mut json = String::new();
+    for (index, token) in tokens.iter().enumerate() {
+        anyhow::ensure!(
+            literal[end..token.start()].trim().is_empty(),
+            "unsupported catalog literal syntax"
+        );
+        end = token.end();
+        let text = token.as_str();
+        if text == ","
+            && tokens
+                .get(index + 1)
+                .is_some_and(|next| matches!(next.as_str(), "]" | "}"))
+        {
+            continue;
+        }
+        if text.as_bytes()[0].is_ascii_alphabetic() || text.starts_with('_') {
+            anyhow::ensure!(
+                matches!(
+                    text,
+                    "repo" | "name" | "summary" | "categories" | "version" | "apiVersion"
+                ),
+                "unsupported catalog identifier"
+            );
+            json.push_str(&serde_json::to_string(text)?);
+        } else {
+            json.push_str(text);
+        }
+    }
+    anyhow::ensure!(
+        literal[end..].trim().is_empty(),
+        "unsupported trailing catalog syntax"
+    );
+    let expected: Value = serde_json::from_str(&json)?;
+    let mut actual = catalog["entries"].clone();
+    for entry in actual.as_array_mut().unwrap() {
+        entry.as_object_mut().unwrap().remove("compatibility");
+    }
+    anyhow::ensure!(
+        actual == expected,
+        "migrated catalog differs from pinned source fields"
+    );
+    Ok(())
+}
+
+#[test]
+fn legacy_source_comparison_rejects_field_drift_and_executable_syntax() {
+    let catalog: Value =
+        serde_json::from_str(include_str!("../../site/data/legacy-extensions.json")).unwrap();
+    let mut entries = catalog["entries"].clone();
+    for entry in entries.as_array_mut().unwrap() {
+        entry.as_object_mut().unwrap().remove("compatibility");
+    }
+    let source = format!(
+        "export const EXTENSION_CATALOG: readonly ExtensionListing[] = {};",
+        serde_json::to_string_pretty(&entries).unwrap()
+    );
+    verify_legacy_source(&catalog, &source).unwrap();
+    let mut changed = catalog.clone();
+    changed["entries"][0]["summary"] =
+        serde_json::json!("Different but structurally valid summary");
+    assert!(validate_legacy_catalog(&changed).is_ok());
+    assert!(verify_legacy_source(&changed, &source).is_err());
+    let injected = source.replacen("= [", "= [compute(),", 1);
+    assert!(verify_legacy_source(&catalog, &injected).is_err());
+    assert!(verify_legacy_source(&catalog, "").is_err());
+}
+
 #[test]
 fn legacy_catalog_rejects_missing_duplicate_or_misrepresented_listings() {
     let catalog: Value =
