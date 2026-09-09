@@ -2392,3 +2392,24 @@ All 57 highlighter-filtered TUI tests passed, including 600-file cache retention
 reload invalidation, deferred publication and actual stack/split cell painting.
 TUI all-target Clippy and formatting passed. No latency improvement is claimed
 without a measured run; the complete hook record remains unmapped.
+
+### Workspace verification at `3c6c4701`
+
+`CARGO_INCREMENTAL=0 cargo test --locked --workspace --all-targets` passed on
+the native macOS host with the checkout unchanged throughout the run. This includes
+all 93 terminal-pager tests, 25 native highlighter integration tests, 572 session
+tests, 1,094 TUI tests, 241 VCS tests and 203 tooling tests with one existing test
+ignored. Full-workspace all-target Clippy with `-D warnings` and formatting passed.
+`cargo deny check` passed under the existing policy, including its three existing
+ignored advisories and duplicate-dependency warnings; no policy was relaxed.
+The observed suite summaries and command outcomes are retained in
+`verification-3c6c4701.json`.
+
+VCS watcher tests took 246.93 seconds but finished successfully. A diagnostic
+process sample during the wait showed watcher close waiting for notify's FSEvents
+thread, which was in a native current-event-ID RPC. The run was not interrupted
+or restarted. This checkpoint does not establish cross-platform native execution,
+benchmark acceptance, full source parity or release readiness, and is not a run
+of the composed `cargo xtask verify` command.
+The fresh strict port audit still fails with 290 unmapped records across the
+1,257-file baseline and 11 cached upstream commits pending; coverage was unchanged.
