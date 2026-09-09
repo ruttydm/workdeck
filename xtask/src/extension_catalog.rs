@@ -6,6 +6,97 @@ use std::io::Read;
 
 mod loading;
 
+pub fn validate_legacy_catalog(catalog: &Value) -> Result<()> {
+    anyhow::ensure!(
+        catalog["baseline"] == "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+        "unexpected catalog baseline"
+    );
+    anyhow::ensure!(
+        catalog["blob"] == "23f2196dd3c7a91306e050db352d4b5518a31117",
+        "unexpected catalog source blob"
+    );
+    let entries = catalog["entries"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("catalog entries missing"))?;
+    anyhow::ensure!(
+        entries.len() == 16,
+        "pinned catalog must preserve all 16 listings"
+    );
+    let mut repositories = std::collections::BTreeSet::new();
+    let version = regex::Regex::new(r"^\d+\.\d+\.\d+")?;
+    for entry in entries {
+        let repo = entry["repo"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("repository missing"))?;
+        anyhow::ensure!(
+            repositories.insert(repo.to_lowercase()),
+            "duplicate catalog repository"
+        );
+        let parts: Vec<_> = repo.split('/').collect();
+        anyhow::ensure!(
+            parts.len() == 2
+                && parts.iter().all(|part| !part.is_empty()
+                    && part
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))),
+            "invalid catalog repository"
+        );
+        for field in ["name", "summary"] {
+            anyhow::ensure!(
+                entry[field]
+                    .as_str()
+                    .is_some_and(|value| !value.trim().is_empty()),
+                "catalog {field} missing"
+            );
+        }
+        anyhow::ensure!(
+            entry["version"]
+                .as_str()
+                .is_some_and(|value| version.is_match(value)),
+            "invalid recorded version"
+        );
+        anyhow::ensure!(
+            entry["apiVersion"].as_u64().is_some_and(|value| value > 0),
+            "recorded source API missing"
+        );
+        anyhow::ensure!(
+            entry["compatibility"] == "requires-rust-rewrite",
+            "legacy extension cannot be advertised as a native replacement"
+        );
+        let categories: Vec<Category> = serde_json::from_value(entry["categories"].clone())?;
+        anyhow::ensure!(!categories.is_empty(), "catalog categories missing");
+    }
+    Ok(())
+}
+
+#[test]
+fn legacy_catalog_rejects_missing_duplicate_or_misrepresented_listings() {
+    let catalog: Value =
+        serde_json::from_str(include_str!("../../site/data/legacy-extensions.json")).unwrap();
+    validate_legacy_catalog(&catalog).unwrap();
+    for (field, value) in [
+        ("repo", catalog["entries"][1]["repo"].clone()),
+        ("repo", serde_json::json!("owner/repo\" onclick=bad")),
+        ("name", serde_json::json!("")),
+        ("summary", serde_json::json!(" ")),
+        ("version", serde_json::json!("unknown")),
+        ("apiVersion", serde_json::json!(null)),
+        ("categories", serde_json::json!([])),
+        ("categories", serde_json::json!(["Unknown"])),
+        ("compatibility", serde_json::json!("native")),
+    ] {
+        let mut changed = catalog.clone();
+        changed["entries"][0][field] = value;
+        assert!(
+            validate_legacy_catalog(&changed).is_err(),
+            "accepted changed {field}"
+        );
+    }
+    let mut shortened = catalog;
+    shortened["entries"].as_array_mut().unwrap().pop();
+    assert!(validate_legacy_catalog(&shortened).is_err());
+}
+
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize, serde::Serialize,
 )]

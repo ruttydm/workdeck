@@ -374,6 +374,20 @@ fn site(command: Option<&str>) -> Result<()> {
                 .as_array()
                 .context("legacy catalog entries missing")?
                 .len();
+            extension_catalog::validate_legacy_catalog(&catalog)?;
+            for entry in catalog["entries"].as_array().unwrap() {
+                let link = format!(
+                    "href=\"https://github.com/{}\"",
+                    // Tera escapes the slash in the interpolated repository;
+                    // the literal URL prefix is not interpolated. Catalog
+                    // validation restricts every other byte to safe ASCII.
+                    entry["repo"].as_str().unwrap().replace('/', "&#x2F;")
+                );
+                ensure!(
+                    html.matches(&link).count() == 1,
+                    "directory repository link missing or duplicated"
+                );
+            }
             ensure!(
                 html.matches("class=\"extension-card\"").count() == count,
                 "directory did not render every listing"

@@ -2709,6 +2709,14 @@ Validated locally with Zola 0.22.1 macOS arm64 (release archive SHA-256
 `46ac45a9e7628dba8593b124ee8794f4f9aa1c6b569918ecd4bbc5d0be190515`):
 the composed site check/build, xtask all-target Clippy and formatting passed.
 
+The site gate additionally validates pinned catalog anchors, exactly 16 unique
+repository identities, nonempty names/summaries/categories, recorded versions
+and source API numbers, and mandatory `requires-rust-rewrite` status. Every
+repository must appear exactly once as a rendered link. Mutation tests reject
+missing entries, duplicates, malformed repository strings, blank metadata,
+unknown categories and false native compatibility. These checks protect the
+migrated seed; they do not prove source runtime or interactive site parity.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.
