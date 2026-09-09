@@ -29,6 +29,10 @@ impl Renderer {
     pub(super) fn with_content(files: usize, lines: usize, non_ascii: bool) -> Result<Self> {
         let bootstrap =
             stream::large_bootstrap(std::env::current_dir()?, files, lines, 37, 84, non_ascii)?;
+        Ok(Self::from_bootstrap(bootstrap))
+    }
+
+    pub(super) fn from_bootstrap(bootstrap: workdeck_core::AppBootstrap) -> Self {
         let app = ReviewApp::new(
             bootstrap.changeset,
             ReviewOptions {
@@ -39,10 +43,10 @@ impl Renderer {
                 ..ReviewOptions::default()
             },
         );
-        Ok(Self {
+        Self {
             app,
             buffer: Buffer::empty(VIEWPORT),
-        })
+        }
     }
 
     pub(super) fn render_pass(&mut self, passes: usize) {

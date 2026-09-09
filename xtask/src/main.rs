@@ -2464,6 +2464,7 @@ fn print_help() {
         "cargo xtask benchmark geometry-memory [--file-count N] [--lines-per-file N] [--width N] [--no-gc]"
     );
     println!("cargo xtask benchmark interaction-diagnostic");
+    println!("cargo xtask benchmark huge-stream-diagnostic");
     println!("cargo xtask benchmark historical-release [--check]");
     println!("cargo xtask ci-changes <base-revision> <head-revision>");
     println!("cargo xtask ci-host <expected-native-target>");

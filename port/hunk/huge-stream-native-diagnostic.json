@@ -1,0 +1,48 @@
+{
+  "parentCommit": "c6f934f9f7c8c873a488ba44b62446dc59fe664d",
+  "sourceSha256": {
+    "xtask/src/benchmark/huge_stream.rs": "bcff930f598498ac02b1f767086a252201eb6bf0de7fb62d1e1e04fcae8db001",
+    "xtask/src/benchmark/large_stream.rs": "d01f5cb4ca28cdb48d905725b58cb031da59b9d2977c97d1042435b9b5c80c1c"
+  },
+  "command": "CARGO_INCREMENTAL=0 cargo xtask benchmark huge-stream-diagnostic",
+  "host": "Darwin arm64",
+  "profile": "dev (unoptimized + debuginfo)",
+  "exitCode": 0,
+  "limitations": [
+    "Single native diagnostic, not a paired Hunk measurement.",
+    "Current memory snapshots do not measure peak RSS or JavaScript heapUsed.",
+    "Source lifecycle/timing parity and full release gates remain incomplete."
+  ],
+  "report": {
+    "diagnosticOnly": true,
+    "files": 1001,
+    "firstFrameMs": 1154.35875,
+    "scrollTickMs": [
+      117.201666,
+      136.07233399999998,
+      113.09575,
+      113.685542,
+      112.38875,
+      111.26216699999999
+    ],
+    "navigationPressMs": [
+      735.235042,
+      740.908458,
+      737.91,
+      739.412625
+    ],
+    "afterFirstFrame": {
+      "rssBytes": 1384071168,
+      "mallocInUseBytes": 633245200
+    },
+    "afterNavigation": {
+      "rssBytes": 1409122304,
+      "mallocInUseBytes": 634466736
+    },
+    "sequence": "one renderer: first frame, two settle frames, six scroll ticks, four navigation presses",
+    "memorySemantics": "Current native RSS and available malloc usage; not peak RSS or JavaScript heapUsed",
+    "fixtureBuildMs": 15154.6875,
+    "linesPerFile": 300,
+    "giantFileLines": 50000
+  }
+}

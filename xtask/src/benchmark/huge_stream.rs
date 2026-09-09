@@ -1,0 +1,85 @@
+//! Partial MIT port of Hunk huge-stream.ts. Native diagnostic, not heap parity.
+use super::{large_stream::Renderer, native_memory, stream};
+use anyhow::{Result, ensure};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+use std::time::Instant;
+
+fn measure(bootstrap: workdeck_core::AppBootstrap) -> Result<serde_json::Value> {
+    let files = bootstrap.changeset.files.len();
+    let mut setup = Renderer::from_bootstrap(bootstrap);
+    let start = Instant::now();
+    setup.render_pass(1);
+    let first_frame = start.elapsed().as_secs_f64() * 1000.0;
+    let first_memory = native_memory::snapshot()?;
+    setup.render_pass(2);
+    let mut scroll = Vec::new();
+    let before_scroll = setup.app.review_scroll();
+    for _ in 0..6 {
+        let start = Instant::now();
+        setup.app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: 170,
+            row: 12,
+            modifiers: KeyModifiers::NONE,
+        });
+        setup.render_pass(1);
+        std::thread::yield_now();
+        scroll.push(start.elapsed().as_secs_f64() * 1000.0);
+    }
+    ensure!(
+        setup.app.review_scroll() > before_scroll,
+        "huge workload did not scroll"
+    );
+    let mut navigation = Vec::new();
+    for _ in 0..4 {
+        let before = setup.app.shared_state().lock().unwrap().selection();
+        let start = Instant::now();
+        setup
+            .app
+            .handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+        setup.render_pass(1);
+        std::thread::yield_now();
+        navigation.push(start.elapsed().as_secs_f64() * 1000.0);
+        ensure!(
+            setup.app.shared_state().lock().unwrap().selection() != before,
+            "huge workload navigation did not change selection"
+        );
+    }
+    let after_navigation = native_memory::snapshot()?;
+    Ok(serde_json::json!({
+        "diagnosticOnly":true,"files":files,"firstFrameMs":first_frame,
+        "scrollTickMs":scroll,"navigationPressMs":navigation,
+        "afterFirstFrame":first_memory,"afterNavigation":after_navigation,
+        "sequence":"one renderer: first frame, two settle frames, six scroll ticks, four navigation presses",
+        "memorySemantics":"Current native RSS and available malloc usage; not peak RSS or JavaScript heapUsed"
+    }))
+}
+
+pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
+    ensure!(
+        args.next().is_none(),
+        "huge-stream-diagnostic accepts no arguments"
+    );
+    native_memory::snapshot()?;
+    let start = Instant::now();
+    let bootstrap = stream::huge_bootstrap(std::env::current_dir()?)?;
+    let fixture_ms = start.elapsed().as_secs_f64() * 1000.0;
+    let mut report = measure(bootstrap)?;
+    report["fixtureBuildMs"] = serde_json::json!(fixture_ms);
+    report["linesPerFile"] = serde_json::json!(stream::HUGE_LINES_PER_FILE);
+    report["giantFileLines"] = serde_json::json!(stream::GIANT_SINGLE_FILE_LINES);
+    println!("{}", serde_json::to_string_pretty(&report)?);
+    Ok(())
+}
+
+#[test]
+fn huge_interaction_sequence_executes_on_a_small_fixture() {
+    let fixture =
+        stream::large_bootstrap(std::env::current_dir().unwrap(), 6, 120, 37, 84, false).unwrap();
+    let report = measure(fixture).unwrap();
+    assert_eq!(report["files"], 6);
+    assert_eq!(report["scrollTickMs"].as_array().unwrap().len(), 6);
+    assert_eq!(report["navigationPressMs"].as_array().unwrap().len(), 4);
+    assert!(report["firstFrameMs"].as_f64().unwrap() > 0.0);
+    assert!(run(["unexpected".into()].into_iter()).is_err());
+}

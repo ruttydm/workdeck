@@ -13,6 +13,7 @@ mod fixtures;
 mod geometry_memory;
 mod highlight_prefetch;
 mod historical;
+mod huge_stream;
 pub(crate) use historical::{
     verify as verify_historical, verify_for_baseline as verify_historical_for_baseline,
 };
@@ -677,6 +678,9 @@ fn aggregate(source: &str, name: &str, samples: Vec<f64>) -> Metric {
 
 pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     let command = args.next();
+    if command.as_deref() == Some("huge-stream-diagnostic") {
+        return huge_stream::run(args);
+    }
     if command.as_deref() == Some("historical-release") {
         return historical::run(args);
     }
