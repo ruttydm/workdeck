@@ -14318,7 +14318,7 @@ fn agent_rows(file: &DiffFile, layout: LayoutMode, width: usize) -> Vec<Line<'st
         let geometry = agent_note_box_layout(None, layout, width, 0);
         let summary = clip_styled_spans(
             vec![Span::styled(
-                summary.clone(),
+                sanitize_terminal_line(summary),
                 Style::default().fg(Color::LightMagenta),
             )],
             geometry.content_width,
@@ -26287,6 +26287,142 @@ mod tests {
         assert!(frame.contains("this is a very"), "{frame}");
         if shifted {
             assert!(!frame.contains("interaction coverage"), "{frame}");
+        }
+    }
+
+    #[test]
+    fn pinned_dynamic_review_output_rejects_terminal_controls() {
+        let osc = "\x1b]52;c;SGVsbG8=\x07";
+        let csi = "\x1b[2J";
+        let dcs = "\x1bPqpayload\x1b\\";
+        let payload = format!("{osc}{csi}{dcs}\x07\rspoof\x08hidden\x1b");
+        let mut review = navigation_changeset(vec![(
+            "malicious.ts".into(),
+            format!("export const value = \"before{payload}\";\n"),
+            format!("export const value = \"after{payload}\";\n"),
+        )]);
+        let file = &mut review.files[0];
+        file.path = format!("evil{payload}.ts");
+        file.agent = Some(AgentFileContext {
+            path: file.path.clone(),
+            summary: Some(format!("summary{payload}")),
+            annotations: vec![
+                serde_json::from_value(serde_json::json!({
+                    "new_range": {"start": 1, "end": 1},
+                    "summary": format!("annotation{payload}"),
+                    "rationale": format!("rationale{payload}")
+                }))
+                .unwrap(),
+            ],
+        });
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Stack,
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(240, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+        let frame = rendered_review_frame(&mut terminal, &app);
+        for text in ["evil", "before", "after"] {
+            assert!(frame.contains(text), "missing {text}: {frame}");
+        }
+        for control in [osc, csi, dcs, "\x07", "\r", "\x08", "\x1b"] {
+            assert!(
+                !frame.contains(control),
+                "leaked control {control:?}: {frame:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn pinned_rapid_navigation_and_wheel_rendering_settles() {
+        let mut review = navigation_changeset(
+            (1..=10)
+                .map(|index| {
+                    let start = index * 100 + 1;
+                    let before = numbered_exports(start, 90, 0, true);
+                    let mut after = before.lines().map(str::to_owned).collect::<Vec<_>>();
+                    for (line, offset) in [(0, 1000), (30, 3000), (60, 6000)] {
+                        after[line] =
+                            format!("export const line{} = {};", start + line, start + offset);
+                    }
+                    (format!("rapid-{index}.ts"), before, after.join("\n") + "\n")
+                })
+                .collect(),
+        );
+        for (index, file) in review.files.iter_mut().enumerate() {
+            let index = index + 1;
+            let start = index * 100 + 1;
+            assert_eq!(file.hunks.len(), 3);
+            file.agent = Some(AgentFileContext {
+                path: file.path.clone(),
+                summary: Some(format!("rapid {index}")),
+                // Preserve the pinned fixture's assignment-label ranges, even
+                // though they exceed the physical 90-line source length.
+                annotations: [(0, "start"), (30, "middle"), (60, "late")]
+                    .into_iter()
+                    .map(|(offset, label)| {
+                        serde_json::from_value(serde_json::json!({
+                            "new_range": {"start": start + offset, "end": start + offset},
+                            "summary": format!("note {label} {index}")
+                        }))
+                        .unwrap()
+                    })
+                    .collect(),
+            });
+        }
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Stack,
+                agent_notes: true,
+                ..Default::default()
+            },
+        );
+        let area = Rect::new(0, 0, 220, 12);
+        let paint = |app: &mut ReviewApp| {
+            let mut buffer = Buffer::empty(area);
+            render_reconciled(area, &mut buffer, app);
+            buffer
+        };
+        for _ in 0..8 {
+            paint(&mut app);
+        }
+        let initial = app.with_state(|state| state.selection());
+        for _ in 0..2 {
+            for _ in 0..6 {
+                app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+            }
+            for _ in 0..4 {
+                paint(&mut app);
+            }
+        }
+        assert_ne!(app.with_state(|state| state.selection()), initial);
+        for _ in 0..2 {
+            for _ in 0..4 {
+                app.handle_mouse_event(MouseEvent {
+                    kind: MouseEventKind::ScrollDown,
+                    column: 120,
+                    row: 7,
+                    modifiers: KeyModifiers::NONE,
+                });
+            }
+            for _ in 0..4 {
+                paint(&mut app);
+            }
+        }
+        let settled = paint(&mut app);
+        let scroll = app.scroll;
+        let selection = app.with_state(|state| state.selection());
+        for _ in 0..4 {
+            assert_eq!(paint(&mut app), settled);
+            assert_eq!(app.scroll, scroll);
+            assert_eq!(app.with_state(|state| state.selection()), selection);
         }
     }
 

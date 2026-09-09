@@ -1,5 +1,17 @@
 # Hunk semantic-port ledger
 
+## Terminal-control rejection and rapid viewport updates
+
+The two interaction tests at bytes 17,792–20,987 now have executable native
+coverage. The security case exposed unsanitized agent file summaries; rendering
+now removes terminal controls without changing stored summaries. The navigation
+case preserves the ten-file, three-hunk fixture and exact input bursts, then
+requires stable cell buffers, scroll, and selection across repeated rendering.
+Both pinned source runs pass all 11 assertions. All 1,171 TUI unit tests pass.
+See [frozen source and native evidence](oracles/app-host-security-navigation.json).
+The preceding 17,792 bytes of helpers and imports remain unmapped. This split
+adds 3,195 mapped bytes without reducing the number of incomplete records.
+
 ## Broad verification: note hover and success-caption regressions
 
 A fresh workspace verification exposed four PTY failures after the conditional
