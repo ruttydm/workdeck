@@ -478,3 +478,13 @@ These results identify rendering as the next scroll-cost profiling target, not a
 causal speedup from annotation hashing or a fresh paired acceptance result. The old
 paired scrolling failure remains unresolved. This run does not measure full launch,
 reload, peak RSS, or the complete benchmark matrix; no ledger mapping changes.
+
+### Empty-registry projection bypass at `7bddee4a`
+
+[Three fresh native samples](interaction-diagnostic-7bddee4a.json), after rebuilding
+the optimized runner, report medians of 6.45 ms first frame, 25.00 ms navigation and
+3.22 ms scrolling, including 3.19 ms scroll rendering. The preceding native-only
+sample was 3.18 ms scrolling: these uncontrolled measurements do not demonstrate a
+speedup. Skipping unused projections with no highlighters is not sufficient to fix
+the dominant render cost. Raw distributions remain recorded without normalization.
+No fresh Hunk comparison, peak-RSS measurement or performance-gate pass is claimed.
