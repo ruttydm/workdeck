@@ -23670,6 +23670,72 @@ mod tests {
     }
 
     #[test]
+    fn embedded_metadata_changes_invalidate_highlighting_and_gap_geometry() {
+        let original = pinned_collapsed_top_bootstrap().changeset.files.remove(0);
+        let theme = ReviewOptions::default().theme;
+        let cache_key = highlighted_diff_runtime::highlighted_diff_cache_key(&theme, &original);
+        let original_gap = review_trailing_gap(&review_gap_source_for_file(&original));
+        assert!(original_gap.is_some());
+        assert_eq!(
+            cache_key,
+            highlighted_diff_runtime::highlighted_diff_cache_key(&theme, &original.clone())
+        );
+
+        let mut changed = original.clone();
+        for source in changed
+            .sources
+            .old
+            .iter_mut()
+            .chain(changed.sources.new.iter_mut())
+        {
+            // Change lexical context outside the hunk without changing line count.
+            source.content =
+                source
+                    .content
+                    .replacen("export const line001 = 1;", "/* open comment", 1);
+        }
+        changed.set_sources(changed.sources.clone());
+        changed.refresh_identity();
+        assert_eq!(original.hunks, changed.hunks);
+        assert_ne!(original.content_identity, changed.content_identity);
+        assert_ne!(
+            cache_key,
+            highlighted_diff_runtime::highlighted_diff_cache_key(&theme, &changed)
+        );
+        assert_eq!(
+            original_gap,
+            review_trailing_gap(&review_gap_source_for_file(&changed))
+        );
+        let lexical_key = highlighted_diff_runtime::highlighted_diff_cache_key(&theme, &changed);
+
+        for source in changed
+            .sources
+            .old
+            .iter_mut()
+            .chain(changed.sources.new.iter_mut())
+        {
+            source.content.push_str("// trailing metadata line\n");
+        }
+        changed.set_sources(changed.sources.clone());
+        changed.refresh_identity();
+        assert_eq!(original.hunks, changed.hunks);
+        let extended_gap = review_trailing_gap(&review_gap_source_for_file(&changed)).unwrap();
+        let original_gap = original_gap.unwrap();
+        assert_eq!(extended_gap.old_range.start, original_gap.old_range.start);
+        assert_eq!(extended_gap.new_range.start, original_gap.new_range.start);
+        assert_eq!(extended_gap.old_range.end, original_gap.old_range.end + 1);
+        assert_eq!(extended_gap.new_range.end, original_gap.new_range.end + 1);
+        assert_eq!(extended_gap.line_count, original_gap.line_count + 1);
+        assert_ne!(
+            lexical_key,
+            highlighted_diff_runtime::highlighted_diff_cache_key(&theme, &changed)
+        );
+        assert!(changed.source_identity.is_none());
+        assert!(!changed.source_attested);
+        assert!(!source_presentation::ReviewSourcePresentation::default().available(&changed));
+    }
+
+    #[test]
     fn scroll_first_wheel_step_and_reverse_restore_collapsed_gap_under_pinned_header() {
         let before = (1..=400)
             .map(|n| format!("export const line{n:03} = {n};\n"))

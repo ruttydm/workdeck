@@ -12,6 +12,15 @@ derive source attestation/identity. Explicit runtime source presentation still
 supports pending/loaded/retired states, and existing source origins are unchanged.
 The rapid and security fixtures use this distinction as well.
 
+The additional native regression
+`embedded_metadata_changes_invalidate_highlighting_and_gap_geometry` checks
+that editing embedded text outside unchanged hunks changes content identity and
+the highlight cache key. Appending a common source line extends both trailing
+gap endpoints and the gap count by exactly one, without granting a source
+identity, attestation, or implicit fetch access. Identical clones retain cache
+keys. This checks cache invalidation and geometry, not rendered token parity;
+it does not map any additional source interval.
+
 Both pinned navigation cases, all 69 core tests, all 1,177 TUI tests, and
 workspace-wide strict Clippy pass. Tests cover serialized round trips, forged
 attestation bits, explicit runtime presentation, and fallback after retirement.
