@@ -1,5 +1,14 @@
 # Hunk semantic-port ledger
 
+## Cross-file destination header after scrolling
+
+Bytes 97,022–98,079 map to ten Down events followed by next-hunk navigation
+at 220×10. Both source pins and Rust pass the destination visibility/old header
+count assertions; Rust additionally checks the selected file. Formatting and
+TUI Clippy pass. See [capture and limits](oracles/app-host-destination-header.json).
+Strict audit remains incomplete: 268 unmapped intervals, 1,362 records,
+1,257 baseline files and 11 cached upstream commits pending.
+
 ## Pager and responsive sidebar toggles
 
 Bytes 95,078–96,109 and 96,109–97,022 map to sidebar overrides in pager mode

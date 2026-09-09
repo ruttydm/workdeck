@@ -19514,6 +19514,47 @@ mod tests {
     }
 
     #[test]
+    fn next_hunk_gives_destination_file_the_review_header_after_scrolling() {
+        let mut review = navigation_changeset(vec![
+            (
+                "first.ts".into(),
+                numbered_exports(1, 16, 0, true),
+                numbered_exports(1, 16, 100, true),
+            ),
+            (
+                "second.ts".into(),
+                numbered_exports(17, 16, 0, true),
+                numbered_exports(17, 16, 100, true),
+            ),
+        ]);
+        for file in &mut review.files {
+            file.agent = Some(
+                serde_json::from_value(serde_json::json!({
+                    "path":file.path, "summary":format!("{} note", file.path),
+                    "annotations":[{"new_range":{"start":2,"end":2},
+                        "summary":format!("Annotation for {}", file.path),
+                        "rationale":format!("Why {} changed", file.path)}]
+                }))
+                .unwrap(),
+            );
+        }
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        let mut terminal = Terminal::new(TestBackend::new(220, 10)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        for _ in 0..10 {
+            app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+            rendered_review_frame(&mut terminal, &app);
+        }
+        assert!(rendered_review_frame(&mut terminal, &app).contains("first.ts"));
+        app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(frame.contains("second.ts"), "{frame}");
+        assert_eq!(frame.matches("first.ts").count(), 1, "{frame}");
+        assert_eq!(app.with_state(|state| state.selection().file_index), 1);
+    }
+
+    #[test]
     fn sidebar_shortcut_opens_hidden_tree_in_pager_and_narrow_review() {
         for (pager, width) in [(true, 220), (false, 159)] {
             let mut app = ReviewApp::new(
