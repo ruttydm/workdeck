@@ -2519,6 +2519,13 @@ Clippy passed. The catalog data, fetch/fallback workflow, page rendering and
 remaining directory helpers are not covered by this increment; the source
 `website/src/data/extensions.ts` remains unmapped.
 
+The executable integration test `xtask/tests/extension_catalog_cli.rs` verifies
+JSON stdin/stdout behavior, absent fields versus zero stars, empty activity for
+null payloads, malformed JSON, trailing data and rejected extra arguments.
+Successful commands leave stderr empty; rejected input emits no partial stdout.
+The CLI test, xtask all-target Clippy and formatting passed. This remains a
+partial directory-data port, not website or catalog parity.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.
