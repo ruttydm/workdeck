@@ -1,5 +1,15 @@
 # Hunk semantic-port ledger
 
+## Narrow wrap reset after horizontal scrolling
+
+The source test at bytes 45,127–46,759 is translated at 92×20 with the same
+eight-event Shift+Right bound and two wrap toggles. All eight assertions pass,
+including the exact wrapped fragments `this is a ve`, `ry long wrapped line`
+and `overage';`, followed by restoration of the unshifted nowrap prefix.
+Both pinned Hunk runs pass; the native test passes in 0.80s. See the
+[frozen evidence](oracles/app-host-wrap-horizontal-reset.json). This maps only
+that completed test, not arbitrary terminal geometry or the remaining App code.
+
 ## Shift-wheel viewport-anchor scenarios
 
 The two interaction tests at bytes 43,031–45,127 now map to a Rust matrix for

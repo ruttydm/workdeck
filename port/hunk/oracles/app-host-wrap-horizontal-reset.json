@@ -1,0 +1,57 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "baselineInterval": {
+    "byteStart": 45127,
+    "byteEnd": 46759,
+    "lineStart": 1481,
+    "lineEnd": 1535,
+    "sha256": "549904e0f347302fd744552835cc837f563f498d649526b9e2e33f730f1eb26c"
+  },
+  "sourceTests": [
+    "wrap toggles reset the horizontal code offset"
+  ],
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > wrap toggles reset the horizontal code offset [543.36ms]\n\n 1 pass\n 75 filtered out\n 0 fail\n 8 expect() calls\nRan 1 test across 1 file. [1346.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > wrap toggles reset the horizontal code offset [583.75ms]\n\n 1 pass\n 73 filtered out\n 0 fail\n 8 expect() calls\nRan 1 test across 1 file. [1316.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "tests::wrap_toggle_resets_horizontal_scroll_with_pinned_narrow_row_fragments",
+    "terminal": [
+      92,
+      20
+    ],
+    "maximumShiftRightEvents": 8,
+    "wrapKeys": [
+      "w",
+      "w"
+    ],
+    "wrappedFragments": [
+      "this is a ve",
+      "ry long wrapped line",
+      "overage';"
+    ],
+    "passed": 1,
+    "failed": 0,
+    "seconds": 0.8,
+    "output": "   Compiling workdeck-tui v0.1.0 (/Users/rutger/Projects/workdeck/crates/workdeck-tui)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.16s\n     Running unittests src/lib.rs (target/debug/deps/workdeck_tui-e7b7e0e001fe9137)\n\nrunning 1 test\ntest tests::wrap_toggle_resets_horizontal_scroll_with_pinned_narrow_row_fragments ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1164 filtered out; finished in 0.80s\n\n"
+  },
+  "validation": {
+    "command": "cargo test -p workdeck-tui --lib -- --quiet",
+    "passed": 1165,
+    "failed": 0,
+    "seconds": 7.96,
+    "clippyCommand": "cargo clippy -p workdeck-tui --all-targets -- -D warnings",
+    "clippyExitCode": 0,
+    "formatCommand": "cargo fmt --all -- --check",
+    "formatExitCode": 0
+  },
+  "scope": "Maps only the complete eight-assertion source test. Uses the pinned fixture, event bound and exact wrapped fragments, not normalized geometry. Does not establish all widths, themes, cell styles, App or DiffPane parity."
+}

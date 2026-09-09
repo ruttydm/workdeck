@@ -26158,7 +26158,7 @@ mod tests {
         assert_pinned_horizontal_scroll(true, true);
     }
 
-    fn assert_pinned_horizontal_scroll(shifted: bool, wheel: bool) {
+    fn pinned_wrap_changeset() -> Changeset {
         let mut review = navigation_changeset(vec![(
                 "wrap.ts".into(),
                 "export const message = 'short';\n".into(),
@@ -26178,8 +26178,44 @@ mod tests {
         });
         review.refresh_review_identities();
         assert_fixture_annotation_range(&review, 2);
+        review
+    }
+
+    #[test]
+    fn wrap_toggle_resets_horizontal_scroll_with_pinned_narrow_row_fragments() {
         let mut app = ReviewApp::new(
-            review,
+            pinned_wrap_changeset(),
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(92, 20)).unwrap();
+        let mut frame = rendered_review_frame(&mut terminal, &app);
+        assert!(frame.contains("this is a very"), "{frame}");
+        for _ in 0..8 {
+            app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::SHIFT));
+            frame = rendered_review_frame(&mut terminal, &app);
+            if frame.contains("interaction coverage") {
+                break;
+            }
+        }
+        assert!(frame.contains("interaction coverage"), "{frame}");
+        assert!(!frame.contains("this is a very"), "{frame}");
+        app.handle_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+        frame = rendered_review_frame(&mut terminal, &app);
+        for fragment in ["this is a ve", "ry long wrapped line", "overage';"] {
+            assert!(frame.contains(fragment), "missing {fragment}: {frame}");
+        }
+        app.handle_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+        frame = rendered_review_frame(&mut terminal, &app);
+        assert!(frame.contains("this is a very"), "{frame}");
+        assert!(!frame.contains("interaction coverage"), "{frame}");
+    }
+
+    fn assert_pinned_horizontal_scroll(shifted: bool, wheel: bool) {
+        let mut app = ReviewApp::new(
+            pinned_wrap_changeset(),
             ReviewOptions {
                 layout: LayoutMode::Split,
                 wrap_lines: false,
