@@ -25570,6 +25570,52 @@ mod tests {
     }
 
     #[test]
+    fn review_shortcuts_toggle_annotation_line_numbers_and_hunk_metadata() {
+        let mut review = responsive_changeset();
+        review.files.truncate(1);
+        review.files[0].agent = Some(AgentFileContext {
+            path: "alpha.ts".into(),
+            summary: Some("alpha.ts note".into()),
+            annotations: vec![
+                serde_json::from_value(serde_json::json!({
+                    "new_range": { "start": 2, "end": 2 },
+                    "summary": "Annotation for alpha.ts",
+                    "rationale": "Why alpha.ts changed"
+                }))
+                .unwrap(),
+            ],
+        });
+        review.refresh_review_identities();
+        assert_fixture_annotation_range(&review, 2);
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                agent_notes: false,
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(240, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(frame.contains("Annotation for alpha.ts"));
+        assert!(frame.contains("Why alpha.ts changed"));
+        app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+        assert!(!rendered_review_frame(&mut terminal, &app).contains("Annotation for alpha.ts"));
+        app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(!frame.contains("1 - export const alpha = 1;"));
+        assert!(frame.contains("- export const alpha = 1;"));
+        assert!(!app.options.line_numbers);
+        app.handle_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE));
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(!frame.contains("@@ -1,1 +1,2 @@"));
+        assert!(frame.contains("- export const alpha = 1;"));
+        assert!(!app.options.hunk_headers);
+    }
+
+    #[test]
     fn quit_keys_preserve_regular_and_pager_exit_semantics() {
         for (pager, width, height, key, change_wrap) in [
             (true, 220, 24, KeyCode::Char('q'), true),

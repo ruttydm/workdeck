@@ -1,5 +1,15 @@
 # Hunk semantic-port ledger
 
+## Notes, numbers, and metadata shortcuts
+
+Bytes 20,987–22,381 map to the 240×24 single-file `a/a/l/m` interaction test.
+Both pinned source runs pass all seven assertions; the native test also verifies
+the line-number and hunk-header settings changed. Formatting and TUI Clippy pass.
+See [oracle capture and scope](oracles/app-host-view-shortcuts.json).
+Splitting the earlier unmapped prefix around this tested interval produces
+1,377 records and 268 remaining unmapped intervals; it does not increase missing
+source bytes. The file remains incomplete, with 11 cached upstream commits pending.
+
 ## Regular and pager quit keys
 
 Bytes 119,471–122,597 map to the final three AppHost interaction tests:
