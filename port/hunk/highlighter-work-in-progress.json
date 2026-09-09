@@ -10,6 +10,7 @@
     "examples/extensions/line-highlighter/extension.rs"
   ],
   "evidence": [
+    "port/hunk/highlighter-verification-07a6d924.json",
     "crates/workdeck-tui/src/line_highlights.rs",
     "crates/workdeck-tui/src/lib.rs",
     "crates/workdeck-extension-api/src/file_views.rs",

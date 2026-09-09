@@ -1,0 +1,32 @@
+{
+  "workdeckCommit": "07a6d924207111154b6733cb0604d75e7b99a376",
+  "nativeSource": "crates/workdeck-tui/src/line_highlights.rs",
+  "nativeSourceSha256": "1eb0c784778bf504ad16e4f9604b9213311e0aca8511858cebaa8f930de32124",
+  "native": {
+    "command": "CARGO_INCREMENTAL=0 cargo test -p workdeck-tui --lib line_highlights",
+    "passed": 57,
+    "failed": 0,
+    "ignored": 0,
+    "filteredOut": 1040,
+    "exitCode": 0
+  },
+  "source": {
+    "baselines": [
+      "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+    ],
+    "sourceBlobAtBothPins": "5488cdaae5ccfd72e980deb6c5cadd90441a3024",
+    "testBlobAtBothPins": "ae1fd241351dbbd00d3bd1ba0b0088b43d774baa",
+    "runtime": "Bun 1.3.14 (0d9b296a), disposable oracle only",
+    "command": "bun test src/ui/highlights/useLineHighlights.test.tsx",
+    "passedAtEachPin": 11,
+    "failedAtEachPin": 0,
+    "expectationsAtEachPin": 28,
+    "exitCodeAtEachPin": 0
+  },
+  "limitations": [
+    "Separate suite execution is not a differential state-transition trace.",
+    "This filtered native run is not a full workspace test or benchmark gate.",
+    "No source-ledger mapping is completed by this verification."
+  ]
+}
