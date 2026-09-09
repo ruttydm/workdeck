@@ -1,5 +1,14 @@
 # Hunk semantic-port ledger
 
+## AppHost transparent-background rendering
+
+Bytes 84,950–86,341 and 86,341–87,481 map to menu/help opacity and diff-row
+tint regressions. Both pinned sources pass seven assertions; the native test
+passes text and Ratatui cell-background checks at 220×24 and 220×60.
+Formatting and TUI all-target Clippy pass. See [captures and limits](oracles/app-host-transparent.json).
+Strict audit remains incomplete: 1,352 records, 268 unmapped intervals,
+1,257 baseline files and 11 cached upstream commits pending.
+
 ## AppHost top-level menu wrapping
 
 Bytes 83,786–84,950 now map to the 220×24 F10/Left/Right menu regression.

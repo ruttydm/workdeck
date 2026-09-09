@@ -19476,6 +19476,74 @@ mod tests {
     }
 
     #[test]
+    fn transparent_background_preserves_overlay_opacity_and_diff_tints() {
+        fn assert_line_background(terminal: &Terminal<TestBackend>, text: &str, color: Color) {
+            assert_ne!(color, Color::Reset);
+            let buffer = terminal.backend().buffer();
+            assert!(
+                buffer
+                    .content()
+                    .chunks(buffer.area.width as usize)
+                    .any(|row| {
+                        row.iter()
+                            .map(|cell| cell.symbol())
+                            .collect::<String>()
+                            .contains(text)
+                            && row.iter().any(|cell| cell.bg == color)
+                    }),
+                "missing {text:?} with background {color:?}"
+            );
+        }
+        let mut app = ReviewApp::new(
+            responsive_changeset(),
+            ReviewOptions {
+                transparent_background: true,
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(220, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        app.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE));
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(frame.contains("Toggle files/filter focus"));
+        assert!(frame.contains("Focus filter"));
+        assert_line_background(
+            &terminal,
+            "Focus filter",
+            ratatui_theme_color(&app.options.theme.panel),
+        );
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+        rendered_review_frame(&mut terminal, &app);
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(rendered_review_frame(&mut terminal, &app).contains("Controls help"));
+        assert_line_background(
+            &terminal,
+            "Navigation",
+            ratatui_theme_color(&app.options.theme.panel),
+        );
+
+        let app = ReviewApp::new(
+            responsive_changeset(),
+            ReviewOptions {
+                transparent_background: true,
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(220, 60)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        assert_line_background(
+            &terminal,
+            "betaValue",
+            ratatui_theme_color(&app.options.theme.added_bg),
+        );
+        assert_line_background(
+            &terminal,
+            "beta = 1",
+            ratatui_theme_color(&app.options.theme.removed_bg),
+        );
+    }
+
+    #[test]
     fn top_level_menu_navigation_wraps_from_file_to_help_and_back() {
         let mut app = ReviewApp::new(responsive_changeset(), ReviewOptions::default());
         let mut terminal = Terminal::new(TestBackend::new(220, 24)).unwrap();
