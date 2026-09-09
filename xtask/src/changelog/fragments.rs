@@ -159,13 +159,45 @@ pub(super) fn plan(repo: &Path, mut args: impl Iterator<Item = String>) -> Resul
         .ok_or_else(|| anyhow::anyhow!("workdeck-cli workspace package missing"))?;
     let bump = highest_bump(&fragments);
     let next = next_stable_version(&package.version, bump)?;
+    let notes = render_notes(&next.to_string(), &fragments);
     println!(
         "{}",
         serde_json::to_string_pretty(
-            &serde_json::json!({"current":package.version.to_string(),"next":next.to_string(),"bump":bump,"fragments":fragments,"applied":false})
+            &serde_json::json!({"current":package.version.to_string(),"next":next.to_string(),"bump":bump,"fragments":fragments,"notes":notes,"applied":false})
         )?
     );
     Ok(())
+}
+
+fn render_notes(version: &str, fragments: &[PendingFragment]) -> String {
+    if highest_bump(fragments).is_none() {
+        return String::new();
+    }
+    let mut output = format!("## {version}\n\n");
+    for (bump, heading) in [
+        ("major", "Major Changes"),
+        ("minor", "Minor Changes"),
+        ("patch", "Patch Changes"),
+    ] {
+        let mut entries: Vec<_> = fragments
+            .iter()
+            .filter(|fragment| fragment.bump.as_deref() == Some(bump))
+            .collect();
+        entries.sort_by(|left, right| left.id.cmp(&right.id));
+        if entries.is_empty() {
+            continue;
+        }
+        output.push_str(&format!("### {heading}\n\n"));
+        for entry in entries {
+            for (index, line) in entry.body.lines().enumerate() {
+                output.push_str(if index == 0 { "- " } else { "  " });
+                output.push_str(line);
+                output.push('\n');
+            }
+            output.push('\n');
+        }
+    }
+    output
 }
 
 pub(super) fn add(repo: &Path, mut args: impl Iterator<Item = String>) -> Result<()> {
@@ -234,6 +266,53 @@ pub(super) fn add(repo: &Path, mut args: impl Iterator<Item = String>) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn notes_group_bumps_preserve_multiline_text_and_omit_maintenance() {
+        let mut fragments = vec![
+            PendingFragment {
+                id: "z".into(),
+                bump: Some("patch".into()),
+                body: "Fix λ.\n\nMore detail.".into(),
+            },
+            PendingFragment {
+                id: "b".into(),
+                bump: Some("minor".into()),
+                body: "Add feature.".into(),
+            },
+            PendingFragment {
+                id: "a".into(),
+                bump: Some("patch".into()),
+                body: "First fix.".into(),
+            },
+            PendingFragment {
+                id: "m".into(),
+                bump: None,
+                body: String::new(),
+            },
+            PendingFragment {
+                id: "breaking".into(),
+                bump: Some("major".into()),
+                body: "Break protocol.".into(),
+            },
+        ];
+        let expected = "## 2.0.0\n\n### Major Changes\n\n- Break protocol.\n\n### Minor Changes\n\n- Add feature.\n\n### Patch Changes\n\n- First fix.\n\n- Fix λ.\n  \n  More detail.\n\n";
+        assert_eq!(render_notes("2.0.0", &fragments), expected);
+        fragments.reverse();
+        assert_eq!(render_notes("2.0.0", &fragments), expected);
+        assert_eq!(render_notes("1.0.0", &[]), "");
+        assert_eq!(
+            render_notes(
+                "1.0.0",
+                &[PendingFragment {
+                    id: "m".into(),
+                    bump: None,
+                    body: String::new()
+                }]
+            ),
+            ""
+        );
+    }
     fn create(repo: &Path, args: &[&str]) -> Result<()> {
         add(repo, args.iter().map(|value| (*value).to_owned()))
     }

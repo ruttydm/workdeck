@@ -38,6 +38,12 @@ maintenance-only plans retain the current version. Overflow is rejected.
 Prerelease/build-metadata versions are explicitly rejected until the separate
 prerelease workflow is integrated. No version, lockfile or fragment is changed.
 
+The plan's `notes` field previews Markdown grouped into Major, Minor and Patch
+Changes, with fragment-ID ordering within each group. Multiline text stays
+inside its list item; maintenance-only fragments produce no release-note
+entry, and an entirely maintenance-only plan has empty notes. GitHub PR/commit
+annotations and exact upstream changelog formatting remain unported.
+
 Bump precedence is tested across every patch/minor/major combination in both
 orders. Unix tests also verify that directory and fragment symlinks are not
 followed and that an existing symlink target cannot be overwritten. These
