@@ -1340,16 +1340,36 @@ mod tests {
             for reset_app in [false, true] {
                 let repo = tempfile::tempdir().unwrap();
                 fs::create_dir(repo.path().join(".git")).unwrap();
-                let initial = vcs_input(CommonOptions {
-                    experimental: launch_experimental,
-                    ..CommonOptions::default()
-                });
-                let mut app = app();
-                app.options.review_input = Some(initial.clone());
+                let left = repo.path().join("before.ts");
+                let right = repo.path().join("after.ts");
+                fs::write(&left, "export const answer = 41;\n").unwrap();
+                fs::write(&right, "export const answer = 42;\n").unwrap();
+                let file_input = |experimental| {
+                    CliInput::Files(workdeck_core::FileCommandInput {
+                        left: left.to_string_lossy().into_owned(),
+                        right: right.to_string_lossy().into_owned(),
+                        options: CommonOptions {
+                            experimental,
+                            mode: Some(workdeck_core::InputLayoutMode::Split),
+                            ..Default::default()
+                        },
+                    })
+                };
+                let initial = file_input(launch_experimental);
+                let mut app = ReviewApp::new(
+                    workdeck_vcs::load_file_comparison(repo.path(), &left, &right).unwrap(),
+                    ReviewOptions {
+                        review_input: Some(initial.clone()),
+                        command_cwd: Some(repo.path().to_owned()),
+                        repo: Some(repo.path().to_owned()),
+                        layout: workdeck_review::LayoutMode::Split,
+                        ..Default::default()
+                    },
+                );
                 // Keep a real, unstarted broker client: registration replacement is
                 // exercised without discovering or launching a user daemon.
                 let bootstrap = workdeck_session::SessionRegistrationBootstrap {
-                    input_kind: workdeck_session::WorkdeckSessionInputKind::Vcs,
+                    input_kind: workdeck_session::WorkdeckSessionInputKind::Diff,
                     changeset: app.with_state(|state| state.changeset().clone()),
                     source_label: "experimental reload regression".into(),
                     experimental: launch_experimental.unwrap_or(false),
@@ -1367,29 +1387,33 @@ mod tests {
                 app.session_broker_client = Some(client.clone());
                 let mut coordinator =
                     AppHostReloadCoordinator::new(initial, repo.path(), Some(repo.path())).unwrap();
-                let requested = vcs_input(CommonOptions {
-                    experimental: Some(true),
-                    ..CommonOptions::default()
-                });
-                let plan = coordinator
-                    .plan(
-                        &serde_json::to_value(core_cli_input_to_daemon(requested)).unwrap(),
-                        ReloadSessionOptions {
-                            reset_app: Some(reset_app),
-                            ..Default::default()
-                        },
-                    )
-                    .unwrap();
-                let replacement = app.with_state(|state| state.changeset().clone());
+                let (mut controller, replies) = queued_controller([message(
+                    "reload-experimental",
+                    WorkdeckSessionCommandInput::ReloadSession(ReloadSessionToolInput {
+                        target_session: SessionSelector::default(),
+                        next_input: serde_json::to_value(core_cli_input_to_daemon(file_input(
+                            Some(true),
+                        )))
+                        .unwrap(),
+                        source_path: None,
+                    }),
+                )]);
                 let mut loader = |input: &CliInput,
                                   cwd: &Path,
                                   _: bool,
                                   _: &VcsCatalog,
                                   _: &[LoadedExtension]| {
                     assert_eq!(input.options().experimental, Some(false));
+                    let CliInput::Files(files) = input else {
+                        anyhow::bail!("expected file comparison")
+                    };
                     Ok(DynamicReviewLoad {
                         input: input.clone(),
-                        changeset: replacement.clone(),
+                        changeset: workdeck_vcs::load_file_comparison(
+                            cwd,
+                            Path::new(&files.left),
+                            Path::new(&files.right),
+                        )?,
                         replacement_extensions: None,
                         replacement_vcs_catalog: None,
                         host_options: DynamicReviewHostOptions {
@@ -1399,14 +1423,26 @@ mod tests {
                         },
                     })
                 };
-                crate::commit_dynamic_review_reload(
-                    &mut app,
-                    &mut coordinator,
-                    plan,
-                    &mut loader,
-                    &mut workdeck_vcs::bundled_vcs_catalog().clone(),
-                )
-                .unwrap();
+                let mut catalog = workdeck_vcs::bundled_vcs_catalog().clone();
+                assert_eq!(
+                    controller.process_pending(&mut app, &mut |app, input, options| {
+                        let mut options = options.clone();
+                        options.reset_app = Some(reset_app);
+                        let plan = coordinator.plan(input, options)?;
+                        crate::commit_dynamic_review_reload(
+                            app,
+                            &mut coordinator,
+                            plan,
+                            &mut loader,
+                            &mut catalog,
+                        )
+                    }),
+                    1
+                );
+                assert!(matches!(
+                    replies[0].recv().unwrap().unwrap(),
+                    WorkdeckSessionCommandResult::ReloadedSession(_)
+                ));
                 assert_eq!(
                     coordinator.current_input().options().experimental,
                     Some(false)
@@ -1428,14 +1464,21 @@ mod tests {
                     Some(false)
                 );
                 let mut comment: workdeck_session::CommentToolInput = serde_json::from_value(
-                    serde_json::json!({"filePath":"a.rs","side":"new","line":1,
+                    serde_json::json!({"filePath":"after.ts","side":"new","line":1,
                         "summary":"Plain fallback","markup":"<badge>disabled</badge>"}),
                 )
                 .unwrap();
                 let before = app.with_state(|state| state.state_revision());
-                let error = app
-                    .session_add_live_comment(&comment, "markup-attempt", false)
-                    .unwrap_err();
+                let (mut controller, replies) = queued_controller([message(
+                    "comment-experimental",
+                    WorkdeckSessionCommandInput::Comment(comment.clone()),
+                )]);
+                assert_eq!(
+                    controller
+                        .process_pending(&mut app, &mut |_, _, _| Err("unexpected reload".into())),
+                    1
+                );
+                let error = replies[0].recv().unwrap().unwrap_err();
                 assert!(error.contains("Relaunch Workdeck with --experimental"));
                 assert_eq!(app.with_state(|state| state.state_revision()), before);
                 assert!(app.with_state(|state| state.comments().is_empty()));

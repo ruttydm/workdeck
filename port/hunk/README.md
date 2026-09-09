@@ -1,5 +1,22 @@
 # Hunk semantic-port ledger
 
+## AppHost experimental-feature reload (partial interaction corpus)
+
+Bytes 53,736–55,659 of `src/ui/AppHost.interactions.test.tsx` map to the
+executed Rust queued file-comparison reload regression. Real before/after files,
+queued reload and markup-comment requests, and production broker-client registration
+replacement verify that reload cannot enable experimental features. The matrix
+also covers explicitly disabled launches and reset reloads. Both pinned source
+tests pass. See [capture and limits](oracles/app-host-reload-experimental.json).
+The broker client remains unstarted, matching the source mock-host scope rather
+than claiming live network or terminal-frame parity. Focused Rust test, formatting,
+and TUI all-target Clippy pass.
+
+Current strict audit validates partitions and evidence, then fails with 1,257
+baseline files, 1,330 records, 372 translated-test records and 268 unmapped
+intervals. Eleven cached upstream commits remain pending. No entire AppHost test
+file completion or release acceptance is claimed.
+
 ## AppHost live-comment reload (partial interaction corpus)
 
 Bytes 51,464–53,736 of `src/ui/AppHost.interactions.test.tsx` map to the executed
@@ -10,7 +27,7 @@ see [capture and scope](oracles/app-host-reload-comments.json). TUI all-target
 Clippy and formatting pass. No whole-file completion or cell-golden equivalence
 is claimed.
 
-Current strict audit validates the byte partition and evidence, then fails with
+At this earlier live-comment checkpoint, strict audit validated the byte partition and evidence, then failed with
 1,257 baseline files, 1,330 records, 371 translated-test records and 269 unmapped
 intervals. Again, splitting a partially covered file creates additional unfinished
 intervals without changing the file count. Eleven cached upstream commits remain

@@ -1,6 +1,7 @@
 {
   "sourceTest": "session reload cannot opt a normal launch into experimental STML",
   "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "baselineInterval": {"byteStart":53736,"byteEnd":55659,"lineStart":1780,"lineEnd":1843,"sha256":"d977fb79fbe2abdf4f80c45e4f81effbc3075324075759a0f48448e6b7206ae4"},
   "runtime": "Bun 1.3.14 (0d9b296a), disposable oracle only",
   "fixture": "Fresh temporary Git repository used as cwd; source test imported by absolute path from the pinned disposable checkout. GIT_CONFIG_GLOBAL and GIT_CONFIG_SYSTEM both /dev/null.",
   "runs": [
@@ -27,13 +28,13 @@
     "ignored": 0,
     "filteredOut": 1106,
     "seconds": 0.80,
-    "cases": "Default and explicitly disabled launch authority, each with reset_app false and true; production reload planning/commit, real unstarted broker-client registration replacement retaining session identity and empty experimental features, markup refusal without state mutation, then successful plain comment. A changed source label proves registration replacement occurred. Loader is a deterministic fixture, not real source-file I/O."
+    "cases": "Default and explicitly disabled launch authority, each with reset_app false and true; real before.ts/after.ts file loading, owner-thread queued reload planning/commit, real unstarted broker-client registration replacement retaining session identity and empty experimental features, queued markup refusal without state mutation, then successful plain comment. A changed source label proves registration replacement occurred."
   },
   "initialCaptureFailure": "Both initial source attempts ran in unpacked checkouts without .git and failed at repository reload bounds before the target assertion. Both were rerun successfully with the required temporary repository fixture; original source files were not modified.",
   "limitations": [
-    "One AppHost interaction case, not the complete source test file or full port interval.",
+    "Only the named 1923-byte AppHost interaction test interval is mapped; the containing source file remains incomplete.",
     "Separate source/native execution, not a captured end-to-end protocol or terminal-cell differential trace.",
-    "Native checks now assert registration experimental features through the production broker client, but it is deliberately unstarted: no daemon-network exchange is claimed.",
-    "The native fixture still uses a VCS input and direct reload/comment calls, not the source test's queued file comparison. The source interval remains unmapped."
+    "Native checks assert registration experimental features through the production broker client, but it is deliberately unstarted, corresponding to the source mock host: no daemon-network exchange is claimed.",
+    "Source mounts its renderer at 220x20 but asserts no terminal cells; native checks the same registration and command-refusal semantics without claiming terminal-frame equivalence."
   ]
 }
