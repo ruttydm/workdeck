@@ -2644,6 +2644,13 @@ unspecified), and nonfailure warnings. The failed-topic diagnostic is retained
 but not claimed equivalent to the native redacted warning. This does not test
 the real HTTP transport or complete the source mapping.
 
+The loader's HTTP transport now has a loopback-server test covering actual GET
+paths, Accept/User-Agent headers, optional bearer authorization (synthetic test
+token only), JSON objects/null/arrays, HTTP-503 rejection and malformed JSON.
+The production request function is exercised directly, without a mocked HTTP
+client. Server accept/read/write operations are bounded. This is local HTTP
+evidence, not HTTPS certificate, redirect, timeout or live GitHub parity proof.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

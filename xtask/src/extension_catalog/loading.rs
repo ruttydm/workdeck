@@ -17,27 +17,35 @@ pub(super) fn load(payload: &Value) -> Result<Vec<Value>> {
         .ok()
         .filter(|value| !value.is_empty());
     let fetch = |path: &str, timeout: Duration| -> Result<Value> {
-        let agent: ureq::Agent = ureq::Agent::config_builder()
-            .timeout_global(Some(timeout))
-            .build()
-            .into();
-        let mut request = agent
-            .get(format!("https://api.github.com{path}"))
-            .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "workdeck-extension-directory");
-        if let Some(token) = &token {
-            request = request.header("Authorization", format!("Bearer {token}"));
-        }
-        let mut response = request.call()?;
-        Ok(serde_json::from_str(
-            &response.body_mut().read_to_string()?,
-        )?)
+        fetch_json(
+            &format!("https://api.github.com{path}"),
+            token.as_deref(),
+            timeout,
+        )
     };
     let (entries, warnings) = resolve(entries, "workdeck-extension", &fetch);
     for warning in warnings {
         eprintln!("{warning}");
     }
     Ok(entries)
+}
+
+fn fetch_json(url: &str, token: Option<&str>, timeout: Duration) -> Result<Value> {
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(timeout))
+        .build()
+        .into();
+    let mut request = agent
+        .get(url)
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", "workdeck-extension-directory");
+    if let Some(token) = token.filter(|token| !token.is_empty()) {
+        request = request.header("Authorization", format!("Bearer {token}"));
+    }
+    let mut response = request.call()?;
+    Ok(serde_json::from_str(
+        &response.body_mut().read_to_string()?,
+    )?)
 }
 
 fn resolve(
@@ -118,6 +126,76 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::sync::{Barrier, Mutex};
+
+    #[test]
+    fn http_transport_sends_headers_and_rejects_bad_responses() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        for (token, status, body, success) in [
+            (None, "200 OK", r#"{"stars":7}"#, true),
+            (Some(""), "200 OK", "null", true),
+            (Some("fixture-token"), "200 OK", "[]", true),
+            (None, "503 Service Unavailable", "{}", false),
+            (None, "200 OK", "invalid JSON", false),
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let url = format!("http://{}/repos/owner/repo", listener.local_addr().unwrap());
+            let server = std::thread::spawn(move || {
+                let deadline = std::time::Instant::now() + Duration::from_secs(10);
+                let mut stream = loop {
+                    match listener.accept() {
+                        Ok((stream, _)) => break stream,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            assert!(
+                                std::time::Instant::now() < deadline,
+                                "HTTP client did not connect"
+                            );
+                            std::thread::sleep(Duration::from_millis(2));
+                        }
+                        Err(error) => panic!("accept failed: {error}"),
+                    }
+                };
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                stream
+                    .set_write_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut request = Vec::new();
+                while !request.ends_with(b"\r\n\r\n") {
+                    let mut byte = [0];
+                    stream.read_exact(&mut byte).unwrap();
+                    request.push(byte[0]);
+                    assert!(request.len() < 8192);
+                }
+                write!(
+                    stream,
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+                String::from_utf8(request).unwrap()
+            });
+            let result = fetch_json(&url, token, Duration::from_secs(5));
+            let request = server.join().unwrap().to_lowercase();
+            assert_eq!(result.is_ok(), success);
+            if success {
+                assert_eq!(
+                    result.unwrap(),
+                    serde_json::from_str::<Value>(body).unwrap()
+                );
+            }
+            assert!(request.starts_with("get /repos/owner/repo http/1.1\r\n"));
+            assert!(request.contains("accept: application/vnd.github+json\r\n"));
+            assert!(request.contains("user-agent: workdeck-extension-directory\r\n"));
+            if token == Some("fixture-token") {
+                assert!(request.contains("authorization: bearer fixture-token\r\n"));
+            } else {
+                assert!(!request.contains("authorization:"));
+            }
+        }
+    }
 
     #[test]
     fn merged_entries_match_both_pinned_loader_captures() {
