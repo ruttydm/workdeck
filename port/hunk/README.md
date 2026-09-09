@@ -1,5 +1,20 @@
 # Hunk semantic-port ledger
 
+## AppHost arrow scrolling (partial interaction corpus)
+
+Four test bodies, bytes 60,795–66,207, map individually to executed native
+regressions for review/pager Down-Up loops and pinned-header cursor-off/default
+behavior. All four unchanged source tests pass on both pins (17 assertions each).
+The two Rust tests pass, with formatting and TUI all-target Clippy clean.
+See [raw source output and intervals](oracles/app-host-arrow-scroll.json) and the
+[non-asserting wait investigation](pinned-header-keyboard-gap.md). A timed-out
+source polling predicate is not promoted to a guarantee; complete cell-frame
+equivalence remains a separate gate.
+
+Current strict audit validates partitions/evidence and reports 1,257 files,
+1,337 records, 379 translated-test records and 268 unmapped intervals, then
+fails on unfinished mappings. Eleven cached upstream commits remain pending.
+
 ## AppHost viewport note toggle (partial interaction corpus)
 
 Bytes 59,772–60,795 map to the executed Rust viewport-note toggle test. At
@@ -10,7 +25,7 @@ Both pinned source tests pass; see [capture and scope](oracles/app-host-viewport
 Focused Rust test, formatting and TUI all-target Clippy pass. This reproduces the
 source text assertions, not complete cell-frame parity.
 
-Current strict audit validates partitions/evidence, then fails with 1,257 files,
+At this earlier viewport-note checkpoint, strict audit validated partitions/evidence, then failed with 1,257 files,
 1,333 records, 375 translated-test records and 268 unmapped intervals. Eleven
 cached upstream commits remain pending; the containing test file is unfinished.
 

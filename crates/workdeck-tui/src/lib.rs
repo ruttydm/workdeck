@@ -23630,6 +23630,61 @@ mod tests {
     }
 
     #[test]
+    fn arrow_keys_scroll_visible_lines_and_return_to_top_in_review_and_pager() {
+        for pager in [false, true] {
+            let mut review = navigation_changeset(vec![(
+                "scroll.ts".into(),
+                numbered_exports(1, 18, 0, true),
+                numbered_exports(1, 18, 100, true),
+            )]);
+            review.files[0].agent = Some(AgentFileContext {
+                path: "scroll.ts".into(),
+                summary: Some("scroll.ts note".into()),
+                annotations: vec![
+                    serde_json::from_value(serde_json::json!({
+                        "newRange": [1,1], "summary": "Annotation for scroll.ts",
+                        "rationale": "Why scroll.ts changed"
+                    }))
+                    .unwrap(),
+                ],
+            });
+            review.refresh_review_identities();
+            let mut app = ReviewApp::new(
+                review,
+                ReviewOptions {
+                    pager,
+                    show_menu_bar: !pager,
+                    layout: LayoutMode::Split,
+                    agent_notes: false,
+                    ..Default::default()
+                },
+            );
+            let mut terminal =
+                Terminal::new(TestBackend::new(220, if pager { 8 } else { 12 })).unwrap();
+            let mut frame = rendered_review_frame(&mut terminal, &app);
+            assert!(frame.contains("line01"), "{frame}");
+            assert!(!frame.contains("line08"), "{frame}");
+            for _ in 0..if pager { 32 } else { 48 } {
+                app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+                frame = rendered_review_frame(&mut terminal, &app);
+                if frame.contains("line08") && (pager || !frame.contains("line01")) {
+                    break;
+                }
+            }
+            assert!(frame.contains("line08"), "pager={pager}\n{frame}");
+            assert!(!frame.contains("line01"), "pager={pager}\n{frame}");
+            for _ in 0..32 {
+                app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+                frame = rendered_review_frame(&mut terminal, &app);
+                if frame.contains("line01") {
+                    break;
+                }
+            }
+            assert!(frame.contains("line01"), "pager={pager}\n{frame}");
+        }
+    }
+
+    #[test]
     fn scroll_step_keys_in_pager_move_exactly_one_row() {
         let review = navigation_changeset(vec![(
             "scroll.ts".into(),

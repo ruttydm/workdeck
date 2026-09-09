@@ -13,7 +13,10 @@ same row-mode state. The source requires line 366 visible only in cursor-off mod
 its row-mode test checks the collapsed gap/header count restored by Up, without
 asserting the intermediate line visibility. The native test now preserves this
 distinction, and additionally checks the observed row-mode cursor line and scroll.
-Source intervals remain unmapped pending validation and evidence recording.
+The two source intervals are now individually mapped after corrected native
+validation and fresh unmodified captures; see
+[four-case capture](oracles/app-host-arrow-scroll.json). The containing test file
+remains incomplete.
 
 The corrected native test passed: 1 passed, 0 failed, 0 ignored, 1,109 filtered
 out, 1.00 seconds. Workspace formatting, diff whitespace checks and TUI
