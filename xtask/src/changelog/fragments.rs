@@ -15,7 +15,7 @@ fn validate_id(id: &str) -> Result<()> {
     Ok(())
 }
 
-#[derive(serde::Serialize)]
+#[derive(Debug, PartialEq, Eq, serde::Serialize)]
 struct PendingFragment {
     id: String,
     bump: Option<String>,
@@ -199,9 +199,27 @@ fn build_plan(repo: &Path) -> Result<serde_json::Value> {
     let notes = render_notes(&next.to_string(), &fragments);
     let manifest = package.manifest_path.as_std_path().strip_prefix(repo)?;
     let inputs = input_fingerprints(repo, manifest, &fragments)?;
+    verify_fragment_snapshot(repo, manifest, &fragments, &inputs)?;
     Ok(
         serde_json::json!({"current":package.version.to_string(),"next":next.to_string(),"bump":bump,"fragments":fragments,"notes":notes,"inputs":inputs,"applied":false}),
     )
+}
+
+fn verify_fragment_snapshot(
+    repo: &Path,
+    manifest: &Path,
+    fragments: &[PendingFragment],
+    inputs: &std::collections::BTreeMap<String, String>,
+) -> Result<()> {
+    ensure!(
+        pending(repo)? == fragments,
+        "release fragments changed while generating the plan"
+    );
+    ensure!(
+        &input_fingerprints(repo, manifest, fragments)? == inputs,
+        "release inputs changed while generating the plan"
+    );
+    Ok(())
 }
 
 fn input_fingerprints(
@@ -334,6 +352,34 @@ pub(super) fn add(repo: &Path, mut args: impl Iterator<Item = String>) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn snapshot_check_detects_changes_between_parsing_and_fingerprinting() {
+        let repo = tempfile::tempdir().unwrap();
+        for file in ["Cargo.toml", "Cargo.lock"] {
+            std::fs::write(repo.path().join(file), "fixture\n").unwrap();
+        }
+        create(repo.path(), &["fix", "patch", "Original note."]).unwrap();
+        let fragments = pending(repo.path()).unwrap();
+        let path = repo.path().join("changes/fix.md");
+        let original = std::fs::read_to_string(&path).unwrap();
+        std::fs::write(&path, original.replace("Original", "Changed")).unwrap();
+        let hashes = input_fingerprints(repo.path(), Path::new("Cargo.toml"), &fragments).unwrap();
+        assert!(
+            verify_fragment_snapshot(repo.path(), Path::new("Cargo.toml"), &fragments, &hashes)
+                .is_err()
+        );
+        std::fs::write(&path, &original).unwrap();
+        let hashes = input_fingerprints(repo.path(), Path::new("Cargo.toml"), &fragments).unwrap();
+        verify_fragment_snapshot(repo.path(), Path::new("Cargo.toml"), &fragments, &hashes)
+            .unwrap();
+        std::fs::write(&path, format!("{original}\n")).unwrap();
+        assert_eq!(pending(repo.path()).unwrap(), fragments);
+        assert!(
+            verify_fragment_snapshot(repo.path(), Path::new("Cargo.toml"), &fragments, &hashes)
+                .is_err()
+        );
+    }
 
     #[test]
     fn hand_authored_fragments_obey_authoring_rules() {

@@ -52,6 +52,13 @@ new fragments invalidate the saved plan; neither checking nor failure changes
 the saved plan or repository inputs. This detects drift between inspections,
 but does not provide locking against edits during a future apply operation.
 
+Before returning a plan, fragment parsing and input hashes are checked again.
+Regression tests inject a semantic edit between parsing and fingerprinting,
+and a whitespace-only edit after fingerprinting; both are rejected. This
+narrows the consistency window but is not an atomic filesystem snapshot or
+an apply-time lock. Cargo-metadata/read races and adversarial ABA edits remain
+outside this check's guarantees.
+
 The plan's `notes` field previews Markdown grouped into Major, Minor and Patch
 Changes, with fragment-ID ordering within each group. Multiline text stays
 inside its list item; maintenance-only fragments produce no release-note
