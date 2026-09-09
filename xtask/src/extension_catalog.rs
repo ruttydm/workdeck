@@ -37,17 +37,39 @@ fn index_activity(payload: &Value) -> BTreeMap<String, Value> {
 }
 
 pub fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
-    if args.next().as_deref() != Some("activity-index") || args.next().is_some() {
-        bail!("extension-catalog requires activity-index (JSON on stdin)");
+    let command = args.next();
+    if !matches!(command.as_deref(), Some("activity-index" | "json-ld")) || args.next().is_some() {
+        bail!("extension-catalog requires activity-index or json-ld (JSON on stdin)");
     }
     let mut input = String::new();
     std::io::stdin().read_to_string(&mut input)?;
     let payload: Value = serde_json::from_str(&input)?;
+    if command.as_deref() == Some("json-ld") {
+        println!("{}", json_ld_script_body(&payload)?);
+        return Ok(());
+    }
     println!(
         "{}",
         serde_json::to_string_pretty(&index_activity(&payload))?
     );
     Ok(())
+}
+
+fn json_ld_script_body(value: &Value) -> Result<String> {
+    Ok(serde_json::to_string(value)?.replace('<', "\\u003c"))
+}
+
+#[test]
+fn json_ld_neutralizes_markup_without_changing_decoded_values() {
+    for value in [
+        serde_json::json!({"name":"</script><img src=x onerror=alert(1)>"}),
+        serde_json::json!({"<key>":["<!--", "<SCRIPT>", "\\u003c", "雪", null]}),
+        Value::Null,
+    ] {
+        let body = json_ld_script_body(&value).unwrap();
+        assert!(!body.contains('<'));
+        assert_eq!(serde_json::from_str::<Value>(&body).unwrap(), value);
+    }
 }
 
 #[test]

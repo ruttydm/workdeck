@@ -2534,6 +2534,14 @@ duplicate repository keys and Unicode lowercasing; both focused tests passed,
 as did xtask all-target Clippy and formatting. The remaining directory source
 interval is still unmapped.
 
+`cargo xtask extension-catalog json-ld` translates the directory's script-body
+escaping helper: JSON is serialized and every literal `<` becomes `\u003c`, so
+repository descriptions cannot close an enclosing script element. Decoded JSON
+values remain unchanged. Unit and actual-command tests cover script closers,
+markup in keys/nested values, Unicode and literal escape text. Both tests,
+xtask all-target Clippy and formatting passed. Website integration and complete
+JavaScript/Rust serialization parity remain separate open work.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

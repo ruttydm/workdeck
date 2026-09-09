@@ -14,6 +14,19 @@ fn run(input: &[u8], args: &[&str]) -> std::process::Output {
 }
 
 #[test]
+fn json_ld_command_escapes_script_closers_and_round_trips() {
+    let input = br#"{"name":"</script><img src=x onerror=alert(1)>"}"#;
+    let output = run(input, &["extension-catalog", "json-ld"]);
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    assert!(!output.stdout.contains(&b'<'));
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap(),
+        serde_json::from_slice::<serde_json::Value>(input).unwrap()
+    );
+}
+
+#[test]
 fn activity_index_cli_preserves_metadata_and_rejects_invalid_input() {
     let output = run(br#"{"items":[{"full_name":"Owner/Repo","stargazers_count":0},{"full_name":"Another/Repo","pushed_at":"2026-08-18T09:12:00Z"}]}"#, &["extension-catalog", "activity-index"]);
     assert!(output.status.success());
