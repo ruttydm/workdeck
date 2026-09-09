@@ -1,5 +1,13 @@
 # Hunk semantic-port ledger
 
+## Quit-time theme persistence
+
+Bytes 110,611–112,495 map to the 240×24 save-and-quit regression. Both pins
+pass; Rust verifies the written theme and delayed, single-use quit request.
+Native test, formatting and TUI Clippy pass. See [capture and timer scope](oracles/app-host-quit-save.json).
+Strict audit remains incomplete: 268 unmapped intervals, 1,371 records,
+1,257 baseline files and 11 cached upstream commits pending.
+
 ## Quit prompt and discard after theme change
 
 Bytes 108,360–110,611 map to the 240×24 theme-change prompt/discard regression.
