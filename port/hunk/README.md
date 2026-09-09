@@ -1,5 +1,19 @@
 # Hunk semantic-port ledger
 
+## Quit-dialog mouse actions and persistent opt-out
+
+Bytes 114,400–117,209 map to the 240×24 rendered mouse-action regression:
+cancel without exiting or writing configuration, reopen, then save the theme
+and request one delayed exit. Both pinned oracle tests and the Rust test pass;
+formatting and TUI Clippy pass. See [capture and input/timer limits](oracles/app-host-quit-mouse.json).
+
+The preceding bytes 112,495–114,400 map to the separately tested keyboard
+“never ask” action, which persists the prompt opt-out and schedules one exit.
+See [opt-out evidence](oracles/app-host-quit-never-ask.json).
+Neither mapping claims terminal teardown or full cell-buffer parity.
+The ledger has 1,373 records across 1,257 baseline files; 268 intervals and
+11 cached upstream commits remain incomplete.
+
 ## Quit-time theme persistence
 
 Bytes 110,611–112,495 map to the 240×24 save-and-quit regression. Both pins

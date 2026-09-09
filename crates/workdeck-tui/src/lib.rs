@@ -25570,6 +25570,68 @@ mod tests {
     }
 
     #[test]
+    fn quit_prompt_rendered_mouse_actions_cancel_then_save_theme() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let config = directory.path().join("workdeck/config.toml");
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                view_preferences_config_path: Some(config.clone()),
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(240, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        for key in [
+            KeyCode::Char('t'),
+            KeyCode::Down,
+            KeyCode::Enter,
+            KeyCode::Char('q'),
+        ] {
+            app.handle_key(KeyEvent::new(key, KeyModifiers::NONE));
+            rendered_review_frame(&mut terminal, &app);
+        }
+        for label in ["esc cancel", "enter/s save"] {
+            let frame = rendered_review_frame(&mut terminal, &app);
+            let (row, line) = frame
+                .lines()
+                .enumerate()
+                .find(|(_, line)| line.contains(label))
+                .expect("quit action must be visible");
+            let column = measure_text_width(&line[..line.find(label).unwrap()]);
+            for kind in [
+                MouseEventKind::Down(MouseButton::Left),
+                MouseEventKind::Up(MouseButton::Left),
+            ] {
+                app.handle_mouse_event(MouseEvent {
+                    kind,
+                    column: column as u16,
+                    row: row as u16,
+                    modifiers: KeyModifiers::NONE,
+                });
+            }
+            if label == "esc cancel" {
+                assert!(
+                    !rendered_review_frame(&mut terminal, &app).contains("Save view preferences?")
+                );
+                assert!(!app.take_quit_requested());
+                assert!(!config.exists());
+                app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+            }
+        }
+        let saved_at = Instant::now();
+        assert!(!app.take_quit_requested());
+        app.tick_extension_notifications(saved_at + Duration::from_millis(140));
+        assert!(app.take_quit_requested());
+        assert!(!app.take_quit_requested());
+        assert!(
+            std::fs::read_to_string(config)
+                .unwrap()
+                .contains("theme = \"github-dark-dimmed\"")
+        );
+    }
+
+    #[test]
     fn theme_change_quit_never_ask_persists_opt_out_and_requests_one_delayed_exit() {
         let directory = tempfile::TempDir::new().unwrap();
         let config = directory.path().join("workdeck/config.toml");

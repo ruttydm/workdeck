@@ -1,0 +1,31 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTest": "quit prompt actions respond to mouse clicks",
+  "baselineInterval": {
+    "byteStart": 114400,
+    "byteEnd": 117209,
+    "lineStart": 3864,
+    "lineEnd": 3944,
+    "sha256": "30649ca65f891bf884b12eb268c7fc849dd21d01b3b5d32e1e0c0f4e7cdf75fa"
+  },
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > quit prompt actions respond to mouse clicks [578.06ms]\n\n 1 pass\n 75 filtered out\n 0 fail\n 6 expect() calls\nRan 1 test across 1 file. [1196.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > quit prompt actions respond to mouse clicks [514.45ms]\n\n 1 pass\n 73 filtered out\n 0 fail\n 6 expect() calls\nRan 1 test across 1 file. [923.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "tests::quit_prompt_rendered_mouse_actions_cancel_then_save_theme",
+    "passed": 1,
+    "failed": 0,
+    "filtered": 1139,
+    "seconds": 0.8
+  },
+  "scope": "240x24 t/Down/Enter/q; find esc cancel in rendered text and send left-button Down/Up at its cell; assert prompt gone, no quit, no config. Reopen with q; click rendered enter/s save. Assert saved github-dark-dimmed and exactly one quit request after explicit production-timer advancement by 140ms. Tests typed mouse dispatch, not raw terminal mouse bytes, actual process teardown, or complete cell-buffer equality."
+}
