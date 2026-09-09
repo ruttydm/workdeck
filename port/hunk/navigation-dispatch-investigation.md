@@ -249,3 +249,22 @@ workload never requests the complete deferred extension file list; an actual
 consumer read still pays its full projection and owned-result allocation costs.
 Peak remains above both retained pinned-Hunk samples, and flush/timing parity
 and the final benchmark gate are still open.
+
+At clean `40aebace`, subprocess integration coverage also passed:
+`CARGO_INCREMENTAL=0 cargo test -p workdeck-examples --test app_host_file_views
+--test app_host_selection --test review_snapshot_export --test native_vcs_extension`.
+The four suites passed 4, 6, 6 and 1 tests respectively, none failed/ignored/filtered.
+This covers compiled file views, selection/copy, authoritative snapshot export
+and VCS-provider ownership, not the entire example suite or final release gates.
+
+Inspection of both pinned checkouts' installed React test utilities confirms that
+`testRender` calls `root.render` inside `act` before returning to Hunk's first-frame
+timer. A [supplemental source probe](source-huge-setup-diagnostic.json) measured
+about 1,099 ms (main) and 1,096 ms (stable) in that setup boundary. It imports the
+pinned fixture, AppHost and interaction helpers without modifying their files,
+and records hashes and raw phase metrics. Unlike the original benchmark it does
+not force GC at memory snapshots, so it must not replace or be mixed into the
+frozen original benchmark series. These observations reinforce that first-frame
+timings alone do not establish equivalent work boundaries. The probe does not
+establish flush/cell parity or benchmark acceptance, and its temporary script is
+not yet a tracked reproducible Rust oracle generator.
