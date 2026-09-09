@@ -29,3 +29,7 @@ require this Hunk-specific archive.
 
 The release-directory README and marker file have separate ledger records and
 are not covered by this archive.
+
+The README's guidance is migrated separately in
+[release benchmark snapshots](release-benchmark-snapshots.md), including the
+distinction between historical comparator thresholds and strict port acceptance.

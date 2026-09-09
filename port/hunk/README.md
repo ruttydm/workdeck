@@ -6,7 +6,10 @@ All 22 pinned `benchmarks/release/bench-*.json` reports now have lossless
 Rust-generated archive mappings. `cargo xtask benchmark historical-release --check`
 and the executable regression verify exact source bytes. See
 [archive documentation](../../docs/historical-release-benchmarks.md).
-The strict audit retains 1,257 baseline files and 1,326 records, with 268 records
+The release benchmark README is separately migrated to
+[release snapshot guidance](../../docs/release-benchmark-snapshots.md), retaining
+the historical policy while distinguishing unfinished native release gates.
+The strict audit retains 1,257 baseline files and 1,326 records, with 267 records
 still unmapped and 11 cached upstream commits pending. Historical Hunk numbers
 do not establish Workdeck performance acceptance.
 
