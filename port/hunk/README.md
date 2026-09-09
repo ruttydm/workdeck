@@ -292,6 +292,26 @@ through the existing merge function. Registered-provider behavior is unchanged.
 All 1,093 TUI unit tests, TUI all-target Clippy with warnings denied, formatting and
 whitespace checks pass. This does not complete a ledger interval or performance gate.
 
+### Immutable-document gap geometry reuse
+
+The eligible plain split-stream cache now retains the small gap descriptors for
+each file alongside section layouts. Viewport row construction borrows those
+descriptors instead of recounting full old/new source lines and rebuilding hunk
+gap metadata for every file on every frame. The same retained immutable document
+and settings checks invalidate both caches. The uncached painter and complex-layout
+paths retain their existing geometry calculation. Initial cache construction pays
+an additional descriptor pass; steady-state frames reuse it. Row construction,
+highlight prefetch, navigation metadata and mouse targets are not skipped.
+
+The viewport differential test now compares cached-gap output with the uncached
+painter across widths, Unicode, hunk headers and viewport ranges, including complete
+navigation geometry. Cache tests verify descriptor identity reuse, equality with
+fresh geometry, resize invalidation and full-cell equality after forced rebuilding.
+All 1,093 TUI unit tests, all-target TUI Clippy with warnings denied, formatting and
+whitespace checks pass. Timing improvement remains unmeasured at this increment;
+offscreen row construction and the performance gate remain unresolved. No ledger
+interval is newly mapped.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation

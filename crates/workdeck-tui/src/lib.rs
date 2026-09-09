@@ -12042,6 +12042,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     // Only plain, unwrapped split streams use viewport painting for now. Complex
     // content retains the complete painter, including extension lifecycle calls.
     let highlight_files;
+    let gap_geometries;
     let purpose = if layout == LayoutMode::Split
         && !app.options.wrap_lines
         && comments.is_empty()
@@ -12069,8 +12070,14 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                     app.extension_registry_generation,
                 )
             })
-            .map(|cached| (cached.height, Arc::clone(&cached.sections)));
-        let (content_height, layouts) = cached.unwrap_or_else(|| {
+            .map(|cached| {
+                (
+                    cached.height,
+                    Arc::clone(&cached.sections),
+                    Arc::clone(&cached.gap_geometries),
+                )
+            });
+        let (content_height, layouts, cached_gaps) = cached.unwrap_or_else(|| {
             let mut geometry_options = app.options.clone();
             geometry_options.highlight = false;
             let geometry = build_live_review_rows(
@@ -12111,6 +12118,14 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 })
                 .collect::<Vec<_>>();
             let layouts = Arc::new(layouts);
+            let gaps = Arc::new(
+                state
+                    .changeset()
+                    .files
+                    .iter()
+                    .map(workdeck_review::review_gap_geometry_for_file)
+                    .collect::<Vec<_>>(),
+            );
             *app.review_plain_height
                 .lock()
                 .unwrap_or_else(|error| error.into_inner()) = Some(PlainReviewHeight {
@@ -12125,9 +12140,11 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 registry_generation: app.extension_registry_generation,
                 height: geometry.lines.len(),
                 sections: Arc::clone(&layouts),
+                gap_geometries: Arc::clone(&gaps),
             });
-            (geometry.lines.len(), layouts)
+            (geometry.lines.len(), layouts, gaps)
         });
+        gap_geometries = cached_gaps;
         let start = app.scroll.min(content_height.saturating_sub(viewport));
         let rapid = app
             .review_prefetch
@@ -12155,6 +12172,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             start,
             end: start.saturating_add(viewport),
             highlight_files: Some(&highlight_files),
+            gap_geometries: Some(&gap_geometries),
         }
     } else {
         *app.review_plain_height
@@ -12618,6 +12636,7 @@ struct PlainReviewHeight {
     registry_generation: u64,
     height: usize,
     sections: Arc<Vec<FileSectionLayout>>,
+    gap_geometries: Arc<Vec<workdeck_review::ReviewGapGeometry>>,
 }
 
 impl PlainReviewHeight {
@@ -12979,6 +12998,7 @@ enum ReviewRowPurpose<'a> {
         start: usize,
         end: usize,
         highlight_files: Option<&'a BTreeSet<usize>>,
+        gap_geometries: Option<&'a [workdeck_review::ReviewGapGeometry]>,
     },
 }
 
@@ -13168,7 +13188,17 @@ fn build_review_rows_with_chrome(
         } else {
             None
         };
-        let gap_source = workdeck_review::review_gap_geometry_for_file(file);
+        let uncached_gap_source;
+        let gap_source = match purpose {
+            ReviewRowPurpose::Viewport {
+                gap_geometries: Some(gaps),
+                ..
+            } => &gaps[file_index],
+            _ => {
+                uncached_gap_source = workdeck_review::review_gap_geometry_for_file(file);
+                &uncached_gap_source
+            }
+        };
         let selected_source = options.source_presentation.text(file);
         let line_highlight_paint = line_highlights.get(&file.runtime_id).and_then(|marks| {
             build_line_highlight_paint_index(file, marks, options.tab_width, selected_source)
@@ -22476,7 +22506,32 @@ mod tests {
         );
         app.scroll = 1;
         app.options.theme = resolve_theme(Some("github-light"), None, &[]);
+        let retained_gaps = Arc::clone(
+            &app.review_plain_height
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .gap_geometries,
+        );
         rendered_review_frame(&mut terminal, &app);
+        assert!(Arc::ptr_eq(
+            &retained_gaps,
+            &app.review_plain_height
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .gap_geometries
+        ));
+        assert_eq!(
+            *retained_gaps,
+            review
+                .files
+                .iter()
+                .map(workdeck_review::review_gap_geometry_for_file)
+                .collect::<Vec<_>>()
+        );
         assert!(Arc::ptr_eq(
             &retained,
             &app.review_plain_height
@@ -22499,6 +22554,15 @@ mod tests {
         }
         let mut resized = Terminal::new(TestBackend::new(80, 20)).unwrap();
         rendered_review_frame(&mut resized, &app);
+        assert!(!Arc::ptr_eq(
+            &retained_gaps,
+            &app.review_plain_height
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .gap_geometries
+        ));
         assert!(!Arc::ptr_eq(
             &retained,
             &app.review_plain_height
@@ -22896,6 +22960,15 @@ mod tests {
                 app.prefetch_file_highlights(0);
                 app.prefetch_file_highlights(1);
                 let full = app.current_review_rows();
+                let gaps = app
+                    .state
+                    .lock()
+                    .unwrap()
+                    .changeset()
+                    .files
+                    .iter()
+                    .map(workdeck_review::review_gap_geometry_for_file)
+                    .collect::<Vec<_>>();
                 for start in [0, 1, full.lines.len() / 2, full.lines.len()] {
                     for height in [0, 1, 10] {
                         let end = start.saturating_add(height).min(full.lines.len());
@@ -22905,6 +22978,7 @@ mod tests {
                                 start,
                                 end,
                                 highlight_files: None,
+                                gap_geometries: Some(&gaps),
                             },
                         );
                         assert_eq!(full.lines.len(), window.lines.len());
