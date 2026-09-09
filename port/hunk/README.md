@@ -2550,6 +2550,14 @@ already agree. The fixture is explicitly an unresolved-gap record, not passing
 parity evidence. The replacement needs ECMAScript number formatting and numeric
 property enumeration without losing insertion order for ordinary keys.
 
+Numeric-property enumeration is now implemented recursively for JSON-LD:
+canonical array-index keys below `4294967295` sort numerically, followed by
+ordinary keys in insertion order. The tooling explicitly enables serde's
+insertion-order feature instead of relying on transitive feature activation.
+Both frozen property-order cases and nested/boundary tests passed, along with
+the escaping test, xtask Clippy and formatting. The three observed number-format
+differences remain unresolved; historical gap captures are retained unchanged.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.
