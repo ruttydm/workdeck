@@ -27,6 +27,7 @@ mod release_status;
 mod review_conformance;
 mod skill;
 mod term_video;
+mod theme_probe;
 mod upstream_refs;
 
 const DEFAULT_BASELINE: &str = "hunk-port/main-2c00f435^{}";
@@ -196,6 +197,7 @@ fn run() -> Result<()> {
         Some("ci-changes") => ci_changes::run(args),
         Some("ci-host") => ci_host::run(args),
         Some("themes") => match args.next().as_deref() {
+            Some("probe") => theme_probe::run(args),
             Some("vendor") => vendor_themes(parse_theme_vendor_options(args)?),
             Some("verify") => {
                 if args.next().is_some() {
@@ -203,7 +205,7 @@ fn run() -> Result<()> {
                 }
                 verify_vendored_themes()
             }
-            _ => bail!("themes requires the vendor or verify command"),
+            _ => bail!("themes requires the vendor, verify or probe command"),
         },
         Some("verify") => verify(),
         Some("architecture") => match args.next().as_deref() {

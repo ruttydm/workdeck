@@ -2413,3 +2413,20 @@ benchmark acceptance, full source parity or release readiness, and is not a run
 of the composed `cargo xtask verify` command.
 The fresh strict port audit still fails with 290 unmapped records across the
 1,257-file baseline and 11 cached upstream commits pending; coverage was unchanged.
+
+### Terminal-theme probe tooling (partial)
+
+`cargo xtask themes probe` ports the diagnostic entry point from
+`scripts/probe-terminal-theme.ts`: it opens controlling-terminal input, sends
+OSC 11 through stdout when attached or terminal output otherwise, uses a 500 ms
+deadline, and writes JSON diagnostics to stderr. Fields preserve source names:
+`mode`, `color`, `classified`, `raw`, `stdoutIsTTY`, and `stdinIsTTY`. Recorded
+response chunks replace escape characters with the printable `\\e` notation.
+The existing detector restores input raw mode and owned terminal handles close
+when the command returns. Windows uses `CONIN$`/`CONOUT$` instead of `/dev/tty`.
+
+The focused test covers fragmented white-background responses, exact report
+fields/query bytes, no-response output and restoration of raw mode. xtask
+all-target Clippy and formatting passed. Actual PTY/source-oracle exchanges and
+cross-platform command lifecycle validation are still outstanding; the source
+record remains unmapped.
