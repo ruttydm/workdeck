@@ -5,6 +5,66 @@ use std::time::Instant;
 use workdeck_review::LayoutMode;
 use workdeck_tui::{DiffSectionGeometryCache, DiffSectionGeometryOptions, resolve_theme};
 
+#[derive(Debug, PartialEq, Eq)]
+struct Options {
+    files: usize,
+    lines: usize,
+    width: usize,
+    gc_requested: bool,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            files: stream::DEFAULT_FILE_COUNT,
+            lines: stream::DEFAULT_LINES_PER_FILE,
+            width: 240,
+            gc_requested: true,
+        }
+    }
+}
+
+fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Option<Options>> {
+    let mut options = Options::default();
+    let mut numbers = [
+        options.files as f64,
+        options.lines as f64,
+        options.width as f64,
+    ];
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--help" | "-h" => return Ok(None),
+            "--no-gc" => options.gc_requested = false,
+            "--file-count" | "--lines-per-file" | "--width" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("Missing value for {arg}."))?;
+                let number = sample_number(&value);
+                if !number.is_finite() || number < 0.0 {
+                    bail!("Expected {arg} to be a non-negative number.");
+                }
+                match arg.as_str() {
+                    "--file-count" => numbers[0] = number,
+                    "--lines-per-file" => numbers[1] = number,
+                    _ => numbers[2] = number,
+                }
+            }
+            _ => bail!("Unknown option: {arg}"),
+        }
+    }
+    let native_size = |name: &str, number: f64, minimum: f64| -> Result<usize> {
+        let number = number.trunc().max(minimum);
+        if number >= usize::MAX as f64 {
+            bail!("{name} exceeds the native addressable size.");
+        }
+        Ok(number as usize)
+    };
+    options.files = native_size("--file-count", numbers[0], 1.0)?;
+    options.lines = native_size("--lines-per-file", numbers[1], 1.0)?;
+    options.width = native_size("--width", numbers[2], 40.0)?;
+    Ok(Some(options))
+}
+
 fn measure(
     file_count: usize,
     lines: usize,
@@ -67,22 +127,75 @@ fn measure(
     }))
 }
 
-pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
-    if args.next().is_some() {
-        bail!("benchmark geometry-memory currently accepts no arguments");
-    }
+pub(super) fn run(args: impl Iterator<Item = String>) -> Result<()> {
+    let Some(options) = parse_options(args)? else {
+        println!(
+            "Usage: cargo xtask benchmark geometry-memory [options]\n\nOptions:\n  --file-count <n>      Synthetic review files (default 180)\n  --lines-per-file <n>  Source lines per synthetic file (default 120)\n  --width <n>           Geometry measurement width (default 240)\n  --no-gc              Disable the source GC request (native diagnostics never force GC)\n"
+        );
+        return Ok(());
+    };
     native_memory::snapshot()?;
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&measure(
-            stream::DEFAULT_FILE_COUNT,
-            stream::DEFAULT_LINES_PER_FILE,
-            240,
-            stream::GIANT_SINGLE_FILE_LINES,
-            true
-        )?)?
-    );
+    let mut report = measure(
+        options.files,
+        options.lines,
+        options.width,
+        stream::GIANT_SINGLE_FILE_LINES,
+        true,
+    )?;
+    report["sourceGcRequested"] = serde_json::json!(options.gc_requested);
+    report["nativeForcedGc"] = serde_json::json!(false);
+    println!("{}", serde_json::to_string_pretty(&report)?);
     Ok(())
+}
+
+#[test]
+fn geometry_options_preserve_numeric_coercion_clamping_and_order() {
+    let parse = |args: &[&str]| parse_options(args.iter().map(|arg| (*arg).to_owned()));
+    assert_eq!(parse(&[]).unwrap(), Some(Options::default()));
+    assert_eq!(
+        parse(&[
+            "--file-count",
+            "2.9",
+            "--lines-per-file",
+            "0x78",
+            "--width",
+            "",
+            "--no-gc"
+        ])
+        .unwrap(),
+        Some(Options {
+            files: 2,
+            lines: 120,
+            width: 40,
+            gc_requested: false
+        })
+    );
+    assert_eq!(
+        parse(&["--file-count", "0", "--file-count", "3"])
+            .unwrap()
+            .unwrap()
+            .files,
+        3
+    );
+    assert_eq!(parse(&["--help", "--unknown"]).unwrap(), None);
+    assert_eq!(parse(&["--width", "1e100", "--help"]).unwrap(), None);
+    assert_eq!(
+        parse(&["--width", "1e100", "--width", "80"])
+            .unwrap()
+            .unwrap()
+            .width,
+        80
+    );
+    assert!(parse(&["--unknown", "--help"]).is_err());
+    for value in ["-1", "Infinity", "NaN", "inf", "text", "1e999"] {
+        assert!(parse(&["--width", value]).is_err(), "{value}");
+    }
+    assert_eq!(
+        parse(&["--width"]).unwrap_err().to_string(),
+        "Missing value for --width."
+    );
+    assert!(parse(&["--width", "1e100"]).is_err());
+    assert!(run(["--help".into()].into_iter()).is_ok());
 }
 
 #[test]

@@ -403,6 +403,24 @@ pass. Source CLI flags/help, source-oracle comparison and cross-runtime memory
 acceptance remain incomplete. The command currently rejects arguments explicitly;
 the full `benchmarks/geometry-memory.ts` ledger record remains unmapped.
 
+### Geometry-memory options
+
+The subsequent options port accepts `--file-count`, `--lines-per-file`, `--width`,
+`--no-gc`, `--help` and `-h`. It uses source-style numeric coercion, rejects negative
+and non-finite numbers, truncates fractional values and clamps counts to one and
+width to forty. Repeated options use the last value; help short-circuits subsequent
+arguments. Native size conversion happens after parsing so help or a later value
+can supersede a large finite input. Final unaddressable native sizes are rejected
+explicitly rather than saturating a Rust cast.
+
+The output distinguishes `sourceGcRequested` from `nativeForcedGc: false`; native
+allocation is not represented as JavaScript collection. Help works before querying
+the platform memory backend. Both geometry-memory tests, xtask all-target Clippy
+with warnings denied, formatting and whitespace checks pass. The source help is
+adapted to Cargo naming and native GC semantics. Frozen option oracles, cross-runtime
+heap equivalence and unsupported-platform memory backends remain open; the ledger
+record is still unmapped. The earlier no-arguments limitation is superseded.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation
