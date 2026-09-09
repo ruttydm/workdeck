@@ -1430,12 +1430,9 @@ impl ReviewApp {
             changeset: state.changeset_snapshot(),
             selection: state.selection(),
         };
-        let initial_files = initial_snapshot
-            .changeset
-            .files
-            .iter()
-            .map(project_extension_diff_file)
-            .collect::<Vec<_>>();
+        let mut extension_file_projection_cache = ExtensionFileProjectionCache::default();
+        let initial_files =
+            extension_file_projection_cache.get(Arc::clone(&initial_snapshot.changeset));
         let initial_selected_file_id = initial_snapshot
             .changeset
             .files
@@ -1455,7 +1452,7 @@ impl ReviewApp {
             review: build_extension_review_snapshot(&state),
             selection: initial_extension_selection,
             snapshot: initial_snapshot,
-            files: initial_files.into(),
+            files: initial_files,
             selected_file_id: initial_selected_file_id,
             commands: ExtensionCommandAvailability::default(),
         });
@@ -1539,7 +1536,7 @@ impl ReviewApp {
             extension_pane_runtime: Mutex::new(extension_pane_runtime),
             file_presentation_rendering: Mutex::new(FilePresentationRenderingController::default()),
             extension_runtime_bridge,
-            extension_file_projection_cache: Mutex::new(ExtensionFileProjectionCache::default()),
+            extension_file_projection_cache: Mutex::new(extension_file_projection_cache),
             extension_event_context_provider,
             extension_event_context_installation: None,
             extension_event_dispatch_depth: 0,

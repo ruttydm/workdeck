@@ -107,3 +107,12 @@ Peak RSS was 1,316,552,704 bytes versus 1,393,901,568 in the preceding sample,
 about 77 MB lower. First-frame time remained about 1,133 ms and navigation
 median about 706 ms. This single debug run is not a controlled attribution or
 release gate pass; peak RSS still exceeds both retained pinned-source samples.
+
+The next startup change seeds `ExtensionFileProjectionCache` with the initial
+shared document before constructing the first bridge commit, and moves that
+same cache into `ReviewApp`. Previously the initial projection was built outside
+the cache, so the first authority commit built a second projection while the
+first was still retained. Exact-document invalidation and owned public getters
+are unchanged. This follow-up has no separate memory measurement yet.
+The exact-document cache and TUI reload/authority regressions pass, along with
+TUI all-target Clippy, formatting and diff checks.
