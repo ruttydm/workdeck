@@ -25594,6 +25594,64 @@ mod tests {
     }
 
     #[test]
+    fn theme_selector_rapid_mouse_hover_defers_preview_then_accepts_clicked_theme() {
+        let mut review = responsive_changeset();
+        review.files.truncate(1);
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        let mut terminal = Terminal::new(TestBackend::new(240, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        app.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(frame.contains("›  github-dark-default"));
+        let locate = |name: &str| {
+            let (row, line) = frame
+                .lines()
+                .enumerate()
+                .find(|(_, l)| l.contains(name))
+                .unwrap();
+            (
+                measure_text_width(&line[..line.find(name).unwrap()]) as u16,
+                row as u16,
+            )
+        };
+        let (column, dimmed_row) = locate("github-dark-dimmed");
+        let (_, contrast_row) = locate("github-dark-high-contrast");
+        for row in [dimmed_row, contrast_row] {
+            app.handle_mouse_event(MouseEvent {
+                kind: MouseEventKind::Moved,
+                column,
+                row,
+                modifiers: KeyModifiers::NONE,
+            });
+        }
+        let hovered_at = Instant::now();
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(frame.contains("›  github-dark-default"));
+        assert!(!frame.contains("›  github-dark-dimmed"));
+        assert!(!frame.contains("›  github-dark-high-contrast"));
+        app.tick_extension_notifications(hovered_at + Duration::from_millis(250));
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(frame.contains("Theme selector"));
+        assert!(!frame.contains("›  github-dark-default"));
+        assert!(frame.contains("›  github-dark-high-contrast"));
+        for kind in [
+            MouseEventKind::Down(MouseButton::Left),
+            MouseEventKind::Up(MouseButton::Left),
+        ] {
+            app.handle_mouse_event(MouseEvent {
+                kind,
+                column,
+                row: contrast_row,
+                modifiers: KeyModifiers::NONE,
+            });
+        }
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(!frame.contains("Theme selector"));
+        assert!(frame.contains("Theme: github-dark-high-contrast"));
+    }
+
+    #[test]
     fn theme_selector_jk_navigation_accepts_highlighted_theme() {
         let mut review = responsive_changeset();
         review.files.truncate(1);

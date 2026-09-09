@@ -1,5 +1,16 @@
 # Hunk semantic-port ledger
 
+## Debounced theme hover and click acceptance
+
+Bytes 27,051–29,111 map to the 240×24 rapid-hover interaction regression.
+Two rendered theme rows receive mouse moves before a frame; the initial theme
+remains selected until the production timer advances, then the last hovered
+theme previews and a click accepts it. Both pinned source tests and the native
+test pass; formatting and TUI Clippy pass. Native uses an explicit 250ms timer
+advance rather than source sleep. See [capture and limits](oracles/app-host-theme-hover.json).
+The ledger has 1,381 records, 268 unmapped intervals, and 11 cached upstream
+commits pending. Complete parity remains unproven.
+
 ## Theme selector keyboard acceptance
 
 Bytes 25,426–27,051 map to the 240×24 `t/j/k/j/Enter` interaction test.
