@@ -122,3 +122,10 @@ The complete TUI library suite subsequently passed at clean `b0322ed5`:
 See [verification record](tui-verification-b0322ed5.json). This checks the combined
 runtime-storage and startup changes, but does not substitute for full-workspace,
 cross-platform, source-ledger or benchmark acceptance gates.
+
+The combined startup changes were measured at clean `48f74036`:
+[raw huge-workload diagnostic](huge-stream-native-48f74036.json). Peak RSS was
+1,275,478,016 bytes, about 41 MB below the preceding 1,316,552,704-byte sample.
+Navigation median remained about 704 ms and first frame about 1,141 ms. This
+supports continuing the allocation investigation but still does not meet the
+pinned-source memory observations or constitute a release-profile comparison.
