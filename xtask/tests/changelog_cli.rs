@@ -153,6 +153,12 @@ fn version_plan_uses_real_cargo_metadata_without_mutating_inputs() {
         );
     }
     let saved = repo.path().join("release-plan.json");
+    assert_eq!(plan["inputs"]["CHANGELOG.md"], "absent");
+    assert_eq!(
+        plan["edits"]["CHANGELOG.md"],
+        format!("# Changelog\n\n{}", plan["notes"].as_str().unwrap())
+    );
+    assert!(!repo.path().join("CHANGELOG.md").exists());
     std::fs::write(&saved, &output.stdout).unwrap();
     let check = run(
         repo.path(),
@@ -168,6 +174,27 @@ fn version_plan_uses_real_cargo_metadata_without_mutating_inputs() {
         serde_json::from_slice::<serde_json::Value>(&check.stdout).unwrap(),
         serde_json::json!({"valid":true,"applied":false})
     );
+    let history = repo.path().join("CHANGELOG.md");
+    std::fs::write(&history, "# History\n\nExisting release.\n").unwrap();
+    let stale = run(
+        repo.path(),
+        &["changelog", "check-plan", "release-plan.json"],
+    );
+    assert!(!stale.status.success());
+    let refreshed = run(repo.path(), &["changelog", "plan"]);
+    assert!(refreshed.status.success());
+    let refreshed: serde_json::Value = serde_json::from_slice(&refreshed.stdout).unwrap();
+    assert!(
+        refreshed["edits"]["CHANGELOG.md"]
+            .as_str()
+            .unwrap()
+            .ends_with("Existing release.\n")
+    );
+    assert_eq!(
+        std::fs::read_to_string(&history).unwrap(),
+        "# History\n\nExisting release.\n"
+    );
+    std::fs::remove_file(&history).unwrap();
     let fragment = repo.path().join("changes/patch-fix.md");
     let original = std::fs::read_to_string(&fragment).unwrap();
     let changed = original.replace("Fix λ.", "Different fix.");

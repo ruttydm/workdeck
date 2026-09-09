@@ -46,6 +46,14 @@ version-qualified CLI dependency references are rejected until coordinated
 editing is implemented. These are proposed contents only, not writes; a
 maintenance-only plan has no version edits.
 
+Version-bumping plans also propose `CHANGELOG.md`: new notes are inserted
+after an existing top-level heading, or prepended to headingless history.
+Existing history is retained verbatim; an absent file gets a Changelog heading.
+The history is fingerprinted alongside other inputs, with `absent` explicitly
+recording a missing file, so creating history invalidates a previously saved
+plan. Planning neither creates nor rewrites this file. Fragment consumption
+and transactional application remain unimplemented.
+
 The integration test applies the proposed manifest/lockfile pair only inside
 its disposable fixture, runs locked/offline Cargo checking, and confirms that
 Cargo reports the proposed version without rewriting either file. Production

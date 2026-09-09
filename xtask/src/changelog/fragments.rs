@@ -219,7 +219,7 @@ fn build_plan(repo: &Path) -> Result<serde_json::Value> {
     let bump = highest_bump(&fragments);
     let next = next_stable_version(&package.version, bump)?;
     let notes = render_notes(&next.to_string(), &fragments);
-    let edits = if next == package.version {
+    let mut edits = if next == package.version {
         std::collections::BTreeMap::new()
     } else {
         let manifest_text = std::fs::read_to_string(repo.join(manifest))?;
@@ -241,10 +241,34 @@ fn build_plan(repo: &Path) -> Result<serde_json::Value> {
             ("Cargo.lock".into(), lock_edit),
         ])
     };
+    if !notes.is_empty() {
+        let history = match std::fs::read_to_string(repo.join("CHANGELOG.md")) {
+            Ok(history) => history,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(error) => return Err(error.into()),
+        };
+        edits.insert(
+            "CHANGELOG.md".into(),
+            prepend_release_notes(&history, &notes),
+        );
+    }
     verify_fragment_snapshot(repo, manifest, &fragments, &inputs)?;
     Ok(
         serde_json::json!({"current":package.version.to_string(),"next":next.to_string(),"bump":bump,"fragments":fragments,"notes":notes,"inputs":inputs,"edits":edits,"applied":false}),
     )
+}
+
+fn prepend_release_notes(history: &str, notes: &str) -> String {
+    if history.is_empty() {
+        return format!("# Changelog\n\n{notes}");
+    }
+    if history.starts_with("# ") {
+        if let Some((heading, rest)) = history.split_once('\n') {
+            return format!("{heading}\n\n{notes}{rest}");
+        }
+        return format!("{history}\n\n{notes}");
+    }
+    format!("{notes}{history}")
 }
 
 fn prepare_version_edits(
@@ -333,6 +357,7 @@ fn input_fingerprints(
     let mut paths = std::collections::BTreeSet::from([
         std::path::PathBuf::from("Cargo.toml"),
         std::path::PathBuf::from("Cargo.lock"),
+        std::path::PathBuf::from("CHANGELOG.md"),
         manifest.to_owned(),
     ]);
     for fragment in fragments {
@@ -349,7 +374,16 @@ fn input_fingerprints(
             "plan input is outside repository"
         );
         let full = repo.join(&path);
-        let metadata = std::fs::symlink_metadata(&full)?;
+        let metadata = match std::fs::symlink_metadata(&full) {
+            Err(error)
+                if path == Path::new("CHANGELOG.md")
+                    && error.kind() == std::io::ErrorKind::NotFound =>
+            {
+                inputs.insert("CHANGELOG.md".into(), "absent".into());
+                continue;
+            }
+            result => result?,
+        };
         ensure!(
             metadata.is_file() && !metadata.file_type().is_symlink(),
             "plan input must be a regular file"
@@ -454,6 +488,29 @@ pub(super) fn add(repo: &Path, mut args: impl Iterator<Item = String>) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn changelog_plan_preserves_existing_history() {
+        let notes = "## 2.0.0\n\n- New.\n\n";
+        assert_eq!(
+            prepend_release_notes("", notes),
+            format!("# Changelog\n\n{notes}")
+        );
+        for history in ["## 1.0.0\n\nOld λ.\n", "Unstructured history\r\n"] {
+            assert_eq!(
+                prepend_release_notes(history, notes),
+                format!("{notes}{history}")
+            );
+        }
+        assert_eq!(
+            prepend_release_notes("# History\r\n\r\nOld λ.\r\n", notes),
+            format!("# History\r\n\n{notes}\r\nOld λ.\r\n")
+        );
+        assert_eq!(
+            prepend_release_notes("# History", notes),
+            format!("# History\n\n{notes}")
+        );
+    }
 
     #[test]
     fn version_edits_preserve_manifest_comments_and_unrelated_packages() {
