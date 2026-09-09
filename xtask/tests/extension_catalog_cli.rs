@@ -14,6 +14,35 @@ fn run(input: &[u8], args: &[&str]) -> std::process::Output {
 }
 
 #[test]
+fn recency_cli_matches_both_source_baselines() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../port/hunk/oracles/extension-recency.json"
+    ))
+    .unwrap();
+    for capture in fixture["captures"].as_array().unwrap() {
+        for case in capture["cases"].as_array().unwrap() {
+            let output = run(
+                &serde_json::to_vec(&case["input"]).unwrap(),
+                &["extension-catalog", "format-updated"],
+            );
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(output.stderr.is_empty());
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap(),
+                case["expected"],
+                "{}: {}",
+                capture["kind"],
+                case["input"]
+            );
+        }
+    }
+}
+
+#[test]
 fn json_ld_cli_matches_frozen_source_number_and_property_formatting() {
     verify_serialization_cases(include_str!(
         "../../port/hunk/oracles/json-ld-serialization-gaps.json"

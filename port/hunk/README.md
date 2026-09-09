@@ -2589,6 +2589,13 @@ preserves source thresholds and pluralization, including `0 years ago` at
 as did xtask Clippy and formatting. JavaScript's broader Date parsing and the
 full website integration remain unported; this is not a completed ledger mapping.
 
+`oracles/extension-recency.json` records 12 actual results per pin under Bun
+1.3.14, including month/year boundaries, offset-equivalent timestamps, future
+timestamps and invalid input. Source undefined is explicitly encoded as null.
+The CLI test feeds each captured input through the native command and compares
+its result. All four catalog integration tests, xtask Clippy and formatting
+passed. The broader JavaScript Date-input domain is still unverified.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.
