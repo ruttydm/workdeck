@@ -1117,6 +1117,128 @@ mod tests {
     }
 
     #[test]
+    fn queued_file_reload_preserves_live_comment_in_updated_terminal_frame() {
+        let repo = tempfile::tempdir().unwrap();
+        fs::create_dir(repo.path().join(".git")).unwrap();
+        let left = repo.path().join("before.ts");
+        let right = repo.path().join("after.ts");
+        fs::write(&left, "export const answer = 41;\n").unwrap();
+        fs::write(&right, "export const answer = 42;\n").unwrap();
+        let initial = CliInput::Files(workdeck_core::FileCommandInput {
+            left: left.to_string_lossy().into_owned(),
+            right: right.to_string_lossy().into_owned(),
+            options: CommonOptions {
+                mode: Some(workdeck_core::InputLayoutMode::Split),
+                ..Default::default()
+            },
+        });
+        let mut app = ReviewApp::new(
+            workdeck_vcs::load_file_comparison(repo.path(), &left, &right).unwrap(),
+            ReviewOptions {
+                review_input: Some(initial.clone()),
+                command_cwd: Some(repo.path().to_owned()),
+                repo: Some(repo.path().to_owned()),
+                layout: workdeck_review::LayoutMode::Split,
+                ..Default::default()
+            },
+        );
+        let frame = |app: &ReviewApp| {
+            let area = ratatui::layout::Rect::new(0, 0, 220, 20);
+            let mut buffer = ratatui::buffer::Buffer::empty(area);
+            crate::render(area, &mut buffer, app);
+            (0..area.height)
+                .map(|y| {
+                    (0..area.width)
+                        .map(|x| buffer[(x, y)].symbol())
+                        .collect::<String>()
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let note = "Keep this daemon review note";
+        let comment = serde_json::from_value(serde_json::json!({
+            "filePath":"after.ts", "side":"new", "line":1, "summary":note, "reveal":true,
+        }))
+        .unwrap();
+        let (mut controller, replies) = queued_controller([message(
+            "comment-1",
+            WorkdeckSessionCommandInput::Comment(comment),
+        )]);
+        assert_eq!(
+            controller.process_pending(&mut app, &mut |_, _, _| Err("unexpected reload".into())),
+            1
+        );
+        replies[0].recv().unwrap().unwrap();
+        assert!(frame(&app).contains(note));
+        let comments = app.with_state(|state| state.comments().to_vec());
+        let publication = app.review_producer().get_publication_address();
+        fs::write(
+            &right,
+            "export const answer = 42;\nexport const added = true;\n",
+        )
+        .unwrap();
+        let (mut controller, replies) = queued_controller([message(
+            "reload-1",
+            WorkdeckSessionCommandInput::ReloadSession(ReloadSessionToolInput {
+                target_session: SessionSelector::default(),
+                next_input: serde_json::to_value(core_cli_input_to_daemon(initial.clone()))
+                    .unwrap(),
+                source_path: None,
+            }),
+        )]);
+        let mut coordinator =
+            AppHostReloadCoordinator::new(initial, repo.path(), Some(repo.path())).unwrap();
+        let mut loader = |input: &CliInput,
+                          cwd: &Path,
+                          _: bool,
+                          _: &VcsCatalog,
+                          _: &[LoadedExtension]|
+         -> anyhow::Result<DynamicReviewLoad> {
+            let CliInput::Files(files) = input else {
+                anyhow::bail!("expected file comparison")
+            };
+            Ok(DynamicReviewLoad {
+                input: input.clone(),
+                changeset: workdeck_vcs::load_file_comparison(
+                    cwd,
+                    Path::new(&files.left),
+                    Path::new(&files.right),
+                )?,
+                replacement_extensions: None,
+                replacement_vcs_catalog: None,
+                host_options: DynamicReviewHostOptions {
+                    command_cwd: cwd.to_owned(),
+                    repo_root: Some(cwd.to_owned()),
+                    ..Default::default()
+                },
+            })
+        };
+        let mut catalog = workdeck_vcs::bundled_vcs_catalog().clone();
+        assert_eq!(
+            controller.process_pending(&mut app, &mut |app, input, options| {
+                let plan = coordinator.plan(input, options.clone())?;
+                crate::commit_dynamic_review_reload(
+                    app,
+                    &mut coordinator,
+                    plan,
+                    &mut loader,
+                    &mut catalog,
+                )
+            }),
+            1
+        );
+        assert!(matches!(
+            replies[0].recv().unwrap().unwrap(),
+            WorkdeckSessionCommandResult::ReloadedSession(_)
+        ));
+        let updated = frame(&app);
+        assert!(updated.contains("export const added = true;"), "{updated}");
+        assert!(updated.contains(note), "{updated}");
+        assert_eq!(app.with_state(|state| state.comments().to_vec()), comments);
+        assert_ne!(app.review_producer().get_publication_address(), publication);
+    }
+
+    #[test]
     fn queued_reload_outside_launch_root_is_rejected_before_loader_or_publication() {
         let repo = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();

@@ -1,5 +1,21 @@
 # Hunk semantic-port ledger
 
+## AppHost live-comment reload (partial interaction corpus)
+
+Bytes 51,464–53,736 of `src/ui/AppHost.interactions.test.tsx` map to the executed
+Rust queued file-reload test. It loads real files, queues a visible comment,
+changes the after-file on disk, commits a queued reload, and checks both new code
+and the retained note in a 220×20 terminal frame. Both pinned source runs pass;
+see [capture and scope](oracles/app-host-reload-comments.json). TUI all-target
+Clippy and formatting pass. No whole-file completion or cell-golden equivalence
+is claimed.
+
+Current strict audit validates the byte partition and evidence, then fails with
+1,257 baseline files, 1,330 records, 371 translated-test records and 269 unmapped
+intervals. Again, splitting a partially covered file creates additional unfinished
+intervals without changing the file count. Eleven cached upstream commits remain
+pending; release acceptance is not established.
+
 ## AppHost reload root refusal (partial interaction corpus)
 
 Bytes 55,659–57,294 of `src/ui/AppHost.interactions.test.tsx` now map to the
@@ -10,7 +26,7 @@ selection and mounted/coordinator state. See [capture and limits](oracles/app-ho
 TUI all-target Clippy and formatting pass. This maps only the 1,635-byte test
 interval; both surrounding regions and the containing file remain incomplete.
 
-The refreshed strict audit validates baseline coverage/evidence, then fails with
+At this earlier root-refusal checkpoint, strict audit validated baseline coverage/evidence, then failed with
 1,257 files, 1,328 records, 370 translated-test records and 268 unmapped records.
 The unmapped record count increased by one because splitting the old whole-file
 interval leaves two unfinished regions. It is not a loss of source files or a
