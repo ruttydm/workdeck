@@ -195,4 +195,40 @@ fn version_plan_uses_real_cargo_metadata_without_mutating_inputs() {
     assert!(!stale.status.success());
     assert!(stale.stdout.is_empty());
     assert_eq!(std::fs::read(saved).unwrap(), output.stdout);
+    // Apply only to this disposable fixture to validate the proposed pair.
+    // Production plan/check-plan commands remain read-only.
+    for path in ["Cargo.toml", "Cargo.lock"] {
+        std::fs::write(
+            repo.path().join(path),
+            plan["edits"][path].as_str().unwrap(),
+        )
+        .unwrap();
+    }
+    assert!(
+        Command::new("cargo")
+            .args(["check", "--locked", "--offline", "--quiet"])
+            .current_dir(repo.path())
+            .env("CARGO_TARGET_DIR", repo.path().join("target"))
+            .status()
+            .unwrap()
+            .success()
+    );
+    let metadata = cargo_metadata::MetadataCommand::new()
+        .manifest_path(repo.path().join("Cargo.toml"))
+        .no_deps()
+        .other_options(vec!["--offline".into(), "--locked".into()])
+        .exec()
+        .unwrap();
+    let package = metadata
+        .packages
+        .iter()
+        .find(|package| package.name == "workdeck-cli")
+        .unwrap();
+    assert_eq!(package.version.to_string(), "1.3.0");
+    for path in ["Cargo.toml", "Cargo.lock"] {
+        assert_eq!(
+            std::fs::read_to_string(repo.path().join(path)).unwrap(),
+            plan["edits"][path].as_str().unwrap()
+        );
+    }
 }

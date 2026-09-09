@@ -46,6 +46,12 @@ version-qualified CLI dependency references are rejected until coordinated
 editing is implemented. These are proposed contents only, not writes; a
 maintenance-only plan has no version edits.
 
+The integration test applies the proposed manifest/lockfile pair only inside
+its disposable fixture, runs locked/offline Cargo checking, and confirms that
+Cargo reports the proposed version without rewriting either file. Production
+plan commands still perform no apply operation. This validates the simple
+local-package case, not every workspace dependency/version arrangement.
+
 The `inputs` object fingerprints the root manifest, CLI manifest, lockfile and
 pending fragments with SHA-256 and repository-relative paths. Duplicate paths
 are collapsed and nonregular files are rejected. The CLI test compares hashes
