@@ -249,6 +249,28 @@ mod tests {
             assert!(requests[1].starts_with("get /next http/1.1\r\n"));
             assert!(requests[0].contains("authorization: bearer fixture-token\r\n"));
             assert_eq!(requests[1].contains("authorization:"), !cross_origin);
+            let fixture: Value = serde_json::from_str(include_str!(
+                "../../../port/hunk/oracles/extension-redirect-authorization.json"
+            ))
+            .unwrap();
+            let actual: Vec<_> = requests.iter().map(|request| {
+                let mut parts = request.lines().next().unwrap().split_whitespace();
+                json!({"method":parts.next().unwrap().to_uppercase(),"path":parts.next().unwrap(),"authorized":request.contains("authorization:")})
+            }).collect();
+            for capture in fixture["captures"].as_array().unwrap() {
+                let case = capture["cases"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|case| case["crossOrigin"] == cross_origin)
+                    .unwrap();
+                assert_eq!(
+                    serde_json::to_value(&actual).unwrap(),
+                    case["requests"],
+                    "{} cross-origin={cross_origin}",
+                    capture["kind"]
+                );
+            }
         }
     }
 

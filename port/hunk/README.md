@@ -2680,6 +2680,15 @@ authorization token on the same origin, and absence of authorization at the
 other origin. Server accepts and socket I/O are bounded. Multi-hop limits,
 TLS and comparison with the pinned runtime's redirect behavior remain pending.
 
+`oracles/extension-redirect-authorization.json` now captures both pinned loaders
+under Bun 1.3.14 with their initial GitHub request routed to local HTTP servers.
+Native Bun fetch handles the redirects, preserving the source headers and
+deadline. Both pins retain authorization for the same origin and remove it for
+a different port. The native transport test compares its observed method,
+path and authorization presence against both captures. The fixture records
+only presence of a synthetic token, never credentials. This closes those two
+HTTP redirect cases, not TLS, redirect limits or the whole source mapping.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

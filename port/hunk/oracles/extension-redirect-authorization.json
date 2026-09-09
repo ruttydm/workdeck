@@ -1,0 +1,83 @@
+{
+  "source": "website/src/data/extensions.ts",
+  "runtime": "Bun 1.3.14 macOS arm64",
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "note": "Pinned loadExtensionEntries invoked with its GitHub request routed to loopback; redirects handled by native Bun fetch. Synthetic authorization token; only presence recorded. Final search response includes all catalog repositories to avoid fallback.",
+  "captures": [
+    {
+      "kind": "main",
+      "cases": [
+        {
+          "crossOrigin": false,
+          "requests": [
+            {
+              "path": "/start",
+              "method": "GET",
+              "authorized": true
+            },
+            {
+              "path": "/next",
+              "method": "GET",
+              "authorized": true
+            }
+          ],
+          "resultCount": 16
+        },
+        {
+          "crossOrigin": true,
+          "requests": [
+            {
+              "path": "/start",
+              "method": "GET",
+              "authorized": true
+            },
+            {
+              "path": "/next",
+              "method": "GET",
+              "authorized": false
+            }
+          ],
+          "resultCount": 16
+        }
+      ]
+    },
+    {
+      "kind": "stable",
+      "cases": [
+        {
+          "crossOrigin": false,
+          "requests": [
+            {
+              "path": "/start",
+              "method": "GET",
+              "authorized": true
+            },
+            {
+              "path": "/next",
+              "method": "GET",
+              "authorized": true
+            }
+          ],
+          "resultCount": 12
+        },
+        {
+          "crossOrigin": true,
+          "requests": [
+            {
+              "path": "/start",
+              "method": "GET",
+              "authorized": true
+            },
+            {
+              "path": "/next",
+              "method": "GET",
+              "authorized": false
+            }
+          ],
+          "resultCount": 12
+        }
+      ]
+    }
+  ]
+}
