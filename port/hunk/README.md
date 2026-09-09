@@ -2651,6 +2651,13 @@ The production request function is exercised directly, without a mocked HTTP
 client. Server accept/read/write operations are bounded. This is local HTTP
 evidence, not HTTPS certificate, redirect, timeout or live GitHub parity proof.
 
+A separate silent-server test exercises the actual global request deadline:
+the peer accepts but sends no response, and the client must return a typed
+timeout before the server's safety ceiling. The socket is kept open until the
+client returns, ruling out a premature EOF as the cause. This verifies timeout
+enforcement locally; TLS, redirects and full upstream transport parity remain
+unverified.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

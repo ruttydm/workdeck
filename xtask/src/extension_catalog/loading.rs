@@ -128,6 +128,58 @@ mod tests {
     use std::sync::{Barrier, Mutex};
 
     #[test]
+    fn http_transport_deadline_interrupts_a_silent_server() {
+        use std::net::TcpListener;
+        use std::sync::mpsc;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("http://{}/silent", listener.local_addr().unwrap());
+        let (release, released) = mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            loop {
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        // Hold the socket open without sending headers. Release
+                        // only after the client returns, with a safety ceiling.
+                        let released_by_client =
+                            released.recv_timeout(Duration::from_secs(5)).is_ok();
+                        drop(stream);
+                        return released_by_client;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if std::time::Instant::now() >= deadline {
+                            return false;
+                        }
+                        std::thread::sleep(Duration::from_millis(2));
+                    }
+                    Err(error) => panic!("accept failed: {error}"),
+                }
+            }
+        });
+        let started = std::time::Instant::now();
+        let result = fetch_json(&url, None, Duration::from_millis(100));
+        let elapsed = started.elapsed();
+        let _ = release.send(());
+        assert!(
+            server.join().unwrap(),
+            "server safety ceiling fired before client deadline"
+        );
+        let error = result.unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<ureq::Error>(),
+                Some(ureq::Error::Timeout(_))
+            ),
+            "unexpected failure: {error}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(3),
+            "client exceeded deadline tolerance: {elapsed:?}"
+        );
+    }
+
+    #[test]
     fn http_transport_sends_headers_and_rejects_bad_responses() {
         use std::io::{Read, Write};
         use std::net::TcpListener;
