@@ -2738,6 +2738,12 @@ missing favicon; generated production pages contain no script tags. This is
 not Hunk's complete search/sort/pagination or button-interaction parity, nor a
 full accessibility/visual audit. No source-ledger completion is claimed.
 
+Facet regression checks explicitly reject a changed count, reordered facets
+and an omitted facet while preserving the underlying listings. All 14 Rust
+catalog-module tests pass together, including source comparisons and loopback
+transport tests; xtask Clippy and formatting pass. This is a subsystem
+checkpoint, not the workspace-wide or release completion gate.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

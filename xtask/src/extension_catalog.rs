@@ -179,6 +179,15 @@ fn legacy_catalog_rejects_missing_duplicate_or_misrepresented_listings() {
             "accepted changed {field}"
         );
     }
+    let mut wrong_count = catalog.clone();
+    wrong_count["facets"][0]["count"] = serde_json::json!(999);
+    assert!(validate_legacy_catalog(&wrong_count).is_err());
+    let mut wrong_order = catalog.clone();
+    wrong_order["facets"].as_array_mut().unwrap().swap(0, 1);
+    assert!(validate_legacy_catalog(&wrong_order).is_err());
+    let mut missing_facet = catalog.clone();
+    missing_facet["facets"].as_array_mut().unwrap().pop();
+    assert!(validate_legacy_catalog(&missing_facet).is_err());
     let mut shortened = catalog;
     shortened["entries"].as_array_mut().unwrap().pop();
     assert!(validate_legacy_catalog(&shortened).is_err());
