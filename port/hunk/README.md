@@ -1,5 +1,14 @@
 # Hunk semantic-port ledger
 
+## Quit prompt and discard after theme change
+
+Bytes 108,360–110,611 map to the 240×24 theme-change prompt/discard regression.
+Both pins pass nine assertions; native verifies changed-theme-only rows, deferred
+quit and discard without creating configuration. Test, formatting and TUI Clippy
+pass. See [capture and scope](oracles/app-host-quit-prompt.json).
+Strict audit remains incomplete: 268 unmapped intervals, 1,370 records,
+1,257 baseline files and 11 cached upstream commits pending.
+
 ## Sidebar click after scrolling
 
 Bytes 106,992–108,360 map to rendered sidebar-row targeting after eight Down

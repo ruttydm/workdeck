@@ -25570,6 +25570,46 @@ mod tests {
     }
 
     #[test]
+    fn theme_change_quit_prompt_lists_only_theme_and_second_quit_discards() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let config = directory.path().join("config.toml");
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                view_preferences_config_path: Some(config.clone()),
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(240, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        for key in [
+            KeyCode::Char('t'),
+            KeyCode::Down,
+            KeyCode::Enter,
+            KeyCode::Char('q'),
+        ] {
+            app.handle_key(KeyEvent::new(key, KeyModifiers::NONE));
+            rendered_review_frame(&mut terminal, &app);
+        }
+        let frame = rendered_review_frame(&mut terminal, &app);
+        for text in [
+            "You changed 1 view setting during this review.",
+            "q discard",
+            "n never ask",
+            "- theme = \"github-dark-default\"",
+            "+ theme = \"github-dark-dimmed\"",
+        ] {
+            assert!(frame.contains(text), "missing {text}: {frame}");
+        }
+        assert!(!frame.contains("line_numbers ="));
+        assert!(!frame.contains("wrap_lines ="));
+        assert!(!app.take_quit_requested());
+        app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        assert!(app.take_quit_requested());
+        assert!(!config.exists());
+    }
+
+    #[test]
     fn dirty_view_quit_renders_saves_and_exits_only_after_the_notice_window() {
         let directory = tempfile::TempDir::new().unwrap();
         let config_path = directory.path().join(".config/workdeck/config.toml");
