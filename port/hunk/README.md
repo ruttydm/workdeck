@@ -329,6 +329,16 @@ and whitespace checks pass. The initial struct extraction had a misplaced Debug
 derive, corrected before this successful validation. No ledger mapping or benchmark
 gate is completed by this increment.
 
+### Split-row vector reservation
+
+The split hunk renderer reserves row and note-target capacity from the computed
+pair count and cursor capacity from the source-line count before appending rows.
+Wrapping and note rendering can grow these buffers normally; no content, targets,
+or geometry are omitted. This avoids repeated vector growth in ordinary unwrapped
+hunks, including offscreen geometry rows. All 1,093 TUI tests, all-target TUI Clippy
+with warnings denied, formatting and whitespace checks pass. Timing and memory
+effects still require measurement; no ledger or performance gate is completed.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation

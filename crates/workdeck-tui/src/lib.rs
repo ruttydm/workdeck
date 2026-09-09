@@ -14361,6 +14361,12 @@ fn split_hunk_rows(
             &uncached_pairs
         }
     };
+    // Every pair contributes at least its ordinary unwrapped row in the common
+    // path; wrapping and notes can grow beyond this initial capacity. Each source
+    // line contributes one cursor (context lines are shared by both sides).
+    rows.reserve(pairs.len());
+    targets.reserve(pairs.len());
+    cursor_targets.reserve(hunk.lines.len());
     for pair in pairs {
         let geometry_nowrap = geometry_nowrap
             || (!options.wrap_lines
