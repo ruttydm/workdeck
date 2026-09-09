@@ -26438,13 +26438,34 @@ mod tests {
         let csi = "\x1b[2J";
         let dcs = "\x1bPqpayload\x1b\\";
         let payload = format!("{osc}{csi}{dcs}\x07\rspoof\x08hidden\x1b");
-        let mut review = navigation_changeset(vec![(
-            "malicious.ts".into(),
-            format!("export const value = \"before{payload}\";\n"),
-            format!("export const value = \"after{payload}\";\n"),
-        )]);
+        let path = format!("evil{payload}.ts");
+        let before = format!("export const value = \"before{payload}\";\n");
+        let after = format!("export const value = \"after{payload}\";\n");
+        let mut review = changeset();
+        review.id = "changeset:terminal-control-injection".into();
+        review.source_label = "repo".into();
+        review.title = "repo working tree".into();
+        review.files = vec![
+            workdeck_diff::diff_from_file_snapshots(
+                workdeck_diff::FileSnapshot {
+                    cache_key: "malicious:before",
+                    contents: &before,
+                    name: &path,
+                },
+                workdeck_diff::FileSnapshot {
+                    cache_key: "malicious:after",
+                    contents: &after,
+                    name: &path,
+                },
+                workdeck_diff::FileComparisonOptions { context_radius: 3 },
+            )
+            .unwrap(),
+        ];
         let file = &mut review.files[0];
-        file.path = format!("evil{payload}.ts");
+        file.runtime_id = "malicious".into();
+        file.patch.clear();
+        assert_eq!((file.stats.additions, file.stats.deletions), (1, 1));
+        assert_eq!(file.hunks[0].lines.len(), 2);
         file.agent = Some(AgentFileContext {
             path: file.path.clone(),
             summary: Some(format!("summary{payload}")),

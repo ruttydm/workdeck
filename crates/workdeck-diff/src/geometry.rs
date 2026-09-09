@@ -225,9 +225,14 @@ pub fn slice_segments_window<S: Clone + PartialEq>(
         if remaining == 0 {
             break;
         }
-        let span_width = measure_sanitized_text_width(&span.text);
+        let text = if span.text.chars().any(|ch| ch.is_control() && ch != '\t') {
+            std::borrow::Cow::Owned(sanitize_terminal_line(&span.text))
+        } else {
+            std::borrow::Cow::Borrowed(span.text.as_str())
+        };
+        let span_width = measure_sanitized_text_width(&text);
         if span_width == 0 {
-            append_segment(&mut sliced, span.text.clone(), &span.style);
+            append_segment(&mut sliced, text.into_owned(), &span.style);
             continue;
         }
         if remaining_offset >= span_width {
@@ -235,13 +240,13 @@ pub fn slice_segments_window<S: Clone + PartialEq>(
             continue;
         }
         if remaining_offset == 0 && span_width <= remaining {
-            append_segment(&mut sliced, span.text.clone(), &span.style);
+            append_segment(&mut sliced, text.into_owned(), &span.style);
             remaining -= span_width;
             used_width = used_width.saturating_add(span_width);
             continue;
         }
 
-        let visible = slice_sanitized_text_by_width(&span.text, remaining_offset, remaining);
+        let visible = slice_sanitized_text_by_width(&text, remaining_offset, remaining);
         remaining_offset = 0;
         if visible.text.is_empty() {
             continue;
@@ -486,6 +491,42 @@ pub fn segments_width<S>(segments: &[TextSegment<S>]) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn segment_windows_sanitize_full_partial_and_control_only_spans() {
+        let spans = vec![
+            TextSegment {
+                text: "ab\x1b]52;c;SGVsbG8=\x07cd\x07\r\n\x08".into(),
+                style: 1,
+            },
+            TextSegment {
+                text: "\x1b[2J".into(),
+                style: 2,
+            },
+            TextSegment {
+                text: "ef".into(),
+                style: 3,
+            },
+        ];
+        for (offset, width, expected) in [
+            (0, 100, "abcdef"),
+            (0, 3, "abc"),
+            (2, 3, "cde"),
+            (4, 2, "ef"),
+        ] {
+            let window = slice_segments_window(&spans, offset, width);
+            assert_eq!(
+                window
+                    .segments
+                    .iter()
+                    .map(|span| span.text.as_str())
+                    .collect::<String>(),
+                expected
+            );
+            assert_eq!(window.used_width, expected.len());
+            assert!(window.segments.iter().all(|span| span.style != 2));
+        }
+    }
 
     #[test]
     fn slices_cell_windows_and_keeps_complete_wide_graphemes() {

@@ -308,7 +308,13 @@ pub fn diff_from_file_snapshots(
     after: FileSnapshot<'_>,
     options: FileComparisonOptions,
 ) -> Result<DiffFile, PatchError> {
-    let diff = similar::TextDiff::from_lines(before.contents, after.contents);
+    // Source snapshots are data, not terminal output. LF is the source-line
+    // delimiter; lone CR and escape sequences must survive until rendering.
+    let before_lines = before.contents.split_inclusive('\n').collect::<Vec<_>>();
+    let after_lines = after.contents.split_inclusive('\n').collect::<Vec<_>>();
+    let diff = similar::TextDiff::configure()
+        .newline_terminated(true)
+        .diff_slices(&before_lines, &after_lines);
     let unified = diff
         .unified_diff()
         .context_radius(options.context_radius)
@@ -320,16 +326,23 @@ pub fn diff_from_file_snapshots(
         before_name = before.name,
         after_name = after.name,
     );
-    let mut changeset = parse_patch(
-        &patch,
-        &source_id,
-        after.name,
-        ChangesetSource::Files {
-            left: before.name.to_owned(),
-            right: after.name.to_owned(),
-        },
+    // Parse only our generated structure with inert headers. User paths can
+    // contain controls or newlines, so attach them as fields after parsing.
+    // Never run source lines through the terminal-output sanitizer here.
+    let structural_patch = diff
+        .unified_diff()
+        .context_radius(options.context_radius)
+        .header("before", "after")
+        .to_string();
+    let mut metadata = parse_file_metadata(
+        &format!("diff --git a/before b/after\n{structural_patch}"),
+        None,
+        None,
     )?;
-    let mut file = changeset.files.remove(0);
+    metadata.path = after.name.to_owned();
+    metadata.previous_path = (before.name != after.name).then(|| before.name.to_owned());
+    let mut file = build_diff_file(metadata, &structural_patch, 0, &source_id);
+    file.patch = patch;
     for hunk in &mut file.hunks {
         hunk.header = format!(
             "@@ -{},{} +{},{} @@{}",
@@ -377,7 +390,11 @@ pub fn create_two_files_patch(
     after: &str,
     context_radius: usize,
 ) -> String {
-    let diff = similar::TextDiff::from_lines(before, after);
+    let before_lines = before.split_inclusive('\n').collect::<Vec<_>>();
+    let after_lines = after.split_inclusive('\n').collect::<Vec<_>>();
+    let diff = similar::TextDiff::configure()
+        .newline_terminated(true)
+        .diff_slices(&before_lines, &after_lines);
     let unified = diff
         .unified_diff()
         .context_radius(context_radius)
@@ -1365,6 +1382,74 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_path_cannot_inject_binary_or_rename_metadata() {
+        let path = "evil\nGIT binary patch\nrename from stolen.ts\nrename to target.ts";
+        let file = diff_from_file_snapshots(
+            FileSnapshot {
+                cache_key: "old",
+                contents: "before\n",
+                name: path,
+            },
+            FileSnapshot {
+                cache_key: "new",
+                contents: "after\n",
+                name: path,
+            },
+            FileComparisonOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(file.path, path);
+        assert!(file.previous_path.is_none());
+        assert!(!file.flags.binary);
+        assert!(!file.flags.partial);
+        assert_eq!(file.change_kind, FileChangeKind::Modified);
+        assert_eq!((file.stats.additions, file.stats.deletions), (1, 1));
+    }
+
+    #[test]
+    fn snapshot_comparison_preserves_terminal_bytes_and_lone_carriage_returns() {
+        let payload = "\x1b]52;c;SGVsbG8=\x07\x1b[2J\x1bPqpayload\x1b\\\x07\rspoof\x08hidden\x1b";
+        let before = format!("export const value = \"before{payload}\";\n");
+        let after = format!("export const value = \"after{payload}\";\n");
+        let path = format!("evil{payload}.ts");
+        let file = diff_from_file_snapshots(
+            FileSnapshot {
+                cache_key: "malicious:before",
+                contents: &before,
+                name: &path,
+            },
+            FileSnapshot {
+                cache_key: "malicious:after",
+                contents: &after,
+                name: &path,
+            },
+            FileComparisonOptions { context_radius: 3 },
+        )
+        .unwrap();
+        assert_eq!(file.path, path);
+        assert_eq!((file.stats.additions, file.stats.deletions), (1, 1));
+        assert_eq!(file.hunks.len(), 1);
+        let hunk = &file.hunks[0];
+        assert_eq!(
+            (
+                hunk.old_start,
+                hunk.old_count,
+                hunk.new_start,
+                hunk.new_count
+            ),
+            (1, 1, 1, 1)
+        );
+        assert_eq!((hunk.split_row_count, hunk.stack_row_count), (1, 2));
+        assert_eq!(hunk.lines.len(), 2);
+        assert_eq!(hunk.lines[0].kind, DiffLineKind::Deletion);
+        assert_eq!(hunk.lines[0].content, before.strip_suffix('\n').unwrap());
+        assert_eq!(hunk.lines[1].kind, DiffLineKind::Addition);
+        assert_eq!(hunk.lines[1].content, after.strip_suffix('\n').unwrap());
+        assert_eq!(file.sources.old.as_ref().unwrap().content, before);
+        assert_eq!(file.sources.new.as_ref().unwrap().content, after);
+    }
+
+    #[test]
     fn compares_text_snapshots_with_pierre_compatible_explicit_hunk_counts() {
         let file = diff_from_file_snapshots(
             FileSnapshot {
@@ -1415,6 +1500,14 @@ mod tests {
         assert_eq!(file.path, "same.txt");
         assert!(file.hunks.is_empty());
         assert_eq!(file.stats, FileStats::default());
+    }
+
+    #[test]
+    fn direct_file_patch_keeps_lone_carriage_returns_inside_source_lines() {
+        assert_eq!(
+            create_two_files_patch("after.ts", "before\rinside\n", "after\rinside\n", 3),
+            "Index: after.ts\n===================================================================\n--- after.ts\t\n+++ after.ts\t\n@@ -1,1 +1,1 @@\n-before\rinside\n+after\rinside\n"
+        );
     }
 
     #[test]

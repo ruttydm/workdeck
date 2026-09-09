@@ -1,5 +1,28 @@
 # Hunk semantic-port ledger
 
+## Preserve source bytes before safe terminal rendering
+
+The malicious-source fixture exposed a structural mismatch hidden by its earlier
+text-only assertions: both source pins produce one deletion and one addition,
+but the native snapshot parser produced only one deletion. Snapshot comparison
+now preserves LF-delimited source lines and control bytes, parses generated
+structure using inert headers, and attaches user paths as data. Patch metadata
+classification also uses inert headers so filenames cannot inject binary/rename
+markers. Direct-file patch generation preserves lone carriage returns as source
+content, matching both pins.
+
+With real source rows restored, the terminal test exposed a second defect:
+the complete-span clipping fast path copied unsanitized text. Both complete and
+partial clipping now sanitize before measuring/output, including control-only
+spans. The TUI regression requires correct diff counts before asserting safe
+rendered cells. See [source oracle and regression evidence](oracles/source-control-byte-diff.json).
+These fixes add no ledger coverage. `cargo xtask verify` passes workspace tests
+(including 126 diff tests, 1,175 TUI tests, and 98 PTY cases; one tooling test is
+ignored), formatting, strict Clippy, the optimized release build, and
+large-repository smoke checks. Strict audit still fails with 270 unmapped
+intervals and 11 cached upstream commits. Performance parity is not established
+by this verification run.
+
 ## Complete rapid-viewport fixture bootstrap
 
 The fixture helper at bytes 10,134–11,617 now returns a native core bootstrap
