@@ -2476,6 +2476,19 @@ passed on macOS, along with the frozen timeout JSON comparison, exact terminal
 restoration, xtask Clippy and formatting. This closes the previous native Unix
 pipe-input test gap, not the source lifecycle or Windows parity gaps.
 
+### OSC response scanning correction
+
+Reviewing the pinned detector exposed a runtime parser mismatch: the Rust
+implementation stopped at the first OSC prefix and preferred any later BEL
+over an earlier string terminator. It also selected hex before a later RGB
+response, unlike Hunk's RGB-first search. The parser now scans candidate prefixes,
+uses the first terminator for each candidate, skips invalid payloads and preserves
+RGB precedence. Five regression cases were executed against both blob-verified
+pins under Bun 1.3.14; their outputs are frozen in
+`oracles/osc-background-scan.json` and reproduced by the Rust regression test.
+All five theme-detection tests, TUI all-target Clippy and formatting passed.
+The separate diagnostic-process lifecycle discrepancy remains unresolved.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

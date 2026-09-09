@@ -203,10 +203,27 @@ fn wait_for_windows_input(
 /// Parse common xterm OSC 11 background-color responses.
 #[must_use]
 pub fn parse_osc_11_background_color(sequence: &str) -> Option<RgbColor> {
-    let payload_start = sequence.find("\x1b]11;")? + "\x1b]11;".len();
-    let tail = &sequence[payload_start..];
-    let payload_end = tail.find('\x07').or_else(|| tail.find("\x1b\\"))?;
-    let payload = &tail[..payload_end];
+    let mut first_hex = None;
+    for (start, prefix) in sequence.match_indices("\x1b]11;") {
+        let tail = &sequence[start + prefix.len()..];
+        let end = match (tail.find('\x07'), tail.find("\x1b\\")) {
+            (Some(a), Some(b)) => a.min(b),
+            (Some(end), None) | (None, Some(end)) => end,
+            (None, None) => continue,
+        };
+        let payload = &tail[..end];
+        if let Some(color) = parse_background_payload(payload) {
+            // Hunk searches the entire buffer for RGB first, then falls back to hex.
+            if !payload.starts_with('#') {
+                return Some(color);
+            }
+            first_hex.get_or_insert(color);
+        }
+    }
+    first_hex
+}
+
+fn parse_background_payload(payload: &str) -> Option<RgbColor> {
     if payload
         .get(..4)
         .is_some_and(|prefix| prefix.eq_ignore_ascii_case("rgb:"))
@@ -330,6 +347,40 @@ mod tests {
         fn read_chunk(&mut self, _timeout: Duration) -> io::Result<Option<Vec<u8>>> {
             Ok(self.chunks.pop_front())
         }
+    }
+
+    #[test]
+    fn osc_scan_skips_invalid_prefixes_and_preserves_source_rgb_precedence() {
+        let white = Some(RgbColor {
+            red: 255,
+            green: 255,
+            blue: 255,
+        });
+        let black = Some(RgbColor {
+            red: 0,
+            green: 0,
+            blue: 0,
+        });
+        assert_eq!(
+            parse_osc_11_background_color("\x1b]11;?\x1b\\\x1b]11;rgb:ff/ff/ff\x07"),
+            white
+        );
+        assert_eq!(
+            parse_osc_11_background_color("\x1b]11;#ffffff\x07\x1b]11;rgb:00/00/00\x1b\\"),
+            black
+        );
+        assert_eq!(
+            parse_osc_11_background_color("\x1b]11;rgb:ff/ff/ff\x1b\\noise\x07"),
+            white
+        );
+        assert_eq!(
+            parse_osc_11_background_color("\x1b]11;rgb:xx/00/00\x07\x1b]11;#ffffff\x07"),
+            white
+        );
+        assert_eq!(
+            parse_osc_11_background_color("\x1b]11;unfinished\x1b]11;#ffffff\x07"),
+            white
+        );
     }
 
     #[test]
