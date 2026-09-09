@@ -219,10 +219,92 @@ fn build_plan(repo: &Path) -> Result<serde_json::Value> {
     let bump = highest_bump(&fragments);
     let next = next_stable_version(&package.version, bump)?;
     let notes = render_notes(&next.to_string(), &fragments);
+    let edits = if next == package.version {
+        std::collections::BTreeMap::new()
+    } else {
+        let manifest_text = std::fs::read_to_string(repo.join(manifest))?;
+        let lock_text = std::fs::read_to_string(repo.join("Cargo.lock"))?;
+        let (manifest_edit, lock_edit) = prepare_version_edits(
+            &manifest_text,
+            &lock_text,
+            &package.version.to_string(),
+            &next.to_string(),
+        )?;
+        std::collections::BTreeMap::from([
+            (
+                manifest
+                    .to_str()
+                    .ok_or_else(|| anyhow::anyhow!("manifest path is not UTF-8"))?
+                    .replace('\\', "/"),
+                manifest_edit,
+            ),
+            ("Cargo.lock".into(), lock_edit),
+        ])
+    };
     verify_fragment_snapshot(repo, manifest, &fragments, &inputs)?;
     Ok(
-        serde_json::json!({"current":package.version.to_string(),"next":next.to_string(),"bump":bump,"fragments":fragments,"notes":notes,"inputs":inputs,"applied":false}),
+        serde_json::json!({"current":package.version.to_string(),"next":next.to_string(),"bump":bump,"fragments":fragments,"notes":notes,"inputs":inputs,"edits":edits,"applied":false}),
     )
+}
+
+fn prepare_version_edits(
+    manifest: &str,
+    lock: &str,
+    current: &str,
+    next: &str,
+) -> Result<(String, String)> {
+    let mut manifest = manifest.parse::<toml_edit::DocumentMut>()?;
+    ensure!(
+        manifest["package"]["name"].as_str() == Some("workdeck-cli"),
+        "version edit targets the wrong package"
+    );
+    ensure!(
+        manifest["package"]["version"].as_str() == Some(current),
+        "CLI version must be explicit and match the plan"
+    );
+    // Preserve decoration (including comments) attached to the version value.
+    let decoration = manifest["package"]["version"]
+        .as_value()
+        .unwrap()
+        .decor()
+        .clone();
+    manifest["package"]["version"] = toml_edit::value(next);
+    *manifest["package"]["version"]
+        .as_value_mut()
+        .unwrap()
+        .decor_mut() = decoration;
+    let mut lock = lock.parse::<toml_edit::DocumentMut>()?;
+    let packages = lock["package"]
+        .as_array_of_tables_mut()
+        .ok_or_else(|| anyhow::anyhow!("lockfile packages missing"))?;
+    let mut matched = 0;
+    for package in packages.iter_mut() {
+        if package["name"].as_str() == Some("workdeck-cli") {
+            ensure!(
+                package["version"].as_str() == Some(current) && package.get("source").is_none(),
+                "ambiguous CLI lockfile package"
+            );
+            package["version"] = toml_edit::value(next);
+            matched += 1;
+        }
+        if let Some(dependencies) = package
+            .get("dependencies")
+            .and_then(toml_edit::Item::as_array)
+        {
+            ensure!(
+                !dependencies
+                    .iter()
+                    .filter_map(toml_edit::Value::as_str)
+                    .any(|value| value.starts_with("workdeck-cli ")),
+                "version-qualified CLI dependency requires coordinated lockfile editing"
+            );
+        }
+    }
+    ensure!(
+        matched == 1,
+        "lockfile must contain exactly one local workdeck-cli package"
+    );
+    Ok((manifest.to_string(), lock.to_string()))
 }
 
 fn verify_fragment_snapshot(
@@ -372,6 +454,35 @@ pub(super) fn add(repo: &Path, mut args: impl Iterator<Item = String>) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn version_edits_preserve_manifest_comments_and_unrelated_packages() {
+        let manifest = "[package]\nname = \"workdeck-cli\"\nversion = \"1.2.3\" # keep this comment\ndescription = \"Keep me\"\n";
+        let lock = "version = 4\n\n[[package]]\nname = \"other\"\nversion = \"9.8.7\"\n\n[[package]]\nname = \"workdeck-cli\"\nversion = \"1.2.3\"\n";
+        let (edited_manifest, edited_lock) =
+            prepare_version_edits(manifest, lock, "1.2.3", "1.3.0").unwrap();
+        assert_eq!(edited_manifest, manifest.replace("1.2.3", "1.3.0"));
+        assert_eq!(edited_lock, lock.replace("1.2.3", "1.3.0"));
+        assert!(prepare_version_edits(manifest, lock, "1.2.4", "1.3.0").is_err());
+        assert!(
+            prepare_version_edits(
+                &manifest.replace("workdeck-cli", "other"),
+                lock,
+                "1.2.3",
+                "1.3.0"
+            )
+            .is_err()
+        );
+        assert!(
+            prepare_version_edits(
+                manifest,
+                &format!("{lock}\n[[package]]\nname = \"workdeck-cli\"\nversion = \"1.2.3\"\n"),
+                "1.2.3",
+                "1.3.0"
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn snapshot_check_detects_changes_between_parsing_and_fingerprinting() {

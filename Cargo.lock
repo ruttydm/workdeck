@@ -3421,6 +3421,7 @@ dependencies = [
  "syn 2.0.119",
  "tar",
  "tempfile",
+ "toml_edit",
  "ureq",
  "url",
  "windows-sys 0.61.2",

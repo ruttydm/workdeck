@@ -130,6 +130,11 @@ fn version_plan_uses_real_cargo_metadata_without_mutating_inputs() {
     assert_eq!(plan["next"], "1.3.0");
     assert_eq!(plan["bump"], "minor");
     assert_eq!(plan["applied"], false);
+    for path in ["Cargo.toml", "Cargo.lock"] {
+        let edited = plan["edits"][path].as_str().unwrap();
+        assert!(edited.contains("version = \"1.3.0\""));
+        assert!(!edited.contains("version = \"1.2.3\""));
+    }
     assert_eq!(plan["fragments"].as_array().unwrap().len(), 2);
     assert_eq!(
         plan["notes"],

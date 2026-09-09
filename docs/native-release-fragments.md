@@ -38,6 +38,14 @@ maintenance-only plans retain the current version. Overflow is rejected.
 Prerelease/build-metadata versions are explicitly rejected until the separate
 prerelease workflow is integrated. No version, lockfile or fragment is changed.
 
+For a version bump, `edits` contains the proposed full CLI manifest and
+lockfile text. TOML editing preserves manifest comments and unrelated package
+entries. The current CLI version must be explicit and match metadata; exactly
+one local CLI lockfile entry must exist. Inherited CLI versions and
+version-qualified CLI dependency references are rejected until coordinated
+editing is implemented. These are proposed contents only, not writes; a
+maintenance-only plan has no version edits.
+
 The `inputs` object fingerprints the root manifest, CLI manifest, lockfile and
 pending fragments with SHA-256 and repository-relative paths. Duplicate paths
 are collapsed and nonregular files are rejected. The CLI test compares hashes
