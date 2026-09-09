@@ -79,3 +79,13 @@ Validation: 12 focused TUI runtime tests, eight host selection tests, and the
 selected-file/full-projection equivalence regression pass. The latter covers
 duplicate IDs and absent selections through the borrowed-document helper.
 Scoped TUI/extension-host all-target Clippy, formatting and diff checks pass.
+
+The full huge diagnostic at clean `08e77400` completed successfully:
+[raw sample](huge-stream-native-08e77400.json). First-frame allocator usage was
+558,123,552 bytes versus 633,253,392 in the preceding peak diagnostic, but peak
+RSS was 1,393,901,568 versus 1,385,152,512 bytes: this sample does **not** show a
+resident-memory improvement. Navigation median was about 705.65 ms versus
+733.79 ms; first-frame time remained about 1,133 ms. These single-run debug
+observations do not establish causality or pass the release benchmark gate.
+Further investigation must include initialization/publication allocations and
+allocator retention rather than equating reduced live allocations with peak RSS.
