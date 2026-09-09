@@ -1,0 +1,50 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "runtime": "Bun 1.3.14 (0d9b296a), disposable oracle only",
+  "command": "GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null bun test <pinned-checkout>/src/ui/AppHost.interactions.test.tsx -t 'pager mode also supports G and g|filter focus accepts typed input'",
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > pager mode also supports G and g top/bottom jumps [347.70ms]\n(pass) App interactions > filter focus accepts typed input and narrows the visible file set [60.37ms]\n\n 2 pass\n 74 filtered out\n 0 fail\n 6 expect() calls\nRan 2 tests across 1 file. [1061.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > pager mode also supports G and g top/bottom jumps [457.95ms]\n(pass) App interactions > filter focus accepts typed input and narrows the visible file set [120.94ms]\n\n 2 pass\n 72 filtered out\n 0 fail\n 6 expect() calls\nRan 2 tests across 1 file. [1056.00ms]\n"
+    }
+  ],
+  "intervals": [
+    {
+      "byteStart": 77584,
+      "byteEnd": 79396,
+      "lineStart": 2619,
+      "lineEnd": 2682,
+      "sha256": "e4e6a3b0e4848661348ff497144cf21c8ff479639ed8e4c21ec8f77ca295f4ad",
+      "nativeTest": "tests::paging_aliases_and_shifted_g_preserve_source_key_sequences"
+    },
+    {
+      "byteStart": 79396,
+      "byteEnd": 80168,
+      "lineStart": 2683,
+      "lineEnd": 2711,
+      "sha256": "b7d7e518fcaeaa380668e29625d864479e289f1dc623544d8477c7f037beadb9",
+      "nativeTest": "tests::tab_filter_input_renders_query_and_empty_match_message"
+    }
+  ],
+  "native": {
+    "destination": "crates/workdeck-tui/src/lib.rs",
+    "command": "CARGO_INCREMENTAL=0 cargo test -p workdeck-tui --lib -- --exact tests::tab_filter_input_renders_query_and_empty_match_message tests::paging_aliases_and_shifted_g_preserve_source_key_sequences",
+    "passed": 2,
+    "failed": 0,
+    "ignored": 0,
+    "filteredOut": 1115,
+    "seconds": 0.89,
+    "exitCode": 0,
+    "assertions": "Pager fixture: 120 numbered lines, 220x12, hidden menu, Shift+g reveals line120 = 1120 and g restores line01 = 1001. Filter fixture: alpha.ts/beta.ts, alpha line-two annotation, 240x24, Tab then zzz; rendered filter label, query and No files match the current filter. plus native focus/query checks."
+  },
+  "limitations": [
+    "Only these two source test bodies are mapped; the containing source file remains incomplete.",
+    "Typed native key events and text assertions do not establish escape decoding or complete terminal-cell equivalence."
+  ]
+}

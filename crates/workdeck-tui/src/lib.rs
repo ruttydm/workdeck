@@ -23865,7 +23865,7 @@ mod tests {
 
     #[test]
     fn paging_aliases_and_shifted_g_preserve_source_key_sequences() {
-        for (path, count) in [("half.ts", 50), ("g.ts", 120)] {
+        for (path, count) in [("half.ts", 50), ("g.ts", 120), ("pager-g.ts", 120)] {
             let review = navigation_changeset(vec![(
                 path.into(),
                 numbered_exports(1, count, 0, true),
@@ -23874,6 +23874,8 @@ mod tests {
             let mut app = ReviewApp::new(
                 review,
                 ReviewOptions {
+                    pager: path == "pager-g.ts",
+                    show_menu_bar: path != "pager-g.ts",
                     layout: LayoutMode::Split,
                     ..Default::default()
                 },
@@ -23902,6 +23904,40 @@ mod tests {
                 assert!(top.contains("line01 = 1001"), "{top}");
             }
         }
+    }
+
+    #[test]
+    fn tab_filter_input_renders_query_and_empty_match_message() {
+        let mut review = responsive_changeset();
+        review.files[0].agent = Some(
+            serde_json::from_value(serde_json::json!({
+                "path":"alpha.ts", "summary":"alpha.ts note",
+                "annotations":[{"newRange":[2,2], "summary":"Annotation for alpha.ts",
+                    "rationale":"Why alpha.ts changed"}]
+            }))
+            .unwrap(),
+        );
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(240, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        rendered_review_frame(&mut terminal, &app);
+        for character in "zzz".chars() {
+            app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+        let frame = rendered_review_frame(&mut terminal, &app);
+        for expected in ["filter:", "zzz", "No files match the current filter."] {
+            assert!(frame.contains(expected), "missing {expected}:\n{frame}");
+        }
+        assert_eq!(app.focus, Focus::Filter);
+        assert_eq!(app.filter, "zzz");
     }
 
     #[test]

@@ -1,5 +1,19 @@
 # Hunk semantic-port ledger
 
+## AppHost pager edges and empty filtering (partial interaction corpus)
+
+Bytes 77,584–79,396 and 79,396–80,168 map to executed pager `G/g` and
+Tab/`zzz` filter tests. Pager checks use 220×12 without menu chrome; the 240×24
+filter case checks the label, typed query and empty-match message. Both pinned
+source runs pass six assertions, and both native tests, formatting and TUI
+all-target Clippy pass. See [captures and limits](oracles/app-host-pager-filter.json).
+Selection reconciliation after filtering and complete cell frames remain separate
+requirements, not implied by this empty-result test.
+
+Current strict audit validates partitions/evidence, then fails with 1,257 files,
+1,346 records, 388 translated-test records and 268 unmapped intervals. Eleven
+cached upstream commits remain pending; complete parity is not established.
+
 ## AppHost content-edge authority (partial interaction corpus)
 
 Bytes 76,716–77,584 map to the executed `]` then Shift+`g` regression, retaining
@@ -10,7 +24,7 @@ all-target Clippy pass. See [capture and timing limits](oracles/app-host-content
 Native updates are synchronous; this does not claim coverage of all asynchronous
 extension or source-loading races.
 
-Current strict audit validates partitions/evidence, then fails with 1,257 files,
+At this earlier content-edge checkpoint, strict audit validated partitions/evidence, then failed with 1,257 files,
 1,344 records, 386 translated-test records and 268 unmapped intervals. Eleven
 cached upstream commits remain pending; complete parity is not established.
 
