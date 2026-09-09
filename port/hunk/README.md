@@ -2614,6 +2614,26 @@ in Workdeck. The native CLI test compares each captured result and checks
 invalid-input failures. Website integration and full catalog migration remain
 incomplete.
 
+### Extension directory activity loading (partial)
+
+`cargo xtask extension-catalog load` reads listing objects with `repo` strings
+from stdin and resolves their GitHub activity. It searches the branded
+`workdeck-extension` topic once (eight-second deadline), then concurrently
+fetches missing repositories (five-second deadlines). Matching is
+case-insensitive for topic results; listing order and static fields survive.
+Missing activity remains absent, and direct-request failures do not fail the
+build. `GITHUB_TOKEN`, when present, is sent only in the authorization header;
+transport error details are not printed. Tests exercise overlapping fallback
+requests, deadlines, missing fields, ordering, empty/malformed topic results
+and topic failure followed by successful direct lookup.
+
+This is not yet wired into the Zola build or a migrated native catalog. HTTP
+transport, exact source warning/exit behavior, and dual-pin loader oracle
+comparisons remain unverified. The generic redacted topic-failure warning is
+not an exact source-output parity claim. The source ledger remains incomplete.
+The two loader unit tests and all six catalog CLI integration tests passed,
+as did xtask all-target Clippy and the existing dependency audit policy.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

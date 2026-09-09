@@ -14,6 +14,16 @@ fn run(input: &[u8], args: &[&str]) -> std::process::Output {
 }
 
 #[test]
+fn catalog_load_rejects_invalid_listings_before_network_access() {
+    for input in [b"null".as_slice(), b"[{}]", br#"[{"repo":7}]"#, b"[null]"] {
+        let output = run(input, &["extension-catalog", "load"]);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+    }
+}
+
+#[test]
 fn category_facets_cli_matches_both_source_baselines() {
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
         "../../port/hunk/oracles/extension-category-facets.json"

@@ -34,6 +34,7 @@ syn = { version = "2.0", features = ["full", "parsing"] }
 tar = "0.4"
 tempfile = "3.13"
 url = "2.5"
+ureq = { version = "3.4", default-features = false, features = ["rustls"] }
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
 workdeck-session = { path = "../crates/workdeck-session" }
 workdeck-core = { path = "../crates/workdeck-core" }
