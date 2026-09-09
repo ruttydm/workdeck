@@ -1029,6 +1029,76 @@ mod tests {
     }
 
     #[test]
+    fn file_shortcuts_publish_selection_and_filter_focus_retains_selected_file() {
+        use crate::tests::{navigation_changeset, numbered_exports, rendered_review_frame};
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        use ratatui::{Terminal, backend::TestBackend};
+        let mut review = navigation_changeset(vec![
+            (
+                "first.ts".into(),
+                numbered_exports(1, 16, 0, true),
+                numbered_exports(1, 16, 100, true),
+            ),
+            (
+                "second.ts".into(),
+                numbered_exports(17, 16, 0, true),
+                numbered_exports(17, 16, 100, true),
+            ),
+        ]);
+        for (file, id) in review.files.iter_mut().zip(["first", "second"]) {
+            file.runtime_id = id.into();
+            file.agent = Some(serde_json::from_value(serde_json::json!({
+                "path":file.path, "summary":format!("{} note", file.path),
+                "annotations":[{"new_range":{"start":2,"end":2}, "summary":format!("Annotation for {}", file.path), "rationale":format!("Why {} changed", file.path)}]
+            })).unwrap());
+        }
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        let host = Arc::new(MockHost::default());
+        let mut controller = AppHostController::attach_to_host(
+            Some(host.clone() as Arc<dyn WorkdeckSessionBridgeHost>),
+            Duration::from_secs(2),
+        );
+        let mut terminal = Terminal::new(TestBackend::new(220, 10)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        controller.publish_snapshot(&app).unwrap();
+        for _ in 0..10 {
+            app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+            rendered_review_frame(&mut terminal, &app);
+        }
+        for (key, expected) in [
+            (KeyCode::Char('.'), "second"),
+            (KeyCode::Char(','), "first"),
+        ] {
+            app.handle_key(KeyEvent::new(key, KeyModifiers::NONE));
+            let frame = rendered_review_frame(&mut terminal, &app);
+            controller.publish_snapshot(&app).unwrap();
+            let snapshots = host.0.lock().unwrap();
+            let state = &snapshots.snapshots.last().unwrap().state;
+            assert_eq!(state.selected_file_id.as_deref(), Some(expected));
+            assert_eq!(state.selected_hunk_index, 0);
+            assert!(frame.contains(&format!("{expected}.ts")), "{frame}");
+        }
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Char('.'), KeyModifiers::NONE));
+        let frame = rendered_review_frame(&mut terminal, &app);
+        controller.publish_snapshot(&app).unwrap();
+        assert!(frame.contains("filter:"), "{frame}");
+        assert_eq!(
+            host.0
+                .lock()
+                .unwrap()
+                .snapshots
+                .last()
+                .unwrap()
+                .state
+                .selected_file_id
+                .as_deref(),
+            Some("first")
+        );
+    }
+
+    #[test]
     fn snapshots_are_dependency_driven_and_retirement_detaches_once() {
         let host = Arc::new(MockHost::default());
         let mut controller = AppHostController::attach_to_host(

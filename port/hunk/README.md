@@ -1,5 +1,15 @@
 # Hunk semantic-port ledger
 
+## File shortcuts and published selection
+
+Bytes 98,079–100,094 map to period/comma file navigation and filter focus.
+Both source pins pass six assertions. The Rust test uses the production snapshot
+publisher and an in-process host, checking selected file IDs and hunk index as
+well as visible destination/filter text. Test, formatting and TUI Clippy pass.
+See [capture and transport limits](oracles/app-host-file-shortcuts.json).
+Strict audit remains incomplete: 268 unmapped intervals, 1,363 records,
+1,257 baseline files and 11 cached upstream commits pending.
+
 ## Cross-file destination header after scrolling
 
 Bytes 97,022–98,079 map to ten Down events followed by next-hunk navigation

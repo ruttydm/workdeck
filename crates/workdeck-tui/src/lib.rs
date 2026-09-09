@@ -16124,7 +16124,7 @@ mod tests {
         .unwrap()
     }
 
-    fn navigation_changeset(files: Vec<(String, String, String)>) -> Changeset {
+    pub(super) fn navigation_changeset(files: Vec<(String, String, String)>) -> Changeset {
         let patch = files
             .iter()
             .map(|(path, before, after)| create_two_files_patch(path, before, after, 3))
@@ -16138,7 +16138,12 @@ mod tests {
         .unwrap()
     }
 
-    fn numbered_exports(start: usize, count: usize, offset: usize, padded: bool) -> String {
+    pub(super) fn numbered_exports(
+        start: usize,
+        count: usize,
+        offset: usize,
+        padded: bool,
+    ) -> String {
         (start..start.saturating_add(count))
             .map(|line| {
                 let label = if padded {
@@ -17117,7 +17122,10 @@ mod tests {
             .collect()
     }
 
-    fn rendered_review_frame(terminal: &mut Terminal<TestBackend>, app: &ReviewApp) -> String {
+    pub(super) fn rendered_review_frame(
+        terminal: &mut Terminal<TestBackend>,
+        app: &ReviewApp,
+    ) -> String {
         terminal
             .draw(|frame| render(frame.area(), frame.buffer_mut(), app))
             .unwrap();
