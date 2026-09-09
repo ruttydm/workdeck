@@ -25,14 +25,15 @@
     "passed": 1,
     "failed": 0,
     "ignored": 0,
-    "filteredOut": 1104,
-    "seconds": 0.77,
-    "cases": "Default and explicitly disabled launch authority, each with reset_app false and true; production reload planning/commit, markup refusal without state mutation, then successful plain comment. Loader is a deterministic fixture, not real source-file I/O."
+    "filteredOut": 1106,
+    "seconds": 0.80,
+    "cases": "Default and explicitly disabled launch authority, each with reset_app false and true; production reload planning/commit, real unstarted broker-client registration replacement retaining session identity and empty experimental features, markup refusal without state mutation, then successful plain comment. A changed source label proves registration replacement occurred. Loader is a deterministic fixture, not real source-file I/O."
   },
   "initialCaptureFailure": "Both initial source attempts ran in unpacked checkouts without .git and failed at repository reload bounds before the target assertion. Both were rerun successfully with the required temporary repository fixture; original source files were not modified.",
   "limitations": [
     "One AppHost interaction case, not the complete source test file or full port interval.",
     "Separate source/native execution, not a captured end-to-end protocol or terminal-cell differential trace.",
-    "Source checks assert registration experimental features and markup refusal; native checks exercise reload authority and post-commit comment behavior without a live broker registration exchange."
+    "Native checks now assert registration experimental features through the production broker client, but it is deliberately unstarted: no daemon-network exchange is claimed.",
+    "The native fixture still uses a VCS input and direct reload/comment calls, not the source test's queued file comparison. The source interval remains unmapped."
   ]
 }

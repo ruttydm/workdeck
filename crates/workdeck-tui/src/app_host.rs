@@ -1346,6 +1346,25 @@ mod tests {
                 });
                 let mut app = app();
                 app.options.review_input = Some(initial.clone());
+                // Keep a real, unstarted broker client: registration replacement is
+                // exercised without discovering or launching a user daemon.
+                let bootstrap = workdeck_session::SessionRegistrationBootstrap {
+                    input_kind: workdeck_session::WorkdeckSessionInputKind::Vcs,
+                    changeset: app.with_state(|state| state.changeset().clone()),
+                    source_label: "experimental reload regression".into(),
+                    experimental: launch_experimental.unwrap_or(false),
+                    initial_show_agent_notes: false,
+                };
+                let publication = app.review_producer().get_publication();
+                let registration =
+                    workdeck_session::create_session_registration(&bootstrap, &publication)
+                        .unwrap();
+                let session_id = registration.session_id.clone();
+                let client = WorkdeckSessionBrokerClient::new(
+                    registration,
+                    workdeck_session::create_initial_session_snapshot(&bootstrap, &publication),
+                );
+                app.session_broker_client = Some(client.clone());
                 let mut coordinator =
                     AppHostReloadCoordinator::new(initial, repo.path(), Some(repo.path())).unwrap();
                 let requested = vcs_input(CommonOptions {
@@ -1391,6 +1410,13 @@ mod tests {
                 assert_eq!(
                     coordinator.current_input().options().experimental,
                     Some(false)
+                );
+                let registration = client.get_registration();
+                assert_eq!(registration.session_id, session_id);
+                assert_eq!(registration.info.experimental_features, Some(Vec::new()));
+                assert_ne!(
+                    registration.info.source_label, "experimental reload regression",
+                    "the assertion must observe the replacement, not the launch registration"
                 );
                 assert_eq!(
                     app.options
