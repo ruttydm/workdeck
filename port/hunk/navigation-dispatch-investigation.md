@@ -175,3 +175,14 @@ and 177 review tests, none failed, ignored or filtered. See the
 [verification record](core-review-verification-9e9c4b08.json). This expands the
 projection-change regression check to resource lifecycle, navigation, manifests,
 notes and public models without claiming full-workspace or release validation.
+
+The optimized diagnostic at clean `5c02594f` includes the conditional patch-line
+allocation change: [raw sample and verification](huge-stream-release-5c02594f.json).
+First frame was 43.94 ms and peak RSS 1,289,142,272 bytes. The prior three native
+samples ranged from 43.16–46.16 ms and 1,284,145,152–1,286,045,696 bytes. This
+follow-up does not demonstrate a peak-memory improvement; reducing one temporary
+allocation has not closed the retained source-memory gap. Further optimization
+needs allocation/stage evidence rather than extrapolation from removed clones.
+Full-workspace all-target Clippy with warnings denied and formatting passed at
+this checkpoint. Render/async-flush equivalence and paired benchmark acceptance
+remain open, and the huge-stream source interval remains unmapped.
