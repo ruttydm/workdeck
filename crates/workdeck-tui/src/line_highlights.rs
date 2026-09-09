@@ -361,6 +361,7 @@ pub struct LineHighlightPreparationController {
     generation_epochs: Option<workdeck_extension_host::LineHighlightEpochState>,
     stream_filter: Option<String>,
     stream_notes: Option<String>,
+    stream_agent_notes: Option<bool>,
     generation_files: Vec<PreparationFileIdentity>,
     deadlines: BTreeMap<LineHighlightTaskKey, (Instant, LineHighlightTask)>,
     // One lifetime per provider attempt, including transport contention/retries.
@@ -390,6 +391,7 @@ impl Default for LineHighlightPreparationController {
             generation_epochs: None,
             stream_filter: None,
             stream_notes: None,
+            stream_agent_notes: None,
             generation_files: Vec::new(),
             deadlines: BTreeMap::new(),
             attempt_deadlines: BTreeMap::new(),
@@ -406,6 +408,17 @@ impl Default for LineHighlightPreparationController {
 }
 
 impl LineHighlightPreparationController {
+    /// Visibility recreates the source stream even when annotation content is unchanged.
+    pub(crate) fn set_stream_agent_notes(&mut self, visible: bool) -> bool {
+        if self.stream_agent_notes == Some(visible) {
+            return false;
+        }
+        self.cancel_pending();
+        self.generation = None;
+        self.stream_agent_notes = Some(visible);
+        true
+    }
+
     pub(crate) fn set_stream_notes(&mut self, identity: String) -> bool {
         if self.stream_notes.as_ref() == Some(&identity) {
             return false;
@@ -2274,6 +2287,41 @@ mod tests {
         );
         let marks = controller.resolved().clone();
         controller.set_stream_filter("alp");
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        assert!(controller.resolved().ptr_eq(&marks));
+        assert_eq!(runtime.calls().len(), 1);
+    }
+
+    #[test]
+    fn visibility_changes_restart_queued_work_but_preserve_plain_file_marks() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
+        runtime.pending.store(true, Ordering::Release);
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("visibility")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [test_file("plain", "content")];
+        let mut controller = LineHighlightPreparationController::default();
+        assert!(controller.set_stream_agent_notes(false));
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        let deadline = *controller.attempt_deadlines.values().next().unwrap();
+        assert!(!controller.set_stream_agent_notes(false));
+        assert_eq!(
+            *controller.attempt_deadlines.values().next().unwrap(),
+            deadline
+        );
+        assert!(controller.set_stream_agent_notes(true));
+        assert!(controller.attempt_deadlines.is_empty());
+        runtime.pending.store(false, Ordering::Release);
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            &files,
+            |controller| !controller.resolved().is_empty(),
+        );
+        let marks = controller.resolved().clone();
+        assert!(controller.set_stream_agent_notes(false));
         controller.reconcile(&extensions, &registrations, &epochs, &files);
         assert!(controller.resolved().ptr_eq(&marks));
         assert_eq!(runtime.calls().len(), 1);

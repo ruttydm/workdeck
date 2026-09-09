@@ -7197,7 +7197,10 @@ impl ReviewApp {
             workdeck_core::review_serialized_digest(&annotations)
                 .expect("saved annotations are serializable"),
         );
-        if filter_changed || notes_changed {
+        let visibility_changed = runtime
+            .line_highlight_preparation
+            .set_stream_agent_notes(self.options.agent_notes);
+        if filter_changed || notes_changed || visibility_changed {
             runtime.line_highlight_preparation.discard_file_results(
                 files
                     .iter()

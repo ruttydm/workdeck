@@ -221,6 +221,20 @@ full hook parity gate; no source ledger interval is marked complete. Review, TUI
 examples all-target Clippy with warnings denied, formatting and whitespace checks
 also pass.
 
+### Visibility-driven preparation generations
+
+Pinned `useTerminalReview.ts` rebuilds the visible-thread map on agent-note visibility
+changes and consequently recreates its stored-note map and review stream, even when
+annotation content is unchanged. The TUI now signals that visibility identity to the
+preparation coordinator independently of its annotation digest. A changed visibility
+setting retires queued/running attempts and rederives recreated annotated files;
+completed plain-file results remain reusable. Repeating the same setting preserves
+the existing attempt deadline. A deterministic coordinator regression covers queued
+deadline retirement and completed-result identity retention. No ledger mapping is
+changed by this additional lifecycle fix. All 55 coordinator tests and 25 compiled
+native highlighter tests pass, as do TUI all-target Clippy with warnings denied,
+formatting and whitespace checks.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation
