@@ -154,3 +154,10 @@ content after caller input mutation and removal. Performance remains unmeasured
 for this change.
 Validation passed: six core semantic tests, three publication tests, 11 producer
 tests, core/review all-target Clippy, formatting and diff checks.
+
+Three fresh optimized processes at clean `c9400e96` completed the huge diagnostic:
+[all samples and binary hash](huge-stream-release-c9400e96.json). Peak RSS ranged
+from 1,284,145,152 to 1,286,045,696 bytes; first-frame time ranged from 43.16 to
+46.16 ms. This is repeatable within this small native sample, but it was not
+interleaved with Hunk or the prior binary and cannot establish causal improvement
+or benchmark acceptance. The retained pinned-source memory gap remains open.

@@ -1,0 +1,51 @@
+{
+  "commit": "c9400e9637714e99e9621838eca24a48d48b99ca",
+  "worktree": "clean",
+  "buildCommand": "CARGO_INCREMENTAL=0 cargo build --release -p xtask",
+  "command": "target/release/xtask benchmark huge-stream-diagnostic",
+  "binarySha256": "2401126c1a172292d563330d42a80942e7beb3bbc01dfe7c6fa75f69173d174c",
+  "host": "Darwin arm64",
+  "profile": "release (optimized)",
+  "limitations": ["Three sequential fresh native processes, not interleaved with Hunk or the previous native binary; flush parity remains unverified."],
+  "sharedReportFields": {
+    "diagnosticOnly": true,
+    "files": 1001,
+    "linesPerFile": 300,
+    "giantFileLines": 50000,
+    "sequence": "one renderer: first frame, two settle frames, six scroll ticks, four navigation presses",
+    "memorySemantics": "Current native RSS and available malloc usage; not peak RSS or JavaScript heapUsed",
+    "peakMemorySemantics": "Process lifetime peak resident/working-set bytes, including fixture construction; not JavaScript heapUsed"
+  },
+  "runs": [
+    {
+      "exitCode": 0,
+      "firstFrameMs": 43.160333,
+      "scrollTickMs": [12.435125, 12.867541, 11.32875, 11.227457999999999, 11.016292, 12.090917],
+      "navigationPressMs": [32.167208, 32.818334, 33.212375, 32.314375],
+      "afterFirstFrame": {"rssBytes": 1247100928, "mallocInUseBytes": 558119712},
+      "afterNavigation": {"rssBytes": 1254735872, "mallocInUseBytes": 558909184},
+      "peakProcessRssBytes": 1284145152,
+      "fixtureBuildMs": 736.35925
+    },
+    {
+      "exitCode": 0,
+      "firstFrameMs": 43.795415999999996,
+      "scrollTickMs": [11.372917, 13.18225, 11.590458, 11.463541000000001, 11.4215, 12.392792],
+      "navigationPressMs": [32.147, 33.303125, 34.0815, 33.460208],
+      "afterFirstFrame": {"rssBytes": 1252065280, "mallocInUseBytes": 558164176},
+      "afterNavigation": {"rssBytes": 1260093440, "mallocInUseBytes": 558955216},
+      "peakProcessRssBytes": 1284980736,
+      "fixtureBuildMs": 752.5506250000001
+    },
+    {
+      "exitCode": 0,
+      "firstFrameMs": 46.155625,
+      "scrollTickMs": [11.985249999999999, 12.845417, 11.846208, 11.620875, 11.506209, 12.696166],
+      "navigationPressMs": [33.274041999999994, 33.130958, 34.884083000000004, 33.534167],
+      "afterFirstFrame": {"rssBytes": 1250213888, "mallocInUseBytes": 558198640},
+      "afterNavigation": {"rssBytes": 1258848256, "mallocInUseBytes": 558932816},
+      "peakProcessRssBytes": 1286045696,
+      "fixtureBuildMs": 763.154291
+    }
+  ]
+}
