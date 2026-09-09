@@ -15,10 +15,16 @@ fn run(input: &[u8], args: &[&str]) -> std::process::Output {
 
 #[test]
 fn json_ld_cli_matches_frozen_source_number_and_property_formatting() {
-    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+    verify_serialization_cases(include_str!(
         "../../port/hunk/oracles/json-ld-serialization-gaps.json"
-    ))
-    .unwrap();
+    ));
+    verify_serialization_cases(include_str!(
+        "../../port/hunk/oracles/json-ld-number-boundaries.json"
+    ));
+}
+
+fn verify_serialization_cases(source: &str) {
+    let fixture: serde_json::Value = serde_json::from_str(source).unwrap();
     for capture in fixture["sourceCaptures"].as_array().unwrap() {
         for case in capture["cases"].as_array().unwrap() {
             let output = run(

@@ -2574,6 +2574,13 @@ command's trailing newline), successful exit and empty stderr. All three catalog
 CLI integration tests and xtask all-target Clippy passed. Historical mismatch
 observations stay in the fixture; the test uses the captured source expectations.
 
+`oracles/json-ld-number-boundaries.json` adds six cases per pin for integer
+rounding beyond the safe-integer range, signed/unsigned 64-bit endpoints,
+fixed/exponential notation boundaries and the smallest positive subnormal.
+The actual CLI matches all captured strings from both baselines. All three
+catalog integration tests, xtask Clippy and formatting passed; this is broader
+numeric evidence, not a waiver for untested JSON input semantics.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.
