@@ -9156,6 +9156,62 @@ impl ReviewApp {
             self.scroll = self.scroll.saturating_sub(integer_scroll.unsigned_abs());
         }
         self.mouse_scroll_accumulator -= integer_scroll as f64;
+        if integer_scroll != 0 && self.review_geometry_published.get() {
+            self.synchronize_selection_to_viewport_center();
+        }
+    }
+
+    fn synchronize_selection_to_viewport_center(&mut self) {
+        let rows = self.current_review_geometry_rows();
+        let viewport = usize::from(
+            self.review_height
+                .get()
+                .saturating_sub(2 + u16::from(!self.options.pager)),
+        );
+        let center = self.scroll.saturating_add(viewport.saturating_sub(1) / 2);
+        let Some(file_index) = rows
+            .visible_file_indices
+            .iter()
+            .copied()
+            .filter(|index| rows.file_tops.get(index).is_some_and(|top| *top <= center))
+            .max_by_key(|index| rows.file_tops[index])
+            .or_else(|| rows.visible_file_indices.first().copied())
+        else {
+            return;
+        };
+        let hunk_index = rows
+            .hunk_tops
+            .iter()
+            .filter(|((file, _), _)| *file == file_index)
+            .min_by_key(|((file, hunk), top)| {
+                let bottom = top.saturating_add(
+                    rows.hunk_heights
+                        .get(&(*file, *hunk))
+                        .copied()
+                        .unwrap_or(1)
+                        .saturating_sub(1),
+                );
+                let distance = if center < **top {
+                    **top - center
+                } else {
+                    center.saturating_sub(bottom)
+                };
+                (distance, std::cmp::Reverse(*hunk))
+            })
+            .map(|((_, hunk), _)| *hunk)
+            .unwrap_or(0);
+        let changed = self.with_state(|state| {
+            let selection = state.selection();
+            if selection.file_index == file_index && selection.hunk_index == Some(hunk_index) {
+                return false;
+            }
+            state.select_hunk(file_index, hunk_index).is_ok()
+        });
+        if changed {
+            // Selection follows scrolling; it must not request a reveal that
+            // scrolls back to the selected hunk or moves the keyboard cursor.
+            self.publish_extension_selection_events();
+        }
     }
 
     fn current_review_geometry_rows(&self) -> ReviewRows {

@@ -1,5 +1,16 @@
 # Hunk semantic-port ledger
 
+## Wheel viewport selection integration
+
+Wheel scrolling now updates the selected file/hunk from rendered viewport-center
+geometry and publishes selection without scrolling back. The source regression
+at bytes 102,092–103,482 passes through the native snapshot publisher.
+All 1,133 TUI tests pass (74.42 seconds), formatting and TUI Clippy pass.
+See [implementation and limits](wheel-selection.md) and [both pinned oracles](oracles/app-host-wheel-selection.json).
+Strict audit remains incomplete: 268 unmapped intervals, 1,366 records,
+1,257 baseline files and 11 cached upstream commits pending. Performance remains
+a separate unpassed gate.
+
 ## Forward and backward cross-file hunk sequence
 
 Bytes 100,094–101,173 and 101,173–102,092 map to exact 18-next/one-next/two-previous

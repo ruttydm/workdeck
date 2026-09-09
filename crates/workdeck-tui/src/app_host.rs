@@ -1029,6 +1029,66 @@ mod tests {
     }
 
     #[test]
+    fn wheel_scroll_publishes_viewport_center_file_and_hunk() {
+        use crate::tests::{navigation_changeset, numbered_exports, rendered_review_frame};
+        use crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
+        use ratatui::{Terminal, backend::TestBackend};
+        let first = numbered_exports(1, 12, 0, true);
+        let second = numbered_exports(13, 50, 0, true);
+        let mut second_after = second.clone();
+        for line in [13, 42, 43, 44] {
+            second_after = second_after.replace(
+                &format!("line{line} = {line};"),
+                &format!("line{line} = {};", line * 100),
+            );
+        }
+        let mut review = navigation_changeset(vec![
+            (
+                "first.ts".into(),
+                first.clone(),
+                first.replace("line01 = 1;", "line01 = 101;"),
+            ),
+            ("second.ts".into(), second, second_after),
+        ]);
+        for file in &mut review.files {
+            file.agent = Some(serde_json::from_value(serde_json::json!({
+                "path":file.path, "summary":format!("{} note", file.path),
+                "annotations":[{"new_range":{"start":2,"end":2}, "summary":format!("Annotation for {}", file.path), "rationale":format!("Why {} changed", file.path)}]
+            })).unwrap());
+        }
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        let host = Arc::new(MockHost::default());
+        let mut controller = AppHostController::attach_to_host(
+            Some(host.clone() as Arc<dyn WorkdeckSessionBridgeHost>),
+            Duration::from_secs(2),
+        );
+        let mut terminal = Terminal::new(TestBackend::new(220, 12)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        controller.publish_snapshot(&app).unwrap();
+        let selected = || {
+            let guard = host.0.lock().unwrap();
+            let state = &guard.snapshots.last().unwrap().state;
+            (state.selected_file_path.clone(), state.selected_hunk_index)
+        };
+        assert_eq!(selected(), (Some("first.ts".into()), 0));
+        for _ in 0..16 {
+            app.handle_mouse_event(MouseEvent {
+                kind: MouseEventKind::ScrollDown,
+                column: 120,
+                row: 7,
+                modifiers: KeyModifiers::NONE,
+            });
+            rendered_review_frame(&mut terminal, &app);
+            controller.publish_snapshot(&app).unwrap();
+            if selected() == (Some("second.ts".into()), 1) {
+                break;
+            }
+        }
+        assert_eq!(selected(), (Some("second.ts".into()), 1));
+    }
+
+    #[test]
     fn file_shortcuts_publish_selection_and_filter_focus_retains_selected_file() {
         use crate::tests::{navigation_changeset, numbered_exports, rendered_review_frame};
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
