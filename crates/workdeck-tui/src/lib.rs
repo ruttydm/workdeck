@@ -23839,6 +23839,47 @@ mod tests {
     }
 
     #[test]
+    fn paging_aliases_and_shifted_g_preserve_source_key_sequences() {
+        for (path, count) in [("half.ts", 50), ("g.ts", 120)] {
+            let review = navigation_changeset(vec![(
+                path.into(),
+                numbered_exports(1, count, 0, true),
+                numbered_exports(1, count, 1000, true),
+            )]);
+            let mut app = ReviewApp::new(
+                review,
+                ReviewOptions {
+                    layout: LayoutMode::Split,
+                    ..Default::default()
+                },
+            );
+            let mut terminal = Terminal::new(TestBackend::new(220, 12)).unwrap();
+            let initial = rendered_review_frame(&mut terminal, &app);
+            assert!(initial.contains("line01 = 1001"), "{initial}");
+            if path == "half.ts" {
+                for (key, modifiers) in [
+                    ('d', KeyModifiers::NONE),
+                    ('u', KeyModifiers::NONE),
+                    ('f', KeyModifiers::NONE),
+                    (' ', KeyModifiers::SHIFT),
+                ] {
+                    app.handle_key(KeyEvent::new(KeyCode::Char(key), modifiers));
+                    let frame = rendered_review_frame(&mut terminal, &app);
+                    assert!(frame.contains("export const line"), "{frame}");
+                    assert!(!app.should_quit);
+                }
+            } else {
+                app.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::SHIFT));
+                let bottom = rendered_review_frame(&mut terminal, &app);
+                assert!(bottom.contains("line120 = 1120"), "{bottom}");
+                app.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
+                let top = rendered_review_frame(&mut terminal, &app);
+                assert!(top.contains("line01 = 1001"), "{top}");
+            }
+        }
+    }
+
+    #[test]
     fn scroll_step_keys_in_pager_move_exactly_one_row() {
         let review = navigation_changeset(vec![(
             "scroll.ts".into(),

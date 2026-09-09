@@ -1,5 +1,19 @@
 # Hunk semantic-port ledger
 
+## AppHost paging aliases and content edges (partial interaction corpus)
+
+Bytes 72,872–74,945 and 74,945–76,716 map individually to the executed alias
+and `G/g` edge-navigation regression. The source 50/120-line fixtures at 220×12
+exercise `d`, `u`, `f`, Shift+Space and modified lowercase `g`. Both source tests
+pass on both pins (seven assertions each run), and native test, formatting and
+TUI all-target Clippy pass. See [capture and limits](oracles/app-host-paging-aliases.json).
+Alias acceptance does not prove exact paging distance; typed key events do not
+replace terminal escape-decoding or complete cell-frame verification.
+
+Current strict audit validates partitions/evidence, then fails with 1,257 files,
+1,343 records, 385 translated-test records and 268 unmapped intervals. Eleven
+cached upstream commits remain pending; the goal remains incomplete.
+
 ## Full TUI regression checkpoint
 
 At clean commit `f4018ebee09c588e9d6d11e721253adf7f3a1ad4`, the complete
