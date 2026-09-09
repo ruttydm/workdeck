@@ -2496,6 +2496,7 @@ fn print_help() {
     println!("cargo xtask changelog add <id> <patch|minor|major|empty> [body]");
     println!("cargo xtask changelog status");
     println!("cargo xtask changelog plan");
+    println!("cargo xtask changelog check-plan <saved-plan.json>");
     println!(
         "cargo xtask release channel --event EVENT --ref REF [--requested-tag CHANNEL] [--current-latest VERSION]"
     );

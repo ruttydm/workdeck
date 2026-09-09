@@ -147,4 +147,47 @@ fn version_plan_uses_real_cargo_metadata_without_mutating_inputs() {
             "plan changed {path}"
         );
     }
+    let saved = repo.path().join("release-plan.json");
+    std::fs::write(&saved, &output.stdout).unwrap();
+    let check = run(
+        repo.path(),
+        &["changelog", "check-plan", "release-plan.json"],
+    );
+    assert!(
+        check.status.success(),
+        "{}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert!(check.stderr.is_empty());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&check.stdout).unwrap(),
+        serde_json::json!({"valid":true,"applied":false})
+    );
+    let fragment = repo.path().join("changes/patch-fix.md");
+    let original = std::fs::read_to_string(&fragment).unwrap();
+    let changed = original.replace("Fix λ.", "Different fix.");
+    std::fs::write(&fragment, &changed).unwrap();
+    let stale = run(
+        repo.path(),
+        &["changelog", "check-plan", "release-plan.json"],
+    );
+    assert!(!stale.status.success());
+    assert!(stale.stdout.is_empty());
+    assert_eq!(std::fs::read_to_string(&fragment).unwrap(), changed);
+    std::fs::write(&fragment, original).unwrap();
+    assert!(
+        run(
+            repo.path(),
+            &["changelog", "add", "new-fix", "patch", "New note."]
+        )
+        .status
+        .success()
+    );
+    let stale = run(
+        repo.path(),
+        &["changelog", "check-plan", "release-plan.json"],
+    );
+    assert!(!stale.status.success());
+    assert!(stale.stdout.is_empty());
+    assert_eq!(std::fs::read(saved).unwrap(), output.stdout);
 }

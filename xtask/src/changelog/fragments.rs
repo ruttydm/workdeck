@@ -159,6 +159,28 @@ pub(super) fn plan(repo: &Path, mut args: impl Iterator<Item = String>) -> Resul
         args.next().is_none(),
         "changelog plan does not accept arguments"
     );
+    println!("{}", serde_json::to_string_pretty(&build_plan(repo)?)?);
+    Ok(())
+}
+
+pub(super) fn check_plan(repo: &Path, mut args: impl Iterator<Item = String>) -> Result<()> {
+    let path = args
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("saved plan path required"))?;
+    ensure!(
+        args.next().is_none(),
+        "check-plan accepts one saved plan path"
+    );
+    let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(path)?)?;
+    ensure!(
+        saved == build_plan(repo)?,
+        "saved release plan is stale or differs from current inputs"
+    );
+    println!("{}", serde_json::json!({"valid":true,"applied":false}));
+    Ok(())
+}
+
+fn build_plan(repo: &Path) -> Result<serde_json::Value> {
     let fragments = pending(repo)?;
     let metadata = cargo_metadata::MetadataCommand::new()
         .manifest_path(repo.join("Cargo.toml"))
@@ -177,13 +199,9 @@ pub(super) fn plan(repo: &Path, mut args: impl Iterator<Item = String>) -> Resul
     let notes = render_notes(&next.to_string(), &fragments);
     let manifest = package.manifest_path.as_std_path().strip_prefix(repo)?;
     let inputs = input_fingerprints(repo, manifest, &fragments)?;
-    println!(
-        "{}",
-        serde_json::to_string_pretty(
-            &serde_json::json!({"current":package.version.to_string(),"next":next.to_string(),"bump":bump,"fragments":fragments,"notes":notes,"inputs":inputs,"applied":false})
-        )?
-    );
-    Ok(())
+    Ok(
+        serde_json::json!({"current":package.version.to_string(),"next":next.to_string(),"bump":bump,"fragments":fragments,"notes":notes,"inputs":inputs,"applied":false}),
+    )
 }
 
 fn input_fingerprints(
