@@ -54,3 +54,10 @@ The complete TUI library suite also passed after these changes: 1,101 tests,
 zero failures, ignored tests or filters on Darwin arm64 at `afbe27fb`.
 See [verification record](tui-verification-afbe27fb.json). This expands native
 regression coverage beyond the focused bridge tests, not the release-gate claim.
+
+The interaction diagnostic now reports `peakProcessRssBytes` separately from
+its current memory snapshots. This is the process-lifetime high-water mark,
+including construction of both navigation and scrolling fixtures; it is not a
+per-stage peak or JavaScript heap measurement. The executable interaction test
+checks the field is positive on supported native hosts. Earlier captured JSON
+reports remain unchanged and must not be interpreted as containing peak data.

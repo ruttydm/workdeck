@@ -131,6 +131,8 @@ fn measure(memory: bool) -> Result<serde_json::Value> {
         "stageSemantics": "Dispatch includes input handling and its geometry/events; render includes the complete frame pass. Total includes both stages and the scheduler yield. Two additional clock reads per interaction instrument the boundaries.",
         "afterFirstFrame": first_memory,
         "afterNavigation": navigation_memory,
+        "peakProcessRssBytes": memory.then(native_memory::peak_rss_bytes).transpose()?,
+        "peakMemorySemantics": "Process lifetime peak resident/working-set bytes, including both renderer fixtures; not a per-stage peak or JavaScript heapUsed",
         "files": stream::DEFAULT_FILE_COUNT,
         "linesPerFile": stream::DEFAULT_LINES_PER_FILE,
         "viewport": {"width": large_stream::VIEWPORT.width, "height": large_stream::VIEWPORT.height},
@@ -179,6 +181,8 @@ fn source_interaction_sequence_drives_real_navigation_and_fresh_scroll_state() {
         report["viewport"],
         serde_json::json!({"width":240,"height":28})
     );
+    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
+    assert!(report["peakProcessRssBytes"].as_u64().unwrap() > 0);
     #[cfg(any(target_os = "macos", target_os = "linux", windows))]
     for key in ["afterFirstFrame", "afterNavigation"] {
         assert!(report[key]["rssBytes"].as_u64().unwrap() > 0);
