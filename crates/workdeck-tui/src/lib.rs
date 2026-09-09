@@ -12173,6 +12173,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             end: start.saturating_add(viewport),
             highlight_files: Some(&highlight_files),
             gap_geometries: Some(&gap_geometries),
+            row_capacity: content_height,
         }
     } else {
         *app.review_plain_height
@@ -13018,6 +13019,7 @@ enum ReviewRowPurpose<'a> {
         end: usize,
         highlight_files: Option<&'a BTreeSet<usize>>,
         gap_geometries: Option<&'a [PlainFileGeometry]>,
+        row_capacity: usize,
     },
 }
 
@@ -13091,7 +13093,11 @@ fn build_review_rows_with_chrome(
     filter: Option<&str>,
     purpose: ReviewRowPurpose,
 ) -> ReviewRows {
-    let mut rows = Vec::new();
+    let capacity = match purpose {
+        ReviewRowPurpose::Viewport { row_capacity, .. } => row_capacity,
+        _ => 0,
+    };
+    let mut rows = Vec::with_capacity(capacity);
     let mut file_tops = BTreeMap::new();
     let mut file_header_tops = BTreeMap::new();
     let mut file_body_tops = BTreeMap::new();
@@ -13103,9 +13109,9 @@ fn build_review_rows_with_chrome(
     let mut file_view_component_hits = Vec::new();
     // Rows arrive in stream order. Collect once into the ordered lookup instead
     // of rebalancing a B-tree for every source/code row in every frame.
-    let mut note_targets = Vec::new();
+    let mut note_targets = Vec::with_capacity(capacity);
     let mut note_bounds = std::collections::HashMap::new();
-    let mut line_cursors = Vec::new();
+    let mut line_cursors = Vec::with_capacity(capacity);
     let visible = |_file_index: usize, file: &DiffFile| {
         filter.is_none_or(|filter| diff_file_matches_filter(file, filter))
     };
@@ -23015,6 +23021,7 @@ mod tests {
                                 end,
                                 highlight_files: None,
                                 gap_geometries: Some(&gaps),
+                                row_capacity: full.lines.len(),
                             },
                         );
                         assert_eq!(full.lines.len(), window.lines.len());

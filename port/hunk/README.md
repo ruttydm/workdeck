@@ -339,6 +339,18 @@ hunks, including offscreen geometry rows. All 1,093 TUI tests, all-target TUI Cl
 with warnings denied, formatting and whitespace checks pass. Timing and memory
 effects still require measurement; no ledger or performance gate is completed.
 
+### Frame-wide row capacity hint
+
+The plain viewport path passes its already-computed content height as an initial
+capacity hint for frame-wide rows, note targets and line cursors. Those vectors
+previously grew from empty on every frame. This is allocation planning only: the
+hint never limits output, and vectors can grow for additional cursor entries.
+The complete row-building, note-target and navigation behavior is unchanged.
+All 1,093 TUI tests, all-target TUI Clippy with warnings denied, formatting and
+whitespace checks pass. The viewport differential test exercises the hint while
+comparing visible cells and complete geometry to the uncached painter. Performance
+and peak-memory effects remain to be measured; no source ledger interval is mapped.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation
