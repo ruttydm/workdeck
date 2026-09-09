@@ -238,3 +238,14 @@ library tests passed (zero failed/ignored/filtered, 135.86 seconds on Darwin
 arm64), as did TUI all-target Clippy, formatting and the optimized build.
 No source ledger interval is newly complete and no measured performance gain is
 claimed until the follow-up diagnostic is captured.
+
+Three fresh optimized runs at clean `581c3126` now quantify the deferred path:
+[all phase samples](huge-stream-release-581c3126.json). Peak RSS ranged from
+1,089,372,160 to 1,090,945,024 bytes, versus 1,287,897,088 in the preceding
+sample; post-setup allocator-in-use was about 355.7 MB versus 552.9 MB. First
+frame remained 43.71–45.79 ms. These observations support the allocation change
+but are not an interleaved causal or source-parity benchmark. In particular this
+workload never requests the complete deferred extension file list; an actual
+consumer read still pays its full projection and owned-result allocation costs.
+Peak remains above both retained pinned-Hunk samples, and flush/timing parity
+and the final benchmark gate are still open.
