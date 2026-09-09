@@ -235,6 +235,20 @@ changed by this additional lifecycle fix. All 55 coordinator tests and 25 compil
 native highlighter tests pass, as do TUI all-target Clippy with warnings denied,
 formatting and whitespace checks.
 
+### Stored collection identity before projection
+
+The preparation stream now hashes saved-note inputs rather than their renderable
+annotation projection. Pinned `useTerminalReview.ts` depends on the complete live
+and user note collections: changing an orphaned note or a note for an absent file
+recreates the stream even if its projected annotations stay empty. Draft notes are
+excluded because they belong to a separate source dependency. Regression tests
+verify that unprojected saved-note edits change identity, equal saved inputs retain
+identity, and draft additions/edits leave it unchanged. The existing coordinator
+path retires unfinished work while preserving completed plain-file derivations.
+All three saved-extension projection/identity tests and 55 coordinator tests pass,
+as do TUI all-target Clippy with warnings denied, formatting and whitespace checks.
+This is further partial lifecycle parity, not a completed ledger mapping.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation

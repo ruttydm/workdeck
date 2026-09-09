@@ -7193,10 +7193,9 @@ impl ReviewApp {
         let filter_changed = runtime
             .line_highlight_preparation
             .set_stream_filter(&self.filter);
-        let notes_changed = runtime.line_highlight_preparation.set_stream_notes(
-            workdeck_core::review_serialized_digest(&annotations)
-                .expect("saved annotations are serializable"),
-        );
+        let notes_changed = runtime
+            .line_highlight_preparation
+            .set_stream_notes(saved_extension_notes_identity(comments));
         let visibility_changed = runtime
             .line_highlight_preparation
             .set_stream_agent_notes(self.options.agent_notes);
@@ -14514,6 +14513,15 @@ fn saved_comment_thread(
     }
 }
 
+/// The source hook depends on stored collections, not only renderable projections.
+fn saved_extension_notes_identity(comments: &[ReviewComment]) -> String {
+    let stored = comments
+        .iter()
+        .filter(|comment| comment.source != "user-draft")
+        .collect::<Vec<_>>();
+    workdeck_core::review_serialized_digest(&stored).expect("stored notes are serializable")
+}
+
 fn saved_extension_annotations(
     changeset: &Changeset,
     comments: &[ReviewComment],
@@ -15659,6 +15667,35 @@ mod tests {
             },
             editable: false,
         }
+    }
+
+    #[test]
+    fn saved_extension_identity_tracks_unprojected_notes_but_not_drafts() {
+        let document = changeset();
+        let file = &document.files[0];
+        let mut orphan = saved_comment(&file.key, "orphan", "original");
+        orphan.resolution = workdeck_review::ReviewNoteResolution::Orphaned;
+        let mut absent = saved_comment("absent", "absent", "original");
+        let original = vec![orphan.clone(), absent.clone()];
+        assert!(saved_extension_annotations(&document, &original, true).is_empty());
+        let identity = saved_extension_notes_identity(&original);
+        assert_eq!(identity, saved_extension_notes_identity(&original.clone()));
+        orphan.summary = "edited orphan".into();
+        let edited = vec![orphan.clone(), absent.clone()];
+        assert!(saved_extension_annotations(&document, &edited, true).is_empty());
+        assert_ne!(identity, saved_extension_notes_identity(&edited));
+        absent.summary = "edited absent note".into();
+        assert_ne!(
+            saved_extension_notes_identity(&edited),
+            saved_extension_notes_identity(&[orphan, absent])
+        );
+        let mut with_draft = original.clone();
+        let mut draft = saved_comment(&file.key, "draft", "draft");
+        draft.source = "user-draft".into();
+        with_draft.push(draft);
+        assert_eq!(identity, saved_extension_notes_identity(&with_draft));
+        with_draft.last_mut().unwrap().summary = "edited draft".into();
+        assert_eq!(identity, saved_extension_notes_identity(&with_draft));
     }
 
     #[test]
