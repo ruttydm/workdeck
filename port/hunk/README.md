@@ -2766,7 +2766,7 @@ reproducible from pinned Git; the surrounding source file remains incomplete.
 ### Native release-fragment authoring (partial)
 
 `cargo xtask changelog add <id> <patch|minor|major|empty> [body]` creates a
-Workdeck fragment under `changes/`, without invoking the source package
+Workdeck fragment under `release/fragments/`, without invoking the source package
 runtime. Invalid requests create no state; atomic no-clobber publication
 preserves existing fragments. Tests cover all bump types, Unicode content,
 maintenance-only fragments, overwrite rejection and invalid arguments.

@@ -13,10 +13,18 @@ cargo xtask changelog add maintenance-cleanup empty
 Use `patch` for fixes or small behavior changes, `minor` for new user-facing
 features, and `major` for breaking changes. Maintenance-only fragments are
 empty and carry no release-note text. IDs use lowercase letters, digits and
-hyphens; each identifies one `changes/<id>.md` file. Quote multi-word text as
+hyphens; each identifies one `release/fragments/<id>.md` file. Quote multi-word text as
 one argument. Existing fragments are never overwritten, and invalid requests
 do not create the directory. Writes use a same-directory temporary file and
 atomic no-clobber publication.
+
+This is the same `release/fragments/` directory and `workdeck-cli` package
+identity used by the existing release-status and prerelease gates. The CLI
+integration test stages newly authored fragments and verifies that
+`cargo xtask release status --since=HEAD` discovers them and reports the
+highest bump. The earlier development-only `changes/` location is not read;
+review and move any externally created preview fragments to the canonical
+directory and change their frontmatter product to `workdeck-cli` explicitly.
 
 Inspect pending fragments without creating state:
 
@@ -27,7 +35,7 @@ cargo xtask changelog status
 The JSON result lists fragments in ID order and reports the highest requested
 bump (`major`, then `minor`, then `patch`, or null for maintenance-only/no
 fragments). Malformed frontmatter, unsupported products/bumps and missing
-user-visible text fail validation. Reading does not create `changes/` when it
+user-visible text fail validation. Reading does not create `release/fragments/` when it
 is absent and does not consume fragments or change versions.
 
 `cargo xtask changelog plan` combines pending fragments with the actual
@@ -139,7 +147,8 @@ bytes and duplicate frontmatter keys are rejected rather than silently
 reinterpreted. CRLF fragments are accepted and normalized for parsing without
 rewriting the source file. Regression tests preserve rejected files unchanged.
 
-The frontmatter targets the sole `workdeck` product. This is not an npm
+The frontmatter targets `workdeck-cli`, the workspace package for the sole
+`workdeck` product. This is not an npm
 workspace or a claim that individual internal Rust crates are separately
 published. Fragment creation does not commit, push, bump versions, consume
 fragments, publish artifacts or update Homebrew.

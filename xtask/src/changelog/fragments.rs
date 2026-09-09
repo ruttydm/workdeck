@@ -26,13 +26,14 @@ struct PendingFragment {
 }
 
 fn pending(repo: &Path) -> Result<Vec<PendingFragment>> {
-    let directory = repo.join("changes");
+    validate_release_parent(repo)?;
+    let directory = repo.join("release/fragments");
     match std::fs::symlink_metadata(&directory) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error.into()),
         Ok(metadata) => ensure!(
             metadata.is_dir() && !metadata.file_type().is_symlink(),
-            "changes must be a real directory"
+            "release/fragments must be a real directory"
         ),
     }
     let mut fragments = Vec::new();
@@ -72,7 +73,7 @@ fn pending(repo: &Path) -> Result<Vec<PendingFragment>> {
                 serde_norway::from_value(document)?;
             ensure!(fields.len() == 1, "fragment must target only workdeck");
             let value = fields
-                .get("workdeck")
+                .get("workdeck-cli")
                 .ok_or_else(|| anyhow::anyhow!("fragment targets an unknown product"))?;
             ensure!(
                 matches!(value.as_str(), "patch" | "minor" | "major"),
@@ -96,6 +97,18 @@ fn pending(repo: &Path) -> Result<Vec<PendingFragment>> {
     }
     fragments.sort_by(|left, right| left.id.cmp(&right.id));
     Ok(fragments)
+}
+
+fn validate_release_parent(repo: &Path) -> Result<()> {
+    match std::fs::symlink_metadata(repo.join("release")) {
+        Ok(metadata) => ensure!(
+            metadata.is_dir() && !metadata.file_type().is_symlink(),
+            "release must be a real directory"
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
 }
 
 fn highest_bump(fragments: &[PendingFragment]) -> Option<&'static str> {
@@ -365,7 +378,7 @@ fn input_fingerprints(
     ]);
     for fragment in fragments {
         paths.insert(std::path::PathBuf::from(format!(
-            "changes/{}.md",
+            "release/fragments/{}.md",
             fragment.id
         )));
     }
@@ -460,16 +473,20 @@ pub(super) fn add(repo: &Path, mut args: impl Iterator<Item = String>) -> Result
             !body.contains('\0'),
             "release-note text contains a NUL byte"
         );
-        format!("---\n\"workdeck\": {bump}\n---\n\n{}\n", body.trim_end())
+        format!(
+            "---\n\"workdeck-cli\": {bump}\n---\n\n{}\n",
+            body.trim_end()
+        )
     };
-    let directory = repo.join("changes");
+    let directory = repo.join("release/fragments");
+    validate_release_parent(repo)?;
     match std::fs::symlink_metadata(&directory) {
         Ok(metadata) => ensure!(
             metadata.is_dir() && !metadata.file_type().is_symlink(),
-            "changes must be a real directory"
+            "release/fragments must be a real directory"
         ),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            std::fs::create_dir(&directory)?
+            std::fs::create_dir_all(&directory)?
         }
         Err(error) => return Err(error.into()),
     }
@@ -484,7 +501,7 @@ pub(super) fn add(repo: &Path, mut args: impl Iterator<Item = String>) -> Result
             error.error
         );
     }
-    println!("changes/{id}.md");
+    println!("release/fragments/{id}.md");
     Ok(())
 }
 
@@ -552,7 +569,7 @@ mod tests {
         }
         create(repo.path(), &["fix", "patch", "Original note."]).unwrap();
         let fragments = pending(repo.path()).unwrap();
-        let path = repo.path().join("changes/fix.md");
+        let path = repo.path().join("release/fragments/fix.md");
         let original = std::fs::read_to_string(&path).unwrap();
         std::fs::write(&path, original.replace("Original", "Changed")).unwrap();
         let hashes = input_fingerprints(repo.path(), Path::new("Cargo.toml"), &fragments).unwrap();
@@ -596,24 +613,24 @@ mod tests {
         for (name, text) in [
             ("UPPER.md", "---\n---\n"),
             ("with space.md", "---\n---\n"),
-            ("nul.md", "---\nworkdeck: patch\n---\n\nNote\0text"),
+            ("nul.md", "---\nworkdeck-cli: patch\n---\n\nNote\0text"),
             (
                 "duplicate.md",
-                "---\nworkdeck: patch\nworkdeck: major\n---\n\nNote",
+                "---\nworkdeck-cli: patch\nworkdeck-cli: major\n---\n\nNote",
             ),
         ] {
             let repo = tempfile::tempdir().unwrap();
-            std::fs::create_dir(repo.path().join("changes")).unwrap();
-            let path = repo.path().join("changes").join(name);
+            std::fs::create_dir_all(repo.path().join("release/fragments")).unwrap();
+            let path = repo.path().join("release/fragments").join(name);
             std::fs::write(&path, text).unwrap();
             assert!(pending(repo.path()).is_err(), "accepted {name}");
             assert_eq!(std::fs::read_to_string(path).unwrap(), text);
         }
         let repo = tempfile::tempdir().unwrap();
-        std::fs::create_dir(repo.path().join("changes")).unwrap();
+        std::fs::create_dir_all(repo.path().join("release/fragments")).unwrap();
         std::fs::write(
-            repo.path().join("changes/windows.md"),
-            "---\r\nworkdeck: patch\r\n---\r\n\r\nFix λ.\r\n",
+            repo.path().join("release/fragments/windows.md"),
+            "---\r\nworkdeck-cli: patch\r\n---\r\n\r\nFix λ.\r\n",
         )
         .unwrap();
         assert_eq!(pending(repo.path()).unwrap()[0].body, "Fix λ.");
@@ -735,16 +752,17 @@ mod tests {
         use std::os::unix::fs::symlink;
         let repo = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
-        symlink(outside.path(), repo.path().join("changes")).unwrap();
+        std::fs::create_dir(repo.path().join("release")).unwrap();
+        symlink(outside.path(), repo.path().join("release/fragments")).unwrap();
         assert!(create(repo.path(), &["safe", "empty"]).is_err());
         assert!(pending(repo.path()).is_err());
         assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 0);
 
         let repo = tempfile::tempdir().unwrap();
-        std::fs::create_dir(repo.path().join("changes")).unwrap();
+        std::fs::create_dir_all(repo.path().join("release/fragments")).unwrap();
         let target = outside.path().join("note.md");
         std::fs::write(&target, "---\n---\n").unwrap();
-        symlink(&target, repo.path().join("changes/safe.md")).unwrap();
+        symlink(&target, repo.path().join("release/fragments/safe.md")).unwrap();
         assert!(pending(repo.path()).is_err());
         assert!(create(repo.path(), &["safe", "patch", "Overwrite"]).is_err());
         assert_eq!(std::fs::read_to_string(target).unwrap(), "---\n---\n");
@@ -755,19 +773,19 @@ mod tests {
         let repo = tempfile::tempdir().unwrap();
         for bump in ["patch", "minor", "major"] {
             create(repo.path(), &[bump, bump, "Fix Unicode λ output."]).unwrap();
-            let path = repo.path().join(format!("changes/{bump}.md"));
-            let expected = format!("---\n\"workdeck\": {bump}\n---\n\nFix Unicode λ output.\n");
+            let path = repo.path().join(format!("release/fragments/{bump}.md"));
+            let expected = format!("---\n\"workdeck-cli\": {bump}\n---\n\nFix Unicode λ output.\n");
             assert_eq!(std::fs::read_to_string(&path).unwrap(), expected);
             assert!(create(repo.path(), &[bump, "major", "Overwrite"]).is_err());
             assert_eq!(std::fs::read_to_string(path).unwrap(), expected);
         }
         create(repo.path(), &["maintenance", "empty"]).unwrap();
         assert_eq!(
-            std::fs::read_to_string(repo.path().join("changes/maintenance.md")).unwrap(),
+            std::fs::read_to_string(repo.path().join("release/fragments/maintenance.md")).unwrap(),
             "---\n---\n"
         );
         assert_eq!(
-            std::fs::read_dir(repo.path().join("changes"))
+            std::fs::read_dir(repo.path().join("release/fragments"))
                 .unwrap()
                 .count(),
             4
@@ -809,15 +827,15 @@ mod tests {
     fn rejects_malformed_pending_fragments() {
         for content in [
             "missing",
-            "---\nworkdeck: patch\n",
+            "---\nworkdeck-cli: patch\n",
             "---\nother: patch\n---\n\nText",
-            "---\nworkdeck: unknown\n---\n\nText",
-            "---\nworkdeck: patch\n---\n",
+            "---\nworkdeck-cli: unknown\n---\n\nText",
+            "---\nworkdeck-cli: patch\n---\n",
             "---\n---\n\nText",
         ] {
             let repo = tempfile::tempdir().unwrap();
-            std::fs::create_dir(repo.path().join("changes")).unwrap();
-            std::fs::write(repo.path().join("changes/bad.md"), content).unwrap();
+            std::fs::create_dir_all(repo.path().join("release/fragments")).unwrap();
+            std::fs::write(repo.path().join("release/fragments/bad.md"), content).unwrap();
             assert!(pending(repo.path()).is_err(), "accepted {content:?}");
         }
     }

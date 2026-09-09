@@ -29,7 +29,7 @@ fn native_fragment_cli_round_trip_and_read_only_status() {
         serde_json::from_slice::<serde_json::Value>(&empty.stdout).unwrap(),
         serde_json::json!({"bump":null,"fragments":[]})
     );
-    assert!(!repo.path().join("changes").exists());
+    assert!(!repo.path().join("release/fragments").exists());
     let added = run(
         repo.path(),
         &["changelog", "add", "fix-unicode", "patch", "Fix λ."],
@@ -40,8 +40,8 @@ fn native_fragment_cli_round_trip_and_read_only_status() {
         String::from_utf8_lossy(&added.stderr)
     );
     assert!(added.stderr.is_empty());
-    assert_eq!(added.stdout, b"changes/fix-unicode.md\n");
-    let path = repo.path().join("changes/fix-unicode.md");
+    assert_eq!(added.stdout, b"release/fragments/fix-unicode.md\n");
+    let path = repo.path().join("release/fragments/fix-unicode.md");
     let original = std::fs::read(&path).unwrap();
     let status = run(repo.path(), &["changelog", "status"]);
     assert!(status.status.success());
@@ -62,7 +62,7 @@ fn native_fragment_cli_round_trip_and_read_only_status() {
         assert_eq!(std::fs::read(&path).unwrap(), original);
     }
     assert_eq!(
-        std::fs::read_dir(repo.path().join("changes"))
+        std::fs::read_dir(repo.path().join("release/fragments"))
             .unwrap()
             .count(),
         1
@@ -97,6 +97,28 @@ fn version_plan_uses_real_cargo_metadata_without_mutating_inputs() {
             .unwrap()
             .success()
     );
+    for args in [
+        vec!["add", "--", "Cargo.toml", "Cargo.lock", "src/main.rs"],
+        vec![
+            "-c",
+            "user.name=Release Test",
+            "-c",
+            "user.email=release@example.invalid",
+            "commit",
+            "--quiet",
+            "-m",
+            "fixture baseline",
+        ],
+    ] {
+        assert!(
+            Command::new("git")
+                .args(args)
+                .current_dir(repo.path())
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
     for (id, bump, body) in [
         ("minor-feature", "minor", "Add feature."),
         ("patch-fix", "patch", "Fix λ."),
@@ -108,11 +130,31 @@ fn version_plan_uses_real_cargo_metadata_without_mutating_inputs() {
             String::from_utf8_lossy(&output.stderr)
         );
     }
+    assert!(
+        Command::new("git")
+            .args(["add", "--", "release/fragments"])
+            .current_dir(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    let gate = run(repo.path(), &["release", "status", "--since=HEAD"]);
+    assert!(
+        gate.status.success(),
+        "{}",
+        String::from_utf8_lossy(&gate.stderr)
+    );
+    let gate: serde_json::Value = serde_json::from_slice(&gate.stdout).unwrap();
+    assert_eq!(gate["releaseType"], "minor");
+    assert_eq!(
+        gate["fragments"],
+        serde_json::json!(["minor-feature", "patch-fix"])
+    );
     let paths = [
         "Cargo.toml",
         "Cargo.lock",
-        "changes/minor-feature.md",
-        "changes/patch-fix.md",
+        "release/fragments/minor-feature.md",
+        "release/fragments/patch-fix.md",
     ];
     let before: Vec<_> = paths
         .iter()
@@ -195,7 +237,7 @@ fn version_plan_uses_real_cargo_metadata_without_mutating_inputs() {
         "# History\n\nExisting release.\n"
     );
     std::fs::remove_file(&history).unwrap();
-    let fragment = repo.path().join("changes/patch-fix.md");
+    let fragment = repo.path().join("release/fragments/patch-fix.md");
     let original = std::fs::read_to_string(&fragment).unwrap();
     let changed = original.replace("Fix λ.", "Different fix.");
     std::fs::write(&fragment, &changed).unwrap();
@@ -282,9 +324,13 @@ fn version_plan_uses_real_cargo_metadata_without_mutating_inputs() {
         true
     );
     assert!(backup.join("recovery.json").is_file());
-    assert!(backup.join("originals/changes/patch-fix.md").is_file());
+    assert!(
+        backup
+            .join("originals/release/fragments/patch-fix.md")
+            .is_file()
+    );
     assert_eq!(
-        std::fs::read_dir(repo.path().join("changes"))
+        std::fs::read_dir(repo.path().join("release/fragments"))
             .unwrap()
             .count(),
         0

@@ -92,7 +92,7 @@ fn apply(
         serde_json::from_value(saved["edits"].clone())?;
     for fragment in saved["fragments"].as_array().context("missing fragments")? {
         let id = fragment["id"].as_str().context("missing fragment id")?;
-        targets.insert(format!("changes/{id}.md"), None);
+        targets.insert(format!("release/fragments/{id}.md"), None);
     }
     ensure!(!targets.is_empty(), "release plan contains no changes");
     let parent = backup
@@ -239,10 +239,10 @@ mod tests {
                 .unwrap()
                 .success()
         );
-        fs::create_dir(repo.join("changes")).unwrap();
+        fs::create_dir_all(repo.join("release/fragments")).unwrap();
         fs::write(
-            repo.join("changes/fix.md"),
-            "---\nworkdeck: patch\n---\nFix.\n",
+            repo.join("release/fragments/fix.md"),
+            "---\nworkdeck-cli: patch\n---\nFix.\n",
         )
         .unwrap();
         let plan = build_plan(&repo).unwrap();
@@ -255,7 +255,7 @@ mod tests {
             .unwrap_err();
             assert!(error.to_string().contains("injected failure"));
             assert!(backup.join("recovery.json").is_file());
-            assert!(backup.join("originals/changes/fix.md").is_file());
+            assert!(backup.join("originals/release/fragments/fix.md").is_file());
             assert!(!repo.join("CHANGELOG.md").exists());
             assert_eq!(build_plan(&repo).unwrap(), plan);
         }
@@ -280,7 +280,7 @@ mod tests {
         );
         fs::remove_file(&history).unwrap();
         assert_eq!(build_plan(&repo).unwrap(), plan);
-        let fragment = repo.join("changes/fix.md");
+        let fragment = repo.join("release/fragments/fix.md");
         let original = fs::read(&fragment).unwrap();
         let conflict = apply(
             &repo,
@@ -329,8 +329,8 @@ mod tests {
                 contents.as_str().unwrap()
             );
         }
-        assert!(!repo.join("changes/fix.md").exists());
-        assert!(backup.join("originals/changes/fix.md").exists());
+        assert!(!repo.join("release/fragments/fix.md").exists());
+        assert!(backup.join("originals/release/fragments/fix.md").exists());
         let retry = directory.path().join("retry");
         assert!(apply(&repo, &plan, &retry, |_| Ok(())).is_err());
         assert!(!retry.exists());
