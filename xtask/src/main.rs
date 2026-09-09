@@ -21,6 +21,7 @@ mod extension_catalog;
 mod install;
 mod nix;
 mod port_history;
+mod port_oracles;
 mod provenance;
 mod release_channel;
 mod release_notes;
@@ -1811,6 +1812,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
         .map(|value| resolve_commit(&repo, value))
         .transpose()?;
     let baseline = requested_baseline.unwrap_or_else(|| records[0].baseline.clone());
+    port_oracles::verify(&repo, &baseline)?;
     let entries = read_tree(&repo, &baseline)?;
     let expected = entries
         .iter()
