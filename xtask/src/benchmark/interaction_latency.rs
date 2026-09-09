@@ -134,7 +134,7 @@ fn measure(memory: bool) -> Result<serde_json::Value> {
         "files": stream::DEFAULT_FILE_COUNT,
         "linesPerFile": stream::DEFAULT_LINES_PER_FILE,
         "viewport": {"width": large_stream::VIEWPORT.width, "height": large_stream::VIEWPORT.height},
-        "memorySemantics": "Current RSS and native malloc-zone usage, not peak RSS or JavaScript heapUsed"
+        "memorySemantics": "Current RSS and, where available, native malloc-zone usage (null when unavailable), not peak RSS or JavaScript heapUsed"
     }))
 }
 
@@ -149,7 +149,7 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
 
 #[test]
 fn source_interaction_sequence_drives_real_navigation_and_fresh_scroll_state() {
-    let report = measure(cfg!(target_os = "macos")).unwrap();
+    let report = measure(cfg!(any(target_os = "macos", target_os = "linux"))).unwrap();
     assert_eq!(report["navigationPressMs"].as_array().unwrap().len(), 6);
     assert_eq!(report["scrollTickMs"].as_array().unwrap().len(), 8);
     for (total, dispatch, render) in [

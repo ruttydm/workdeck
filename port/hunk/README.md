@@ -2335,3 +2335,21 @@ It also checks parser outcomes and error messages for every captured case.
 The focused test and xtask all-target Clippy passed. Timings, GC, JavaScript heap
 statistics, help formatting and process exit behavior are not covered by this
 test; this partial benchmark port remains unmapped.
+
+### Linux native memory sampling (execution pending)
+
+Native diagnostic snapshots now have a Linux backend reading current resident
+bytes from `/proc/self/smaps_rollup`. The parser requires exactly one `Rss` field,
+the kernel's `kB` unit, and checked conversion to bytes. It rejects missing,
+duplicate, malformed and overflowing measurements. Unavailable allocator-zone
+usage is serialized as `null`, never as a fabricated zero or JavaScript heap
+equivalent. macOS retains its existing numeric allocator measurement.
+See the [kernel proc documentation](https://docs.kernel.org/filesystems/proc.html)
+for the distinction between page-table accounting and asynchronous RSS counters.
+
+The parser and live macOS snapshot tests passed, along with xtask all-target
+Clippy and formatting. A Linux-only live test is included, but native Linux
+execution has not been performed: this host has no installed Linux Rust target
+and its default Docker socket is unavailable. This is implementation progress,
+not cross-platform or memory benchmark acceptance evidence. Windows remains
+unsupported by this diagnostic backend; all related ledger records remain open.

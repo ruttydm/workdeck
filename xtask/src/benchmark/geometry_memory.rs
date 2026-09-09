@@ -123,7 +123,7 @@ fn measure(
         "afterMaterializedPlannedRows": after_materialized,
         "giantFirstCopyPlanMs": giant_first_copy_ms, "giantMaterializedPlannedRows": giant_rows,
         "giantFileLines": giant_lines,
-        "memorySemantics": "Current process RSS and native malloc-zone usage, not peak RSS, JavaScript heap size, extra memory, or object counts. No forced garbage collection."
+        "memorySemantics": "Current process RSS and, where available, native malloc-zone usage (null when unavailable), not peak RSS, JavaScript heap size, extra memory, or object counts. No forced garbage collection."
     }))
 }
 
