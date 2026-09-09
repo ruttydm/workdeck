@@ -43,3 +43,9 @@ about 99.08 ms median navigation and 50.91 ms dispatch, versus 225.53 ms and
 179.24 ms in the earlier sample. See [raw follow-up and source hashes](interaction-diagnostic-projection-cache.json).
 These single samples support the optimization but are not a controlled paired
 release benchmark, an isolated stage profile, or proof of the Hunk 10% gate.
+
+Ownership regressions additionally mutate paths, nested JSON metadata and hunk
+headers returned from bridge getters, checking that committed and preview
+projections remain unchanged. A weak-reference assertion verifies that cache
+replacement releases the old document, while retained projected values remain
+readable. Shared internal storage does not change the owned-value getter boundary.

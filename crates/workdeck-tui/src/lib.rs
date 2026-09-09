@@ -20096,6 +20096,17 @@ mod tests {
         assert_eq!(changed[0], expected);
         assert_ne!(first[0].path, changed[0].path);
         assert!(!Arc::ptr_eq(&replacement, &changed));
+        let retained = Arc::downgrade(&document);
+        drop(document);
+        assert!(
+            retained.upgrade().is_none(),
+            "cache must not retain replaced documents"
+        );
+        assert_eq!(
+            first.len(),
+            2,
+            "retained projected values remain readable independently"
+        );
     }
 
     #[test]

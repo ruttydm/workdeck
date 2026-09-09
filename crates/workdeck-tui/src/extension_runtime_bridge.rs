@@ -581,6 +581,25 @@ mod tests {
     }
 
     #[test]
+    fn shared_file_projections_keep_public_getters_deeply_owned() {
+        let initial = commit(1, 1, "alpha");
+        let shared = Arc::clone(&initial.files);
+        let bridge = ExtensionRuntimeBridge::new(initial);
+        let mut exposed = bridge.get_committed_file_views();
+        exposed[0].path = "edited.rs".into();
+        exposed[0].metadata["hunks"] = serde_json::json!([{"changed": true}]);
+        exposed[0].hunks[0].header = "edited header".into();
+        assert_eq!(bridge.get_committed_file_views(), shared.as_ref());
+        let next = commit(1, 1, "beta");
+        let mut preview = bridge.get_render_file_views(&next);
+        preview[0].metadata["hunks"] = serde_json::json!([42]);
+        assert_ne!(preview[0].metadata, next.files[0].metadata);
+        bridge.commit(next);
+        assert_eq!(shared[0].id, "alpha");
+        assert_eq!(bridge.get_committed_file_views()[0].id, "beta");
+    }
+
+    #[test]
     fn invocation_selection_is_frozen_while_navigation_reads_latest_commit() {
         let bridge = ExtensionRuntimeBridge::new(commit(1, 1, "alpha"));
         let selection = bridge.get_selection();
