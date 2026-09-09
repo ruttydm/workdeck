@@ -1658,6 +1658,50 @@ mod tests {
     }
 
     #[test]
+    fn reordering_live_registrations_reuses_parts_but_reorders_published_marks() {
+        let runtime = FakeLineHighlightRuntime::new(|id, _, _| {
+            let mut marks = one_mark("match");
+            if id == "second" {
+                marks[0]["range"] = json!([4, 7]);
+            }
+            Ok(marks)
+        });
+        let extensions = runtime_list(&runtime);
+        let mut registrations = [registration("first"), registration("second")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [test_file("request", "content:request")];
+        let mut controller = LineHighlightPreparationController::default();
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            &files,
+            |controller| controller.resolved().get("request").is_some(),
+        );
+        let original = controller.resolved().get_shared("request").unwrap().clone();
+        assert_eq!(original.len(), 2);
+        assert_ne!(original[0], original[1]);
+        assert_eq!(runtime.calls().len(), 2);
+        registrations.reverse();
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        let reversed = controller.resolved().get_shared("request").unwrap().clone();
+        assert_eq!(
+            reversed.as_ref(),
+            &[original[1].clone(), original[0].clone()]
+        );
+        assert!(!Arc::ptr_eq(&original, &reversed));
+        assert_eq!(
+            runtime.calls().len(),
+            2,
+            "reordering must not rerun live derivations"
+        );
+        let published = controller.resolved().clone();
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        assert!(controller.resolved().ptr_eq(&published));
+    }
+
+    #[test]
     fn coordinator_rederives_only_the_file_with_a_bumped_epoch() {
         let runtime = FakeLineHighlightRuntime::new(|_, _, _| Ok(one_mark("match")));
         let extensions = runtime_list(&runtime);

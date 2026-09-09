@@ -1,6 +1,11 @@
 {
   "id": "2c00f4358b89:src/ui/highlights/useLineHighlights.ts:0-16054",
   "reason": "Full cache lifecycle parity is not established; prior mapping reopened. These paths are progress references, not a completed mapping.",
+  "registrationReorderRegression": {
+    "test": "line_highlights::tests::reordering_live_registrations_reuses_parts_but_reorders_published_marks",
+    "behavior": "Reordering existing registrations reuses cached contributions, changes merged mark order without extension calls, and retains map identity on the next unchanged frame.",
+    "evidenceType": "Native executable regression derived from pinned cache selection and ordered merge logic; no new differential source trace."
+  },
   "destinations": [
     "crates/workdeck-tui/src/line_highlights.rs",
     "crates/workdeck-tui/src/lib.rs",
