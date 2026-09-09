@@ -125,6 +125,18 @@ fn horizontal_arrows_reveal_hidden_columns_and_restore_the_start() {
 }
 
 #[test]
+fn resize_reconciles_horizontal_offset_without_another_scroll_key() {
+    let (_root, mut session) = long_line();
+    session.wait(|text| text.contains("this is a very long"));
+    scroll_until(&mut session, b"\x1b[C", |text| text.contains("ge';"));
+    session.resize(300, 20);
+    session.wait(|text| text.contains("this is a very long") && text.contains("ge';"));
+    session.resize(102, 20);
+    session.wait(|text| text.contains("this is a very long") && !text.contains("ge';"));
+    drop(session);
+}
+
+#[test]
 fn shifted_wheel_scrolls_code_horizontally() {
     let (_root, mut session) = long_line();
     let initial = session.wait(|text| text.contains("this is a very long"));

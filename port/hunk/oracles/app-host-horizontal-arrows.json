@@ -34,5 +34,34 @@
     "shiftedEarlyExit": "Same visible-fragment conditions as source"
   },
   "scope": "Maps only these two complete source tests and their eleven assertions. Does not establish arbitrary-distance horizontal scrolling, mouse-wheel parity, full cell frames or complete App behavior.",
-  "openRuntimeGap": "Pinned App.tsx:780-812 computes maxCodeHorizontalOffset from filtered source widths and viewport width, clamps on extent changes and clamps each scroll. Native keyboard/wheel commands now clamp to the computed upper bound, with cached source-width measurements and additional boundary tests. Immediate stored-offset reconciliation on resize/filter/reload without another input event is still missing. App.tsx remains unmapped."
+  "lifecycleReconciliation": {
+    "sourceBehavior": "Pinned App.tsx:780-812 computes maxCodeHorizontalOffset from filtered source widths and viewport width, clamps on extent changes and clamps each scroll.",
+    "implementation": "Keyboard/wheel commands clamp to the cached computed upper bound. Filter, reload and presentation commands reconcile the stored offset. Interactive rendering measures panes and, when reconciliation changes the offset, repaints the same cell buffer before presenting it.",
+    "additionalNativeTests": [
+      "reconciled_resize_clamps_offset_before_presenting_the_frame",
+      "filtering_and_reloading_reconcile_horizontal_offset_without_scroll_input",
+      "presentation_commands_reconcile_horizontal_offset_without_scroll_input",
+      "resize_reconciles_horizontal_offset_without_another_scroll_key"
+    ],
+    "validation": {
+      "tuiCommand": "cargo test -p workdeck-tui --lib",
+      "tuiPassed": 1162,
+      "tuiFailed": 0,
+      "tuiSeconds": 8.61,
+      "ptyCommand": "cargo test -p workdeck-cli --test terminal_pager resize_reconciles_horizontal_offset_without_another_scroll_key -- --nocapture",
+      "ptyPassed": 1,
+      "ptyFailed": 0,
+      "ptySeconds": 6.16,
+      "layoutSuiteCommand": "target/debug/deps/terminal_pager-9f932863f58746be layout:: --test-threads=2",
+      "layoutSuitePassed": 24,
+      "layoutSuiteFailed": 0,
+      "layoutSuiteSeconds": 21.78,
+      "clippyCommand": "cargo clippy -p workdeck-tui --all-targets -p workdeck-cli --test terminal_pager -- -D warnings",
+      "clippyExitCode": 0,
+      "formatCommand": "cargo fmt --all -- --check",
+      "formatExitCode": 0,
+      "note": "Fresh native runs after Cargo cleanup. Frozen source runs above are unchanged and are not resize oracle captures."
+    },
+    "scope": "App.tsx remains unmapped. These additional regressions do not establish full application, extension repaint, cross-platform or performance parity."
+  }
 }

@@ -1,6 +1,6 @@
 # Hunk semantic-port ledger
 
-## Horizontal arrow scenarios and remaining extent-clamp gap
+## Horizontal arrow scenarios and extent reconciliation
 
 The two arrow-scroll tests in `AppHost.interactions.test.tsx`, bytes
 39,143–41,642, now map to a 92×20 Rust matrix with the exact long-line fixture,
@@ -18,10 +18,18 @@ does not retain a superseded changeset. Tests cover repeated keyboard/wheel
 overscroll, returning to zero, and extent recalculation after filtering, tab-width
 changes, viewport resizing and document replacement.
 
-Immediate reconciliation after those changes, without another input event, is
-still missing: a stored offset can exceed the newly computed extent until a
-horizontal command arrives. `App.tsx` stays unmapped; the two passing source
-interaction scenarios do not waive that remaining lifecycle behavior.
+The lifecycle implementation reconciles the stored offset after filter,
+reload and presentation-command changes. The interactive renderer measures the
+pane, reconciles its offset, and repaints the same cell buffer if necessary before
+the terminal flushes it. Additional Rust tests cover resize, filter, reload,
+layout, line-number and wrap changes without another horizontal scroll command;
+a PTY regression exercises widening and narrowing through the production loop.
+Fresh validation after Cargo cleanup passed all 1,162 TUI unit tests (8.61s) and
+the production-loop resize PTY regression (6.16s). All 24 terminal layout tests
+also pass (21.78s), as do formatting and warnings-denied scoped Clippy checks.
+`App.tsx` stays unmapped:
+these bounded scenarios do not establish complete application behavior,
+extension repaint semantics, cross-platform parity or benchmark compliance.
 
 ## Narrow wrap-toggle geometry: corrected and mapped
 

@@ -2106,6 +2106,7 @@ impl ReviewApp {
             self.gap_cursor_restore.clear();
             self.options.horizontal_offset = 0;
         }
+        self.reconcile_horizontal_offset();
         self.commit_extension_runtime_bridge();
         let immediate = self.update_extension_review_events(Instant::now());
         self.publish_extension_lifecycle_events(immediate);
@@ -2467,6 +2468,15 @@ impl ReviewApp {
             .horizontal_offset
             .saturating_add_signed(delta)
             .min(self.max_horizontal_offset());
+    }
+
+    fn reconcile_horizontal_offset(&mut self) {
+        if self.options.horizontal_offset != 0 {
+            self.options.horizontal_offset = self
+                .options
+                .horizontal_offset
+                .min(self.max_horizontal_offset());
+        }
     }
 
     /// Review content follows the optional border/padding and pinned file header.
@@ -3150,6 +3160,7 @@ impl ReviewApp {
             }
             _ => {}
         }
+        self.reconcile_horizontal_offset();
         true
     }
 
@@ -3597,6 +3608,7 @@ impl ReviewApp {
                 self.move_selection(scope, delta);
             }
         }
+        self.reconcile_horizontal_offset();
     }
 
     fn scroll_diff(&mut self, delta: isize, unit: ScrollUnit) {
@@ -9870,7 +9882,7 @@ fn run_loop(
                 .terminal_mut()
                 .draw(|frame| {
                     let area = frame.area();
-                    render(area, frame.buffer_mut(), app);
+                    render_reconciled(area, frame.buffer_mut(), app);
                     let footer = Rect::new(
                         area.x,
                         area.bottom().saturating_sub(1),
@@ -10210,6 +10222,19 @@ fn apply_reloaded_changeset(
     app.reload_with_reason(changeset, reason, false);
 }
 
+/// Render an interactive frame and reconcile state that depends on measured panes.
+/// If an extent shrinks, repaint the same cell buffer before the terminal flushes it.
+pub fn render_reconciled(area: Rect, buffer: &mut Buffer, app: &mut ReviewApp) {
+    render(area, buffer, app);
+    let previous_offset = app.options.horizontal_offset;
+    app.reconcile_horizontal_offset();
+    if previous_offset != app.options.horizontal_offset {
+        render(area, buffer, app);
+    }
+}
+
+/// Paint the supplied state. Interactive embedders should use `render_reconciled`
+/// to commit layout-dependent state changes before publishing the frame.
 pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     app.terminal_width.set(area.width);
     let background = if app.options.transparent_background {
@@ -25889,6 +25914,110 @@ mod tests {
                     "bottom padding must not target an offscreen code row"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn reconciled_resize_clamps_offset_before_presenting_the_frame() {
+        let mut app = ReviewApp::new(
+            navigation_changeset(vec![(
+                "wide.txt".into(),
+                "old\n".into(),
+                format!("{}TAIL\n", "x".repeat(100)),
+            )]),
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                sidebar: false,
+                ..Default::default()
+            },
+        );
+        let narrow = Rect::new(0, 0, 92, 20);
+        let mut buffer = Buffer::empty(narrow);
+        render_reconciled(narrow, &mut buffer, &mut app);
+        app.scroll_code_horizontally(isize::MAX);
+        assert!(app.options.horizontal_offset > 0);
+        let wide = Rect::new(0, 0, 300, 20);
+        let mut wide_buffer = Buffer::empty(wide);
+        render_reconciled(wide, &mut wide_buffer, &mut app);
+        assert_eq!(app.options.horizontal_offset, 0);
+        let mut expected = Buffer::empty(wide);
+        render(wide, &mut expected, &app);
+        assert_eq!(wide_buffer, expected);
+        render_reconciled(narrow, &mut buffer, &mut app);
+        assert_eq!(
+            app.options.horizontal_offset, 0,
+            "shrinking again must not restore an obsolete offset"
+        );
+    }
+
+    #[test]
+    fn filtering_and_reloading_reconcile_horizontal_offset_without_scroll_input() {
+        for reload in [false, true] {
+            let mut app = ReviewApp::new(
+                navigation_changeset(vec![
+                    (
+                        "wide.txt".into(),
+                        "old\n".into(),
+                        format!("{}TAIL\n", "x".repeat(100)),
+                    ),
+                    ("short.txt".into(), "old\n".into(), "new\n".into()),
+                ]),
+                ReviewOptions {
+                    layout: LayoutMode::Split,
+                    sidebar: false,
+                    ..Default::default()
+                },
+            );
+            let mut terminal = Terminal::new(TestBackend::new(92, 20)).unwrap();
+            rendered_review_frame(&mut terminal, &app);
+            app.scroll_code_horizontally(isize::MAX);
+            assert!(app.options.horizontal_offset > 0);
+            if reload {
+                app.reload(navigation_changeset(vec![(
+                    "short.txt".into(),
+                    "old\n".into(),
+                    "new\n".into(),
+                )]));
+            } else {
+                app.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+                for character in "short.txt".chars() {
+                    app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+                }
+                app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+            }
+            assert_eq!(app.options.horizontal_offset, 0);
+            assert!(rendered_review_frame(&mut terminal, &app).contains("new"));
+        }
+    }
+
+    #[test]
+    fn presentation_commands_reconcile_horizontal_offset_without_scroll_input() {
+        for action in [
+            AppCommandAction::SelectLayoutMode(LayoutMode::Stack),
+            AppCommandAction::ToggleLineNumbers,
+            AppCommandAction::ToggleLineWrap,
+        ] {
+            let mut app = ReviewApp::new(
+                navigation_changeset(vec![(
+                    "wide.txt".into(),
+                    "old\n".into(),
+                    format!("{}TAIL\n", "x".repeat(100)),
+                )]),
+                ReviewOptions {
+                    layout: LayoutMode::Split,
+                    sidebar: false,
+                    line_numbers: true,
+                    ..Default::default()
+                },
+            );
+            let area = Rect::new(0, 0, 92, 20);
+            render_reconciled(area, &mut Buffer::empty(area), &mut app);
+            app.scroll_code_horizontally(isize::MAX);
+            let previous = app.options.horizontal_offset;
+            assert!(previous > 0);
+            app.apply_builtin_command_action(action);
+            assert!(app.options.horizontal_offset < previous);
+            assert_eq!(app.options.horizontal_offset, app.max_horizontal_offset());
         }
     }
 
