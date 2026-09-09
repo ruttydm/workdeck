@@ -23,6 +23,11 @@ pub fn validate_legacy_catalog(catalog: &Value) -> Result<()> {
         "pinned catalog must preserve all 16 listings"
     );
     let mut repositories = std::collections::BTreeSet::new();
+    let categorized: Vec<CategorizedListing> = serde_json::from_value(catalog["entries"].clone())?;
+    anyhow::ensure!(
+        catalog["facets"] == serde_json::to_value(category_facets(&categorized))?,
+        "catalog facet counts or order differ from entries"
+    );
     let version = regex::Regex::new(r"^\d+\.\d+\.\d+")?;
     for entry in entries {
         let repo = entry["repo"]

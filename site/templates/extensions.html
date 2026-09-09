@@ -13,9 +13,17 @@
   <p>{{ catalog.entries | length }} legacy listings. Metadata reflects the pinned
     source, not current repository activity or compatibility.</p>
 </section>
-<section aria-label="Legacy extensions requiring a Rust rewrite" class="extension-grid">
+<section aria-label="Legacy extension directory" class="extension-browser">
+  <fieldset class="extension-filters">
+    <legend>Filter by capability</legend>
+    <label><input type="radio" name="category" value="" checked> All ({{ catalog.entries | length }})</label>
+    {% for facet in catalog.facets %}
+    <label><input type="radio" name="category" value="{{ facet.category }}"> {{ facet.category }} ({{ facet.count }})</label>
+    {% endfor %}
+  </fieldset>
+  <div aria-label="Legacy extensions requiring a Rust rewrite" class="extension-grid">
   {% for entry in catalog.entries %}
-  <article class="extension-card">
+  <article class="extension-card" data-categories="|{{ entry.categories | join(sep='|') }}|">
     <h2><a href="https://github.com/{{ entry.repo }}">{{ entry.name }}</a></h2>
     <p>{{ entry.summary }}</p>
     <p>Source repository: {{ entry.repo }}</p>
@@ -26,5 +34,6 @@
     <p><strong>Requires Rust rewrite</strong></p>
   </article>
   {% endfor %}
+  </div>
 </section>
 {% endblock content %}
