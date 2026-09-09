@@ -1,5 +1,15 @@
 # Hunk semantic-port ledger
 
+## Disabled preference prompt
+
+Bytes 117,209–118,487 map to the 240×24 configured-opt-out regression:
+change theme, quit immediately, show no save prompt, and create no configuration.
+Both pinned oracle tests and the Rust test pass; formatting and TUI Clippy pass.
+See [capture and verification limits](oracles/app-host-quit-prompt-disabled.json).
+The adjacent transient-extension integration test remains unmapped.
+The ledger now has 1,374 records, 268 unmapped intervals, 1,257 baseline files,
+and 11 cached upstream commits pending. Full parity remains unverified.
+
 ## Quit-dialog mouse actions and persistent opt-out
 
 Bytes 114,400–117,209 map to the 240×24 rendered mouse-action regression:

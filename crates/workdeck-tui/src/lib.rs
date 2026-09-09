@@ -25570,6 +25570,35 @@ mod tests {
     }
 
     #[test]
+    fn disabled_preference_prompt_quits_after_theme_change_without_writing_config() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let config = directory.path().join("workdeck/config.toml");
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                prompt_save_view_preferences: false,
+                view_preferences_config_path: Some(config.clone()),
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(240, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        for key in [
+            KeyCode::Char('t'),
+            KeyCode::Down,
+            KeyCode::Enter,
+            KeyCode::Char('q'),
+        ] {
+            app.handle_key(KeyEvent::new(key, KeyModifiers::NONE));
+            rendered_review_frame(&mut terminal, &app);
+        }
+        assert!(!rendered_review_frame(&mut terminal, &app).contains("Save view preferences?"));
+        assert!(app.take_quit_requested());
+        assert!(!app.take_quit_requested());
+        assert!(!config.exists());
+    }
+
+    #[test]
     fn quit_prompt_rendered_mouse_actions_cancel_then_save_theme() {
         let directory = tempfile::TempDir::new().unwrap();
         let config = directory.path().join("workdeck/config.toml");

@@ -1,0 +1,31 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTest": "quit skips the save prompt when configured not to ask",
+  "baselineInterval": {
+    "byteStart": 117209,
+    "byteEnd": 118487,
+    "lineStart": 3945,
+    "lineEnd": 3983,
+    "sha256": "d941e1d25ad0ab8cc466965d9a09af4484fa933d69a132e0b0b3c88625b5cbc5"
+  },
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > quit skips the save prompt when configured not to ask [303.71ms]\n\n 1 pass\n 75 filtered out\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [924.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > quit skips the save prompt when configured not to ask [231.17ms]\n\n 1 pass\n 73 filtered out\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [681.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "tests::disabled_preference_prompt_quits_after_theme_change_without_writing_config",
+    "passed": 1,
+    "failed": 0,
+    "filtered": 1140,
+    "seconds": 0.8
+  },
+  "scope": "240x24, prompt_save_view_preferences false, t/Down/Enter/q through real key handler and renderer. Assert no save prompt, exactly one consumable immediate quit request, and no configuration file creation. Does not cover config-loading precedence, native process teardown, or full terminal cell equality."
+}
