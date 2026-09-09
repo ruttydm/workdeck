@@ -149,7 +149,7 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
 
 #[test]
 fn source_interaction_sequence_drives_real_navigation_and_fresh_scroll_state() {
-    let report = measure(cfg!(any(target_os = "macos", target_os = "linux"))).unwrap();
+    let report = measure(cfg!(any(target_os = "macos", target_os = "linux", windows))).unwrap();
     assert_eq!(report["navigationPressMs"].as_array().unwrap().len(), 6);
     assert_eq!(report["scrollTickMs"].as_array().unwrap().len(), 8);
     for (total, dispatch, render) in [
@@ -179,10 +179,13 @@ fn source_interaction_sequence_drives_real_navigation_and_fresh_scroll_state() {
         report["viewport"],
         serde_json::json!({"width":240,"height":28})
     );
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
     for key in ["afterFirstFrame", "afterNavigation"] {
         assert!(report[key]["rssBytes"].as_u64().unwrap() > 0);
+        #[cfg(target_os = "macos")]
         assert!(report[key]["mallocInUseBytes"].as_u64().unwrap() > 0);
+        #[cfg(not(target_os = "macos"))]
+        assert!(report[key]["mallocInUseBytes"].is_null());
     }
     assert!(run(["unexpected".into()].into_iter()).is_err());
 }

@@ -2353,3 +2353,19 @@ execution has not been performed: this host has no installed Linux Rust target
 and its default Docker socket is unavailable. This is implementation progress,
 not cross-platform or memory benchmark acceptance evidence. Windows remains
 unsupported by this diagnostic backend; all related ledger records remain open.
+
+### Windows native memory sampling (execution pending)
+
+The subsequent Windows backend uses `K32GetProcessMemoryInfo` on the current
+process pseudo-handle, returning `WorkingSetSize` and propagating API failures.
+It does not substitute peak working set or commit charge for current resident
+memory, and allocator-zone usage remains explicitly `null`. The target-specific
+dependency reuses the existing locked `windows-sys` 0.61.2 package.
+
+The actual source module and its tests passed `cargo check --target
+x86_64-pc-windows-gnu --tests` in a disposable minimal harness. This checks Rust
+types and Windows bindings, not native execution, full-workspace Windows linking
+or runtime measurements. The interaction diagnostic now requests snapshots on
+all three supported operating systems and checks platform-specific allocator
+availability in its test. Native Windows and Linux execution remain outstanding;
+this supersedes the previous unsupported-Windows implementation note only.

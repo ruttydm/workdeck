@@ -79,7 +79,30 @@ pub(super) fn snapshot() -> Result<Snapshot> {
     })
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(windows)]
+pub(super) fn snapshot() -> Result<Snapshot> {
+    use windows_sys::Win32::System::{
+        ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS},
+        Threading::GetCurrentProcess,
+    };
+    let size = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+    let mut counters = PROCESS_MEMORY_COUNTERS {
+        cb: size,
+        ..Default::default()
+    };
+    // SAFETY: the pseudo-handle refers to this process and requires no close;
+    // counters is initialized, writable and exactly the specified buffer size.
+    if unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, size) } == 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    Ok(Snapshot {
+        // Current working set, not peak working set or process commit charge.
+        rss_bytes: counters.WorkingSetSize as u64,
+        malloc_in_use_bytes: None,
+    })
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 pub(super) fn snapshot() -> Result<Snapshot> {
     bail!("native memory snapshot backend is not implemented on this platform")
 }
@@ -136,9 +159,9 @@ fn linux_rollup_rss_is_checked_and_not_confused_with_peak_or_pss() {
     assert!(serde_json::to_value(snapshot).unwrap()["mallocInUseBytes"].is_null());
 }
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(all(test, any(target_os = "linux", windows)))]
 #[test]
-fn linux_live_snapshot_reports_rss_without_inventing_allocator_usage() {
+fn live_snapshot_reports_rss_without_inventing_allocator_usage() {
     let sample = snapshot().unwrap();
     assert!(sample.rss_bytes > 0);
     assert!(sample.malloc_in_use_bytes.is_none());
