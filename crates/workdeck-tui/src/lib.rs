@@ -12123,7 +12123,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                     .changeset()
                     .files
                     .iter()
-                    .map(workdeck_review::review_gap_geometry_for_file)
+                    .map(PlainFileGeometry::new)
                     .collect::<Vec<_>>(),
             );
             *app.review_plain_height
@@ -12623,6 +12623,25 @@ fn render_vertical_review_scrollbar(
     })
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct PlainFileGeometry {
+    gaps: workdeck_review::ReviewGapGeometry,
+    split_pairs: Vec<Vec<workdeck_diff::SplitLinePair>>,
+}
+
+impl PlainFileGeometry {
+    fn new(file: &DiffFile) -> Self {
+        Self {
+            gaps: workdeck_review::review_gap_geometry_for_file(file),
+            split_pairs: file
+                .hunks
+                .iter()
+                .map(|hunk| plan_split_line_pairs(&hunk.lines))
+                .collect(),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct PlainReviewHeight {
     document: Arc<Changeset>,
@@ -12636,7 +12655,7 @@ struct PlainReviewHeight {
     registry_generation: u64,
     height: usize,
     sections: Arc<Vec<FileSectionLayout>>,
-    gap_geometries: Arc<Vec<workdeck_review::ReviewGapGeometry>>,
+    gap_geometries: Arc<Vec<PlainFileGeometry>>,
 }
 
 impl PlainReviewHeight {
@@ -12998,7 +13017,7 @@ enum ReviewRowPurpose<'a> {
         start: usize,
         end: usize,
         highlight_files: Option<&'a BTreeSet<usize>>,
-        gap_geometries: Option<&'a [workdeck_review::ReviewGapGeometry]>,
+        gap_geometries: Option<&'a [PlainFileGeometry]>,
     },
 }
 
@@ -13193,7 +13212,7 @@ fn build_review_rows_with_chrome(
             ReviewRowPurpose::Viewport {
                 gap_geometries: Some(gaps),
                 ..
-            } => &gaps[file_index],
+            } => &gaps[file_index].gaps,
             _ => {
                 uncached_gap_source = workdeck_review::review_gap_geometry_for_file(file);
                 &uncached_gap_source
@@ -14331,7 +14350,18 @@ fn split_hunk_rows(
     let left_width = pane_widths.left_width;
     let right_width = pane_widths.right_width;
     let geometry_nowrap = purpose == ReviewRowPurpose::Geometry && !options.wrap_lines;
-    for pair in plan_split_line_pairs(&hunk.lines) {
+    let uncached_pairs;
+    let pairs = match purpose {
+        ReviewRowPurpose::Viewport {
+            gap_geometries: Some(files),
+            ..
+        } => &files[file_index].split_pairs[hunk_index],
+        _ => {
+            uncached_pairs = plan_split_line_pairs(&hunk.lines);
+            &uncached_pairs
+        }
+    };
+    for pair in pairs {
         let geometry_nowrap = geometry_nowrap
             || (!options.wrap_lines
                 && matches!(purpose, ReviewRowPurpose::Viewport { start, end, .. }
@@ -22529,7 +22559,7 @@ mod tests {
             review
                 .files
                 .iter()
-                .map(workdeck_review::review_gap_geometry_for_file)
+                .map(PlainFileGeometry::new)
                 .collect::<Vec<_>>()
         );
         assert!(Arc::ptr_eq(
@@ -22967,7 +22997,7 @@ mod tests {
                     .changeset()
                     .files
                     .iter()
-                    .map(workdeck_review::review_gap_geometry_for_file)
+                    .map(PlainFileGeometry::new)
                     .collect::<Vec<_>>();
                 for start in [0, 1, full.lines.len() / 2, full.lines.len()] {
                     for height in [0, 1, 10] {

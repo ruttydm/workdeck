@@ -312,6 +312,23 @@ whitespace checks pass. Timing improvement remains unmeasured at this increment;
 offscreen row construction and the performance gate remain unresolved. No ledger
 interval is newly mapped.
 
+### Immutable split-plan reuse
+
+The plain-file geometry cache now also retains each hunk's split-line index pairs.
+Viewport rendering borrows those plans instead of rerunning the unchanged alignment
+algorithm and allocating pair vectors for every hunk each frame. Uncached and complex
+paths still calculate their own plans. The document-owned cache is invalidated with
+the existing section geometry, and retains index metadata rather than copied line
+text. This adds retained index storage and initial construction work; its timing and
+memory effects must be measured, not assumed.
+
+Cached/uncached viewport tests still compare visible styling and complete line cursor,
+note target, file and hunk geometry. Cache reuse/invalidation and full-cell tests also
+pass. All 1,093 TUI unit tests, TUI all-target Clippy with warnings denied, formatting
+and whitespace checks pass. The initial struct extraction had a misplaced Debug
+derive, corrected before this successful validation. No ledger mapping or benchmark
+gate is completed by this increment.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation
