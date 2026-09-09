@@ -365,6 +365,16 @@ including full-cell/geometry and composer coverage. TUI all-target Clippy with
 warnings denied, formatting and whitespace checks pass. Performance effects remain
 to be measured at this code checkpoint; no ledger interval is newly mapped.
 
+### Executable pager regression checkpoint
+
+After compact note-target lookup and the rendering cache changes,
+`CARGO_INCREMENTAL=0 cargo test -p workdeck-cli --test terminal_pager` passed
+all 93 tests at immutable revision `9234fcb5`. This adds real-executable terminal
+integration evidence to the preceding library full-cell/geometry checks. The
+checkout was unchanged throughout the build and test run. It is not a new full
+workspace verifier run, a paired benchmark pass, or native-platform release
+validation; source-ledger coverage and upstream catch-up remain unresolved.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation
