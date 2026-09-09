@@ -1,5 +1,20 @@
 # Hunk semantic-port ledger
 
+## Regular and pager quit keys
+
+Bytes 119,471–122,597 map to the final three AppHost interaction tests:
+pager quit after a wrapping change, regular/pager `q`, and non-quitting Escape.
+The Rust matrix preserves all five source scenarios and terminal sizes. Both
+pinned oracle runs pass three tests and six assertions; the native matrix passes.
+See [capture and limits](oracles/app-host-quit-keys.json). Exit requests are
+verified, not actual terminal process teardown or complete cell-buffer parity.
+
+Validation: `cargo test -p workdeck-tui --lib` passes all 1,143 tests in 85.51s;
+workspace formatting and TUI all-target Clippy pass. Strict audit still fails:
+267 unmapped intervals, 1,375 records, 1,257 baseline files, and 11 cached
+upstream commits pending. The earlier unmapped prefix of this source test file
+remains incomplete; finishing its tail does not complete the file.
+
 ## Transient extension preference policy
 
 Bytes 118,487–119,471 map to the 180×24 transient session regression.

@@ -1,0 +1,35 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTests": [
+    "pager mode quits on q even after changing a view preference",
+    "q routes through the provided onQuit handler in regular and pager modes",
+    "Escape does not quit in regular or pager modes"
+  ],
+  "baselineInterval": {
+    "byteStart": 119471,
+    "byteEnd": 122597,
+    "lineStart": 4015,
+    "lineEnd": 4127,
+    "sha256": "961dd76822fee88576dbc68576e217e66e0c9dc4f13d8073bb3287920d9f2bc9"
+  },
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > pager mode quits on q even after changing a view preference [184.55ms]\nThe current testing environment is not configured to support act(...)\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > q routes through the provided onQuit handler in regular and pager modes [33.33ms]\nThe current testing environment is not configured to support act(...)\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > Escape does not quit in regular or pager modes [27.80ms]\n\n 3 pass\n 73 filtered out\n 0 fail\n 6 expect() calls\nRan 3 tests across 1 file. [810.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > pager mode quits on q even after changing a view preference [159.65ms]\nThe current testing environment is not configured to support act(...)\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > q routes through the provided onQuit handler in regular and pager modes [32.32ms]\nThe current testing environment is not configured to support act(...)\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > Escape does not quit in regular or pager modes [31.80ms]\n\n 3 pass\n 71 filtered out\n 0 fail\n 6 expect() calls\nRan 3 tests across 1 file. [630.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "tests::quit_keys_preserve_regular_and_pager_exit_semantics",
+    "passed": 1,
+    "failed": 0,
+    "filtered": 1142,
+    "seconds": 0.88
+  },
+  "scope": "Five independent review instances: 220x24 pager w/render/q, regular 220x24 q, pager 180x20 q, regular 220x24 Escape, pager 180x20 Escape. Assert wrap changes where requested, no save prompt, exactly one consumable quit request for q and none for Escape, no configuration creation. Covers source's three tests and closing describe delimiter. Does not claim raw terminal input, process teardown, or complete cell-buffer parity."
+}

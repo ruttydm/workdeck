@@ -25570,6 +25570,41 @@ mod tests {
     }
 
     #[test]
+    fn quit_keys_preserve_regular_and_pager_exit_semantics() {
+        for (pager, width, height, key, change_wrap) in [
+            (true, 220, 24, KeyCode::Char('q'), true),
+            (false, 220, 24, KeyCode::Char('q'), false),
+            (true, 180, 20, KeyCode::Char('q'), false),
+            (false, 220, 24, KeyCode::Esc, false),
+            (true, 180, 20, KeyCode::Esc, false),
+        ] {
+            let directory = tempfile::TempDir::new().unwrap();
+            let config = directory.path().join("workdeck/config.toml");
+            let mut app = ReviewApp::new(
+                responsive_changeset(),
+                ReviewOptions {
+                    pager,
+                    view_preferences_config_path: Some(config.clone()),
+                    ..Default::default()
+                },
+            );
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            rendered_review_frame(&mut terminal, &app);
+            if change_wrap {
+                let previous_wrap = app.options.wrap_lines;
+                app.handle_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+                rendered_review_frame(&mut terminal, &app);
+                assert_ne!(app.options.wrap_lines, previous_wrap);
+            }
+            app.handle_key(KeyEvent::new(key, KeyModifiers::NONE));
+            assert!(!rendered_review_frame(&mut terminal, &app).contains("Save view preferences?"));
+            assert_eq!(app.take_quit_requested(), key == KeyCode::Char('q'));
+            assert!(!app.take_quit_requested());
+            assert!(!config.exists());
+        }
+    }
+
+    #[test]
     fn transient_extension_policy_skips_save_after_wrap_change() {
         use workdeck_extension_api::{
             API_VERSION, HandshakeResponse, Registration, SessionOptionsRegistration,
