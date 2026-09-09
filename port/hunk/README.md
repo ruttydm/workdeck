@@ -1,5 +1,34 @@
 # Hunk semantic-port ledger
 
+## Broad verification: note hover and success-caption regressions
+
+A fresh workspace verification exposed four PTY failures after the conditional
+chrome changes. Pointer motion outside the note editor now retires saved-card
+hover before returning to other hit routes. Draft cancellation and successful
+extension-command/presentation selection no longer add unrequested persistent
+status captions; explicit notifications and failures remain available.
+
+All original failing PTY cases pass individually. A provisional presentation
+jump was rejected because both pinned CSS gallery runs preserve the first raw
+hunk, including after 300ms of settling. The final implementation retains the
+scroll position; all three gallery cases pass. The queued-command regression
+uses a subsequent rendered key as an input-order barrier instead of relying on
+an invented success caption, retaining its connection-hold and eventual-result
+checks. See [regression evidence](oracles/native-verification-regressions.json)
+and [source CSS frames](oracles/css-gallery-presentation-switch.json).
+
+The next full run passed all 98 PTY tests and all seven key-routing tests, then
+exposed a pane-layout assertion still reserving the removed success footer.
+Key-routing setup now establishes a real scrolled viewport with a bounded loop
+instead of assuming 30 cursor steps scroll every layout. Pane geometry now
+asserts 23 rows below the menu in a 24-row terminal, retaining exact resize and
+menu-toggle checks; all four pane-layout tests pass. The fifth full
+`cargo xtask verify` run passes workspace tests (including 98 PTY tests and 1,169
+TUI unit tests), formatting, strict Clippy, the optimized release build, and
+large-repository smoke checks. Strict port audit still fails with 267 unmapped
+records and 11 cached upstream commits. These fixes do not add ledger mappings
+or establish release parity.
+
 ## Menu navigation and rooted manual reload
 
 The two source tests at bytes 48,530–51,464 now map to the exact keyboard-menu

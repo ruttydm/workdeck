@@ -636,7 +636,6 @@ struct PendingExtensionCommand {
     extension_index: usize,
     extension_id: String,
     command_id: String,
-    title: String,
     review_generation: u64,
     navigation: ExtensionRuntimeNavigation,
 }
@@ -2682,7 +2681,6 @@ impl ReviewApp {
             self.note_composer = None;
             self.note_composer_bounds.set(None);
             self.focus = Focus::Review;
-            self.status = Some("review note cancelled".into());
             return true;
         }
         let previous_body = self
@@ -3495,10 +3493,6 @@ impl ReviewApp {
             return;
         };
         self.set_file_presentation_for_file(&file_id, view_key);
-        self.status = Some(match view_key {
-            Some(view_key) => format!("file presentation: {view_key}"),
-            None => "file presentation: raw diff".into(),
-        });
     }
 
     fn close_app_menu(&self) {
@@ -4302,7 +4296,6 @@ impl ReviewApp {
                             extension_index: command.extension_index,
                             extension_id: command.extension_id.clone(),
                             command_id: command.command.id.clone(),
-                            title: command.command.title.clone(),
                             review_generation: command_epoch,
                             navigation,
                         },
@@ -4318,7 +4311,6 @@ impl ReviewApp {
                     },
                 )));
         }
-        self.status = Some(command.command.title);
         self.start_queued_extension_requests(Some(command.extension_index));
     }
 
@@ -4358,7 +4350,6 @@ impl ReviewApp {
             self.start_queued_extension_requests(Some(pending.extension_index));
             match outcome {
                 Ok(execution) => {
-                    self.status = Some(pending.title.clone());
                     self.apply_extension_command_actions(&pending, execution.actions);
                 }
                 Err(error) => {
@@ -6648,7 +6639,6 @@ impl ReviewApp {
         };
         let Some(view_id) = view_id else {
             self.set_file_presentation_for_file(&file.runtime_id, None);
-            self.status = Some("file presentation: raw diff".into());
             return;
         };
         if let Some(reason) =
@@ -6687,7 +6677,6 @@ impl ReviewApp {
         match matches {
             Ok(true) => {
                 self.set_file_presentation_for_file(&file.runtime_id, Some(&view_key));
-                self.status = Some(format!("file presentation: {view_key}"));
             }
             Ok(false) => {
                 self.status = Some(format!(
@@ -8539,6 +8528,11 @@ impl ReviewApp {
 
     fn handle_note_mouse(&mut self, event: &MouseEvent, now: Instant) -> bool {
         if self.note_composer.is_some() {
+            // The editor replaces the saved card. Pointer motion outside it must
+            // retire the old card hover too, before returning to other hit routes.
+            if event.kind == MouseEventKind::Moved {
+                self.saved_note_hover = None;
+            }
             let inside = self
                 .note_composer_bounds
                 .get()
@@ -8551,9 +8545,6 @@ impl ReviewApp {
             }
             if !inside {
                 return false;
-            }
-            if event.kind == MouseEventKind::Moved {
-                self.saved_note_hover = None;
             }
             if event.kind == MouseEventKind::Up(MouseButton::Left) {
                 let action = self
@@ -18917,6 +18908,32 @@ mod tests {
     }
 
     #[test]
+    fn leaving_note_editor_retires_saved_card_hover_before_save() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        let file_key = app.with_state(|state| state.changeset().files[0].key.clone());
+        let mut note = saved_comment(&file_key, "user:hover", "original body");
+        note.source = "user".into();
+        note.editable = true;
+        app.with_state(|state| state.add_comment(note).unwrap());
+        app.saved_note_hover = Some("user:hover".into());
+        app.apply_builtin_command_action(AppCommandAction::EditActiveNote);
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        assert!(app.note_composer.is_some());
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(app.saved_note_hover.is_none());
+        app.save_note_composer();
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(frame.contains("original body"), "{frame}");
+        assert!(!frame.contains("r reply e edit"), "{frame}");
+    }
+
+    #[test]
     fn user_note_composer_edits_and_replies_with_stable_public_identity() {
         let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
         let file_key = app.with_state(|state| state.changeset().files[0].key.clone());
@@ -20848,7 +20865,6 @@ mod tests {
             extension_index: 0,
             extension_id: "triage".into(),
             command_id: "jump".into(),
-            title: "Jump".into(),
             review_generation: app.extension_command_epoch,
             navigation,
         };
@@ -26272,6 +26288,43 @@ mod tests {
         if shifted {
             assert!(!frame.contains("interaction coverage"), "{frame}");
         }
+    }
+
+    #[test]
+    fn raw_presentation_change_preserves_scroll_without_a_success_caption() {
+        let review = navigation_changeset(vec![
+            (
+                "first.ts".into(),
+                numbered_exports(1, 30, 0, true),
+                numbered_exports(1, 30, 100, true),
+            ),
+            (
+                "second.ts".into(),
+                "before_second\n".into(),
+                "after_second\n".into(),
+            ),
+        ]);
+        let ids = review
+            .files
+            .iter()
+            .map(|file| file.runtime_id.clone())
+            .collect::<Vec<_>>();
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Stack,
+                sidebar: false,
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(140, 20)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        install_cached_test_file_view(&app, &ids[0]);
+        app.scroll = 5;
+        app.select_current_file_presentation_from_menu(None);
+        assert_eq!(app.scroll, 5);
+        assert!(app.status.is_none());
+        assert!(app.selected_extension_file_view(&ids[0]).is_none());
     }
 
     #[test]

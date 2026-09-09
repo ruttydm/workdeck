@@ -711,11 +711,16 @@ fn queued_command_resumes_after_background_highlight_releases_connection() {
         "background highlight never acquired the connection"
     );
     session.write(b"\x1b[19~");
-    session.wait(|text| text.contains("Second fixture action"));
+    // A rendered subsequent key is an input-order barrier: the command key has
+    // reached the event loop, without relying on an invented success caption.
+    session.write(b"?");
+    session.wait(|text| text.contains("Controls help"));
     assert!(
         !extension.join("line-highlight-released").exists(),
         "highlight hold expired before the command queued"
     );
+    session.write(b"\x1b");
+    session.wait(|text| !text.contains("Controls help"));
     fs::remove_file(hold).unwrap();
     session
         .wait(|text| text.contains("Extension fixture targeted unknown line highlighter \"nope\""));

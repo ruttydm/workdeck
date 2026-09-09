@@ -165,7 +165,9 @@ fn review_shell_routes_ctrl_p_and_resizes_the_right_pane() {
         .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
         .unwrap();
     let opened = rendered_text(&terminal);
-    assert!(opened.contains("RIGHT PANE · 28×22"), "{opened}");
+    // Successful commands do not create a status footer: only the menu row
+    // is reserved from the 24-row terminal.
+    assert!(opened.contains("RIGHT PANE · 28×23"), "{opened}");
     assert!(opened.contains("TOP PANE · 69×2"), "{opened}");
     assert!(opened.contains("BOTTOM PANE · 69×2"), "{opened}");
     assert!(opened.contains("src/lib.rs"));
@@ -191,7 +193,7 @@ fn review_shell_routes_ctrl_p_and_resizes_the_right_pane() {
     terminal
         .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
         .unwrap();
-    assert!(rendered_text(&terminal).contains("RIGHT PANE · 38×22"));
+    assert!(rendered_text(&terminal).contains("RIGHT PANE · 38×23"));
 
     app.handle_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
     settle_extension_commands(&mut app);
@@ -221,7 +223,7 @@ fn review_shell_routes_ctrl_p_and_resizes_the_right_pane() {
         .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
         .unwrap();
     let rendered = rendered_text(&terminal);
-    assert!(rendered.contains("RIGHT PANE · 38×22"), "{rendered}");
+    assert!(rendered.contains("RIGHT PANE · 38×23"), "{rendered}");
 }
 
 #[test]

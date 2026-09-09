@@ -122,8 +122,15 @@ fn wait_for_pane_input(app: &mut ReviewApp) -> String {
 
 fn focus_scrolled_review(app: &mut ReviewApp) {
     let _ = frame(app);
-    for _ in 0..30 {
+    // Split layout can visit both sides of a row before moving vertically.
+    // Establish the scrolled precondition, rather than assuming a fixed number
+    // of cursor movements crosses the viewport in every presentation.
+    for _ in 0..160 {
         press(app, KeyCode::Char('j'));
+        let _ = frame(app);
+        if app.review_scroll() > 0 {
+            break;
+        }
     }
     assert!(app.review_scroll() > 0);
 }
