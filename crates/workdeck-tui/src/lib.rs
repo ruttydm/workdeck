@@ -23941,6 +23941,49 @@ mod tests {
     }
 
     #[test]
+    fn filter_displays_beta_but_preserves_hidden_selection_and_query_after_tab() {
+        let mut review = responsive_changeset();
+        review.files[0].agent = Some(
+            serde_json::from_value(serde_json::json!({
+                "path":"alpha.ts", "summary":"alpha.ts note",
+                "annotations":[{"newRange":[2,2], "summary":"Annotation for alpha.ts",
+                    "rationale":"Why alpha.ts changed"}]
+            }))
+            .unwrap(),
+        );
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(240, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        assert_eq!(app.with_state(|state| state.selection().file_index), 0);
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        rendered_review_frame(&mut terminal, &app);
+        for character in "beta".chars() {
+            app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+        let frame = rendered_review_frame(&mut terminal, &app);
+        for expected in ["filter:", "beta", "beta.ts"] {
+            assert!(frame.contains(expected), "missing {expected}:\n{frame}");
+        }
+        assert!(!frame.contains("Annotation for alpha.ts"), "{frame}");
+        // Pinned core/selectors.ts retains a selected file still in the
+        // document, even when hidden. The source interaction test's title is
+        // older than that contract and asserts only the rendered filter state.
+        assert_eq!(app.with_state(|state| state.selection().file_index), 0);
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(frame.contains("filter=beta"), "{frame}");
+        assert!(frame.contains("beta.ts"), "{frame}");
+        assert_eq!(app.with_state(|state| state.selection().file_index), 0);
+    }
+
+    #[test]
     fn scroll_step_keys_in_pager_move_exactly_one_row() {
         let review = navigation_changeset(vec![(
             "scroll.ts".into(),

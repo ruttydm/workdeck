@@ -1,5 +1,19 @@
 # Hunk semantic-port ledger
 
+## AppHost filter selection contract (partial interaction corpus)
+
+Bytes 80,168–81,253 map to the executed filter/query regression at 240×24.
+Both source runs pass six text assertions; native test, formatting and TUI
+all-target Clippy pass. Crucially, the old test title says "reselects" but its
+assertions do not check selection. Both pinned core selectors preserve a selected
+file hidden by a filter. Native coverage now explicitly preserves alpha selection
+while displaying beta, and retains the query after Tab. A provisional contrary
+runtime change was removed before commit. See [evidence and discrepancy](oracles/app-host-filter-selection.json).
+
+Current strict audit validates partitions/evidence, then fails with 1,257 files,
+1,347 records, 389 translated-test records and 268 unmapped intervals. Eleven
+cached upstream commits remain pending; whole-file and release parity are incomplete.
+
 ## AppHost pager edges and empty filtering (partial interaction corpus)
 
 Bytes 77,584–79,396 and 79,396–80,168 map to executed pager `G/g` and
@@ -10,7 +24,7 @@ all-target Clippy pass. See [captures and limits](oracles/app-host-pager-filter.
 Selection reconciliation after filtering and complete cell frames remain separate
 requirements, not implied by this empty-result test.
 
-Current strict audit validates partitions/evidence, then fails with 1,257 files,
+At this earlier pager/filter checkpoint, strict audit validated partitions/evidence, then failed with 1,257 files,
 1,346 records, 388 translated-test records and 268 unmapped intervals. Eleven
 cached upstream commits remain pending; complete parity is not established.
 
