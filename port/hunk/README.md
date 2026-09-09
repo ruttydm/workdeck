@@ -1,5 +1,18 @@
 # Hunk semantic-port ledger
 
+## AppHost layout anchor (partial interaction corpus)
+
+Bytes 67,995–69,852 map to the executed split/stack viewport-anchor test.
+At 220×12, Down-key scrolling followed by `2` and `1` preserves the first
+visible source line. The fixture includes the source helper's line-two annotation.
+Both unchanged pinned source tests pass nine assertions. Native test, formatting
+and TUI all-target Clippy pass; see [capture and limits](oracles/app-host-layout-anchor.json).
+This does not establish whole-frame equivalence.
+
+Current strict audit validates partitions/evidence, then fails with 1,257 files,
+1,339 records, 381 translated-test records and 268 unmapped intervals. Eleven
+cached upstream commits remain pending; whole-file and release parity are incomplete.
+
 ## AppHost wrap anchor (partial interaction corpus)
 
 Bytes 66,207–67,995 map to the executed wrap-toggle viewport regression. At
@@ -10,7 +23,7 @@ viewport-note fixture; beta keeps its explicit line-one override. All three
 affected native tests pass together, with formatting and TUI all-target Clippy
 clean. See [results and scope](oracles/app-host-wrap-anchor.json).
 
-Current ledger has 1,257 files, 1,338 records, 380 translated-test records and
+At this earlier wrap checkpoint, the ledger had 1,257 files, 1,338 records, 380 translated-test records and
 268 unmapped intervals; eleven cached upstream commits remain pending. Strict
 completion and whole-frame parity remain unproven.
 
