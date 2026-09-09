@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex, Weak};
 
+use workdeck_core::Changeset;
 use workdeck_core::ReviewSnapshot;
 use workdeck_extension_api::{
     ExtensionCommandAvailability, ExtensionDiffFile, ExtensionFileSide, ExtensionHostAction,
@@ -13,10 +14,36 @@ pub struct ExtensionRuntimeCommit {
     pub review_generation: u64,
     pub snapshot: ReviewSnapshot,
     pub review: ExtensionReviewSnapshot,
-    pub files: Vec<ExtensionDiffFile>,
+    pub files: Arc<[ExtensionDiffFile]>,
     pub selection: ExtensionReviewSelection,
     pub selected_file_id: Option<String>,
     pub commands: ExtensionCommandAvailability,
+}
+
+/// One immutable document's projections; replacing the Arc retires the cache.
+#[derive(Debug, Default)]
+pub(crate) struct ExtensionFileProjectionCache {
+    document: Option<Arc<Changeset>>,
+    files: Arc<[ExtensionDiffFile]>,
+}
+
+impl ExtensionFileProjectionCache {
+    pub(crate) fn get(&mut self, document: Arc<Changeset>) -> Arc<[ExtensionDiffFile]> {
+        if self
+            .document
+            .as_ref()
+            .is_none_or(|previous| !Arc::ptr_eq(previous, &document))
+        {
+            self.files = document
+                .files
+                .iter()
+                .map(workdeck_extension_host::project_extension_diff_file)
+                .collect::<Vec<_>>()
+                .into();
+            self.document = Some(document);
+        }
+        Arc::clone(&self.files)
+    }
 }
 
 #[derive(Debug)]
@@ -121,13 +148,13 @@ impl ExtensionRuntimeBridge {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .committed
             .files
-            .clone()
+            .to_vec()
     }
 
     /// Project the immutable file values belonging to a render before that render is committed.
     #[must_use]
     pub fn get_render_file_views(&self, render: &ExtensionRuntimeCommit) -> Vec<ExtensionDiffFile> {
-        render.files.clone()
+        render.files.to_vec()
     }
 
     #[must_use]
@@ -449,7 +476,7 @@ mod tests {
                 generation: format!("runtime:{review_generation}"),
                 ..ExtensionReviewSnapshot::default()
             },
-            files: vec![selected.clone()],
+            files: vec![selected.clone()].into(),
             selection: ExtensionReviewSelection {
                 file: Some(selected),
                 hunk_index: Some(0),

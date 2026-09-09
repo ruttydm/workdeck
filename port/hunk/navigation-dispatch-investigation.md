@@ -28,3 +28,18 @@ replacement and on metadata changes represented in the extension file view.
 Measure individual stages before attributing the observed dispatch latency to
 projection work. No runtime optimization or completed ledger mapping is claimed
 by this investigation.
+
+## Implemented projection reuse
+
+The follow-up caches file projections by the retained immutable changeset Arc,
+sharing the projection slice between bridge commits. Public getters still
+return owned values; selection, review snapshots, commands and generation
+authority are freshly committed. Equal-content replacement documents invalidate
+the cache, as do replacements with metadata changes.
+
+Ten focused runtime-bridge tests and the new exact-document cache test pass,
+along with scoped Clippy and formatting. The follow-up debug diagnostic reports
+about 99.08 ms median navigation and 50.91 ms dispatch, versus 225.53 ms and
+179.24 ms in the earlier sample. See [raw follow-up and source hashes](interaction-diagnostic-projection-cache.json).
+These single samples support the optimization but are not a controlled paired
+release benchmark, an isolated stage profile, or proof of the Hunk 10% gate.

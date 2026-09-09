@@ -290,7 +290,8 @@ use workdeck_session::{ReviewSessionServer, default_discovery_directory};
 use workdeck_vcs::bundled_vcs_catalog;
 
 use crate::extension_runtime_bridge::{
-    ExtensionRuntimeBridge, ExtensionRuntimeCommit, ExtensionRuntimeNavigation,
+    ExtensionFileProjectionCache, ExtensionRuntimeBridge, ExtensionRuntimeCommit,
+    ExtensionRuntimeNavigation,
 };
 
 #[derive(Debug, Clone)]
@@ -1237,6 +1238,7 @@ pub struct ReviewApp {
     extension_pane_runtime: Mutex<ExtensionPaneRuntime>,
     file_presentation_rendering: Mutex<FilePresentationRenderingController>,
     extension_runtime_bridge: ExtensionRuntimeBridge,
+    extension_file_projection_cache: Mutex<ExtensionFileProjectionCache>,
     extension_event_context_provider: ExtensionEventContextProviderSlot,
     extension_event_context_installation: Option<ExtensionEventContextProviderInstallation>,
     extension_event_dispatch_depth: usize,
@@ -1449,7 +1451,7 @@ impl ReviewApp {
             review: build_extension_review_snapshot(&state),
             selection: initial_extension_selection,
             snapshot: initial_snapshot,
-            files: initial_files,
+            files: initial_files.into(),
             selected_file_id: initial_selected_file_id,
             commands: ExtensionCommandAvailability::default(),
         });
@@ -1533,6 +1535,7 @@ impl ReviewApp {
             extension_pane_runtime: Mutex::new(extension_pane_runtime),
             file_presentation_rendering: Mutex::new(FilePresentationRenderingController::default()),
             extension_runtime_bridge,
+            extension_file_projection_cache: Mutex::new(ExtensionFileProjectionCache::default()),
             extension_event_context_provider,
             extension_event_context_installation: None,
             extension_event_dispatch_depth: 0,
@@ -3116,12 +3119,11 @@ impl ReviewApp {
     fn commit_extension_runtime_bridge(&self) {
         let (snapshot, review, files, selected_file_id) = self.with_state(|state| {
             let snapshot = state.snapshot();
-            let files = state
-                .changeset()
-                .files
-                .iter()
-                .map(project_extension_diff_file)
-                .collect::<Vec<_>>();
+            let files = self
+                .extension_file_projection_cache
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .get(state.changeset_snapshot());
             let selected_file_id = state
                 .changeset()
                 .files
@@ -20075,6 +20077,25 @@ mod tests {
             app.status.as_deref(),
             Some("Extension triage selectFile ignored — the review session was reloaded")
         );
+    }
+
+    #[test]
+    fn extension_file_projection_cache_reuses_only_the_exact_document() {
+        let document = Arc::new(two_file_changeset());
+        let mut cache = ExtensionFileProjectionCache::default();
+        let first = cache.get(Arc::clone(&document));
+        assert!(Arc::ptr_eq(&first, &cache.get(Arc::clone(&document))));
+        let equal_replacement = Arc::new(document.as_ref().clone());
+        let replacement = cache.get(Arc::clone(&equal_replacement));
+        assert_eq!(first.as_ref(), replacement.as_ref());
+        assert!(!Arc::ptr_eq(&first, &replacement));
+        let mut edited = equal_replacement.as_ref().clone();
+        edited.files[0].path = "updated-name.rs".into();
+        let expected = project_extension_diff_file(&edited.files[0]);
+        let changed = cache.get(Arc::new(edited));
+        assert_eq!(changed[0], expected);
+        assert_ne!(first[0].path, changed[0].path);
+        assert!(!Arc::ptr_eq(&replacement, &changed));
     }
 
     #[test]

@@ -1,0 +1,85 @@
+{
+  "parentCommit": "f4ae3a44ed33150bdc35e6491456d398a18e2eef",
+  "sourceSha256": {
+    "crates/workdeck-tui/src/lib.rs": "3de9368760f5d6f578fe1fd18dcf4512cefa77227f09e1cb16624ac9bb1caa0e",
+    "crates/workdeck-tui/src/extension_runtime_bridge.rs": "9fd3242c16f3370cc00996ec9cef8ed449541fd7127aea6419e59f708644e1e4"
+  },
+  "command": "CARGO_INCREMENTAL=0 cargo xtask benchmark interaction-diagnostic",
+  "profile": "dev (unoptimized + debuginfo)",
+  "exitCode": 0,
+  "comparison": "Earlier native sample: port/hunk/interaction-diagnostic-e10dafb1.json. Single samples; not a controlled paired Hunk release benchmark or peak-memory evidence.",
+  "report": {
+    "diagnosticOnly": true,
+    "firstFrameMs": 114.374792,
+    "navigationPressMs": [
+      99.52333300000001,
+      98.961125,
+      99.19425,
+      100.371167,
+      97.833834,
+      97.649791
+    ],
+    "scrollTickMs": [
+      28.857,
+      30.129584,
+      35.146167,
+      26.483,
+      32.357084,
+      23.180415999999997,
+      23.552916,
+      24.672083
+    ],
+    "navigationDispatchMs": [
+      51.396917,
+      51.448583,
+      50.795083,
+      51.019375,
+      50.60725,
+      50.78575
+    ],
+    "navigationRenderMs": [
+      48.125708,
+      47.511833,
+      48.398292000000005,
+      49.351125,
+      47.225834,
+      46.8605
+    ],
+    "scrollDispatchMs": [
+      0.115,
+      0.124084,
+      0.125417,
+      0.11745799999999999,
+      0.11804200000000001,
+      0.11574999999999999,
+      0.121333,
+      0.119875
+    ],
+    "scrollRenderMs": [
+      28.741,
+      30.004791,
+      35.020208,
+      26.363417,
+      32.238333000000004,
+      23.063750000000002,
+      23.431041999999998,
+      24.551458
+    ],
+    "stageSemantics": "Dispatch includes input handling and its geometry/events; render includes the complete frame pass. Total includes both stages and the scheduler yield. Two additional clock reads per interaction instrument the boundaries.",
+    "afterFirstFrame": {
+      "rssBytes": 154288128,
+      "mallocInUseBytes": 52971808
+    },
+    "afterNavigation": {
+      "rssBytes": 155385856,
+      "mallocInUseBytes": 54252752
+    },
+    "files": 180,
+    "linesPerFile": 120,
+    "viewport": {
+      "width": 240,
+      "height": 28
+    },
+    "memorySemantics": "Current RSS and, where available, native malloc-zone usage (null when unavailable), not peak RSS or JavaScript heapUsed"
+  }
+}
