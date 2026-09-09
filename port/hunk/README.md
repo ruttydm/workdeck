@@ -1,5 +1,13 @@
 # Hunk semantic-port ledger
 
+## AppHost top-level menu wrapping
+
+Bytes 83,786–84,950 now map to the 220×24 F10/Left/Right menu regression.
+Both pinned source tests pass six assertions; the native translated test passes
+and formatting passes. See [capture and scope](oracles/app-host-menu-wrap.json).
+Strict audit still fails with 268 unmapped intervals across 1,350 records and
+1,257 baseline files. Eleven cached upstream commits remain pending.
+
 ## Corrected annotation fixtures and deep-note navigation
 
 Eight translated fixtures now explicitly assert their internal annotation ranges.

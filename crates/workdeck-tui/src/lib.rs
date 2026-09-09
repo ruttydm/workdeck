@@ -19476,6 +19476,23 @@ mod tests {
     }
 
     #[test]
+    fn top_level_menu_navigation_wraps_from_file_to_help_and_back() {
+        let mut app = ReviewApp::new(responsive_changeset(), ReviewOptions::default());
+        let mut terminal = Terminal::new(TestBackend::new(220, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        for (key, visible, hidden) in [
+            (KeyCode::F(10), "Toggle files/filter focus", "Controls help"),
+            (KeyCode::Left, "Controls help", "Toggle files/filter focus"),
+            (KeyCode::Right, "Toggle files/filter focus", "Controls help"),
+        ] {
+            app.handle_key(KeyEvent::new(key, KeyModifiers::NONE));
+            let frame = rendered_review_frame(&mut terminal, &app);
+            assert!(frame.contains(visible), "{frame}");
+            assert!(!frame.contains(hidden), "{frame}");
+        }
+    }
+
+    #[test]
     fn desktop_menu_bar_renders_and_dispatches_through_the_shared_command_table() {
         let backend = TestBackend::new(220, 20);
         let mut terminal = Terminal::new(backend).unwrap();
