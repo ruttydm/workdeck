@@ -210,3 +210,12 @@ partial/full files, empty/equal/unequal line counts, and retained manifest conte
 after clearing the caller's arrays. All three content-manifest tests and scoped
 review all-target Clippy pass. This removes a known temporary allocation, not
 the whole initialization peak; no measured improvement is claimed yet.
+
+The full review library subsequently passed all 178 tests. An optimized run at
+clean `6b7b7396` completed the huge workload:
+[raw sample](huge-stream-release-6b7b7396.json). Setup took 781.15 ms and lifetime
+peak was 1,287,897,088 bytes, again reached before painting. This does not show
+a peak improvement over the previous 1,284,800,512-byte sample. The next candidate
+is eager `ExtensionFileProjectionCache` materialization of every file's metadata;
+investigate deferred projection against committed immutable documents while
+preserving owned getter results, preview isolation and navigation authority.
