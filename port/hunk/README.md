@@ -1,5 +1,19 @@
 # Hunk semantic-port ledger
 
+## AppHost content-edge authority (partial interaction corpus)
+
+Bytes 76,716–77,584 map to the executed `]` then Shift+`g` regression, retaining
+the bottom short-file hunk across repeated paints at 120×16. The unchanged
+main-baseline test passes; this test is absent from stable, whose zero-match
+exit is recorded rather than called a pass. Native test, formatting and TUI
+all-target Clippy pass. See [capture and timing limits](oracles/app-host-content-edge-authority.json).
+Native updates are synchronous; this does not claim coverage of all asynchronous
+extension or source-loading races.
+
+Current strict audit validates partitions/evidence, then fails with 1,257 files,
+1,344 records, 386 translated-test records and 268 unmapped intervals. Eleven
+cached upstream commits remain pending; complete parity is not established.
+
 ## AppHost paging aliases and content edges (partial interaction corpus)
 
 Bytes 72,872–74,945 and 74,945–76,716 map individually to the executed alias
@@ -10,7 +24,7 @@ TUI all-target Clippy pass. See [capture and limits](oracles/app-host-paging-ali
 Alias acceptance does not prove exact paging distance; typed key events do not
 replace terminal escape-decoding or complete cell-frame verification.
 
-Current strict audit validates partitions/evidence, then fails with 1,257 files,
+At this earlier alias checkpoint, strict audit validated partitions/evidence, then failed with 1,257 files,
 1,343 records, 385 translated-test records and 268 unmapped intervals. Eleven
 cached upstream commits remain pending; the goal remains incomplete.
 

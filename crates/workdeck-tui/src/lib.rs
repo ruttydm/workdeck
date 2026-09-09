@@ -19217,6 +19217,31 @@ mod tests {
     }
 
     #[test]
+    fn content_bottom_jump_remains_authoritative_after_hunk_navigation() {
+        let mut app = ReviewApp::new(
+            cross_file_hunk_navigation_changeset(),
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(120, 16)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+        rendered_review_frame(&mut terminal, &app);
+        assert_eq!(
+            app.with_state(|state| state.selection().hunk_index),
+            Some(1)
+        );
+        app.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::SHIFT));
+        for _ in 0..3 {
+            let frame = rendered_review_frame(&mut terminal, &app);
+            assert!(frame.contains("export const mid = 4;"), "{frame}");
+            assert!(!frame.contains("line 021 changed"), "{frame}");
+        }
+    }
+
+    #[test]
     fn pty_backward_cross_file_hunk_navigation_reveals_the_immediate_predecessor() {
         let mut app = ReviewApp::new(
             cross_file_hunk_navigation_changeset(),
