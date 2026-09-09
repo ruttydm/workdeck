@@ -15,6 +15,7 @@
     "examples/extensions/line-highlighter/extension.rs"
   ],
   "evidence": [
+    "port/hunk/oracles/highlighter-registration-removal.json",
     "port/hunk/oracles/highlighter-registration-reorder.json",
     "port/hunk/highlighter-verification-07a6d924.json",
     "crates/workdeck-tui/src/line_highlights.rs",

@@ -1658,6 +1658,83 @@ mod tests {
     }
 
     #[test]
+    fn removing_one_registration_retires_only_its_cached_results() {
+        let runtime = FakeLineHighlightRuntime::new(|id, _, _| {
+            let mut marks = one_mark("match");
+            if id == "second" {
+                marks[0]["range"] = json!([4, 7]);
+            }
+            Ok(marks)
+        });
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("first"), registration("second")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [test_file("request", "content:request")];
+        let mut controller = LineHighlightPreparationController::default();
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            &files,
+            |controller| controller.resolved().get("request").is_some(),
+        );
+        let original = controller.resolved().get_shared("request").unwrap().clone();
+        assert_eq!(original.len(), 2);
+        controller.reconcile(&extensions, &registrations[..1], &epochs, &files);
+        assert_eq!(controller.cache.len(), 1);
+        let remaining = controller.resolved().get("request").unwrap().to_vec();
+        assert_eq!(
+            controller.resolved().get("request").unwrap(),
+            &original[..1]
+        );
+        assert_eq!(runtime.calls().len(), 2);
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            &files,
+            |controller| {
+                controller
+                    .resolved()
+                    .get("request")
+                    .is_some_and(|marks| marks.len() == 2)
+            },
+        );
+        assert_eq!(
+            runtime
+                .calls()
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect::<Vec<_>>(),
+            ["first", "second", "second"]
+        );
+        let oracle: Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/highlighter-registration-removal.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            json!({
+                "calls": runtime.calls().into_iter().map(|(id, _)| id).collect::<Vec<_>>(),
+                "original": original.as_ref(),
+                "remaining": remaining,
+                "restored": controller.resolved().get("request").unwrap(),
+                "restoredMarksIdentityChanged": !Arc::ptr_eq(controller.resolved().get_shared("request").unwrap(), &original)
+            }),
+            oracle["trace"]
+        );
+        assert_eq!(
+            controller.resolved().get("request").unwrap(),
+            original.as_ref()
+        );
+        assert!(!Arc::ptr_eq(
+            controller.resolved().get_shared("request").unwrap(),
+            &original
+        ));
+    }
+
+    #[test]
     fn reordering_live_registrations_reuses_parts_but_reorders_published_marks() {
         let runtime = FakeLineHighlightRuntime::new(|id, _, _| {
             let mut marks = one_mark("match");
