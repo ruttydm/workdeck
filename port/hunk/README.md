@@ -1,5 +1,19 @@
 # Hunk semantic-port ledger
 
+## Corrected hidden-menu geometry regression
+
+The regression initially found an unconditional top `Review` border even when
+the menu bar was hidden. The renderer now omits that border and uses shared
+reserved-row and content-origin calculations for scrolling, note actions,
+copy selection, file/gap targets, reload positioning, and scrollbar geometry.
+Both toggle-hidden and configured-hidden cases now pass, including F10 access.
+See [source captures, initial failure, and corrected result](oracles/app-host-hidden-menu.json).
+Bytes 23,360–25,426 map to these two translated tests. All 1,145 TUI library
+tests pass in 78.25s; formatting and TUI Clippy pass. This is not full terminal
+cell parity or cross-platform verification. Splitting the remaining prefix
+leaves 269 unmapped intervals across 1,379 records; 11 cached upstream commits
+remain pending, and strict completion is still unproven.
+
 ## Notes, numbers, and metadata shortcuts
 
 Bytes 20,987–22,381 map to the 240×24 single-file `a/a/l/m` interaction test.

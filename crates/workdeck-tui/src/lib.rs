@@ -2393,6 +2393,15 @@ impl ReviewApp {
         self.show_menu_bar
     }
 
+    /// Review content begins after the optional pane border and pinned file header.
+    fn review_content_top_offset(&self) -> u16 {
+        1 + u16::from(self.show_menu_bar)
+    }
+
+    fn review_reserved_rows(&self) -> u16 {
+        self.review_content_top_offset() + u16::from(!self.options.pager)
+    }
+
     #[must_use]
     pub fn has_extension_input_dialog(&self) -> bool {
         matches!(
@@ -3521,7 +3530,7 @@ impl ReviewApp {
         let viewport = usize::from(
             self.review_height
                 .get()
-                .saturating_sub(2 + u16::from(!self.options.pager))
+                .saturating_sub(self.review_reserved_rows())
                 .max(1),
         );
         if unit == ScrollUnit::Content {
@@ -3641,7 +3650,7 @@ impl ReviewApp {
             let viewport = usize::from(
                 self.review_height
                     .get()
-                    .saturating_sub(2 + u16::from(!self.options.pager))
+                    .saturating_sub(self.review_reserved_rows())
                     .max(1),
             );
             self.keep_current_line_visible(viewport, last);
@@ -3671,7 +3680,7 @@ impl ReviewApp {
         let viewport = usize::from(
             self.review_height
                 .get()
-                .saturating_sub(2 + u16::from(!self.options.pager))
+                .saturating_sub(self.review_reserved_rows())
                 .max(1),
         );
         self.keep_current_line_visible(viewport, last);
@@ -3869,7 +3878,7 @@ impl ReviewApp {
         let viewport = usize::from(
             self.review_height
                 .get()
-                .saturating_sub(2 + u16::from(!self.options.pager))
+                .saturating_sub(self.review_reserved_rows())
                 .max(1),
         );
         self.scroll = match alignment {
@@ -7537,7 +7546,7 @@ impl ReviewApp {
         let viewport = usize::from(
             self.review_height
                 .get()
-                .saturating_sub(2 + u16::from(!self.options.pager)),
+                .saturating_sub(self.review_reserved_rows()),
         );
         let max_scroll = rows.lines.len().saturating_sub(viewport);
         let scroll = if self.scroll == usize::MAX {
@@ -7577,10 +7586,8 @@ impl ReviewApp {
         event: &MouseEvent,
     ) -> Option<CopySelectionPoint> {
         let bounds = self.review_bounds.get()?;
-        let content_top = bounds.y.saturating_add(2);
-        let content_height = bounds
-            .height
-            .saturating_sub(2 + u16::from(!self.options.pager));
+        let content_top = bounds.y.saturating_add(self.review_content_top_offset());
+        let content_height = bounds.height.saturating_sub(self.review_reserved_rows());
         if snapshot.copy_decorations
             && event.row == content_top.saturating_sub(1)
             && event.column >= bounds.x
@@ -7978,7 +7985,7 @@ impl ReviewApp {
         let viewport = usize::from(
             self.review_height
                 .get()
-                .saturating_sub(2 + u16::from(!self.options.pager))
+                .saturating_sub(self.review_reserved_rows())
                 .max(1),
         );
         let file_top = rows
@@ -8076,7 +8083,7 @@ impl ReviewApp {
         let viewport = usize::from(
             self.review_height
                 .get()
-                .saturating_sub(2 + u16::from(!self.options.pager))
+                .saturating_sub(self.review_reserved_rows())
                 .max(1),
         );
         let max_scroll = rows.lines.len().saturating_sub(viewport);
@@ -8299,7 +8306,7 @@ impl ReviewApp {
         let viewport = usize::from(
             self.review_height
                 .get()
-                .saturating_sub(2 + u16::from(!self.options.pager))
+                .saturating_sub(self.review_reserved_rows())
                 .max(1),
         );
         self.keep_current_line_visible(viewport, rows.lines.len().saturating_sub(1));
@@ -8546,16 +8553,17 @@ impl ReviewApp {
             return false;
         }
         let Some(area) = self.review_bounds.get().filter(|area| {
-            rect_contains(*area, event.column, event.row) && event.row >= area.y.saturating_add(2)
+            rect_contains(*area, event.column, event.row)
+                && event.row >= area.y.saturating_add(self.review_content_top_offset())
         }) else {
             self.saved_note_hover = None;
             self.clear_note_hover();
             return false;
         };
         let rows = self.current_review_rows();
-        let visual_row = self
-            .scroll
-            .saturating_add(usize::from(event.row - area.y - 2));
+        let visual_row = self.scroll.saturating_add(usize::from(
+            event.row - area.y - self.review_content_top_offset(),
+        ));
         self.saved_note_hover = rows.note_bounds.iter().find_map(|(id, (top, height))| {
             (visual_row >= *top && visual_row < top.saturating_add(*height)).then(|| id.clone())
         });
@@ -9139,7 +9147,7 @@ impl ReviewApp {
             let viewport = usize::from(
                 self.review_height
                     .get()
-                    .saturating_sub(2 + u16::from(!self.options.pager)),
+                    .saturating_sub(self.review_reserved_rows()),
             );
             self.current_review_content_height()
                 .saturating_sub(viewport)
@@ -9166,7 +9174,7 @@ impl ReviewApp {
         let viewport = usize::from(
             self.review_height
                 .get()
-                .saturating_sub(2 + u16::from(!self.options.pager)),
+                .saturating_sub(self.review_reserved_rows()),
         );
         let center = self.scroll.saturating_add(viewport.saturating_sub(1) / 2);
         let Some(file_index) = rows
@@ -12137,9 +12145,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let comments = comments_with_thread_draft(state.comments(), app.note_composer.as_ref());
-    let viewport = area
-        .height
-        .saturating_sub(2 + u16::from(!app.options.pager)) as usize;
+    let viewport = area.height.saturating_sub(app.review_reserved_rows()) as usize;
     // Only plain, unwrapped split streams use viewport painting for now. Complex
     // content retains the complete painter, including extension lifecycle calls.
     let highlight_files;
@@ -12394,7 +12400,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 note_actions.push((
                     Rect::new(
                         area.x + hit.column_start as u16,
-                        area.y + 2 + (row - scroll) as u16,
+                        area.y + app.review_content_top_offset() + (row - scroll) as u16,
                         hit.width as u16,
                         1,
                     ),
@@ -12416,7 +12422,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             bounds: Rect::new(
                 area.x,
                 area.y
-                    .saturating_add(2)
+                    .saturating_add(app.review_content_top_offset())
                     .saturating_add(u16::try_from(top.saturating_sub(scroll)).unwrap_or(u16::MAX)),
                 area.width,
                 1,
@@ -12437,9 +12443,11 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             (*top >= scroll && *top < viewport_bottom).then_some(SidebarFileHit {
                 bounds: Rect::new(
                     area.x,
-                    area.y.saturating_add(2).saturating_add(
-                        u16::try_from(top.saturating_sub(scroll)).unwrap_or(u16::MAX),
-                    ),
+                    area.y
+                        .saturating_add(app.review_content_top_offset())
+                        .saturating_add(
+                            u16::try_from(top.saturating_sub(scroll)).unwrap_or(u16::MAX),
+                        ),
                     area.width,
                     1,
                 ),
@@ -12454,7 +12462,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             .push(SidebarFileHit {
                 bounds: Rect::new(
                     area.x,
-                    area.y.saturating_add(1),
+                    area.y.saturating_add(u16::from(app.show_menu_bar)),
                     area.width,
                     area.height.saturating_sub(1).min(1),
                 ),
@@ -12484,9 +12492,11 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 state_key: hit.state_key,
                 bounds: Rect::new(
                     area.x,
-                    area.y.saturating_add(2).saturating_add(
-                        u16::try_from(top.saturating_sub(scroll)).unwrap_or(u16::MAX),
-                    ),
+                    area.y
+                        .saturating_add(app.review_content_top_offset())
+                        .saturating_add(
+                            u16::try_from(top.saturating_sub(scroll)).unwrap_or(u16::MAX),
+                        ),
                     area.width,
                     u16::try_from(bottom.saturating_sub(top)).unwrap_or(u16::MAX),
                 ),
@@ -12516,14 +12526,15 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     if let Some(header) = pinned_header {
         visible.insert(0, header);
     }
-    Paragraph::new(visible)
-        .block(
-            Block::default()
-                .title(" Review ")
-                .borders(Borders::TOP)
-                .border_style(border_style),
-        )
-        .render(area, buffer);
+    let block = if app.show_menu_bar {
+        Block::default()
+            .title(" Review ")
+            .borders(Borders::TOP)
+            .border_style(border_style)
+    } else {
+        Block::default()
+    };
+    Paragraph::new(visible).block(block).render(area, buffer);
     paint_live_copy_selection(area, buffer, app);
     app.note_hover_hit.set(None);
     if app.note_composer.is_none()
@@ -12535,7 +12546,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         let bounds = Rect::new(
             area.right().saturating_sub(width),
             area.y
-                .saturating_add(2)
+                .saturating_add(app.review_content_top_offset())
                 .saturating_add((row - scroll) as u16),
             width,
             1,
@@ -12563,7 +12574,13 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     };
     app.review_scrollbar_hits
         .set(presentation.and_then(|presentation| {
-            render_vertical_review_scrollbar(area, buffer, presentation, &app.options.theme)
+            render_vertical_review_scrollbar(
+                area,
+                buffer,
+                presentation,
+                &app.options.theme,
+                app.review_content_top_offset(),
+            )
         }));
 }
 
@@ -12620,10 +12637,8 @@ fn paint_live_copy_selection(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     let side = resolve_copy_selection_side(drag.anchor.column(), snapshot.layout, snapshot.width);
     let split = (snapshot.layout == LayoutMode::Split)
         .then(|| resolve_diff_split_pane_widths(snapshot.width));
-    let content_top = area.y.saturating_add(2);
-    let viewport_height = area
-        .height
-        .saturating_sub(2 + u16::from(!app.options.pager));
+    let content_top = area.y.saturating_add(app.review_content_top_offset());
+    let viewport_height = area.height.saturating_sub(app.review_reserved_rows());
     for viewport_row in 0..viewport_height {
         let visual_row = i64::try_from(snapshot.scroll.saturating_add(usize::from(viewport_row)))
             .unwrap_or(i64::MAX);
@@ -12678,16 +12693,17 @@ fn render_vertical_review_scrollbar(
     buffer: &mut Buffer,
     presentation: VerticalScrollbarPresentation,
     theme: &AppTheme,
+    content_top_offset: u16,
 ) -> Option<VerticalScrollbarRenderMap> {
     let track_height = u16::try_from(presentation.geometry.track_height)
         .unwrap_or(u16::MAX)
-        .min(review_area.height.saturating_sub(2));
+        .min(review_area.height.saturating_sub(content_top_offset));
     if review_area.width == 0 || track_height == 0 {
         return None;
     }
     let track = Rect::new(
         review_area.right().saturating_sub(VERTICAL_SCROLLBAR_WIDTH),
-        review_area.y.saturating_add(2),
+        review_area.y.saturating_add(content_top_offset),
         VERTICAL_SCROLLBAR_WIDTH.min(review_area.width),
         track_height,
     );
@@ -15475,10 +15491,7 @@ fn render_note_composer(_area: Rect, _buffer: &mut Buffer, app: &ReviewApp) {
     let Some(&(top, height)) = rows.note_bounds.get(&composer.id) else {
         return;
     };
-    let viewport = usize::from(
-        area.height
-            .saturating_sub(2 + u16::from(!app.options.pager)),
-    );
+    let viewport = usize::from(area.height.saturating_sub(app.review_reserved_rows()));
     let scroll = app.scroll.min(rows.lines.len().saturating_sub(viewport));
     if top < scroll || top >= scroll.saturating_add(viewport) {
         return;
@@ -15496,7 +15509,7 @@ fn render_note_composer(_area: Rect, _buffer: &mut Buffer, app: &ReviewApp) {
     app.note_composer_bounds.set(Some(Rect::new(
         area.x.saturating_add(painted.box_left as u16),
         area.y
-            .saturating_add(2)
+            .saturating_add(app.review_content_top_offset())
             .saturating_add((top - scroll) as u16),
         painted.box_width as u16,
         height.min(viewport.saturating_sub(top - scroll)) as u16,
@@ -15509,7 +15522,7 @@ fn render_note_composer(_area: Rect, _buffer: &mut Buffer, app: &ReviewApp) {
         let bounds = Rect::new(
             area.x.saturating_add(hit.column_start as u16),
             area.y
-                .saturating_add(2)
+                .saturating_add(app.review_content_top_offset())
                 .saturating_add((top - scroll + hit.row) as u16),
             hit.width as u16,
             1,
@@ -19277,7 +19290,7 @@ mod tests {
         let viewport = usize::from(
             app.review_height
                 .get()
-                .saturating_sub(2 + u16::from(!app.options.pager))
+                .saturating_sub(app.review_reserved_rows())
                 .max(1),
         );
         assert_eq!(
@@ -25567,6 +25580,42 @@ mod tests {
                 .map(|notification| notification.message),
             Some("second".into())
         );
+    }
+
+    #[test]
+    fn hidden_menu_bar_retains_f10_access_without_a_top_separator() {
+        for initially_visible in [true, false] {
+            let mut review = responsive_changeset();
+            review.files.truncate(1);
+            review.refresh_review_identities();
+            let mut app = ReviewApp::new(
+                review,
+                ReviewOptions {
+                    show_menu_bar: initially_visible,
+                    ..Default::default()
+                },
+            );
+            let mut terminal = Terminal::new(TestBackend::new(240, 24)).unwrap();
+            let initial = rendered_review_frame(&mut terminal, &app);
+            if initially_visible {
+                assert!(initial.contains("File  View  Navigate  Agent  Help"));
+                app.handle_key(KeyEvent::new(KeyCode::Char('M'), KeyModifiers::SHIFT));
+            }
+            let frame = rendered_review_frame(&mut terminal, &app);
+            assert!(!frame.contains("File  View  Navigate  Agent  Help"));
+            assert!(
+                !frame
+                    .lines()
+                    .find(|line| !line.trim().is_empty())
+                    .unwrap()
+                    .contains('─')
+            );
+            assert!(!app.show_menu_bar());
+            app.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE));
+            let frame = rendered_review_frame(&mut terminal, &app);
+            assert!(frame.contains("Toggle files/filter focus"));
+            assert!(!frame.contains("File  View  Navigate  Agent  Help"));
+        }
     }
 
     #[test]

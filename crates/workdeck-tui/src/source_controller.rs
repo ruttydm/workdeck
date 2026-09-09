@@ -245,7 +245,7 @@ impl ReviewApp {
         let viewport = usize::from(
             self.review_height
                 .get()
-                .saturating_sub(2 + u16::from(!self.options.pager))
+                .saturating_sub(self.review_reserved_rows())
                 .max(1),
         );
         self.keep_current_line_visible(viewport, rows.lines.len().saturating_sub(1));
