@@ -3,6 +3,9 @@ use anyhow::{Result, bail, ensure};
 use std::io::Write;
 use std::path::Path;
 
+mod application;
+pub(super) use application::apply_plan;
+
 fn validate_id(id: &str) -> Result<()> {
     ensure!(
         !id.is_empty()

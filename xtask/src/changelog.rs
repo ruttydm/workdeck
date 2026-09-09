@@ -196,9 +196,10 @@ pub(super) fn run(repo: &Path, mut args: impl Iterator<Item = String>) -> Result
         Some("status") => return fragments::status(repo, args),
         Some("plan") => return fragments::plan(repo, args),
         Some("check-plan") => return fragments::check_plan(repo, args),
+        Some("apply-plan") => return fragments::apply_plan(repo, args),
         Some("upstream-history") => {}
         _ => bail!(
-            "changelog requires upstream-history [--check], add <id> <patch|minor|major|empty> [body], status, plan, or check-plan <saved-plan.json>"
+            "changelog requires upstream-history [--check], add <id> <patch|minor|major|empty> [body], status, plan, check-plan <saved-plan.json>, or apply-plan <saved-plan.json> <new-backup-directory>"
         ),
     }
     let check = match args.next().as_deref() {

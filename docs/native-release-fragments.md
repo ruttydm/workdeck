@@ -51,8 +51,29 @@ after an existing top-level heading, or prepended to headingless history.
 Existing history is retained verbatim; an absent file gets a Changelog heading.
 The history is fingerprinted alongside other inputs, with `absent` explicitly
 recording a missing file, so creating history invalidates a previously saved
-plan. Planning neither creates nor rewrites this file. Fragment consumption
-and transactional application remain unimplemented.
+plan. Planning neither creates nor rewrites this file.
+
+Apply a reviewed saved plan explicitly with:
+
+```console
+cargo xtask changelog apply-plan release-plan.json /outside/repository/new-backup-directory
+```
+
+The backup directory must not exist and its parent must be outside the
+repository. Application takes an advisory Git-local release lock, verifies the
+complete saved plan, backs up all existing targets under `originals/`, and
+records originally absent paths plus the plan in `recovery.json`. A second
+plan check precedes mutation. Version and history files use same-directory
+replacement; consumed fragments remain recoverable in the backup directory.
+Handled write failures trigger reverse-order rollback; backups remain after
+success and failure. Retrying an already-applied plan fails stale validation.
+
+This is not a crash-atomic multi-file transaction. After process interruption,
+restore files from `originals/` and remove only paths listed as originally
+absent after reviewing intervening edits. The advisory lock coordinates this
+command, not editors or other tools; do not edit release inputs during apply.
+Automatic crash recovery and isolation against unrelated concurrent writers
+remain incomplete. No commit, tag, push or publication is performed.
 
 The integration test applies the proposed manifest/lockfile pair only inside
 its disposable fixture, runs locked/offline Cargo checking, and confirms that
@@ -63,16 +84,15 @@ local-package case, not every workspace dependency/version arrangement.
 The `inputs` object fingerprints the root manifest, CLI manifest, lockfile and
 pending fragments with SHA-256 and repository-relative paths. Duplicate paths
 are collapsed and nonregular files are rejected. The CLI test compares hashes
-against the actual input bytes. These fingerprints are groundwork for future
-stale-plan detection, not a filesystem snapshot, lock or implemented apply
-transaction; concurrent-edit consistency still needs that integration.
+against the actual input bytes. These fingerprints detect stale plans but
+are not an atomic filesystem snapshot or protection against concurrent editors.
 
 `cargo xtask changelog check-plan <saved-plan.json>` regenerates the current
 plan and compares the complete JSON value with a saved plan. It returns
 `valid: true, applied: false` only when they match. Changed fragment text or
 new fragments invalidate the saved plan; neither checking nor failure changes
 the saved plan or repository inputs. This detects drift between inspections,
-but does not provide locking against edits during a future apply operation.
+but checking alone does not lock inputs against subsequent edits.
 
 Before returning a plan, fragment parsing and input hashes are checked again.
 Regression tests inject a semantic edit between parsing and fingerprinting,

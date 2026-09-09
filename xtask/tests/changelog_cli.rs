@@ -258,4 +258,35 @@ fn version_plan_uses_real_cargo_metadata_without_mutating_inputs() {
             plan["edits"][path].as_str().unwrap()
         );
     }
+    let next = run(repo.path(), &["changelog", "plan"]);
+    assert!(next.status.success());
+    std::fs::write(repo.path().join("next-plan.json"), &next.stdout).unwrap();
+    let backup_parent = tempfile::tempdir().unwrap();
+    let backup = backup_parent.path().join("release-backup");
+    let applied = run(
+        repo.path(),
+        &[
+            "changelog",
+            "apply-plan",
+            "next-plan.json",
+            backup.to_str().unwrap(),
+        ],
+    );
+    assert!(
+        applied.status.success(),
+        "{}",
+        String::from_utf8_lossy(&applied.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&applied.stdout).unwrap()["applied"],
+        true
+    );
+    assert!(backup.join("recovery.json").is_file());
+    assert!(backup.join("originals/changes/patch-fix.md").is_file());
+    assert_eq!(
+        std::fs::read_dir(repo.path().join("changes"))
+            .unwrap()
+            .count(),
+        0
+    );
 }
