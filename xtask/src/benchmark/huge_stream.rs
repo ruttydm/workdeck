@@ -77,6 +77,36 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
 }
 
 #[test]
+fn both_pinned_huge_runs_preserve_the_full_workload_and_metric_set() {
+    let oracle: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../port/hunk/oracles/benchmark-huge-stream.json"
+    ))
+    .unwrap();
+    let runs = oracle["runs"].as_array().unwrap();
+    assert_eq!(runs.len(), 2);
+    for run in runs {
+        assert_eq!(run["exitCode"], 0);
+        let metrics = super::runner::parse_metrics(run["combinedOutput"].as_str().unwrap());
+        assert_eq!(metrics.len(), 15);
+        for (name, value) in &metrics {
+            assert!(value.is_finite() && *value > 0.0, "invalid metric {name}");
+        }
+        for (name, count) in [
+            ("files", stream::HUGE_FILE_COUNT + 1),
+            ("lines_per_file", stream::HUGE_LINES_PER_FILE),
+            ("giant_file_lines", stream::GIANT_SINGLE_FILE_LINES),
+            ("navigation_presses", 4),
+            ("scroll_ticks", 6),
+        ] {
+            assert_eq!(
+                metrics.iter().find(|(key, _)| key == name).unwrap().1,
+                count as f64
+            );
+        }
+    }
+}
+
+#[test]
 fn huge_interaction_sequence_executes_on_a_small_fixture() {
     let fixture =
         stream::large_bootstrap(std::env::current_dir().unwrap(), 6, 120, 37, 84, false).unwrap();

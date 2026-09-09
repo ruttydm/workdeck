@@ -31,6 +31,13 @@ specified interactions; it does not replace same-host paired acceptance runs.
 The subsequent [peak-enabled sample](../port/hunk/huge-stream-native-peak-diagnostic.json)
 records both the lifetime high-water mark and current snapshots separately.
 
+Both pinned Hunk workloads have now been executed without changing their source:
+[`benchmark-huge-stream.json`](../port/hunk/oracles/benchmark-huge-stream.json)
+retains all 15 metrics from each run, runtime identity and source/helper blob
+identities. A Rust test validates workload counts and metric validity. These
+single runs do not establish repeatability or comparable native/source build
+profiles, and Hunk's source command does not emit process peak RSS.
+
 The small-fixture executable regression checks the same interaction sequence
 using six ordinary files, not the huge workload's performance. Fixture content
 has separate pinned-source checks in `xtask/src/benchmark/stream.rs`. Renderer
