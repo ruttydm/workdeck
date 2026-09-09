@@ -23807,6 +23807,38 @@ mod tests {
     }
 
     #[test]
+    fn space_and_pageup_keep_code_visible_through_viewport_paging() {
+        for path in ["space.ts", "pageup.ts"] {
+            let review = navigation_changeset(vec![(
+                path.into(),
+                numbered_exports(1, 50, 0, true),
+                numbered_exports(1, 50, 1000, true),
+            )]);
+            let mut app = ReviewApp::new(
+                review,
+                ReviewOptions {
+                    layout: LayoutMode::Split,
+                    ..Default::default()
+                },
+            );
+            let mut terminal = Terminal::new(TestBackend::new(220, 12)).unwrap();
+            let initial = rendered_review_frame(&mut terminal, &app);
+            assert!(initial.contains("line01 = 1001"), "{initial}");
+            app.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+            let paged = rendered_review_frame(&mut terminal, &app);
+            assert!(paged.contains("export const line"), "{paged}");
+            assert!(app.scroll > 0);
+            if path == "pageup.ts" {
+                app.handle_key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
+                let restored = rendered_review_frame(&mut terminal, &app);
+                assert!(restored.contains("export const line"), "{restored}");
+                assert!(restored.contains("line01 = 1001"), "{restored}");
+                assert_eq!(app.scroll, 0);
+            }
+        }
+    }
+
+    #[test]
     fn scroll_step_keys_in_pager_move_exactly_one_row() {
         let review = navigation_changeset(vec![(
             "scroll.ts".into(),

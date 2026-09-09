@@ -1,5 +1,18 @@
 # Hunk semantic-port ledger
 
+## AppHost Space/PageUp paging (partial interaction corpus)
+
+Bytes 69,852–71,331 and 71,331–72,872 map individually to the native paging
+regression. Both source fixtures use 50 numbered lines at 220×12. Their two
+code-visible assertions pass on both pins; native checks also verify positive
+scroll after Space and restored top after PageUp. These additional checks do not
+prove an exact source paging distance. See [raw captures and limits](oracles/app-host-viewport-paging.json).
+Native test, formatting and TUI all-target Clippy pass.
+
+Current strict audit validates partitions/evidence, then fails with 1,257 files,
+1,341 records, 383 translated-test records and 268 unmapped intervals. Eleven
+cached upstream commits remain pending; release parity is not established.
+
 ## AppHost layout anchor (partial interaction corpus)
 
 Bytes 67,995–69,852 map to the executed split/stack viewport-anchor test.
@@ -9,7 +22,7 @@ Both unchanged pinned source tests pass nine assertions. Native test, formatting
 and TUI all-target Clippy pass; see [capture and limits](oracles/app-host-layout-anchor.json).
 This does not establish whole-frame equivalence.
 
-Current strict audit validates partitions/evidence, then fails with 1,257 files,
+At this earlier layout-anchor checkpoint, strict audit validated partitions/evidence, then failed with 1,257 files,
 1,339 records, 381 translated-test records and 268 unmapped intervals. Eleven
 cached upstream commits remain pending; whole-file and release parity are incomplete.
 
