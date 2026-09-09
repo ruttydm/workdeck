@@ -1,4 +1,4 @@
-use workdeck_core::{ReviewSide, ReviewSnapshot};
+use workdeck_core::{Changeset, ReviewSelection, ReviewSide, ReviewSnapshot};
 use workdeck_extension_api::{
     ExtensionDiffFile, ExtensionFileSide, ExtensionReviewSelection, ExtensionReviewSelectionLine,
 };
@@ -45,16 +45,23 @@ pub fn build_extension_review_selection(
 pub fn build_extension_review_selection_from_snapshot(
     snapshot: &ReviewSnapshot,
 ) -> ExtensionReviewSelection {
-    let selected_file_id = snapshot
-        .changeset
+    build_extension_review_selection_from_document(&snapshot.changeset, snapshot.selection)
+}
+
+/// Project a selection from an immutable document without cloning its full contents.
+#[must_use]
+pub fn build_extension_review_selection_from_document(
+    changeset: &Changeset,
+    selection: ReviewSelection,
+) -> ExtensionReviewSelection {
+    let selected_file_id = changeset
         .files
-        .get(snapshot.selection.file_index)
+        .get(selection.file_index)
         .map(|file| file.runtime_id.as_str());
     let Some(file) = selected_file_id.and_then(|selected| {
         // Preserve the public resolver's first-match behavior even if a caller
         // supplies duplicate or empty mounted IDs. Only that file is serialized.
-        snapshot
-            .changeset
+        changeset
             .files
             .iter()
             .find(|file| file.runtime_id == selected)
@@ -62,11 +69,10 @@ pub fn build_extension_review_selection_from_snapshot(
         return ExtensionReviewSelection::default();
     };
     let file = project_extension_diff_file(file);
-    let line_cursor = snapshot
-        .selection
+    let line_cursor = selection
         .hunk_index
-        .zip(snapshot.selection.side)
-        .zip(snapshot.selection.line)
+        .zip(selection.side)
+        .zip(selection.line)
         .map(|((hunk_index, side), line)| ExtensionLineCursor {
             file_id: selected_file_id.unwrap_or_default().to_owned(),
             hunk_index,
@@ -81,7 +87,7 @@ pub fn build_extension_review_selection_from_snapshot(
     build_extension_review_selection(
         std::slice::from_ref(&file),
         selected_file_id,
-        snapshot.selection.hunk_index.map(|index| index as f64),
+        selection.hunk_index.map(|index| index as f64),
         line_cursor.as_ref(),
     )
 }

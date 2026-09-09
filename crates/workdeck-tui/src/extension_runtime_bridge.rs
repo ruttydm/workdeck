@@ -12,12 +12,40 @@ use workdeck_extension_api::{
 pub struct ExtensionRuntimeCommit {
     pub registry_generation: u64,
     pub review_generation: u64,
-    pub snapshot: ReviewSnapshot,
+    pub snapshot: SharedRuntimeSnapshot,
     pub review: ExtensionReviewSnapshot,
     pub files: Arc<[ExtensionDiffFile]>,
     pub selection: ExtensionReviewSelection,
     pub selected_file_id: Option<String>,
     pub commands: ExtensionCommandAvailability,
+}
+
+/// Internal immutable storage; public snapshot readers still receive owned values.
+#[derive(Debug, Clone)]
+pub struct SharedRuntimeSnapshot {
+    pub generation: u64,
+    pub changeset: Arc<Changeset>,
+    pub selection: workdeck_core::ReviewSelection,
+}
+
+impl SharedRuntimeSnapshot {
+    fn to_owned_snapshot(&self) -> ReviewSnapshot {
+        ReviewSnapshot {
+            generation: self.generation,
+            changeset: self.changeset.as_ref().clone(),
+            selection: self.selection,
+        }
+    }
+}
+
+impl From<ReviewSnapshot> for SharedRuntimeSnapshot {
+    fn from(snapshot: ReviewSnapshot) -> Self {
+        Self {
+            generation: snapshot.generation,
+            changeset: Arc::new(snapshot.changeset),
+            selection: snapshot.selection,
+        }
+    }
 }
 
 /// One immutable document's projections; replacing the Arc retires the cache.
@@ -193,7 +221,7 @@ impl ExtensionRuntimeBridge {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         ExtensionRuntimeCommittedReview {
-            snapshot: state.committed.snapshot.clone(),
+            snapshot: state.committed.snapshot.to_owned_snapshot(),
             review: state.committed.review.clone(),
         }
     }
@@ -456,6 +484,19 @@ mod tests {
         }
     }
 
+    #[test]
+    fn shared_runtime_snapshot_retains_document_but_public_reads_are_detached() {
+        let shared: SharedRuntimeSnapshot = core_snapshot("original").into();
+        let retained = shared.clone();
+        assert!(Arc::ptr_eq(&shared.changeset, &retained.changeset));
+        let mut owned = shared.to_owned_snapshot();
+        owned.changeset.id = "reader mutation".into();
+        owned.generation += 1;
+        assert_eq!(shared.changeset.id, "original");
+        assert_eq!(retained.to_owned_snapshot().changeset.id, "original");
+        assert_ne!(owned.generation, shared.generation);
+    }
+
     fn commands() -> ExtensionCommandAvailability {
         ExtensionCommandAvailability {
             enabled: vec!["workdeck.test.run".into()],
@@ -471,7 +512,7 @@ mod tests {
         ExtensionRuntimeCommit {
             registry_generation,
             review_generation,
-            snapshot: core_snapshot(&format!("runtime:{review_generation}")),
+            snapshot: core_snapshot(&format!("runtime:{review_generation}")).into(),
             review: ExtensionReviewSnapshot {
                 generation: format!("runtime:{review_generation}"),
                 ..ExtensionReviewSnapshot::default()

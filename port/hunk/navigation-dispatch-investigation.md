@@ -61,3 +61,21 @@ including construction of both navigation and scrolling fixtures; it is not a
 per-stage peak or JavaScript heap measurement. The executable interaction test
 checks the field is positive on supported native hosts. Earlier captured JSON
 reports remain unchanged and must not be interpreted as containing peak data.
+
+## Shared internal review snapshots
+
+The bridge now retains the review state's immutable changeset Arc together with
+fresh generation and selection values, rather than deep-copying the document at
+startup and every bridge commit. Selection projection accepts a borrowed document;
+the existing owned-snapshot helper delegates to the same implementation.
+`committed_review` still materializes an owned `ReviewSnapshot` for consumers, so
+the public schema and detached-mutation contract are unchanged. All authority
+commits remain in place. The regression
+`shared_runtime_snapshot_retains_document_but_public_reads_are_detached` checks
+shared internal identity and independent public reads. No measured performance
+improvement or additional completed ledger interval is claimed by this change.
+
+Validation: 12 focused TUI runtime tests, eight host selection tests, and the
+selected-file/full-projection equivalence regression pass. The latter covers
+duplicate IDs and absent selections through the borrowed-document helper.
+Scoped TUI/extension-host all-target Clippy, formatting and diff checks pass.

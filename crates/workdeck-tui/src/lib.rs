@@ -266,8 +266,7 @@ use workdeck_extension_host::{
     ExtensionEventContextProviderInstallation, ExtensionEventContextProviderSlot,
     FileViewSelectionState, HostError, KeyboardModeActionAuthority, KeyboardModeControllerState,
     LineHighlightRefreshResult, LineHighlightsController, LoadedExtension, RegisteredFileView,
-    RegisteredKeyboardMode, RegisteredLineHighlighter,
-    build_extension_review_selection_from_snapshot, create_file_view_input,
+    RegisteredKeyboardMode, RegisteredLineHighlighter, create_file_view_input,
     create_file_view_input_snapshot, file_view_mode_failure_message, format_keyboard_mode_failure,
     project_extension_changeset, project_extension_diff_file, reconcile_file_view_epochs,
     reconcile_file_view_selections, registered_file_view_key,
@@ -1428,7 +1427,11 @@ impl ReviewApp {
         let extension_event_context_provider = ExtensionEventContextProviderSlot::default();
         let show_menu_bar = options.show_menu_bar;
         let copy_decorations = options.copy_decorations;
-        let initial_snapshot = state.snapshot();
+        let initial_snapshot = extension_runtime_bridge::SharedRuntimeSnapshot {
+            generation: state.generation(),
+            changeset: state.changeset_snapshot(),
+            selection: state.selection(),
+        };
         let initial_files = initial_snapshot
             .changeset
             .files
@@ -1441,7 +1444,10 @@ impl ReviewApp {
             .get(initial_snapshot.selection.file_index)
             .map(|file| file.runtime_id.clone());
         let mut initial_extension_selection =
-            build_extension_review_selection_from_snapshot(&initial_snapshot);
+            workdeck_extension_host::build_extension_review_selection_from_document(
+                &initial_snapshot.changeset,
+                initial_snapshot.selection,
+            );
         if options.cursor_line == CursorLineMode::Off {
             initial_extension_selection.current_line = None;
         }
@@ -3118,7 +3124,11 @@ impl ReviewApp {
     /// can observe it. This is Ratatui's synchronous counterpart to Hunk's layout-effect commit.
     fn commit_extension_runtime_bridge(&self) {
         let (snapshot, review, files, selected_file_id) = self.with_state(|state| {
-            let snapshot = state.snapshot();
+            let snapshot = extension_runtime_bridge::SharedRuntimeSnapshot {
+                generation: state.generation(),
+                changeset: state.changeset_snapshot(),
+                selection: state.selection(),
+            };
             let files = self
                 .extension_file_projection_cache
                 .lock()
@@ -3136,7 +3146,10 @@ impl ReviewApp {
                 selected_file_id,
             )
         });
-        let mut selection = build_extension_review_selection_from_snapshot(&snapshot);
+        let mut selection = workdeck_extension_host::build_extension_review_selection_from_document(
+            &snapshot.changeset,
+            snapshot.selection,
+        );
         if self.options.cursor_line == CursorLineMode::Off {
             selection.current_line = None;
         }
@@ -22931,7 +22944,9 @@ mod tests {
                             cursor.as_ref(),
                         );
                         assert_eq!(
-                            build_extension_review_selection_from_snapshot(&snapshot),
+                            workdeck_extension_host::build_extension_review_selection_from_snapshot(
+                                &snapshot
+                            ),
                             expected
                         );
                     }
