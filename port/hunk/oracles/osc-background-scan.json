@@ -5,6 +5,7 @@
   "captures": [
     {
       "kind": "main",
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
       "exitCode": 0,
       "cases": [
         {
@@ -51,6 +52,7 @@
     },
     {
       "kind": "stable",
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
       "exitCode": 0,
       "cases": [
         {

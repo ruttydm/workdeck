@@ -350,6 +350,36 @@ mod tests {
     }
 
     #[test]
+    fn osc_scanning_matches_both_frozen_source_captures() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/osc-background-scan.json"
+        ))
+        .unwrap();
+        let captures = fixture["captures"].as_array().unwrap();
+        assert_eq!(captures.len(), 2);
+        for capture in captures {
+            assert_eq!(capture["exitCode"], 0);
+            let cases = capture["cases"].as_array().unwrap();
+            assert_eq!(cases.len(), 5);
+            for case in cases {
+                let actual =
+                    parse_osc_11_background_color(case["input"].as_str().unwrap()).map(|color| {
+                        serde_json::json!({
+                            "red": color.red, "green": color.green, "blue": color.blue
+                        })
+                    });
+                assert_eq!(
+                    serde_json::to_value(actual).unwrap(),
+                    case["expected"],
+                    "{}: {}",
+                    capture["kind"],
+                    case["input"]
+                );
+            }
+        }
+    }
+
+    #[test]
     fn osc_scan_skips_invalid_prefixes_and_preserves_source_rgb_precedence() {
         let white = Some(RgbColor {
             red: 255,

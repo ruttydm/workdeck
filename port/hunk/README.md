@@ -2489,6 +2489,12 @@ pins under Bun 1.3.14; their outputs are frozen in
 All five theme-detection tests, TUI all-target Clippy and formatting passed.
 The separate diagnostic-process lifecycle discrepancy remains unresolved.
 
+`osc_scanning_matches_both_frozen_source_captures` now loads the frozen JSON
+directly and compares every captured case with the Rust parser. Both exact
+source commits are recorded alongside the shared blob. All six detector tests
+and TUI all-target Clippy passed; this makes the captured expectations executable
+without requiring Bun during normal Rust tests.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.
