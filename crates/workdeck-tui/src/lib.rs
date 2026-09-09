@@ -24497,8 +24497,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn wrap_toggle_preserves_first_visible_added_line_after_arrow_scrolling() {
+    fn pinned_wrap_scroll_changeset() -> Changeset {
         let before = numbered_exports(1, 18, 0, true);
         let after = numbered_exports(1, 18, 100, true)
             .lines()
@@ -24519,8 +24518,52 @@ mod tests {
         );
         review.refresh_review_identities();
         assert_fixture_annotation_range(&review, 2);
+        review
+    }
+
+    #[test]
+    fn shifted_wheel_preserves_the_pinned_first_visible_added_line() {
+        for kind in [MouseEventKind::ScrollDown, MouseEventKind::ScrollRight] {
+            let mut app = ReviewApp::new(
+                pinned_wrap_scroll_changeset(),
+                ReviewOptions {
+                    layout: LayoutMode::Split,
+                    ..Default::default()
+                },
+            );
+            let first_added = |frame: &str| {
+                frame.split('▌').skip(1).find_map(|part| {
+                    let mut fields = part.split_whitespace();
+                    let number = fields.next()?;
+                    (number.bytes().all(|byte| byte.is_ascii_digit()) && fields.next() == Some("+"))
+                        .then(|| number.to_owned())
+                })
+            };
+            let mut terminal = Terminal::new(TestBackend::new(92, 20)).unwrap();
+            let mut frame = rendered_review_frame(&mut terminal, &app);
+            let initial = first_added(&frame).expect("visible added line in pinned fixture");
+            assert!(!frame.contains("viewport anchoring"), "{frame}");
+            for _ in 0..8 {
+                app.handle_mouse_event(MouseEvent {
+                    kind,
+                    column: 60,
+                    row: 10,
+                    modifiers: KeyModifiers::SHIFT,
+                });
+                frame = rendered_review_frame(&mut terminal, &app);
+                if frame.contains("viewport anchoring") {
+                    break;
+                }
+            }
+            assert!(frame.contains("viewport anchoring"), "{kind:?}: {frame}");
+            assert_eq!(first_added(&frame).as_deref(), Some(initial.as_str()));
+        }
+    }
+
+    #[test]
+    fn wrap_toggle_preserves_first_visible_added_line_after_arrow_scrolling() {
         let mut app = ReviewApp::new(
-            review,
+            pinned_wrap_scroll_changeset(),
             ReviewOptions {
                 layout: LayoutMode::Split,
                 ..Default::default()

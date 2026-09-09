@@ -1,5 +1,15 @@
 # Hunk semantic-port ledger
 
+## Shift-wheel viewport-anchor scenarios
+
+The two interaction tests at bytes 43,031–45,127 now map to a Rust matrix for
+Shift+Down-wheel and Shift+Right-wheel at 92×20. It reproduces the pinned 18-line
+fixture, mouse coordinates (60,10), maximum eight events and visible added-line
+gutter comparison while revealing the long-line suffix. Both source pins pass
+two tests/eight assertions; the native matrix passes in 0.83s. See the
+[frozen evidence](oracles/app-host-wheel-anchor.json). Only these two complete
+source tests are mapped, not the remaining application or mouse behavior.
+
 ## Horizontal wheel step: corrected from the pinned interaction
 
 The Shift+mouse-wheel test at bytes 41,642–43,031 now has a Rust translation
