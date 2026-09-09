@@ -56,7 +56,48 @@ pub fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
 }
 
 fn json_ld_script_body(value: &Value) -> Result<String> {
-    Ok(serde_json::to_string(&javascript_property_order(value))?.replace('<', "\\u003c"))
+    let mut output = String::new();
+    write_javascript_json(&javascript_property_order(value), &mut output)?;
+    Ok(output.replace('<', "\\u003c"))
+}
+
+fn write_javascript_json(value: &Value, output: &mut String) -> Result<()> {
+    match value {
+        Value::Number(number) => {
+            let number = number.as_f64().ok_or_else(|| {
+                anyhow::anyhow!("JSON number is not representable as a JavaScript number")
+            })?;
+            if number.is_finite() {
+                output.push_str(ryu_js::Buffer::new().format_finite(number));
+            } else {
+                output.push_str("null");
+            }
+        }
+        Value::Array(values) => {
+            output.push('[');
+            for (index, value) in values.iter().enumerate() {
+                if index != 0 {
+                    output.push(',');
+                }
+                write_javascript_json(value, output)?;
+            }
+            output.push(']');
+        }
+        Value::Object(values) => {
+            output.push('{');
+            for (index, (key, value)) in values.iter().enumerate() {
+                if index != 0 {
+                    output.push(',');
+                }
+                output.push_str(&serde_json::to_string(key)?);
+                output.push(':');
+                write_javascript_json(value, output)?;
+            }
+            output.push('}');
+        }
+        _ => output.push_str(&serde_json::to_string(value)?),
+    }
+    Ok(())
 }
 
 fn array_index(key: &str) -> Option<u32> {
@@ -102,7 +143,7 @@ fn json_ld_orders_array_indices_before_insertion_ordered_keys_recursively() {
     ))
     .unwrap();
     for capture in fixture["sourceCaptures"].as_array().unwrap() {
-        for case in &capture["cases"].as_array().unwrap()[4..] {
+        for case in capture["cases"].as_array().unwrap() {
             let input: Value = serde_json::from_str(case["input"].as_str().unwrap()).unwrap();
             assert_eq!(json_ld_script_body(&input).unwrap(), case["expected"]);
         }

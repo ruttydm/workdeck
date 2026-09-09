@@ -2558,6 +2558,16 @@ Both frozen property-order cases and nested/boundary tests passed, along with
 the escaping test, xtask Clippy and formatting. The three observed number-format
 differences remain unresolved; historical gap captures are retained unchanged.
 
+The JSON-LD serializer now uses native `ryu-js` formatting after conversion to
+JavaScript's double-precision number representation. All six captured cases from
+both pins pass, including integral floats, negative zero and `1e20`. Recursive
+property ordering and less-than escaping remain in place. Focused tests, xtask
+Clippy, formatting and the existing-policy dependency/license audit passed; the
+new tooling dependency is recorded in Cargo.lock and THIRD_PARTY_NOTICES. The
+historical gap fixture remains unchanged as provenance. This closes those four
+observed cases, not all possible JSON parsing/serialization differences or the
+remaining website port.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

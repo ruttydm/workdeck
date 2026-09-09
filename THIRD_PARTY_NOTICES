@@ -227,5 +227,9 @@ License: MIT
 Rust dependencies
 -----------------
 
+The Rust repository tooling uses ryu-js 1.0.3 for ECMAScript-compatible number
+formatting. Source: https://github.com/boa-dev/ryu-js
+License: Apache-2.0 OR BSL-1.0, as distributed with the dependency.
+
 Rust dependencies retain the licenses declared by their packages. Run `cargo xtask licenses` to
 generate the build-specific dependency-license inventory included in release archives.
