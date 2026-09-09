@@ -8882,7 +8882,7 @@ impl ReviewApp {
             MouseEventKind::ScrollDown if event.modifiers.contains(KeyModifiers::SHIFT) => 1,
             _ => return false,
         };
-        self.scroll_code_horizontally(delta);
+        self.scroll_code_horizontally(delta * app_commands::FAST_CODE_HORIZONTAL_SCROLL_COLUMNS);
         self.mouse_scroll_acceleration.reset();
         self.mouse_scroll_accumulator = 0.0;
         true
@@ -25065,7 +25065,7 @@ mod tests {
             row: 5,
             modifiers: KeyModifiers::SHIFT,
         });
-        assert_eq!(app.options.horizontal_offset, 1);
+        assert_eq!(app.options.horizontal_offset, 8);
         assert_eq!(app.scroll, vertical);
         assert_eq!(app.mouse_scroll_accumulator, 0.0);
 
@@ -25075,7 +25075,7 @@ mod tests {
             row: 5,
             modifiers: KeyModifiers::NONE,
         });
-        assert_eq!(app.options.horizontal_offset, 2);
+        assert_eq!(app.options.horizontal_offset, 16);
         assert_eq!(app.scroll, vertical);
 
         app.handle_mouse_event(MouseEvent {
@@ -25084,7 +25084,7 @@ mod tests {
             row: 5,
             modifiers: KeyModifiers::NONE,
         });
-        assert_eq!(app.options.horizontal_offset, 1);
+        assert_eq!(app.options.horizontal_offset, 8);
         assert_eq!(app.scroll, vertical);
     }
 
@@ -26106,65 +26106,92 @@ mod tests {
     #[test]
     fn horizontal_arrow_shortcuts_reveal_and_restore_the_pinned_long_line() {
         for shifted in [false, true] {
-            let mut review = navigation_changeset(vec![(
+            assert_pinned_horizontal_scroll(shifted, false);
+        }
+    }
+
+    #[test]
+    fn shifted_mouse_wheel_reveals_and_restores_the_pinned_long_line() {
+        assert_pinned_horizontal_scroll(true, true);
+    }
+
+    fn assert_pinned_horizontal_scroll(shifted: bool, wheel: bool) {
+        let mut review = navigation_changeset(vec![(
                 "wrap.ts".into(),
                 "export const message = 'short';\n".into(),
                 "export const message = 'this is a very long wrapped line for app interaction coverage';\n".into(),
             )]);
-            review.files[0].agent = Some(AgentFileContext {
-                path: "wrap.ts".into(),
-                summary: Some("wrap.ts note".into()),
-                annotations: vec![
-                    serde_json::from_value(serde_json::json!({
-                        "new_range": {"start": 2, "end": 2},
-                        "summary": "Annotation for wrap.ts",
-                        "rationale": "Why wrap.ts changed"
-                    }))
-                    .unwrap(),
-                ],
-            });
-            review.refresh_review_identities();
-            assert_fixture_annotation_range(&review, 2);
-            let mut app = ReviewApp::new(
-                review,
-                ReviewOptions {
-                    layout: LayoutMode::Split,
-                    wrap_lines: false,
-                    ..Default::default()
-                },
-            );
-            let mut terminal = Terminal::new(TestBackend::new(92, 20)).unwrap();
-            let mut frame = rendered_review_frame(&mut terminal, &app);
-            assert!(frame.contains("this is a very"), "{frame}");
-            assert!(!frame.contains("interaction coverage"), "{frame}");
-            let modifiers = if shifted {
-                KeyModifiers::SHIFT
+        review.files[0].agent = Some(AgentFileContext {
+            path: "wrap.ts".into(),
+            summary: Some("wrap.ts note".into()),
+            annotations: vec![
+                serde_json::from_value(serde_json::json!({
+                    "new_range": {"start": 2, "end": 2},
+                    "summary": "Annotation for wrap.ts",
+                    "rationale": "Why wrap.ts changed"
+                }))
+                .unwrap(),
+            ],
+        });
+        review.refresh_review_identities();
+        assert_fixture_annotation_range(&review, 2);
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                wrap_lines: false,
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(92, 20)).unwrap();
+        let mut frame = rendered_review_frame(&mut terminal, &app);
+        assert!(frame.contains("this is a very"), "{frame}");
+        assert!(!frame.contains("interaction coverage"), "{frame}");
+        let modifiers = if shifted {
+            KeyModifiers::SHIFT
+        } else {
+            KeyModifiers::NONE
+        };
+        for _ in 0..if shifted { 8 } else { 64 } {
+            if wheel {
+                app.handle_mouse_event(MouseEvent {
+                    kind: MouseEventKind::ScrollDown,
+                    column: 60,
+                    row: 10,
+                    modifiers,
+                });
             } else {
-                KeyModifiers::NONE
-            };
-            for _ in 0..if shifted { 8 } else { 64 } {
                 app.handle_key(KeyEvent::new(KeyCode::Right, modifiers));
-                frame = rendered_review_frame(&mut terminal, &app);
-                if shifted && frame.contains("interaction coverage") {
-                    break;
-                }
             }
-            assert!(
-                frame.contains("interaction coverage"),
-                "shifted={shifted}: {frame}"
-            );
-            assert!(!frame.contains("this is a very"), "{frame}");
-            for _ in 0..if shifted { 8 } else { 64 } {
+            frame = rendered_review_frame(&mut terminal, &app);
+            if shifted && frame.contains("interaction coverage") {
+                break;
+            }
+        }
+        assert!(
+            frame.contains("interaction coverage"),
+            "shifted={shifted}: {frame}"
+        );
+        assert!(!frame.contains("this is a very"), "{frame}");
+        for _ in 0..if shifted { 8 } else { 64 } {
+            if wheel {
+                app.handle_mouse_event(MouseEvent {
+                    kind: MouseEventKind::ScrollUp,
+                    column: 60,
+                    row: 10,
+                    modifiers,
+                });
+            } else {
                 app.handle_key(KeyEvent::new(KeyCode::Left, modifiers));
-                frame = rendered_review_frame(&mut terminal, &app);
-                if shifted && frame.contains("this is a very") {
-                    break;
-                }
             }
-            assert!(frame.contains("this is a very"), "{frame}");
-            if shifted {
-                assert!(!frame.contains("interaction coverage"), "{frame}");
+            frame = rendered_review_frame(&mut terminal, &app);
+            if shifted && frame.contains("this is a very") {
+                break;
             }
+        }
+        assert!(frame.contains("this is a very"), "{frame}");
+        if shifted {
+            assert!(!frame.contains("interaction coverage"), "{frame}");
         }
     }
 

@@ -1,0 +1,60 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "baselineInterval": {
+    "byteStart": 41642,
+    "byteEnd": 43031,
+    "lineStart": 1366,
+    "lineEnd": 1412,
+    "sha256": "c6be6a4fc37cdfaecd0727165816166aafefb1df4ea0d11c50cff5c46528e955"
+  },
+  "sourceTests": [
+    "shift plus mouse wheel scrolls code horizontally"
+  ],
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > shift plus mouse wheel scrolls code horizontally [271.32ms]\n\n 1 pass\n 75 filtered out\n 0 fail\n 6 expect() calls\nRan 1 test across 1 file. [860.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > shift plus mouse wheel scrolls code horizontally [302.31ms]\n\n 1 pass\n 73 filtered out\n 0 fail\n 6 expect() calls\nRan 1 test across 1 file. [885.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "tests::shifted_mouse_wheel_reveals_and_restores_the_pinned_long_line",
+    "terminal": [
+      92,
+      20
+    ],
+    "mouse": [
+      60,
+      10
+    ],
+    "maximumEventsPerDirection": 8,
+    "modifiers": "Shift",
+    "before": {
+      "exitCode": 101,
+      "output": "\nrunning 1 test\n\nthread 'tests::shifted_mouse_wheel_reveals_and_restores_the_pinned_long_line' (12601751) panicked at crates/workdeck-tui/src/lib.rs:26171:9:\nshifted=true:   File  View  Navigate  Agent  Help                  Workdeck  Working tree  1 file  +1  -1 \n ────────────────────────────────────────────────────────────────────────────────────────── \n                                                                                            \n  wrap.ts                                                                           +1 -1   \n ▌@@ -1,1 +1,1 @@                                                                           \n ▌1 - onst message = 'short';                ▌1 + onst message = 'this is a very long wra   \n                                                                                            \n                                                                                            \n                                                                                            \n                                                                                            \n                                                                                            \n                                                                                            \n                                                                                            \n                                                                                            \n                                                                                            \n                                                                                            \n                                                                                            \n                                                                                            \n                                                                                            \n                                                                                            \n\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\ntest tests::shifted_mouse_wheel_reveals_and_restores_the_pinned_long_line ... FAILED\n\nfailures:\n\nfailures:\n    tests::shifted_mouse_wheel_reveals_and_restores_the_pinned_long_line\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1162 filtered out; finished in 0.76s\n\nerror: test failed, to rerun pass `-p workdeck-tui --lib`\n"
+    },
+    "after": {
+      "command": "cargo test -p workdeck-tui --lib -- --quiet",
+      "exitCode": 0,
+      "passed": 1163,
+      "failed": 0,
+      "seconds": 9.93,
+      "clippyCommand": "cargo clippy -p workdeck-tui --all-targets -- -D warnings",
+      "clippyExitCode": 0,
+      "formatCommand": "cargo fmt --all -- --check",
+      "formatExitCode": 0,
+      "ptyCommand": "cargo test -p workdeck-cli --test terminal_pager layout:: -- --test-threads=2",
+      "ptyPassed": 24,
+      "ptyFailed": 0,
+      "ptySeconds": 22.32,
+      "output": ".\ntest result: ok. 1163 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.93s\n\n"
+    }
+  },
+  "runtimeFix": "Pinned App.tsx:1375-1377 multiplies DiffPane wheel direction by FAST_CODE_HORIZONTAL_SCROLL_COLUMNS (8). Native wheel routing previously applied only the direction (1). It now shares the eight-column keyboard step, preserving the upper-bound clamp and vertical remainder reset.",
+  "scope": "Maps exactly one complete six-assertion source test, using the same fixture, mouse coordinates, event bound and early-exit conditions. Does not map the remaining wheel tests, App.tsx or DiffPane.tsx; does not establish full frame, cross-platform or performance parity."
+}

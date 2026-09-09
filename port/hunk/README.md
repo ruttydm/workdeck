@@ -1,5 +1,18 @@
 # Hunk semantic-port ledger
 
+## Horizontal wheel step: corrected from the pinned interaction
+
+The Shift+mouse-wheel test at bytes 41,642–43,031 now has a Rust translation
+using the same 92×20 terminal, (60,10) mouse coordinates, at most eight events
+per direction and all six source assertions. Both source pins pass. The native
+translation initially failed because wheel events moved one column rather than
+Hunk's eight: `App.tsx:1375–1377` scales the direction supplied by `DiffPane`.
+Wheel routing now shares the keyboard's eight-column constant while retaining
+extent clamping and vertical-scroll isolation. All 1,163 TUI unit tests pass
+(9.93s). The [oracle and regression evidence](oracles/app-host-horizontal-wheel.json)
+retains the pre-fix failure. Only this completed test interval is mapped; the
+remaining interaction interval, App and DiffPane are still incomplete.
+
 ## Horizontal arrow scenarios and extent reconciliation
 
 The two arrow-scroll tests in `AppHost.interactions.test.tsx`, bytes

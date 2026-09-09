@@ -16,7 +16,7 @@ use crate::{
 };
 
 pub const MAX_APP_COMMAND_COUNT: usize = 10_000;
-const FAST_CODE_HORIZONTAL_SCROLL_COLUMNS: isize = 8;
+pub(crate) const FAST_CODE_HORIZONTAL_SCROLL_COLUMNS: isize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScrollUnit {
