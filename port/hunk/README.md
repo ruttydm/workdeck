@@ -13,6 +13,11 @@ The strict audit retains 1,257 baseline files and 1,326 records, with 267 record
 still unmapped and 11 cached upstream commits pending. Historical Hunk numbers
 do not establish Workdeck performance acceptance.
 
+The first cached upstream delta has a concrete
+[lifecycle-clock gap assessment](upstream-lifecycle-clock-gap.md). Existing native
+startup retry injection is partial overlap, not proof that the cross-layer clock
+change is already ported; all 11 cached deltas remain pending.
+
 ## Native cancellation metadata (partial hook parity)
 
 Native `$/cancelRequest` notifications now distinguish settled requests, explicit
