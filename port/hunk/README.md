@@ -249,6 +249,28 @@ All three saved-extension projection/identity tests and 55 coordinator tests pas
 as do TUI all-target Clippy with warnings denied, formatting and whitespace checks.
 This is further partial lifecycle parity, not a completed ledger mapping.
 
+### Full verification checkpoint after stream integration
+
+`CARGO_INCREMENTAL=0 cargo xtask verify` passed at immutable revision `61be18bf`.
+The run passed theme/notices, skills, architecture and release-history checks,
+formatting, locked full workspace all-target tests, workspace all-target Clippy
+with warnings denied, the release `workdeck` build and large-repository smoke test.
+Observed suites include all 93 terminal-pager tests, 73 extension SDK tests,
+208 extension-host tests, 572 session tests, 24 native broker-adapter tests,
+1,093 TUI tests, 241 VCS tests and 25 compiled native highlighter tests. Tooling
+finished with 198 passes and one existing ignored test. The watcher tests emitted
+long-running notices and then passed; the temporary-ref lock diagnostic in tooling
+was followed by a successful suite result.
+
+`cargo deny check` also passed under the unchanged policy. Duplicate-version
+warnings remain, as do the existing exceptions for RUSTSEC-2025-0141,
+RUSTSEC-2024-0320 and RUSTSEC-2024-0436. This is not a zero-exception claim.
+Neither check establishes strict source coverage, upstream catch-up, benchmark
+parity, native-platform release evidence, or signed artifact compliance. No ledger
+disposition changes at this checkpoint.
+A fresh strict `cargo xtask port audit` still fails with 290 unmapped records
+across the 1,257-file baseline and 11 cached pending upstream commits.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation
