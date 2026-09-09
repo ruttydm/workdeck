@@ -38,6 +38,24 @@ struct Original {
     permissions: fs::Permissions,
 }
 
+fn require_contents(path: &Path, expected: Option<&[u8]>) -> Result<()> {
+    match fs::symlink_metadata(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && expected.is_none() => Ok(()),
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+            ensure!(
+                expected == Some(fs::read(path)?.as_slice()),
+                "release target changed: {}",
+                path.display()
+            );
+            Ok(())
+        }
+        _ => anyhow::bail!(
+            "release target missing, replaced, or inaccessible: {}",
+            path.display()
+        ),
+    }
+}
+
 fn apply(
     repo: &Path,
     saved: &serde_json::Value,
@@ -139,6 +157,12 @@ fn apply(
     let result = (|| -> Result<()> {
         for (name, contents) in &targets {
             let path = repo.join(name);
+            require_contents(
+                &path,
+                originals[name]
+                    .as_ref()
+                    .map(|original| original.bytes.as_slice()),
+            )?;
             match contents {
                 Some(contents) => replace(
                     &path,
@@ -150,12 +174,25 @@ fn apply(
             written.push(name);
             after_write(written.len())?;
         }
+        for (name, contents) in &targets {
+            require_contents(
+                &repo.join(name),
+                contents.as_ref().map(|contents| contents.as_bytes()),
+            )?;
+        }
         Ok(())
     })();
     if let Err(error) = result {
         let mut failures = Vec::new();
         for name in written.into_iter().rev() {
             let path = repo.join(name);
+            if let Err(error) = require_contents(
+                &path,
+                targets[name].as_ref().map(|contents| contents.as_bytes()),
+            ) {
+                failures.push(format!("{name}: conflict preserved: {error}"));
+                continue;
+            }
             let restored = match &originals[name] {
                 Some(original) => {
                     replace(&path, &original.bytes, Some(original.permissions.clone()))
@@ -222,6 +259,68 @@ mod tests {
             assert!(!repo.join("CHANGELOG.md").exists());
             assert_eq!(build_plan(&repo).unwrap(), plan);
         }
+        let history = repo.join("CHANGELOG.md");
+        let conflict = apply(
+            &repo,
+            &plan,
+            &directory.path().join("rollback-conflict"),
+            |step| {
+                if step == 2 {
+                    fs::write(&history, "Concurrent editor history.\n")?;
+                    anyhow::bail!("injected failure after edit");
+                }
+                Ok(())
+            },
+        )
+        .unwrap_err();
+        assert!(conflict.to_string().contains("conflict preserved"));
+        assert_eq!(
+            fs::read_to_string(&history).unwrap(),
+            "Concurrent editor history.\n"
+        );
+        fs::remove_file(&history).unwrap();
+        assert_eq!(build_plan(&repo).unwrap(), plan);
+        let fragment = repo.join("changes/fix.md");
+        let original = fs::read(&fragment).unwrap();
+        let conflict = apply(
+            &repo,
+            &plan,
+            &directory.path().join("apply-conflict"),
+            |step| {
+                if step == 1 {
+                    fs::write(&fragment, "Concurrent editor fragment.\n")?;
+                }
+                Ok(())
+            },
+        )
+        .unwrap_err();
+        assert!(conflict.to_string().contains("release target changed"));
+        assert_eq!(
+            fs::read_to_string(&fragment).unwrap(),
+            "Concurrent editor fragment.\n"
+        );
+        assert!(!history.exists());
+        fs::write(&fragment, original).unwrap();
+        assert_eq!(build_plan(&repo).unwrap(), plan);
+        let conflict = apply(
+            &repo,
+            &plan,
+            &directory.path().join("final-conflict"),
+            |step| {
+                if step == 4 {
+                    fs::write(&history, "Late editor history.\n")?;
+                }
+                Ok(())
+            },
+        )
+        .unwrap_err();
+        assert!(conflict.to_string().contains("conflict preserved"));
+        assert_eq!(
+            fs::read_to_string(&history).unwrap(),
+            "Late editor history.\n"
+        );
+        fs::remove_file(&history).unwrap();
+        assert_eq!(build_plan(&repo).unwrap(), plan);
         let backup = directory.path().join("success");
         apply(&repo, &plan, &backup, |_| Ok(())).unwrap();
         for (name, contents) in plan["edits"].as_object().unwrap() {

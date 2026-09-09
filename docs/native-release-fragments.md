@@ -68,6 +68,14 @@ replacement; consumed fragments remain recoverable in the backup directory.
 Handled write failures trigger reverse-order rollback; backups remain after
 success and failure. Retrying an already-applied plan fails stale validation.
 
+Each target is checked against its original bytes immediately before mutation,
+and the final targets are checked against the plan. Rollback checks for the
+bytes written by this operation before restoring or removing a file. Detected
+conflicts are preserved and reported with the retained backup location.
+Regression tests inject edits to both a pending fragment and an already-written
+changelog, and verify that neither concurrent edit is overwritten. These checks
+do not close filesystem races between checking and replacement.
+
 This is not a crash-atomic multi-file transaction. After process interruption,
 restore files from `originals/` and remove only paths listed as originally
 absent after reviewing intervening edits. The advisory lock coordinates this
