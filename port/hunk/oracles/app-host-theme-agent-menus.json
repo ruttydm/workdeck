@@ -1,0 +1,43 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "runtime": "Bun 1.3.14 (0d9b296a), disposable oracle only",
+  "command": "GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null bun test <pinned-checkout>/src/ui/AppHost.interactions.test.tsx -t 'custom theme stays active|Agent menu opens copyable'",
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "e7c707496160915b1caae48b1d1d5d214c34e948",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > custom theme stays active in the theme selector when bootstrap provides a custom palette [286.13ms]\n(pass) App interactions > Agent menu opens copyable agent skill guidance [109.20ms]\n\n 2 pass\n 74 filtered out\n 0 fail\n 9 expect() calls\nRan 2 tests across 1 file. [1016.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "cf44eb62f3c35977cc7bec12b22a46a345d83a26",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > custom theme stays active in the theme selector when bootstrap provides a custom palette [230.47ms]\n(pass) App interactions > Agent menu opens copyable agent skill guidance [82.55ms]\n\n 2 pass\n 72 filtered out\n 0 fail\n 9 expect() calls\nRan 2 tests across 1 file. [730.00ms]\n"
+    }
+  ],
+  "intervals": [
+    {
+      "byteStart": 57294, "byteEnd": 58077, "lineStart": 1899, "lineEnd": 1928,
+      "sha256": "693aba9f648a1fd56d39a8a4c6bff5d3a4ebcf3503117a77166a9ecd459263fe",
+      "nativeTest": "tests::custom_theme_stays_active_when_opened_through_view_menu",
+      "command": "CARGO_INCREMENTAL=0 cargo test -p workdeck-tui --lib custom_theme_stays_active_when_opened_through_view_menu",
+      "exitCode": 0, "passed": 1, "failed": 0, "ignored": 0, "filteredOut": 1107, "seconds": 0.77,
+      "assertions": "220x20 Ratatui buffer; identical custom id/base/label/accent; F10 opens File menu, Right switches to View, t opens selector; rendered Theme selector, selected marker plus My Theme, and active label; custom identity and accent retained."
+    },
+    {
+      "byteStart": 58077, "byteEnd": 59772, "lineStart": 1929, "lineEnd": 1987,
+      "sha256": "abcc71ece57f19850cc33727135d994c7ee31b92a0886d1b488ce253c5b9b68e",
+      "nativeTest": "tests::agent_menu_action_opens_copyable_guidance_and_modal_owns_input",
+      "command": "CARGO_INCREMENTAL=0 cargo test -p workdeck-tui --lib agent_menu_action_opens_copyable_guidance_and_modal_owns_input",
+      "exitCode": 0, "passed": 1, "failed": 0, "ignored": 0, "filteredOut": 1107, "seconds": 0.75,
+      "assertions": "120x24 Ratatui buffer; F10, three Right keys, Down, Enter; File and Agent menu labels, guidance text, prompt includes command, rendered command and Copy label. Additional native checks exercise copy request, unavailable clipboard, modal input ownership, and Escape dismissal. Workdeck branding replaces Hunk."
+    }
+  ],
+  "destination": "crates/workdeck-tui/src/lib.rs",
+  "limitations": [
+    "Only these two test bodies are mapped; shared source helpers and remaining AppHost interaction tests remain separately unfinished.",
+    "Assertions reproduce the source text and input contracts, not a complete terminal-cell differential capture.",
+    "Source and native run independently; no cross-platform or full-corpus acceptance is claimed."
+  ]
+}

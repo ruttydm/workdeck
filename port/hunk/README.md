@@ -1,5 +1,23 @@
 # Hunk semantic-port ledger
 
+## AppHost custom-theme and agent-skill menus (partial interaction corpus)
+
+Bytes 57,294–58,077 and 58,077–59,772 of the AppHost interaction test file
+map to executed Rust tests. The custom-theme case follows F10 → Right → t,
+checks the selected custom-theme marker and active label in a 220×20 buffer,
+and preserves the configured palette. The agent case follows F10 → three Right
+keys → Down → Enter at 120×24, checking intermediate menu labels, guidance,
+command and copy text, plus native clipboard-request and dismissal behavior.
+Both unchanged pinned source cases pass; see
+[source outputs and exact intervals](oracles/app-host-theme-agent-menus.json).
+These text/input assertions do not establish complete cell-frame equivalence.
+Focused Rust tests, formatting and TUI all-target Clippy pass.
+
+Current strict audit validates byte partitions/evidence, then fails with 1,257
+files, 1,332 records, 374 translated-test records and 268 unmapped intervals.
+Splitting the existing unfinished region adds two mapped records while leaving
+its remaining interval unfinished. Eleven cached upstream commits remain pending.
+
 ## AppHost experimental-feature reload (partial interaction corpus)
 
 Bytes 53,736–55,659 of `src/ui/AppHost.interactions.test.tsx` map to the
@@ -12,7 +30,7 @@ The broker client remains unstarted, matching the source mock-host scope rather
 than claiming live network or terminal-frame parity. Focused Rust test, formatting,
 and TUI all-target Clippy pass.
 
-Current strict audit validates partitions and evidence, then fails with 1,257
+At this earlier experimental-reload checkpoint, strict audit validated partitions and evidence, then failed with 1,257
 baseline files, 1,330 records, 372 translated-test records and 268 unmapped
 intervals. Eleven cached upstream commits remain pending. No entire AppHost test
 file completion or release acceptance is claimed.

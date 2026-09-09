@@ -20392,9 +20392,14 @@ mod tests {
         let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
         app.set_clipboard_copy_supported(true);
         app.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE));
+        assert!(rendered_review_frame(&mut terminal, &app).contains("Toggle files/filter focus"));
         for _ in 0..3 {
             app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
         }
+        let menu = rendered_review_frame(&mut terminal, &app);
+        assert!(menu.contains("Agent skill"), "{menu}");
+        assert!(menu.contains("Next annotated file"), "{menu}");
+        assert!(AGENT_SKILL_PROMPT.contains(AGENT_SKILL_COMMAND));
         app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(app.show_agent_skill);
@@ -23945,6 +23950,37 @@ mod tests {
                 .collect::<String>()
                 .contains("Team Dark")
         );
+    }
+
+    #[test]
+    fn custom_theme_stays_active_when_opened_through_view_menu() {
+        let custom: NamedCustomThemeConfig = serde_json::from_value(serde_json::json!({
+            "id": "custom", "base": "github-light-default",
+            "label": "My Theme", "accent": "#7755aa"
+        }))
+        .unwrap();
+        let theme = resolve_theme(Some("custom"), None, std::slice::from_ref(&custom));
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                theme,
+                custom_themes: vec![custom],
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(220, 20)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        app.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE));
+        assert!(rendered_review_frame(&mut terminal, &app).contains("Toggle files/filter focus"));
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        rendered_review_frame(&mut terminal, &app);
+        app.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(frame.contains("Theme selector"), "{frame}");
+        assert!(frame.contains("›  My Theme"), "{frame}");
+        assert!(frame.contains("active"), "{frame}");
+        assert_eq!(app.options.theme.id, "custom");
+        assert_eq!(app.options.theme.accent, "#7755aa");
     }
 
     #[test]
