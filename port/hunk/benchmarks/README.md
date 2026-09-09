@@ -464,3 +464,17 @@ measurements over the complete invocation, not point-in-time RSS, JavaScript hea
 or summed memory across a process tree. No peak-RSS regression appears in this workload;
 that does not establish the complete memory suite's gate. Scrolling still exceeds the
 10% latency budget against both pins. First frame is not full-process launch latency.
+
+### Native refresh after highlighter lifecycle integration at `b13a20e8`
+
+[Three raw optimized native samples](interaction-diagnostic-b13a20e8.json) were taken
+in fresh sequential processes after the release runner build completed. Nearest-rank
+medians of process medians are 6.56 ms first frame, 25.16 ms navigation and 3.18 ms
+scrolling. Scroll rendering accounts for 3.16 ms. The workload remains 180 files,
+120 lines per file and a 240 by 28 viewport; all raw distributions are retained.
+
+Other host activity was uncontrolled and Hunk was not rerun alongside these samples.
+These results identify rendering as the next scroll-cost profiling target, not a
+causal speedup from annotation hashing or a fresh paired acceptance result. The old
+paired scrolling failure remains unresolved. This run does not measure full launch,
+reload, peak RSS, or the complete benchmark matrix; no ledger mapping changes.
