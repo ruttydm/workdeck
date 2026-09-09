@@ -116,3 +116,9 @@ first was still retained. Exact-document invalidation and owned public getters
 are unchanged. This follow-up has no separate memory measurement yet.
 The exact-document cache and TUI reload/authority regressions pass, along with
 TUI all-target Clippy, formatting and diff checks.
+
+The complete TUI library suite subsequently passed at clean `b0322ed5`:
+1,102 passed, zero failed, ignored or filtered, in 50.93 seconds on Darwin arm64.
+See [verification record](tui-verification-b0322ed5.json). This checks the combined
+runtime-storage and startup changes, but does not substitute for full-workspace,
+cross-platform, source-ledger or benchmark acceptance gates.
