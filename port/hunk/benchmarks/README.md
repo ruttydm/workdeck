@@ -488,3 +488,14 @@ sample was 3.18 ms scrolling: these uncontrolled measurements do not demonstrate
 speedup. Skipping unused projections with no highlighters is not sufficient to fix
 the dominant render cost. Raw distributions remain recorded without normalization.
 No fresh Hunk comparison, peak-RSS measurement or performance-gate pass is claimed.
+
+### Cached gap descriptors at `3276f968`
+
+[Three optimized native samples](interaction-diagnostic-3276f968.json) report
+6.65 ms first frame, 25.52 ms navigation and 2.81 ms scrolling, with 2.78 ms in scroll
+rendering. The preceding native sample was 3.22 ms scrolling. This is an encouraging
+observation after eliminating repeated source-line counting, not a controlled causal
+comparison: host activity remains uncontrolled and the Hunk pins were not rerun.
+All raw distributions are retained. Initial cache construction adds a descriptor
+pass, and navigation still constructs full geometry. The earlier paired scrolling
+gate remains unresolved; these samples do not measure full launch, reload or peak RSS.
