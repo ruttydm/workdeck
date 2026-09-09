@@ -25570,6 +25570,43 @@ mod tests {
     }
 
     #[test]
+    fn theme_change_quit_never_ask_persists_opt_out_and_requests_one_delayed_exit() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let config = directory.path().join("workdeck/config.toml");
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                view_preferences_config_path: Some(config.clone()),
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(240, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        for key in [
+            KeyCode::Char('t'),
+            KeyCode::Down,
+            KeyCode::Enter,
+            KeyCode::Char('q'),
+        ] {
+            app.handle_key(KeyEvent::new(key, KeyModifiers::NONE));
+            rendered_review_frame(&mut terminal, &app);
+        }
+        assert!(app.save_config_prompt_open());
+        assert!(!config.exists());
+        app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+        let saved_at = Instant::now();
+        assert!(!app.take_quit_requested());
+        assert!(
+            std::fs::read_to_string(&config)
+                .unwrap()
+                .contains("prompt_save_view_preferences = false")
+        );
+        app.tick_extension_notifications(saved_at + Duration::from_millis(140));
+        assert!(app.take_quit_requested());
+        assert!(!app.take_quit_requested());
+    }
+
+    #[test]
     fn theme_change_quit_save_writes_theme_and_requests_one_delayed_exit() {
         let directory = tempfile::TempDir::new().unwrap();
         let config = directory.path().join("workdeck/config.toml");
