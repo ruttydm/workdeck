@@ -25594,6 +25594,34 @@ mod tests {
     }
 
     #[test]
+    fn theme_selector_wheel_scrolls_catalog_without_changing_preview() {
+        let mut review = responsive_changeset();
+        review.files.truncate(1);
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        let mut terminal = Terminal::new(TestBackend::new(240, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        app.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(!frame.contains("gruvbox-dark-medium"));
+        let selected_row = frame
+            .lines()
+            .position(|line| line.contains("github-dark-default"))
+            .unwrap();
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: 120,
+            row: selected_row as u16,
+            modifiers: KeyModifiers::NONE,
+        });
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(frame.contains("gruvbox-dark-medium"));
+        assert!(frame.contains("›  github-dark-default"));
+        assert!(!frame.contains("›  github-dark-dimmed"));
+        assert_eq!(app.options.theme.id, "github-dark-default");
+    }
+
+    #[test]
     fn theme_selector_rapid_mouse_hover_defers_preview_then_accepts_clicked_theme() {
         let mut review = responsive_changeset();
         review.files.truncate(1);

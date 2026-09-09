@@ -1,5 +1,15 @@
 # Hunk semantic-port ledger
 
+## Theme list wheel scrolling
+
+Bytes 29,111–30,255 map to the 240×24 theme-wheel interaction test. Both pins
+pass their two initial assertions. Their post-scroll predicate is polled but
+not asserted; native explicitly verifies catalog movement and unchanged preview
+identity. This stronger native check is not a frozen source frame comparison.
+See [capture and scope](oracles/app-host-theme-wheel.json). Native test,
+formatting, and TUI Clippy pass. The ledger has 1,382 records, 268 unmapped
+intervals, and 11 cached upstream commits pending; full parity remains unproven.
+
 ## Debounced theme hover and click acceptance
 
 Bytes 27,051–29,111 map to the 240×24 rapid-hover interaction regression.
