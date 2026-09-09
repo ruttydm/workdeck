@@ -19517,6 +19517,50 @@ mod tests {
     }
 
     #[test]
+    fn sidebar_click_after_eight_down_steps_replaces_previous_review_header() {
+        let mut review = pinned_header_navigation_changeset();
+        for file in &mut review.files {
+            file.agent = Some(serde_json::from_value(serde_json::json!({
+                "path":file.path, "summary":format!("{} note", file.path),
+                "annotations":[{"new_range":{"start":2,"end":2}, "summary":format!("Annotation for {}", file.path), "rationale":format!("Why {} changed", file.path)}]
+            })).unwrap());
+        }
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        let mut terminal = Terminal::new(TestBackend::new(220, 10)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        for _ in 0..8 {
+            app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+            rendered_review_frame(&mut terminal, &app);
+        }
+        let before = rendered_review_frame(&mut terminal, &app);
+        let y = before
+            .lines()
+            .position(|line| {
+                line.split('│')
+                    .next()
+                    .unwrap_or_default()
+                    .contains("second.ts")
+            })
+            .unwrap();
+        assert!(y > 0);
+        for kind in [
+            MouseEventKind::Down(MouseButton::Left),
+            MouseEventKind::Up(MouseButton::Left),
+        ] {
+            app.handle_mouse_event(MouseEvent {
+                kind,
+                column: 6,
+                row: y as u16,
+                modifiers: KeyModifiers::NONE,
+            });
+        }
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(frame.contains("second.ts"), "{frame}");
+        assert_eq!(frame.matches("first.ts").count(), 1, "{frame}");
+    }
+
+    #[test]
     fn pty_sidebar_file_click_pins_that_file_header_to_the_review_top() {
         let mut app = ReviewApp::new(
             pinned_header_navigation_changeset(),

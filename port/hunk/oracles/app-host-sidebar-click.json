@@ -1,0 +1,31 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTest": "clicking a sidebar file makes that file own the top of the review pane",
+  "baselineInterval": {
+    "byteStart": 106992,
+    "byteEnd": 108360,
+    "lineStart": 3646,
+    "lineEnd": 3688,
+    "sha256": "bfd4824df9defa5edefec43f25c5564901ad4fc195efb524f19d7125b6721dd4"
+  },
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > clicking a sidebar file makes that file own the top of the review pane [283.34ms]\n\n 1 pass\n 75 filtered out\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [896.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > clicking a sidebar file makes that file own the top of the review pane [252.31ms]\n\n 1 pass\n 73 filtered out\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [658.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "tests::sidebar_click_after_eight_down_steps_replaces_previous_review_header",
+    "passed": 1,
+    "failed": 0,
+    "filtered": 1135,
+    "seconds": 0.85
+  },
+  "scope": "220x10 first/second files with line-2 annotations, eight Down events then click x6 at rendered second-file sidebar row. second.ts visible and first.ts occurs once. Main source asserts rendered row >0; stable instead clicks fixed y5 and has two assertions. Native translates main targeting, not stable's fixed geometry. Typed mouse events are not raw mouse protocol or whole-frame parity."
+}

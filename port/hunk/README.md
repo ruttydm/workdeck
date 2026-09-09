@@ -1,5 +1,14 @@
 # Hunk semantic-port ledger
 
+## Sidebar click after scrolling
+
+Bytes 106,992–108,360 map to rendered sidebar-row targeting after eight Down
+events at 220×10. Both pinned tests pass; native follows main's rendered-row
+selection rather than stable's fixed y coordinate. Native test, formatting and
+TUI Clippy pass. See [captures and distinction](oracles/app-host-sidebar-click.json).
+Strict audit remains incomplete: 268 unmapped intervals, 1,369 records,
+1,257 baseline files and 11 cached upstream commits pending.
+
 ## Down-arrow selection publication
 
 Bytes 105,607–106,992 map to the down-arrow snapshot regression at 220×12.
