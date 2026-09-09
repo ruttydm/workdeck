@@ -23030,12 +23030,27 @@ mod tests {
 
     #[test]
     fn compact_note_targets_match_tree_order_lookup_and_shift_collisions() {
+        // Every ordering/duplicate pattern up to seven entries over three rows.
+        let exhaustive = (0..=7).flat_map(|length| {
+            (0..3_usize.pow(length)).map(move |mut encoded| {
+                (0..length)
+                    .map(|_| {
+                        let row = [0, 2, 8][encoded % 3];
+                        encoded /= 3;
+                        row
+                    })
+                    .collect::<Vec<_>>()
+            })
+        });
         for keys in [
             vec![],
             vec![0],
             vec![8, 2, 8, 4, 2, 8],
             vec![0, 1, 2, 3, usize::MAX],
-        ] {
+        ]
+        .into_iter()
+        .chain(exhaustive)
+        {
             let entries = keys
                 .into_iter()
                 .enumerate()
@@ -23061,18 +23076,19 @@ mod tests {
                 assert_eq!(compact.get(&row), tree.get(&row));
             }
             // Composer removal can collapse multiple row addresses into one.
-            let shift = |(row, target): (usize, ReviewNoteTarget)| {
-                (row.saturating_sub(5).saturating_add(2), target)
-            };
-            let shifted_tree = tree.into_iter().map(shift).collect::<BTreeMap<_, _>>();
-            let shifted_compact = compact
-                .into_iter()
-                .map(shift)
-                .collect::<ReviewNoteTargets>();
-            assert_eq!(
-                shifted_compact.iter().collect::<Vec<_>>(),
-                shifted_tree.iter().collect::<Vec<_>>()
-            );
+            for removed in [0, 1, 5, usize::MAX] {
+                for inserted in [0, 2, usize::MAX] {
+                    let shift = |(&row, &target): (&usize, &ReviewNoteTarget)| {
+                        (row.saturating_sub(removed).saturating_add(inserted), target)
+                    };
+                    let shifted_tree = tree.iter().map(shift).collect::<BTreeMap<_, _>>();
+                    let shifted_compact = compact.iter().map(shift).collect::<ReviewNoteTargets>();
+                    assert_eq!(
+                        shifted_compact.iter().collect::<Vec<_>>(),
+                        shifted_tree.iter().collect::<Vec<_>>()
+                    );
+                }
+            }
         }
     }
 

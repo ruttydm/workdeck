@@ -375,6 +375,17 @@ checkout was unchanged throughout the build and test run. It is not a new full
 workspace verifier run, a paired benchmark pass, or native-platform release
 validation; source-ledger coverage and upstream catch-up remain unresolved.
 
+### Exhaustive short note-target sequences
+
+The compact lookup differential test now enumerates all 3,280 sequences of length
+zero through seven over row addresses 0, 2 and 8, plus four explicit edge sequences.
+Each input checks ordered iteration and exact lookup against BTreeMap, then twelve
+combinations of saturating removal/insertion shifts, including usize maximum values.
+This exercises duplicate order, partial collisions and total collapse without random
+seeds. The expanded test passes, as do TUI all-target Clippy with warnings denied,
+formatting and whitespace checks. This test-only increment is not another full TUI
+suite run and does not change the source ledger or performance evidence.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation
