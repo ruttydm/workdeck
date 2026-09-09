@@ -1,0 +1,40 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "intervals": [
+    {
+      "byteStart": 100094,
+      "byteEnd": 101173,
+      "lineStart": 3404,
+      "lineEnd": 3440,
+      "sha256": "207912e2bbce57d2d316405a4384643218e83f082503d5e783e576e9b34fd3b1"
+    },
+    {
+      "byteStart": 101173,
+      "byteEnd": 102092,
+      "lineStart": 3441,
+      "lineEnd": 3471,
+      "sha256": "1ec4a2c9600d7128a7757184b0615745d0e81af93f7a810ce8fa9e1c953c17c3"
+    }
+  ],
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > forward cross-file hunk navigation keeps the destination file owning the review pane [366.70ms]\n(pass) App interactions > backward cross-file hunk navigation reveals the target hunk instead of the file top [206.23ms]\n\n 2 pass\n 74 filtered out\n 0 fail\n 5 expect() calls\nRan 2 tests across 1 file. [1180.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > forward cross-file hunk navigation keeps the destination file owning the review pane [348.26ms]\n(pass) App interactions > backward cross-file hunk navigation reveals the target hunk instead of the file top [154.76ms]\n\n 2 pass\n 72 filtered out\n 0 fail\n 5 expect() calls\nRan 2 tests across 1 file. [913.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "tests::cross_file_hunk_sequence_preserves_destination_header_and_backward_target",
+    "status": "Corrected selector run passed: trimmed starts_with long-file.txt or short-file.ts, matching source helper. Initial weaker-selector result is superseded.",
+    "passed": 1,
+    "failed": 0,
+    "filtered": 1131,
+    "seconds": 0.99,
+    "scope": "120x16 source cross-file fixture; 18 next-hunk events, one more next, then two previous. Matches the five source assertions about first header and old-file target content. Typed synchronous native events and text frames, not every asynchronous transition or full-cell parity."
+  }
+}

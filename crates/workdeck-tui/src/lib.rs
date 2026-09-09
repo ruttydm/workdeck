@@ -19308,6 +19308,41 @@ mod tests {
     }
 
     #[test]
+    fn cross_file_hunk_sequence_preserves_destination_header_and_backward_target() {
+        let mut app = ReviewApp::new(
+            cross_file_hunk_navigation_changeset(),
+            ReviewOptions::default(),
+        );
+        let mut terminal = Terminal::new(TestBackend::new(120, 16)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        for _ in 0..18 {
+            app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+            rendered_review_frame(&mut terminal, &app);
+        }
+        let first_header = |frame: &str| {
+            frame
+                .lines()
+                .map(str::trim)
+                .find(|line| line.starts_with("long-file.txt") || line.starts_with("short-file.ts"))
+                .unwrap()
+                .to_owned()
+        };
+        let top = rendered_review_frame(&mut terminal, &app);
+        assert!(first_header(&top).contains("short-file.ts"), "{top}");
+        app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+        let middle = rendered_review_frame(&mut terminal, &app);
+        assert!(first_header(&middle).contains("short-file.ts"), "{middle}");
+        assert!(!middle.contains("line 341 changed"), "{middle}");
+        for _ in 0..2 {
+            app.handle_key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE));
+            rendered_review_frame(&mut terminal, &app);
+        }
+        let back = rendered_review_frame(&mut terminal, &app);
+        assert!(back.contains("line 341 changed"), "{back}");
+        assert!(!back.contains("line 002 changed"), "{back}");
+    }
+
+    #[test]
     fn pty_backward_cross_file_hunk_navigation_reveals_the_immediate_predecessor() {
         let mut app = ReviewApp::new(
             cross_file_hunk_navigation_changeset(),

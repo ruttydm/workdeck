@@ -1,5 +1,14 @@
 # Hunk semantic-port ledger
 
+## Forward and backward cross-file hunk sequence
+
+Bytes 100,094–101,173 and 101,173–102,092 map to exact 18-next/one-next/two-previous
+navigation at 120×16. Both source pins pass five assertions; the Rust sequence
+passes with the same first-header selector and backward target checks.
+Formatting and TUI Clippy pass. See [capture and limits](oracles/app-host-cross-file-sequence.json).
+Strict audit remains incomplete: 268 unmapped intervals, 1,365 records,
+1,257 baseline files and 11 cached upstream commits pending.
+
 ## File shortcuts and published selection
 
 Bytes 98,079–100,094 map to period/comma file navigation and filter focus.
