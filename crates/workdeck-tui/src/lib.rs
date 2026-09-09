@@ -22598,6 +22598,71 @@ mod tests {
     }
 
     #[test]
+    fn arrow_step_and_reverse_restore_collapsed_gap_beneath_pinned_header() {
+        for cursor_line in [CursorLineMode::Off, ReviewOptions::default().cursor_line] {
+            let before = (1..=400)
+                .map(|n| format!("export const line{n:03} = {n};\n"))
+                .collect::<String>();
+            let after = before.replace("line366 = 366", "line366 = 9999");
+            let review = navigation_changeset(vec![
+                ("src/ui/components/panes/DiffPane.tsx".into(), before, after),
+                (
+                    "other.ts".into(),
+                    "export const other = 1;\n".into(),
+                    "export const other = 2;\n".into(),
+                ),
+            ]);
+            let mut app = ReviewApp::new(
+                review,
+                ReviewOptions {
+                    layout: LayoutMode::Split,
+                    cursor_line,
+                    ..Default::default()
+                },
+            );
+            let mut terminal = Terminal::new(TestBackend::new(220, 10)).unwrap();
+            let initial = rendered_review_frame(&mut terminal, &app);
+            assert!(initial.contains("DiffPane.tsx"), "{initial}");
+            assert!(initial.contains("··· 362 unchanged lines ···"), "{initial}");
+            assert!(
+                !initial.contains("366 - export const line366 = 366;"),
+                "{initial}"
+            );
+            let header_count = initial.matches("DiffPane.tsx").count();
+            app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+            let advanced = rendered_review_frame(&mut terminal, &app);
+            if cursor_line == CursorLineMode::Off {
+                assert!(
+                    advanced.contains("366 - export const line366 = 366;"),
+                    "{advanced}"
+                );
+            } else {
+                // The pinned row-cursor test's waitForFrame is non-asserting:
+                // its predicate times out, then the test checks only restoration.
+                // A diagnostic source capture confirms the first key moves the
+                // marker to context line 364 without scrolling this viewport.
+                assert_eq!(app.scroll, 0);
+                assert_eq!(app.current_review_line_cursor().unwrap().target.line, 364);
+                assert!(
+                    !advanced.contains("366 - export const line366 = 366;"),
+                    "{advanced}"
+                );
+            }
+            app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+            let restored = rendered_review_frame(&mut terminal, &app);
+            assert!(
+                restored.contains("··· 362 unchanged lines ···"),
+                "{restored}"
+            );
+            assert!(
+                !restored.contains("366 - export const line366 = 366;"),
+                "{restored}"
+            );
+            assert_eq!(restored.matches("DiffPane.tsx").count(), header_count);
+        }
+    }
+
+    #[test]
     fn scroll_first_wheel_step_and_reverse_restore_collapsed_gap_under_pinned_header() {
         let before = (1..=400)
             .map(|n| format!("export const line{n:03} = {n};\n"))
