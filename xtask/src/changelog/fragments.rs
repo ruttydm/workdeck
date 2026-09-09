@@ -3,6 +3,101 @@ use anyhow::{Result, bail, ensure};
 use std::io::Write;
 use std::path::Path;
 
+#[derive(serde::Serialize)]
+struct PendingFragment {
+    id: String,
+    bump: Option<String>,
+    body: String,
+}
+
+fn pending(repo: &Path) -> Result<Vec<PendingFragment>> {
+    let directory = repo.join("changes");
+    match std::fs::symlink_metadata(&directory) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+        Ok(metadata) => ensure!(
+            metadata.is_dir() && !metadata.file_type().is_symlink(),
+            "changes must be a real directory"
+        ),
+    }
+    let mut fragments = Vec::new();
+    for entry in std::fs::read_dir(directory)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("md") {
+            continue;
+        }
+        ensure!(
+            entry.file_type()?.is_file(),
+            "fragment must be a regular file"
+        );
+        let text = std::fs::read_to_string(&path)?;
+        let normalized = text.replace("\r\n", "\n");
+        let rest = normalized
+            .strip_prefix("---\n")
+            .ok_or_else(|| anyhow::anyhow!("fragment frontmatter missing: {}", path.display()))?;
+        let (frontmatter, body) = if let Some(body) = rest.strip_prefix("---\n") {
+            ("", body)
+        } else {
+            rest.split_once("\n---\n").ok_or_else(|| {
+                anyhow::anyhow!("fragment frontmatter not closed: {}", path.display())
+            })?
+        };
+        let bump = if frontmatter.trim().is_empty() {
+            None
+        } else {
+            let fields: std::collections::BTreeMap<String, String> =
+                serde_norway::from_str(frontmatter)?;
+            ensure!(fields.len() == 1, "fragment must target only workdeck");
+            let value = fields
+                .get("workdeck")
+                .ok_or_else(|| anyhow::anyhow!("fragment targets an unknown product"))?;
+            ensure!(
+                matches!(value.as_str(), "patch" | "minor" | "major"),
+                "invalid fragment bump"
+            );
+            Some(value.clone())
+        };
+        ensure!(
+            bump.is_none() || !body.trim().is_empty(),
+            "user-visible fragment has no release-note text"
+        );
+        ensure!(
+            bump.is_some() || body.trim().is_empty(),
+            "maintenance fragment has release-note text"
+        );
+        fragments.push(PendingFragment {
+            id: path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .ok_or_else(|| anyhow::anyhow!("fragment id is not UTF-8"))?
+                .into(),
+            bump,
+            body: body.trim().into(),
+        });
+    }
+    fragments.sort_by(|left, right| left.id.cmp(&right.id));
+    Ok(fragments)
+}
+
+pub(super) fn status(repo: &Path, mut args: impl Iterator<Item = String>) -> Result<()> {
+    ensure!(
+        args.next().is_none(),
+        "changelog status does not accept arguments"
+    );
+    let fragments = pending(repo)?;
+    let bump = ["major", "minor", "patch"].into_iter().find(|bump| {
+        fragments
+            .iter()
+            .any(|fragment| fragment.bump.as_deref() == Some(*bump))
+    });
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({"bump":bump,"fragments":fragments}))?
+    );
+    Ok(())
+}
+
 pub(super) fn add(repo: &Path, mut args: impl Iterator<Item = String>) -> Result<()> {
     let id = args
         .next()
@@ -111,6 +206,37 @@ mod tests {
             let repo = tempfile::tempdir().unwrap();
             assert!(create(repo.path(), &args).is_err());
             assert_eq!(std::fs::read_dir(repo.path()).unwrap().count(), 0);
+        }
+    }
+
+    #[test]
+    fn reads_pending_fragments_without_creating_state() {
+        let repo = tempfile::tempdir().unwrap();
+        assert!(pending(repo.path()).unwrap().is_empty());
+        assert_eq!(std::fs::read_dir(repo.path()).unwrap().count(), 0);
+        create(repo.path(), &["z-fix", "patch", "Fix λ."]).unwrap();
+        create(repo.path(), &["a-maintenance", "empty"]).unwrap();
+        let records = pending(repo.path()).unwrap();
+        assert_eq!(records[0].id, "a-maintenance");
+        assert_eq!(records[0].bump, None);
+        assert_eq!(records[1].body, "Fix λ.");
+        assert_eq!(records[1].bump.as_deref(), Some("patch"));
+    }
+
+    #[test]
+    fn rejects_malformed_pending_fragments() {
+        for content in [
+            "missing",
+            "---\nworkdeck: patch\n",
+            "---\nother: patch\n---\n\nText",
+            "---\nworkdeck: unknown\n---\n\nText",
+            "---\nworkdeck: patch\n---\n",
+            "---\n---\n\nText",
+        ] {
+            let repo = tempfile::tempdir().unwrap();
+            std::fs::create_dir(repo.path().join("changes")).unwrap();
+            std::fs::write(repo.path().join("changes/bad.md"), content).unwrap();
+            assert!(pending(repo.path()).is_err(), "accepted {content:?}");
         }
     }
 }

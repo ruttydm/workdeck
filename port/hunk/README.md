@@ -2774,6 +2774,13 @@ See [native release fragments](../../docs/native-release-fragments.md).
 Version preparation, consumption, prerelease policy and publication remain
 unfinished, so `.changeset/README.md` remains unmapped.
 
+`cargo xtask changelog status` adds read-only pending-fragment parsing and JSON
+output with deterministic ID ordering and the highest requested bump. An
+absent fragment directory remains absent. Malformed frontmatter, unsupported
+products/bumps, empty user-facing notes and nonempty maintenance-only notes
+are rejected. Four fragment tests, xtask Clippy and formatting passed; release
+preparation and the complete source workflow remain unfinished.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

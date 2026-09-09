@@ -18,6 +18,18 @@ one argument. Existing fragments are never overwritten, and invalid requests
 do not create the directory. Writes use a same-directory temporary file and
 atomic no-clobber publication.
 
+Inspect pending fragments without creating state:
+
+```console
+cargo xtask changelog status
+```
+
+The JSON result lists fragments in ID order and reports the highest requested
+bump (`major`, then `minor`, then `patch`, or null for maintenance-only/no
+fragments). Malformed frontmatter, unsupported products/bumps and missing
+user-visible text fail validation. Reading does not create `changes/` when it
+is absent and does not consume fragments or change versions.
+
 The frontmatter targets the sole `workdeck` product. This is not an npm
 workspace or a claim that individual internal Rust crates are separately
 published. Fragment creation does not commit, push, bump versions, consume
