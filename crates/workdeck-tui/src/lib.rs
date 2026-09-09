@@ -1202,6 +1202,7 @@ pub struct ReviewApp {
     filter_cursor: usize,
     filter_scroll: Cell<usize>,
     review_width: Cell<u16>,
+    terminal_width: Cell<u16>,
     review_height: Cell<u16>,
     review_bounds: Cell<Option<Rect>>,
     review_geometry_published: Cell<bool>,
@@ -1498,6 +1499,7 @@ impl ReviewApp {
             filter_cursor: 0,
             filter_scroll: Cell::new(0),
             review_width: Cell::new(120),
+            terminal_width: Cell::new(120),
             review_height: Cell::new(20),
             review_bounds: Cell::new(None),
             review_geometry_published: Cell::new(false),
@@ -2393,13 +2395,19 @@ impl ReviewApp {
         self.show_menu_bar
     }
 
-    /// Review content begins after the optional pane border and pinned file header.
+    fn review_layout_width(&self) -> u16 {
+        // Hunk App resolves responsive layout before subtracting shell/pane widths.
+        // Row wrapping independently uses review_width (diff-content width).
+        self.terminal_width.get()
+    }
+
+    /// Review content follows the optional border/padding and pinned file header.
     fn review_content_top_offset(&self) -> u16 {
-        1 + u16::from(self.show_menu_bar)
+        1 + 2 * u16::from(self.show_menu_bar)
     }
 
     fn review_reserved_rows(&self) -> u16 {
-        self.review_content_top_offset() + u16::from(!self.options.pager)
+        self.review_content_top_offset() + u16::from(self.show_menu_bar || !self.options.pager)
     }
 
     #[must_use]
@@ -3614,7 +3622,7 @@ impl ReviewApp {
                 let responsive_shows_sidebar = !self.review_geometry_published.get()
                     || self.with_state(|state| {
                         state
-                            .responsive_layout(self.review_width.get())
+                            .responsive_layout(self.review_layout_width())
                             .show_sidebar
                     });
                 let currently_visible = self.options.sidebar
@@ -3698,7 +3706,7 @@ impl ReviewApp {
     /// Rebuild Hunk's selected split-row painter from the canonical Rust row plan.
     fn current_extension_line_paint(&self) -> Option<ExtensionCurrentLinePaint> {
         if self.options.cursor_line == CursorLineMode::Off
-            || self.with_state(|state| state.resolved_layout(self.review_width.get()))
+            || self.with_state(|state| state.resolved_layout(self.review_layout_width()))
                 != LayoutMode::Split
         {
             return None;
@@ -5214,7 +5222,7 @@ impl ReviewApp {
                     .map(project_extension_diff_file),
                 selection.hunk_index,
                 state.layout(),
-                state.resolved_layout(self.review_width.get()),
+                state.resolved_layout(self.review_layout_width()),
             )
         });
         let selected_file_id = selected_file.as_ref().map(|file| file.id.clone());
@@ -7443,7 +7451,7 @@ impl ReviewApp {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let width = self.review_width.get();
-        let layout = state.resolved_layout(width);
+        let layout = state.resolved_layout(self.review_layout_width());
         let file_view_layouts = self.prepare_extension_file_view_layouts(state.changeset(), width);
         let component_expanded = self
             .extension_pane_runtime
@@ -7497,7 +7505,7 @@ impl ReviewApp {
             .state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let layout = state.resolved_layout(self.review_width.get());
+        let layout = state.resolved_layout(self.review_layout_width());
         let visible_files = state
             .changeset()
             .files
@@ -8047,7 +8055,7 @@ impl ReviewApp {
             resolve_review_reveal_note_id(&candidates)
         });
         let width = self.review_width.get();
-        let layout = state.resolved_layout(width);
+        let layout = state.resolved_layout(self.review_layout_width());
         let file_view_layouts = self.prepare_extension_file_view_layouts(state.changeset(), width);
         let component_expanded = self
             .extension_pane_runtime
@@ -8556,6 +8564,11 @@ impl ReviewApp {
         let Some(area) = self.review_bounds.get().filter(|area| {
             rect_contains(*area, event.column, event.row)
                 && event.row >= area.y.saturating_add(self.review_content_top_offset())
+                && event.row
+                    < area
+                        .y
+                        .saturating_add(self.review_content_top_offset())
+                        .saturating_add(area.height.saturating_sub(self.review_reserved_rows()))
         }) else {
             self.saved_note_hover = None;
             self.clear_note_hover();
@@ -9253,6 +9266,7 @@ impl ReviewApp {
                     &state,
                     &self.options,
                     self.review_width.get(),
+                    state.resolved_layout(self.review_layout_width()),
                     &self.filter,
                     self.extension_registry_generation,
                 )
@@ -10131,6 +10145,7 @@ fn apply_reloaded_changeset(
 }
 
 pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+    app.terminal_width.set(area.width);
     let background = if app.options.transparent_background {
         Color::Reset
     } else {
@@ -10140,18 +10155,25 @@ pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .style(Style::default().bg(background))
         .render(area, buffer);
     let menu_bar_visible = app.show_menu_bar;
-    let footer_visible = !app.options.pager;
+    let footer_visible = app.focus == Focus::Filter
+        || !app.filter.is_empty()
+        || app.active_startup_notice().is_some()
+        || app.status.as_ref().is_some_and(|status| !status.is_empty())
+        || app.active_keyboard_mode_status_hint().is_some();
+    let toast_visible = app.active_extension_notification().is_some();
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(u16::from(menu_bar_visible)),
             Constraint::Min(1),
+            Constraint::Length(u16::from(toast_visible)),
             Constraint::Length(u16::from(footer_visible)),
         ])
         .split(area);
     render_app_menu_bar(outer[0], buffer, app);
     render_body(outer[1], buffer, app);
-    render_footer(outer[2], buffer, app);
+    render_extension_toast(outer[2], buffer, app);
+    render_footer(outer[3], buffer, app);
     render_app_menu_dropdown(area, buffer, app);
     if app.show_agent_skill {
         let map = render_agent_skill_dialog(
@@ -11027,7 +11049,9 @@ fn render_body(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             state.generation(),
             selection,
             !files.is_empty(),
-            state.responsive_layout(area.width).show_sidebar,
+            state
+                .responsive_layout(app.review_layout_width())
+                .show_sidebar,
             visible_files,
             files
                 .get(selection.file_index)
@@ -12129,12 +12153,14 @@ fn paint_cursor_line(line: &mut Line<'_>, mode: CursorLineMode, theme: &AppTheme
 }
 
 fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
+    // Hunk's review pane reserves two columns outside diff-content geometry.
+    let content_width = area.width.saturating_sub(2);
     app.review_gap_hits
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .clear();
     let render_now = Instant::now();
-    app.review_width.set(area.width);
+    app.review_width.set(content_width);
     app.review_height.set(area.height);
     app.review_bounds.set(Some(area));
     app.review_geometry_published.set(true);
@@ -12142,8 +12168,9 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .state
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let layout = state.resolved_layout(area.width);
-    let file_view_layouts = app.prepare_extension_file_view_layouts(state.changeset(), area.width);
+    let layout = state.resolved_layout(app.review_layout_width());
+    let file_view_layouts =
+        app.prepare_extension_file_view_layouts(state.changeset(), content_width);
     let component_expanded = app
         .extension_pane_runtime
         .lock()
@@ -12184,7 +12211,8 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 cached.matches(
                     &state,
                     &app.options,
-                    area.width,
+                    content_width,
+                    layout,
                     &app.filter,
                     app.extension_registry_generation,
                 )
@@ -12205,7 +12233,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 state.selection(),
                 layout,
                 &geometry_options,
-                area.width,
+                content_width,
                 &mut highlights,
                 &app.expanded_gaps,
                 &line_highlights,
@@ -12250,7 +12278,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 .unwrap_or_else(|error| error.into_inner()) = Some(PlainReviewHeight {
                 document: state.changeset_snapshot(),
                 layout,
-                width: area.width,
+                width: content_width,
                 filter: app.filter.clone(),
                 file_gap: app.options.file_gap,
                 hunk_gap: app.options.hunk_gap,
@@ -12306,7 +12334,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         state.selection(),
         layout,
         &app.options,
-        area.width,
+        content_width,
         &mut highlights,
         &app.expanded_gaps,
         &line_highlights,
@@ -12320,7 +12348,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     if let Some(composer) = &app.note_composer {
         rows.insert_composer(
             composer,
-            area.width,
+            content_width,
             layout,
             &app.options.theme,
             state.changeset().files.get(composer.target.file_index),
@@ -12395,7 +12423,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             file,
             layout,
             &app.options.theme,
-            area.width,
+            content_width,
             true,
         );
         for (offset, line) in painted
@@ -12474,9 +12502,12 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             .push(SidebarFileHit {
                 bounds: Rect::new(
                     area.x,
-                    area.y.saturating_add(u16::from(app.show_menu_bar)),
+                    area.y
+                        .saturating_add(app.review_content_top_offset().saturating_sub(1)),
                     area.width,
-                    area.height.saturating_sub(1).min(1),
+                    area.height
+                        .saturating_sub(app.review_content_top_offset().saturating_sub(1))
+                        .min(1),
                 ),
                 file_index,
             });
@@ -12540,9 +12571,9 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     }
     let block = if app.show_menu_bar {
         Block::default()
-            .title(" Review ")
             .borders(Borders::TOP)
             .border_style(border_style)
+            .padding(ratatui::widgets::Padding::new(0, 0, 1, 1))
     } else {
         Block::default()
     };
@@ -12794,12 +12825,13 @@ impl PlainReviewHeight {
         state: &ReviewState,
         options: &ReviewOptions,
         width: u16,
+        layout: LayoutMode,
         filter: &str,
         registry_generation: u64,
     ) -> bool {
         // The retained Arc prevents address reuse; document contents cannot mutate.
         std::ptr::eq(self.document.as_ref(), state.changeset())
-            && self.layout == state.resolved_layout(width)
+            && self.layout == layout
             && self.width == width
             && self.filter == filter
             && self.file_gap == options.file_gap
@@ -15348,11 +15380,6 @@ fn expand_tabs(value: &str, tab_width: u16, column: &mut usize) -> String {
 }
 
 fn render_footer(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
-    if app.active_startup_notice().is_none() && app.active_extension_notification().is_some() {
-        render_extension_toast(area, buffer, app);
-        render_active_keyboard_mode_badge(area, buffer, app);
-        return;
-    }
     let background = ratatui_theme_color(&app.options.theme.panel_alt);
     Block::default()
         .style(
@@ -15508,11 +15535,11 @@ fn render_note_composer(_area: Rect, _buffer: &mut Buffer, app: &ReviewApp) {
     if top < scroll || top >= scroll.saturating_add(viewport) {
         return;
     }
-    let layout = app.with_state(|state| state.resolved_layout(area.width));
+    let layout = app.with_state(|state| state.resolved_layout(app.review_layout_width()));
     let painted = app.with_state(|state| {
         paint_note_composer(
             composer,
-            area.width,
+            app.review_width.get(),
             layout,
             &app.options.theme,
             state.changeset().files.get(composer.target.file_index),
@@ -15735,15 +15762,40 @@ mod tests {
             let row = (buffer.area.x..buffer.area.right())
                 .map(|x| buffer.cell((x, y)).unwrap().symbol())
                 .collect::<String>();
-            if row.contains(row_needle)
+            if let Some(start) = row.find(row_needle)
                 && let Some(cell) = (buffer.area.x..buffer.area.right())
                     .map(|x| buffer.cell((x, y)).unwrap())
-                    .find(|cell| cell.symbol() == symbol)
+                    .scan(0, |offset, cell| {
+                        let cell_start = *offset;
+                        *offset += cell.symbol().len();
+                        Some((cell_start, cell))
+                    })
+                    .find_map(|(offset, cell)| {
+                        (offset >= start
+                            && offset < start + row_needle.len()
+                            && cell.symbol() == symbol)
+                            .then_some(cell)
+                    })
             {
                 return cell.bg;
             }
         }
         panic!("no rendered {symbol:?} cell appeared on the {row_needle:?} row");
+    }
+
+    #[test]
+    fn background_lookup_samples_the_matched_side_of_a_split_row() {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 40, 1));
+        buffer.set_string(0, 0, "bravo = 1", Style::default().bg(Color::Red));
+        buffer.set_string(20, 0, "bravo = 2", Style::default().bg(Color::Blue));
+        assert_eq!(
+            background_for_symbol_on_text_row(&buffer, "bravo = 2", "b"),
+            Color::Blue
+        );
+        assert_eq!(
+            background_for_symbol_on_text_row(&buffer, "bravo = 1", "b"),
+            Color::Red
+        );
     }
 
     fn cursor_line_changeset() -> Changeset {
@@ -17452,7 +17504,7 @@ mod tests {
         let theme = resolve_theme(Some("github-light-default"), None, &[]);
         let backend = TestBackend::new(100, 20);
         let mut terminal = Terminal::new(backend).unwrap();
-        let app = ReviewApp::new(
+        let mut app = ReviewApp::new(
             changeset(),
             ReviewOptions {
                 layout: LayoutMode::Stack,
@@ -17478,12 +17530,18 @@ mod tests {
         assert_eq!(new[0].bg, ratatui_theme_color(&theme.added_content_bg));
         assert_eq!(
             buffer.cell((99, 19)).unwrap().bg,
-            ratatui_theme_color(&theme.panel_alt)
+            ratatui_theme_color(&theme.background)
         );
         let workdeck = cells_matching_text(buffer, "Workdeck");
         assert_eq!(workdeck.len(), 1);
         assert_eq!(workdeck[0].fg, ratatui_theme_color(&theme.background));
         assert_eq!(workdeck[0].bg, ratatui_theme_color(&theme.accent));
+        app.set_status("Light theme status");
+        rendered_review_frame(&mut terminal, &app);
+        assert_eq!(
+            terminal.backend().buffer().cell((99, 19)).unwrap().bg,
+            ratatui_theme_color(&theme.panel_alt)
+        );
     }
 
     #[test]
@@ -18509,12 +18567,12 @@ mod tests {
         assert_ne!(
             background_for_symbol_on_text_row(
                 marked.backend().buffer(),
-                "export const message",
+                "export const message = \"日",
                 "日",
             ),
             background_for_symbol_on_text_row(
                 plain.backend().buffer(),
-                "export const message",
+                "export const message = \"日",
                 "日",
             )
         );
@@ -21504,7 +21562,7 @@ mod tests {
                 .panes
                 .iter()
                 .any(|pane| pane.key == WORKDECK_FILES_PANE_KEY);
-            let layout = app.with_state(|state| state.resolved_layout(app.review_width.get()));
+            let layout = app.with_state(|state| state.resolved_layout(app.review_layout_width()));
             (frame, files_visible, layout)
         };
         let split_rails = |frame: &str| {
@@ -23494,6 +23552,78 @@ mod tests {
     }
 
     #[test]
+    fn auto_layout_geometry_and_height_cache_use_terminal_width_at_split_boundary() {
+        for (width, sidebar) in [
+            (119, false),
+            (120, false),
+            (121, false),
+            (122, false),
+            (160, true),
+            (180, true),
+            (220, true),
+        ] {
+            let app = ReviewApp::new(
+                navigation_changeset(vec![(
+                    "boundary.rs".into(),
+                    "old\n".repeat(3),
+                    "new\n".repeat(3),
+                )]),
+                ReviewOptions {
+                    layout: LayoutMode::Auto,
+                    wrap_lines: false,
+                    sidebar,
+                    ..Default::default()
+                },
+            );
+            // The shell adds one column of padding on each side of the pane.
+            let mut terminal = Terminal::new(TestBackend::new(width, 20)).unwrap();
+            rendered_review_frame(&mut terminal, &app);
+            assert_eq!(app.review_layout_width(), width);
+            let pane_width = app.review_bounds.get().unwrap().width;
+            if !sidebar {
+                assert_eq!(pane_width, width - 2);
+            }
+            assert_eq!(app.review_width.get(), pane_width - 2);
+            let expected_layout = if width >= 120 {
+                LayoutMode::Split
+            } else {
+                LayoutMode::Stack
+            };
+            assert_eq!(
+                app.with_state(|state| state.resolved_layout(app.review_layout_width())),
+                expected_layout
+            );
+            let cache = app.review_plain_height.lock().unwrap();
+            if expected_layout == LayoutMode::Stack {
+                assert!(cache.is_none(), "stack streams do not use the plain cache");
+                drop(cache);
+                assert_eq!(
+                    app.current_review_content_height(),
+                    app.current_review_geometry_rows().lines.len()
+                );
+                continue;
+            }
+            let cached = cache.as_ref().expect("plain review caches its geometry");
+            assert_eq!(cached.layout, expected_layout);
+            assert_eq!(cached.width, pane_width - 2);
+            assert_eq!(
+                cached.height,
+                app.current_review_geometry_rows().lines.len()
+            );
+            app.with_state(|state| {
+                assert!(cached.matches(
+                    state,
+                    &app.options,
+                    app.review_width.get(),
+                    state.resolved_layout(app.review_layout_width()),
+                    &app.filter,
+                    app.extension_registry_generation,
+                ));
+            });
+        }
+    }
+
+    #[test]
     fn plain_height_cache_invalidates_settings_and_equal_generation_replacement() {
         let review = navigation_changeset(vec![
             ("a.rs".into(), "old\n".repeat(3), "new\n".repeat(3)),
@@ -23545,6 +23675,7 @@ mod tests {
                             state,
                             &app.options,
                             app.review_width.get(),
+                            state.resolved_layout(app.review_layout_width()),
                             &app.filter,
                             app.extension_registry_generation
                         )
@@ -25285,7 +25416,7 @@ mod tests {
     }
 
     #[test]
-    fn status_bar_prioritizes_startup_notices_then_reveals_buffered_extension_output() {
+    fn status_bar_and_extension_toast_have_independent_conditional_rows() {
         let hub = ExtensionNotificationHub::new();
         hub.notify("factory ready", ExtensionNotifyType::Info);
         let mut app = ReviewApp::new(
@@ -25300,27 +25431,43 @@ mod tests {
             },
         );
         app.set_status("ordinary status");
-        let area = Rect::new(0, 0, 60, 1);
-        let mut startup = Buffer::empty(area);
-        render_footer(area, &mut startup, &app);
-        let startup_text = startup
-            .content()
-            .iter()
-            .map(|cell| cell.symbol())
-            .collect::<String>();
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        let startup_text = rendered_review_frame(&mut terminal, &app);
         assert!(startup_text.contains("Extension broken failed to load • boom"));
-        assert!(!startup_text.contains("factory ready"));
+        assert!(
+            startup_text
+                .lines()
+                .nth(10)
+                .unwrap()
+                .contains("ext factory ready")
+        );
+        assert!(
+            startup_text
+                .lines()
+                .nth(11)
+                .unwrap()
+                .contains("Extension broken")
+        );
+        assert!(!startup_text.contains("ordinary status"));
+        assert_eq!(app.review_height.get(), 9);
 
         app.tick_extension_notifications(Instant::now() + Duration::from_secs(8));
-        let mut notification = Buffer::empty(area);
-        render_footer(area, &mut notification, &app);
-        let notification_text = notification
-            .content()
-            .iter()
-            .map(|cell| cell.symbol())
-            .collect::<String>();
-        assert!(notification_text.contains("ext factory ready"));
-        assert!(!notification_text.contains("ordinary status"));
+        let notification_text = rendered_review_frame(&mut terminal, &app);
+        assert!(
+            notification_text
+                .lines()
+                .nth(10)
+                .unwrap()
+                .contains("ext factory ready")
+        );
+        assert!(
+            notification_text
+                .lines()
+                .nth(11)
+                .unwrap()
+                .contains("ordinary status")
+        );
+        assert!(!notification_text.contains("Extension broken"));
     }
 
     #[test]
@@ -25592,6 +25739,165 @@ mod tests {
                 .map(|notification| notification.message),
             Some("second".into())
         );
+    }
+
+    #[test]
+    fn review_top_chrome_padding_matches_pinned_header_hits_and_reserved_rows() {
+        for pager in [false, true] {
+            for show_menu_bar in [false, true] {
+                let mut app = ReviewApp::new(
+                    navigation_changeset(vec![(
+                        "chrome.ts".into(),
+                        "old\n".repeat(20),
+                        "new\n".repeat(20),
+                    )]),
+                    ReviewOptions {
+                        pager,
+                        show_menu_bar,
+                        layout: LayoutMode::Split,
+                        highlight: false,
+                        sidebar: false,
+                        ..Default::default()
+                    },
+                );
+                // Exercise explicit menu visibility even if pager defaults hide it.
+                app.show_menu_bar = show_menu_bar;
+                let area = Rect::new(0, 0, 100, 10);
+                let mut buffer = Buffer::empty(area);
+                render_review(area, &mut buffer, &app);
+                let header_y = if show_menu_bar { 2 } else { 0 };
+                let header_row = (0..area.width)
+                    .map(|x| buffer.cell((x, header_y)).unwrap().symbol())
+                    .collect::<String>();
+                assert!(header_row.contains("chrome.ts"), "{header_row}");
+                assert_eq!(app.review_content_top_offset(), header_y + 1);
+                assert_eq!(
+                    app.review_reserved_rows(),
+                    header_y + 1 + u16::from(show_menu_bar || !pager)
+                );
+                assert!(
+                    app.review_file_header_hits
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .any(|hit| {
+                            hit.file_index == 0
+                                && hit.bounds.y == header_y
+                                && hit.bounds.height == 1
+                        })
+                );
+                if show_menu_bar {
+                    assert!(
+                        (0..area.width)
+                            .all(|x| { buffer.cell((x, 1)).unwrap().symbol().trim().is_empty() })
+                    );
+                }
+                app.handle_note_mouse(
+                    &MouseEvent {
+                        kind: MouseEventKind::Moved,
+                        column: 75,
+                        row: area.bottom() - 1,
+                        modifiers: KeyModifiers::NONE,
+                    },
+                    Instant::now(),
+                );
+                assert_eq!(
+                    app.note_hover.is_some(),
+                    pager && !show_menu_bar,
+                    "bottom padding must not target an offscreen code row"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn wrap_shortcut_reveals_long_line_in_regular_pager_and_repeated_toggle() {
+        for (pager, width, height, repeat) in [
+            (false, 140, 20, false),
+            (true, 140, 20, false),
+            (false, 102, 24, true),
+        ] {
+            let mut review = navigation_changeset(vec![(
+                "wrap.ts".into(),
+                "export const message = 'short';\n".into(),
+                "export const message = 'this is a very long wrapped line for app interaction coverage';\n".into(),
+            )]);
+            review.files[0].agent = Some(AgentFileContext {
+                path: "wrap.ts".into(),
+                summary: Some("wrap.ts note".into()),
+                annotations: vec![
+                    serde_json::from_value(serde_json::json!({
+                        "new_range": {"start": 2, "end": 2},
+                        "summary": "Annotation for wrap.ts",
+                        "rationale": "Why wrap.ts changed"
+                    }))
+                    .unwrap(),
+                ],
+            });
+            review.refresh_review_identities();
+            assert_fixture_annotation_range(&review, 2);
+            let mut app = ReviewApp::new(
+                review,
+                ReviewOptions {
+                    pager,
+                    layout: LayoutMode::Split,
+                    wrap_lines: false,
+                    ..Default::default()
+                },
+            );
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            let initial = rendered_review_frame(&mut terminal, &app);
+            assert!(!initial.contains(if repeat {
+                "coverage';"
+            } else {
+                "interaction coverage"
+            }));
+            for enabled in if repeat {
+                vec![true, false, true]
+            } else {
+                vec![true]
+            } {
+                app.handle_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+                let frame = rendered_review_frame(&mut terminal, &app);
+                assert_eq!(app.options.wrap_lines, enabled);
+                if !enabled {
+                    assert!(!frame.contains("coverage';"));
+                } else if repeat {
+                    let lines = frame.lines().collect::<Vec<_>>();
+                    let oracle: serde_json::Value = serde_json::from_str(include_str!(
+                        "../../../port/hunk/oracles/app-host-wrap-frames.json"
+                    ))
+                    .unwrap();
+                    for run in oracle["runs"].as_array().unwrap() {
+                        let source = run["frame"].as_str().unwrap().lines().collect::<Vec<_>>();
+                        // Compare the complete review pane, including blank cells.
+                        // The title/menu row has separate Workdeck branding tests.
+                        assert_eq!(
+                            lines[1..],
+                            source[1..],
+                            "pane differs from {}",
+                            run["commit"]
+                        );
+                    }
+                    assert!(
+                        lines[2].trim().is_empty(),
+                        "missing source top padding: {frame}"
+                    );
+                    assert!(lines[3].contains("wrap.ts"));
+                    assert!(lines[4].contains("@@ -1,1 +1,1 @@"));
+                    assert!(lines[5].contains("export const message = 'short';"));
+                    assert!(frame.contains("wrapped line"));
+                    assert!(
+                        frame.contains("age';"),
+                        "missing wrapped suffix at {width}x{height}: {frame}"
+                    );
+                } else {
+                    for fragment in ["this is a very", "long wrapped line", "coverage"] {
+                        assert!(frame.contains(fragment), "missing {fragment}: {frame}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]

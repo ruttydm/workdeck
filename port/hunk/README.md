@@ -1,5 +1,37 @@
 # Hunk semantic-port ledger
 
+## Narrow wrap-toggle geometry: corrected and mapped
+
+The three source wrap-toggle tests (bytes 36,159–39,143, lines 1177–1278 of
+`AppHost.interactions.test.tsx`) now map to a Rust matrix covering regular and
+pager wrapping plus repeated on/off/on toggles. Both pinned source runs pass
+three tests and fourteen assertions. The [failure-to-fix evidence](oracles/app-host-wrap-toggle.json)
+retains the original native suffix failure (`e';` instead of `age';`).
+
+The fix separates terminal width for automatic layout from pane-minus-two width
+for row geometry, wrapping, notes and extension file views. Tests cover terminal
+widths 119–122 and sidebar-visible widths 160, 180 and 220. The cell-sampling test
+helper now restricts character lookup to the matched text, so split-row tests
+cannot accidentally inspect the old side when targeting new-side content.
+
+Pinned `DiffPane.tsx:2669–2680` supplies a top border and one padding row before
+the pinned header. Native rendering now matches that geometry, including header
+hits, copy/reveal offsets, pager/menu variants and rejection of bottom-padding
+note hover. The source-absent border title is removed. Pinned `App.tsx:424–437`
+also reserves independent status/toast rows only when needed. Replacing the
+native unconditional empty footer resolves eight viewport/navigation failures
+exposed by the padding correction. Root-render tests retain startup-notice
+precedence within the status row while checking a separate extension-toast row.
+
+The combined implementation passes 1,156 TUI library tests (7.87s), formatting
+and warnings-denied TUI all-target Clippy. A stronger pane comparison then passes
+in 0.79s: every character in rows 1–23 at 102×24, including blanks, matches both
+[frozen Hunk captures](oracles/app-host-wrap-frames.json) on both wrapped frames.
+The menu/title row and style/color data are outside that character-pane check.
+This maps only the three complete source tests, not the larger App/DiffPane
+implementation, all terminal sizes, or the complete product. The rest of their
+source intervals and the release/performance gates remain open.
+
 ## Theme event preview leak: corrected and mapped
 
 The main-only theme-event interaction test exposed an integration gap: production

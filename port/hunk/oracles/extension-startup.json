@@ -62,6 +62,6 @@
   "rust_commands": [
     "cargo test -p workdeck-extension-host startup",
     "cargo test -p workdeck-examples --test startup_lifecycle",
-    "cargo test -p workdeck-tui status_bar_prioritizes_startup_notices"
+    "cargo test -p workdeck-tui status_bar_and_extension_toast_have_independent_conditional_rows"
   ]
 }

@@ -1,0 +1,76 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTests": [
+    "keyboard shortcut can wrap long lines in the app",
+    "pager mode keyboard shortcut can wrap long lines",
+    "keyboard shortcut can toggle line wrapping on, off, and on again"
+  ],
+  "baselineInterval": {
+    "byteStart": 36159,
+    "byteEnd": 39143,
+    "lineStart": 1177,
+    "lineEnd": 1278,
+    "sha256": "6bd9e1fcd8d59179d42b0ede3a8c3c86af1c7dcc298630c64b3b1046f03deed6"
+  },
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > keyboard shortcut can wrap long lines in the app [187.07ms]\n(pass) App interactions > pager mode keyboard shortcut can wrap long lines [24.99ms]\n(pass) App interactions > keyboard shortcut can toggle line wrapping on, off, and on again [285.17ms]\n\n 3 pass\n 73 filtered out\n 0 fail\n 14 expect() calls\nRan 3 tests across 1 file. [1073.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > keyboard shortcut can wrap long lines in the app [159.93ms]\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > pager mode keyboard shortcut can wrap long lines [18.57ms]\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > keyboard shortcut can toggle line wrapping on, off, and on again [283.93ms]\n\n 3 pass\n 71 filtered out\n 0 fail\n 14 expect() calls\nRan 3 tests across 1 file. [876.00ms]\n"
+    }
+  ],
+  "initialNative": {
+    "test": "tests::wrap_shortcut_reveals_long_line_in_regular_pager_and_repeated_toggle",
+    "status": "failing-unmapped",
+    "exitCode": 101,
+    "seconds": 0.78,
+    "actualAddedFragments": [
+      "export const message = 'this is a very lon",
+      "g wrapped line for app interaction coverag",
+      "e';"
+    ],
+    "missingSourceAssertedFragment": "age';"
+  },
+  "widthFixValidation": {
+    "focusedPassed": 1,
+    "focusedSeconds": 0.80,
+    "fullLibraryPassed": 1153,
+    "fullLibraryFailed": 0,
+    "fullLibrarySeconds": 63.49
+  },
+  "layoutAudit": {
+    "source": "src/ui/App.tsx:420-421 resolves layout using terminal.width; lines 644-649 reserve two columns from the review pane for content",
+    "native": "Shell publishes terminal width independently from diff-content width; painter, geometry, event facts, copy, reveal, notes and cache use the terminal-based resolved layout",
+    "test": "auto_layout_geometry_and_height_cache_use_terminal_width_at_split_boundary",
+    "terminalWidths": [119, 120, 121, 122, 160, 180, 220],
+    "validation": "Terminal-width and corrected test-helper suite passed 1155 tests with zero failures in 303.95 seconds after the host startup delay. This binary predates the vertical-padding and bottom-hover changes; it does not validate the final combined patch. Earlier failure runs remain described in the README."
+  },
+  "verticalGeometryWork": {
+    "source": "src/ui/components/panes/DiffPane.tsx:2669-2680 combines the top border with paddingY: 1 when top chrome is visible",
+    "implementation": "Add top/bottom padding, remove source-absent border title, move pinned-header hits and content offsets, and exclude bottom padding from note hover",
+    "tests": [
+      "review_top_chrome_padding_matches_pinned_header_hits_and_reserved_rows",
+      "wrap_shortcut_reveals_long_line_in_regular_pager_and_repeated_toggle"
+    ],
+    "validation": "Combined geometry implementation passed 1156 TUI library tests with zero failures in 7.96 seconds; stricter frozen-pane comparison then passed separately in 0.79 seconds, followed by the complete 1156-test suite in 7.87 seconds"
+  },
+  "statusBarGeometry": {
+    "source": "src/ui/App.tsx:424-437 and 1395-1410 allocate independent conditional status and toast rows",
+    "native": "No empty permanent footer; status appears for filter focus/content, notices or mode hints, and extension toast has a separate row",
+    "regression": "status_bar_and_extension_toast_have_independent_conditional_rows"
+  },
+  "native": {
+    "test": "tests::wrap_shortcut_reveals_long_line_in_regular_pager_and_repeated_toggle",
+    "status": "passed",
+    "passed": 1,
+    "failed": 0,
+    "seconds": 0.79,
+    "paneComparison": "Every character in rows 1-23 at 102x24 matches both frozen source captures on the first and repeated wrapped frames, including blank cells; row 0 is excluded from this pane comparison"
+  },
+  "scope": "Maps exactly the three source tests in bytes 36159-39143, including regular/pager wrapping and on/off/on semantics. Earlier failures are retained. The complete captured review pane matches at this fixture size; no style/color, menu/title-row, all-size or complete application parity is claimed. App.tsx and DiffPane.tsx remain incomplete."
+}
