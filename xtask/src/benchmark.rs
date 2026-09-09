@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 mod bootstrap;
 mod changeset_parse;
 mod fixtures;
+mod geometry_memory;
 mod highlight_prefetch;
 mod interaction_latency;
 mod large_stream;
@@ -672,6 +673,9 @@ fn aggregate(source: &str, name: &str, samples: Vec<f64>) -> Metric {
 
 pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     let command = args.next();
+    if command.as_deref() == Some("geometry-memory") {
+        return geometry_memory::run(args);
+    }
     if command.as_deref() == Some("interaction-diagnostic") {
         return interaction_latency::run(args);
     }

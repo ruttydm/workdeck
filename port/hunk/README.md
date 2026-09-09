@@ -386,6 +386,23 @@ seeds. The expanded test passes, as do TUI all-target Clippy with warnings denie
 formatting and whitespace checks. This test-only increment is not another full TUI
 suite run and does not change the source ledger or performance evidence.
 
+## Geometry-memory workload (partial tooling port)
+
+`cargo xtask benchmark geometry-memory` now runs the pinned default 180-file,
+120-line, width-240 geometry workload. It measures fixture construction, retains
+all file geometries, samples memory before and after lazy row-plan materialization,
+and then separately times first-copy materialization for the 50,000-line giant
+fixture. The giant fixture is constructed only after the ordinary memory samples.
+Outputs include all three native RSS/malloc snapshots and row counts; values are
+not relabeled as JavaScript heap size, extra memory or object counts, and no GC is
+claimed. The current native memory backend supports macOS only.
+
+A reduced-fixture executable unit test verifies lazy plans, materialized row counts
+and the giant-copy path. That test and xtask all-target Clippy with warnings denied
+pass. Source CLI flags/help, source-oracle comparison and cross-runtime memory
+acceptance remain incomplete. The command currently rejects arguments explicitly;
+the full `benchmarks/geometry-memory.ts` ledger record remains unmapped.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation
