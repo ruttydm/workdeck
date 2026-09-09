@@ -25811,6 +25811,71 @@ mod tests {
     }
 
     #[test]
+    fn horizontal_arrow_shortcuts_reveal_and_restore_the_pinned_long_line() {
+        for shifted in [false, true] {
+            let mut review = navigation_changeset(vec![(
+                "wrap.ts".into(),
+                "export const message = 'short';\n".into(),
+                "export const message = 'this is a very long wrapped line for app interaction coverage';\n".into(),
+            )]);
+            review.files[0].agent = Some(AgentFileContext {
+                path: "wrap.ts".into(),
+                summary: Some("wrap.ts note".into()),
+                annotations: vec![
+                    serde_json::from_value(serde_json::json!({
+                        "new_range": {"start": 2, "end": 2},
+                        "summary": "Annotation for wrap.ts",
+                        "rationale": "Why wrap.ts changed"
+                    }))
+                    .unwrap(),
+                ],
+            });
+            review.refresh_review_identities();
+            assert_fixture_annotation_range(&review, 2);
+            let mut app = ReviewApp::new(
+                review,
+                ReviewOptions {
+                    layout: LayoutMode::Split,
+                    wrap_lines: false,
+                    ..Default::default()
+                },
+            );
+            let mut terminal = Terminal::new(TestBackend::new(92, 20)).unwrap();
+            let mut frame = rendered_review_frame(&mut terminal, &app);
+            assert!(frame.contains("this is a very"), "{frame}");
+            assert!(!frame.contains("interaction coverage"), "{frame}");
+            let modifiers = if shifted {
+                KeyModifiers::SHIFT
+            } else {
+                KeyModifiers::NONE
+            };
+            for _ in 0..if shifted { 8 } else { 64 } {
+                app.handle_key(KeyEvent::new(KeyCode::Right, modifiers));
+                frame = rendered_review_frame(&mut terminal, &app);
+                if shifted && frame.contains("interaction coverage") {
+                    break;
+                }
+            }
+            assert!(
+                frame.contains("interaction coverage"),
+                "shifted={shifted}: {frame}"
+            );
+            assert!(!frame.contains("this is a very"), "{frame}");
+            for _ in 0..if shifted { 8 } else { 64 } {
+                app.handle_key(KeyEvent::new(KeyCode::Left, modifiers));
+                frame = rendered_review_frame(&mut terminal, &app);
+                if shifted && frame.contains("this is a very") {
+                    break;
+                }
+            }
+            assert!(frame.contains("this is a very"), "{frame}");
+            if shifted {
+                assert!(!frame.contains("interaction coverage"), "{frame}");
+            }
+        }
+    }
+
+    #[test]
     fn wrap_shortcut_reveals_long_line_in_regular_pager_and_repeated_toggle() {
         for (pager, width, height, repeat) in [
             (false, 140, 20, false),

@@ -1,5 +1,22 @@
 # Hunk semantic-port ledger
 
+## Horizontal arrow scenarios and remaining extent-clamp gap
+
+The two arrow-scroll tests in `AppHost.interactions.test.tsx`, bytes
+39,143–41,642, now map to a 92×20 Rust matrix with the exact long-line fixture,
+64 ordinary steps per direction and up to eight Shift steps with the source's
+early-exit conditions. Both pinned source runs pass two tests/eleven assertions;
+the Rust matrix passes in 1.03s. See [oracle evidence](oracles/app-host-horizontal-arrows.json).
+
+These scenarios do not test the full horizontal extent. Inspection of pinned
+`App.tsx:780–812` found an open runtime gap: Hunk clamps the offset to the widest
+filtered code line minus code viewport width, and reclamps when that extent
+changes. Native keyboard/wheel handlers currently only saturate at zero.
+The existing Rust `max_file_code_line_width` and `resolve_code_viewport_width`
+helpers provide the calculation primitives, but app-level integration and
+boundary/reload/filter/resize regressions remain necessary. `App.tsx` stays
+unmapped; the two passing interaction scenarios do not waive that missing code.
+
 ## Narrow wrap-toggle geometry: corrected and mapped
 
 The three source wrap-toggle tests (bytes 36,159–39,143, lines 1177–1278 of
