@@ -12,6 +12,7 @@ mod changeset_parse;
 mod fixtures;
 mod geometry_memory;
 mod highlight_prefetch;
+mod historical;
 mod interaction_latency;
 mod large_stream;
 mod large_stream_profile;
@@ -673,6 +674,9 @@ fn aggregate(source: &str, name: &str, samples: Vec<f64>) -> Metric {
 
 pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     let command = args.next();
+    if command.as_deref() == Some("historical-release") {
+        return historical::run(args);
+    }
     if command.as_deref() == Some("geometry-memory") {
         return geometry_memory::run(args);
     }

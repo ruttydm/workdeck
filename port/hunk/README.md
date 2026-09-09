@@ -1,5 +1,15 @@
 # Hunk semantic-port ledger
 
+## Historical release report archive
+
+All 22 pinned `benchmarks/release/bench-*.json` reports now have lossless
+Rust-generated archive mappings. `cargo xtask benchmark historical-release --check`
+and the executable regression verify exact source bytes. See
+[archive documentation](../../docs/historical-release-benchmarks.md).
+The strict audit retains 1,257 baseline files and 1,326 records, with 268 records
+still unmapped and 11 cached upstream commits pending. Historical Hunk numbers
+do not establish Workdeck performance acceptance.
+
 ## Native cancellation metadata (partial hook parity)
 
 Native `$/cancelRequest` notifications now distinguish settled requests, explicit
