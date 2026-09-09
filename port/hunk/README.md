@@ -2508,6 +2508,17 @@ response settles immediately and leaves later chunks unread; RGB precedence
 applies only to data already received. Both initial raw-mode states are covered.
 All seven detector tests, TUI all-target Clippy and formatting passed.
 
+### Extension directory activity indexing (partial)
+
+`cargo xtask extension-catalog activity-index` reads a GitHub topic-search JSON
+payload from stdin and emits a repository-keyed activity object. The native
+translation preserves absent metadata fields, ignores malformed entries, folds
+repository-name case and keeps the last duplicate entry. It performs no network
+requests and writes no repository state. Focused tests and xtask all-target
+Clippy passed. The catalog data, fetch/fallback workflow, page rendering and
+remaining directory helpers are not covered by this increment; the source
+`website/src/data/extensions.ts` remains unmapped.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

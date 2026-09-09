@@ -17,6 +17,7 @@ mod benchmark;
 mod changelog;
 mod ci_changes;
 mod ci_host;
+mod extension_catalog;
 mod install;
 mod nix;
 mod port_history;
@@ -196,6 +197,7 @@ fn run() -> Result<()> {
         Some("benchmark") => benchmark::run(args),
         Some("ci-changes") => ci_changes::run(args),
         Some("ci-host") => ci_host::run(args),
+        Some("extension-catalog") => extension_catalog::run(args),
         Some("themes") => match args.next().as_deref() {
             Some("probe") => theme_probe::run(args),
             Some("vendor") => vendor_themes(parse_theme_vendor_options(args)?),
