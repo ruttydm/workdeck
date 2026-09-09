@@ -1,0 +1,23 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTest": "draft note blur restores app shortcuts without discarding the draft",
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > draft note blur restores app shortcuts without discarding the draft [267.54ms]\n\n 1 pass\n 75 filtered out\n 0 fail\n 5 expect() calls\nRan 1 test across 1 file. [865.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > draft note blur restores app shortcuts without discarding the draft [250.39ms]\n\n 1 pass\n 73 filtered out\n 0 fail\n 5 expect() calls\nRan 1 test across 1 file. [666.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "tests::draft_blur_restores_sidebar_shortcut_without_discarding_draft",
+    "status": "Initial run failed in 0.77 seconds: outside click swallowed, s inserted into draft instead of toggling sidebar. Explicit composer focus fix then passed the original regression: 1 passed, 1126 filtered, 0.78 seconds. Expanded blur/paste/refocus checks passed in the full TUI run below.",
+    "fullTuiSuite": {"passed":1127,"failed":0,"ignored":0,"filtered":0,"seconds":86.22}
+  },
+  "baselineInterval": {"byteStart":93028,"byteEnd":94201,"lineStart":3145,"lineEnd":3186,"sha256":"211ad15430b214fe96e069cc79120b01cea7069eb7ce4a6a14be97fe3b03b9df"},
+  "finding": "The previous composer lacked focus state. Private focus state now distinguishes draft presence from input ownership across mouse routing, keyboard routing, paste, caret and inline presentation. See port/hunk/draft-focus.md. This is typed native controller and cell-buffer coverage, not raw mouse transport or complete frame parity."
+}

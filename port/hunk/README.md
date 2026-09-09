@@ -1,5 +1,16 @@
 # Hunk semantic-port ledger
 
+## Draft focus lifecycle correction
+
+The native draft now releases input focus on outside clicks without losing its
+body. Clicking inside restores editing; paste, caret, menu suppression and inline
+presentation follow focus rather than draft existence. The source blur regression
+at bytes 93,028–94,201 now passes, with additional blur/refocus checks.
+All 1,127 TUI tests pass (86.22 seconds), formatting and TUI Clippy pass.
+See [implementation and verification](draft-focus.md) and [both pinned oracles](oracles/app-host-draft-blur.json).
+Strict parity remains incomplete: 268 unmapped intervals, 1,358 records,
+1,257 baseline files and 11 cached upstream commits pending.
+
 ## AppHost tmux CSI-u draft saving
 
 Bytes 92,091–93,028 map to Ctrl-S saving through a native PTY at 240×24.

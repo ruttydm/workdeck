@@ -2282,7 +2282,10 @@ impl ReviewApp {
     /// Cursor requested by a focused, host-rendered extension-pane input.
     #[must_use]
     pub fn extension_pane_input_cursor_position(&self) -> Option<Position> {
-        if self.note_composer.is_some()
+        if self
+            .note_composer
+            .as_ref()
+            .is_some_and(|draft| draft.focused)
             || self.view_preference_quit.save_config_prompt_open()
             || self.extension_trust_prompt_root().is_some()
             || self.themes.selector_open
@@ -2320,9 +2323,10 @@ impl ReviewApp {
     /// Cursor requested by the focused status-bar filter input.
     #[must_use]
     pub fn status_filter_cursor_position(&self, area: Rect) -> Option<Position> {
-        if let (Some(composer), Some(bounds)) =
-            (self.note_composer.as_ref(), self.note_composer_bounds.get())
-        {
+        if let (Some(composer), Some(bounds)) = (
+            self.note_composer.as_ref().filter(|draft| draft.focused),
+            self.note_composer_bounds.get(),
+        ) {
             let input_width = usize::from(bounds.width.saturating_sub(2).max(1));
             let input_height = usize::from(bounds.height.saturating_sub(2).max(1));
             let (row, column) = note_composer_cursor_cell(
@@ -2460,7 +2464,12 @@ impl ReviewApp {
         // A note editor owns menu-toggle keys without opening chrome over the
         // draft. Other focused editors are intentionally below the toggle,
         // matching Hunk's app-level ownership chain.
-        if self.note_composer.is_some() && Self::is_app_menu_toggle_key(&key) {
+        if self
+            .note_composer
+            .as_ref()
+            .is_some_and(|draft| draft.focused)
+            && Self::is_app_menu_toggle_key(&key)
+        {
             return;
         }
         if self.handle_app_menu_toggle_key(&key) {
@@ -2563,7 +2572,11 @@ impl ReviewApp {
     }
 
     fn handle_note_composer_key(&mut self, key: &KeyEvent) -> bool {
-        if self.note_composer.is_none() {
+        if !self
+            .note_composer
+            .as_ref()
+            .is_some_and(|draft| draft.focused)
+        {
             return false;
         }
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
@@ -2642,6 +2655,9 @@ impl ReviewApp {
         let Some(composer) = self.note_composer.as_mut() else {
             return;
         };
+        if !composer.focused {
+            return;
+        }
         let previous_body = composer.body.clone();
         let available = workdeck_review::MAX_REVIEW_NOTE_BYTES.saturating_sub(composer.body.len());
         let end = text
@@ -2670,6 +2686,7 @@ impl ReviewApp {
         self.note_composer = Some(ReviewNoteComposer {
             id: format!("user-note-{}", self.note_sequence),
             kind: ReviewNoteComposerKind::Create,
+            focused: true,
             thread: None,
             target,
             body: String::new(),
@@ -2747,6 +2764,7 @@ impl ReviewApp {
         let cursor = 0;
         self.note_composer = Some(ReviewNoteComposer {
             id: format!("user-note-draft-{}", self.note_sequence),
+            focused: true,
             kind: ReviewNoteComposerKind::Edit {
                 target_note_id: note.id,
                 parent_id: note.parent_id,
@@ -2784,6 +2802,7 @@ impl ReviewApp {
         self.note_composer = Some(ReviewNoteComposer {
             id: format!("user-note-{}", self.note_sequence),
             kind: ReviewNoteComposerKind::Reply { parent_id: note.id },
+            focused: true,
             thread: Some(thread),
             target,
             body: String::new(),
@@ -8425,6 +8444,19 @@ impl ReviewApp {
 
     fn handle_note_mouse(&mut self, event: &MouseEvent, now: Instant) -> bool {
         if self.note_composer.is_some() {
+            let inside = self
+                .note_composer_bounds
+                .get()
+                .is_some_and(|bounds| rect_contains(bounds, event.column, event.row));
+            if matches!(
+                event.kind,
+                MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Up(MouseButton::Left)
+            ) {
+                self.note_composer.as_mut().unwrap().focused = inside;
+            }
+            if !inside {
+                return false;
+            }
             if event.kind == MouseEventKind::Moved {
                 self.saved_note_hover = None;
             }
@@ -12816,7 +12848,7 @@ fn paint_note_composer(
     options.thread = composer.thread.as_ref();
     options.draft = Some(AgentInlineNoteDraft {
         body: &composer.body,
-        focused: true,
+        focused: composer.focused,
         notify_focus: false,
         notify_blur: false,
     });
@@ -12977,6 +13009,7 @@ fn review_line_cursors(rows: &ReviewRows) -> Vec<ReviewLineCursor> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ReviewNoteComposer {
+    focused: bool,
     thread: Option<VisibleAgentNoteThread>,
     id: String,
     kind: ReviewNoteComposerKind,
@@ -19481,6 +19514,59 @@ mod tests {
     }
 
     #[test]
+    fn draft_blur_restores_sidebar_shortcut_without_discarding_draft() {
+        let mut app = ReviewApp::new(responsive_changeset(), ReviewOptions::default());
+        let mut terminal = Terminal::new(TestBackend::new(240, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+        let before = rendered_review_frame(&mut terminal, &app);
+        assert!(before.contains("Draft note"));
+        let count = before.matches("beta.ts").count();
+        assert!(count > 1, "{before}");
+        for kind in [
+            MouseEventKind::Down(MouseButton::Left),
+            MouseEventKind::Up(MouseButton::Left),
+        ] {
+            app.handle_mouse_event(MouseEvent {
+                kind,
+                column: 6,
+                row: 4,
+                modifiers: KeyModifiers::NONE,
+            });
+        }
+        assert!(rendered_review_frame(&mut terminal, &app).contains("Draft note"));
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        let after = rendered_review_frame(&mut terminal, &app);
+        assert!(after.contains("Draft note"));
+        assert!(after.matches("beta.ts").count() < count, "{after}");
+        assert!(app.note_composer.as_ref().unwrap().body.is_empty());
+        assert!(!app.note_composer.as_ref().unwrap().focused);
+        assert!(
+            app.status_filter_cursor_position(Rect::new(0, 0, 240, 24))
+                .is_none()
+        );
+        app.handle_paste("must not enter a blurred draft");
+        assert!(app.note_composer.as_ref().unwrap().body.is_empty());
+        let bounds = app.note_composer_bounds.get().unwrap();
+        for kind in [
+            MouseEventKind::Down(MouseButton::Left),
+            MouseEventKind::Up(MouseButton::Left),
+        ] {
+            app.handle_mouse_event(MouseEvent {
+                kind,
+                column: bounds.x + 2,
+                row: bounds.y + 2,
+                modifiers: KeyModifiers::NONE,
+            });
+        }
+        assert!(app.note_composer.as_ref().unwrap().focused);
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        app.handle_paste(" restored");
+        assert_eq!(app.note_composer.as_ref().unwrap().body, "s restored");
+        assert!(!app.options.sidebar);
+    }
+
+    #[test]
     fn draft_note_retains_large_synchronous_input_burst() {
         let mut app = ReviewApp::new(responsive_changeset(), ReviewOptions::default());
         let mut terminal = Terminal::new(TestBackend::new(160, 40)).unwrap();
@@ -19875,6 +19961,7 @@ mod tests {
         let key = install_cached_test_file_view(&app, &file_id);
         app.note_composer = Some(ReviewNoteComposer {
             id: "draft".into(),
+            focused: true,
             thread: None,
             kind: ReviewNoteComposerKind::Create,
             target: ReviewNoteTarget {
