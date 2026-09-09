@@ -1,0 +1,31 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTest": "down-arrow scrolling updates the active file and hunk to the viewport center",
+  "baselineInterval": {
+    "byteStart": 105607,
+    "byteEnd": 106992,
+    "lineStart": 3596,
+    "lineEnd": 3645,
+    "sha256": "fca31400d553e33707e67d0cb426d3fc53c1dd0e3a125a1bd6f7e2affb17aefc"
+  },
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > down-arrow scrolling updates the active file and hunk to the viewport center [242.00ms]\n\n 1 pass\n 75 filtered out\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [804.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > down-arrow scrolling updates the active file and hunk to the viewport center [210.83ms]\n\n 1 pass\n 73 filtered out\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [619.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "app_host::tests::down_arrow_publishes_later_file_and_hunk_selection",
+    "passed": 1,
+    "failed": 0,
+    "filtered": 1134,
+    "seconds": 0.83
+  },
+  "scope": "220x12 source mouse-scroll fixture; initial published first.ts hunk0, up to 50 Down events reach second.ts hunk1. Production snapshot publisher and in-process host. Final source assertions do not constrain every intermediate cursor/center selection or raw escape decoding."
+}

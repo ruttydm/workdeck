@@ -1,5 +1,14 @@
 # Hunk semantic-port ledger
 
+## Down-arrow selection publication
+
+Bytes 105,607–106,992 map to the down-arrow snapshot regression at 220×12.
+Both source pins pass; Rust reaches second.ts hunk 1 within the source's 50-event
+limit. Wheel and page tests pass after fixture refactoring; formatting and TUI
+Clippy pass. See [capture and limits](oracles/app-host-down-selection.json).
+Strict audit remains incomplete: 268 unmapped intervals, 1,368 records,
+1,257 baseline files and 11 cached upstream commits pending.
+
 ## Page-key selection publication
 
 Bytes 103,482–105,607 map to PageDown/PageUp selected-file publication at 220×12.

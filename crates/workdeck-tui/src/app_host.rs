@@ -1030,15 +1030,26 @@ mod tests {
 
     #[test]
     fn wheel_scroll_publishes_viewport_center_file_and_hunk() {
-        assert_scroll_selection_publication(false);
+        assert_scroll_selection_publication(ScrollSelectionInput::Wheel);
     }
 
     #[test]
     fn page_keys_publish_viewport_file_selection_in_both_directions() {
-        assert_scroll_selection_publication(true);
+        assert_scroll_selection_publication(ScrollSelectionInput::Page);
     }
 
-    fn assert_scroll_selection_publication(page_keys: bool) {
+    #[test]
+    fn down_arrow_publishes_later_file_and_hunk_selection() {
+        assert_scroll_selection_publication(ScrollSelectionInput::Arrow);
+    }
+
+    enum ScrollSelectionInput {
+        Wheel,
+        Page,
+        Arrow,
+    }
+
+    fn assert_scroll_selection_publication(input: ScrollSelectionInput) {
         use crate::tests::{navigation_changeset, numbered_exports, rendered_review_frame};
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
         use ratatui::{Terminal, backend::TestBackend};
@@ -1081,7 +1092,7 @@ mod tests {
             (state.selected_file_path.clone(), state.selected_hunk_index)
         };
         assert_eq!(selected(), (Some("first.ts".into()), 0));
-        if page_keys {
+        if matches!(input, ScrollSelectionInput::Page) {
             for (key, path) in [
                 (KeyCode::PageDown, "second.ts"),
                 (KeyCode::PageUp, "first.ts"),
@@ -1099,13 +1110,22 @@ mod tests {
             assert_eq!(selected().1, 0);
             return;
         }
-        for _ in 0..16 {
-            app.handle_mouse_event(MouseEvent {
-                kind: MouseEventKind::ScrollDown,
-                column: 120,
-                row: 7,
-                modifiers: KeyModifiers::NONE,
-            });
+        let attempts = if matches!(input, ScrollSelectionInput::Arrow) {
+            50
+        } else {
+            16
+        };
+        for _ in 0..attempts {
+            if matches!(input, ScrollSelectionInput::Arrow) {
+                app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+            } else {
+                app.handle_mouse_event(MouseEvent {
+                    kind: MouseEventKind::ScrollDown,
+                    column: 120,
+                    row: 7,
+                    modifiers: KeyModifiers::NONE,
+                });
+            }
             rendered_review_frame(&mut terminal, &app);
             controller.publish_snapshot(&app).unwrap();
             if selected() == (Some("second.ts".into()), 1) {
