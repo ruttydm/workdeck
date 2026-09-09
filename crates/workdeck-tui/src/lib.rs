@@ -25594,6 +25594,37 @@ mod tests {
     }
 
     #[test]
+    fn theme_selector_jk_navigation_accepts_highlighted_theme() {
+        let mut review = responsive_changeset();
+        review.files.truncate(1);
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        let mut terminal = Terminal::new(TestBackend::new(240, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        app.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(frame.contains("Theme selector"));
+        assert!(frame.contains("›  github-dark-default"));
+        assert!(frame.contains("active"));
+        for (key, expected) in [
+            ('j', "github-dark-dimmed"),
+            ('k', "github-dark-default"),
+            ('j', "github-dark-dimmed"),
+        ] {
+            app.handle_key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE));
+            let frame = rendered_review_frame(&mut terminal, &app);
+            assert!(frame.contains(&format!("›  {expected}")));
+            assert!(!frame.contains("UI"));
+            assert!(!frame.contains("Syntax"));
+        }
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(frame.contains("Theme: github-dark-dimmed"));
+        assert!(!frame.contains("Theme selector"));
+        assert_eq!(app.options.theme.id, "github-dark-dimmed");
+    }
+
+    #[test]
     fn startup_notice_and_menu_summary_match_pinned_app_host_frames() {
         let notice = workdeck_core::LEGACY_CUSTOM_SYNTAX_NOTICE.clone();
         let mut single = responsive_changeset();

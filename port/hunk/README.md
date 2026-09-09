@@ -1,5 +1,15 @@
 # Hunk semantic-port ledger
 
+## Theme selector keyboard acceptance
+
+Bytes 25,426–27,051 map to the 240×24 `t/j/k/j/Enter` interaction test.
+Both pinned tests pass six assertions; the Rust test additionally checks each
+highlighted row and the accepted theme identity. Formatting and TUI Clippy pass.
+See [capture and scope](oracles/app-host-theme-jk.json). Mouse preview timing,
+all themes, and full cell-buffer parity are not covered by this mapping.
+The ledger contains 1,380 records, 268 unmapped intervals, and 11 cached
+upstream commits pending. Full completion remains unproven.
+
 ## Startup notice and menu summary
 
 Bytes 22,381–23,360 map to the configured deprecation-notice and menu-summary
