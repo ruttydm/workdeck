@@ -9,4 +9,8 @@ h1 { color: #f0f6fc; font-size: clamp(2.4rem, 7vw, 5.5rem); line-height: .98; ma
 h2 { color: #f0f6fc; }
 pre { overflow-x: auto; padding: 1.25rem; border: 1px solid #30363d; background: #161b22; }
 section:not(.hero) { max-width: 48rem; }
+section.extension-grid { max-width: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 1.5rem; }
+.extension-card { min-width: 0; padding: 1.25rem; border: 1px solid #30363d; border-radius: .5rem; overflow-wrap: anywhere; }
+.extension-card h2 { margin-top: 0; }
+nav { margin-top: .75rem; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } }

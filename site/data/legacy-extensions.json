@@ -1,0 +1,203 @@
+{
+  "source": "Hunk extension directory",
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "blob": "23f2196dd3c7a91306e050db352d4b5518a31117",
+  "license": "MIT; Copyright Modem Labs Inc.; see THIRD_PARTY_NOTICES",
+  "entries": [
+    {
+      "repo": "modem-dev/hunk-hg",
+      "name": "hunk-hg",
+      "summary": "Adds Mercurial support, so Hunk reviews an hg working copy the way it reviews a Git one.",
+      "categories": [
+        "VCS backend"
+      ],
+      "version": "0.1.0",
+      "apiVersion": 4,
+      "compatibility": "requires-rust-rewrite"
+    },
+    {
+      "repo": "modem-dev/hunk-lens",
+      "name": "hunk-lens",
+      "summary": "Keeps the current split-diff line in view, and paints its context beside the review.",
+      "categories": [
+        "Pane",
+        "Command"
+      ],
+      "version": "0.1.0",
+      "apiVersion": 4,
+      "compatibility": "requires-rust-rewrite"
+    },
+    {
+      "repo": "astwys/hunk-adaptive-theme",
+      "name": "hunk-adaptive-theme",
+      "summary": "Picks a Hunk theme to match your terminal background at startup.",
+      "categories": [
+        "Theme"
+      ],
+      "version": "0.1.0",
+      "apiVersion": 6,
+      "compatibility": "requires-rust-rewrite"
+    },
+    {
+      "repo": "astwys/hunk-diff-context",
+      "name": "hunk-diff-context",
+      "summary": "Pins the selected file's complete diff in a sidebar pane, so it stays visible beside the review.",
+      "categories": [
+        "Pane",
+        "Command"
+      ],
+      "version": "0.1.0",
+      "apiVersion": 6,
+      "compatibility": "requires-rust-rewrite"
+    },
+    {
+      "repo": "astwys/hunk-exclude-files",
+      "name": "hunk-exclude-files",
+      "summary": "Hides files matching configured glob rules from the review stream.",
+      "categories": [
+        "Changeset transform"
+      ],
+      "version": "0.1.0",
+      "apiVersion": 6,
+      "compatibility": "requires-rust-rewrite"
+    },
+    {
+      "repo": "astwys/hunk-file-order",
+      "name": "hunk-file-order",
+      "summary": "Chooses the file order in Hunk reviews, including Lazygit's mixed order.",
+      "categories": [
+        "Changeset transform"
+      ],
+      "version": "0.1.0",
+      "apiVersion": 6,
+      "compatibility": "requires-rust-rewrite"
+    },
+    {
+      "repo": "elucid/hunk-less-search",
+      "name": "hunk-less-search",
+      "summary": "less-style forward search across the review stream, with in-diff match marks.",
+      "categories": [
+        "Keyboard mode",
+        "Line highlighter",
+        "Pane",
+        "Command"
+      ],
+      "version": "0.1.0",
+      "apiVersion": 5,
+      "compatibility": "requires-rust-rewrite"
+    },
+    {
+      "repo": "evantravers/hunk-mark-as-reviewed",
+      "name": "hunk-mark-as-reviewed",
+      "summary": "Marks hunks and files as reviewed, tracks progress in a review pane, and can hide what you've finished.",
+      "categories": [
+        "Pane",
+        "Command",
+        "Line highlighter",
+        "Changeset transform"
+      ],
+      "version": "0.1.0",
+      "apiVersion": 8,
+      "compatibility": "requires-rust-rewrite"
+    },
+    {
+      "repo": "evantravers/hunk-notes-to-markdown",
+      "name": "hunk-notes-to-markdown",
+      "summary": "Yanks every review note into the clipboard as formatted Markdown with one key (Y).",
+      "categories": [
+        "Command"
+      ],
+      "version": "0.1.0",
+      "apiVersion": 6,
+      "compatibility": "requires-rust-rewrite"
+    },
+    {
+      "repo": "gentilfp/hunk-codeowners",
+      "name": "hunk-codeowners",
+      "summary": "Shows CODEOWNERS context for the current changeset and selected file.",
+      "categories": [
+        "Pane",
+        "Command"
+      ],
+      "version": "0.1.0",
+      "apiVersion": 6,
+      "compatibility": "requires-rust-rewrite"
+    },
+    {
+      "repo": "joshedler/hunk-git-lite",
+      "name": "hunk-git-lite",
+      "summary": "Adds a git status pane with stage/unstage commands, so you can act on a review without leaving it.",
+      "categories": [
+        "Pane",
+        "Command"
+      ],
+      "version": "0.1.0",
+      "apiVersion": 6,
+      "compatibility": "requires-rust-rewrite"
+    },
+    {
+      "repo": "mikeclarke/hunk-tutor",
+      "name": "hunk-tutor",
+      "summary": "An interactive tour of Hunk, taught inside a practice review.",
+      "categories": [
+        "Pane",
+        "Theme",
+        "Line highlighter",
+        "Command",
+        "VCS backend"
+      ],
+      "version": "0.1.0",
+      "apiVersion": 5,
+      "compatibility": "requires-rust-rewrite"
+    },
+    {
+      "repo": "muzomer/hunk-commit",
+      "name": "hunk-commit",
+      "summary": "Marks hunks while you review, then stages, commits, or folds them into an earlier commit — in git or Jujutsu, leaving files on disk untouched.",
+      "categories": [
+        "Command",
+        "Line highlighter"
+      ],
+      "version": "0.1.0",
+      "apiVersion": 8,
+      "compatibility": "requires-rust-rewrite"
+    },
+    {
+      "repo": "phl28/hunk-gh-review",
+      "name": "hunk-gh-review",
+      "summary": "Turns Hunk into a GitHub review client: browse and reply to PR threads, then submit notes as a review.",
+      "categories": [
+        "Pane",
+        "Keyboard mode",
+        "Command"
+      ],
+      "version": "0.1.0",
+      "apiVersion": 6,
+      "compatibility": "requires-rust-rewrite"
+    },
+    {
+      "repo": "sadick254/hunk-commit-log",
+      "name": "hunk-commit-log",
+      "summary": "Reviews a branch commit by commit: the series beside the diff, the message above it, and keys to step between them.",
+      "categories": [
+        "Pane",
+        "Command",
+        "Changeset transform"
+      ],
+      "version": "0.1.0",
+      "apiVersion": 6,
+      "compatibility": "requires-rust-rewrite"
+    },
+    {
+      "repo": "TreeHappy/hunkydory",
+      "name": "hunkydory",
+      "summary": "Exports a review's diffs and notes to Markdown and JSON, and re-imports comments from an export into a live session.",
+      "categories": [
+        "Command"
+      ],
+      "version": "0.1.0",
+      "apiVersion": 1,
+      "compatibility": "requires-rust-rewrite"
+    }
+  ]
+}

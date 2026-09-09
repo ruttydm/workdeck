@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use cargo_metadata::MetadataCommand;
 use flate2::Compression;
 use flate2::read::GzDecoder;
@@ -353,7 +353,48 @@ fn site(command: Option<&str>) -> Result<()> {
     let site = repo.join("site");
     match command {
         Some("build") => run_checked(&site, "zola", &["build"]),
-        Some("check") => run_checked(&site, "zola", &["check"]),
+        Some("check") => {
+            run_checked(&site, "zola", &["check"])?;
+            let output = tempfile::tempdir()?;
+            let public = output.path().join("public");
+            run_checked(
+                &site,
+                "zola",
+                &[
+                    "build",
+                    "--output-dir",
+                    public.to_str().context("site output path is not UTF-8")?,
+                ],
+            )?;
+            let html = fs::read_to_string(public.join("extensions/index.html"))?;
+            let catalog: serde_json::Value = serde_json::from_str(&fs::read_to_string(
+                site.join("data/legacy-extensions.json"),
+            )?)?;
+            let count = catalog["entries"]
+                .as_array()
+                .context("legacy catalog entries missing")?
+                .len();
+            ensure!(
+                html.matches("class=\"extension-card\"").count() == count,
+                "directory did not render every listing"
+            );
+            ensure!(
+                html.matches("<strong>Requires Rust rewrite</strong>")
+                    .count()
+                    == count,
+                "legacy compatibility warning missing"
+            );
+            ensure!(
+                !html.contains("extension install") && !html.contains("<script"),
+                "legacy directory contains executable installation or script content"
+            );
+            ensure!(
+                !public.join("elasticlunr.min.js").exists()
+                    && !public.join("search_index.en.js").exists(),
+                "site generated JavaScript search assets"
+            );
+            Ok(())
+        }
         Some("serve") => run_checked(&site, "zola", &["serve"]),
         _ => bail!("site requires build, check, or serve"),
     }

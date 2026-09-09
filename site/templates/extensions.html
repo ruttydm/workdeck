@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Extension migration directory · Workdeck{% endblock title %}
+{% block content %}
+{% set catalog = load_data(path="data/legacy-extensions.json") %}
+<section>
+  <h1>Extension migration directory</h1>
+  <p>Workdeck extensions are trusted native programs using JSON-RPC over stdio.
+    The listings below preserve the pinned upstream community directory for migration.
+    They are not verified native Workdeck extensions.</p>
+  <p><strong>Rust rewrite required:</strong> Workdeck does not execute TypeScript
+    extensions. No installation command is offered until a native replacement
+    is available and verified. Review its source before granting trust.</p>
+  <p>{{ catalog.entries | length }} legacy listings. Metadata reflects the pinned
+    source, not current repository activity or compatibility.</p>
+</section>
+<section aria-label="Legacy extensions requiring a Rust rewrite" class="extension-grid">
+  {% for entry in catalog.entries %}
+  <article class="extension-card">
+    <h2><a href="https://github.com/{{ entry.repo }}">{{ entry.name }}</a></h2>
+    <p>{{ entry.summary }}</p>
+    <p>Source repository: {{ entry.repo }}</p>
+    <p>Recorded version: {{ entry.version }} · Source API: {{ entry.apiVersion }}</p>
+    <ul aria-label="Extension capabilities">
+      {% for category in entry.categories %}<li>{{ category }}</li>{% endfor %}
+    </ul>
+    <p><strong>Requires Rust rewrite</strong></p>
+  </article>
+  {% endfor %}
+</section>
+{% endblock content %}

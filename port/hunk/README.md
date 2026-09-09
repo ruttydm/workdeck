@@ -2689,6 +2689,26 @@ path and authorization presence against both captures. The fixture records
 only presence of a synthetic token, never credentials. This closes those two
 HTTP redirect cases, not TLS, redirect limits or the whole source mapping.
 
+### Legacy community directory migration page
+
+`site/data/legacy-extensions.json` preserves all 16 baseline catalog entries,
+their source fields, the baseline/blob anchors and MIT attribution. Every entry
+is explicitly marked `requires-rust-rewrite`. The Zola `/extensions/` page
+renders those records as migration references, with no installation command or
+claim that a TypeScript extension is loadable. Names and summaries remain
+historical source metadata. Native replacements are not inferred or invented.
+
+`cargo xtask site check` now checks and builds the actual site in a temporary
+directory, verifies that every card and rewrite warning renders, and rejects
+installation commands or script tags in this legacy page. The unused generated
+JavaScript search index is disabled; a JavaScript-free site search replacement
+is still pending. Highlighting configuration uses Zola 0.22+'s
+`markdown.highlighting` table. This is an initial migration page, not full
+directory search/filter/sort, visual, accessibility or source-ledger parity.
+Validated locally with Zola 0.22.1 macOS arm64 (release archive SHA-256
+`46ac45a9e7628dba8593b124ee8794f4f9aa1c6b569918ecd4bbc5d0be190515`):
+the composed site check/build, xtask all-target Clippy and formatting passed.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.
