@@ -161,3 +161,11 @@ from 1,284,145,152 to 1,286,045,696 bytes; first-frame time ranged from 43.16 to
 46.16 ms. This is repeatable within this small native sample, but it was not
 interleaved with Hunk or the prior binary and cannot establish causal improvement
 or benchmark acceptance. The retained pinned-source memory gap remains open.
+
+Semantic projection now renders patch-line text only when a side lacks a usable
+complete source snapshot. Previously every hunk line was copied and newline
+adjusted even when both sides discarded that temporary value. Movement markers
+still update against complete sources, and patch-derived lines retain their EOF
+semantics. A 16-case matrix covers partial/full inputs, both source-presence flags
+and final-newline state. All seven core semantic tests and core all-target Clippy
+pass. This allocation reduction has not been benchmarked separately.

@@ -335,10 +335,15 @@ pub fn project_review_file(
             deletion_lines.len()
         };
         for line in &hunk.lines {
-            let mut rendered = line.content.clone();
-            if !line.no_newline_at_eof {
-                rendered.push('\n');
-            }
+            // Complete source snapshots already own these lines. Materialize patch
+            // text only for a side whose semantic lines must come from the hunk.
+            let render_line = || {
+                let mut rendered = line.content.clone();
+                if !line.no_newline_at_eof {
+                    rendered.push('\n');
+                }
+                rendered
+            };
             if line.new_line.is_some() {
                 if addition_lines_are_full {
                     if line.moved
@@ -350,7 +355,7 @@ pub fn project_review_file(
                         *kind = Some(ReviewLineMoveKind::Moved);
                     }
                 } else {
-                    addition_lines.push(rendered.clone());
+                    addition_lines.push(render_line());
                     addition_moves.push(line.moved.then_some(ReviewLineMoveKind::Moved));
                 }
             }
@@ -365,7 +370,7 @@ pub fn project_review_file(
                         *kind = Some(ReviewLineMoveKind::Moved);
                     }
                 } else {
-                    deletion_lines.push(rendered);
+                    deletion_lines.push(render_line());
                     deletion_moves.push(line.moved.then_some(ReviewLineMoveKind::Moved));
                 }
             }
@@ -654,6 +659,59 @@ mod tests {
                 expected,
                 "@@ -{old_start},{old_count} +{new_start},{new_count} @@",
             );
+        }
+    }
+
+    #[test]
+    fn semantic_lines_choose_each_source_side_or_patch_without_changing_eof() {
+        for partial in [false, true] {
+            for old in [false, true] {
+                for new in [false, true] {
+                    for no_newline in [false, true] {
+                        let mut input = file("mixed", "mixed.rs", "new");
+                        input.flags.partial = partial;
+                        for line in &mut input.hunks[0].lines {
+                            line.no_newline_at_eof = no_newline;
+                        }
+                        input.set_sources(FileSourceSnapshots {
+                            old: old.then(|| {
+                                SourceSnapshot::new(
+                                    "source old".into(),
+                                    SourceOrigin::WorkingTree,
+                                    true,
+                                )
+                            }),
+                            new: new.then(|| {
+                                SourceSnapshot::new(
+                                    "source new".into(),
+                                    SourceOrigin::WorkingTree,
+                                    true,
+                                )
+                            }),
+                        });
+                        let projected = project_review_file(&input, "review", 0);
+                        let expected = |full, source, patch| {
+                            if full && !partial {
+                                source
+                            } else if no_newline {
+                                patch
+                            } else if patch == "old" {
+                                "old\n"
+                            } else {
+                                "new\n"
+                            }
+                        };
+                        assert_eq!(
+                            projected.deletion_lines,
+                            [expected(old, "source old", "old")]
+                        );
+                        assert_eq!(
+                            projected.addition_lines,
+                            [expected(new, "source new", "new")]
+                        );
+                    }
+                }
+            }
         }
     }
 
