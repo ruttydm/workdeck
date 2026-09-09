@@ -2319,3 +2319,19 @@ executable build and the large-repository smoke check also passed. Sources, fixt
 Git history and Workdeck state were not removed during storage recovery. This supersedes
 the storage-blocked verification result only; it does not clear strict ledger coverage,
 upstream catch-up, benchmark, native-platform, signing or other release gates.
+
+### Geometry-memory frozen source checks
+
+`oracles/geometry-memory.json` retains eight actual source executions for each
+pinned main/stable tree, including help ordering, invalid values, repeated numeric
+options and the two-file workload with the full 50,000-line giant fixture. Source
+blob verification and runtime provenance are recorded in the fixture. Output is
+combined stdout/stderr, not a claim of independently captured streams.
+
+`geometry_options_and_rows_match_both_frozen_source_oracles` executes native
+geometry and checks seven deterministic metrics against both source captures:
+114 ordinary body/bounds/materialized rows and 44,009 giant materialized rows.
+It also checks parser outcomes and error messages for every captured case.
+The focused test and xtask all-target Clippy passed. Timings, GC, JavaScript heap
+statistics, help formatting and process exit behavior are not covered by this
+test; this partial benchmark port remains unmapped.

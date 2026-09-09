@@ -199,6 +199,69 @@ fn geometry_options_preserve_numeric_coercion_clamping_and_order() {
 }
 
 #[test]
+fn geometry_options_and_rows_match_both_frozen_source_oracles() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../port/hunk/oracles/geometry-memory.json"
+    ))
+    .unwrap();
+    let report = measure(2, 120, 80, stream::GIANT_SINGLE_FILE_LINES, false).unwrap();
+    let captures = fixture["captures"].as_array().unwrap();
+    assert_eq!(captures.len(), 2);
+    for capture in captures {
+        let cases = capture["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 8);
+        for case in cases {
+            let args = case["args"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|arg| arg.as_str().unwrap().to_owned());
+            let parsed = parse_options(args);
+            let output = case["combinedOutput"].as_str().unwrap();
+            if case["exitCode"] == 1 {
+                let error = parsed.unwrap_err().to_string();
+                assert!(output.lines().any(|line| line == format!("error: {error}")));
+            } else if output.starts_with("Usage:") {
+                assert_eq!(case["exitCode"], 0);
+                assert_eq!(parsed.unwrap(), None);
+            } else {
+                assert_eq!(case["exitCode"], 0);
+                assert_eq!(
+                    parsed.unwrap(),
+                    Some(Options {
+                        files: 2,
+                        lines: 120,
+                        width: 80,
+                        gc_requested: false,
+                    })
+                );
+                for (source, native) in [
+                    ("files", "files"),
+                    ("lines_per_file", "linesPerFile"),
+                    ("geometry_body_rows", "geometryBodyRows"),
+                    ("geometry_row_bounds", "geometryRowBounds"),
+                    ("materialized_planned_rows", "materializedPlannedRows"),
+                    (
+                        "giant_materialized_planned_rows",
+                        "giantMaterializedPlannedRows",
+                    ),
+                    ("giant_file_lines", "giantFileLines"),
+                ] {
+                    let prefix = format!("METRIC {source}=");
+                    let expected: u64 = output
+                        .lines()
+                        .find_map(|line| line.strip_prefix(&prefix))
+                        .unwrap()
+                        .parse()
+                        .unwrap();
+                    assert_eq!(report[native], expected, "{}: {source}", capture["kind"]);
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn geometry_diagnostic_retains_lazy_plans_and_materializes_copy_rows() {
     let report = measure(2, 120, 80, 1200, false).unwrap();
     assert_eq!(report["files"], 2);

@@ -1,0 +1,183 @@
+{
+  "description": "Frozen geometry-memory source oracle. Combined output preserves observed tool stdout/stderr without stream separation. Timings and memory are observations, not benchmark acceptance evidence.",
+  "runtime": "Bun 1.3.5 macOS arm64",
+  "baselineCommit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stableCommit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "sourceBlobBothPins": "04061d66acbba975480ecc3109db8843c65b2439",
+  "sourceVerification": "Disposable main and stable trees: all 653 and 588 tracked blobs respectively under src, benchmarks, package.json and bun.lock matched preserved pins before execution. Installed dependency contents were not independently hashed.",
+  "source": "benchmarks/geometry-memory.ts",
+  "captures": [
+    {
+      "kind": "main",
+      "cases": [
+        {
+          "name": "help",
+          "args": [
+            "--help"
+          ],
+          "exitCode": 0,
+          "combinedOutput": "Usage: bun run benchmarks/geometry-memory.ts [options]\n\nOptions:\n  --file-count <n>      Synthetic review files (default 180)\n  --lines-per-file <n>  Source lines per synthetic file (default 120)\n  --width <n>           Geometry measurement width (default 240)\n  --no-gc               Do not force Bun.gc before memory samples\n\n"
+        },
+        {
+          "name": "small",
+          "args": [
+            "--file-count",
+            "2",
+            "--lines-per-file",
+            "120",
+            "--width",
+            "80",
+            "--no-gc"
+          ],
+          "exitCode": 0,
+          "combinedOutput": "geometry memory fixture files=2 lines=120 width=80 gc=off\nMETRIC bootstrap_fixture_ms=5.81\nMETRIC after_bootstrap_rss_bytes=148045824\nMETRIC after_bootstrap_jsc_heap_size_bytes=4931385\nMETRIC after_bootstrap_jsc_extra_memory_size_bytes=1455257\nMETRIC after_bootstrap_jsc_object_count=46049\nMETRIC after_geometry_rss_bytes=150142976\nMETRIC after_geometry_jsc_heap_size_bytes=4931385\nMETRIC after_geometry_jsc_extra_memory_size_bytes=1455257\nMETRIC after_geometry_jsc_object_count=46049\nMETRIC after_materialized_planned_rows_rss_bytes=150437888\nMETRIC after_materialized_planned_rows_jsc_heap_size_bytes=4931385\nMETRIC after_materialized_planned_rows_jsc_extra_memory_size_bytes=1455257\nMETRIC after_materialized_planned_rows_jsc_object_count=46049\nMETRIC geometry_ms=2.00\nMETRIC geometry_body_rows=114\nMETRIC geometry_row_bounds=114\nMETRIC geometry_jsc_heap_size_growth_bytes=0\nMETRIC geometry_rss_growth_bytes=2097152\nMETRIC materialize_planned_rows_ms=0.33\nMETRIC materialized_planned_rows=114\nMETRIC materialized_planned_rows_jsc_heap_size_growth_bytes=0\nMETRIC materialized_planned_rows_rss_growth_bytes=294912\nMETRIC files=2\nMETRIC lines_per_file=120\nMETRIC giant_first_copy_plan_ms=54.90\nMETRIC giant_materialized_planned_rows=44009\nMETRIC giant_file_lines=50000\n"
+        },
+        {
+          "name": "missing",
+          "args": [
+            "--width"
+          ],
+          "exitCode": 1,
+          "combinedOutput": "32 |   gc: true,\n33 | };\n34 | \n35 | function parseNumberOption(name: string, value: string | undefined) {\n36 |   if (value === undefined) {\n37 |     throw new Error(`Missing value for ${name}.`);\n                   ^\nerror: Missing value for --width.\n      at parseNumberOption (/private/tmp/workdeck-conformance-oracle.vUBqwF/main/benchmarks/geometry-memory.ts:37:15)\n      at parseArgs (/private/tmp/workdeck-conformance-oracle.vUBqwF/main/benchmarks/geometry-memory.ts:70:25)\n      at /private/tmp/workdeck-conformance-oracle.vUBqwF/main/benchmarks/geometry-memory.ts:110:17\n\nBun v1.3.5 (macOS arm64)\n"
+        },
+        {
+          "name": "negative",
+          "args": [
+            "--width",
+            "-1"
+          ],
+          "exitCode": 1,
+          "combinedOutput": "37 |     throw new Error(`Missing value for ${name}.`);\n38 |   }\n39 | \n40 |   const parsed = Number(value);\n41 |   if (!Number.isFinite(parsed) || parsed < 0) {\n42 |     throw new Error(`Expected ${name} to be a non-negative number.`);\n                   ^\nerror: Expected --width to be a non-negative number.\n      at parseNumberOption (/private/tmp/workdeck-conformance-oracle.vUBqwF/main/benchmarks/geometry-memory.ts:42:15)\n      at parseArgs (/private/tmp/workdeck-conformance-oracle.vUBqwF/main/benchmarks/geometry-memory.ts:70:25)\n      at /private/tmp/workdeck-conformance-oracle.vUBqwF/main/benchmarks/geometry-memory.ts:110:17\n\nBun v1.3.5 (macOS arm64)\n"
+        },
+        {
+          "name": "nonfinite",
+          "args": [
+            "--width",
+            "Infinity"
+          ],
+          "exitCode": 1,
+          "combinedOutput": "37 |     throw new Error(`Missing value for ${name}.`);\n38 |   }\n39 | \n40 |   const parsed = Number(value);\n41 |   if (!Number.isFinite(parsed) || parsed < 0) {\n42 |     throw new Error(`Expected ${name} to be a non-negative number.`);\n                   ^\nerror: Expected --width to be a non-negative number.\n      at parseNumberOption (/private/tmp/workdeck-conformance-oracle.vUBqwF/main/benchmarks/geometry-memory.ts:42:15)\n      at parseArgs (/private/tmp/workdeck-conformance-oracle.vUBqwF/main/benchmarks/geometry-memory.ts:70:25)\n      at /private/tmp/workdeck-conformance-oracle.vUBqwF/main/benchmarks/geometry-memory.ts:110:17\n\nBun v1.3.5 (macOS arm64)\n"
+        },
+        {
+          "name": "unknown",
+          "args": [
+            "--unknown"
+          ],
+          "exitCode": 1,
+          "combinedOutput": "71 |         break;\n72 |       case \"--no-gc\":\n73 |         options.gc = false;\n74 |         break;\n75 |       default:\n76 |         throw new Error(`Unknown option: ${arg}`);\n                       ^\nerror: Unknown option: --unknown\n      at parseArgs (/private/tmp/workdeck-conformance-oracle.vUBqwF/main/benchmarks/geometry-memory.ts:76:19)\n      at /private/tmp/workdeck-conformance-oracle.vUBqwF/main/benchmarks/geometry-memory.ts:110:17\n\nBun v1.3.5 (macOS arm64)\n"
+        },
+        {
+          "name": "help_first",
+          "args": [
+            "--help",
+            "--unknown"
+          ],
+          "exitCode": 0,
+          "combinedOutput": "Usage: bun run benchmarks/geometry-memory.ts [options]\n\nOptions:\n  --file-count <n>      Synthetic review files (default 180)\n  --lines-per-file <n>  Source lines per synthetic file (default 120)\n  --width <n>           Geometry measurement width (default 240)\n  --no-gc               Do not force Bun.gc before memory samples\n\n"
+        },
+        {
+          "name": "repeat",
+          "args": [
+            "--file-count",
+            "1e100",
+            "--file-count",
+            "2",
+            "--lines-per-file",
+            "120",
+            "--width",
+            "80",
+            "--no-gc"
+          ],
+          "exitCode": 0,
+          "combinedOutput": "geometry memory fixture files=2 lines=120 width=80 gc=off\nMETRIC bootstrap_fixture_ms=5.40\nMETRIC after_bootstrap_rss_bytes=138657792\nMETRIC after_bootstrap_jsc_heap_size_bytes=4912199\nMETRIC after_bootstrap_jsc_extra_memory_size_bytes=1439431\nMETRIC after_bootstrap_jsc_object_count=45952\nMETRIC after_geometry_rss_bytes=139427840\nMETRIC after_geometry_jsc_heap_size_bytes=4912199\nMETRIC after_geometry_jsc_extra_memory_size_bytes=1439431\nMETRIC after_geometry_jsc_object_count=45952\nMETRIC after_materialized_planned_rows_rss_bytes=139673600\nMETRIC after_materialized_planned_rows_jsc_heap_size_bytes=4912199\nMETRIC after_materialized_planned_rows_jsc_extra_memory_size_bytes=1439431\nMETRIC after_materialized_planned_rows_jsc_object_count=45952\nMETRIC geometry_ms=2.05\nMETRIC geometry_body_rows=114\nMETRIC geometry_row_bounds=114\nMETRIC geometry_jsc_heap_size_growth_bytes=0\nMETRIC geometry_rss_growth_bytes=770048\nMETRIC materialize_planned_rows_ms=0.42\nMETRIC materialized_planned_rows=114\nMETRIC materialized_planned_rows_jsc_heap_size_growth_bytes=0\nMETRIC materialized_planned_rows_rss_growth_bytes=245760\nMETRIC files=2\nMETRIC lines_per_file=120\nMETRIC giant_first_copy_plan_ms=43.89\nMETRIC giant_materialized_planned_rows=44009\nMETRIC giant_file_lines=50000\n"
+        }
+      ]
+    },
+    {
+      "kind": "stable",
+      "cases": [
+        {
+          "name": "help",
+          "args": [
+            "--help"
+          ],
+          "exitCode": 0,
+          "combinedOutput": "Usage: bun run benchmarks/geometry-memory.ts [options]\n\nOptions:\n  --file-count <n>      Synthetic review files (default 180)\n  --lines-per-file <n>  Source lines per synthetic file (default 120)\n  --width <n>           Geometry measurement width (default 240)\n  --no-gc               Do not force Bun.gc before memory samples\n\n"
+        },
+        {
+          "name": "small",
+          "args": [
+            "--file-count",
+            "2",
+            "--lines-per-file",
+            "120",
+            "--width",
+            "80",
+            "--no-gc"
+          ],
+          "exitCode": 0,
+          "combinedOutput": "geometry memory fixture files=2 lines=120 width=80 gc=off\nMETRIC bootstrap_fixture_ms=5.12\nMETRIC after_bootstrap_rss_bytes=136069120\nMETRIC after_bootstrap_jsc_heap_size_bytes=4876432\nMETRIC after_bootstrap_jsc_extra_memory_size_bytes=1441200\nMETRIC after_bootstrap_jsc_object_count=45498\nMETRIC after_geometry_rss_bytes=136871936\nMETRIC after_geometry_jsc_heap_size_bytes=4876432\nMETRIC after_geometry_jsc_extra_memory_size_bytes=1441200\nMETRIC after_geometry_jsc_object_count=45498\nMETRIC after_materialized_planned_rows_rss_bytes=137183232\nMETRIC after_materialized_planned_rows_jsc_heap_size_bytes=4876432\nMETRIC after_materialized_planned_rows_jsc_extra_memory_size_bytes=1441200\nMETRIC after_materialized_planned_rows_jsc_object_count=45498\nMETRIC geometry_ms=1.98\nMETRIC geometry_body_rows=114\nMETRIC geometry_row_bounds=114\nMETRIC geometry_jsc_heap_size_growth_bytes=0\nMETRIC geometry_rss_growth_bytes=802816\nMETRIC materialize_planned_rows_ms=0.39\nMETRIC materialized_planned_rows=114\nMETRIC materialized_planned_rows_jsc_heap_size_growth_bytes=0\nMETRIC materialized_planned_rows_rss_growth_bytes=311296\nMETRIC files=2\nMETRIC lines_per_file=120\nMETRIC giant_first_copy_plan_ms=43.85\nMETRIC giant_materialized_planned_rows=44009\nMETRIC giant_file_lines=50000\n"
+        },
+        {
+          "name": "missing",
+          "args": [
+            "--width"
+          ],
+          "exitCode": 1,
+          "combinedOutput": "32 |   gc: true,\n33 | };\n34 | \n35 | function parseNumberOption(name: string, value: string | undefined) {\n36 |   if (value === undefined) {\n37 |     throw new Error(`Missing value for ${name}.`);\n                   ^\nerror: Missing value for --width.\n      at parseNumberOption (/private/tmp/workdeck-conformance-oracle.vUBqwF/stable/benchmarks/geometry-memory.ts:37:15)\n      at parseArgs (/private/tmp/workdeck-conformance-oracle.vUBqwF/stable/benchmarks/geometry-memory.ts:70:25)\n      at /private/tmp/workdeck-conformance-oracle.vUBqwF/stable/benchmarks/geometry-memory.ts:110:17\n\nBun v1.3.5 (macOS arm64)\n"
+        },
+        {
+          "name": "negative",
+          "args": [
+            "--width",
+            "-1"
+          ],
+          "exitCode": 1,
+          "combinedOutput": "37 |     throw new Error(`Missing value for ${name}.`);\n38 |   }\n39 | \n40 |   const parsed = Number(value);\n41 |   if (!Number.isFinite(parsed) || parsed < 0) {\n42 |     throw new Error(`Expected ${name} to be a non-negative number.`);\n                   ^\nerror: Expected --width to be a non-negative number.\n      at parseNumberOption (/private/tmp/workdeck-conformance-oracle.vUBqwF/stable/benchmarks/geometry-memory.ts:42:15)\n      at parseArgs (/private/tmp/workdeck-conformance-oracle.vUBqwF/stable/benchmarks/geometry-memory.ts:70:25)\n      at /private/tmp/workdeck-conformance-oracle.vUBqwF/stable/benchmarks/geometry-memory.ts:110:17\n\nBun v1.3.5 (macOS arm64)\n"
+        },
+        {
+          "name": "nonfinite",
+          "args": [
+            "--width",
+            "Infinity"
+          ],
+          "exitCode": 1,
+          "combinedOutput": "37 |     throw new Error(`Missing value for ${name}.`);\n38 |   }\n39 | \n40 |   const parsed = Number(value);\n41 |   if (!Number.isFinite(parsed) || parsed < 0) {\n42 |     throw new Error(`Expected ${name} to be a non-negative number.`);\n                   ^\nerror: Expected --width to be a non-negative number.\n      at parseNumberOption (/private/tmp/workdeck-conformance-oracle.vUBqwF/stable/benchmarks/geometry-memory.ts:42:15)\n      at parseArgs (/private/tmp/workdeck-conformance-oracle.vUBqwF/stable/benchmarks/geometry-memory.ts:70:25)\n      at /private/tmp/workdeck-conformance-oracle.vUBqwF/stable/benchmarks/geometry-memory.ts:110:17\n\nBun v1.3.5 (macOS arm64)\n"
+        },
+        {
+          "name": "unknown",
+          "args": [
+            "--unknown"
+          ],
+          "exitCode": 1,
+          "combinedOutput": "71 |         break;\n72 |       case \"--no-gc\":\n73 |         options.gc = false;\n74 |         break;\n75 |       default:\n76 |         throw new Error(`Unknown option: ${arg}`);\n                       ^\nerror: Unknown option: --unknown\n      at parseArgs (/private/tmp/workdeck-conformance-oracle.vUBqwF/stable/benchmarks/geometry-memory.ts:76:19)\n      at /private/tmp/workdeck-conformance-oracle.vUBqwF/stable/benchmarks/geometry-memory.ts:110:17\n\nBun v1.3.5 (macOS arm64)\n"
+        },
+        {
+          "name": "help_first",
+          "args": [
+            "--help",
+            "--unknown"
+          ],
+          "exitCode": 0,
+          "combinedOutput": "Usage: bun run benchmarks/geometry-memory.ts [options]\n\nOptions:\n  --file-count <n>      Synthetic review files (default 180)\n  --lines-per-file <n>  Source lines per synthetic file (default 120)\n  --width <n>           Geometry measurement width (default 240)\n  --no-gc               Do not force Bun.gc before memory samples\n\n"
+        },
+        {
+          "name": "repeat",
+          "args": [
+            "--file-count",
+            "1e100",
+            "--file-count",
+            "2",
+            "--lines-per-file",
+            "120",
+            "--width",
+            "80",
+            "--no-gc"
+          ],
+          "exitCode": 0,
+          "combinedOutput": "geometry memory fixture files=2 lines=120 width=80 gc=off\nMETRIC bootstrap_fixture_ms=5.92\nMETRIC after_bootstrap_rss_bytes=136314880\nMETRIC after_bootstrap_jsc_heap_size_bytes=4871738\nMETRIC after_bootstrap_jsc_extra_memory_size_bytes=1438922\nMETRIC after_bootstrap_jsc_object_count=45452\nMETRIC after_geometry_rss_bytes=137134080\nMETRIC after_geometry_jsc_heap_size_bytes=4871738\nMETRIC after_geometry_jsc_extra_memory_size_bytes=1438922\nMETRIC after_geometry_jsc_object_count=45452\nMETRIC after_materialized_planned_rows_rss_bytes=137412608\nMETRIC after_materialized_planned_rows_jsc_heap_size_bytes=4871738\nMETRIC after_materialized_planned_rows_jsc_extra_memory_size_bytes=1438922\nMETRIC after_materialized_planned_rows_jsc_object_count=45452\nMETRIC geometry_ms=2.35\nMETRIC geometry_body_rows=114\nMETRIC geometry_row_bounds=114\nMETRIC geometry_jsc_heap_size_growth_bytes=0\nMETRIC geometry_rss_growth_bytes=819200\nMETRIC materialize_planned_rows_ms=0.36\nMETRIC materialized_planned_rows=114\nMETRIC materialized_planned_rows_jsc_heap_size_growth_bytes=0\nMETRIC materialized_planned_rows_rss_growth_bytes=278528\nMETRIC files=2\nMETRIC lines_per_file=120\nMETRIC giant_first_copy_plan_ms=44.91\nMETRIC giant_materialized_planned_rows=44009\nMETRIC giant_file_lines=50000\n"
+        }
+      ]
+    }
+  ]
+}
