@@ -2495,6 +2495,13 @@ source commits are recorded alongside the shared blob. All six detector tests
 and TUI all-target Clippy passed; this makes the captured expectations executable
 without requiring Bun during normal Rust tests.
 
+The actual probe PTY matrix now includes an echoed OSC query immediately before
+a valid RGB response across all stdin/stdout routes (18 total cases). It verifies
+that the corrected shared parser reaches a dark-mode result rather than timing
+out, while preserving the entire escaped response and restoring terminal settings.
+The macOS matrix, xtask all-target Clippy and formatting passed. Source process
+lifecycle and native Windows checks remain open.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

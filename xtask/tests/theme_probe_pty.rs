@@ -7,15 +7,19 @@ use std::time::{Duration, Instant};
 
 #[test]
 fn theme_probe_exchanges_osc11_and_reports_timeout_on_a_real_pty() {
-    let cases = [Some("\x1b]11;rgb:00/00/00\x07"), None]
-        .into_iter()
-        .flat_map(|response| {
-            [false, true].into_iter().flat_map(move |stdout| {
-                ["tty", "file", "pipe"]
-                    .into_iter()
-                    .map(move |stdin| (response, stdout, stdin))
-            })
-        });
+    let cases = [
+        Some("\x1b]11;rgb:00/00/00\x07"),
+        Some("\x1b]11;?\x1b\\\x1b]11;rgb:00/00/00\x07"),
+        None,
+    ]
+    .into_iter()
+    .flat_map(|response| {
+        [false, true].into_iter().flat_map(move |stdout| {
+            ["tty", "file", "pipe"]
+                .into_iter()
+                .map(move |stdin| (response, stdout, stdin))
+        })
+    });
     for (response, redirect_stdout, stdin_kind) in cases {
         let redirect_stdin = stdin_kind != "tty";
         let pair = native_pty_system()
@@ -148,14 +152,14 @@ fn theme_probe_exchanges_osc11_and_reports_timeout_on_a_real_pty() {
                 "probe must not consume redirected stdin"
             );
         }
-        if response.is_some() {
+        if let Some(response) = response {
             assert_eq!(report["mode"], "dark");
             assert_eq!(report["classified"], "dark");
             assert_eq!(
                 report["color"],
                 serde_json::json!({"red":0,"green":0,"blue":0})
             );
-            assert_eq!(report["raw"], "\\e]11;rgb:00/00/00\u{7}");
+            assert_eq!(report["raw"], response.replace('\u{1b}', "\\e"));
         } else {
             assert!(report["mode"].is_null());
             assert!(report["color"].is_null());
