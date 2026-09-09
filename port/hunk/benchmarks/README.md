@@ -499,3 +499,17 @@ comparison: host activity remains uncontrolled and the Hunk pins were not rerun.
 All raw distributions are retained. Initial cache construction adds a descriptor
 pass, and navigation still constructs full geometry. The earlier paired scrolling
 gate remains unresolved; these samples do not measure full launch, reload or peak RSS.
+
+### Cached split-line plans at `1ed76935`
+
+[Three optimized native samples with raw process output](interaction-diagnostic-1ed76935.json)
+report medians of 6.75 ms first frame, 25.02 ms navigation and 2.64 ms scrolling,
+including 2.61 ms scroll rendering. The preceding native-only run measured 2.81 ms
+scrolling. Every process was wrapped with macOS `/usr/bin/time -l`; the maximum
+process peak RSS across these three invocations was 170,328,064 bytes. This retains
+the cost of the added split-index cache rather than measuring only live malloc usage.
+
+The results are native-only and host activity was uncontrolled. They do not prove a
+causal improvement, a fresh paired Hunk comparison, or the full memory acceptance
+matrix. Scrolling still exceeds the older paired Hunk budget. Full launch and reload
+are not measured; no ledger mapping or benchmark gate is completed.
