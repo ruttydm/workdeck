@@ -610,6 +610,7 @@ mod tests {
 
     fn annotation(summary: &str, rationale: Option<&str>, line: u32) -> AgentAnnotation {
         AgentAnnotation {
+            extra: Default::default(),
             id: Some("annotation:example:0".into()),
             old_range: None,
             new_range: Some(LineRange {

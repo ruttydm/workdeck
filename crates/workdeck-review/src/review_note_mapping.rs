@@ -80,7 +80,17 @@ impl TerminalReviewNote {
     /// Convert the projected note into the annotation record used by row planning.
     #[must_use]
     pub fn annotation(&self) -> AgentAnnotation {
+        let serde_json::Value::Object(mut extra) = serde_json::to_value(&self.stored)
+            .expect("stored-note render metadata is serializable")
+        else {
+            unreachable!()
+        };
+        extra.insert("filePath".into(), serde_json::json!(self.file_path));
+        extra.insert("hunkIndex".into(), serde_json::json!(self.hunk_index));
+        extra.insert("side".into(), serde_json::json!(self.side));
+        extra.insert("line".into(), serde_json::json!(self.line));
         AgentAnnotation {
+            extra: extra.into_iter().collect(),
             id: Some(self.id.clone()),
             old_range: self.old_range.map(line_range),
             new_range: self.new_range.map(line_range),
@@ -639,6 +649,19 @@ mod tests {
         assert_eq!(rendered.new_range, None);
         assert_eq!(rendered.summary, "needs a test");
         assert_eq!(rendered.editable, Some(true));
+        let annotation = rendered.annotation();
+        assert_eq!(annotation.extra["reviewNoteId"], "user:1");
+        assert_eq!(annotation.extra["semanticallyStored"], true);
+        assert_eq!(annotation.extra["threadDepth"], 0);
+        assert_eq!(annotation.extra["filePath"], "alpha.ts");
+        assert_eq!(annotation.extra["hunkIndex"], 1);
+        assert_eq!(annotation.extra["side"], "old");
+        assert_eq!(annotation.extra["line"], 9);
+        assert_eq!(
+            serde_json::from_value::<AgentAnnotation>(serde_json::to_value(&annotation).unwrap())
+                .unwrap(),
+            annotation
+        );
     }
 
     #[test]

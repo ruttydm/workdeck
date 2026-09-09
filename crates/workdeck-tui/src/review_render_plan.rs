@@ -601,6 +601,7 @@ mod tests {
         intersecting_hunk_indices: Vec<usize>,
     ) -> VisibleAgentNote {
         let annotation = AgentAnnotation {
+            extra: Default::default(),
             id: Some(id.into()),
             old_range,
             new_range,

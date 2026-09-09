@@ -174,6 +174,10 @@ pub enum AgentAnnotationConfidence {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentAnnotation {
+    /// Additional annotation metadata retained at native extension boundaries.
+    /// Empty metadata leaves the existing Workdeck JSON shape unchanged.
+    #[serde(default, flatten)]
+    pub extra: std::collections::BTreeMap<String, Value>,
     pub id: Option<String>,
     pub old_range: Option<LineRange>,
     pub new_range: Option<LineRange>,
@@ -288,6 +292,7 @@ fn parse_agent_annotation(value: &Value) -> Result<AgentAnnotation, AgentContext
         AgentContextError::Invalid("Each agent annotation requires a summary.".into())
     })?;
     Ok(AgentAnnotation {
+        extra: Default::default(),
         id: optional_string(object.get("id")),
         old_range: parse_agent_range(object.get("oldRange"))?,
         new_range: parse_agent_range(object.get("newRange"))?,
@@ -682,6 +687,21 @@ mod tests {
                 .bytes()
                 .all(|byte| byte.is_ascii_hexdigit())
         );
+    }
+
+    #[test]
+    fn annotation_metadata_round_trips_without_a_new_wrapper_field() {
+        let legacy: AgentAnnotation =
+            serde_json::from_value(serde_json::json!({"summary":"note"})).unwrap();
+        assert!(legacy.extra.is_empty());
+        let mut value = serde_json::to_value(&legacy).unwrap();
+        assert!(value.get("extra").is_none());
+        value["threadDepth"] = serde_json::json!(2);
+        value["ancestorHasNextSibling"] = serde_json::json!([true, false]);
+        value["custom"] = serde_json::json!({"nested":null});
+        let restored: AgentAnnotation = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(restored.extra["threadDepth"], 2);
+        assert_eq!(serde_json::to_value(restored).unwrap(), value);
     }
 
     #[test]

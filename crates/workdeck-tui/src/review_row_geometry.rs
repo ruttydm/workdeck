@@ -236,6 +236,7 @@ mod tests {
 
     fn inline_note(key: &str, hunk_index: usize) -> PlannedReviewRow {
         let annotation = AgentAnnotation {
+            extra: Default::default(),
             id: Some("note-1".into()),
             old_range: None,
             new_range: Some(LineRange { start: 1, end: 1 }),

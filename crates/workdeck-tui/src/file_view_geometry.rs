@@ -370,6 +370,7 @@ mod tests {
         VisibleFileViewNote {
             id: id.into(),
             annotation: AgentAnnotation {
+                extra: Default::default(),
                 id: Some(id.into()),
                 old_range: None,
                 new_range: Some(LineRange {

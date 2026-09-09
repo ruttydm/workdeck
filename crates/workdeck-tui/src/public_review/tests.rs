@@ -50,6 +50,7 @@ fn sidebar_file(id: &str, path: &str) -> DiffFile {
 
 fn annotation(summary: &str) -> AgentAnnotation {
     AgentAnnotation {
+        extra: Default::default(),
         id: None,
         old_range: None,
         new_range: None,

@@ -236,6 +236,7 @@ mod tests {
 
     fn annotation() -> AgentAnnotation {
         AgentAnnotation {
+            extra: Default::default(),
             id: Some("note-1".into()),
             old_range: Some(LineRange { start: 4, end: 5 }),
             new_range: Some(LineRange { start: 7, end: 7 }),
@@ -476,6 +477,7 @@ mod tests {
             target,
         );
         let annotation = AgentAnnotation {
+            extra: Default::default(),
             id: Some(comment.id),
             old_range: comment.anchor.old_range,
             new_range: comment.anchor.new_range,

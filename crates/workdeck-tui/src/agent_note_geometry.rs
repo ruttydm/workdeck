@@ -302,6 +302,7 @@ mod tests {
 
     fn annotation(summary: &str) -> AgentAnnotation {
         AgentAnnotation {
+            extra: Default::default(),
             id: Some("note".into()),
             old_range: None,
             new_range: None,

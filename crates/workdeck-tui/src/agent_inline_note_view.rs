@@ -1010,6 +1010,7 @@ mod tests {
 
     fn annotation(summary: &str) -> AgentAnnotation {
         AgentAnnotation {
+            extra: Default::default(),
             id: None,
             old_range: None,
             new_range: Some(LineRange { start: 2, end: 4 }),

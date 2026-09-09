@@ -14,6 +14,7 @@ use crate::{
 
 fn draft_annotation(body: &str) -> AgentAnnotation {
     AgentAnnotation {
+        extra: Default::default(),
         id: Some("draft:1".into()),
         old_range: None,
         new_range: Some(LineRange { start: 1, end: 1 }),

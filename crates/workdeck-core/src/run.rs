@@ -127,6 +127,7 @@ mod tests {
                 path: "example.rs".into(),
                 summary: None,
                 annotations: vec![AgentAnnotation {
+                    extra: Default::default(),
                     id: None,
                     old_range: None,
                     new_range: None,

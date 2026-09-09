@@ -995,6 +995,7 @@ mod tests {
             path: annotated.path.clone(),
             summary: Some("review me".into()),
             annotations: vec![AgentAnnotation {
+                extra: Default::default(),
                 id: None,
                 old_range: None,
                 new_range: Some(LineRange { start: 1, end: 1 }),

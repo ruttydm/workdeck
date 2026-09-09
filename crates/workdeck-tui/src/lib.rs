@@ -12686,6 +12686,7 @@ fn paint_note_composer(
         end: composer.target.line,
     };
     let annotation = AgentAnnotation {
+        extra: Default::default(),
         id: Some(composer.id.clone()),
         old_range: (composer.target.side == ReviewSide::Old).then_some(range),
         new_range: (composer.target.side == ReviewSide::New).then_some(range),
@@ -13441,6 +13442,7 @@ fn append_extension_file_view_rows(
             VisibleFileViewNote {
                 id: comment.id.clone(),
                 annotation: AgentAnnotation {
+                    extra: Default::default(),
                     id: Some(comment.id.clone()),
                     old_range,
                     new_range,
@@ -14531,6 +14533,7 @@ fn saved_comment_annotation(comment: &ReviewComment) -> AgentAnnotation {
         .preferred_side
         .zip(comment.anchor.preferred_line);
     AgentAnnotation {
+        extra: Default::default(),
         id: Some(comment.id.clone()),
         old_range: comment.anchor.old_range.or_else(|| {
             preferred
@@ -15495,6 +15498,7 @@ mod tests {
                 path: "after.ts".into(),
                 summary: None,
                 annotations: vec![AgentAnnotation {
+                    extra: Default::default(),
                     id: None,
                     old_range: None,
                     new_range: Some(LineRange { start: 2, end: 2 }),

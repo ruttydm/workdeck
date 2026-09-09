@@ -310,6 +310,33 @@ mod tests {
     }
 
     #[test]
+    fn native_file_projection_retains_nested_saved_note_metadata() {
+        let mut source = file();
+        source.agent = Some(serde_json::from_value(serde_json::json!({
+            "path":source.path, "annotations":[{
+                "summary":"reply", "reviewNoteId":"note-2", "parentId":"note-1",
+                "threadDepth":2, "ancestorHasNextSibling":[true,false], "semanticallyStored":true
+            }]
+        })).unwrap());
+        let public = project_extension_diff_file(&source);
+        let wire = serde_json::to_value(&public).unwrap();
+        let note = &wire["agent"]["annotations"][0];
+        assert_eq!(note["reviewNoteId"], "note-2");
+        assert_eq!(note["parentId"], "note-1");
+        assert_eq!(note["threadDepth"], 2);
+        assert_eq!(
+            note["ancestorHasNextSibling"],
+            serde_json::json!([true, false])
+        );
+        assert_eq!(note["semanticallyStored"], true);
+        assert!(note.get("extra").is_none());
+        assert_eq!(
+            serde_json::from_value::<ExtensionDiffFile>(wire).unwrap(),
+            public
+        );
+    }
+
+    #[test]
     fn public_file_projection_owns_stats_agent_and_authoritative_hunk_summaries() {
         let mut source = file();
         source.agent = Some(workdeck_core::AgentFileContext {

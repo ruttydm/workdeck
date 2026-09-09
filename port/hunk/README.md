@@ -182,6 +182,24 @@ All 67 core unit tests, 54 coordinator tests, and 25 compiled highlighter
 integration tests pass. Core/TUI all-target Clippy with warnings denied,
 formatting and whitespace checks pass. No ledger mapping is changed.
 
+## Additional annotation metadata at the native boundary
+
+Pinned read-only file projection retains saved-note render metadata inside agent
+annotations. The native core annotation previously had no place for those fields.
+An additive flattened metadata map now preserves additional JSON fields without
+adding a wrapper or changing the JSON emitted by annotations with no extra fields.
+Existing annotation constructors explicitly initialize an empty map.
+
+`TerminalReviewNote::annotation` now carries stored-note thread metadata and
+file/hunk/side/line coordinates. Tests verify legacy-shaped annotations remain
+wrapper-free, nested unknown metadata round-trips, mapped user notes retain their
+render fields, and native `ExtensionDiffFile` projection retains thread metadata.
+The live TUI's separate manual saved-comment projection has not yet been wired
+to this richer mapping, so this does not close the end-to-end note projection
+gap. Core, review and extension-host unit suites pass, as do workspace-wide
+all-target compilation and Clippy with warnings denied, formatting and whitespace
+checks. This is not a full workspace test run. No ledger disposition is changed.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation

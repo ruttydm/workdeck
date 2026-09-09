@@ -99,6 +99,7 @@ mod tests {
                 path: "src/lib.rs".into(),
                 summary: Some("review context".into()),
                 annotations: vec![AgentAnnotation {
+                    extra: Default::default(),
                     id: None,
                     old_range: None,
                     new_range: Some(LineRange { start: 21, end: 21 }),

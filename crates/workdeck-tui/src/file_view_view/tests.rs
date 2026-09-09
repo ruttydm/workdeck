@@ -65,6 +65,7 @@ fn identity(generation: u64) -> FileViewPaintIdentity<'static> {
 
 fn annotation(id: &str, summary: &str, line: u32) -> AgentAnnotation {
     AgentAnnotation {
+        extra: Default::default(),
         id: Some(id.into()),
         old_range: None,
         new_range: Some(LineRange {

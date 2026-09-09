@@ -200,6 +200,7 @@ mod tests {
             path: gamma.path.clone(),
             summary: Some("note".into()),
             annotations: vec![workdeck_core::AgentAnnotation {
+                extra: Default::default(),
                 id: None,
                 old_range: None,
                 new_range: Some(LineRange { start: 1, end: 1 }),
@@ -241,6 +242,7 @@ mod tests {
     fn stream_merges_file_id_keyed_live_annotations_without_mutating_input() {
         let alpha = file("alpha", "src/alpha.ts");
         let annotation = workdeck_core::AgentAnnotation {
+            extra: Default::default(),
             id: Some("live:1".into()),
             old_range: None,
             new_range: Some(LineRange { start: 1, end: 1 }),
@@ -276,6 +278,7 @@ mod tests {
             path: "alpha.ts".into(),
             summary: Some("context".into()),
             annotations: vec![workdeck_core::AgentAnnotation {
+                extra: Default::default(),
                 id: None,
                 old_range: None,
                 new_range: Some(LineRange { start: 1, end: 1 }),
