@@ -23984,6 +23984,48 @@ mod tests {
     }
 
     #[test]
+    fn session_comment_navigation_keeps_active_filter_and_visible_files() {
+        let mut review = responsive_changeset();
+        review.files[0].agent = Some(
+            serde_json::from_value(serde_json::json!({
+                "path":"alpha.ts", "summary":"alpha.ts note",
+                "annotations":[{"newRange":[2,2], "summary":"Annotation for alpha.ts",
+                    "rationale":"Why alpha.ts changed"}]
+            }))
+            .unwrap(),
+        );
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(240, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        rendered_review_frame(&mut terminal, &app);
+        for character in "beta".chars() {
+            app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+        let frame = rendered_review_frame(&mut terminal, &app);
+        for expected in ["filter:", "beta", "betaValue"] {
+            assert!(frame.contains(expected), "{frame}");
+        }
+        assert!(!frame.contains("add = true"), "{frame}");
+        let selection = app.with_state(|state| state.selection());
+        let input = serde_json::from_value(serde_json::json!({"commentDirection":"next"})).unwrap();
+        let error = app.session_navigate_to_location(&input).unwrap_err();
+        assert!(error.contains("No annotated hunks found in the current review."));
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(frame.contains("betaValue"), "{frame}");
+        assert!(!frame.contains("add = true"), "{frame}");
+        assert_eq!(app.filter, "beta");
+        assert_eq!(app.with_state(|state| state.selection()), selection);
+    }
+
+    #[test]
     fn scroll_step_keys_in_pager_move_exactly_one_row() {
         let review = navigation_changeset(vec![(
             "scroll.ts".into(),

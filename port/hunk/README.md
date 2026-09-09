@@ -1,5 +1,18 @@
 # Hunk semantic-port ledger
 
+## AppHost filtered session navigation (partial interaction corpus)
+
+Bytes 81,253–82,720 map to the session comment-navigation filter regression.
+At 240×24, the beta query remains active and the same code stays visible after
+the no-annotated-hunks error. Both unchanged source tests pass eight assertions;
+native test, formatting and TUI all-target Clippy pass. See
+[capture and controller-only scope](oracles/app-host-session-filter.json).
+This is not live daemon transport or general filtered-annotation-set parity.
+
+Current strict audit validates partitions/evidence, then fails with 1,257 files,
+1,348 records, 390 translated-test records and 268 unmapped intervals. Eleven
+cached upstream commits remain pending; complete parity is not established.
+
 ## AppHost filter selection contract (partial interaction corpus)
 
 Bytes 80,168–81,253 map to the executed filter/query regression at 240×24.
@@ -10,7 +23,7 @@ file hidden by a filter. Native coverage now explicitly preserves alpha selectio
 while displaying beta, and retains the query after Tab. A provisional contrary
 runtime change was removed before commit. See [evidence and discrepancy](oracles/app-host-filter-selection.json).
 
-Current strict audit validates partitions/evidence, then fails with 1,257 files,
+At this earlier filter-selection checkpoint, strict audit validated partitions/evidence, then failed with 1,257 files,
 1,347 records, 389 translated-test records and 268 unmapped intervals. Eleven
 cached upstream commits remain pending; whole-file and release parity are incomplete.
 
