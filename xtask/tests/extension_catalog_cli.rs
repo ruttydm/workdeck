@@ -15,10 +15,16 @@ fn run(input: &[u8], args: &[&str]) -> std::process::Output {
 
 #[test]
 fn recency_cli_matches_both_source_baselines() {
-    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+    verify_recency_cases(include_str!(
         "../../port/hunk/oracles/extension-recency.json"
-    ))
-    .unwrap();
+    ));
+    verify_recency_cases(include_str!(
+        "../../port/hunk/oracles/extension-recency-date-inputs.json"
+    ));
+}
+
+fn verify_recency_cases(source: &str) {
+    let fixture: serde_json::Value = serde_json::from_str(source).unwrap();
     for capture in fixture["captures"].as_array().unwrap() {
         for case in capture["cases"].as_array().unwrap() {
             let output = run(

@@ -54,17 +54,14 @@ pub fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
         let pushed = payload
             .get("pushedAt")
             .and_then(Value::as_str)
-            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok());
+            .and_then(parse_catalog_timestamp);
         let now = match payload.get("now") {
             None => Some(chrono::Utc::now().timestamp_millis()),
-            Some(value) => value
-                .as_str()
-                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
-                .map(|value| value.timestamp_millis()),
+            Some(value) => value.as_str().and_then(parse_catalog_timestamp),
         };
         let formatted = pushed
             .zip(now)
-            .and_then(|(pushed, now)| format_updated_millis(pushed.timestamp_millis(), now));
+            .and_then(|(pushed, now)| format_updated_millis(pushed, now));
         println!("{}", serde_json::to_string(&formatted)?);
         return Ok(());
     }
@@ -77,6 +74,35 @@ pub fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
         serde_json::to_string_pretty(&index_activity(&payload))?
     );
     Ok(())
+}
+
+// Date-only ISO inputs are UTC in the source runtime. Days through 31 roll
+// into the following month; larger days and invalid months are rejected.
+// This is deliberately not a claim to implement all legacy Date spellings.
+fn parse_catalog_timestamp(value: &str) -> Option<i64> {
+    let bytes = value.as_bytes();
+    if bytes.len() == 10
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(i, b)| i == 4 || i == 7 || b.is_ascii_digit())
+    {
+        let year = value[..4].parse().ok()?;
+        let month = value[5..7].parse().ok()?;
+        let day: u64 = value[8..].parse().ok()?;
+        if !(1..=31).contains(&day) {
+            return None;
+        }
+        return chrono::NaiveDate::from_ymd_opt(year, month, 1)?
+            .checked_add_days(chrono::Days::new(day - 1))?
+            .and_hms_opt(0, 0, 0)
+            .map(|date| date.and_utc().timestamp_millis());
+    }
+    let date = chrono::DateTime::parse_from_rfc3339(value).ok()?;
+    // Chrono accepts leap seconds, whereas JavaScript Date rejects them.
+    (date.timestamp_subsec_nanos() < 1_000_000_000).then(|| date.timestamp_millis())
 }
 
 fn format_updated_millis(pushed: i64, now: i64) -> Option<String> {

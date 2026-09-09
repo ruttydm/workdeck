@@ -2582,7 +2582,7 @@ catalog integration tests, xtask Clippy and formatting passed; this is broader
 numeric evidence, not a waiver for untested JSON input semantics.
 
 `cargo xtask extension-catalog format-updated` accepts JSON with `pushedAt`
-and optional `now` RFC 3339 timestamps and emits the coarse recency string or
+and optional `now` RFC 3339 or date-only ISO timestamps and emits the coarse recency string or
 null for unusable/future timestamps. The translated elapsed-time formatter
 preserves source thresholds and pluralization, including `0 years ago` at
 360–364 days. Boundary, future-time and subtraction-overflow tests passed,
@@ -2595,6 +2595,12 @@ timestamps and invalid input. Source undefined is explicitly encoded as null.
 The CLI test feeds each captured input through the native command and compares
 its result. All four catalog integration tests, xtask Clippy and formatting
 passed. The broader JavaScript Date-input domain is still unverified.
+
+`oracles/extension-recency-date-inputs.json` adds eight actual cases per pin:
+date-only UTC values, short-month rollover, invalid days/months and leap-second
+rejection. The native CLI compares both captured sets, including date-only
+`now` values. Legacy Date spellings and offset-free date-time inputs remain
+unimplemented; this additional coverage does not complete the source mapping.
 
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
