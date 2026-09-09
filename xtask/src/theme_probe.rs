@@ -88,6 +88,62 @@ pub fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
 }
 
 #[test]
+fn probe_restores_original_mode_on_resume_read_write_and_flush_errors() {
+    struct Input {
+        raw: bool,
+        fail: &'static str,
+        transitions: Vec<bool>,
+    }
+    impl ThemeProbeInput for Input {
+        fn is_raw(&self) -> Option<bool> {
+            Some(self.raw)
+        }
+        fn set_raw_mode(&mut self, raw: bool) -> io::Result<()> {
+            self.transitions.push(raw);
+            self.raw = raw;
+            Ok(())
+        }
+        fn resume(&mut self) -> io::Result<()> {
+            if self.fail == "resume" {
+                return Err(io::Error::other("resume"));
+            }
+            Ok(())
+        }
+        fn read_chunk(&mut self, _: Duration) -> io::Result<Option<Vec<u8>>> {
+            Err(io::Error::other("read"))
+        }
+    }
+    struct Output(&'static str);
+    impl Write for Output {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.0 == "write" {
+                return Err(io::Error::other("write"));
+            }
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            if self.0 == "flush" {
+                return Err(io::Error::other("flush"));
+            }
+            Ok(())
+        }
+    }
+    for original_raw in [false, true] {
+        for failure in ["resume", "read", "write", "flush"] {
+            let mut input = Input {
+                raw: original_raw,
+                fail: failure,
+                transitions: Vec::new(),
+            };
+            let error = probe(&mut input, &mut Output(failure), false, false).unwrap_err();
+            assert_eq!(error.to_string(), failure);
+            assert_eq!(input.raw, original_raw);
+            assert_eq!(input.transitions, [true, original_raw]);
+        }
+    }
+}
+
+#[test]
 fn reports_fragmented_background_and_timeout_and_restores_raw_mode() {
     struct Input {
         chunks: std::collections::VecDeque<Vec<u8>>,

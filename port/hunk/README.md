@@ -2430,3 +2430,9 @@ fields/query bytes, no-response output and restoration of raw mode. xtask
 all-target Clippy and formatting passed. Actual PTY/source-oracle exchanges and
 cross-platform command lifecycle validation are still outstanding; the source
 record remains unmapped.
+
+The probe's subsequent failure-path test injects resume, input-read, output-write
+and output-flush failures with both initial raw-mode states. All eight cases
+preserve the originating I/O error and restore the exact prior raw-mode state.
+Both probe tests, xtask all-target Clippy and formatting passed. This validates
+the diagnostic wrapper's delegation but does not replace real PTY lifecycle tests.
