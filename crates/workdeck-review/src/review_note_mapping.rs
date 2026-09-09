@@ -233,6 +233,48 @@ pub fn live_comment_to_stored_note(
     })
 }
 
+/// Preserve an already-stored Workdeck note's semantic anchor and authority.
+#[must_use]
+pub fn review_comment_to_stored_note(comment: &ReviewComment) -> ReviewStoredNote {
+    ReviewStoredNote {
+        note: SemanticReviewNote {
+            id: comment.id.clone(),
+            parent_id: comment.parent_id.clone(),
+            source: classify_review_note_source(&comment.source),
+            original_source: Some(comment.source.clone()),
+            file_key: comment.anchor.file_key.clone(),
+            anchor: SemanticReviewRangeAnchor {
+                old_range: comment
+                    .anchor
+                    .old_range
+                    .map(|range| [range.start, range.end]),
+                new_range: comment
+                    .anchor
+                    .new_range
+                    .map(|range| [range.start, range.end]),
+                preferred: comment
+                    .anchor
+                    .preferred_side
+                    .zip(comment.anchor.preferred_line)
+                    .map(|(side, line)| SemanticReviewLineAddress { side, line }),
+                intersecting_hunk_indices: comment.anchor.intersecting_hunk_indices.clone(),
+                owner_hunk_index: comment.anchor.owner_hunk_index,
+            },
+            summary: comment.summary.clone(),
+            rationale: comment.rationale.clone(),
+            markup: comment.markup.clone(),
+            title: comment.title.clone(),
+            author: comment.author.clone(),
+            created_at: comment.created_at.clone(),
+            updated_at: comment.updated_at.clone(),
+            editable: comment.editable,
+            tags: comment.tags.clone(),
+            confidence: comment.confidence,
+        },
+        resolution: comment.resolution,
+    }
+}
+
 fn project_stored_note(
     note: &SemanticReviewNote,
     file_path: &str,
@@ -436,7 +478,7 @@ impl ThreadedStoredNoteProjection for ReviewVisibleThreadedStoredNote {
 #[must_use]
 pub fn group_threaded_stored_notes_by_file_id<T, E, F>(
     entries: &[E],
-    file_by_key: &BTreeMap<String, DiffFile>,
+    file_by_key: &BTreeMap<String, impl std::borrow::Borrow<DiffFile>>,
     mut project: F,
 ) -> BTreeMap<String, Vec<T>>
 where
@@ -449,6 +491,7 @@ where
         let Some(file) = file_by_key.get(&entry.note.file_key) else {
             continue;
         };
+        let file = file.borrow();
         if !is_renderable_stored_review_note(entry) {
             continue;
         }
@@ -585,6 +628,45 @@ mod tests {
             tags: Vec::new(),
             confidence: None,
         }
+    }
+
+    #[test]
+    fn stored_comment_conversion_preserves_authoritative_anchor_and_authority() {
+        let mut comment = test_live_comment("user:stored");
+        comment.source = "user".into();
+        comment.parent_id = Some("parent".into());
+        comment.editable = true;
+        comment.resolution = ReviewNoteResolution::Orphaned;
+        comment.anchor.old_range = Some(LineRange { start: 10, end: 30 });
+        comment.anchor.new_range = Some(LineRange { start: 11, end: 31 });
+        comment.anchor.preferred_side = Some(ReviewSide::Old);
+        comment.anchor.preferred_line = Some(20);
+        comment.anchor.intersecting_hunk_indices = vec![1, 2, 3];
+        comment.anchor.owner_hunk_index = Some(1);
+        let stored = review_comment_to_stored_note(&comment);
+        assert_eq!(stored.resolution, ReviewNoteResolution::Orphaned);
+        assert_eq!(stored.note.source, ReviewNoteSource::User);
+        assert_eq!(stored.note.original_source.as_deref(), Some("user"));
+        assert_eq!(stored.note.parent_id, comment.parent_id);
+        assert!(stored.note.editable);
+        assert_eq!(stored.note.anchor.old_range, Some([10, 30]));
+        assert_eq!(stored.note.anchor.new_range, Some([11, 31]));
+        assert_eq!(
+            stored.note.anchor.preferred,
+            Some(SemanticReviewLineAddress {
+                side: ReviewSide::Old,
+                line: 20,
+            })
+        );
+        assert_eq!(stored.note.anchor.intersecting_hunk_indices, [1, 2, 3]);
+        assert_eq!(stored.note.anchor.owner_hunk_index, Some(1));
+        assert_eq!(stored.note.summary, comment.summary);
+        assert_eq!(stored.note.rationale, comment.rationale);
+        assert_eq!(stored.note.markup, comment.markup);
+        assert_eq!(stored.note.author, comment.author);
+        assert_eq!(stored.note.created_at, comment.created_at);
+        assert_eq!(stored.note.tags, comment.tags);
+        assert_eq!(stored.note.confidence, comment.confidence);
     }
 
     #[test]

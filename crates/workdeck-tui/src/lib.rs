@@ -7170,23 +7170,8 @@ impl ReviewApp {
         changeset: &Changeset,
         comments: &[ReviewComment],
     ) -> LineHighlightMap {
-        let file_ids = changeset
-            .files
-            .iter()
-            .map(|file| (file.key.as_str(), public_review::public_file_id(file)))
-            .collect::<BTreeMap<_, _>>();
-        let mut annotations = BTreeMap::<String, Vec<AgentAnnotation>>::new();
-        for comment in comments.iter().filter(|comment| {
-            comment.source != "user-draft"
-                && comment.resolution != workdeck_review::ReviewNoteResolution::Orphaned
-        }) {
-            if let Some(id) = file_ids.get(comment.anchor.file_key.as_str()) {
-                annotations
-                    .entry((*id).to_owned())
-                    .or_default()
-                    .push(saved_comment_annotation(comment));
-            }
-        }
+        let annotations =
+            saved_extension_annotations(changeset, comments, self.options.agent_notes);
         let files = public_review::merge_file_annotations_borrowed(&changeset.files, &annotations);
         let mut runtime = self
             .extension_pane_runtime
@@ -14526,6 +14511,61 @@ fn saved_comment_thread(
     }
 }
 
+fn saved_extension_annotations(
+    changeset: &Changeset,
+    comments: &[ReviewComment],
+    show_agent_notes: bool,
+) -> BTreeMap<String, Vec<AgentAnnotation>> {
+    let mut state = workdeck_review::SemanticReviewState::new(
+        Arc::new(workdeck_core::SemanticReviewDocument { files: Vec::new() }),
+        show_agent_notes,
+    );
+    for comment in comments
+        .iter()
+        .filter(|comment| comment.source != "user-draft")
+    {
+        let stored = workdeck_review::review_comment_to_stored_note(comment);
+        if stored.note.source == workdeck_core::ReviewNoteSource::User {
+            state.user_notes.push(stored);
+        } else {
+            state.live_notes.push(stored);
+        }
+    }
+    let threaded = workdeck_review::select_threaded_stored_review_notes(&state);
+    let visible = workdeck_review::select_visible_threaded_stored_review_notes(&state)
+        .into_iter()
+        .map(|entry| (entry.threaded.entry.note.id.clone(), entry))
+        .collect::<BTreeMap<_, _>>();
+    let files = changeset
+        .files
+        .iter()
+        .map(|file| (file.key.clone(), file))
+        .collect();
+    workdeck_review::group_threaded_stored_notes_by_file_id(
+        &threaded,
+        &files,
+        |note, path, depth, has_replies, _| {
+            let visible = visible.get(&note.id);
+            let projection = workdeck_review::ReviewNoteProjection {
+                thread_depth: visible.map_or(depth, |entry| entry.visible_depth),
+                has_replies,
+                thread_guide: Some(workdeck_review::ReviewThreadGuide {
+                    has_next_sibling: visible.is_some_and(|entry| entry.has_next_visible_sibling),
+                    ancestor_has_next_sibling: visible.map_or_else(Vec::new, |entry| {
+                        entry.visible_ancestor_has_next_sibling.clone()
+                    }),
+                }),
+            };
+            if note.source == workdeck_core::ReviewNoteSource::User {
+                workdeck_review::stored_note_to_user_note(note, path, projection)
+            } else {
+                workdeck_review::stored_note_to_live_comment(note, path, projection)
+            }
+            .annotation()
+        },
+    )
+}
+
 fn saved_comment_annotation(comment: &ReviewComment) -> AgentAnnotation {
     use workdeck_core::LineRange;
     let preferred = comment
@@ -15616,6 +15656,85 @@ mod tests {
             },
             editable: false,
         }
+    }
+
+    #[test]
+    fn saved_extension_projection_preserves_thread_metadata_defaults_and_exclusions() {
+        let document = changeset();
+        let file = &document.files[0];
+        let mut root = saved_comment(&file.key, "root", "root");
+        root.source = "user".into();
+        root.editable = true;
+        let mut reply = saved_comment(&file.key, "reply", "reply");
+        reply.parent_id = Some(root.id.clone());
+        let mut sibling = root.clone();
+        sibling.id = "sibling".into();
+        let mut orphan = root.clone();
+        orphan.id = "orphan".into();
+        orphan.resolution = workdeck_review::ReviewNoteResolution::Orphaned;
+        let mut draft = root.clone();
+        draft.id = "draft".into();
+        draft.source = "user-draft".into();
+        let missing = saved_comment("absent", "missing", "missing");
+        let annotations = saved_extension_annotations(
+            &document,
+            &[root, reply, sibling, orphan, draft, missing],
+            true,
+        );
+        let notes = &annotations[&file.runtime_id];
+        assert_eq!(notes.len(), 3);
+        let root = notes
+            .iter()
+            .find(|note| note.id.as_deref() == Some("root"))
+            .unwrap();
+        assert_eq!(root.author.as_deref(), Some("user"));
+        assert_eq!(root.created_at.as_deref(), Some("1970-01-01T00:00:00.000Z"));
+        assert!(root.editable);
+        assert_eq!(root.extra["reviewNoteId"], "root");
+        assert_eq!(root.extra["filePath"], file.path);
+        assert_eq!(root.extra["hunkIndex"], 0);
+        assert_eq!(root.extra["side"], "new");
+        assert_eq!(root.extra["line"], 1);
+        assert_eq!(root.extra["hasReplies"], true);
+        // Hunk draws sibling connectors only for notes with a visible parent.
+        assert_eq!(root.extra["hasNextSibling"], false);
+        let reply = notes
+            .iter()
+            .find(|note| note.id.as_deref() == Some("reply"))
+            .unwrap();
+        assert_eq!(reply.source.as_deref(), Some("mcp"));
+        assert_eq!(reply.extra["parentId"], "root");
+        assert_eq!(reply.extra["threadDepth"], 1);
+        assert_eq!(
+            reply.extra["ancestorHasNextSibling"],
+            serde_json::json!([false])
+        );
+        assert_eq!(reply.extra["semanticallyStored"], true);
+    }
+
+    #[test]
+    fn saved_extension_projection_collapses_hidden_ancestors_without_dropping_metadata() {
+        let document = changeset();
+        let file = &document.files[0];
+        let parent = saved_comment(&file.key, "agent-parent", "parent");
+        let mut reply = saved_comment(&file.key, "user-reply", "reply");
+        reply.source = "user".into();
+        reply.parent_id = Some(parent.id.clone());
+        let annotations = saved_extension_annotations(&document, &[parent, reply], false);
+        let notes = &annotations[&file.runtime_id];
+        assert_eq!(
+            notes.len(),
+            2,
+            "visibility does not remove extension metadata"
+        );
+        let reply = notes
+            .iter()
+            .find(|note| note.id.as_deref() == Some("user-reply"))
+            .unwrap();
+        assert_eq!(reply.extra["parentId"], "agent-parent");
+        assert_eq!(reply.extra["threadDepth"], 0);
+        assert_eq!(reply.extra["hasNextSibling"], false);
+        assert_eq!(reply.extra["ancestorHasNextSibling"], serde_json::json!([]));
     }
 
     #[test]

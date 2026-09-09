@@ -961,6 +961,27 @@ fn assert_saved_note_changes_reach_native_highlighter(deferred: bool) {
             );
             std::thread::sleep(Duration::from_millis(1));
         }
+        let annotations = probe
+            .request(
+                "example/last-annotations",
+                serde_json::json!({}),
+                Duration::from_millis(500),
+            )
+            .unwrap();
+        if width == 0 {
+            assert_eq!(annotations, serde_json::json!([]));
+        } else {
+            assert_eq!(annotations.as_array().unwrap().len(), 1);
+            let annotation = &annotations[0];
+            assert_eq!(annotation["reviewNoteId"], "live-note");
+            assert_eq!(annotation["semanticallyStored"], true);
+            assert_eq!(annotation["filePath"], "request.rs");
+            assert_eq!(annotation["hunkIndex"], 0);
+            assert_eq!(annotation["side"], "new");
+            assert_eq!(annotation["line"], 1);
+            assert_eq!(annotation["threadDepth"], 0);
+            assert_eq!(annotation["ancestorHasNextSibling"], serde_json::json!([]));
+        }
     }
     assert_eq!(state.lock().unwrap().changeset(), &document);
     assert_eq!(reads.load(Ordering::SeqCst), if deferred { 1 } else { 0 });

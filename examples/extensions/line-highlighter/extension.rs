@@ -21,6 +21,7 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
     let mut cancel_batch = false;
     let mut batch: Vec<(u64, String)> = Vec::new();
     let mut last_annotation_width: Option<usize> = None;
+    let mut last_annotations = serde_json::json!([]);
     let mut active_request = None;
     let mut last_cancellation: Option<workdeck_extension_api::ExtensionRequestCancellation> = None;
     let mut callbacks = workdeck_extension_api::ExtensionDocumentCallbacks::default();
@@ -159,6 +160,9 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
             "example/last-annotation-width" => {
                 write_result(&mut output, request.id, last_annotation_width)?;
             }
+            "example/last-annotations" => {
+                write_result(&mut output, request.id, &last_annotations)?;
+            }
             "workdeck/handshake" => {
                 let input: HandshakeRequest =
                     serde_json::from_value(request.params).map_err(io::Error::other)?;
@@ -244,6 +248,10 @@ pub fn serve<R: BufRead, W: Write>(mut incoming: R, mut output: W) -> io::Result
                 active_request = Some(request.id);
                 let input: LineHighlightRequest =
                     serde_json::from_value(request.params).map_err(io::Error::other)?;
+                last_annotations = input.file.agent.as_ref().map_or_else(
+                    || serde_json::json!([]),
+                    |agent| serde_json::json!(agent.annotations),
+                );
                 let lazy = input.document_reader;
                 if batch_four {
                     batch.push((request.id, input.file.path.clone()));

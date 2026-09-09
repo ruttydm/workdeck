@@ -200,6 +200,27 @@ gap. Core, review and extension-host unit suites pass, as do workspace-wide
 all-target compilation and Clippy with warnings denied, formatting and whitespace
 checks. This is not a full workspace test run. No ledger disposition is changed.
 
+### Live saved-note projection
+
+The subsequent TUI integration now uses the shared stored-note mapping and thread
+selectors for extension input. Stored anchors, resolution, source and edit authority
+are copied without reconstructing them from legacy hunk coordinates. File grouping
+accepts borrowed files rather than cloning complete diff payloads. Visibility
+collapses thread depth and guides across hidden ancestors without removing the
+hidden notes from extension metadata, matching the pinned hook. Drafts, orphaned
+notes and notes for absent files remain excluded. Root notes deliberately have no
+sibling connector, as in the pinned selector. The legacy canvas fallback is unchanged.
+
+Tests cover user defaults, coordinates, thread metadata, hidden ancestors and stored
+anchor authority. The compiled native highlighter fixture returns the annotations
+it actually received: the live add/edit/remove test verifies stored-note fields
+alongside terminal-cell highlight changes for both eager and deferred sources.
+All 175 review unit tests, 1,091 TUI unit tests and 25 compiled highlighter integration
+tests pass. This closes the previously noted live saved-note projection gap, not the
+full hook parity gate; no source ledger interval is marked complete. Review, TUI and
+examples all-target Clippy with warnings denied, formatting and whitespace checks
+also pass.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation
