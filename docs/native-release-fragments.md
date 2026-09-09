@@ -60,6 +60,11 @@ A second CLI integration case creates an isolated Cargo workspace at version
 with exact grouped notes. It compares manifest, lockfile and fragment bytes
 before and after planning to prove that the tested path is read-only.
 
+Hand-authored fragments use the same ID rules as the authoring command. NUL
+bytes and duplicate frontmatter keys are rejected rather than silently
+reinterpreted. CRLF fragments are accepted and normalized for parsing without
+rewriting the source file. Regression tests preserve rejected files unchanged.
+
 The frontmatter targets the sole `workdeck` product. This is not an npm
 workspace or a claim that individual internal Rust crates are separately
 published. Fragment creation does not commit, push, bump versions, consume

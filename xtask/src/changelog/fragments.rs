@@ -3,6 +3,18 @@ use anyhow::{Result, bail, ensure};
 use std::io::Write;
 use std::path::Path;
 
+fn validate_id(id: &str) -> Result<()> {
+    ensure!(
+        !id.is_empty()
+            && id.len() <= 100
+            && id
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'),
+        "fragment id must use lowercase letters, digits and hyphens (1–100 bytes)"
+    );
+    Ok(())
+}
+
 #[derive(serde::Serialize)]
 struct PendingFragment {
     id: String,
@@ -32,6 +44,12 @@ fn pending(repo: &Path) -> Result<Vec<PendingFragment>> {
             "fragment must be a regular file"
         );
         let text = std::fs::read_to_string(&path)?;
+        let id = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| anyhow::anyhow!("fragment id is not UTF-8"))?;
+        validate_id(id)?;
+        ensure!(!text.contains('\0'), "fragment contains a NUL byte");
         let normalized = text.replace("\r\n", "\n");
         let rest = normalized
             .strip_prefix("---\n")
@@ -46,8 +64,9 @@ fn pending(repo: &Path) -> Result<Vec<PendingFragment>> {
         let bump = if frontmatter.trim().is_empty() {
             None
         } else {
+            let document: serde_norway::Value = serde_norway::from_str(frontmatter)?;
             let fields: std::collections::BTreeMap<String, String> =
-                serde_norway::from_str(frontmatter)?;
+                serde_norway::from_value(document)?;
             ensure!(fields.len() == 1, "fragment must target only workdeck");
             let value = fields
                 .get("workdeck")
@@ -67,11 +86,7 @@ fn pending(repo: &Path) -> Result<Vec<PendingFragment>> {
             "maintenance fragment has release-note text"
         );
         fragments.push(PendingFragment {
-            id: path
-                .file_stem()
-                .and_then(|value| value.to_str())
-                .ok_or_else(|| anyhow::anyhow!("fragment id is not UTF-8"))?
-                .into(),
+            id: id.into(),
             bump,
             body: body.trim().into(),
         });
@@ -204,14 +219,7 @@ pub(super) fn add(repo: &Path, mut args: impl Iterator<Item = String>) -> Result
     let id = args
         .next()
         .ok_or_else(|| anyhow::anyhow!("fragment id required"))?;
-    ensure!(
-        !id.is_empty()
-            && id.len() <= 100
-            && id
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'),
-        "fragment id must use lowercase letters, digits and hyphens (1–100 bytes)"
-    );
+    validate_id(&id)?;
     let bump = args
         .next()
         .ok_or_else(|| anyhow::anyhow!("fragment bump required"))?;
@@ -266,6 +274,34 @@ pub(super) fn add(repo: &Path, mut args: impl Iterator<Item = String>) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hand_authored_fragments_obey_authoring_rules() {
+        for (name, text) in [
+            ("UPPER.md", "---\n---\n"),
+            ("with space.md", "---\n---\n"),
+            ("nul.md", "---\nworkdeck: patch\n---\n\nNote\0text"),
+            (
+                "duplicate.md",
+                "---\nworkdeck: patch\nworkdeck: major\n---\n\nNote",
+            ),
+        ] {
+            let repo = tempfile::tempdir().unwrap();
+            std::fs::create_dir(repo.path().join("changes")).unwrap();
+            let path = repo.path().join("changes").join(name);
+            std::fs::write(&path, text).unwrap();
+            assert!(pending(repo.path()).is_err(), "accepted {name}");
+            assert_eq!(std::fs::read_to_string(path).unwrap(), text);
+        }
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::create_dir(repo.path().join("changes")).unwrap();
+        std::fs::write(
+            repo.path().join("changes/windows.md"),
+            "---\r\nworkdeck: patch\r\n---\r\n\r\nFix λ.\r\n",
+        )
+        .unwrap();
+        assert_eq!(pending(repo.path()).unwrap()[0].body, "Fix λ.");
+    }
 
     #[test]
     fn notes_group_bumps_preserve_multiline_text_and_omit_maintenance() {
