@@ -50,6 +50,11 @@ followed and that an existing symlink target cannot be overwritten. These
 checks are not a claim of adversarial filesystem race isolation or native
 Windows symlink validation.
 
+The CLI integration test runs the actual tooling executable inside a temporary
+Git repository: empty status, fragment creation, status JSON, overwrite and
+extra-argument rejection, unchanged fragment bytes, and command help are
+checked without creating fragments in the project checkout.
+
 The frontmatter targets the sole `workdeck` product. This is not an npm
 workspace or a claim that individual internal Rust crates are separately
 published. Fragment creation does not commit, push, bump versions, consume
