@@ -2431,6 +2431,13 @@ all-target Clippy and formatting passed. Actual PTY/source-oracle exchanges and
 cross-platform command lifecycle validation are still outstanding; the source
 record remains unmapped.
 
+The native Unix integration test `xtask/tests/theme_probe_pty.rs` now launches
+the actual tooling executable on a fresh PTY, waits for the complete OSC 11 query,
+and verifies a black-background response and a separate unanswered-query case.
+It checks successful exit, exact response diagnostics and terminal attachment
+flags. Both cases passed on macOS. This is native command evidence, not a frozen
+Hunk comparison, Windows execution or a real-terminal raw-mode restoration check.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.
