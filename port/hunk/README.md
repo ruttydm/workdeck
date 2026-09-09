@@ -2502,6 +2502,12 @@ out, while preserving the entire escaped response and restoring terminal setting
 The macOS matrix, xtask all-target Clippy and formatting passed. Source process
 lifecycle and native Windows checks remain open.
 
+The detector regression suite now exercises every two-chunk split of combined
+hex/RGB responses and invalid-prefix/valid-response streams. A completed hex
+response settles immediately and leaves later chunks unread; RGB precedence
+applies only to data already received. Both initial raw-mode states are covered.
+All seven detector tests, TUI all-target Clippy and formatting passed.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

@@ -462,6 +462,58 @@ mod tests {
     }
 
     #[test]
+    fn fragmented_probe_settles_on_first_complete_response_not_future_chunks() {
+        let hex = b"\x1b]11;#ffffff\x07";
+        let rgb = b"\x1b]11;rgb:00/00/00\x1b\\";
+        let response = [hex.as_slice(), rgb.as_slice()].concat();
+        for split in 1..response.len() {
+            let mut input = FakeThemeInput {
+                raw: false,
+                chunks: VecDeque::from([response[..split].to_vec(), response[split..].to_vec()]),
+                raw_transitions: Vec::new(),
+            };
+            let mode = detect_terminal_theme_mode_from_background(
+                &mut input,
+                &mut Vec::new(),
+                Duration::from_secs(1),
+            )
+            .unwrap();
+            let settled_on_hex = split >= hex.len();
+            assert_eq!(
+                mode,
+                Some(if settled_on_hex {
+                    TerminalThemeMode::Light
+                } else {
+                    TerminalThemeMode::Dark
+                }),
+                "split at {split}"
+            );
+            assert_eq!(input.chunks.len(), usize::from(settled_on_hex));
+            assert_eq!(input.raw_transitions, [true, false]);
+        }
+        let valid = b"\x1b]11;?\x1b\\\x1b]11;rgb:ff/ff/ff\x07";
+        for split in 1..valid.len() {
+            let mut input = FakeThemeInput {
+                raw: true,
+                chunks: VecDeque::from([valid[..split].to_vec(), valid[split..].to_vec()]),
+                raw_transitions: Vec::new(),
+            };
+            assert_eq!(
+                detect_terminal_theme_mode_from_background(
+                    &mut input,
+                    &mut Vec::new(),
+                    Duration::from_secs(1),
+                )
+                .unwrap(),
+                Some(TerminalThemeMode::Light),
+                "split at {split}"
+            );
+            assert!(input.chunks.is_empty());
+            assert_eq!(input.raw_transitions, [true, true]);
+        }
+    }
+
+    #[test]
     fn detects_from_the_queried_input_and_restores_raw_mode() {
         let mut input = FakeThemeInput {
             raw: false,
