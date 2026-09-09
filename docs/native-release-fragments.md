@@ -55,6 +55,11 @@ Git repository: empty status, fragment creation, status JSON, overwrite and
 extra-argument rejection, unchanged fragment bytes, and command help are
 checked without creating fragments in the project checkout.
 
+A second CLI integration case creates an isolated Cargo workspace at version
+`1.2.3`, authors minor and patch fragments, and verifies a `1.3.0` proposal
+with exact grouped notes. It compares manifest, lockfile and fragment bytes
+before and after planning to prove that the tested path is read-only.
+
 The frontmatter targets the sole `workdeck` product. This is not an npm
 workspace or a claim that individual internal Rust crates are separately
 published. Fragment creation does not commit, push, bump versions, consume

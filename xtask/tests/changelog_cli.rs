@@ -74,3 +74,72 @@ fn native_fragment_cli_round_trip_and_read_only_status() {
         assert!(help.contains(command));
     }
 }
+
+#[test]
+fn version_plan_uses_real_cargo_metadata_without_mutating_inputs() {
+    let repo = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    std::fs::create_dir(repo.path().join("src")).unwrap();
+    std::fs::write(repo.path().join("src/main.rs"), "fn main() {}\n").unwrap();
+    std::fs::write(repo.path().join("Cargo.toml"), "[package]\nname = \"workdeck-cli\"\nversion = \"1.2.3\"\nedition = \"2024\"\n\n[workspace]\n").unwrap();
+    assert!(
+        Command::new("cargo")
+            .args(["generate-lockfile", "--offline"])
+            .current_dir(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    for (id, bump, body) in [
+        ("minor-feature", "minor", "Add feature."),
+        ("patch-fix", "patch", "Fix λ."),
+    ] {
+        let output = run(repo.path(), &["changelog", "add", id, bump, body]);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let paths = [
+        "Cargo.toml",
+        "Cargo.lock",
+        "changes/minor-feature.md",
+        "changes/patch-fix.md",
+    ];
+    let before: Vec<_> = paths
+        .iter()
+        .map(|path| std::fs::read(repo.path().join(path)).unwrap())
+        .collect();
+    let output = run(repo.path(), &["changelog", "plan"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    let plan: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(plan["current"], "1.2.3");
+    assert_eq!(plan["next"], "1.3.0");
+    assert_eq!(plan["bump"], "minor");
+    assert_eq!(plan["applied"], false);
+    assert_eq!(plan["fragments"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        plan["notes"],
+        "## 1.3.0\n\n### Minor Changes\n\n- Add feature.\n\n### Patch Changes\n\n- Fix λ.\n\n"
+    );
+    for (path, expected) in paths.iter().zip(before) {
+        assert_eq!(
+            std::fs::read(repo.path().join(path)).unwrap(),
+            expected,
+            "plan changed {path}"
+        );
+    }
+}
