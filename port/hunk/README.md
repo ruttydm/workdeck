@@ -282,6 +282,16 @@ after the final change; TUI all-target Clippy with warnings denied, formatting a
 whitespace checks also pass. This is a local reduction in repeated work, not measured
 benchmark parity, and it does not change any ledger disposition.
 
+### Empty highlighter registry frame path
+
+The live frame checks the line-highlighter registry before building saved-note
+projections, merged file views, or source-bound runtime wrappers. With no providers,
+it still reconciles the preparation controller against an empty generation to retire
+old work and published extension marks, then preserves agent-provided highlights
+through the existing merge function. Registered-provider behavior is unchanged.
+All 1,093 TUI unit tests, TUI all-target Clippy with warnings denied, formatting and
+whitespace checks pass. This does not complete a ledger interval or performance gate.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation

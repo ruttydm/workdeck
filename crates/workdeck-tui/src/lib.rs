@@ -7170,13 +7170,28 @@ impl ReviewApp {
         changeset: &Changeset,
         comments: &[ReviewComment],
     ) -> LineHighlightMap {
-        let annotations =
-            saved_extension_annotations(changeset, comments, self.options.agent_notes);
-        let files = public_review::merge_file_annotations_borrowed(&changeset.files, &annotations);
         let mut runtime = self
             .extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let registrations = runtime.line_highlights.registrations().to_vec();
+        let epochs = runtime.line_highlights.epochs().clone();
+        if registrations.is_empty() {
+            // Still retire old work and marks when the final provider disappears.
+            runtime.line_highlight_preparation.reconcile(
+                &[],
+                &registrations,
+                &epochs,
+                std::iter::empty(),
+            );
+            return merge_line_highlight_maps(
+                runtime.line_highlight_preparation.resolved(),
+                &self.agent_line_highlights,
+            );
+        }
+        let annotations =
+            saved_extension_annotations(changeset, comments, self.options.agent_notes);
+        let files = public_review::merge_file_annotations_borrowed(&changeset.files, &annotations);
         let extensions = runtime
             .extensions
             .iter()
@@ -7188,8 +7203,6 @@ impl ReviewApp {
                 }) as Arc<dyn LineHighlightRuntime>
             })
             .collect::<Vec<_>>();
-        let registrations = runtime.line_highlights.registrations().to_vec();
-        let epochs = runtime.line_highlights.epochs().clone();
         let filter_changed = runtime
             .line_highlight_preparation
             .set_stream_filter(&self.filter);
