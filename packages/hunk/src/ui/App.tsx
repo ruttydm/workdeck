@@ -15,6 +15,7 @@ import {
   useState,
 } from "react";
 import type { PersistedViewPreferences } from "../core/run/config";
+import { STATUS_COMMAND_NAMES } from "../core/run/statusCommandCatalog";
 import { HISTORY_COMMAND_NAMES } from "../core/run/historyCommandCatalog";
 import type { ExtensionReviewReloadResult } from "../extension-api/types";
 import { experimentalFeatureEnabled, resolveExperimentalDiffFiles } from "../core/run/experimental";
@@ -156,7 +157,8 @@ export function App({
   reviewProducer,
   runWorkspaceWrite,
   themeController,
-  returnToHistory = process.env.HUNK_RETURN_TO_HISTORY === "1",
+  initialFilePath,
+  returnToSurface = process.env.HUNK_RETURN_TO_HISTORY === "1" ? "history" : undefined,
   watchRuntime,
   workspaceFileWriter,
 }: {
@@ -188,8 +190,10 @@ export function App({
   runWorkspaceWrite: WorkspaceWriteRunner;
   /** Session-owned committed theme state shared across routed surfaces. */
   themeController?: ThemeController;
-  /** Present quit as returning to the owning history surface. */
-  returnToHistory?: boolean;
+  /** Present quit as returning to the owning status or history surface. */
+  returnToSurface?: "history" | "status";
+  /** Reveal a launch-selected path within the full comparison, only on first mount. */
+  initialFilePath?: string;
   watchRuntime?: WatchedInputRuntime;
   workspaceFileWriter?: WorkspaceFileWriter;
 }) {
@@ -220,6 +224,13 @@ export function App({
     sourceLabel: bootstrap.changeset.sourceLabel,
     stmlEnabled,
   });
+  const initialNavigationApplied = useRef(false);
+  useEffect(() => {
+    if (initialNavigationApplied.current) return;
+    initialNavigationApplied.current = true;
+    const file = reviewFiles.find((file) => file.path === initialFilePath);
+    if (file) review.selectFile(file.id, { alignFileHeaderTop: true });
+  }, [initialFilePath, reviewFiles, review.selectFile]);
   // The producer plans brokered actions against the store this controller owns, so a
   // remote action and a key press reach the same state through the same intent path.
   // AppHost detaches the previous store while committing a reload; this child layout
@@ -412,7 +423,7 @@ export function App({
     configPath: bootstrap.viewPreferencesConfigPath,
     pagerMode,
     promptSaveViewPreferences:
-      bootstrap.input.options.promptSaveViewPreferences !== false && !returnToHistory,
+      bootstrap.input.options.promptSaveViewPreferences !== false && !returnToSurface,
     transientViewPreferences: extensionSessionOptions.transientViewPreferences,
     onQuit,
     showNotice: showSessionNotice,
@@ -639,7 +650,7 @@ export function App({
           ...builtinCommandKeyDefaults(),
           ...extensionCommandKeyDefaults(registeredExtensionCommands),
         ],
-        inactiveCommandNames: HISTORY_COMMAND_NAMES,
+        inactiveCommandNames: new Set([...HISTORY_COMMAND_NAMES, ...STATUS_COMMAND_NAMES]),
         userBindings: bootstrap.keybindings,
       }),
     [bootstrap.keybindings, registeredExtensionCommands],
@@ -1210,8 +1221,8 @@ export function App({
         triggerEditSelectedFile,
         triggerRefreshCurrentInput,
       }).map((command) =>
-        returnToHistory && command.id === "hunk.app.quit"
-          ? { ...command, title: "Back to history" }
+        returnToSurface && command.id === "hunk.app.quit"
+          ? { ...command, title: `Back to ${returnToSurface}` }
           : command,
       ),
       ...extensionAppCommands.commands,
