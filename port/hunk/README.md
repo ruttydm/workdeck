@@ -1,5 +1,24 @@
 # Hunk semantic-port ledger
 
+## Collapsed-top fixture and embedded source metadata
+
+The complete fixture helper at bytes 12,668–13,394 now retains both full source
+texts, source IDs/defaults, and the absence of a fetcher. Its faithful native
+consumer initially exposed an expandable gap where both Hunk pins show a
+noninteractive collapsed label. `SourceOrigin::DiffMetadata` now distinguishes
+embedded text from materialized fetchable source: text remains available to
+metadata consumers, but it does not implicitly advertise gap expansion or
+derive source attestation/identity. Explicit runtime source presentation still
+supports pending/loaded/retired states, and existing source origins are unchanged.
+The rapid and security fixtures use this distinction as well.
+
+Both pinned navigation cases, all 69 core tests, all 1,177 TUI tests, and
+workspace-wide strict Clippy pass. Tests cover serialized round trips, forged
+attestation bits, explicit runtime presentation, and fallback after retirement.
+See [fixture and validation evidence](oracles/interaction-collapsed-bootstrap.json).
+Only 726 source bytes are newly mapped; splitting unfinished neighbors leaves
+271 incomplete intervals. This is not a full source-capability or release gate.
+
 ## Preserve source bytes before safe terminal rendering
 
 The malicious-source fixture exposed a structural mismatch hidden by its earlier

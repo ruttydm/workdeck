@@ -23415,23 +23415,14 @@ mod tests {
     #[test]
     fn arrow_step_and_reverse_restore_collapsed_gap_beneath_pinned_header() {
         for cursor_line in [CursorLineMode::Off, ReviewOptions::default().cursor_line] {
-            let before = (1..=400)
-                .map(|n| format!("export const line{n:03} = {n};\n"))
-                .collect::<String>();
-            let after = before.replace("line366 = 366", "line366 = 9999");
-            let review = navigation_changeset(vec![
-                ("src/ui/components/panes/DiffPane.tsx".into(), before, after),
-                (
-                    "other.ts".into(),
-                    "export const other = 1;\n".into(),
-                    "export const other = 2;\n".into(),
-                ),
-            ]);
+            let bootstrap = pinned_collapsed_top_bootstrap();
             let mut app = ReviewApp::new(
-                review,
+                bootstrap.changeset,
                 ReviewOptions {
                     layout: LayoutMode::Split,
                     cursor_line,
+                    command_cwd: Some(bootstrap.reload_context.cwd),
+                    review_input: Some(bootstrap.input),
                     ..Default::default()
                 },
             );
@@ -23475,6 +23466,207 @@ mod tests {
             );
             assert_eq!(restored.matches("DiffPane.tsx").count(), header_count);
         }
+    }
+
+    fn pinned_collapsed_top_bootstrap() -> workdeck_core::AppBootstrap {
+        let before = (1..=400)
+            .map(|n| format!("export const line{n:03} = {n};\n"))
+            .collect::<String>();
+        let after = before.replace("line366 = 366", "line366 = 9999");
+        let files = [
+            (
+                "late",
+                "src/ui/components/panes/DiffPane.tsx",
+                before,
+                after,
+            ),
+            (
+                "second",
+                "other.ts",
+                "export const other = 1;\n".into(),
+                "export const other = 2;\n".into(),
+            ),
+        ]
+        .into_iter()
+        .map(|(id, path, before, after)| {
+            let mut file = workdeck_diff::diff_from_file_snapshots(
+                workdeck_diff::FileSnapshot {
+                    cache_key: &format!("{id}:before"),
+                    contents: &before,
+                    name: path,
+                },
+                workdeck_diff::FileSnapshot {
+                    cache_key: &format!("{id}:after"),
+                    contents: &after,
+                    name: path,
+                },
+                workdeck_diff::FileComparisonOptions { context_radius: 3 },
+            )
+            .unwrap();
+            file.runtime_id = id.into();
+            file.language = Some("typescript".into());
+            file.patch.clear();
+            for source in file
+                .sources
+                .old
+                .iter_mut()
+                .chain(file.sources.new.iter_mut())
+            {
+                source.origin = SourceOrigin::DiffMetadata;
+                source.attested = false;
+            }
+            file.set_sources(file.sources.clone());
+            file
+        })
+        .collect();
+        let mut review = changeset();
+        review.id = "changeset:collapsed-top".into();
+        review.source_label = "repo".into();
+        review.title = "repo working tree".into();
+        review.files = files;
+        review.refresh_review_identities();
+        let mut bootstrap = workdeck_core::AppBootstrap::new(
+            CliInput::Vcs(VcsDiffCommandInput {
+                range: None,
+                range_endpoints: None,
+                staged: false,
+                pathspecs: Vec::new(),
+                options: CommonOptions {
+                    mode: Some(workdeck_core::InputLayoutMode::Split),
+                    pager: Some(false),
+                    ..Default::default()
+                },
+            }),
+            workdeck_core::ReloadContext {
+                cwd: "repo".into(),
+                repo_root: None,
+                initial_watch_signature: None,
+                vcs_catalog: None,
+            },
+            review,
+        );
+        bootstrap.initial_theme = Some("github-dark-default".into());
+        bootstrap
+    }
+
+    #[test]
+    fn collapsed_top_bootstrap_matches_both_pinned_source_fixtures() {
+        let bootstrap = pinned_collapsed_top_bootstrap();
+        let CliInput::Vcs(input) = &bootstrap.input else {
+            panic!("expected VCS input");
+        };
+        assert_eq!(
+            input.options.mode,
+            Some(workdeck_core::InputLayoutMode::Split)
+        );
+        assert_eq!(
+            bootstrap.initial_mode,
+            workdeck_core::InputLayoutMode::Split
+        );
+        assert!(input.options.agent_notes.is_none());
+        assert!(!bootstrap.initial_show_agent_notes);
+        assert!(bootstrap.reload_context.repo_root.is_none());
+        assert!(
+            input.range.is_none() && input.range_endpoints.is_none() && input.pathspecs.is_empty()
+        );
+        let presentation = source_presentation::ReviewSourcePresentation::default();
+        let files = bootstrap
+            .changeset
+            .files
+            .iter()
+            .map(|file| {
+                assert!(file.source_identity.is_none());
+                assert!(!file.source_attested);
+                serde_json::json!({
+                    "id": file.runtime_id, "path": file.path, "language": file.language,
+                    "patch": file.patch, "agent": file.agent,
+                    "sourceFetcherPresent": presentation.available(file),
+                    "partial": file.flags.partial,
+                    "stats": {"additions": file.stats.additions, "deletions": file.stats.deletions},
+                    "before": file.sources.old.as_ref().unwrap().content,
+                    "after": file.sources.new.as_ref().unwrap().content,
+                    "hunks": file.hunks.iter().map(|hunk| serde_json::json!({
+                        "oldStart": hunk.old_start, "oldCount": hunk.old_count,
+                        "newStart": hunk.new_start, "newCount": hunk.new_count,
+                        "splitRows": hunk.split_row_count, "stackRows": hunk.stack_row_count
+                    })).collect::<Vec<_>>()
+                })
+            })
+            .collect::<Vec<_>>();
+        let actual = serde_json::json!({
+            "reloadContext": {"cwd": bootstrap.reload_context.cwd},
+            "input": {"kind":"vcs", "staged": input.staged,
+                "options": {"mode":"split", "pager": input.options.pager}},
+            "changeset": {"id": bootstrap.changeset.id, "sourceLabel": bootstrap.changeset.source_label,
+                "title": bootstrap.changeset.title, "files": files},
+            "initialMode":"split", "initialShowMenuBar":bootstrap.initial_show_menu_bar,
+            "initialTheme":bootstrap.initial_theme
+        });
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/interaction-collapsed-bootstrap.json"
+        ))
+        .unwrap();
+        for run in oracle["runs"].as_array().unwrap() {
+            assert_eq!(actual, run["bootstrap"], "{}", run["pin"]);
+        }
+    }
+
+    #[test]
+    fn embedded_diff_metadata_does_not_grant_gap_expansion_or_source_attestation() {
+        let mut file = pinned_collapsed_top_bootstrap().changeset.files.remove(0);
+        assert_eq!(
+            file.sources.new.as_ref().unwrap().content.lines().count(),
+            400
+        );
+        assert!(file.source_identity.is_none());
+        assert!(!file.source_attested);
+        let serialized = serde_json::to_value(&file).unwrap();
+        assert_eq!(
+            serialized["sources"]["new"]["origin"]["kind"],
+            "diff-metadata"
+        );
+        let decoded: DiffFile = serde_json::from_value(serialized).unwrap();
+        assert_eq!(decoded, file);
+
+        let mut presentation = source_presentation::ReviewSourcePresentation::default();
+        assert!(!presentation.available(&file));
+        assert!(presentation.text(&file).is_none());
+        // A serialized attestation bit cannot turn metadata into a source reader.
+        for source in file
+            .sources
+            .old
+            .iter_mut()
+            .chain(file.sources.new.iter_mut())
+        {
+            source.attested = true;
+        }
+        file.set_sources(file.sources.clone());
+        file.set_source_capability(None);
+        assert!(!file.source_attested);
+        assert!(file.source_identity.is_none());
+        assert!(!presentation.available(&file));
+
+        // Explicit runtime presentation can still supply a real fetch lifecycle.
+        presentation.pending(&file);
+        assert!(presentation.available(&file));
+        assert!(presentation.text(&file).is_none());
+        presentation.set_status(
+            &file,
+            workdeck_review::ReviewSourceStatus::Loaded {
+                text: "runtime source\n".into(),
+            },
+        );
+        assert_eq!(presentation.text(&file), Some("runtime source\n"));
+        presentation.retire(&BTreeSet::from([file.key.clone()]));
+        assert!(!presentation.available(&file));
+        assert!(presentation.text(&file).is_none());
+        // Existing materialized-file snapshots remain expandable.
+        file.sources.new.as_mut().unwrap().origin = SourceOrigin::File {
+            path: file.path.clone(),
+        };
+        file.set_sources(file.sources.clone());
+        assert!(file.source_identity.is_some());
+        assert!(presentation.available(&file));
     }
 
     #[test]
@@ -26464,6 +26656,16 @@ mod tests {
         let file = &mut review.files[0];
         file.runtime_id = "malicious".into();
         file.patch.clear();
+        for source in file
+            .sources
+            .old
+            .iter_mut()
+            .chain(file.sources.new.iter_mut())
+        {
+            source.origin = SourceOrigin::DiffMetadata;
+            source.attested = false;
+        }
+        file.set_sources(file.sources.clone());
         assert_eq!((file.stats.additions, file.stats.deletions), (1, 1));
         assert_eq!(file.hunks[0].lines.len(), 2);
         file.agent = Some(AgentFileContext {
@@ -26529,16 +26731,12 @@ mod tests {
             file.set_sources(FileSourceSnapshots {
                 old: Some(SourceSnapshot::new(
                     before.clone(),
-                    SourceOrigin::File {
-                        path: file.path.clone(),
-                    },
+                    SourceOrigin::DiffMetadata,
                     false,
                 )),
                 new: Some(SourceSnapshot::new(
                     after.clone(),
-                    SourceOrigin::File {
-                        path: file.path.clone(),
-                    },
+                    SourceOrigin::DiffMetadata,
                     false,
                 )),
             });
@@ -26606,6 +26804,8 @@ mod tests {
         assert!(bootstrap.reload_context.repo_root.is_none());
         let files = bootstrap.changeset.files.iter().map(|file| {
             let agent = file.agent.as_ref().unwrap();
+            assert!(file.source_identity.is_none());
+            assert!(!source_presentation::ReviewSourcePresentation::default().available(file));
             serde_json::json!({
                 "id": file.runtime_id,
                 "path": file.path,

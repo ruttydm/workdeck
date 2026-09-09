@@ -4,7 +4,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
-use workdeck_core::{DiffFile, ReviewSide};
+use workdeck_core::{DiffFile, ReviewSide, SourceOrigin};
 use workdeck_review::{
     ExpandedSourceError, ExpandedSourceStatus, ReviewSourceErrorReason, ReviewSourceStatus,
     review_expansion_side,
@@ -105,5 +105,6 @@ fn snapshot_text(file: &DiffFile) -> Option<&str> {
         ReviewSide::Old => file.sources.old.as_ref(),
         ReviewSide::New => file.sources.new.as_ref(),
     }
+    .filter(|source| source.origin != SourceOrigin::DiffMetadata)
     .map(|source| source.content.as_str())
 }

@@ -434,7 +434,7 @@ impl DiffFile {
                 .old
                 .iter()
                 .chain(sources.new.iter())
-                .all(|snapshot| snapshot.attested);
+                .all(|snapshot| snapshot.origin != SourceOrigin::DiffMetadata && snapshot.attested);
         self.sources = sources;
         self.refresh_source_identity();
     }
@@ -446,18 +446,24 @@ impl DiffFile {
             self.source_attested = capability.attested();
             return;
         }
-        self.source_identity =
-            self.sources
-                .new
-                .as_ref()
-                .or(self.sources.old.as_ref())
-                .map(|snapshot| {
-                    review_source_identity(
-                        &self.path,
-                        &self.content_identity,
-                        Some(&snapshot.content_identity),
-                    )
-                });
+        self.source_identity = self
+            .sources
+            .new
+            .as_ref()
+            .filter(|source| source.origin != SourceOrigin::DiffMetadata)
+            .or_else(|| {
+                self.sources
+                    .old
+                    .as_ref()
+                    .filter(|source| source.origin != SourceOrigin::DiffMetadata)
+            })
+            .map(|snapshot| {
+                review_source_identity(
+                    &self.path,
+                    &self.content_identity,
+                    Some(&snapshot.content_identity),
+                )
+            });
     }
 
     pub fn set_source_capability(&mut self, capability: Option<SourceCapabilityIdentity>) {
@@ -468,7 +474,7 @@ impl DiffFile {
                 .old
                 .iter()
                 .chain(self.sources.new.iter())
-                .all(|source| source.attested);
+                .all(|source| source.origin != SourceOrigin::DiffMetadata && source.attested);
         self.refresh_source_identity();
     }
 }
@@ -507,10 +513,17 @@ impl SourceSnapshot {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum SourceOrigin {
+    /// Text embedded in diff metadata, not an executable source-fetch capability.
+    /// Available to highlighting and geometry, but not automatically to gap expansion.
+    DiffMetadata,
     WorkingTree,
     Index,
-    Revision { revision: String },
-    File { path: String },
+    Revision {
+        revision: String,
+    },
+    File {
+        path: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
