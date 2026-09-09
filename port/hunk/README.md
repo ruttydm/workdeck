@@ -1,5 +1,13 @@
 # Hunk semantic-port ledger
 
+## Page-key selection publication
+
+Bytes 103,482–105,607 map to PageDown/PageUp selected-file publication at 220×12.
+Both pins and Rust pass; the wheel test also passes after sharing its fixture
+builder. Formatting and TUI Clippy pass. See [capture and limits](oracles/app-host-page-selection.json).
+Strict audit remains incomplete: 268 unmapped intervals, 1,367 records,
+1,257 baseline files and 11 cached upstream commits pending.
+
 ## Wheel viewport selection integration
 
 Wheel scrolling now updates the selected file/hunk from rendered viewport-center

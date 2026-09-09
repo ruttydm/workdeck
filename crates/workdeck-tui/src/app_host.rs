@@ -1030,8 +1030,17 @@ mod tests {
 
     #[test]
     fn wheel_scroll_publishes_viewport_center_file_and_hunk() {
+        assert_scroll_selection_publication(false);
+    }
+
+    #[test]
+    fn page_keys_publish_viewport_file_selection_in_both_directions() {
+        assert_scroll_selection_publication(true);
+    }
+
+    fn assert_scroll_selection_publication(page_keys: bool) {
         use crate::tests::{navigation_changeset, numbered_exports, rendered_review_frame};
-        use crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
         use ratatui::{Terminal, backend::TestBackend};
         let first = numbered_exports(1, 12, 0, true);
         let second = numbered_exports(13, 50, 0, true);
@@ -1072,6 +1081,24 @@ mod tests {
             (state.selected_file_path.clone(), state.selected_hunk_index)
         };
         assert_eq!(selected(), (Some("first.ts".into()), 0));
+        if page_keys {
+            for (key, path) in [
+                (KeyCode::PageDown, "second.ts"),
+                (KeyCode::PageUp, "first.ts"),
+            ] {
+                for _ in 0..8 {
+                    app.handle_key(KeyEvent::new(key, KeyModifiers::NONE));
+                    rendered_review_frame(&mut terminal, &app);
+                    controller.publish_snapshot(&app).unwrap();
+                    if selected().0.as_deref() == Some(path) {
+                        break;
+                    }
+                }
+                assert_eq!(selected().0.as_deref(), Some(path));
+            }
+            assert_eq!(selected().1, 0);
+            return;
+        }
         for _ in 0..16 {
             app.handle_mouse_event(MouseEvent {
                 kind: MouseEventKind::ScrollDown,
