@@ -1,5 +1,15 @@
 # Hunk semantic-port ledger
 
+## AppHost burst movement and draft anchoring
+
+Bytes 87,481–89,162 map to the rapid eight-Down-then-comment regression.
+Both unchanged pinned tests pass four assertions. The Rust test verifies L9,
+unchanged source-row position, immediately following draft placement, and movement
+of subsequent code at 120×26. Formatting and TUI Clippy pass.
+See [capture and synchronous-event scope](oracles/app-host-draft-burst.json).
+This leaves 268 unmapped intervals in 1,353 records across 1,257 files,
+with 11 cached upstream commits pending; strict completion remains unproven.
+
 ## AppHost transparent-background rendering
 
 Bytes 84,950–86,341 and 86,341–87,481 map to menu/help opacity and diff-row

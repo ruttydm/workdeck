@@ -19476,6 +19476,46 @@ mod tests {
     }
 
     #[test]
+    fn burst_line_movement_opens_draft_at_latest_cursor_without_shifting_source_row() {
+        let review = navigation_changeset(vec![(
+            "scroll.ts".into(),
+            numbered_exports(1, 18, 0, true),
+            numbered_exports(1, 18, 100, true),
+        )]);
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Stack,
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(120, 26)).unwrap();
+        let row = |frame: &str, text: &str| {
+            frame
+                .lines()
+                .position(|line| line.contains(text))
+                .unwrap_or_else(|| panic!("missing {text:?}:\n{frame}"))
+        };
+        let initial = rendered_review_frame(&mut terminal, &app);
+        let initial_active = row(&initial, "export const line01 = 1;");
+        let initial_following = row(&initial, "export const line10 = 10;");
+        for _ in 0..8 {
+            app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        }
+        app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+        let draft = rendered_review_frame(&mut terminal, &app);
+        let active = row(&draft, "export const line09 = 9;");
+        let draft_row = row(&draft, "Draft note");
+        assert!(
+            draft.lines().nth(draft_row).unwrap().contains("L9"),
+            "{draft}"
+        );
+        assert_eq!(active, initial_active + 8, "{draft}");
+        assert_eq!(draft_row, active + 1, "{draft}");
+        assert!(row(&draft, "export const line10 = 10;") > initial_following);
+    }
+
+    #[test]
     fn transparent_background_preserves_overlay_opacity_and_diff_tints() {
         fn assert_line_background(terminal: &Terminal<TestBackend>, text: &str, color: Color) {
             assert_ne!(color, Color::Reset);
