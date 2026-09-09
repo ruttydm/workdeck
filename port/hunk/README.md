@@ -2634,6 +2634,16 @@ not an exact source-output parity claim. The source ledger remains incomplete.
 The two loader unit tests and all six catalog CLI integration tests passed,
 as did xtask all-target Clippy and the existing dependency audit policy.
 
+`oracles/extension-loading.json` freezes three actual loader executions per pin
+under Bun 1.3.14 with deterministic fetch responses: empty, partially populated
+and failed topic search, with alternating successful and HTTP-503 direct
+lookups. Results are projected to repository, name and activity fields; the
+fixture also retains requested URLs and source warnings. Rust comparisons
+verify all projected entries, the request multiset (concurrent ordering is
+unspecified), and nonfailure warnings. The failed-topic diagnostic is retained
+but not claimed equivalent to the native redacted warning. This does not test
+the real HTTP transport or complete the source mapping.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

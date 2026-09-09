@@ -120,6 +120,65 @@ mod tests {
     use std::sync::{Barrier, Mutex};
 
     #[test]
+    fn merged_entries_match_both_pinned_loader_captures() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/extension-loading.json"
+        ))
+        .unwrap();
+        for capture in fixture["captures"].as_array().unwrap() {
+            for case in capture["cases"].as_array().unwrap() {
+                let entries = case["input"].as_array().unwrap();
+                let mode = case["mode"].as_str().unwrap();
+                let requests = Mutex::new(Vec::new());
+                let (result, warnings) = resolve(entries, "hunk-extension", &|path, _| {
+                    requests
+                        .lock()
+                        .unwrap()
+                        .push(format!("https://api.github.com{path}"));
+                    if path.starts_with("/search/") {
+                        if mode == "failed-topic" {
+                            bail!("offline")
+                        }
+                        return Ok(json!({"items": if mode == "partial-topic" {
+                            vec![json!({"full_name":entries[0]["repo"].as_str().unwrap().to_uppercase(),"stargazers_count":0})]
+                        } else { vec![] }}));
+                    }
+                    let index = entries
+                        .iter()
+                        .position(|entry| {
+                            path == format!("/repos/{}", entry["repo"].as_str().unwrap())
+                        })
+                        .unwrap();
+                    if index % 2 == 1 {
+                        bail!("HTTP 503")
+                    }
+                    Ok(json!({"stargazers_count":7,"pushed_at":"2020-01-01T00:00:00Z"}))
+                });
+                assert_eq!(
+                    serde_json::to_value(result).unwrap(),
+                    case["expected"],
+                    "{}: {mode}",
+                    capture["kind"]
+                );
+                let mut actual_requests = requests.into_inner().unwrap();
+                let mut expected_requests: Vec<_> = case["requests"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|url| url.as_str().unwrap().to_owned())
+                    .collect();
+                // Concurrent worker scheduling does not define request order.
+                actual_requests.sort();
+                expected_requests.sort();
+                assert_eq!(actual_requests, expected_requests);
+                if mode != "failed-topic" {
+                    assert_eq!(serde_json::to_value(warnings).unwrap(), case["warnings"]);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn topic_match_and_parallel_fallback_preserve_order_and_missing_fields() {
         let calls = Mutex::new(Vec::new());
         let barrier = Barrier::new(2);

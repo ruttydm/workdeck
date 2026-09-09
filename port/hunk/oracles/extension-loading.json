@@ -1,0 +1,929 @@
+{
+  "source": "website/src/data/extensions.ts",
+  "runtime": "Bun 1.3.14 macOS arm64",
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "note": "Actual pinned loader executions with deterministic fetch responses. Result projected to repo/name/activity. Request and warning captures are retained; native tests currently compare merged entries, not exact diagnostics.",
+  "captures": [
+    {
+      "kind": "main",
+      "cases": [
+        {
+          "mode": "empty-topic",
+          "input": [
+            {
+              "repo": "modem-dev/hunk-hg",
+              "name": "hunk-hg"
+            },
+            {
+              "repo": "modem-dev/hunk-lens",
+              "name": "hunk-lens"
+            },
+            {
+              "repo": "astwys/hunk-adaptive-theme",
+              "name": "hunk-adaptive-theme"
+            },
+            {
+              "repo": "astwys/hunk-diff-context",
+              "name": "hunk-diff-context"
+            },
+            {
+              "repo": "astwys/hunk-exclude-files",
+              "name": "hunk-exclude-files"
+            },
+            {
+              "repo": "astwys/hunk-file-order",
+              "name": "hunk-file-order"
+            },
+            {
+              "repo": "elucid/hunk-less-search",
+              "name": "hunk-less-search"
+            },
+            {
+              "repo": "evantravers/hunk-mark-as-reviewed",
+              "name": "hunk-mark-as-reviewed"
+            },
+            {
+              "repo": "evantravers/hunk-notes-to-markdown",
+              "name": "hunk-notes-to-markdown"
+            },
+            {
+              "repo": "gentilfp/hunk-codeowners",
+              "name": "hunk-codeowners"
+            },
+            {
+              "repo": "joshedler/hunk-git-lite",
+              "name": "hunk-git-lite"
+            },
+            {
+              "repo": "mikeclarke/hunk-tutor",
+              "name": "hunk-tutor"
+            },
+            {
+              "repo": "muzomer/hunk-commit",
+              "name": "hunk-commit"
+            },
+            {
+              "repo": "phl28/hunk-gh-review",
+              "name": "hunk-gh-review"
+            },
+            {
+              "repo": "sadick254/hunk-commit-log",
+              "name": "hunk-commit-log"
+            },
+            {
+              "repo": "TreeHappy/hunkydory",
+              "name": "hunkydory"
+            }
+          ],
+          "expected": [
+            {
+              "repo": "modem-dev/hunk-hg",
+              "name": "hunk-hg",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "modem-dev/hunk-lens",
+              "name": "hunk-lens"
+            },
+            {
+              "repo": "astwys/hunk-adaptive-theme",
+              "name": "hunk-adaptive-theme",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "astwys/hunk-diff-context",
+              "name": "hunk-diff-context"
+            },
+            {
+              "repo": "astwys/hunk-exclude-files",
+              "name": "hunk-exclude-files",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "astwys/hunk-file-order",
+              "name": "hunk-file-order"
+            },
+            {
+              "repo": "elucid/hunk-less-search",
+              "name": "hunk-less-search",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "evantravers/hunk-mark-as-reviewed",
+              "name": "hunk-mark-as-reviewed"
+            },
+            {
+              "repo": "evantravers/hunk-notes-to-markdown",
+              "name": "hunk-notes-to-markdown",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "gentilfp/hunk-codeowners",
+              "name": "hunk-codeowners"
+            },
+            {
+              "repo": "joshedler/hunk-git-lite",
+              "name": "hunk-git-lite",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "mikeclarke/hunk-tutor",
+              "name": "hunk-tutor"
+            },
+            {
+              "repo": "muzomer/hunk-commit",
+              "name": "hunk-commit",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "phl28/hunk-gh-review",
+              "name": "hunk-gh-review"
+            },
+            {
+              "repo": "sadick254/hunk-commit-log",
+              "name": "hunk-commit-log",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "TreeHappy/hunkydory",
+              "name": "hunkydory"
+            }
+          ],
+          "requests": [
+            "https://api.github.com/search/repositories?q=topic%3Ahunk-extension%20is%3Apublic&per_page=100",
+            "https://api.github.com/repos/modem-dev/hunk-hg",
+            "https://api.github.com/repos/modem-dev/hunk-lens",
+            "https://api.github.com/repos/astwys/hunk-adaptive-theme",
+            "https://api.github.com/repos/astwys/hunk-diff-context",
+            "https://api.github.com/repos/astwys/hunk-exclude-files",
+            "https://api.github.com/repos/astwys/hunk-file-order",
+            "https://api.github.com/repos/elucid/hunk-less-search",
+            "https://api.github.com/repos/evantravers/hunk-mark-as-reviewed",
+            "https://api.github.com/repos/evantravers/hunk-notes-to-markdown",
+            "https://api.github.com/repos/gentilfp/hunk-codeowners",
+            "https://api.github.com/repos/joshedler/hunk-git-lite",
+            "https://api.github.com/repos/mikeclarke/hunk-tutor",
+            "https://api.github.com/repos/muzomer/hunk-commit",
+            "https://api.github.com/repos/phl28/hunk-gh-review",
+            "https://api.github.com/repos/sadick254/hunk-commit-log",
+            "https://api.github.com/repos/TreeHappy/hunkydory"
+          ],
+          "warnings": []
+        },
+        {
+          "mode": "partial-topic",
+          "input": [
+            {
+              "repo": "modem-dev/hunk-hg",
+              "name": "hunk-hg"
+            },
+            {
+              "repo": "modem-dev/hunk-lens",
+              "name": "hunk-lens"
+            },
+            {
+              "repo": "astwys/hunk-adaptive-theme",
+              "name": "hunk-adaptive-theme"
+            },
+            {
+              "repo": "astwys/hunk-diff-context",
+              "name": "hunk-diff-context"
+            },
+            {
+              "repo": "astwys/hunk-exclude-files",
+              "name": "hunk-exclude-files"
+            },
+            {
+              "repo": "astwys/hunk-file-order",
+              "name": "hunk-file-order"
+            },
+            {
+              "repo": "elucid/hunk-less-search",
+              "name": "hunk-less-search"
+            },
+            {
+              "repo": "evantravers/hunk-mark-as-reviewed",
+              "name": "hunk-mark-as-reviewed"
+            },
+            {
+              "repo": "evantravers/hunk-notes-to-markdown",
+              "name": "hunk-notes-to-markdown"
+            },
+            {
+              "repo": "gentilfp/hunk-codeowners",
+              "name": "hunk-codeowners"
+            },
+            {
+              "repo": "joshedler/hunk-git-lite",
+              "name": "hunk-git-lite"
+            },
+            {
+              "repo": "mikeclarke/hunk-tutor",
+              "name": "hunk-tutor"
+            },
+            {
+              "repo": "muzomer/hunk-commit",
+              "name": "hunk-commit"
+            },
+            {
+              "repo": "phl28/hunk-gh-review",
+              "name": "hunk-gh-review"
+            },
+            {
+              "repo": "sadick254/hunk-commit-log",
+              "name": "hunk-commit-log"
+            },
+            {
+              "repo": "TreeHappy/hunkydory",
+              "name": "hunkydory"
+            }
+          ],
+          "expected": [
+            {
+              "repo": "modem-dev/hunk-hg",
+              "name": "hunk-hg",
+              "stars": 0
+            },
+            {
+              "repo": "modem-dev/hunk-lens",
+              "name": "hunk-lens"
+            },
+            {
+              "repo": "astwys/hunk-adaptive-theme",
+              "name": "hunk-adaptive-theme",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "astwys/hunk-diff-context",
+              "name": "hunk-diff-context"
+            },
+            {
+              "repo": "astwys/hunk-exclude-files",
+              "name": "hunk-exclude-files",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "astwys/hunk-file-order",
+              "name": "hunk-file-order"
+            },
+            {
+              "repo": "elucid/hunk-less-search",
+              "name": "hunk-less-search",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "evantravers/hunk-mark-as-reviewed",
+              "name": "hunk-mark-as-reviewed"
+            },
+            {
+              "repo": "evantravers/hunk-notes-to-markdown",
+              "name": "hunk-notes-to-markdown",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "gentilfp/hunk-codeowners",
+              "name": "hunk-codeowners"
+            },
+            {
+              "repo": "joshedler/hunk-git-lite",
+              "name": "hunk-git-lite",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "mikeclarke/hunk-tutor",
+              "name": "hunk-tutor"
+            },
+            {
+              "repo": "muzomer/hunk-commit",
+              "name": "hunk-commit",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "phl28/hunk-gh-review",
+              "name": "hunk-gh-review"
+            },
+            {
+              "repo": "sadick254/hunk-commit-log",
+              "name": "hunk-commit-log",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "TreeHappy/hunkydory",
+              "name": "hunkydory"
+            }
+          ],
+          "requests": [
+            "https://api.github.com/search/repositories?q=topic%3Ahunk-extension%20is%3Apublic&per_page=100",
+            "https://api.github.com/repos/modem-dev/hunk-lens",
+            "https://api.github.com/repos/astwys/hunk-adaptive-theme",
+            "https://api.github.com/repos/astwys/hunk-diff-context",
+            "https://api.github.com/repos/astwys/hunk-exclude-files",
+            "https://api.github.com/repos/astwys/hunk-file-order",
+            "https://api.github.com/repos/elucid/hunk-less-search",
+            "https://api.github.com/repos/evantravers/hunk-mark-as-reviewed",
+            "https://api.github.com/repos/evantravers/hunk-notes-to-markdown",
+            "https://api.github.com/repos/gentilfp/hunk-codeowners",
+            "https://api.github.com/repos/joshedler/hunk-git-lite",
+            "https://api.github.com/repos/mikeclarke/hunk-tutor",
+            "https://api.github.com/repos/muzomer/hunk-commit",
+            "https://api.github.com/repos/phl28/hunk-gh-review",
+            "https://api.github.com/repos/sadick254/hunk-commit-log",
+            "https://api.github.com/repos/TreeHappy/hunkydory"
+          ],
+          "warnings": [
+            "Extension directory: modem-dev/hunk-lens, astwys/hunk-adaptive-theme, astwys/hunk-diff-context, astwys/hunk-exclude-files, astwys/hunk-file-order, elucid/hunk-less-search, evantravers/hunk-mark-as-reviewed, evantravers/hunk-notes-to-markdown, gentilfp/hunk-codeowners, joshedler/hunk-git-lite, mikeclarke/hunk-tutor, muzomer/hunk-commit, phl28/hunk-gh-review, sadick254/hunk-commit-log, TreeHappy/hunkydory are listed but not tagged `hunk-extension`."
+          ]
+        },
+        {
+          "mode": "failed-topic",
+          "input": [
+            {
+              "repo": "modem-dev/hunk-hg",
+              "name": "hunk-hg"
+            },
+            {
+              "repo": "modem-dev/hunk-lens",
+              "name": "hunk-lens"
+            },
+            {
+              "repo": "astwys/hunk-adaptive-theme",
+              "name": "hunk-adaptive-theme"
+            },
+            {
+              "repo": "astwys/hunk-diff-context",
+              "name": "hunk-diff-context"
+            },
+            {
+              "repo": "astwys/hunk-exclude-files",
+              "name": "hunk-exclude-files"
+            },
+            {
+              "repo": "astwys/hunk-file-order",
+              "name": "hunk-file-order"
+            },
+            {
+              "repo": "elucid/hunk-less-search",
+              "name": "hunk-less-search"
+            },
+            {
+              "repo": "evantravers/hunk-mark-as-reviewed",
+              "name": "hunk-mark-as-reviewed"
+            },
+            {
+              "repo": "evantravers/hunk-notes-to-markdown",
+              "name": "hunk-notes-to-markdown"
+            },
+            {
+              "repo": "gentilfp/hunk-codeowners",
+              "name": "hunk-codeowners"
+            },
+            {
+              "repo": "joshedler/hunk-git-lite",
+              "name": "hunk-git-lite"
+            },
+            {
+              "repo": "mikeclarke/hunk-tutor",
+              "name": "hunk-tutor"
+            },
+            {
+              "repo": "muzomer/hunk-commit",
+              "name": "hunk-commit"
+            },
+            {
+              "repo": "phl28/hunk-gh-review",
+              "name": "hunk-gh-review"
+            },
+            {
+              "repo": "sadick254/hunk-commit-log",
+              "name": "hunk-commit-log"
+            },
+            {
+              "repo": "TreeHappy/hunkydory",
+              "name": "hunkydory"
+            }
+          ],
+          "expected": [
+            {
+              "repo": "modem-dev/hunk-hg",
+              "name": "hunk-hg",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "modem-dev/hunk-lens",
+              "name": "hunk-lens"
+            },
+            {
+              "repo": "astwys/hunk-adaptive-theme",
+              "name": "hunk-adaptive-theme",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "astwys/hunk-diff-context",
+              "name": "hunk-diff-context"
+            },
+            {
+              "repo": "astwys/hunk-exclude-files",
+              "name": "hunk-exclude-files",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "astwys/hunk-file-order",
+              "name": "hunk-file-order"
+            },
+            {
+              "repo": "elucid/hunk-less-search",
+              "name": "hunk-less-search",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "evantravers/hunk-mark-as-reviewed",
+              "name": "hunk-mark-as-reviewed"
+            },
+            {
+              "repo": "evantravers/hunk-notes-to-markdown",
+              "name": "hunk-notes-to-markdown",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "gentilfp/hunk-codeowners",
+              "name": "hunk-codeowners"
+            },
+            {
+              "repo": "joshedler/hunk-git-lite",
+              "name": "hunk-git-lite",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "mikeclarke/hunk-tutor",
+              "name": "hunk-tutor"
+            },
+            {
+              "repo": "muzomer/hunk-commit",
+              "name": "hunk-commit",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "phl28/hunk-gh-review",
+              "name": "hunk-gh-review"
+            },
+            {
+              "repo": "sadick254/hunk-commit-log",
+              "name": "hunk-commit-log",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "TreeHappy/hunkydory",
+              "name": "hunkydory"
+            }
+          ],
+          "requests": [
+            "https://api.github.com/search/repositories?q=topic%3Ahunk-extension%20is%3Apublic&per_page=100",
+            "https://api.github.com/repos/modem-dev/hunk-hg",
+            "https://api.github.com/repos/modem-dev/hunk-lens",
+            "https://api.github.com/repos/astwys/hunk-adaptive-theme",
+            "https://api.github.com/repos/astwys/hunk-diff-context",
+            "https://api.github.com/repos/astwys/hunk-exclude-files",
+            "https://api.github.com/repos/astwys/hunk-file-order",
+            "https://api.github.com/repos/elucid/hunk-less-search",
+            "https://api.github.com/repos/evantravers/hunk-mark-as-reviewed",
+            "https://api.github.com/repos/evantravers/hunk-notes-to-markdown",
+            "https://api.github.com/repos/gentilfp/hunk-codeowners",
+            "https://api.github.com/repos/joshedler/hunk-git-lite",
+            "https://api.github.com/repos/mikeclarke/hunk-tutor",
+            "https://api.github.com/repos/muzomer/hunk-commit",
+            "https://api.github.com/repos/phl28/hunk-gh-review",
+            "https://api.github.com/repos/sadick254/hunk-commit-log",
+            "https://api.github.com/repos/TreeHappy/hunkydory"
+          ],
+          "warnings": [
+            "Extension directory: GitHub topic search failed (offline); rendering without stars."
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "stable",
+      "cases": [
+        {
+          "mode": "empty-topic",
+          "input": [
+            {
+              "repo": "modem-dev/hunk-hg",
+              "name": "hunk-hg"
+            },
+            {
+              "repo": "modem-dev/hunk-lens",
+              "name": "hunk-lens"
+            },
+            {
+              "repo": "astwys/hunk-adaptive-theme",
+              "name": "hunk-adaptive-theme"
+            },
+            {
+              "repo": "astwys/hunk-diff-context",
+              "name": "hunk-diff-context"
+            },
+            {
+              "repo": "astwys/hunk-exclude-files",
+              "name": "hunk-exclude-files"
+            },
+            {
+              "repo": "elucid/hunk-less-search",
+              "name": "hunk-less-search"
+            },
+            {
+              "repo": "evantravers/hunk-notes-to-markdown",
+              "name": "hunk-notes-to-markdown"
+            },
+            {
+              "repo": "gentilfp/hunk-codeowners",
+              "name": "hunk-codeowners"
+            },
+            {
+              "repo": "mikeclarke/hunk-tutor",
+              "name": "hunk-tutor"
+            },
+            {
+              "repo": "phl28/hunk-gh-review",
+              "name": "hunk-gh-review"
+            },
+            {
+              "repo": "sadick254/hunk-commit-log",
+              "name": "hunk-commit-log"
+            },
+            {
+              "repo": "TreeHappy/hunkydory",
+              "name": "hunkydory"
+            }
+          ],
+          "expected": [
+            {
+              "repo": "modem-dev/hunk-hg",
+              "name": "hunk-hg",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "modem-dev/hunk-lens",
+              "name": "hunk-lens"
+            },
+            {
+              "repo": "astwys/hunk-adaptive-theme",
+              "name": "hunk-adaptive-theme",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "astwys/hunk-diff-context",
+              "name": "hunk-diff-context"
+            },
+            {
+              "repo": "astwys/hunk-exclude-files",
+              "name": "hunk-exclude-files",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "elucid/hunk-less-search",
+              "name": "hunk-less-search"
+            },
+            {
+              "repo": "evantravers/hunk-notes-to-markdown",
+              "name": "hunk-notes-to-markdown",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "gentilfp/hunk-codeowners",
+              "name": "hunk-codeowners"
+            },
+            {
+              "repo": "mikeclarke/hunk-tutor",
+              "name": "hunk-tutor",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "phl28/hunk-gh-review",
+              "name": "hunk-gh-review"
+            },
+            {
+              "repo": "sadick254/hunk-commit-log",
+              "name": "hunk-commit-log",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "TreeHappy/hunkydory",
+              "name": "hunkydory"
+            }
+          ],
+          "requests": [
+            "https://api.github.com/search/repositories?q=topic%3Ahunk-extension%20is%3Apublic&per_page=100",
+            "https://api.github.com/repos/modem-dev/hunk-hg",
+            "https://api.github.com/repos/modem-dev/hunk-lens",
+            "https://api.github.com/repos/astwys/hunk-adaptive-theme",
+            "https://api.github.com/repos/astwys/hunk-diff-context",
+            "https://api.github.com/repos/astwys/hunk-exclude-files",
+            "https://api.github.com/repos/elucid/hunk-less-search",
+            "https://api.github.com/repos/evantravers/hunk-notes-to-markdown",
+            "https://api.github.com/repos/gentilfp/hunk-codeowners",
+            "https://api.github.com/repos/mikeclarke/hunk-tutor",
+            "https://api.github.com/repos/phl28/hunk-gh-review",
+            "https://api.github.com/repos/sadick254/hunk-commit-log",
+            "https://api.github.com/repos/TreeHappy/hunkydory"
+          ],
+          "warnings": []
+        },
+        {
+          "mode": "partial-topic",
+          "input": [
+            {
+              "repo": "modem-dev/hunk-hg",
+              "name": "hunk-hg"
+            },
+            {
+              "repo": "modem-dev/hunk-lens",
+              "name": "hunk-lens"
+            },
+            {
+              "repo": "astwys/hunk-adaptive-theme",
+              "name": "hunk-adaptive-theme"
+            },
+            {
+              "repo": "astwys/hunk-diff-context",
+              "name": "hunk-diff-context"
+            },
+            {
+              "repo": "astwys/hunk-exclude-files",
+              "name": "hunk-exclude-files"
+            },
+            {
+              "repo": "elucid/hunk-less-search",
+              "name": "hunk-less-search"
+            },
+            {
+              "repo": "evantravers/hunk-notes-to-markdown",
+              "name": "hunk-notes-to-markdown"
+            },
+            {
+              "repo": "gentilfp/hunk-codeowners",
+              "name": "hunk-codeowners"
+            },
+            {
+              "repo": "mikeclarke/hunk-tutor",
+              "name": "hunk-tutor"
+            },
+            {
+              "repo": "phl28/hunk-gh-review",
+              "name": "hunk-gh-review"
+            },
+            {
+              "repo": "sadick254/hunk-commit-log",
+              "name": "hunk-commit-log"
+            },
+            {
+              "repo": "TreeHappy/hunkydory",
+              "name": "hunkydory"
+            }
+          ],
+          "expected": [
+            {
+              "repo": "modem-dev/hunk-hg",
+              "name": "hunk-hg",
+              "stars": 0
+            },
+            {
+              "repo": "modem-dev/hunk-lens",
+              "name": "hunk-lens"
+            },
+            {
+              "repo": "astwys/hunk-adaptive-theme",
+              "name": "hunk-adaptive-theme",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "astwys/hunk-diff-context",
+              "name": "hunk-diff-context"
+            },
+            {
+              "repo": "astwys/hunk-exclude-files",
+              "name": "hunk-exclude-files",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "elucid/hunk-less-search",
+              "name": "hunk-less-search"
+            },
+            {
+              "repo": "evantravers/hunk-notes-to-markdown",
+              "name": "hunk-notes-to-markdown",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "gentilfp/hunk-codeowners",
+              "name": "hunk-codeowners"
+            },
+            {
+              "repo": "mikeclarke/hunk-tutor",
+              "name": "hunk-tutor",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "phl28/hunk-gh-review",
+              "name": "hunk-gh-review"
+            },
+            {
+              "repo": "sadick254/hunk-commit-log",
+              "name": "hunk-commit-log",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "TreeHappy/hunkydory",
+              "name": "hunkydory"
+            }
+          ],
+          "requests": [
+            "https://api.github.com/search/repositories?q=topic%3Ahunk-extension%20is%3Apublic&per_page=100",
+            "https://api.github.com/repos/modem-dev/hunk-lens",
+            "https://api.github.com/repos/astwys/hunk-adaptive-theme",
+            "https://api.github.com/repos/astwys/hunk-diff-context",
+            "https://api.github.com/repos/astwys/hunk-exclude-files",
+            "https://api.github.com/repos/elucid/hunk-less-search",
+            "https://api.github.com/repos/evantravers/hunk-notes-to-markdown",
+            "https://api.github.com/repos/gentilfp/hunk-codeowners",
+            "https://api.github.com/repos/mikeclarke/hunk-tutor",
+            "https://api.github.com/repos/phl28/hunk-gh-review",
+            "https://api.github.com/repos/sadick254/hunk-commit-log",
+            "https://api.github.com/repos/TreeHappy/hunkydory"
+          ],
+          "warnings": [
+            "Extension directory: modem-dev/hunk-lens, astwys/hunk-adaptive-theme, astwys/hunk-diff-context, astwys/hunk-exclude-files, elucid/hunk-less-search, evantravers/hunk-notes-to-markdown, gentilfp/hunk-codeowners, mikeclarke/hunk-tutor, phl28/hunk-gh-review, sadick254/hunk-commit-log, TreeHappy/hunkydory are listed but not tagged `hunk-extension`."
+          ]
+        },
+        {
+          "mode": "failed-topic",
+          "input": [
+            {
+              "repo": "modem-dev/hunk-hg",
+              "name": "hunk-hg"
+            },
+            {
+              "repo": "modem-dev/hunk-lens",
+              "name": "hunk-lens"
+            },
+            {
+              "repo": "astwys/hunk-adaptive-theme",
+              "name": "hunk-adaptive-theme"
+            },
+            {
+              "repo": "astwys/hunk-diff-context",
+              "name": "hunk-diff-context"
+            },
+            {
+              "repo": "astwys/hunk-exclude-files",
+              "name": "hunk-exclude-files"
+            },
+            {
+              "repo": "elucid/hunk-less-search",
+              "name": "hunk-less-search"
+            },
+            {
+              "repo": "evantravers/hunk-notes-to-markdown",
+              "name": "hunk-notes-to-markdown"
+            },
+            {
+              "repo": "gentilfp/hunk-codeowners",
+              "name": "hunk-codeowners"
+            },
+            {
+              "repo": "mikeclarke/hunk-tutor",
+              "name": "hunk-tutor"
+            },
+            {
+              "repo": "phl28/hunk-gh-review",
+              "name": "hunk-gh-review"
+            },
+            {
+              "repo": "sadick254/hunk-commit-log",
+              "name": "hunk-commit-log"
+            },
+            {
+              "repo": "TreeHappy/hunkydory",
+              "name": "hunkydory"
+            }
+          ],
+          "expected": [
+            {
+              "repo": "modem-dev/hunk-hg",
+              "name": "hunk-hg",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "modem-dev/hunk-lens",
+              "name": "hunk-lens"
+            },
+            {
+              "repo": "astwys/hunk-adaptive-theme",
+              "name": "hunk-adaptive-theme",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "astwys/hunk-diff-context",
+              "name": "hunk-diff-context"
+            },
+            {
+              "repo": "astwys/hunk-exclude-files",
+              "name": "hunk-exclude-files",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "elucid/hunk-less-search",
+              "name": "hunk-less-search"
+            },
+            {
+              "repo": "evantravers/hunk-notes-to-markdown",
+              "name": "hunk-notes-to-markdown",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "gentilfp/hunk-codeowners",
+              "name": "hunk-codeowners"
+            },
+            {
+              "repo": "mikeclarke/hunk-tutor",
+              "name": "hunk-tutor",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "phl28/hunk-gh-review",
+              "name": "hunk-gh-review"
+            },
+            {
+              "repo": "sadick254/hunk-commit-log",
+              "name": "hunk-commit-log",
+              "stars": 7,
+              "pushedAt": "2020-01-01T00:00:00Z"
+            },
+            {
+              "repo": "TreeHappy/hunkydory",
+              "name": "hunkydory"
+            }
+          ],
+          "requests": [
+            "https://api.github.com/search/repositories?q=topic%3Ahunk-extension%20is%3Apublic&per_page=100",
+            "https://api.github.com/repos/modem-dev/hunk-hg",
+            "https://api.github.com/repos/modem-dev/hunk-lens",
+            "https://api.github.com/repos/astwys/hunk-adaptive-theme",
+            "https://api.github.com/repos/astwys/hunk-diff-context",
+            "https://api.github.com/repos/astwys/hunk-exclude-files",
+            "https://api.github.com/repos/elucid/hunk-less-search",
+            "https://api.github.com/repos/evantravers/hunk-notes-to-markdown",
+            "https://api.github.com/repos/gentilfp/hunk-codeowners",
+            "https://api.github.com/repos/mikeclarke/hunk-tutor",
+            "https://api.github.com/repos/phl28/hunk-gh-review",
+            "https://api.github.com/repos/sadick254/hunk-commit-log",
+            "https://api.github.com/repos/TreeHappy/hunkydory"
+          ],
+          "warnings": [
+            "Extension directory: GitHub topic search failed (offline); rendering without stars."
+          ]
+        }
+      ]
+    }
+  ]
+}
