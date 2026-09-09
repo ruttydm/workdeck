@@ -1,5 +1,21 @@
 # Hunk semantic-port ledger
 
+## AppHost reload root refusal (partial interaction corpus)
+
+Bytes 55,659–57,294 of `src/ui/AppHost.interactions.test.tsx` now map to the
+executed Rust owner-thread reload refusal regression. Both unchanged pinned
+source tests pass; native coverage additionally checks each outside endpoint and
+source directory independently, zero loader calls, and unchanged publication,
+selection and mounted/coordinator state. See [capture and limits](oracles/app-host-reload-root.json).
+TUI all-target Clippy and formatting pass. This maps only the 1,635-byte test
+interval; both surrounding regions and the containing file remain incomplete.
+
+The refreshed strict audit validates baseline coverage/evidence, then fails with
+1,257 files, 1,328 records, 370 translated-test records and 268 unmapped records.
+The unmapped record count increased by one because splitting the old whole-file
+interval leaves two unfinished regions. It is not a loss of source files or a
+claim of full-file completion. The cached upstream queue still contains 11 commits.
+
 ## Historical release report archive
 
 All 22 pinned `benchmarks/release/bench-*.json` reports now have lossless
@@ -9,7 +25,7 @@ and the executable regression verify exact source bytes. See
 The release benchmark README is separately migrated to
 [release snapshot guidance](../../docs/release-benchmark-snapshots.md), retaining
 the historical policy while distinguishing unfinished native release gates.
-The strict audit retains 1,257 baseline files and 1,326 records, with 267 records
+At that archive checkpoint, strict audit retained 1,257 baseline files and 1,326 records, with 267 records
 still unmapped and 11 cached upstream commits pending. Historical Hunk numbers
 do not establish Workdeck performance acceptance.
 

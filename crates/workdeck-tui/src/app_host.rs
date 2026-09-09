@@ -1117,6 +1117,102 @@ mod tests {
     }
 
     #[test]
+    fn queued_reload_outside_launch_root_is_rejected_before_loader_or_publication() {
+        let repo = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::create_dir(repo.path().join(".git")).unwrap();
+        for directory in [repo.path(), outside.path()] {
+            fs::write(directory.join("before.ts"), "export const value = 1;\n").unwrap();
+            fs::write(directory.join("after.ts"), "export const value = 2;\n").unwrap();
+        }
+        for (left_outside, right_outside, source_outside) in [
+            (true, true, true),
+            (true, false, false),
+            (false, true, false),
+            (false, false, true),
+        ] {
+            let initial = vcs_input(CommonOptions::default());
+            let mut coordinator =
+                AppHostReloadCoordinator::new(initial.clone(), repo.path(), Some(repo.path()))
+                    .unwrap();
+            let path = |external: bool, name: &str| {
+                if external {
+                    outside.path()
+                } else {
+                    repo.path()
+                }
+                .join(name)
+            };
+            let command = message(
+                "outside-root",
+                WorkdeckSessionCommandInput::ReloadSession(ReloadSessionToolInput {
+                    target_session: SessionSelector::default(),
+                    next_input: serde_json::json!({"kind":"diff",
+                        "left":path(left_outside, "before.ts"),
+                        "right":path(right_outside, "after.ts"),
+                        "options":{"mode":"split"}}),
+                    source_path: source_outside
+                        .then(|| outside.path().to_string_lossy().into_owned()),
+                }),
+            );
+            let (mut controller, replies) = queued_controller([command]);
+            let mut app = app();
+            app.options.review_input = Some(initial.clone());
+            let publication = app.review_producer().get_publication_address();
+            let before = app.with_state(|state| {
+                (
+                    state.generation(),
+                    state.selection(),
+                    state.state_revision(),
+                )
+            });
+            let mut loader_calls = 0;
+            let mut loader = |_: &CliInput,
+                              _: &Path,
+                              _: bool,
+                              _: &VcsCatalog,
+                              _: &[LoadedExtension]|
+             -> anyhow::Result<DynamicReviewLoad> {
+                loader_calls += 1;
+                anyhow::bail!("outside input reached the loader")
+            };
+            let mut catalog = workdeck_vcs::bundled_vcs_catalog().clone();
+            let processed = controller.process_pending(&mut app, &mut |app, input, options| {
+                let plan = coordinator.plan(input, options.clone())?;
+                crate::commit_dynamic_review_reload(
+                    app,
+                    &mut coordinator,
+                    plan,
+                    &mut loader,
+                    &mut catalog,
+                )
+            });
+            assert_eq!(processed, 1);
+            let error = replies[0].recv().unwrap().unwrap_err();
+            assert!(
+                error.contains("outside the initial Workdeck root"),
+                "{error}"
+            );
+            assert_eq!(loader_calls, 0);
+            assert_eq!(app.review_producer().get_publication_address(), publication);
+            assert_eq!(
+                app.with_state(|state| (
+                    state.generation(),
+                    state.selection(),
+                    state.state_revision()
+                )),
+                before
+            );
+            assert_eq!(coordinator.current_input(), &initial);
+            assert_eq!(
+                coordinator.current_cwd(),
+                repo.path().canonicalize().unwrap()
+            );
+            assert_eq!(app.options.review_input.as_ref(), Some(&initial));
+        }
+    }
+
+    #[test]
     fn plain_launch_reload_cannot_enable_markup_and_rejected_comments_leave_no_state() {
         for launch_experimental in [None, Some(false)] {
             for reset_app in [false, true] {
