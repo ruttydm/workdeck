@@ -102,4 +102,8 @@ temporary input copy. The new regression compares owned/borrowed documents and
 reads patch and source resources after mutating and clearing the original input.
 All 11 producer tests and the TUI authority regression pass, as do scoped
 review/TUI all-target Clippy, formatting and diff checks. Peak-memory benefit
-remains unmeasured.
+was subsequently sampled at clean `7abe958b`: [raw diagnostic](huge-stream-native-7abe958b.json).
+Peak RSS was 1,316,552,704 bytes versus 1,393,901,568 in the preceding sample,
+about 77 MB lower. First-frame time remained about 1,133 ms and navigation
+median about 706 ms. This single debug run is not a controlled attribution or
+release gate pass; peak RSS still exceeds both retained pinned-source samples.

@@ -1,0 +1,25 @@
+{
+  "commit": "7abe958b5c2eed1eb4a054362a0f298f0bdd1312",
+  "worktree": "clean",
+  "command": "CARGO_INCREMENTAL=0 cargo xtask benchmark huge-stream-diagnostic",
+  "host": "Darwin arm64",
+  "profile": "dev (unoptimized + debuginfo)",
+  "exitCode": 0,
+  "limitations": ["Single native diagnostic, not a paired release benchmark or proof of causality."],
+  "report": {
+    "diagnosticOnly": true,
+    "files": 1001,
+    "firstFrameMs": 1133.2991670000001,
+    "scrollTickMs": [116.97775, 131.277917, 110.88962500000001, 109.661125, 110.575958, 117.33041700000001],
+    "navigationPressMs": [683.718083, 709.359416, 708.460917, 704.282292],
+    "afterFirstFrame": {"rssBytes": 1308508160, "mallocInUseBytes": 555407840},
+    "afterNavigation": {"rssBytes": 1309687808, "mallocInUseBytes": 556627552},
+    "sequence": "one renderer: first frame, two settle frames, six scroll ticks, four navigation presses",
+    "memorySemantics": "Current native RSS and available malloc usage; not peak RSS or JavaScript heapUsed",
+    "peakProcessRssBytes": 1316552704,
+    "peakMemorySemantics": "Process lifetime peak resident/working-set bytes, including fixture construction; not JavaScript heapUsed",
+    "fixtureBuildMs": 13300.212625,
+    "linesPerFile": 300,
+    "giantFileLines": 50000
+  }
+}
