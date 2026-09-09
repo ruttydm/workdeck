@@ -14,6 +14,45 @@ fn run(input: &[u8], args: &[&str]) -> std::process::Output {
 }
 
 #[test]
+fn category_facets_cli_matches_both_source_baselines() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../port/hunk/oracles/extension-category-facets.json"
+    ))
+    .unwrap();
+    for capture in fixture["captures"].as_array().unwrap() {
+        for case in capture["cases"].as_array().unwrap() {
+            let output = run(
+                &serde_json::to_vec(&case["input"]).unwrap(),
+                &["extension-catalog", "category-facets"],
+            );
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(output.stderr.is_empty());
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap(),
+                case["expected"],
+                "{}: {}",
+                capture["kind"],
+                case["input"]
+            );
+        }
+    }
+    for input in [
+        br#"[{"categories":["Unknown"]}]"#.as_slice(),
+        b"[{}]",
+        b"null",
+    ] {
+        let output = run(input, &["extension-catalog", "category-facets"]);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+    }
+}
+
+#[test]
 fn recency_cli_matches_both_source_baselines() {
     verify_recency_cases(include_str!(
         "../../port/hunk/oracles/extension-recency.json"

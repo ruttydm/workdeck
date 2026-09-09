@@ -2602,6 +2602,18 @@ rejection. The native CLI compares both captured sets, including date-only
 `now` values. Legacy Date spellings and offset-free date-time inputs remain
 unimplemented; this additional coverage does not complete the source mapping.
 
+`cargo xtask extension-catalog category-facets` accepts a JSON array of listings
+with `categories` arrays and emits populated categories, ordered by descending
+count then alphabetical name. It uses the eight-category source vocabulary and
+counts duplicate occurrences exactly as the source does. Unknown categories
+are rejected at the typed tooling boundary. `oracles/extension-category-facets.json`
+captures five cases per pin, including every category tied and the actual
+category arrays of each pinned catalog (which differ between pins). These are
+metadata fixtures, not claims that the original TypeScript extensions can run
+in Workdeck. The native CLI test compares each captured result and checks
+invalid-input failures. Website integration and full catalog migration remain
+incomplete.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

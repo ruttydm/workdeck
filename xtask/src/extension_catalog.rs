@@ -4,6 +4,53 @@ use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::io::Read;
 
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize, serde::Serialize,
+)]
+enum Category {
+    #[serde(rename = "Changeset transform")]
+    ChangesetTransform,
+    Command,
+    #[serde(rename = "File view")]
+    FileView,
+    #[serde(rename = "Keyboard mode")]
+    KeyboardMode,
+    #[serde(rename = "Line highlighter")]
+    LineHighlighter,
+    Pane,
+    Theme,
+    #[serde(rename = "VCS backend")]
+    VcsBackend,
+}
+
+#[derive(serde::Deserialize)]
+struct CategorizedListing {
+    categories: Vec<Category>,
+}
+
+#[derive(serde::Serialize)]
+struct CategoryFacet {
+    category: Category,
+    count: usize,
+}
+
+fn category_facets(entries: &[CategorizedListing]) -> Vec<CategoryFacet> {
+    let mut counts = BTreeMap::new();
+    for entry in entries {
+        for &category in &entry.categories {
+            *counts.entry(category).or_insert(0) += 1;
+        }
+    }
+    let mut facets: Vec<_> = counts
+        .into_iter()
+        .map(|(category, count)| CategoryFacet { category, count })
+        .collect();
+    // The closed source category vocabulary has the same alphabetical order
+    // under localeCompare and this enum; do not extend it without an oracle.
+    facets.sort_by_key(|facet| (std::cmp::Reverse(facet.count), facet.category));
+    facets
+}
+
 fn activity(value: &Value) -> Value {
     let mut result = Map::new();
     for (source, destination, numeric) in [
@@ -40,16 +87,21 @@ pub fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     let command = args.next();
     if !matches!(
         command.as_deref(),
-        Some("activity-index" | "json-ld" | "format-updated")
+        Some("activity-index" | "json-ld" | "format-updated" | "category-facets")
     ) || args.next().is_some()
     {
         bail!(
-            "extension-catalog requires activity-index, json-ld or format-updated (JSON on stdin)"
+            "extension-catalog requires activity-index, json-ld, format-updated or category-facets (JSON on stdin)"
         );
     }
     let mut input = String::new();
     std::io::stdin().read_to_string(&mut input)?;
     let payload: Value = serde_json::from_str(&input)?;
+    if command.as_deref() == Some("category-facets") {
+        let entries: Vec<CategorizedListing> = serde_json::from_value(payload)?;
+        println!("{}", serde_json::to_string(&category_facets(&entries))?);
+        return Ok(());
+    }
     if command.as_deref() == Some("format-updated") {
         let pushed = payload
             .get("pushedAt")
