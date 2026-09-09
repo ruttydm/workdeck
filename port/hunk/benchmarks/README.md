@@ -535,6 +535,16 @@ native-only samples show no demonstrated improvement from the frame-capacity hin
 Raw process output and all distributions are retained. No paired Hunk comparison,
 complete memory-suite result, or performance-gate success is claimed.
 
+### Default geometry-memory diagnostic at `c5760b7e`
+
+[One raw optimized native sample](geometry-memory-native-c5760b7e.json) retains
+10,260 geometry rows for 180 files before materializing their lazy plans. RSS
+snapshots are 18,219,008 bytes after fixture construction, 46,809,088 after geometry
+and 58,277,888 after row materialization. The separately constructed 50,000-line
+giant fixture materialized 44,009 rows in 204.39 ms. This exposes retained-plan
+and first-copy costs for follow-up work; it is one uncontrolled native diagnostic,
+not peak RSS, JavaScript heap statistics, or a paired source acceptance result.
+
 ### Compact note-target lookup at `acaaf092`
 
 [Three raw optimized native runs](interaction-diagnostic-acaaf092.json) report
