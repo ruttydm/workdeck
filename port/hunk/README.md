@@ -1,5 +1,14 @@
 # Hunk semantic-port ledger
 
+## AppHost large draft input burst
+
+Bytes 91,167–92,091 map to the 160×40 synchronous input-burst regression.
+Both pinned source tests and the Rust translation pass. Native coverage also
+asserts the complete stored body, not only visible prefix/suffix text.
+Formatting and TUI Clippy pass; see [capture and limits](oracles/app-host-draft-large-burst.json).
+Strict audit remains incomplete with 268 unmapped intervals in 1,356 records,
+1,257 baseline files, and 11 cached upstream commits pending.
+
 ## AppHost CJK draft wrapping and capture correction
 
 Bytes 90,177–91,167 map to chunked CJK draft input at 160×40. Both pinned

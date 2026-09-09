@@ -19481,6 +19481,24 @@ mod tests {
     }
 
     #[test]
+    fn draft_note_retains_large_synchronous_input_burst() {
+        let mut app = ReviewApp::new(responsive_changeset(), ReviewOptions::default());
+        let mut terminal = Terminal::new(TestBackend::new(160, 40)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+        rendered_review_frame(&mut terminal, &app);
+        let text = "the quick brown fox jumps over the lazy dog 0123456789".repeat(3);
+        for character in text.chars() {
+            app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(frame.contains("Draft note"));
+        assert!(frame.contains(&text[..10]), "{frame}");
+        assert!(frame.contains(&text[text.len() - 6..]), "{frame}");
+        assert_eq!(app.note_composer.as_ref().unwrap().body, text);
+    }
+
+    #[test]
     fn draft_note_wraps_chunked_cjk_input_without_losing_either_end() {
         let mut app = ReviewApp::new(responsive_changeset(), ReviewOptions::default());
         let mut terminal = Terminal::new(TestBackend::new(160, 40)).unwrap();
