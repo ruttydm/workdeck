@@ -1,5 +1,15 @@
 # Hunk semantic-port ledger
 
+## Theme reopening and Escape cancellation
+
+Bytes 30,255–33,267 map to two 240×24 interaction tests: accepting dracula-soft
+and reopening on it, and cancelling a high-contrast preview to restore the
+original theme. Both pinned runs pass six assertions; native additionally
+checks selected rows and applied theme identities. Formatting and TUI Clippy
+pass. See [capture and limits](oracles/app-host-theme-reopen.json).
+The ledger has 1,383 records, 268 unmapped intervals, and 11 cached upstream
+commits pending. Full parity remains unproven.
+
 ## Theme list wheel scrolling
 
 Bytes 29,111–30,255 map to the 240×24 theme-wheel interaction test. Both pins

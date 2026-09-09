@@ -25594,6 +25594,52 @@ mod tests {
     }
 
     #[test]
+    fn theme_selector_reopens_accepted_theme_and_escape_restores_original() {
+        for (initial, accept) in [("dracula", true), ("github-dark-default", false)] {
+            let review = navigation_changeset(vec![(
+                "alpha.ts".into(),
+                "export const alpha = 1;\n".into(),
+                "export const alpha = 2;\n".into(),
+            )]);
+            let mut app = ReviewApp::new(
+                review,
+                ReviewOptions {
+                    theme: resolve_theme(Some(initial), None, &[]),
+                    ..Default::default()
+                },
+            );
+            let mut terminal = Terminal::new(TestBackend::new(240, 24)).unwrap();
+            rendered_review_frame(&mut terminal, &app);
+            app.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+            let frame = rendered_review_frame(&mut terminal, &app);
+            assert!(frame.contains(&format!("›  {initial}")));
+            assert!(frame.contains("active"));
+            let expected = if accept {
+                app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+                assert!(rendered_review_frame(&mut terminal, &app).contains("›  dracula-soft"));
+                app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                "dracula-soft"
+            } else {
+                for _ in 0..2 {
+                    app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+                }
+                assert!(
+                    rendered_review_frame(&mut terminal, &app)
+                        .contains("›  github-dark-high-contrast")
+                );
+                app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+                initial
+            };
+            assert!(!rendered_review_frame(&mut terminal, &app).contains("Theme selector"));
+            assert_eq!(app.options.theme.id, expected);
+            app.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+            let frame = rendered_review_frame(&mut terminal, &app);
+            assert!(frame.contains(&format!("›  {expected}")));
+            assert!(frame.contains("active"));
+        }
+    }
+
+    #[test]
     fn theme_selector_wheel_scrolls_catalog_without_changing_preview() {
         let mut review = responsive_changeset();
         review.files.truncate(1);
