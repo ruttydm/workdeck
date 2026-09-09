@@ -20092,17 +20092,18 @@ mod tests {
         let document = Arc::new(two_file_changeset());
         let mut cache = ExtensionFileProjectionCache::default();
         let first = cache.get(Arc::clone(&document));
+        assert!(!first.is_materialized());
         assert!(Arc::ptr_eq(&first, &cache.get(Arc::clone(&document))));
         let equal_replacement = Arc::new(document.as_ref().clone());
         let replacement = cache.get(Arc::clone(&equal_replacement));
-        assert_eq!(first.as_ref(), replacement.as_ref());
+        assert_eq!(first.resolve(), replacement.resolve());
         assert!(!Arc::ptr_eq(&first, &replacement));
         let mut edited = equal_replacement.as_ref().clone();
         edited.files[0].path = "updated-name.rs".into();
         let expected = project_extension_diff_file(&edited.files[0]);
         let changed = cache.get(Arc::new(edited));
-        assert_eq!(changed[0], expected);
-        assert_ne!(first[0].path, changed[0].path);
+        assert_eq!(changed.resolve()[0], expected);
+        assert_ne!(first.resolve()[0].path, changed.resolve()[0].path);
         assert!(!Arc::ptr_eq(&replacement, &changed));
         let retained = Arc::downgrade(&document);
         drop(document);
@@ -20111,16 +20112,42 @@ mod tests {
             "cache must not retain replaced documents"
         );
         assert_eq!(
-            first.len(),
+            first.resolve().len(),
             2,
             "retained projected values remain readable independently"
         );
     }
 
     #[test]
+    fn deferred_file_projection_survives_replacement_before_its_first_read() {
+        let document = Arc::new(two_file_changeset());
+        let retained = Arc::downgrade(&document);
+        let expected = project_extension_diff_file(&document.files[0]);
+        let mut cache = ExtensionFileProjectionCache::default();
+        let old = cache.get(Arc::clone(&document));
+        let mut replacement = document.as_ref().clone();
+        replacement.files[0].path = "replacement.rs".into();
+        let current = cache.get(Arc::new(replacement));
+        drop(document);
+        assert!(!old.is_materialized());
+        assert!(retained.upgrade().is_some());
+        assert_eq!(current.resolve()[0].path, "replacement.rs");
+        assert!(!old.is_materialized());
+        assert_eq!(old.resolve()[0], expected);
+        assert!(retained.upgrade().is_none());
+        assert_eq!(current.resolve()[0].path, "replacement.rs");
+    }
+
+    #[test]
     fn review_app_commits_extension_runtime_authority_across_selection_reload_and_registry_change()
     {
         let mut app = ReviewApp::new(two_file_changeset(), ReviewOptions::default());
+        let initial_projection = app
+            .extension_file_projection_cache
+            .lock()
+            .unwrap()
+            .get(app.with_state(|state| state.changeset_snapshot()));
+        assert!(!initial_projection.is_materialized());
         let controls = app.extension_runtime_bridge.command_controls();
         let command_id = controls.availability().enabled[0].clone();
         let review_controls = app.extension_runtime_bridge.create_review_controls();
@@ -20135,6 +20162,7 @@ mod tests {
             Some(second_file_id.as_str())
         );
         let resolved = navigation.select_file(&second_file_id).unwrap();
+        assert!(!initial_projection.is_materialized());
         assert_eq!(
             resolved.selected_file_id.as_deref(),
             Some(second_file_id.as_str())

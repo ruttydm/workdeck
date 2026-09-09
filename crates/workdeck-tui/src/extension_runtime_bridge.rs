@@ -14,7 +14,7 @@ pub struct ExtensionRuntimeCommit {
     pub review_generation: u64,
     pub snapshot: SharedRuntimeSnapshot,
     pub review: ExtensionReviewSnapshot,
-    pub files: Arc<[ExtensionDiffFile]>,
+    pub files: Arc<DeferredFileProjections>,
     pub selection: ExtensionReviewSelection,
     pub selected_file_id: Option<String>,
     pub commands: ExtensionCommandAvailability,
@@ -52,25 +52,94 @@ impl From<ReviewSnapshot> for SharedRuntimeSnapshot {
 #[derive(Debug, Default)]
 pub(crate) struct ExtensionFileProjectionCache {
     document: Option<Arc<Changeset>>,
-    files: Arc<[ExtensionDiffFile]>,
+    files: Option<Arc<DeferredFileProjections>>,
 }
 
-impl ExtensionFileProjectionCache {
-    pub(crate) fn get(&mut self, document: Arc<Changeset>) -> Arc<[ExtensionDiffFile]> {
-        if self
-            .document
-            .as_ref()
-            .is_none_or(|previous| !Arc::ptr_eq(previous, &document))
-        {
-            self.files = document
+#[derive(Debug)]
+enum FileProjectionState {
+    Pending(Arc<Changeset>),
+    Ready(Arc<[ExtensionDiffFile]>),
+}
+
+/// Retain exact document authority without eagerly allocating opaque JSON metadata.
+/// Once materialized, only detached projections are retained by this handle.
+#[derive(Debug)]
+pub struct DeferredFileProjections(Mutex<FileProjectionState>);
+
+impl DeferredFileProjections {
+    #[cfg(test)]
+    pub(crate) fn is_materialized(&self) -> bool {
+        matches!(*self.0.lock().unwrap(), FileProjectionState::Ready(_))
+    }
+
+    fn new(document: Arc<Changeset>) -> Self {
+        Self(Mutex::new(FileProjectionState::Pending(document)))
+    }
+
+    pub(crate) fn resolve(&self) -> Arc<[ExtensionDiffFile]> {
+        let mut state = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let FileProjectionState::Pending(document) = &*state {
+            let files = document
                 .files
                 .iter()
                 .map(workdeck_extension_host::project_extension_diff_file)
                 .collect::<Vec<_>>()
                 .into();
+            *state = FileProjectionState::Ready(files);
+        }
+        let FileProjectionState::Ready(files) = &*state else {
+            unreachable!()
+        };
+        Arc::clone(files)
+    }
+
+    fn contains_target(&self, file_id: &str, hunk_index: Option<usize>) -> bool {
+        let state = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let hunk_count = match &*state {
+            FileProjectionState::Pending(document) => document
+                .files
+                .iter()
+                .find(|file| file.runtime_id == file_id)
+                .map(|file| file.hunks.len()),
+            FileProjectionState::Ready(files) => files
+                .iter()
+                .find(|file| file.id == file_id)
+                .map(|file| file.hunks.len()),
+        };
+        hunk_count.is_some_and(|count| hunk_index.is_none_or(|index| index < count))
+    }
+}
+
+#[cfg(test)]
+impl From<Vec<ExtensionDiffFile>> for DeferredFileProjections {
+    fn from(files: Vec<ExtensionDiffFile>) -> Self {
+        Self(Mutex::new(FileProjectionState::Ready(files.into())))
+    }
+}
+
+impl ExtensionFileProjectionCache {
+    pub(crate) fn get(&mut self, document: Arc<Changeset>) -> Arc<DeferredFileProjections> {
+        if self
+            .document
+            .as_ref()
+            .is_none_or(|previous| !Arc::ptr_eq(previous, &document))
+        {
+            self.files = Some(Arc::new(DeferredFileProjections::new(Arc::clone(
+                &document,
+            ))));
             self.document = Some(document);
         }
-        Arc::clone(&self.files)
+        Arc::clone(
+            self.files
+                .as_ref()
+                .expect("document projection initialized"),
+        )
     }
 }
 
@@ -171,18 +240,21 @@ impl ExtensionRuntimeBridge {
 
     #[must_use]
     pub fn get_committed_file_views(&self) -> Vec<ExtensionDiffFile> {
-        self.state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .committed
-            .files
-            .to_vec()
+        let files = Arc::clone(
+            &self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .committed
+                .files,
+        );
+        files.resolve().to_vec()
     }
 
     /// Project the immutable file values belonging to a render before that render is committed.
     #[must_use]
     pub fn get_render_file_views(&self, render: &ExtensionRuntimeCommit) -> Vec<ExtensionDiffFile> {
-        render.files.to_vec()
+        render.files.resolve().to_vec()
     }
 
     #[must_use]
@@ -392,12 +464,7 @@ impl ExtensionRuntimeNavigation {
         if !self.lease.is_live_against(&state) {
             return None;
         }
-        let file = state
-            .committed
-            .files
-            .iter()
-            .find(|file| file.id == file_id)?;
-        if hunk_index.is_some_and(|index| index >= file.hunks.len()) {
+        if !state.committed.files.contains_target(file_id, hunk_index) {
             return None;
         }
         Some(ResolvedExtensionRuntimeNavigation {
@@ -485,6 +552,58 @@ mod tests {
     }
 
     #[test]
+    fn deferred_projection_keeps_navigation_cold_and_materializes_once_for_readers() {
+        let mut document = workdeck_diff::parse_patch(
+            "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n",
+            "test",
+            "test",
+            ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap();
+        // Duplicate IDs preserve the existing first-match navigation contract.
+        let mut duplicate = document.files[0].clone();
+        duplicate.hunks.push(duplicate.hunks[0].clone());
+        document.files.push(duplicate);
+        let id = document.files[0].runtime_id.clone();
+        let expected = document
+            .files
+            .iter()
+            .map(workdeck_extension_host::project_extension_diff_file)
+            .collect::<Vec<_>>();
+        let document = Arc::new(document);
+        let retained = Arc::downgrade(&document);
+        let projection = Arc::new(DeferredFileProjections::new(document));
+        assert!(!projection.is_materialized());
+        assert!(projection.contains_target(&id, None));
+        assert!(projection.contains_target(&id, Some(0)));
+        assert!(!projection.contains_target(&id, Some(1)));
+        assert!(!projection.contains_target("missing", None));
+        assert!(!projection.is_materialized());
+        assert!(retained.upgrade().is_some());
+        let readers = (0..4)
+            .map(|_| {
+                let projection = Arc::clone(&projection);
+                std::thread::spawn(move || projection.resolve())
+            })
+            .collect::<Vec<_>>();
+        let resolved = readers
+            .into_iter()
+            .map(|reader| reader.join().unwrap())
+            .collect::<Vec<_>>();
+        assert!(projection.is_materialized());
+        assert!(
+            retained.upgrade().is_none(),
+            "materialized handle retires its source document"
+        );
+        for files in &resolved {
+            assert_eq!(files.as_ref(), expected.as_slice());
+            assert!(Arc::ptr_eq(files, &resolved[0]));
+        }
+        assert!(projection.contains_target(&id, Some(0)));
+        assert!(!projection.contains_target(&id, Some(1)));
+    }
+
+    #[test]
     fn shared_runtime_snapshot_retains_document_but_public_reads_are_detached() {
         let shared: SharedRuntimeSnapshot = core_snapshot("original").into();
         let retained = shared.clone();
@@ -517,7 +636,7 @@ mod tests {
                 generation: format!("runtime:{review_generation}"),
                 ..ExtensionReviewSnapshot::default()
             },
-            files: vec![selected.clone()].into(),
+            files: Arc::new(vec![selected.clone()].into()),
             selection: ExtensionReviewSelection {
                 file: Some(selected),
                 hunk_index: Some(0),
@@ -624,7 +743,7 @@ mod tests {
     #[test]
     fn shared_file_projections_keep_public_getters_deeply_owned() {
         let initial = commit(1, 1, "alpha");
-        let shared = Arc::clone(&initial.files);
+        let shared = initial.files.resolve();
         let bridge = ExtensionRuntimeBridge::new(initial);
         let mut exposed = bridge.get_committed_file_views();
         exposed[0].path = "edited.rs".into();
@@ -634,7 +753,7 @@ mod tests {
         let next = commit(1, 1, "beta");
         let mut preview = bridge.get_render_file_views(&next);
         preview[0].metadata["hunks"] = serde_json::json!([42]);
-        assert_ne!(preview[0].metadata, next.files[0].metadata);
+        assert_ne!(preview[0].metadata, next.files.resolve()[0].metadata);
         bridge.commit(next);
         assert_eq!(shared[0].id, "alpha");
         assert_eq!(bridge.get_committed_file_views()[0].id, "beta");

@@ -219,3 +219,22 @@ a peak improvement over the previous 1,284,800,512-byte sample. The next candida
 is eager `ExtensionFileProjectionCache` materialization of every file's metadata;
 investigate deferred projection against committed immutable documents while
 preserving owned getter results, preview isolation and navigation authority.
+
+The bridge now stores deferred file projections bound to the exact immutable
+changeset. Authority commits still occur on every required transition; only the
+pure conversion to extension file views is deferred until a file-view getter.
+Navigation validates IDs/hunk counts directly while the projection is cold and
+preserves first-match behavior for duplicate IDs. A synchronized first read
+materializes one shared projection; subsequent public getters still return deeply
+owned values. Materialization releases the handle's source document, while an
+unread retained handle intentionally keeps its original document alive across
+cache replacement so its eventual read cannot observe a successor review.
+
+New regressions cover concurrent first readers sharing one allocation, cold
+navigation, duplicate IDs, source retirement after materialization, and a first
+read after document replacement. Existing preview-mutation, cache identity,
+registry/reload authority and owned-getter tests remain in place. All 1,104 TUI
+library tests passed (zero failed/ignored/filtered, 135.86 seconds on Darwin
+arm64), as did TUI all-target Clippy, formatting and the optimized build.
+No source ledger interval is newly complete and no measured performance gain is
+claimed until the follow-up diagnostic is captured.
