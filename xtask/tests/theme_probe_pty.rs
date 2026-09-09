@@ -117,6 +117,19 @@ fn theme_probe_exchanges_osc11_and_reports_timeout_on_a_real_pty() {
         assert!(queried, "{text}");
         let json_start = text.find('{').expect("diagnostic JSON");
         let report: serde_json::Value = serde_json::from_str(text[json_start..].trim()).unwrap();
+        if response.is_none() && !redirect_stdout && !redirect_stdin {
+            let oracle: serde_json::Value = serde_json::from_str(include_str!(
+                "../../port/hunk/oracles/theme-probe-timeout.json"
+            ))
+            .unwrap();
+            for capture in oracle["captures"].as_array().unwrap() {
+                let output = capture["initial"]["output"].as_str().unwrap();
+                let start = output.find('{').unwrap();
+                let expected: serde_json::Value =
+                    serde_json::from_str(output[start..].trim()).unwrap();
+                assert_eq!(report, expected, "{} timeout diagnostic", capture["kind"]);
+            }
+        }
         assert_eq!(report["stdoutIsTTY"], !redirect_stdout);
         assert!(
             std::fs::read(redirected.path()).unwrap().is_empty(),

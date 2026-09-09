@@ -2458,6 +2458,17 @@ cases passed, including terminal flags and full termios restoration. This
 supersedes the attached-stdin limitation above; an actual pipe and Windows
 transport remain separate unverified cases. xtask Clippy and formatting passed.
 
+Frozen timeout diagnostics from both source pins are now recorded in
+`oracles/theme-probe-timeout.json` using the declared Bun 1.3.14 runtime and
+blob-verified script/detector files. The native PTY test compares the full timeout
+JSON against both captures and passed. Source processes remained alive after
+printing diagnostics and a subsequent five-second poll; explicit Ctrl-C cleanup
+then exited with code 1. Those are interrupted exits, not natural source exit
+codes. This lifecycle difference remains unresolved and the record stays unmapped.
+Earlier exploratory Bun 1.3.5 runs showed the same symptom but are not the retained
+runtime evidence. All disposable probe processes were stopped; no runtime or
+TypeScript mirror was added to the product.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

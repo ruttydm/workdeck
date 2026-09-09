@@ -1,0 +1,60 @@
+{
+  "source": "scripts/probe-terminal-theme.ts",
+  "scriptBlob": "66a659b1d86df4b16270661bd9117768bb2c4b0b",
+  "detectorBlob": "b6e2d35adb0effb844258f8f2347f740fed49056",
+  "runtime": "Bun 1.3.14 macOS arm64",
+  "method": "PTY execution with no OSC reply. Script and imported detector hashes matched both preserved pins. Streams are combined PTY output, not separated.",
+  "lifecycle": "Both processes remained live after the diagnostic and a subsequent five-second poll. Explicit Ctrl-C cleanup produced exit code 1; this is not a natural source exit code. Full lifecycle parity is unresolved.",
+  "captures": [
+    {
+      "kind": "main",
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "initial": {
+        "chunk_id": "860d2c",
+        "wall_time_seconds": 1.001611625,
+        "session_id": 2056,
+        "original_token_count": 33,
+        "output": "\u001b]11;?\u001b\\{\r\n  \"mode\": null,\r\n  \"color\": null,\r\n  \"classified\": null,\r\n  \"raw\": \"\",\r\n  \"stdoutIsTTY\": true,\r\n  \"stdinIsTTY\": true\r\n}\r\n"
+      },
+      "poll": {
+        "chunk_id": "5a7270",
+        "wall_time_seconds": 5.001977834,
+        "session_id": 2056,
+        "original_token_count": 0,
+        "output": ""
+      },
+      "cleanup": {
+        "chunk_id": "222acd",
+        "wall_time_seconds": 0.000002416,
+        "exit_code": 1,
+        "original_token_count": 1,
+        "output": "^C"
+      }
+    },
+    {
+      "kind": "stable",
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "initial": {
+        "chunk_id": "24c08f",
+        "wall_time_seconds": 1.0015505,
+        "session_id": 72471,
+        "original_token_count": 33,
+        "output": "\u001b]11;?\u001b\\{\r\n  \"mode\": null,\r\n  \"color\": null,\r\n  \"classified\": null,\r\n  \"raw\": \"\",\r\n  \"stdoutIsTTY\": true,\r\n  \"stdinIsTTY\": true\r\n}\r\n"
+      },
+      "poll": {
+        "chunk_id": "9bdc52",
+        "wall_time_seconds": 5.00163225,
+        "session_id": 72471,
+        "original_token_count": 0,
+        "output": ""
+      },
+      "cleanup": {
+        "chunk_id": "a8b38a",
+        "wall_time_seconds": 0.000002834,
+        "exit_code": 1,
+        "original_token_count": 1,
+        "output": "^C"
+      }
+    }
+  ]
+}
