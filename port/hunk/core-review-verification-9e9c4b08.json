@@ -1,0 +1,27 @@
+{
+  "commit": "9e9c4b0861232dfe7ac04dcb57b45bd51dffcbb1",
+  "worktree": "clean",
+  "host": "Darwin arm64",
+  "runs": [
+    {
+      "command": "CARGO_INCREMENTAL=0 cargo test -p workdeck-review --lib",
+      "exitCode": 0,
+      "passed": 177,
+      "failed": 0,
+      "ignored": 0,
+      "filteredOut": 0,
+      "testDurationSeconds": 0.03
+    },
+    {
+      "command": "CARGO_INCREMENTAL=0 cargo test -p workdeck-core --lib",
+      "exitCode": 0,
+      "passed": 69,
+      "failed": 0,
+      "ignored": 0,
+      "filteredOut": 0,
+      "testDurationSeconds": 0.02
+    }
+  ],
+  "scope": "Full core and review library suites after borrowed semantic projection and conditional patch-line allocation.",
+  "limitations": ["Not full workspace/all-target validation, cross-platform CI, or benchmark acceptance. No ledger intervals promoted."]
+}

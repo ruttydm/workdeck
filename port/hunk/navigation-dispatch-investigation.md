@@ -169,3 +169,9 @@ still update against complete sources, and patch-derived lines retain their EOF
 semantics. A 16-case matrix covers partial/full inputs, both source-presence flags
 and final-newline state. All seven core semantic tests and core all-target Clippy
 pass. This allocation reduction has not been benchmarked separately.
+
+At clean `9e9c4b08`, the complete core and review library suites passed: 69 core
+and 177 review tests, none failed, ignored or filtered. See the
+[verification record](core-review-verification-9e9c4b08.json). This expands the
+projection-change regression check to resource lifecycle, navigation, manifests,
+notes and public models without claiming full-workspace or release validation.
