@@ -1,5 +1,15 @@
 # Hunk semantic-port ledger
 
+## Full TUI regression checkpoint
+
+At clean commit `f4018ebee09c588e9d6d11e721253adf7f3a1ad4`, the complete
+TUI library suite passed: 1,114 tests, zero failures, ignored or filtered tests,
+53.32 seconds. Native atomic-file-save, detached-worktree and linked-worktree
+watch tests completed successfully. See [verification record](verification-f4018ebe.json).
+This checkpoint covers the recent interaction-test batch, not the entire workspace
+or release matrix. It adds no source-ledger coverage; 268 intervals and eleven
+cached upstream commits remain unfinished.
+
 ## AppHost Space/PageUp paging (partial interaction corpus)
 
 Bytes 69,852–71,331 and 71,331–72,872 map individually to the native paging
