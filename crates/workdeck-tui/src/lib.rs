@@ -15671,6 +15671,48 @@ mod tests {
         review
     }
 
+    #[test]
+    fn annotation_toggle_shows_notes_for_both_files_in_current_viewport() {
+        let mut review = responsive_changeset();
+        for file in &mut review.files {
+            file.agent = Some(AgentFileContext {
+                path: file.path.clone(),
+                summary: Some(format!("{} note", file.path)),
+                annotations: vec![
+                    serde_json::from_value(serde_json::json!({
+                        "newRange": [1, 1],
+                        "summary": format!("Annotation for {}", file.path),
+                        "rationale": format!("Why {} changed", file.path)
+                    }))
+                    .unwrap(),
+                ],
+            });
+        }
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                agent_notes: false,
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(240, 32)).unwrap();
+        let initial = rendered_review_frame(&mut terminal, &app);
+        assert!(!initial.contains("Annotation for alpha.ts"));
+        assert!(!initial.contains("Annotation for beta.ts"));
+        app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+        let frame = rendered_review_frame(&mut terminal, &app);
+        for expected in [
+            "Annotation for alpha.ts",
+            "Why alpha.ts changed",
+            "Annotation for beta.ts",
+            "Why beta.ts changed",
+        ] {
+            assert!(frame.contains(expected), "missing {expected}:\n{frame}");
+        }
+    }
+
     fn watched_changeset(observed: bool, rationale: Option<&str>) -> Changeset {
         let added = if observed {
             "+export const answer = 42;\n+export const observed = true;\n"

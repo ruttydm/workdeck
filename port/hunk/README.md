@@ -1,5 +1,19 @@
 # Hunk semantic-port ledger
 
+## AppHost viewport note toggle (partial interaction corpus)
+
+Bytes 59,772–60,795 map to the executed Rust viewport-note toggle test. At
+240×32 in split layout, pressing `a` reveals both alpha.ts and beta.ts annotation
+summaries and rationales. The fixture uses the source file contents and line-one
+annotations and additionally verifies annotations are hidden before the toggle.
+Both pinned source tests pass; see [capture and scope](oracles/app-host-viewport-notes.json).
+Focused Rust test, formatting and TUI all-target Clippy pass. This reproduces the
+source text assertions, not complete cell-frame parity.
+
+Current strict audit validates partitions/evidence, then fails with 1,257 files,
+1,333 records, 375 translated-test records and 268 unmapped intervals. Eleven
+cached upstream commits remain pending; the containing test file is unfinished.
+
 ## AppHost custom-theme and agent-skill menus (partial interaction corpus)
 
 Bytes 57,294–58,077 and 58,077–59,772 of the AppHost interaction test file
@@ -13,7 +27,7 @@ Both unchanged pinned source cases pass; see
 These text/input assertions do not establish complete cell-frame equivalence.
 Focused Rust tests, formatting and TUI all-target Clippy pass.
 
-Current strict audit validates byte partitions/evidence, then fails with 1,257
+At this earlier menu checkpoint, strict audit validated byte partitions/evidence, then failed with 1,257
 files, 1,332 records, 374 translated-test records and 268 unmapped intervals.
 Splitting the existing unfinished region adds two mapped records while leaving
 its remaining interval unfinished. Eleven cached upstream commits remain pending.
