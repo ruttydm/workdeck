@@ -1,5 +1,15 @@
 # Hunk semantic-port ledger
 
+## AppHost tmux CSI-u draft saving
+
+Bytes 92,091–93,028 map to Ctrl-S saving through a native PTY at 240×24.
+Both pinned source tests pass. Rust sends actual `ESC[115;5u` bytes into the
+shipped CLI terminal-input path and verifies saved content with the draft gone.
+The native test passes (3.30 seconds); see [capture and transport scope](oracles/app-host-draft-csi-u.json).
+No tmux process or Windows transport is covered by this macOS run.
+Strict audit still fails with 268 unmapped intervals across 1,357 records and
+1,257 files; 11 cached upstream commits remain pending.
+
 ## AppHost large draft input burst
 
 Bytes 91,167–92,091 map to the 160×40 synchronous input-burst regression.

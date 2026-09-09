@@ -371,6 +371,21 @@ mod file_views;
 #[path = "terminal_pager/extensions.rs"]
 mod extensions;
 
+#[test]
+fn draft_save_accepts_tmux_csi_u_bytes_through_real_terminal_input() {
+    let patch = "diff --git a/alpha.ts b/alpha.ts\n--- a/alpha.ts\n+++ b/alpha.ts\n@@ -1 +1,2 @@\n-export const alpha = 1;\n+export const alpha = 2;\n+export const add = true;\ndiff --git a/beta.ts b/beta.ts\n--- a/beta.ts\n+++ b/beta.ts\n@@ -1 +1 @@\n-export const beta = 1;\n+export const betaValue = 1;\n";
+    let mut session = Session::launch(patch, &["patch", "--no-watch"], true, 240, 24);
+    session.wait(|text| text.contains("export const alpha"));
+    session.write(b"c");
+    session.wait(|text| text.contains("Draft note"));
+    session.write(b"Save from tmux CSI-u.");
+    session.wait(|text| text.contains("Save from tmux CSI-u."));
+    session.write(b"\x1b[115;5u");
+    let saved = session.wait(|text| text.contains("Your note") && !text.contains("Draft note"));
+    assert!(saved.contains("Save from tmux CSI-u."), "{saved}");
+    session.quit();
+}
+
 fn patch(lines: usize) -> String {
     let mut patch = format!(
         "diff --git a/scroll.ts b/scroll.ts\n--- a/scroll.ts\n+++ b/scroll.ts\n@@ -1,{lines} +1,{lines} @@\n"
