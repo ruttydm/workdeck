@@ -1,5 +1,19 @@
 # Hunk semantic-port ledger
 
+## Corrected annotation fixtures and deep-note navigation
+
+Eight translated fixtures now explicitly assert their internal annotation ranges.
+Earlier range claims are superseded by the [fixture correction](annotation-fixture-correction.md).
+Correct ranges exposed a filtered-navigation bug: relative navigation must walk
+visible files while preserving a hidden document selection. The corrected runtime
+passes all 1,120 TUI library tests (49.80 seconds), formatting and TUI Clippy.
+
+The reopened filter regression is now verified again. Bytes 82,720–83,786 map
+to the [deep-note navigation regression](oracles/app-host-deep-note.json), executed
+against both pinned sources and the native controller. No whole-file or live
+transport parity is implied. There are 1,349 ledger records and 268 unmapped
+intervals across the unchanged 1,257 files; 11 cached upstream commits remain.
+
 ## AppHost filtered session navigation (partial interaction corpus)
 
 Bytes 81,253–82,720 map to the session comment-navigation filter regression.
@@ -9,7 +23,7 @@ native test, formatting and TUI all-target Clippy pass. See
 [capture and controller-only scope](oracles/app-host-session-filter.json).
 This is not live daemon transport or general filtered-annotation-set parity.
 
-Current strict audit validates partitions/evidence, then fails with 1,257 files,
+At this earlier checkpoint, strict audit validated partitions/evidence, then failed with 1,257 files,
 1,348 records, 390 translated-test records and 268 unmapped intervals. Eleven
 cached upstream commits remain pending; complete parity is not established.
 

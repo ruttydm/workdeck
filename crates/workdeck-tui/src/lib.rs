@@ -4003,6 +4003,9 @@ impl ReviewApp {
                 .changeset()
                 .files
                 .iter()
+                // Keep the document selection even when hidden, but walk only
+                // the visible stream, matching core selectReviewNavigationFiles.
+                .filter(|file| diff_file_matches_filter(file, &self.filter))
                 .map(|file| {
                     let mut annotated_hunks = review_annotated_hunk_indices(Some(file));
                     let mut annotated_file = file.agent.is_some();
@@ -15671,6 +15674,18 @@ mod tests {
         review
     }
 
+    fn assert_fixture_annotation_range(review: &Changeset, line: u32) {
+        let annotation = &review.files[0].agent.as_ref().unwrap().annotations[0];
+        assert_eq!(
+            annotation.new_range,
+            Some(LineRange {
+                start: line,
+                end: line
+            })
+        );
+        assert!(!annotation.extra.contains_key("newRange"));
+    }
+
     #[test]
     fn annotation_toggle_shows_notes_for_both_files_in_current_viewport() {
         let mut review = responsive_changeset();
@@ -15680,7 +15695,7 @@ mod tests {
                 summary: Some(format!("{} note", file.path)),
                 annotations: vec![
                     serde_json::from_value(serde_json::json!({
-                        "newRange": if file.path == "alpha.ts" { [2, 2] } else { [1, 1] },
+                        "new_range": if file.path == "alpha.ts" { LineRange { start: 2, end: 2 } } else { LineRange { start: 1, end: 1 } },
                         "summary": format!("Annotation for {}", file.path),
                         "rationale": format!("Why {} changed", file.path)
                     }))
@@ -15689,6 +15704,11 @@ mod tests {
             });
         }
         review.refresh_review_identities();
+        assert_fixture_annotation_range(&review, 2);
+        assert_eq!(
+            review.files[1].agent.as_ref().unwrap().annotations[0].new_range,
+            Some(LineRange { start: 1, end: 1 })
+        );
         let mut app = ReviewApp::new(
             review,
             ReviewOptions {
@@ -23667,13 +23687,14 @@ mod tests {
                 summary: Some("scroll.ts note".into()),
                 annotations: vec![
                     serde_json::from_value(serde_json::json!({
-                        "newRange": [2,2], "summary": "Annotation for scroll.ts",
+                        "new_range": {"start":2,"end":2}, "summary": "Annotation for scroll.ts",
                         "rationale": "Why scroll.ts changed"
                     }))
                     .unwrap(),
                 ],
             });
             review.refresh_review_identities();
+            assert_fixture_annotation_range(&review, 2);
             let mut app = ReviewApp::new(
                 review,
                 ReviewOptions {
@@ -23724,12 +23745,13 @@ mod tests {
         review.files[0].agent = Some(
             serde_json::from_value(serde_json::json!({
                 "path": "wrap-scroll.ts", "summary": "wrap-scroll.ts note",
-            "annotations": [{"newRange": [2, 2], "summary": "Annotation for wrap-scroll.ts",
+            "annotations": [{"new_range": {"start":2,"end":2}, "summary": "Annotation for wrap-scroll.ts",
                     "rationale": "Why wrap-scroll.ts changed"}]
             }))
             .unwrap(),
         );
         review.refresh_review_identities();
+        assert_fixture_annotation_range(&review, 2);
         let mut app = ReviewApp::new(
             review,
             ReviewOptions {
@@ -23783,12 +23805,13 @@ mod tests {
         review.files[0].agent = Some(
             serde_json::from_value(serde_json::json!({
                 "path":"scroll.ts", "summary":"scroll.ts note",
-                "annotations":[{"newRange":[2,2], "summary":"Annotation for scroll.ts",
+                "annotations":[{"new_range":{"start":2,"end":2}, "summary":"Annotation for scroll.ts",
                     "rationale":"Why scroll.ts changed"}]
             }))
             .unwrap(),
         );
         review.refresh_review_identities();
+        assert_fixture_annotation_range(&review, 2);
         let mut app = ReviewApp::new(
             review,
             ReviewOptions {
@@ -23912,12 +23935,13 @@ mod tests {
         review.files[0].agent = Some(
             serde_json::from_value(serde_json::json!({
                 "path":"alpha.ts", "summary":"alpha.ts note",
-                "annotations":[{"newRange":[2,2], "summary":"Annotation for alpha.ts",
+                "annotations":[{"new_range":{"start":2,"end":2}, "summary":"Annotation for alpha.ts",
                     "rationale":"Why alpha.ts changed"}]
             }))
             .unwrap(),
         );
         review.refresh_review_identities();
+        assert_fixture_annotation_range(&review, 2);
         let mut app = ReviewApp::new(
             review,
             ReviewOptions {
@@ -23946,12 +23970,13 @@ mod tests {
         review.files[0].agent = Some(
             serde_json::from_value(serde_json::json!({
                 "path":"alpha.ts", "summary":"alpha.ts note",
-                "annotations":[{"newRange":[2,2], "summary":"Annotation for alpha.ts",
+                "annotations":[{"new_range":{"start":2,"end":2}, "summary":"Annotation for alpha.ts",
                     "rationale":"Why alpha.ts changed"}]
             }))
             .unwrap(),
         );
         review.refresh_review_identities();
+        assert_fixture_annotation_range(&review, 2);
         let mut app = ReviewApp::new(
             review,
             ReviewOptions {
@@ -23989,12 +24014,13 @@ mod tests {
         review.files[0].agent = Some(
             serde_json::from_value(serde_json::json!({
                 "path":"alpha.ts", "summary":"alpha.ts note",
-                "annotations":[{"newRange":[2,2], "summary":"Annotation for alpha.ts",
+                "annotations":[{"new_range":{"start":2,"end":2}, "summary":"Annotation for alpha.ts",
                     "rationale":"Why alpha.ts changed"}]
             }))
             .unwrap(),
         );
         review.refresh_review_identities();
+        assert_fixture_annotation_range(&review, 2);
         let mut app = ReviewApp::new(
             review,
             ReviewOptions {
@@ -24023,6 +24049,52 @@ mod tests {
         assert!(!frame.contains("add = true"), "{frame}");
         assert_eq!(app.filter, "beta");
         assert_eq!(app.with_state(|state| state.selection()), selection);
+    }
+
+    #[test]
+    fn session_comment_navigation_reveals_deep_inline_note_and_returns_hunk() {
+        let before = (1..=80)
+            .map(|line| format!("export const line{line} = {line};"))
+            .collect::<Vec<_>>();
+        let mut after = before.clone();
+        after[0] = "export const line1 = 100;".into();
+        for line in 60..=65 {
+            after[line - 1] = format!("export const line{line} = {};", line * 100);
+        }
+        let mut review = navigation_changeset(vec![(
+            "deep-note.ts".into(),
+            before.join("\n") + "\n",
+            after.join("\n") + "\n",
+        )]);
+        review.files[0].agent = Some(
+            serde_json::from_value(serde_json::json!({
+                "path":"deep-note.ts", "summary":"file note",
+                "annotations":[{"new_range":{"start":62,"end":62}, "summary":"Note anchored on second hunk."}]
+            }))
+            .unwrap(),
+        );
+        review.refresh_review_identities();
+        assert_fixture_annotation_range(&review, 62);
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                agent_notes: true,
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(104, 18)).unwrap();
+        let initial = rendered_review_frame(&mut terminal, &app);
+        assert!(
+            !initial.contains("Note anchored on second hunk."),
+            "{initial}"
+        );
+        let input = serde_json::from_value(serde_json::json!({"commentDirection":"next"})).unwrap();
+        let result = app.session_navigate_to_location(&input).unwrap();
+        assert_eq!(result.file_path, "deep-note.ts");
+        assert_eq!(result.hunk_index, 1);
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(frame.contains("Note anchored on second hunk."), "{frame}");
     }
 
     #[test]
