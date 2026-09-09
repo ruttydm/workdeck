@@ -525,7 +525,7 @@ impl LineHighlightPreparationController {
             desired_line_highlight_tasks(extensions, registrations, epochs, files.iter().copied());
         // A changed preparation pass aborts all unfinished work, even for a
         // file whose own key survived. Completed derivations remain reusable.
-        if self
+        let generation_changed = self
             .generation
             .as_ref()
             .is_none_or(|generation| generation.iter().ne(tasks.iter().map(|task| &task.key)))
@@ -538,8 +538,20 @@ impl LineHighlightPreparationController {
                 .generation_files
                 .iter()
                 .zip(&files)
-                .any(|(previous, file)| !previous.matches(file))
+                .any(|(previous, file)| !previous.matches(file));
+        if !generation_changed
+            && self.pending.is_empty()
+            && self.cache.len() == tasks.len()
+            && tasks.iter().all(|task| self.cache.contains_key(&task.key))
         {
+            // A settled unchanged generation already published these exact
+            // inputs. Avoid rebuilding desired-key and merged/publication maps.
+            // Retired workers may still send results: drain them so their file
+            // snapshots are not retained while the review stays idle.
+            while self.receiver.try_recv().is_ok() {}
+            return;
+        }
+        if generation_changed {
             self.cancel_pending();
             self.generation = Some(tasks.iter().map(|task| task.key.clone()).collect());
             self.generation_epochs = Some(epochs.clone());
@@ -1646,11 +1658,32 @@ mod tests {
         let first_map = controller.resolved().clone();
         let first_marks = first_map.get_shared("request").unwrap().clone();
 
+        let stale = desired_line_highlight_tasks(&extensions, &registrations, &epochs, &files)
+            .remove(0)
+            .freeze_for_worker();
+        let cancelled = Arc::new(ExtensionRequestCancellation::default());
+        cancelled.cancel();
+        controller
+            .sender
+            .send(LineHighlightCompletion {
+                task: stale,
+                outcome: LineHighlightTaskOutcome::Failed("retired completion".into()),
+                cancellation: cancelled,
+                completed_at: Instant::now(),
+                cancelled_before_completion: true,
+            })
+            .unwrap();
+
         for _ in 0..3 {
             controller.reconcile(&extensions, &registrations, &epochs, &files);
         }
         assert_eq!(runtime.calls().len(), 1);
         assert!(controller.resolved().ptr_eq(&first_map));
+        assert!(matches!(
+            controller.receiver.try_recv(),
+            Err(mpsc::TryRecvError::Empty)
+        ));
+        assert!(runtime.warnings().is_empty());
         assert!(Arc::ptr_eq(
             controller.resolved().get_shared("request").unwrap(),
             &first_marks
