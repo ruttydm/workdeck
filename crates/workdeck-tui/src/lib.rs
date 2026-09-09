@@ -25570,6 +25570,42 @@ mod tests {
     }
 
     #[test]
+    fn transient_extension_policy_skips_save_after_wrap_change() {
+        use workdeck_extension_api::{
+            API_VERSION, HandshakeResponse, Registration, SessionOptionsRegistration,
+            ViewPreferencesPolicy,
+        };
+        let handshake = HandshakeResponse {
+            extension_api_version: API_VERSION,
+            extension_version: "1.0.0".into(),
+            registrations: vec![Registration::SessionOptions(SessionOptionsRegistration {
+                view_preferences: Some(ViewPreferencesPolicy::Transient),
+            })],
+        };
+        let directory = tempfile::TempDir::new().unwrap();
+        let config = directory.path().join("workdeck/config.toml");
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                transient_view_preferences:
+                    workdeck_extension_host::uses_transient_view_preferences([&handshake]),
+                view_preferences_config_path: Some(config.clone()),
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(180, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        let previous_wrap = app.options.wrap_lines;
+        app.handle_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+        assert_ne!(app.options.wrap_lines, previous_wrap);
+        app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        assert!(!rendered_review_frame(&mut terminal, &app).contains("Save view preferences?"));
+        assert!(app.take_quit_requested());
+        assert!(!app.take_quit_requested());
+        assert!(!config.exists());
+    }
+
+    #[test]
     fn disabled_preference_prompt_quits_after_theme_change_without_writing_config() {
         let directory = tempfile::TempDir::new().unwrap();
         let config = directory.path().join("workdeck/config.toml");

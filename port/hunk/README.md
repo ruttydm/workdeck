@@ -1,12 +1,24 @@
 # Hunk semantic-port ledger
 
+## Transient extension preference policy
+
+Bytes 118,487–119,471 map to the 180×24 transient session regression.
+Native extension registration metadata passes through the production policy
+resolver, then the reviewer changes wrapping and quits without prompting or
+writing configuration. Both pinned source tests and the Rust test pass;
+formatting and TUI Clippy pass. This injected-registration test does not prove
+subprocess lifecycle or complete CLI bootstrap behavior. See
+[capture and scope](oracles/app-host-quit-transient.json).
+The ledger has 1,375 records, 268 unmapped intervals, 1,257 baseline files,
+and 11 cached upstream commits pending.
+
 ## Disabled preference prompt
 
 Bytes 117,209–118,487 map to the 240×24 configured-opt-out regression:
 change theme, quit immediately, show no save prompt, and create no configuration.
 Both pinned oracle tests and the Rust test pass; formatting and TUI Clippy pass.
 See [capture and verification limits](oracles/app-host-quit-prompt-disabled.json).
-The adjacent transient-extension integration test remains unmapped.
+The adjacent transient-extension test is mapped in the subsequent entry above.
 The ledger now has 1,374 records, 268 unmapped intervals, 1,257 baseline files,
 and 11 cached upstream commits pending. Full parity remains unverified.
 
