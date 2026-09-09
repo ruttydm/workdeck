@@ -46,6 +46,12 @@ maintenance-only plans retain the current version. Overflow is rejected.
 Prerelease/build-metadata versions are explicitly rejected until the separate
 prerelease workflow is integrated. No version, lockfile or fragment is changed.
 
+Stable preparation also requires `release/prerelease.json` to be absent,
+even when the current Cargo version looks stable. Any existing state, including
+malformed state, blocks planning rather than risking consumption of fragments
+that the prerelease validator requires on disk. Its absence is recorded in
+the input fingerprints and checked again during planning/application.
+
 For a version bump, `edits` contains the proposed full CLI manifest and
 lockfile text. TOML editing preserves manifest comments and unrelated package
 entries. The current CLI version must be explicit and match metadata; exactly

@@ -198,6 +198,10 @@ pub(super) fn check_plan(repo: &Path, mut args: impl Iterator<Item = String>) ->
 
 fn build_plan(repo: &Path) -> Result<serde_json::Value> {
     let fragments = pending(repo)?;
+    ensure!(
+        matches!(std::fs::symlink_metadata(repo.join("release/prerelease.json")), Err(error) if error.kind() == std::io::ErrorKind::NotFound),
+        "stable planning requires absent prerelease state; prerelease preparation is not implemented"
+    );
     let metadata = cargo_metadata::MetadataCommand::new()
         .manifest_path(repo.join("Cargo.toml"))
         .no_deps()
@@ -374,6 +378,7 @@ fn input_fingerprints(
         std::path::PathBuf::from("Cargo.toml"),
         std::path::PathBuf::from("Cargo.lock"),
         std::path::PathBuf::from("CHANGELOG.md"),
+        std::path::PathBuf::from("release/prerelease.json"),
         manifest.to_owned(),
     ]);
     for fragment in fragments {
@@ -392,10 +397,12 @@ fn input_fingerprints(
         let full = repo.join(&path);
         let metadata = match std::fs::symlink_metadata(&full) {
             Err(error)
-                if path == Path::new("CHANGELOG.md")
-                    && error.kind() == std::io::ErrorKind::NotFound =>
+                if matches!(
+                    path.to_str(),
+                    Some("CHANGELOG.md" | "release/prerelease.json")
+                ) && error.kind() == std::io::ErrorKind::NotFound =>
             {
-                inputs.insert("CHANGELOG.md".into(), "absent".into());
+                inputs.insert(path.to_str().unwrap().to_owned(), "absent".into());
                 continue;
             }
             result => result?,

@@ -195,6 +195,17 @@ fn version_plan_uses_real_cargo_metadata_without_mutating_inputs() {
         );
     }
     let saved = repo.path().join("release-plan.json");
+    assert_eq!(plan["inputs"]["release/prerelease.json"], "absent");
+    let prerelease = repo.path().join("release/prerelease.json");
+    for contents in ["{}", "{invalid", "{\"mode\":\"pre\",\"tag\":\"beta\"}"] {
+        std::fs::write(&prerelease, contents).unwrap();
+        let rejected = run(repo.path(), &["changelog", "plan"]);
+        assert!(!rejected.status.success());
+        assert!(rejected.stdout.is_empty());
+        assert_eq!(std::fs::read_to_string(&prerelease).unwrap(), contents);
+        assert!(repo.path().join("release/fragments/patch-fix.md").exists());
+    }
+    std::fs::remove_file(&prerelease).unwrap();
     assert_eq!(plan["inputs"]["CHANGELOG.md"], "absent");
     assert_eq!(
         plan["edits"]["CHANGELOG.md"],
