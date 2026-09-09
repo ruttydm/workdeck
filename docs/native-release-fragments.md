@@ -30,6 +30,12 @@ fragments). Malformed frontmatter, unsupported products/bumps and missing
 user-visible text fail validation. Reading does not create `changes/` when it
 is absent and does not consume fragments or change versions.
 
+Bump precedence is tested across every patch/minor/major combination in both
+orders. Unix tests also verify that directory and fragment symlinks are not
+followed and that an existing symlink target cannot be overwritten. These
+checks are not a claim of adversarial filesystem race isolation or native
+Windows symlink validation.
+
 The frontmatter targets the sole `workdeck` product. This is not an npm
 workspace or a claim that individual internal Rust crates are separately
 published. Fragment creation does not commit, push, bump versions, consume

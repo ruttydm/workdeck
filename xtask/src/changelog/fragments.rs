@@ -80,17 +80,21 @@ fn pending(repo: &Path) -> Result<Vec<PendingFragment>> {
     Ok(fragments)
 }
 
+fn highest_bump(fragments: &[PendingFragment]) -> Option<&'static str> {
+    ["major", "minor", "patch"].into_iter().find(|bump| {
+        fragments
+            .iter()
+            .any(|fragment| fragment.bump.as_deref() == Some(*bump))
+    })
+}
+
 pub(super) fn status(repo: &Path, mut args: impl Iterator<Item = String>) -> Result<()> {
     ensure!(
         args.next().is_none(),
         "changelog status does not accept arguments"
     );
     let fragments = pending(repo)?;
-    let bump = ["major", "minor", "patch"].into_iter().find(|bump| {
-        fragments
-            .iter()
-            .any(|fragment| fragment.bump.as_deref() == Some(*bump))
-    });
+    let bump = highest_bump(&fragments);
     println!(
         "{}",
         serde_json::to_string_pretty(&serde_json::json!({"bump":bump,"fragments":fragments}))?
@@ -166,6 +170,60 @@ mod tests {
     use super::*;
     fn create(repo: &Path, args: &[&str]) -> Result<()> {
         add(repo, args.iter().map(|value| (*value).to_owned()))
+    }
+
+    #[test]
+    fn bump_precedence_is_independent_of_fragment_order() {
+        for mask in 0..8 {
+            let mut fragments = vec![PendingFragment {
+                id: "maintenance".into(),
+                bump: None,
+                body: String::new(),
+            }];
+            for (index, bump) in ["patch", "minor", "major"].iter().enumerate() {
+                if mask & (1 << index) != 0 {
+                    fragments.push(PendingFragment {
+                        id: bump.to_string(),
+                        bump: Some(bump.to_string()),
+                        body: "Note".into(),
+                    });
+                }
+            }
+            let expected = if mask & 4 != 0 {
+                Some("major")
+            } else if mask & 2 != 0 {
+                Some("minor")
+            } else if mask & 1 != 0 {
+                Some("patch")
+            } else {
+                None
+            };
+            assert_eq!(highest_bump(&fragments), expected);
+            fragments.reverse();
+            assert_eq!(highest_bump(&fragments), expected);
+        }
+        assert_eq!(highest_bump(&[]), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_directories_and_fragments_are_never_followed() {
+        use std::os::unix::fs::symlink;
+        let repo = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        symlink(outside.path(), repo.path().join("changes")).unwrap();
+        assert!(create(repo.path(), &["safe", "empty"]).is_err());
+        assert!(pending(repo.path()).is_err());
+        assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 0);
+
+        let repo = tempfile::tempdir().unwrap();
+        std::fs::create_dir(repo.path().join("changes")).unwrap();
+        let target = outside.path().join("note.md");
+        std::fs::write(&target, "---\n---\n").unwrap();
+        symlink(&target, repo.path().join("changes/safe.md")).unwrap();
+        assert!(pending(repo.path()).is_err());
+        assert!(create(repo.path(), &["safe", "patch", "Overwrite"]).is_err());
+        assert_eq!(std::fs::read_to_string(target).unwrap(), "---\n---\n");
     }
 
     #[test]
