@@ -567,10 +567,12 @@ impl LineHighlightPreparationController {
         self.cache.retain(|key, _| desired.contains(key));
         self.attempt_deadlines
             .retain(|key, _| desired.contains(key) && !self.cache.contains_key(key));
+        let active_file_identities = files
+            .iter()
+            .map(|file| (file.runtime_id.as_str(), &file.content_identity))
+            .collect::<BTreeSet<_>>();
         self.merged.retain(|file_id, entry| {
-            files.iter().any(|file| {
-                file.runtime_id == *file_id && file.content_identity == entry.content_identity
-            })
+            active_file_identities.contains(&(file_id.as_str(), &entry.content_identity))
         });
 
         let mut blocked_files = BTreeSet::new();

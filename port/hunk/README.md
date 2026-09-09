@@ -2380,3 +2380,15 @@ Tests cover both directions across the complete unsigned counter range, equal
 samples and missing samples. All three native-memory tests and all three geometry
 tests (including both frozen source oracles) passed, as did xtask Clippy and
 formatting. These are current-process deltas, not peak-memory or JSC-heap parity.
+
+### Indexed highlighter result retention
+
+The preparation controller now indexes borrowed `(runtime_id, content_identity)`
+pairs before retaining merged results, replacing a full file-list scan for each
+cached result. It preserves the previous existential match, including duplicate
+IDs with different content identities, without cloning diff trees. Retention is
+now logarithmic per lookup rather than linear in the current file count.
+All 57 highlighter-filtered TUI tests passed, including 600-file cache retention,
+reload invalidation, deferred publication and actual stack/split cell painting.
+TUI all-target Clippy and formatting passed. No latency improvement is claimed
+without a measured run; the complete hook record remains unmapped.
