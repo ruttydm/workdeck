@@ -1,5 +1,21 @@
 # Hunk semantic-port ledger
 
+## Menu navigation and rooted manual reload
+
+The two source tests at bytes 48,530–51,464 now map to the exact keyboard-menu
+sequence at 220×24 and a real-terminal file reload at 220×20. Both pinned Hunk
+runs pass their seven assertions. The native menu test passes in 0.83s; the two
+native reload cases pass in 2.22s. The successful reload disables watching and
+requires the added line within 500ms after `r`, without creating `.agents` state.
+
+The first native reload attempt used a standalone directory and was rejected.
+Repeating the source test outside a repository produces the same policy error
+on both pins: its passing environment implicitly supplies a repository root.
+No reload confinement rule was relaxed. The
+[frozen evidence](oracles/app-host-menu-reload.json) retains both source failures
+and the original native failure, alongside rooted success and explicit native
+unrooted rejection. This maps only these complete tests, not all reload behavior.
+
 ## Bootstrap preference presentation
 
 The source test at bytes 46,759–48,530 is translated with the pinned preference

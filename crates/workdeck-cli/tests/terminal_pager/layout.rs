@@ -51,6 +51,64 @@ fn long_line() -> (tempfile::TempDir, Session) {
 }
 
 #[test]
+fn reload_shortcut_reads_the_current_file_diff_without_watch() {
+    assert_direct_file_reload(true);
+}
+
+#[test]
+fn reload_shortcut_rejects_unrooted_file_diff_like_both_hunk_pins() {
+    assert_direct_file_reload(false);
+}
+
+fn assert_direct_file_reload(rooted: bool) {
+    let root = tempfile::tempdir().unwrap();
+    if rooted {
+        git(root.path(), &["init", "-q"]);
+    }
+    let before = root.path().join("before.ts");
+    let after = root.path().join("after.ts");
+    std::fs::write(&before, "export const answer = 41;\n").unwrap();
+    std::fs::write(&after, "export const answer = 42;\n").unwrap();
+    let mut session = launch(
+        root.path(),
+        &[
+            "diff",
+            "--files",
+            "before.ts",
+            "after.ts",
+            "--mode",
+            "split",
+            "--no-watch",
+        ],
+        220,
+        20,
+    );
+    let initial = session.wait(|frame| frame.contains("export const answer = 42;"));
+    assert!(!initial.contains("export const added = true;"));
+    assert!(!root.path().join(".agents").exists());
+    std::fs::write(
+        &after,
+        "export const answer = 42;\nexport const added = true;\n",
+    )
+    .unwrap();
+    session.write(b"r");
+    if rooted {
+        session
+            .wait_for(Duration::from_millis(500), |frame| {
+                frame.contains("export const added = true;")
+            })
+            .expect("manual reload should expose the added line within 500ms");
+    } else {
+        let frame = session.wait(|frame| {
+            frame.contains("Session reload requires the initial Workdeck session to be rooted in a repository.")
+        });
+        assert!(!frame.contains("export const added = true;"));
+    }
+    assert!(!root.path().join(".agents").exists());
+    drop(session);
+}
+
+#[test]
 fn wide_characters_keep_split_dividers_in_the_same_cell_column() {
     let (_root, mut session) =
         super::harness::launch_file_pair("createWideCharacterFilePair", "split", 140, 16, &[]);

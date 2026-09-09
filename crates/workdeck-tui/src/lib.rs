@@ -26275,6 +26275,57 @@ mod tests {
     }
 
     #[test]
+    fn pinned_menu_navigation_switches_layout_and_closes_the_menu() {
+        let mut review = navigation_changeset(vec![
+            (
+                "alpha.ts".into(),
+                "export const alpha = 1;\n".into(),
+                "export const alpha = 2;\nexport const add = true;\n".into(),
+            ),
+            (
+                "beta.ts".into(),
+                "export const beta = 1;\n".into(),
+                "export const betaValue = 1;\n".into(),
+            ),
+        ]);
+        review.files[0].agent = Some(AgentFileContext {
+            path: "alpha.ts".into(),
+            summary: Some("alpha.ts note".into()),
+            annotations: vec![
+                serde_json::from_value(serde_json::json!({
+                    "new_range": {"start": 2, "end": 2},
+                    "summary": "Annotation for alpha.ts",
+                    "rationale": "Why alpha.ts changed"
+                }))
+                .unwrap(),
+            ],
+        });
+        review.refresh_review_identities();
+        assert_fixture_annotation_range(&review, 2);
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(220, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        app.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE));
+        let frame = rendered_review_frame(&mut terminal, &app);
+        for label in ["Toggle files/filter focus", "Reload", "Quit"] {
+            assert!(frame.contains(label), "missing {label}: {frame}");
+        }
+        for key in [KeyCode::Right, KeyCode::Down, KeyCode::Enter] {
+            app.handle_key(KeyEvent::new(key, KeyModifiers::NONE));
+            rendered_review_frame(&mut terminal, &app);
+        }
+        let frame = rendered_review_frame(&mut terminal, &app);
+        assert!(!frame.contains("Split view"), "{frame}");
+        assert!(frame.contains("1   -  export const alpha = 1;"), "{frame}");
+    }
+
+    #[test]
     fn pinned_bootstrap_preferences_initialize_visible_review_state() {
         let mut review = navigation_changeset(vec![(
             "prefs.ts".into(),

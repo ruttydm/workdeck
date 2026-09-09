@@ -1,0 +1,103 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "baselineInterval": {
+    "byteStart": 48530,
+    "byteEnd": 51464,
+    "lineStart": 1592,
+    "lineEnd": 1696,
+    "sha256": "b0cca4b4b58561e3ec27c0d2e780f9d841bd230726fcafcc6f73080eae2a966d"
+  },
+  "sourceTests": [
+    "menu navigation can switch layouts and activate view actions",
+    "reload shortcut reloads the current file diff from disk"
+  ],
+  "menu": {
+    "runs": [
+      {
+        "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+        "exitCode": 0,
+        "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > menu navigation can switch layouts and activate view actions [308.69ms]\n\n 1 pass\n 75 filtered out\n 0 fail\n 5 expect() calls\nRan 1 test across 1 file. [874.00ms]\n"
+      },
+      {
+        "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+        "exitCode": 0,
+        "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > menu navigation can switch layouts and activate view actions [262.32ms]\n\n 1 pass\n 73 filtered out\n 0 fail\n 5 expect() calls\nRan 1 test across 1 file. [818.00ms]\n"
+      }
+    ],
+    "native": {
+      "test": "tests::pinned_menu_navigation_switches_layout_and_closes_the_menu",
+      "terminal": [
+        220,
+        24
+      ],
+      "keys": [
+        "F10",
+        "Right",
+        "Down",
+        "Enter"
+      ],
+      "passed": 1,
+      "failed": 0,
+      "seconds": 0.83,
+      "output": "   Compiling workdeck-tui v0.1.0 (/Users/rutger/Projects/workdeck/crates/workdeck-tui)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.08s\n     Running unittests src/lib.rs (target/debug/deps/workdeck_tui-e7b7e0e001fe9137)\n\nrunning 1 test\ntest tests::pinned_menu_navigation_switches_layout_and_closes_the_menu ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1166 filtered out; finished in 0.83s\n\n"
+    }
+  },
+  "reload": {
+    "rootedSourceRuns": [
+      {
+        "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+        "exitCode": 0,
+        "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > reload shortcut reloads the current file diff from disk [179.74ms]\n\n 1 pass\n 75 filtered out\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [498.00ms]\n"
+      },
+      {
+        "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+        "exitCode": 0,
+        "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > reload shortcut reloads the current file diff from disk [180.58ms]\n\n 1 pass\n 73 filtered out\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [483.00ms]\n"
+      }
+    ],
+    "unrootedSourceRuns": [
+      {
+        "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+        "exitCode": 1,
+        "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\nFailed to reload the current diff. 121 | }\n122 | \n123 | /** Reject session reloads for startup inputs that did not establish a repository root. */\n124 | function assertReloadableBounds(bounds: SessionReloadBounds) {\n125 |   if (bounds.roots.length === 0 && bounds.exactFiles.length === 0) {\n126 |     throw new Error(\n                    ^\nerror: Session reload requires the initial Hunk session to be rooted in a repository.\n      at assertReloadableBounds (/private/tmp/workdeck-conformance-oracle.vUBqwF/main/src/app/session/reloadBounds.ts:126:15)\n      at validateSessionReloadWithinBounds (/private/tmp/workdeck-conformance-oracle.vUBqwF/main/src/app/session/reloadBounds.ts:198:3)\n      at <anonymous> (/private/tmp/workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.tsx:258:23)\n\n1683 |           break;\n1684 |         }\n1685 |         await Bun.sleep(25);\n1686 |       }\n1687 | \n1688 |       expect(refreshed).toBe(true);\n                               ^\nerror: expect(received).toBe(expected)\n\nExpected: true\nReceived: false\n\n      at <anonymous> (/private/tmp/workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:1688:25)\n(fail) App interactions > reload shortcut reloads the current file diff from disk [740.34ms]\n\n 0 pass\n 75 filtered out\n 1 fail\n 2 expect() calls\nRan 1 test across 1 file. [1275.00ms]\n"
+      },
+      {
+        "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+        "exitCode": 1,
+        "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\nFailed to reload the current diff. 115 | }\n116 | \n117 | /** Reject session reloads for startup inputs that did not establish a repository root. */\n118 | function assertReloadableBounds(bounds: SessionReloadBounds) {\n119 |   if (bounds.roots.length === 0) {\n120 |     throw new Error(\n                    ^\nerror: Session reload requires the initial Hunk session to be rooted in a repository.\n      at assertReloadableBounds (/private/tmp/workdeck-conformance-oracle.vUBqwF/stable/src/app/session/reloadBounds.ts:120:15)\n      at validateSessionReloadWithinBounds (/private/tmp/workdeck-conformance-oracle.vUBqwF/stable/src/app/session/reloadBounds.ts:189:3)\n      at <anonymous> (/private/tmp/workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.tsx:253:23)\n\n1586 |           break;\n1587 |         }\n1588 |         await Bun.sleep(25);\n1589 |       }\n1590 | \n1591 |       expect(refreshed).toBe(true);\n                               ^\nerror: expect(received).toBe(expected)\n\nExpected: true\nReceived: false\n\n      at <anonymous> (/private/tmp/workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:1591:25)\n(fail) App interactions > reload shortcut reloads the current file diff from disk [743.17ms]\n\n 0 pass\n 73 filtered out\n 1 fail\n 2 expect() calls\nRan 1 test across 1 file. [1273.00ms]\n"
+      }
+    ],
+    "initialNativeUnrootedFailure": {
+      "exitCode": 101,
+      "output": "\nthread 'layout::reload_shortcut_reads_the_current_file_diff_without_watch' (12765049) panicked at crates/workdeck-cli/tests/terminal_pager/layout.rs:83:13:\nterminal predicate timed out:\n  File  View  Navigate  Agent  Help                                                                                                                                          Workdeck  before.ts ↔ after.ts  1 file  +1  -1 \n  Files ────────────────────────────│────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── \n  M before.ts -> after.ts    +1 -1  │                                                                                                                                                                                       \n                                    │ before.ts -> after.ts                                                                                                                                                         +1 -1   \n                                    │▌@@ -1,1 +1,1 @@                                                                                                                                                                       \n                                    │▌1 - export const answer = 41;                                                            ▌1 + export const answer = 42;                                                               \n                                    │                                                                                                                                                                                       \n                                    │                                                                                                                                                                                       \n                                    │                                                                                                                                                                                       \n                                    │                                                                                                                                                                                       \n                                    │                                                                                                                                                                                       \n                                    │                                                                                                                                                                                       \n                                    │                                                                                                                                                                                       \n                                    │                                                                                                                                                                                       \n                                    │                                                                                                                                                                                       \n                                    │                                                                                                                                                                                       \n                                    │                                                                                                                                                                                       \n                                    │                                                                                                                                                                                       \n                                    │                                                                                                                                                                                       \n reload failed: Session reload requires the initial Workdeck session to be rooted in a repository.                                                                                                                          \nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\ntest layout::reload_shortcut_reads_the_current_file_diff_without_watch ... FAILED\n\nfailures:\n\nfailures:\n    layout::reload_shortcut_reads_the_current_file_diff_without_watch\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 96 filtered out; finished in 22.31s\n\nerror: test failed, to rerun pass `-p workdeck-cli --test terminal_pager`\n"
+    },
+    "native": {
+      "tests": [
+        "layout::reload_shortcut_reads_the_current_file_diff_without_watch",
+        "layout::reload_shortcut_rejects_unrooted_file_diff_like_both_hunk_pins"
+      ],
+      "terminal": [
+        220,
+        20
+      ],
+      "watch": false,
+      "successDeadlineMs": 500,
+      "passed": 2,
+      "failed": 0,
+      "seconds": 2.22,
+      "output": "   Compiling workdeck-cli v0.1.0 (/Users/rutger/Projects/workdeck/crates/workdeck-cli)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.75s\n     Running tests/terminal_pager.rs (target/debug/deps/terminal_pager-9f932863f58746be)\n\nrunning 2 tests\ntest layout::reload_shortcut_rejects_unrooted_file_diff_like_both_hunk_pins ... ok\ntest layout::reload_shortcut_reads_the_current_file_diff_without_watch ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 96 filtered out; finished in 2.22s\n\n"
+    },
+    "finding": "The source test implicitly runs within a repository. Both pinned tests fail outside one with the same unrooted-session policy error as native. This is an environment distinction, not a runtime bug; no confinement policy was changed. Native tests cover rooted success and unrooted rejection, with no .agents state creation."
+  },
+  "validation": {
+    "tuiCommand": "cargo test -p workdeck-tui --lib -- --quiet",
+    "tuiPassed": 1167,
+    "tuiFailed": 0,
+    "tuiSeconds": 8.42,
+    "clippyCommand": "cargo clippy -p workdeck-tui --all-targets -p workdeck-cli --test terminal_pager -- -D warnings",
+    "clippyExitCode": 0,
+    "formatCommand": "cargo fmt --all -- --check",
+    "formatExitCode": 0
+  },
+  "scope": "Maps exactly these two complete source tests and their seven assertions. Menu fixture includes the pinned alpha annotation. Reload uses real files, a native PTY, disabled watch and explicit rooted/unrooted environments. Native rooted success is required within 500ms after r; source polls up to twenty flush/25ms iterations. Does not establish all reload, menu, session, platform or performance behavior."
+}
