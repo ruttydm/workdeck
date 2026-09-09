@@ -2658,6 +2658,21 @@ client returns, ruling out a premature EOF as the cause. This verifies timeout
 enforcement locally; TLS, redirects and full upstream transport parity remain
 unverified.
 
+The HTTP loader explicitly accepts only 2xx responses, matching source
+`response.ok`; non-2xx statuses remain typed through the topic-search warning.
+Loopback cases include 302 without Location, 304, 404 and 503 in addition to
+success and malformed JSON. Status-specific warning tests verify that direct
+fallback still runs for 302/304/403/404/429/503. Redirect-following and generic
+network-error diagnostic parity remain separate unverified behavior.
+
+The status test exposed ureq's generic error for a 302 lacking Location. The
+loader now handles redirects explicitly: only 301/302/303/307/308 with Location
+are followed, at most 20 hops, under one shared deadline. Authorization is
+removed on an origin change. Missing Location retains the original status;
+non-HTTP destinations and credential-bearing redirect URLs are rejected.
+Redirect chains and cross-origin credential stripping still require dedicated
+executable parity tests; this implementation is not a completed mapping.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

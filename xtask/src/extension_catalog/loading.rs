@@ -30,22 +30,66 @@ pub(super) fn load(payload: &Value) -> Result<Vec<Value>> {
     Ok(entries)
 }
 
-fn fetch_json(url: &str, token: Option<&str>, timeout: Duration) -> Result<Value> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(timeout))
-        .build()
-        .into();
-    let mut request = agent
-        .get(url)
-        .header("Accept", "application/vnd.github+json")
-        .header("User-Agent", "workdeck-extension-directory");
-    if let Some(token) = token.filter(|token| !token.is_empty()) {
-        request = request.header("Authorization", format!("Bearer {token}"));
+#[derive(Debug)]
+struct HttpStatus(u16);
+
+impl std::fmt::Display for HttpStatus {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "HTTP {}", self.0)
     }
-    let mut response = request.call()?;
-    Ok(serde_json::from_str(
-        &response.body_mut().read_to_string()?,
-    )?)
+}
+
+impl std::error::Error for HttpStatus {}
+
+fn fetch_json(url: &str, token: Option<&str>, timeout: Duration) -> Result<Value> {
+    let started = std::time::Instant::now();
+    let mut url = url::Url::parse(url)?;
+    let mut token = token.filter(|token| !token.is_empty());
+    for redirects in 0..=20 {
+        let remaining = timeout
+            .checked_sub(started.elapsed())
+            .ok_or_else(|| anyhow::anyhow!("request deadline exceeded"))?;
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_global(Some(remaining))
+            .http_status_as_error(false)
+            .max_redirects(0)
+            .build()
+            .into();
+        let mut request = agent
+            .get(url.as_str())
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "workdeck-extension-directory");
+        if let Some(token) = token {
+            request = request.header("Authorization", format!("Bearer {token}"));
+        }
+        let mut response = request.call()?;
+        if matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308)
+            && let Some(location) = response.headers().get("location")
+        {
+            if redirects == 20 {
+                bail!("too many redirects");
+            }
+            let next = url.join(location.to_str()?)?;
+            if !matches!(next.scheme(), "http" | "https")
+                || !next.username().is_empty()
+                || next.password().is_some()
+            {
+                bail!("unsupported redirect destination");
+            }
+            if next.origin() != url.origin() {
+                token = None;
+            }
+            url = next;
+            continue;
+        }
+        if !response.status().is_success() {
+            return Err(HttpStatus(response.status().as_u16()).into());
+        }
+        return Ok(serde_json::from_str(
+            &response.body_mut().read_to_string()?,
+        )?);
+    }
+    unreachable!("redirect limit returns before leaving loop")
 }
 
 fn resolve(
@@ -60,11 +104,12 @@ fn resolve(
         Duration::from_secs(8),
     ) {
         Ok(payload) => index_activity(&payload),
-        Err(_) => {
+        Err(error) => {
             // Never log transport error details that might contain credentials.
-            warnings.push(
-                "Extension directory: GitHub topic search failed; rendering without stars.".into(),
-            );
+            warnings.push(match error.downcast_ref::<HttpStatus>() {
+                Some(HttpStatus(status)) => format!("Extension directory: GitHub topic search returned {status}; rendering without stars."),
+                None => "Extension directory: GitHub topic search failed; rendering without stars.".into(),
+            });
             Default::default()
         }
     };
@@ -128,6 +173,30 @@ mod tests {
     use std::sync::{Barrier, Mutex};
 
     #[test]
+    fn topic_http_status_warning_preserves_status_and_direct_fallback() {
+        for status in [302, 304, 403, 404, 429, 503] {
+            let (entries, warnings) = resolve(
+                &[json!({"repo":"owner/repo"})],
+                "workdeck-extension",
+                &|path, _| {
+                    if path.starts_with("/search/") {
+                        Err(HttpStatus(status).into())
+                    } else {
+                        Ok(json!({"stargazers_count":2}))
+                    }
+                },
+            );
+            assert_eq!(entries, [json!({"repo":"owner/repo","stars":2})]);
+            assert_eq!(
+                warnings,
+                [format!(
+                    "Extension directory: GitHub topic search returned {status}; rendering without stars."
+                )]
+            );
+        }
+    }
+
+    #[test]
     fn http_transport_deadline_interrupts_a_silent_server() {
         use std::net::TcpListener;
         use std::sync::mpsc;
@@ -188,6 +257,9 @@ mod tests {
             (Some(""), "200 OK", "null", true),
             (Some("fixture-token"), "200 OK", "[]", true),
             (None, "503 Service Unavailable", "{}", false),
+            (None, "302 Found", "{}", false),
+            (None, "304 Not Modified", "{}", false),
+            (None, "404 Not Found", "{}", false),
             (None, "200 OK", "invalid JSON", false),
         ] {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -208,6 +280,7 @@ mod tests {
                         Err(error) => panic!("accept failed: {error}"),
                     }
                 };
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(5)))
                     .unwrap();
@@ -232,6 +305,16 @@ mod tests {
             let result = fetch_json(&url, token, Duration::from_secs(5));
             let request = server.join().unwrap().to_lowercase();
             assert_eq!(result.is_ok(), success);
+            if !status.starts_with("200") {
+                assert_eq!(
+                    result
+                        .as_ref()
+                        .unwrap_err()
+                        .downcast_ref::<HttpStatus>()
+                        .map(|status| status.0),
+                    Some(status[..3].parse().unwrap())
+                );
+            }
             if success {
                 assert_eq!(
                     result.unwrap(),
