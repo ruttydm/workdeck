@@ -78,6 +78,19 @@ pub fn validate_legacy_catalog(catalog: &Value) -> Result<()> {
 // Reject syntax outside JSON strings, integers, punctuation and known keys.
 pub fn verify_legacy_source(catalog: &Value, source: &str) -> Result<()> {
     validate_legacy_catalog(catalog)?;
+    let expected = decode_legacy_source(source)?;
+    let mut actual = catalog["entries"].clone();
+    for entry in actual.as_array_mut().unwrap() {
+        entry.as_object_mut().unwrap().remove("compatibility");
+    }
+    anyhow::ensure!(
+        actual == expected,
+        "migrated catalog differs from pinned source fields"
+    );
+    Ok(())
+}
+
+fn decode_legacy_source(source: &str) -> Result<Value> {
     let literal = source
         .split_once("export const EXTENSION_CATALOG: readonly ExtensionListing[] = [")
         .and_then(|(_, tail)| {
@@ -121,16 +134,42 @@ pub fn verify_legacy_source(catalog: &Value, source: &str) -> Result<()> {
         literal[end..].trim().is_empty(),
         "unsupported trailing catalog syntax"
     );
-    let expected: Value = serde_json::from_str(&json)?;
-    let mut actual = catalog["entries"].clone();
-    for entry in actual.as_array_mut().unwrap() {
-        entry.as_object_mut().unwrap().remove("compatibility");
+    Ok(serde_json::from_str(&json)?)
+}
+
+fn generate_legacy_catalog() -> Result<Value> {
+    let repo = super::repo_root()?;
+    let source = super::git_stdout(
+        &repo,
+        [
+            "show",
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2:website/src/data/extensions.ts",
+        ],
+    )?;
+    let mut entries = decode_legacy_source(&source)?;
+    let categorized: Vec<CategorizedListing> = serde_json::from_value(entries.clone())?;
+    for entry in entries
+        .as_array_mut()
+        .ok_or_else(|| anyhow::anyhow!("catalog is not an array"))?
+    {
+        entry
+            .as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("listing is not an object"))?
+            .insert(
+                "compatibility".into(),
+                serde_json::json!("requires-rust-rewrite"),
+            );
     }
-    anyhow::ensure!(
-        actual == expected,
-        "migrated catalog differs from pinned source fields"
-    );
-    Ok(())
+    let catalog = serde_json::json!({
+        "source":"Hunk extension directory",
+        "baseline":"2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+        "blob":"23f2196dd3c7a91306e050db352d4b5518a31117",
+        "license":"MIT; Copyright Modem Labs Inc.; see THIRD_PARTY_NOTICES",
+        "facets":category_facets(&categorized),
+        "entries":entries
+    });
+    verify_legacy_source(&catalog, &source)?;
+    Ok(catalog)
 }
 
 #[test]
@@ -300,6 +339,14 @@ fn index_activity(payload: &Value) -> BTreeMap<String, Value> {
 
 pub fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     let command = args.next();
+    if command.as_deref() == Some("seed") {
+        anyhow::ensure!(args.next().is_none(), "seed does not accept arguments");
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&generate_legacy_catalog()?)?
+        );
+        return Ok(());
+    }
     if !matches!(
         command.as_deref(),
         Some("activity-index" | "json-ld" | "format-updated" | "category-facets" | "load")

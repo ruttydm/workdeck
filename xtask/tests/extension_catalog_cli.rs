@@ -14,6 +14,26 @@ fn run(input: &[u8], args: &[&str]) -> std::process::Output {
 }
 
 #[test]
+fn seed_regenerates_the_complete_tracked_catalog_from_git() {
+    let output = run(b"", &["extension-catalog", "seed"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    let expected: serde_json::Value =
+        serde_json::from_str(include_str!("../../site/data/legacy-extensions.json")).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap(),
+        expected
+    );
+    let invalid = run(b"", &["extension-catalog", "seed", "unexpected"]);
+    assert!(!invalid.status.success());
+    assert!(invalid.stdout.is_empty());
+}
+
+#[test]
 fn catalog_load_rejects_invalid_listings_before_network_access() {
     for input in [b"null".as_slice(), b"[{}]", br#"[{"repo":7}]"#, b"[null]"] {
         let output = run(input, &["extension-catalog", "load"]);

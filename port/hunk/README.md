@@ -2750,6 +2750,14 @@ commas outside strings. Calls, undefined values, negative/fractional literals
 and comments are rejected by this deliberately restricted pinned-source
 decoder. Supporting arbitrary TypeScript is neither required nor claimed.
 
+`cargo xtask extension-catalog seed` regenerates the complete migrated catalog
+JSON from the pinned Git source, including provenance, mandatory rewrite
+status and Rust-computed facets. It reads no stdin, performs no network access
+and writes only stdout. The CLI test compares every resulting JSON value with
+the tracked catalog and rejects extra arguments. Formatting is not compared
+byte-for-byte; this is semantic data regeneration, not a completed source-ledger
+disposition or a replacement for missing site functionality.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.
