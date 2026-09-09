@@ -38,12 +38,36 @@ fn index_activity(payload: &Value) -> BTreeMap<String, Value> {
 
 pub fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     let command = args.next();
-    if !matches!(command.as_deref(), Some("activity-index" | "json-ld")) || args.next().is_some() {
-        bail!("extension-catalog requires activity-index or json-ld (JSON on stdin)");
+    if !matches!(
+        command.as_deref(),
+        Some("activity-index" | "json-ld" | "format-updated")
+    ) || args.next().is_some()
+    {
+        bail!(
+            "extension-catalog requires activity-index, json-ld or format-updated (JSON on stdin)"
+        );
     }
     let mut input = String::new();
     std::io::stdin().read_to_string(&mut input)?;
     let payload: Value = serde_json::from_str(&input)?;
+    if command.as_deref() == Some("format-updated") {
+        let pushed = payload
+            .get("pushedAt")
+            .and_then(Value::as_str)
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok());
+        let now = match payload.get("now") {
+            None => Some(chrono::Utc::now().timestamp_millis()),
+            Some(value) => value
+                .as_str()
+                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+                .map(|value| value.timestamp_millis()),
+        };
+        let formatted = pushed
+            .zip(now)
+            .and_then(|(pushed, now)| format_updated_millis(pushed.timestamp_millis(), now));
+        println!("{}", serde_json::to_string(&formatted)?);
+        return Ok(());
+    }
     if command.as_deref() == Some("json-ld") {
         println!("{}", json_ld_script_body(&payload)?);
         return Ok(());
@@ -53,6 +77,57 @@ pub fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
         serde_json::to_string_pretty(&index_activity(&payload))?
     );
     Ok(())
+}
+
+fn format_updated_millis(pushed: i64, now: i64) -> Option<String> {
+    let elapsed = i128::from(now) - i128::from(pushed);
+    if elapsed < 0 {
+        return None;
+    }
+    let days = elapsed / 86_400_000;
+    Some(match days {
+        0 => "today".into(),
+        1 => "yesterday".into(),
+        2..30 => format!("{days} days ago"),
+        _ => {
+            let months = days / 30;
+            if months < 12 {
+                format!("{months} month{} ago", if months == 1 { "" } else { "s" })
+            } else {
+                let years = days / 365;
+                format!("{years} year{} ago", if years == 1 { "" } else { "s" })
+            }
+        }
+    })
+}
+
+#[test]
+fn recency_thresholds_preserve_source_day_month_year_boundaries() {
+    for (days, expected) in [
+        (0, "today"),
+        (1, "yesterday"),
+        (14, "14 days ago"),
+        (29, "29 days ago"),
+        (30, "1 month ago"),
+        (59, "1 month ago"),
+        (60, "2 months ago"),
+        (359, "11 months ago"),
+        (360, "0 years ago"),
+        (364, "0 years ago"),
+        (365, "1 year ago"),
+        (730, "2 years ago"),
+    ] {
+        assert_eq!(
+            format_updated_millis(0, days * 86_400_000).as_deref(),
+            Some(expected)
+        );
+    }
+    assert_eq!(format_updated_millis(1, 0), None);
+    assert_eq!(
+        format_updated_millis(0, 86_399_999).as_deref(),
+        Some("today")
+    );
+    assert!(format_updated_millis(i64::MIN, i64::MAX).is_some());
 }
 
 fn json_ld_script_body(value: &Value) -> Result<String> {

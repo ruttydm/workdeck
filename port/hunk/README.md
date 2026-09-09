@@ -2581,6 +2581,14 @@ The actual CLI matches all captured strings from both baselines. All three
 catalog integration tests, xtask Clippy and formatting passed; this is broader
 numeric evidence, not a waiver for untested JSON input semantics.
 
+`cargo xtask extension-catalog format-updated` accepts JSON with `pushedAt`
+and optional `now` RFC 3339 timestamps and emits the coarse recency string or
+null for unusable/future timestamps. The translated elapsed-time formatter
+preserves source thresholds and pluralization, including `0 years ago` at
+360–364 days. Boundary, future-time and subtraction-overflow tests passed,
+as did xtask Clippy and formatting. JavaScript's broader Date parsing and the
+full website integration remain unported; this is not a completed ledger mapping.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.
