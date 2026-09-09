@@ -2744,6 +2744,12 @@ catalog-module tests pass together, including source comparisons and loopback
 transport tests; xtask Clippy and formatting pass. This is a subsystem
 checkpoint, not the workspace-wide or release completion gate.
 
+Literal-decoder regression cases retain escaped quotes, backslashes, Unicode
+and syntax-looking punctuation inside summaries while accepting trailing
+commas outside strings. Calls, undefined values, negative/fractional literals
+and comments are rejected by this deliberately restricted pinned-source
+decoder. Supporting arbitrary TypeScript is neither required nor claimed.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

@@ -157,6 +157,32 @@ fn legacy_source_comparison_rejects_field_drift_and_executable_syntax() {
 }
 
 #[test]
+fn legacy_literal_decoder_preserves_quoted_syntax_and_trailing_commas() {
+    let mut catalog: Value =
+        serde_json::from_str(include_str!("../../site/data/legacy-extensions.json")).unwrap();
+    catalog["entries"][0]["summary"] =
+        serde_json::json!("Quoted \"repo\": [text, ] and braces { }, backslash \\, Unicode λ 🦀");
+    let mut entries = catalog["entries"].clone();
+    for entry in entries.as_array_mut().unwrap() {
+        entry.as_object_mut().unwrap().remove("compatibility");
+    }
+    // Only object boundaries outside strings receive an extra comma.
+    let body = serde_json::to_string_pretty(&entries)
+        .unwrap()
+        .replace("\n  }", ",\n  }")
+        .replace("\n]", ",\n]");
+    let source = format!("export const EXTENSION_CATALOG: readonly ExtensionListing[] = {body};");
+    verify_legacy_source(&catalog, &source).unwrap();
+    for expression in ["compute()", "undefined", "-1", "1.5", "/* comment */"] {
+        let unsupported = source.replacen("= [", &format!("= [{expression},"), 1);
+        assert!(
+            verify_legacy_source(&catalog, &unsupported).is_err(),
+            "accepted {expression}"
+        );
+    }
+}
+
+#[test]
 fn legacy_catalog_rejects_missing_duplicate_or_misrepresented_listings() {
     let catalog: Value =
         serde_json::from_str(include_str!("../../site/data/legacy-extensions.json")).unwrap();
