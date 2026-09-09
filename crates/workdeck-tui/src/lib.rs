@@ -14350,7 +14350,7 @@ fn agent_rows(file: &DiffFile, layout: LayoutMode, width: usize) -> Vec<Line<'st
             .unwrap_or_else(|| "file".into());
         let summary = clip_styled_spans(
             vec![Span::styled(
-                annotation.summary.clone(),
+                sanitize_terminal_line(&annotation.summary),
                 Style::default().fg(Color::LightMagenta),
             )],
             geometry.content_width,
@@ -14364,7 +14364,7 @@ fn agent_rows(file: &DiffFile, layout: LayoutMode, width: usize) -> Vec<Line<'st
         if let Some(rationale) = &annotation.rationale {
             let rationale = clip_styled_spans(
                 vec![Span::styled(
-                    rationale.clone(),
+                    sanitize_terminal_line(rationale),
                     Style::default().fg(Color::DarkGray),
                 )],
                 geometry.content_width,
@@ -15826,6 +15826,66 @@ mod tests {
         assert!(!app.show_help);
         assert!(app.deferred_file_view_keys.is_empty());
         assert!(!app.replaying_file_view_key);
+    }
+
+    fn has_line_with_background(buffer: &Buffer, needle: &str, background: Color) -> bool {
+        (buffer.area.y..buffer.area.bottom()).any(|y| {
+            let mut cells = Vec::new();
+            let mut x = buffer.area.x;
+            while x < buffer.area.right() {
+                let cell = buffer.cell((x, y)).unwrap();
+                cells.push(cell);
+                // A wide grapheme occupies continuation cells, not extra spaces
+                // in the source text inspected by the captured-span helper.
+                x = x.saturating_add(
+                    unicode_width::UnicodeWidthStr::width(cell.symbol()).max(1) as u16
+                );
+            }
+            let text = cells.iter().map(|cell| cell.symbol()).collect::<String>();
+            let Some(start) = text.find(needle) else {
+                return false;
+            };
+            let end = start + needle.len();
+            let mut offset = 0;
+            let mut matched = false;
+            for cell in cells {
+                let cell_end = offset + cell.symbol().len();
+                if offset < end && cell_end > start {
+                    matched = true;
+                    if cell.bg != background {
+                        return false;
+                    }
+                }
+                offset = cell_end;
+            }
+            matched
+        })
+    }
+
+    #[test]
+    fn background_match_checks_every_overlapping_cell_and_each_row() {
+        let mut buffer = Buffer::empty(Rect::new(3, 2, 20, 2));
+        buffer.set_string(3, 2, "é Navigation", Style::default().bg(Color::Red));
+        assert!(has_line_with_background(&buffer, "Navigation", Color::Red));
+        buffer.cell_mut((10, 2)).unwrap().set_bg(Color::Blue);
+        assert!(!has_line_with_background(&buffer, "Navigation", Color::Red));
+        assert!(!has_line_with_background(&buffer, "absent", Color::Red));
+        assert!(!has_line_with_background(&buffer, "", Color::Red));
+        buffer.set_string(3, 3, "Navigation", Style::default().bg(Color::Red));
+        assert!(has_line_with_background(&buffer, "Navigation", Color::Red));
+        assert!(has_line_with_background(&buffer, "é", Color::Red));
+        buffer.set_string(3, 3, "界Navigation", Style::default().bg(Color::Blue));
+        assert!(has_line_with_background(
+            &buffer,
+            "界Navigation",
+            Color::Blue
+        ));
+        buffer.cell_mut((9, 3)).unwrap().set_bg(Color::Red);
+        assert!(!has_line_with_background(
+            &buffer,
+            "界Navigation",
+            Color::Blue
+        ));
     }
 
     fn background_for_rendered_text(buffer: &Buffer, needle: &str) -> Color {
@@ -20132,20 +20192,20 @@ mod tests {
         let frame = rendered_review_frame(&mut terminal, &app);
         assert!(frame.contains("Toggle files/filter focus"));
         assert!(frame.contains("Focus filter"));
-        assert_line_background(
-            &terminal,
+        assert!(has_line_with_background(
+            terminal.backend().buffer(),
             "Focus filter",
             ratatui_theme_color(&app.options.theme.panel),
-        );
+        ));
         app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
         rendered_review_frame(&mut terminal, &app);
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(rendered_review_frame(&mut terminal, &app).contains("Controls help"));
-        assert_line_background(
-            &terminal,
+        assert!(has_line_with_background(
+            terminal.backend().buffer(),
             "Navigation",
             ratatui_theme_color(&app.options.theme.panel),
-        );
+        ));
 
         let app = ReviewApp::new(
             responsive_changeset(),
@@ -26287,6 +26347,42 @@ mod tests {
         assert!(frame.contains("this is a very"), "{frame}");
         if shifted {
             assert!(!frame.contains("interaction coverage"), "{frame}");
+        }
+    }
+
+    #[test]
+    fn hunkless_agent_rows_reject_controls_without_mutating_annotations() {
+        let payload = "\x1b]52;c;SGVsbG8=\x07\x1b[2J\x1bPqpayload\x1b\\\x07\rspoof\x08hidden\x1b";
+        let mut file = changeset().files.remove(0);
+        file.hunks.clear();
+        file.agent = Some(AgentFileContext {
+            path: file.path.clone(),
+            summary: Some(format!("summary{payload}")),
+            annotations: vec![
+                serde_json::from_value(serde_json::json!({
+                    "summary": format!("annotation{payload}"),
+                    "rationale": format!("rationale{payload}")
+                }))
+                .unwrap(),
+            ],
+        });
+        let original = file.agent.clone();
+        for layout in [LayoutMode::Split, LayoutMode::Stack] {
+            for width in [40, 120, 240] {
+                let rows = agent_rows(&file, layout, width);
+                let text = rows
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                for label in ["summary", "annotation", "rationale"] {
+                    assert!(text.contains(label), "{layout:?}/{width}: {text:?}");
+                }
+                for control in ['\x1b', '\x07', '\r', '\x08'] {
+                    assert!(!text.contains(control), "{layout:?}/{width}: {text:?}");
+                }
+                assert_eq!(file.agent, original);
+            }
         }
     }
 

@@ -1,5 +1,22 @@
 # Hunk semantic-port ledger
 
+## Hunkless-note sanitization and complete background matching
+
+The hunkless-note display path also allowed controls in annotation summaries and
+rationales. A failing native regression now passes after sanitizing both before
+clipping, across split/stack layouts and widths 40, 120, and 240; stored annotation
+data remains unchanged. This does not add a source-ledger completion claim.
+
+The complete background helper at bytes 14,721–15,678 is now translated and used
+by menu/help opacity checks. It requires the expected background on every cell
+overlapping the matched label, rather than accepting a matching background
+elsewhere on the row. Its tests cover mixed backgrounds, missing/empty text,
+multiple rows, Unicode, and nonzero buffer origins. Both source pins pass the
+consumer test, and all 1,173 native TUI tests pass. See
+[helper evidence](oracles/interaction-background-helper.json). Splitting the
+unfinished surrounding intervals increases the unmapped-record count to 268 while
+mapping 957 more bytes; the rest of the helper prefix remains incomplete.
+
 ## Terminal-control rejection and rapid viewport updates
 
 The two interaction tests at bytes 17,792–20,987 now have executable native
