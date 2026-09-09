@@ -19514,6 +19514,35 @@ mod tests {
     }
 
     #[test]
+    fn sidebar_shortcut_opens_hidden_tree_in_pager_and_narrow_review() {
+        for (pager, width) in [(true, 220), (false, 159)] {
+            let mut app = ReviewApp::new(
+                responsive_changeset(),
+                ReviewOptions {
+                    pager,
+                    ..Default::default()
+                },
+            );
+            let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
+            for expected in [1, 2, 1] {
+                let frame = rendered_review_frame(&mut terminal, &app);
+                assert_eq!(
+                    frame.matches("alpha.ts").count(),
+                    expected,
+                    "pager={pager}: {frame}"
+                );
+                if pager {
+                    assert!(
+                        !frame.contains("File  View  Navigate  Agent  Help"),
+                        "{frame}"
+                    );
+                }
+                app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+            }
+        }
+    }
+
+    #[test]
     fn sidebar_toggle_removes_and_restores_the_second_file_path_occurrence() {
         let mut app = ReviewApp::new(responsive_changeset(), ReviewOptions::default());
         let mut terminal = Terminal::new(TestBackend::new(240, 24)).unwrap();

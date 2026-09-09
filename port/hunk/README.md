@@ -1,5 +1,14 @@
 # Hunk semantic-port ledger
 
+## Pager and responsive sidebar toggles
+
+Bytes 95,078–96,109 and 96,109–97,022 map to sidebar overrides in pager mode
+(220×24) and responsive review (159×24). Both source pins pass eight assertions;
+the native matrix passes, along with formatting and TUI Clippy.
+See [capture and limits](oracles/app-host-sidebar-modes.json).
+Strict audit remains incomplete: 268 unmapped intervals, 1,361 records,
+1,257 baseline files and 11 cached upstream commits pending.
+
 ## AppHost sidebar visibility toggle
 
 Bytes 94,201–95,078 map to the 240×24 sidebar off/on regression, checking
