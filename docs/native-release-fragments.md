@@ -56,8 +56,11 @@ Before returning a plan, fragment parsing and input hashes are checked again.
 Regression tests inject a semantic edit between parsing and fingerprinting,
 and a whitespace-only edit after fingerprinting; both are rejected. This
 narrows the consistency window but is not an atomic filesystem snapshot or
-an apply-time lock. Cargo-metadata/read races and adversarial ABA edits remain
-outside this check's guarantees.
+an apply-time lock. The CLI manifest is first discovered, then authoritative
+version metadata is read between the initial and final fingerprints; a changed
+manifest location also fails planning. Tests independently change the root
+manifest, CLI manifest and lockfile and require rejection. Adversarial ABA
+edits and modifications after the final check remain outside these guarantees.
 
 The plan's `notes` field previews Markdown grouped into Major, Minor and Patch
 Changes, with fragment-ID ordering within each group. Multiline text stays

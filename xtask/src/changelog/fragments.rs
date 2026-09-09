@@ -194,11 +194,31 @@ fn build_plan(repo: &Path) -> Result<serde_json::Value> {
             package.name == "workdeck-cli" && metadata.workspace_members.contains(&package.id)
         })
         .ok_or_else(|| anyhow::anyhow!("workdeck-cli workspace package missing"))?;
+    let manifest = package.manifest_path.as_std_path().strip_prefix(repo)?;
+    let inputs = input_fingerprints(repo, manifest, &fragments)?;
+    // Discover the manifest first, then read authoritative version metadata
+    // between the initial and final byte fingerprints.
+    let verified_metadata = cargo_metadata::MetadataCommand::new()
+        .manifest_path(repo.join("Cargo.toml"))
+        .no_deps()
+        .other_options(vec!["--offline".into(), "--locked".into()])
+        .exec()?;
+    let verified_package = verified_metadata
+        .packages
+        .iter()
+        .find(|candidate| {
+            candidate.name == "workdeck-cli"
+                && verified_metadata.workspace_members.contains(&candidate.id)
+        })
+        .ok_or_else(|| anyhow::anyhow!("workdeck-cli disappeared during planning"))?;
+    ensure!(
+        verified_package.manifest_path == package.manifest_path,
+        "CLI manifest changed during planning"
+    );
+    let package = verified_package;
     let bump = highest_bump(&fragments);
     let next = next_stable_version(&package.version, bump)?;
     let notes = render_notes(&next.to_string(), &fragments);
-    let manifest = package.manifest_path.as_std_path().strip_prefix(repo)?;
-    let inputs = input_fingerprints(repo, manifest, &fragments)?;
     verify_fragment_snapshot(repo, manifest, &fragments, &inputs)?;
     Ok(
         serde_json::json!({"current":package.version.to_string(),"next":next.to_string(),"bump":bump,"fragments":fragments,"notes":notes,"inputs":inputs,"applied":false}),
@@ -379,6 +399,25 @@ mod tests {
             verify_fragment_snapshot(repo.path(), Path::new("Cargo.toml"), &fragments, &hashes)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn manifest_and_lockfile_drift_invalidates_input_fingerprints() {
+        let repo = tempfile::tempdir().unwrap();
+        for file in ["Cargo.toml", "Cargo.lock", "cli.toml"] {
+            std::fs::write(repo.path().join(file), "original\n").unwrap();
+        }
+        let hashes = input_fingerprints(repo.path(), Path::new("cli.toml"), &[]).unwrap();
+        for file in ["Cargo.toml", "Cargo.lock", "cli.toml"] {
+            let path = repo.path().join(file);
+            std::fs::write(&path, "changed\n").unwrap();
+            assert!(
+                verify_fragment_snapshot(repo.path(), Path::new("cli.toml"), &[], &hashes).is_err(),
+                "accepted changed {file}"
+            );
+            std::fs::write(path, "original\n").unwrap();
+        }
+        verify_fragment_snapshot(repo.path(), Path::new("cli.toml"), &[], &hashes).unwrap();
     }
 
     #[test]
