@@ -1,5 +1,17 @@
 # Hunk semantic-port ledger
 
+## Startup notice and menu summary
+
+Bytes 22,381–23,360 map to the configured deprecation-notice and menu-summary
+interaction tests. The menu previously showed only the changeset title; it now
+appends file count, additions, and deletions from the entire changeset, following
+pinned `App.tsx` lines 1162–1172. Sidebar filtering does not change those totals.
+Both pinned oracle runs and the native rendered test pass. See
+[capture and scope](oracles/app-host-startup-summary.json).
+All 1,146 TUI library tests pass in 53.22s; formatting and TUI Clippy pass.
+Strict audit still fails on 268 unmapped intervals; 11 cached upstream commits
+remain pending. Complete cell geometry and all truncation widths are not proven.
+
 ## Corrected hidden-menu geometry regression
 
 The regression initially found an unconditional top `Review` border even when

@@ -10524,13 +10524,24 @@ pub fn render_app_menu_bar(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
 
     let title_width = menu_bar_title_width(&specs, usize::from(area.width));
     if title_width > 0 {
-        let title = app
+        let state = app
             .state
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .changeset()
-            .title
-            .clone();
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let changeset = state.changeset();
+        let file_count = changeset.files.len();
+        let file_label = if file_count == 1 { "file" } else { "files" };
+        let (additions, deletions) = changeset.files.iter().fold((0usize, 0usize), |sum, file| {
+            (
+                sum.0.saturating_add(file.stats.additions),
+                sum.1.saturating_add(file.stats.deletions),
+            )
+        });
+        let title = format!(
+            "{}  {file_count} {file_label}  +{additions}  -{deletions}",
+            changeset.title
+        );
+        drop(state);
         let width = u16::try_from(title_width)
             .unwrap_or(u16::MAX)
             .min(area.width.saturating_sub(1));
@@ -25579,6 +25590,35 @@ mod tests {
             app.active_extension_notification()
                 .map(|notification| notification.message),
             Some("second".into())
+        );
+    }
+
+    #[test]
+    fn startup_notice_and_menu_summary_match_pinned_app_host_frames() {
+        let notice = workdeck_core::LEGACY_CUSTOM_SYNTAX_NOTICE.clone();
+        let mut single = responsive_changeset();
+        single.files.truncate(1);
+        single.refresh_review_identities();
+        let app = ReviewApp::new(
+            single,
+            ReviewOptions {
+                startup_notices: vec![notice.clone()],
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(240, 24)).unwrap();
+        assert!(rendered_review_frame(&mut terminal, &app).contains(&notice.message));
+        let mut review = responsive_changeset();
+        review.title = "repo working tree".into();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        assert!(
+            rendered_review_frame(&mut terminal, &app)
+                .contains("repo working tree  2 files  +3  -2")
+        );
+        app.filter = "alpha".into();
+        assert!(
+            rendered_review_frame(&mut terminal, &app)
+                .contains("repo working tree  2 files  +3  -2")
         );
     }
 
