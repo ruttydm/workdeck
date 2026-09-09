@@ -65,6 +65,10 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     let bootstrap = stream::huge_bootstrap(std::env::current_dir()?)?;
     let fixture_ms = start.elapsed().as_secs_f64() * 1000.0;
     let mut report = measure(bootstrap)?;
+    report["peakProcessRssBytes"] = serde_json::json!(native_memory::peak_rss_bytes()?);
+    report["peakMemorySemantics"] = serde_json::json!(
+        "Process lifetime peak resident/working-set bytes, including fixture construction; not JavaScript heapUsed"
+    );
     report["fixtureBuildMs"] = serde_json::json!(fixture_ms);
     report["linesPerFile"] = serde_json::json!(stream::HUGE_LINES_PER_FILE);
     report["giantFileLines"] = serde_json::json!(stream::GIANT_SINGLE_FILE_LINES);

@@ -15,7 +15,12 @@ separately. Unoptimized execution can be slow; this is not part of default tests
 
 Output is diagnostic JSON with individual interaction samples, first-frame and
 fixture-build times, and current native memory after first frame and navigation.
-Native RSS/malloc measurements are not JavaScript heap usage or peak RSS. The
+The current RSS/malloc snapshots are not JavaScript heap usage or peak RSS.
+`peakProcessRssBytes` separately records the process-lifetime resident/working-set
+high-water mark, including fixture construction. macOS reports bytes directly;
+Linux KiB are checked and converted to bytes; Windows uses peak working set.
+This is not a GC-retained heap measurement or a per-stage peak. Unit conversions
+and the live macOS backend have tests; Linux and Windows need their native CI runs. The
 command remains outside the parity-gated release runner: dual-pin differential
 execution, full timing/lifecycle equivalence and release acceptance remain open.
 
@@ -23,6 +28,8 @@ The first complete native debug run is retained in
 [`huge-stream-native-diagnostic.json`](../port/hunk/huge-stream-native-diagnostic.json),
 with source hashes and workload counts. It completed all 1,001 files and the
 specified interactions; it does not replace same-host paired acceptance runs.
+The subsequent [peak-enabled sample](../port/hunk/huge-stream-native-peak-diagnostic.json)
+records both the lifetime high-water mark and current snapshots separately.
 
 The small-fixture executable regression checks the same interaction sequence
 using six ordinary files, not the huge workload's performance. Fixture content

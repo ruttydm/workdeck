@@ -1,4 +1,4 @@
-//! Native process diagnostics, not aliases for JavaScript heapUsed or peak RSS.
+//! Separate current and lifetime-peak process diagnostics, never JavaScript heapUsed aliases.
 use super::*;
 #[cfg(target_os = "linux")]
 use anyhow::Context;
@@ -9,6 +9,67 @@ pub(super) struct Snapshot {
     pub rss_bytes: u64,
     /// None when the platform does not expose comparable allocator-zone usage.
     pub malloc_in_use_bytes: Option<u64>,
+}
+
+#[cfg(any(test, target_os = "macos", target_os = "linux"))]
+fn peak_bytes(value: i64, unit: u64) -> Result<u64> {
+    u64::try_from(value)?
+        .checked_mul(unit)
+        .ok_or_else(|| anyhow::anyhow!("peak RSS byte conversion overflow"))
+}
+
+/// Lifetime high-water mark, including fixture construction; not current RSS.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub(super) fn peak_rss_bytes() -> Result<u64> {
+    let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+    // SAFETY: RUSAGE_SELF queries this process and the output buffer has the
+    // exact ABI size; it is read only after a successful call.
+    if unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) } != 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    // SAFETY: a successful getrusage initialized the output structure.
+    let usage = unsafe { usage.assume_init() };
+    let unit = if cfg!(target_os = "macos") { 1 } else { 1024 };
+    peak_bytes(usage.ru_maxrss, unit)
+}
+
+#[cfg(windows)]
+pub(super) fn peak_rss_bytes() -> Result<u64> {
+    use windows_sys::Win32::System::{
+        ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS},
+        Threading::GetCurrentProcess,
+    };
+    let size = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+    let mut counters = PROCESS_MEMORY_COUNTERS {
+        cb: size,
+        ..Default::default()
+    };
+    // SAFETY: initialized ABI-sized output buffer and this process's pseudo-handle.
+    if unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, size) } == 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    Ok(counters.PeakWorkingSetSize as u64)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+pub(super) fn peak_rss_bytes() -> Result<u64> {
+    bail!("peak RSS backend is not implemented on this platform")
+}
+
+#[test]
+fn peak_rss_units_reject_negative_and_overflowing_values() {
+    assert_eq!(peak_bytes(123, 1).unwrap(), 123);
+    assert_eq!(peak_bytes(123, 1024).unwrap(), 125952);
+    assert!(peak_bytes(-1, 1).is_err());
+    assert!(peak_bytes(i64::MAX, 1024).is_err());
+}
+
+#[test]
+#[cfg(any(target_os = "macos", target_os = "linux", windows))]
+fn process_peak_rss_is_positive_and_monotonic() {
+    let before = peak_rss_bytes().unwrap();
+    assert!(before > 0);
+    assert!(peak_rss_bytes().unwrap() >= before);
 }
 
 /// Signed retained-RSS change: a process can release pages between samples.
