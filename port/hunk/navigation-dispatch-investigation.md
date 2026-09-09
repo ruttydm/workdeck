@@ -186,3 +186,17 @@ needs allocation/stage evidence rather than extrapolation from removed clones.
 Full-workspace all-target Clippy with warnings denied and formatting passed at
 this checkpoint. Render/async-flush equivalence and paired benchmark acceptance
 remain open, and the huge-stream source interval remains unmapped.
+
+The phase-enabled run at clean `ee1b008f` narrows the investigation:
+[complete diagnostic](huge-stream-release-ee1b008f.json). Current RSS increased
+from 211,894,272 bytes before renderer construction to 1,218,166,784 after it;
+allocator-in-use increased from 110,006,400 to 552,851,584 bytes. Renderer setup
+took 754.74 ms. The lifetime peak after setup was 1,284,800,512 bytes and did not
+increase through first frame/navigation. This single observation locates the
+observed peak before painting, but does not attribute it to an individual copy.
+Next inspect/profile `ReviewApp::new_with_extensions` publication construction,
+state initialization and extension projections. Do not skip required authority
+construction or change public ownership semantics merely to reduce this sample.
+The phase regression passed (one selected test), xtask all-target Clippy and
+formatting passed, and the optimized build succeeded. The source interval remains
+unmapped; native cross-platform execution and benchmark acceptance remain open.
