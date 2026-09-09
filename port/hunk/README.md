@@ -2526,6 +2526,14 @@ Successful commands leave stderr empty; rejected input emits no partial stdout.
 The CLI test, xtask all-target Clippy and formatting passed. This remains a
 partial directory-data port, not website or catalog parity.
 
+`oracles/extension-activity-index.json` freezes seven activity-index cases from
+each pinned source version under Bun 1.3.14. Exact commits and the differing
+source blob hashes are retained. No network fetch was invoked. The Rust test
+loads every case directly, covering malformed payloads, omitted metadata,
+duplicate repository keys and Unicode lowercasing; both focused tests passed,
+as did xtask all-target Clippy and formatting. The remaining directory source
+interval is still unmapped.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.

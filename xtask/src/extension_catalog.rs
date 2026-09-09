@@ -51,6 +51,30 @@ pub fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
 }
 
 #[test]
+fn activity_index_matches_both_pinned_source_captures() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../port/hunk/oracles/extension-activity-index.json"
+    ))
+    .unwrap();
+    let captures = fixture["captures"].as_array().unwrap();
+    assert_eq!(captures.len(), 2);
+    for capture in captures {
+        assert_eq!(capture["exitCode"], 0);
+        let cases = capture["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 7);
+        for case in cases {
+            assert_eq!(
+                serde_json::to_value(index_activity(&case["input"])).unwrap(),
+                case["expected"],
+                "{}: {}",
+                capture["kind"],
+                case["input"]
+            );
+        }
+    }
+}
+
+#[test]
 fn activity_index_preserves_missing_fields_and_last_case_insensitive_entry() {
     let result = index_activity(&serde_json::json!({"items":[
         {"full_name":"Owner/Repo", "stargazers_count":12, "pushed_at":"today", "created_at":"earlier"},

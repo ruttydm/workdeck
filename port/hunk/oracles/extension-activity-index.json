@@ -1,0 +1,207 @@
+{
+  "runtime": "Bun 1.3.14 macOS arm64",
+  "source": "website/src/data/extensions.ts",
+  "method": "Direct import from disposable files verified against preserved pin blob hashes; no network fetch function invoked.",
+  "captures": [
+    {
+      "kind": "main",
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "23f2196dd3c7a91306e050db352d4b5518a31117",
+      "exitCode": 0,
+      "cases": [
+        {
+          "input": null,
+          "expected": {}
+        },
+        {
+          "input": {},
+          "expected": {}
+        },
+        {
+          "input": {
+            "items": "nope"
+          },
+          "expected": {}
+        },
+        {
+          "input": {
+            "items": [
+              null,
+              7
+            ]
+          },
+          "expected": {}
+        },
+        {
+          "input": {
+            "items": [
+              {
+                "full_name": "Owner/Repo",
+                "stargazers_count": 0
+              },
+              {
+                "full_name": "Another/Repo",
+                "pushed_at": "2026-08-18T09:12:00Z"
+              }
+            ]
+          },
+          "expected": {
+            "owner/repo": {
+              "stars": 0
+            },
+            "another/repo": {
+              "pushedAt": "2026-08-18T09:12:00Z"
+            }
+          }
+        },
+        {
+          "input": {
+            "items": [
+              {
+                "full_name": "OWNER/Repo",
+                "stargazers_count": 12
+              },
+              {
+                "full_name": "owner/repo",
+                "created_at": "later"
+              },
+              {
+                "full_name": "empty/repo",
+                "stargazers_count": "invalid",
+                "pushed_at": false
+              }
+            ]
+          },
+          "expected": {
+            "owner/repo": {
+              "createdAt": "later"
+            },
+            "empty/repo": {}
+          }
+        },
+        {
+          "input": {
+            "items": [
+              {
+                "full_name": "İ/Σ",
+                "stargazers_count": -1.5
+              },
+              {
+                "full_name": "",
+                "stargazers_count": 2
+              }
+            ]
+          },
+          "expected": {
+            "i̇/σ": {
+              "stars": -1.5
+            },
+            "": {
+              "stars": 2
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "stable",
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "572ec85493bb958197a72e6fb9fac0539e57dce9",
+      "exitCode": 0,
+      "cases": [
+        {
+          "input": null,
+          "expected": {}
+        },
+        {
+          "input": {},
+          "expected": {}
+        },
+        {
+          "input": {
+            "items": "nope"
+          },
+          "expected": {}
+        },
+        {
+          "input": {
+            "items": [
+              null,
+              7
+            ]
+          },
+          "expected": {}
+        },
+        {
+          "input": {
+            "items": [
+              {
+                "full_name": "Owner/Repo",
+                "stargazers_count": 0
+              },
+              {
+                "full_name": "Another/Repo",
+                "pushed_at": "2026-08-18T09:12:00Z"
+              }
+            ]
+          },
+          "expected": {
+            "owner/repo": {
+              "stars": 0
+            },
+            "another/repo": {
+              "pushedAt": "2026-08-18T09:12:00Z"
+            }
+          }
+        },
+        {
+          "input": {
+            "items": [
+              {
+                "full_name": "OWNER/Repo",
+                "stargazers_count": 12
+              },
+              {
+                "full_name": "owner/repo",
+                "created_at": "later"
+              },
+              {
+                "full_name": "empty/repo",
+                "stargazers_count": "invalid",
+                "pushed_at": false
+              }
+            ]
+          },
+          "expected": {
+            "owner/repo": {
+              "createdAt": "later"
+            },
+            "empty/repo": {}
+          }
+        },
+        {
+          "input": {
+            "items": [
+              {
+                "full_name": "İ/Σ",
+                "stargazers_count": -1.5
+              },
+              {
+                "full_name": "",
+                "stargazers_count": 2
+              }
+            ]
+          },
+          "expected": {
+            "i̇/σ": {
+              "stars": -1.5
+            },
+            "": {
+              "stars": 2
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
