@@ -1,5 +1,14 @@
 # Hunk semantic-port ledger
 
+## Bootstrap preference presentation
+
+The source test at bytes 46,759–48,530 is translated with the pinned preference
+combination and annotated fixture at 140×20. Both Hunk pins pass all six source
+assertions; the native test passes in 0.75s and additionally requires the anchored
+source line to be visible before comparing its position to the note. See the
+[frozen evidence](oracles/app-host-bootstrap-preferences.json). This verifies
+initial review presentation, not configuration migration or persistence.
+
 ## Narrow wrap reset after horizontal scrolling
 
 The source test at bytes 45,127–46,759 is translated at 92×20 with the same

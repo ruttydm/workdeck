@@ -26275,6 +26275,57 @@ mod tests {
     }
 
     #[test]
+    fn pinned_bootstrap_preferences_initialize_visible_review_state() {
+        let mut review = navigation_changeset(vec![(
+            "prefs.ts".into(),
+            "export const message = 'short';\n".into(),
+            "export const message = 'this is a very long wrapped line for bootstrap preference coverage';\nexport const added = true;\n".into(),
+        )]);
+        review.files[0].agent = Some(AgentFileContext {
+            path: "prefs.ts".into(),
+            summary: Some("prefs.ts note".into()),
+            annotations: vec![
+                serde_json::from_value(serde_json::json!({
+                    "new_range": {"start": 2, "end": 2},
+                    "summary": "Annotation for prefs.ts",
+                    "rationale": "Why prefs.ts changed"
+                }))
+                .unwrap(),
+            ],
+        });
+        review.refresh_review_identities();
+        assert_fixture_annotation_range(&review, 2);
+        let app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                theme: resolve_theme(Some("github-light-default"), None, &[]),
+                line_numbers: false,
+                wrap_lines: true,
+                hunk_headers: false,
+                agent_notes: true,
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(140, 20)).unwrap();
+        let frame = rendered_review_frame(&mut terminal, &app);
+        for fragment in [
+            "Agent note - prefs.ts R2",
+            "Annotation for prefs.ts",
+            "Why prefs.ts changed",
+        ] {
+            assert!(frame.contains(fragment), "missing {fragment}: {frame}");
+        }
+        assert!(!frame.contains("@@ -1,1 +1,2 @@"), "{frame}");
+        assert!(!frame.contains("1 - export const message"), "{frame}");
+        let note = frame.find("Agent note - prefs.ts R2").unwrap();
+        let added = frame
+            .find("export const added = true;")
+            .expect("added source line must be visible before its annotation");
+        assert!(note > added, "{frame}");
+    }
+
+    #[test]
     fn wrap_shortcut_reveals_long_line_in_regular_pager_and_repeated_toggle() {
         for (pager, width, height, repeat) in [
             (false, 140, 20, false),
