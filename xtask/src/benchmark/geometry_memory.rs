@@ -102,6 +102,10 @@ fn measure(
         .sum();
     let materialize_ms = started.elapsed().as_secs_f64() * 1000.0;
     let after_materialized = sample()?;
+    let geometry_rss_growth =
+        native_memory::rss_growth(after_bootstrap.as_ref(), after_geometry.as_ref());
+    let materialized_rss_growth =
+        native_memory::rss_growth(after_geometry.as_ref(), after_materialized.as_ref());
     // The giant fixture is deliberately constructed after the retained-memory samples.
     let giant = stream::giant_file(file_count + 1, giant_lines, 1000, 45000)?;
     let mut options = DiffSectionGeometryOptions::new(&giant, LayoutMode::Split, &theme);
@@ -121,6 +125,8 @@ fn measure(
         "materializePlannedRowsMs": materialize_ms, "materializedPlannedRows": materialized_rows,
         "afterBootstrap": after_bootstrap, "afterGeometry": after_geometry,
         "afterMaterializedPlannedRows": after_materialized,
+        "geometryRssGrowthBytes": geometry_rss_growth,
+        "materializedPlannedRowsRssGrowthBytes": materialized_rss_growth,
         "giantFirstCopyPlanMs": giant_first_copy_ms, "giantMaterializedPlannedRows": giant_rows,
         "giantFileLines": giant_lines,
         "memorySemantics": "Current process RSS and, where available, native malloc-zone usage (null when unavailable), not peak RSS, JavaScript heap size, extra memory, or object counts. No forced garbage collection."
@@ -273,5 +279,7 @@ fn geometry_diagnostic_retains_lazy_plans_and_materializes_copy_rows() {
     assert!(report["geometryBodyRows"].as_u64().unwrap() > 0);
     assert!(report["giantMaterializedPlannedRows"].as_u64().unwrap() > 0);
     assert!(report["afterBootstrap"].is_null());
+    assert!(report["geometryRssGrowthBytes"].is_null());
+    assert!(report["materializedPlannedRowsRssGrowthBytes"].is_null());
     assert!(run(["--unknown".into()].into_iter()).is_err());
 }

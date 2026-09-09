@@ -11,6 +11,32 @@ pub(super) struct Snapshot {
     pub malloc_in_use_bytes: Option<u64>,
 }
 
+/// Signed retained-RSS change: a process can release pages between samples.
+pub(super) fn rss_growth(before: Option<&Snapshot>, after: Option<&Snapshot>) -> Option<i128> {
+    Some(i128::from(after?.rss_bytes) - i128::from(before?.rss_bytes))
+}
+
+#[test]
+fn rss_growth_preserves_releases_missing_samples_and_full_unsigned_range() {
+    let sample = |rss_bytes| Snapshot {
+        rss_bytes,
+        malloc_in_use_bytes: None,
+    };
+    let zero = sample(0);
+    let maximum = sample(u64::MAX);
+    assert_eq!(
+        rss_growth(Some(&zero), Some(&maximum)),
+        Some(i128::from(u64::MAX))
+    );
+    assert_eq!(
+        rss_growth(Some(&maximum), Some(&zero)),
+        Some(-i128::from(u64::MAX))
+    );
+    assert_eq!(rss_growth(Some(&maximum), Some(&maximum)), Some(0));
+    assert_eq!(rss_growth(None, Some(&zero)), None);
+    assert_eq!(rss_growth(Some(&zero), None), None);
+}
+
 #[cfg(target_os = "macos")]
 pub(super) fn snapshot() -> Result<Snapshot> {
     let mut task = std::mem::MaybeUninit::<libc::proc_taskinfo>::uninit();

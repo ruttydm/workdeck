@@ -2369,3 +2369,14 @@ or runtime measurements. The interaction diagnostic now requests snapshots on
 all three supported operating systems and checks platform-specific allocator
 availability in its test. Native Windows and Linux execution remain outstanding;
 this supersedes the previous unsupported-Windows implementation note only.
+
+### Retained RSS deltas
+
+Geometry diagnostics now report `geometryRssGrowthBytes` and
+`materializedPlannedRowsRssGrowthBytes` from adjacent retained-memory snapshots,
+matching the source's two RSS subtraction boundaries. Signed arithmetic preserves
+decreases without unsigned underflow; unavailable samples produce `null`.
+Tests cover both directions across the complete unsigned counter range, equal
+samples and missing samples. All three native-memory tests and all three geometry
+tests (including both frozen source oracles) passed, as did xtask Clippy and
+formatting. These are current-process deltas, not peak-memory or JSC-heap parity.
