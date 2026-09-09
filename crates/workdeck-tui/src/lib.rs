@@ -12695,10 +12695,61 @@ struct GapCursorRestorePoint {
     target: ReviewNoteTarget,
 }
 
+/// Compact ordered row lookup. Duplicate rows retain the last inserted target,
+/// matching the previous BTreeMap representation, including after composer shifts.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct ReviewNoteTargets(Vec<(usize, ReviewNoteTarget)>);
+
+impl ReviewNoteTargets {
+    fn get(&self, row: &usize) -> Option<&ReviewNoteTarget> {
+        self.0
+            .binary_search_by_key(row, |(row, _)| *row)
+            .ok()
+            .map(|index| &self.0[index].1)
+    }
+
+    fn iter(&self) -> impl Iterator<Item = (&usize, &ReviewNoteTarget)> {
+        self.0.iter().map(|(row, target)| (row, target))
+    }
+
+    #[cfg(test)]
+    fn values(&self) -> impl Iterator<Item = &ReviewNoteTarget> {
+        self.0.iter().map(|(_, target)| target)
+    }
+}
+
+impl FromIterator<(usize, ReviewNoteTarget)> for ReviewNoteTargets {
+    fn from_iter<T: IntoIterator<Item = (usize, ReviewNoteTarget)>>(entries: T) -> Self {
+        let mut entries = entries.into_iter().collect::<Vec<_>>();
+        if !entries.windows(2).all(|pair| pair[0].0 <= pair[1].0) {
+            // Stable sorting preserves insertion order among duplicate rows.
+            entries.sort_by_key(|(row, _)| *row);
+        }
+        entries.dedup_by(|later, earlier| {
+            if later.0 == earlier.0 {
+                earlier.1 = later.1;
+                true
+            } else {
+                false
+            }
+        });
+        Self(entries)
+    }
+}
+
+impl IntoIterator for ReviewNoteTargets {
+    type Item = (usize, ReviewNoteTarget);
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
 #[derive(Debug)]
 struct ReviewRows {
     lines: Vec<Line<'static>>,
-    note_targets: BTreeMap<usize, ReviewNoteTarget>,
+    note_targets: ReviewNoteTargets,
     note_bounds: std::collections::HashMap<String, (usize, usize)>,
     line_cursors: Vec<ReviewLineCursor>,
     file_tops: BTreeMap<usize, usize>,
@@ -22975,6 +23026,54 @@ mod tests {
         assert!(last.contains("file39.ts"), "{last}");
         assert!(cached(&app, 39));
         assert!(!cached(&app, 10));
+    }
+
+    #[test]
+    fn compact_note_targets_match_tree_order_lookup_and_shift_collisions() {
+        for keys in [
+            vec![],
+            vec![0],
+            vec![8, 2, 8, 4, 2, 8],
+            vec![0, 1, 2, 3, usize::MAX],
+        ] {
+            let entries = keys
+                .into_iter()
+                .enumerate()
+                .map(|(index, row)| {
+                    (
+                        row,
+                        ReviewNoteTarget {
+                            file_index: index,
+                            hunk_index: index,
+                            side: ReviewSide::New,
+                            line: index as u32 + 1,
+                        },
+                    )
+                })
+                .collect::<Vec<_>>();
+            let tree = entries.iter().copied().collect::<BTreeMap<_, _>>();
+            let compact = entries.into_iter().collect::<ReviewNoteTargets>();
+            assert_eq!(
+                compact.iter().collect::<Vec<_>>(),
+                tree.iter().collect::<Vec<_>>()
+            );
+            for row in [0, 1, 2, 3, 4, 7, 8, 9, usize::MAX] {
+                assert_eq!(compact.get(&row), tree.get(&row));
+            }
+            // Composer removal can collapse multiple row addresses into one.
+            let shift = |(row, target): (usize, ReviewNoteTarget)| {
+                (row.saturating_sub(5).saturating_add(2), target)
+            };
+            let shifted_tree = tree.into_iter().map(shift).collect::<BTreeMap<_, _>>();
+            let shifted_compact = compact
+                .into_iter()
+                .map(shift)
+                .collect::<ReviewNoteTargets>();
+            assert_eq!(
+                shifted_compact.iter().collect::<Vec<_>>(),
+                shifted_tree.iter().collect::<Vec<_>>()
+            );
+        }
     }
 
     #[test]

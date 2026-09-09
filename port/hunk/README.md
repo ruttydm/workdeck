@@ -351,6 +351,20 @@ whitespace checks pass. The viewport differential test exercises the hint while
 comparing visible cells and complete geometry to the uncached painter. Performance
 and peak-memory effects remain to be measured; no source ledger interval is mapped.
 
+### Compact ordered note-target lookup
+
+Frame note targets now retain their sorted vector representation instead of being
+converted into a BTreeMap each frame. Exact-row lookup uses binary search; ordered
+iteration is unchanged. Unordered inputs use stable sorting, and duplicate rows keep
+the last inserted value, including collisions after composer row shifts. No target
+is dropped except duplicates already replaced by the previous map semantics.
+
+A direct differential test compares ordering, lookup, duplicate handling, extreme
+row addresses and shifted collisions against BTreeMap. All 1,094 TUI tests pass,
+including full-cell/geometry and composer coverage. TUI all-target Clippy with
+warnings denied, formatting and whitespace checks pass. Performance effects remain
+to be measured at this code checkpoint; no ledger interval is newly mapped.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation
