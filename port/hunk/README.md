@@ -2542,6 +2542,14 @@ markup in keys/nested values, Unicode and literal escape text. Both tests,
 xtask all-target Clippy and formatting passed. Website integration and complete
 JavaScript/Rust serialization parity remain separate open work.
 
+`oracles/json-ld-serialization-gaps.json` records six direct source/native
+comparisons at `7af511e3`. Both pinned source versions agree. Four cases differ:
+integral floats, negative zero, the fixed-decimal/exponent boundary at `1e20`,
+and numeric-property ordering. The `1e-7` and ordinary insertion-order cases
+already agree. The fixture is explicitly an unresolved-gap record, not passing
+parity evidence. The replacement needs ECMAScript number formatting and numeric
+property enumeration without losing insertion order for ordinary keys.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.
