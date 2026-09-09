@@ -1502,6 +1502,38 @@ fn sha256_file(path: &Path) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+fn isolate_test_git_config(command: &mut std::process::Command) {
+    let null = if cfg!(windows) { "NUL" } else { "/dev/null" };
+    command
+        .env("GIT_CONFIG_GLOBAL", null)
+        .env("GIT_CONFIG_SYSTEM", null);
+}
+
+#[test]
+fn test_git_isolation_replaces_inherited_global_and_system_configuration() {
+    let directory = tempfile::tempdir().unwrap();
+    let config = directory.path().join("host.gitconfig");
+    std::fs::write(&config, "[workdeck]\n\tisolationProbe = inherited\n").unwrap();
+    for (scope, variable) in [
+        ("--global", "GIT_CONFIG_GLOBAL"),
+        ("--system", "GIT_CONFIG_SYSTEM"),
+    ] {
+        let mut command = std::process::Command::new("git");
+        command
+            .args(["config", scope, "--get", "workdeck.isolationProbe"])
+            .env(variable, &config);
+        assert_eq!(command.output().unwrap().stdout, b"inherited\n");
+        isolate_test_git_config(&mut command);
+        let result = command.output().unwrap();
+        assert_eq!(result.status.code(), Some(1));
+        assert!(result.stdout.is_empty());
+        assert_eq!(
+            std::fs::read_to_string(&config).unwrap(),
+            "[workdeck]\n\tisolationProbe = inherited\n"
+        );
+    }
+}
+
 fn verify() -> Result<()> {
     let repo = repo_root()?;
     benchmark::verify_historical(&repo)?;
@@ -1513,11 +1545,12 @@ fn verify() -> Result<()> {
         ["upstream-history".into(), "--check".into()].into_iter(),
     )?;
     run_checked(&repo, "cargo", &["fmt", "--all", "--check"])?;
-    run_checked(
-        &repo,
-        "cargo",
-        &["test", "--locked", "--workspace", "--all-targets"],
-    )?;
+    let mut tests = std::process::Command::new("cargo");
+    tests
+        .current_dir(&repo)
+        .args(["test", "--locked", "--workspace", "--all-targets"]);
+    isolate_test_git_config(&mut tests);
+    ensure!(tests.status()?.success(), "workspace tests failed");
     run_checked(
         &repo,
         "cargo",
