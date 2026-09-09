@@ -1,5 +1,36 @@
 # Hunk semantic-port ledger
 
+## Theme event preview leak: corrected and mapped
+
+The main-only theme-event interaction test exposed an integration gap: production
+event facts used the rendered preview ID instead of the committed preference.
+The new regression failed with dimmed versus default after preview; switching
+the projection to the committed identity makes preview, Escape, and acceptance
+checks pass (one test, 0.78s). Formatting and TUI Clippy pass.
+See [source run and native failure/correction](oracles/app-host-theme-events-partial.json).
+Stable has no matching test; its zero-match run is not counted as a pass.
+The runtime fix passes all 1,151 TUI library tests (51.70s). A subsequently added
+publisher-level test passes (0.82s): preview, Escape, removal/restoration of the
+custom catalog emit no theme event; acceptance emits exactly one expected ID.
+This observes the production publication hook, not an extension subprocess.
+Catalog inputs are applied through the controller rather than a complete
+bootstrap reload. Formatting and TUI Clippy also pass after that added test.
+The real CLI PTY test `theme_subscriber_receives_acceptance_but_not_preview_or_escape`
+now passes (7.93s): a compiled Rust extension receives exactly one theme change
+for acceptance and none for preview/Escape. It records actual protocol events
+to a disposable JSONL file and explicitly discards preference changes on exit.
+The first run passed event assertions but failed cleanup at the expected save
+prompt; the corrected rerun passes through process exit. Formatting passes.
+The catalog regression now uses `session_commit_dynamic_reload` with resolved
+host options instead of setting controller inputs directly. Preview, Escape,
+catalog removal/restoration, and acceptance checks pass. Together with the
+subscriber PTY, this maps source bytes 33,267–36,159 (main only). These are
+separate integration tests, not one full catalog-plus-subprocess scenario.
+All 1,152 current TUI library tests pass (59.90s). TUI/example all-target Clippy,
+CLI PTY-test Clippy, formatting, and diff checks pass. Strict audit remains
+incomplete: 268 unmapped intervals, 1,384 records, and 11 cached upstream commits
+pending. The capture filename retains “partial” to preserve its history.
+
 ## Theme reopening and Escape cancellation
 
 Bytes 30,255–33,267 map to two 240×24 interaction tests: accepting dracula-soft

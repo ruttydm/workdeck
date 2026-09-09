@@ -2,6 +2,57 @@
 use super::*;
 use std::path::Path;
 
+#[test]
+fn theme_subscriber_receives_acceptance_but_not_preview_or_escape() {
+    let root = super::layout::two_files(false);
+    let extension_root = tempfile::tempdir().unwrap();
+    let extension = super::file_views::example(extension_root.path(), "pty-extension-probe");
+    fs::write(extension.join("fixture-kind"), "theme-events").unwrap();
+    let mut session = Session::launch_in(
+        "",
+        &[
+            "diff",
+            "--no-watch",
+            "--theme",
+            "github-dark-default",
+            "--extension",
+            extension.to_str().unwrap(),
+        ],
+        false,
+        240,
+        24,
+        None,
+        Some(root.path()),
+    );
+    session.wait(|text| text.contains("THEME PROBE startup"));
+    session.write(b"t");
+    session.wait(|text| text.contains("Theme selector"));
+    session.write(b"j");
+    session.wait(|text| text.contains("›  github-dark-dimmed"));
+    session.write(b"\x1b");
+    session.wait(|text| !text.contains("Theme selector"));
+    session.write(b"t");
+    session.wait(|text| text.contains("›  github-dark-default"));
+    session.write(b"j");
+    session.wait(|text| text.contains("›  github-dark-dimmed"));
+    session.write(b"\r");
+    session.wait(|text| text.contains("THEME PROBE theme_changed"));
+    let events: Vec<serde_json::Value> = fs::read_to_string(extension.join("theme-events.jsonl"))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let themes: Vec<_> = events
+        .iter()
+        .filter(|event| event["name"] == "theme_changed")
+        .map(|event| event["payload"]["themeId"].as_str().unwrap())
+        .collect();
+    assert_eq!(themes, ["github-dark-dimmed"]);
+    session.write(b"q");
+    session.wait(|text| text.contains("Save view preferences?"));
+    session.quit();
+}
+
 fn launch(root: &Path, name: &str, rows: u16) -> (tempfile::TempDir, Session) {
     let extension_root = tempfile::tempdir().unwrap();
     let extension = super::file_views::example(extension_root.path(), name);

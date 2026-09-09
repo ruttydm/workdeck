@@ -5229,7 +5229,8 @@ impl ReviewApp {
             selected_file,
             selected_file_id,
             selected_hunk_index,
-            theme_id: self.options.theme.id.clone(),
+            // A rendered preview or catalog fallback is not an accepted preference.
+            theme_id: self.themes.committed.clone(),
         }
     }
 
@@ -25590,6 +25591,104 @@ mod tests {
             app.active_extension_notification()
                 .map(|notification| notification.message),
             Some("second".into())
+        );
+    }
+
+    #[test]
+    fn theme_event_publication_ignores_custom_catalog_projection() {
+        let custom: NamedCustomThemeConfig = serde_json::from_value(serde_json::json!({
+            "id": "session-custom", "label": "Session custom",
+            "base": "github-dark-default", "accent": "#8877cc"
+        }))
+        .unwrap();
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                theme: resolve_theme(Some(&custom.id), None, std::slice::from_ref(&custom)),
+                custom_themes: vec![custom.clone()],
+                ..Default::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(240, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        app.publish_extension_selection_events();
+        app.observed_extension_events.clear();
+        for key in [KeyCode::Char('t'), KeyCode::Down, KeyCode::Esc] {
+            app.handle_key(KeyEvent::new(key, KeyModifiers::NONE));
+            rendered_review_frame(&mut terminal, &app);
+            app.publish_extension_selection_events();
+            assert!(
+                !app.observed_extension_events
+                    .iter()
+                    .any(|(_, name, _)| name == "theme_changed")
+            );
+        }
+        for catalog in [vec![], vec![custom]] {
+            app.session_commit_dynamic_reload(
+                DynamicReviewLoad {
+                    input: workdeck_core::CliInput::Patch(workdeck_core::PatchCommandInput {
+                        file: None,
+                        text: Some("".into()),
+                        options: workdeck_core::CommonOptions::default(),
+                    }),
+                    changeset: changeset(),
+                    replacement_extensions: None,
+                    replacement_vcs_catalog: None,
+                    host_options: DynamicReviewHostOptions {
+                        custom_themes: catalog,
+                        ..Default::default()
+                    },
+                },
+                &workdeck_session::ReloadSessionOptions {
+                    reset_app: Some(false),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            rendered_review_frame(&mut terminal, &app);
+            app.publish_extension_selection_events();
+            assert!(
+                !app.observed_extension_events
+                    .iter()
+                    .any(|(_, name, _)| name == "theme_changed")
+            );
+        }
+        let expected = app.theme_catalog()[0].id.clone();
+        for key in [KeyCode::Char('t'), KeyCode::Down, KeyCode::Enter] {
+            app.handle_key(KeyEvent::new(key, KeyModifiers::NONE));
+            rendered_review_frame(&mut terminal, &app);
+            app.publish_extension_selection_events();
+        }
+        let events: Vec<_> = app
+            .observed_extension_events
+            .iter()
+            .filter(|(_, name, _)| name == "theme_changed")
+            .map(|(_, _, payload)| payload["themeId"].as_str().unwrap())
+            .collect();
+        assert_eq!(events, [expected.as_str()]);
+    }
+
+    #[test]
+    fn extension_theme_event_facts_ignore_preview_and_escape() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        let mut terminal = Terminal::new(TestBackend::new(240, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        let original = app.extension_review_event_facts().theme_id;
+        app.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+        rendered_review_frame(&mut terminal, &app);
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        rendered_review_frame(&mut terminal, &app);
+        assert_ne!(app.options.theme.id, original);
+        assert_eq!(app.extension_review_event_facts().theme_id, original);
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(app.extension_review_event_facts().theme_id, original);
+        app.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+        rendered_review_frame(&mut terminal, &app);
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(
+            app.extension_review_event_facts().theme_id,
+            "github-dark-dimmed"
         );
     }
 

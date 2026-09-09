@@ -23,6 +23,11 @@ fn pane(id: &str, placement: PanePlacement, open: bool) -> PaneRegistration {
 }
 
 fn registrations(kind: &str) -> Vec<Registration> {
+    if kind == "theme-events" {
+        return vec![Registration::EventSubscription {
+            names: vec!["startup".into(), "theme_changed".into()],
+        }];
+    }
     if matches!(kind, "highlight" | "reveal" | "held-reveal") {
         let mut registrations = vec![Registration::Command(CommandRegistration {
             id: "first".into(),
@@ -199,6 +204,29 @@ fn dispatch(
         "workdeck/event" => {
             let event: ReviewEvent =
                 serde_json::from_value(request.params.clone()).map_err(io::Error::other)?;
+            if kind == "theme-events" {
+                let executable = std::env::current_exe()?;
+                let root = executable
+                    .parent()
+                    .and_then(std::path::Path::parent)
+                    .ok_or_else(|| io::Error::other("missing fixture root"))?;
+                let mut log = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(root.join("theme-events.jsonl"))?;
+                writeln!(
+                    log,
+                    "{}",
+                    serde_json::json!({"name": event.name, "payload": event.payload})
+                )?;
+                log.flush()?;
+                return value(CommandExecution {
+                    actions: vec![ExtensionHostAction::Notify {
+                        message: format!("THEME PROBE {}", event.name),
+                        notification_type: ExtensionNotifyType::Info,
+                    }],
+                });
+            }
             let message = if kind == "shutdown" {
                 "INTERRUPT FIXTURE READY"
             } else {

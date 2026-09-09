@@ -1,0 +1,55 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTest": "theme events report only explicit acceptance, not previews or catalog projection",
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > theme events report only explicit acceptance, not previews or catalog projection [332.78ms]\n\n 1 pass\n 75 filtered out\n 0 fail\n 6 expect() calls\nRan 1 test across 1 file. [939.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 1,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\n\nerror: regex \"theme events report only explicit acceptance\" matched 0 tests. Searched 1 file (skipping 74 tests) [417.00ms]\n"
+    }
+  ],
+  "stableScope": "Absent from stable test corpus: zero-match exit 1 is not a passing oracle.",
+  "initialNative": {
+    "test": "tests::extension_theme_event_facts_ignore_preview_and_escape",
+    "exitCode": 101,
+    "failure": "After preview, event facts reported github-dark-dimmed instead of committed github-dark-default."
+  },
+  "correctedNative": {
+    "passed": 1,
+    "failed": 0,
+    "filtered": 1150,
+    "seconds": 0.78
+  },
+  "publisherRegression": {
+    "test": "tests::theme_event_publication_ignores_custom_catalog_projection",
+    "passed": 1,
+    "failed": 0,
+    "seconds": 0.82,
+    "scope": "Production publication hook observes zero theme events for preview, Escape, catalog removal/restoration and exactly one expected themeId on acceptance. Catalog replacement now uses session_commit_dynamic_reload with resolved host options and reset_app false. This tests the reload commit boundary, not filesystem configuration parsing. No subprocess subscriber is attached in this test; subscriber delivery is separately covered by the PTY test."
+  },
+  "fullLibraryBeforePublisherTest": {
+    "passed": 1151,
+    "failed": 0,
+    "seconds": 51.70
+  },
+  "subscriberPty": {
+    "test": "extensions::theme_subscriber_receives_acceptance_but_not_preview_or_escape",
+    "passed": 1,
+    "failed": 0,
+    "seconds": 7.93,
+    "scope": "Real CLI terminal input and compiled Rust extension subscriber; received JSONL events contain exactly one accepted github-dark-dimmed event, none for preview/Escape. Quit explicitly discards changed preferences and exits. Initial run passed event assertions but failed cleanup at save prompt; rerun passed. No custom-catalog replacement in this PTY test."
+  },
+  "baselineInterval": {
+    "byteStart": 33267,
+    "byteEnd": 36159,
+    "lineStart": 1089,
+    "lineEnd": 1176,
+    "sha256": "5ab7950243db311c76eeea9fd9e324a02dcd4ee063c7b6324ad8c43cf4107968"
+  },
+  "scope": "Event-facts projection changed from rendered options.theme.id to themes.committed. Source injects bootstrap catalog updates; Rust covers resolved-host catalog updates through the production reload commit path. Separate real CLI PTY verifies actual extension subscriber delivery for preview, Escape and acceptance. Does not claim a single end-to-end custom-catalog subprocess scenario, filesystem config parsing, or complete cell-buffer parity."
+}
