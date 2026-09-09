@@ -38,6 +38,15 @@ identities. A Rust test validates workload counts and metric validity. These
 single runs do not establish repeatability or comparable native/source build
 profiles, and Hunk's source command does not emit process peak RSS.
 
+A subsequent external `/usr/bin/time -l` capture supplies source process peaks:
+[`benchmark-huge-stream-process-peak.json`](../port/hunk/oracles/benchmark-huge-stream-process-peak.json).
+On this Darwin arm64 host, maximum resident set size was 872,185,856 bytes
+for main and 902,791,168 bytes for stable. The retained native debug sample's
+1,385,152,512-byte peak exceeds both observations. This is not a repeated,
+release-profile acceptance comparison and must not be reported as passing.
+The fixture test distinguishes resident peak from macOS's separate peak memory
+footprint field and checks the recorded current RSS does not exceed its peak.
+
 The small-fixture executable regression checks the same interaction sequence
 using six ordinary files, not the huge workload's performance. Fixture content
 has separate pinned-source checks in `xtask/src/benchmark/stream.rs`. Renderer

@@ -107,6 +107,41 @@ fn both_pinned_huge_runs_preserve_the_full_workload_and_metric_set() {
 }
 
 #[test]
+fn source_process_peak_evidence_distinguishes_resident_peak_from_footprint() {
+    let oracle: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../port/hunk/oracles/benchmark-huge-stream-process-peak.json"
+    ))
+    .unwrap();
+    let runs = oracle["runs"].as_array().unwrap();
+    assert_eq!(runs.len(), 2);
+    for run in runs {
+        assert_eq!(run["exitCode"], 0);
+        let output = run["combinedOutput"].as_str().unwrap();
+        let read = |label: &str| {
+            let values = output
+                .lines()
+                .filter_map(|line| line.trim().strip_suffix(label))
+                .map(|value| value.trim().parse::<u64>().unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(values.len(), 1);
+            values[0]
+        };
+        let peak = read("maximum resident set size");
+        assert!(peak > 0);
+        assert_eq!(run["peakProcessRssBytes"], peak);
+        assert_ne!(peak, read("peak memory footprint"));
+        let metrics = super::runner::parse_metrics(output);
+        assert_eq!(metrics.len(), 15);
+        assert!(
+            metrics
+                .iter()
+                .filter(|(name, _)| name.ends_with("_rss_bytes"))
+                .all(|(_, value)| *value <= peak as f64)
+        );
+    }
+}
+
+#[test]
 fn huge_interaction_sequence_executes_on_a_small_fixture() {
     let fixture =
         stream::large_bootstrap(std::env::current_dir().unwrap(), 6, 120, 37, 84, false).unwrap();
