@@ -175,13 +175,55 @@ pub(super) fn plan(repo: &Path, mut args: impl Iterator<Item = String>) -> Resul
     let bump = highest_bump(&fragments);
     let next = next_stable_version(&package.version, bump)?;
     let notes = render_notes(&next.to_string(), &fragments);
+    let manifest = package.manifest_path.as_std_path().strip_prefix(repo)?;
+    let inputs = input_fingerprints(repo, manifest, &fragments)?;
     println!(
         "{}",
         serde_json::to_string_pretty(
-            &serde_json::json!({"current":package.version.to_string(),"next":next.to_string(),"bump":bump,"fragments":fragments,"notes":notes,"applied":false})
+            &serde_json::json!({"current":package.version.to_string(),"next":next.to_string(),"bump":bump,"fragments":fragments,"notes":notes,"inputs":inputs,"applied":false})
         )?
     );
     Ok(())
+}
+
+fn input_fingerprints(
+    repo: &Path,
+    manifest: &Path,
+    fragments: &[PendingFragment],
+) -> Result<std::collections::BTreeMap<String, String>> {
+    use sha2::{Digest, Sha256};
+    let mut paths = std::collections::BTreeSet::from([
+        std::path::PathBuf::from("Cargo.toml"),
+        std::path::PathBuf::from("Cargo.lock"),
+        manifest.to_owned(),
+    ]);
+    for fragment in fragments {
+        paths.insert(std::path::PathBuf::from(format!(
+            "changes/{}.md",
+            fragment.id
+        )));
+    }
+    let mut inputs = std::collections::BTreeMap::new();
+    for path in paths {
+        ensure!(
+            path.components()
+                .all(|component| matches!(component, std::path::Component::Normal(_))),
+            "plan input is outside repository"
+        );
+        let full = repo.join(&path);
+        let metadata = std::fs::symlink_metadata(&full)?;
+        ensure!(
+            metadata.is_file() && !metadata.file_type().is_symlink(),
+            "plan input must be a regular file"
+        );
+        let bytes = std::fs::read(&full)?;
+        let name = path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("plan input path is not UTF-8"))?
+            .replace('\\', "/");
+        inputs.insert(name, format!("{:x}", Sha256::digest(bytes)));
+    }
+    Ok(inputs)
 }
 
 fn render_notes(version: &str, fragments: &[PendingFragment]) -> String {

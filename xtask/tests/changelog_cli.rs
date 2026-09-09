@@ -136,6 +136,11 @@ fn version_plan_uses_real_cargo_metadata_without_mutating_inputs() {
         "## 1.3.0\n\n### Minor Changes\n\n- Add feature.\n\n### Patch Changes\n\n- Fix λ.\n\n"
     );
     for (path, expected) in paths.iter().zip(before) {
+        use sha2::{Digest, Sha256};
+        assert_eq!(
+            plan["inputs"][path],
+            format!("{:x}", Sha256::digest(&expected))
+        );
         assert_eq!(
             std::fs::read(repo.path().join(path)).unwrap(),
             expected,

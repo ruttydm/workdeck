@@ -38,6 +38,13 @@ maintenance-only plans retain the current version. Overflow is rejected.
 Prerelease/build-metadata versions are explicitly rejected until the separate
 prerelease workflow is integrated. No version, lockfile or fragment is changed.
 
+The `inputs` object fingerprints the root manifest, CLI manifest, lockfile and
+pending fragments with SHA-256 and repository-relative paths. Duplicate paths
+are collapsed and nonregular files are rejected. The CLI test compares hashes
+against the actual input bytes. These fingerprints are groundwork for future
+stale-plan detection, not a filesystem snapshot, lock or implemented apply
+transaction; concurrent-edit consistency still needs that integration.
+
 The plan's `notes` field previews Markdown grouped into Major, Minor and Patch
 Changes, with fragment-ID ordering within each group. Multiline text stays
 inside its list item; maintenance-only fragments produce no release-note
