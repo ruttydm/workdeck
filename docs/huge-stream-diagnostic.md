@@ -15,6 +15,14 @@ separately. Unoptimized execution can be slow; this is not part of default tests
 
 Output is diagnostic JSON with individual interaction samples, first-frame and
 fixture-build times, and current native memory after first frame and navigation.
+`rendererSetupMs` separately times review/renderer construction, outside the
+first-frame interval. `beforeRenderer` and `afterRenderer` capture current memory
+around that construction, while `peakBeforeRendererBytes` and
+`peakAfterRendererBytes` capture lifetime high-water marks at those boundaries.
+The before-renderer boundary already includes fixture construction. These peaks
+are cumulative, not isolated phase allocations; their difference cannot measure
+all allocations made by a phase. Snapshot collection is outside the setup and
+first-frame timing intervals. Older reports do not contain these additive fields.
 The current RSS/malloc snapshots are not JavaScript heap usage or peak RSS.
 `peakProcessRssBytes` separately records the process-lifetime resident/working-set
 high-water mark, including fixture construction. macOS reports bytes directly;

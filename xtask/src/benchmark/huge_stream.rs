@@ -6,7 +6,15 @@ use std::time::Instant;
 
 fn measure(bootstrap: workdeck_core::AppBootstrap) -> Result<serde_json::Value> {
     let files = bootstrap.changeset.files.len();
+    // Keep setup outside the source's first-frame interval, but expose its
+    // allocations separately so a lower live snapshot cannot hide an earlier peak.
+    let before_renderer = native_memory::snapshot()?;
+    let peak_before_renderer = native_memory::peak_rss_bytes()?;
+    let setup_start = Instant::now();
     let mut setup = Renderer::from_bootstrap(bootstrap);
+    let renderer_setup_ms = setup_start.elapsed().as_secs_f64() * 1000.0;
+    let after_renderer = native_memory::snapshot()?;
+    let peak_after_renderer = native_memory::peak_rss_bytes()?;
     let start = Instant::now();
     setup.render_pass(1);
     let first_frame = start.elapsed().as_secs_f64() * 1000.0;
@@ -48,6 +56,10 @@ fn measure(bootstrap: workdeck_core::AppBootstrap) -> Result<serde_json::Value> 
     let after_navigation = native_memory::snapshot()?;
     Ok(serde_json::json!({
         "diagnosticOnly":true,"files":files,"firstFrameMs":first_frame,
+        "rendererSetupMs":renderer_setup_ms,
+        "beforeRenderer":before_renderer,"afterRenderer":after_renderer,
+        "peakBeforeRendererBytes":peak_before_renderer,
+        "peakAfterRendererBytes":peak_after_renderer,
         "scrollTickMs":scroll,"navigationPressMs":navigation,
         "afterFirstFrame":first_memory,"afterNavigation":after_navigation,
         "sequence":"one renderer: first frame, two settle frames, six scroll ticks, four navigation presses",
@@ -150,5 +162,15 @@ fn huge_interaction_sequence_executes_on_a_small_fixture() {
     assert_eq!(report["scrollTickMs"].as_array().unwrap().len(), 6);
     assert_eq!(report["navigationPressMs"].as_array().unwrap().len(), 4);
     assert!(report["firstFrameMs"].as_f64().unwrap() > 0.0);
+    assert!(report["rendererSetupMs"].as_f64().unwrap() > 0.0);
+    for phase in ["beforeRenderer", "afterRenderer", "afterFirstFrame"] {
+        assert!(report[phase]["rssBytes"].as_u64().unwrap() > 0);
+    }
+    let before_peak = report["peakBeforeRendererBytes"].as_u64().unwrap();
+    let after_peak = report["peakAfterRendererBytes"].as_u64().unwrap();
+    assert!(before_peak > 0);
+    assert!(after_peak >= before_peak);
+    assert!(report["beforeRenderer"]["rssBytes"].as_u64().unwrap() <= before_peak);
+    assert!(report["afterRenderer"]["rssBytes"].as_u64().unwrap() <= after_peak);
     assert!(run(["unexpected".into()].into_iter()).is_err());
 }
