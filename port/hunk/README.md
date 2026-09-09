@@ -2754,9 +2754,14 @@ decoder. Supporting arbitrary TypeScript is neither required nor claimed.
 JSON from the pinned Git source, including provenance, mandatory rewrite
 status and Rust-computed facets. It reads no stdin, performs no network access
 and writes only stdout. The CLI test compares every resulting JSON value with
-the tracked catalog and rejects extra arguments. Formatting is not compared
-byte-for-byte; this is semantic data regeneration, not a completed source-ledger
-disposition or a replacement for missing site functionality.
+the tracked catalog and rejects extra arguments. Regeneration does not complete
+the surrounding source-ledger disposition or replace missing site functionality.
+
+The tracked catalog is now canonicalized to the Rust seed output. The CLI
+regression compares the complete stdout byte sequence, including formatting,
+key ordering and final newline, against `site/data/legacy-extensions.json` in
+addition to its semantic comparison. This makes this data artifact exactly
+reproducible from pinned Git; the surrounding source file remains incomplete.
 
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases

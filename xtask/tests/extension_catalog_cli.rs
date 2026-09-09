@@ -22,6 +22,10 @@ fn seed_regenerates_the_complete_tracked_catalog_from_git() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(output.stderr.is_empty());
+    assert_eq!(
+        output.stdout,
+        include_bytes!("../../site/data/legacy-extensions.json")
+    );
     let expected: serde_json::Value =
         serde_json::from_str(include_str!("../../site/data/legacy-extensions.json")).unwrap();
     assert_eq!(

@@ -3,7 +3,36 @@
   "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
   "blob": "23f2196dd3c7a91306e050db352d4b5518a31117",
   "license": "MIT; Copyright Modem Labs Inc.; see THIRD_PARTY_NOTICES",
-  "facets": [{"category":"Command","count":12},{"category":"Pane","count":9},{"category":"Changeset transform","count":4},{"category":"Line highlighter","count":4},{"category":"Keyboard mode","count":2},{"category":"Theme","count":2},{"category":"VCS backend","count":2}],
+  "facets": [
+    {
+      "category": "Command",
+      "count": 12
+    },
+    {
+      "category": "Pane",
+      "count": 9
+    },
+    {
+      "category": "Changeset transform",
+      "count": 4
+    },
+    {
+      "category": "Line highlighter",
+      "count": 4
+    },
+    {
+      "category": "Keyboard mode",
+      "count": 2
+    },
+    {
+      "category": "Theme",
+      "count": 2
+    },
+    {
+      "category": "VCS backend",
+      "count": 2
+    }
+  ],
   "entries": [
     {
       "repo": "modem-dev/hunk-hg",
