@@ -7,7 +7,12 @@ use std::time::{Duration, Instant};
 
 #[test]
 fn theme_probe_exchanges_osc11_and_reports_timeout_on_a_real_pty() {
-    for response in [Some("\x1b]11;rgb:00/00/00\x07"), None] {
+    for (response, redirect_stdout) in [
+        (Some("\x1b]11;rgb:00/00/00\x07"), false),
+        (None, false),
+        (Some("\x1b]11;rgb:00/00/00\x07"), true),
+        (None, true),
+    ] {
         let pair = native_pty_system()
             .openpty(PtySize {
                 rows: 24,
@@ -17,8 +22,22 @@ fn theme_probe_exchanges_osc11_and_reports_timeout_on_a_real_pty() {
             })
             .unwrap();
         let initial_mode = pair.master.get_termios().expect("initial PTY termios");
-        let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_xtask"));
-        command.args(["themes", "probe"]);
+        let redirected = tempfile::NamedTempFile::new().unwrap();
+        let command = if redirect_stdout {
+            let mut command = CommandBuilder::new("/bin/sh");
+            command.args([
+                "-c",
+                "exec \"$1\" themes probe > \"$2\"",
+                "theme-probe-test",
+                env!("CARGO_BIN_EXE_xtask"),
+            ]);
+            command.arg(redirected.path());
+            command
+        } else {
+            let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_xtask"));
+            command.args(["themes", "probe"]);
+            command
+        };
         let mut child = pair.slave.spawn_command(command).unwrap();
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader().unwrap();
@@ -73,7 +92,11 @@ fn theme_probe_exchanges_osc11_and_reports_timeout_on_a_real_pty() {
         assert!(queried, "{text}");
         let json_start = text.find('{').expect("diagnostic JSON");
         let report: serde_json::Value = serde_json::from_str(text[json_start..].trim()).unwrap();
-        assert_eq!(report["stdoutIsTTY"], true);
+        assert_eq!(report["stdoutIsTTY"], !redirect_stdout);
+        assert!(
+            std::fs::read(redirected.path()).unwrap().is_empty(),
+            "stdout must not contain query or diagnostic output"
+        );
         assert_eq!(report["stdinIsTTY"], true);
         if response.is_some() {
             assert_eq!(report["mode"], "dark");

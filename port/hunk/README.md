@@ -2443,6 +2443,13 @@ launch and after successful process exit. Exact restoration passed on macOS
 for both the background-response and unanswered-query paths, superseding the
 real-terminal restoration limitation above for those two paths only.
 
+The PTY matrix now also redirects stdout to a temporary file for each response
+case. All four cases passed: the OSC query still reaches the controlling PTY,
+the redirected file remains empty, `stdoutIsTTY` reflects redirection, and the
+complete terminal settings are restored. This verifies the non-terminal output
+fallback on macOS; stdin is still attached in these cases. xtask Clippy and
+formatting passed, and source-oracle and Windows coverage remain outstanding.
+
 The probe's subsequent failure-path test injects resume, input-read, output-write
 and output-flush failures with both initial raw-mode states. All eight cases
 preserve the originating I/O error and restore the exact prior raw-mode state.
