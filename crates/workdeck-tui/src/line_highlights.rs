@@ -799,10 +799,15 @@ impl LineHighlightPreparationController {
     ) {
         let mut resolved = BTreeMap::new();
         for &file in files {
-            if file.flags.binary || file.flags.too_large || file.hunks.is_empty() {
+            if registrations.is_empty()
+                || file.flags.binary
+                || file.flags.too_large
+                || file.hunks.is_empty()
+            {
                 self.merged.remove(&file.runtime_id);
                 continue;
             }
+            let agent_identity = agent_context_identity(file);
             let keyed = registrations
                 .iter()
                 .map(|registration| {
@@ -812,7 +817,7 @@ impl LineHighlightPreparationController {
                     let task_key = LineHighlightTaskKey {
                         file_id: file.runtime_id.clone(),
                         content_identity: file.content_identity.clone(),
-                        agent_identity: agent_context_identity(file),
+                        agent_identity: agent_identity.clone(),
                         source_identity: file.source_identity.clone(),
                         source_generation: extensions
                             .get(registration.extension_index)
@@ -915,10 +920,14 @@ fn desired_line_highlight_tasks<'a>(
     epochs: &workdeck_extension_host::LineHighlightEpochState,
     files: impl IntoIterator<Item = &'a DiffFile>,
 ) -> Vec<LineHighlightTask<&'a DiffFile>> {
+    if registrations.is_empty() {
+        return Vec::new();
+    }
     files
         .into_iter()
         .filter(|file| !file.flags.binary && !file.flags.too_large && !file.hunks.is_empty())
         .flat_map(|file| {
+            let agent_identity = agent_context_identity(file);
             registrations.iter().map(move |registration| {
                 let highlighter_key =
                     workdeck_extension_host::registered_line_highlighter_key(registration);
@@ -926,7 +935,7 @@ fn desired_line_highlight_tasks<'a>(
                     key: LineHighlightTaskKey {
                         file_id: file.runtime_id.clone(),
                         content_identity: file.content_identity.clone(),
-                        agent_identity: agent_context_identity(file),
+                        agent_identity: agent_identity.clone(),
                         source_identity: file.source_identity.clone(),
                         source_generation: extensions
                             .get(registration.extension_index)

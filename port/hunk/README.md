@@ -271,6 +271,17 @@ disposition changes at this checkpoint.
 A fresh strict `cargo xtask port audit` still fails with 290 unmapped records
 across the 1,257-file baseline and 11 cached pending upstream commits.
 
+### Per-file annotation hashing
+
+Highlighter task planning and publication now compute annotation identity once per
+eligible file per phase, then reuse the digest across registrations. Previously
+each provider repeated the same serialization and hashing in both phases. Empty
+registration sets perform no annotation hashing. Cache-key contents, provider
+ordering and publication semantics are unchanged. All 55 coordinator tests pass
+after the final change; TUI all-target Clippy with warnings denied, formatting and
+whitespace checks also pass. This is a local reduction in repeated work, not measured
+benchmark parity, and it does not change any ledger disposition.
+
 ## Native request-ID exhaustion
 
 The host no longer saturates and reuses its final request ID. Checked allocation
