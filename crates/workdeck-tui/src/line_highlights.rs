@@ -1699,6 +1699,36 @@ mod tests {
         let published = controller.resolved().clone();
         controller.reconcile(&extensions, &registrations, &epochs, &files);
         assert!(controller.resolved().ptr_eq(&published));
+        let oracle: Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/highlighter-registration-reorder.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(original.as_ref()).unwrap(),
+            oracle["trace"]["original"]
+        );
+        assert_eq!(
+            json!(
+                runtime
+                    .calls()
+                    .into_iter()
+                    .map(|(id, _)| id)
+                    .collect::<Vec<_>>()
+            ),
+            oracle["trace"]["calls"]
+        );
+        assert_eq!(
+            serde_json::to_value(reversed.as_ref()).unwrap(),
+            oracle["trace"]["reversed"]
+        );
+        assert_eq!(
+            json!(!Arc::ptr_eq(&original, &reversed)),
+            oracle["trace"]["changedMarksIdentity"]
+        );
+        assert_eq!(
+            json!(controller.resolved().ptr_eq(&published)),
+            oracle["trace"]["unchangedMapIdentity"]
+        );
     }
 
     #[test]

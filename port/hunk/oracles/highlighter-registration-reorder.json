@@ -1,0 +1,21 @@
+{
+  "baselines": ["2c00f4358b89cfc0a6b04459ffc538ba601aa3c2", "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"],
+  "source": "src/ui/highlights/useLineHighlights.ts",
+  "sourceBlobAtBothPins": "5488cdaae5ccfd72e980deb6c5cadd90441a3024",
+  "runtime": "Bun 1.3.14 (0d9b296a), disposable oracle only",
+  "capture": "Actual hook mounted with testRender at 10x2. Two registrations return ranges 0..3 and 4..7. Set registration state to a reversed array containing the same registration objects, then trigger an unrelated render. Settle each transition with two renderOnce calls inside act and microtask drains.",
+  "resultsIdenticalAtBothPins": true,
+  "trace": {
+    "calls": ["first", "second"],
+    "original": [
+      {"side":"new","line":1,"start":0,"end":3,"tone":"match"},
+      {"side":"new","line":1,"start":4,"end":7,"tone":"match"}
+    ],
+    "reversed": [
+      {"side":"new","line":1,"start":4,"end":7,"tone":"match"},
+      {"side":"new","line":1,"start":0,"end":3,"tone":"match"}
+    ],
+    "changedMarksIdentity": true,
+    "unchangedMapIdentity": true
+  }
+}

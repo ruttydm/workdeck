@@ -4,7 +4,7 @@
   "registrationReorderRegression": {
     "test": "line_highlights::tests::reordering_live_registrations_reuses_parts_but_reorders_published_marks",
     "behavior": "Reordering existing registrations reuses cached contributions, changes merged mark order without extension calls, and retains map identity on the next unchanged frame.",
-    "evidenceType": "Native executable regression derived from pinned cache selection and ordered merge logic; no new differential source trace."
+    "evidenceType": "Native executable regression compares marks, calls and identity transitions with the dual-pin source trace in port/hunk/oracles/highlighter-registration-reorder.json."
   },
   "destinations": [
     "crates/workdeck-tui/src/line_highlights.rs",
@@ -15,6 +15,7 @@
     "examples/extensions/line-highlighter/extension.rs"
   ],
   "evidence": [
+    "port/hunk/oracles/highlighter-registration-reorder.json",
     "port/hunk/highlighter-verification-07a6d924.json",
     "crates/workdeck-tui/src/line_highlights.rs",
     "crates/workdeck-tui/src/lib.rs",
