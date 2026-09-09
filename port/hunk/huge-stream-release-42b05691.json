@@ -1,0 +1,27 @@
+{
+  "commit": "42b05691c524967f2d8eb77cae7543757cc888e8",
+  "worktree": "clean",
+  "buildCommand": "CARGO_INCREMENTAL=0 cargo build --release -p xtask",
+  "command": "target/release/xtask benchmark huge-stream-diagnostic",
+  "binarySha256": "89ea491b2ef243d1f8b5f3229c1ab041a20479eea17a4f87417428f0a1ca1695",
+  "host": "Darwin arm64",
+  "profile": "release (optimized)",
+  "exitCode": 0,
+  "limitations": ["Single native diagnostic, not a repeated paired Hunk benchmark; native flush sequence is not established as source-equivalent."],
+  "report": {
+    "diagnosticOnly": true,
+    "files": 1001,
+    "firstFrameMs": 46.459916,
+    "scrollTickMs": [11.663, 13.105208, 11.677542, 11.431000000000001, 11.294958000000001, 12.479875],
+    "navigationPressMs": [33.022083, 33.698167, 33.793707999999995, 32.923459],
+    "afterFirstFrame": {"rssBytes": 1306902528, "mallocInUseBytes": 558193920},
+    "afterNavigation": {"rssBytes": 1319337984, "mallocInUseBytes": 558976512},
+    "sequence": "one renderer: first frame, two settle frames, six scroll ticks, four navigation presses",
+    "memorySemantics": "Current native RSS and available malloc usage; not peak RSS or JavaScript heapUsed",
+    "peakProcessRssBytes": 1319927808,
+    "peakMemorySemantics": "Process lifetime peak resident/working-set bytes, including fixture construction; not JavaScript heapUsed",
+    "fixtureBuildMs": 731.438916,
+    "linesPerFile": 300,
+    "giantFileLines": 50000
+  }
+}

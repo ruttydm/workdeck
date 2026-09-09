@@ -129,3 +129,14 @@ The combined startup changes were measured at clean `48f74036`:
 Navigation median remained about 704 ms and first frame about 1,141 ms. This
 supports continuing the allocation investigation but still does not meet the
 pinned-source memory observations or constitute a release-profile comparison.
+
+## Optimized workload checkpoint
+
+An optimized build at clean `42b05691` completed the same diagnostic:
+[release sample and binary hash](huge-stream-release-42b05691.json). Fixture
+construction took 731.44 ms, first frame 46.46 ms, median scrolling 11.67 ms and
+median navigation 33.36 ms. Peak RSS was 1,319,927,808 bytes. The prior debug
+navigation figure should not drive performance decisions for shipped builds.
+First-frame work and memory remain substantial compared with the retained source
+observations. This is not a repeated paired comparison, and source/native flush
+semantics remain unverified, so no benchmark acceptance is claimed.
