@@ -200,3 +200,13 @@ construction or change public ownership semantics merely to reduce this sample.
 The phase regression passed (one selected test), xtask all-target Clippy and
 formatting passed, and the optimized build succeeded. The source interval remains
 unmapped; native cross-platform execution and benchmark acceptance remain open.
+
+Content-manifest initialization now uses the existing `ReviewGapGeometry` API
+instead of constructing an owned `ReviewGapSource` with cloned old/new line
+arrays. Gap addresses need hunk metadata and source lengths, not owned text.
+The manifest still owns its required content arrays; public resource semantics
+are unchanged. A regression compares the geometry and owned-source paths across
+partial/full files, empty/equal/unequal line counts, and retained manifest content
+after clearing the caller's arrays. All three content-manifest tests and scoped
+review all-target Clippy pass. This removes a known temporary allocation, not
+the whole initialization peak; no measured improvement is claimed yet.

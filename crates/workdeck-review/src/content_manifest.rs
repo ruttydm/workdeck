@@ -7,10 +7,7 @@ use workdeck_core::{
     SemanticReviewHunkBlock, SemanticReviewLineAddress, review_empty_diff_reason,
 };
 
-use crate::{
-    ReviewGapAddress, ReviewGapHunk, ReviewGapSource, review_gap_id, review_leading_gap,
-    review_trailing_gap,
-};
+use crate::{ReviewGapAddress, ReviewGapGeometry, ReviewGapHunk, review_gap_id};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -70,7 +67,7 @@ pub struct ReviewContentManifest {
 }
 
 pub fn build_review_content_manifest_file(file: &SemanticReviewFile) -> ReviewContentManifestFile {
-    let gap_source = semantic_gap_source(file);
+    let gap_geometry = semantic_gap_geometry(file);
     ReviewContentManifestFile {
         key: file.key.clone(),
         path: file.path.clone(),
@@ -105,10 +102,10 @@ pub fn build_review_content_manifest_file(file: &SemanticReviewFile) -> ReviewCo
                 new_range: hunk_range(hunk.addition_start, hunk.addition_count),
                 default_note_target: default_note_target(hunk),
                 blocks: hunk.hunk_content.clone(),
-                leading_gap: review_leading_gap(&gap_source, index).map(manifest_gap),
+                leading_gap: gap_geometry.leading_gap(index).map(manifest_gap),
             })
             .collect(),
-        trailing_gap: review_trailing_gap(&gap_source).map(manifest_gap),
+        trailing_gap: gap_geometry.trailing_gap().map(manifest_gap),
     }
 }
 
@@ -123,8 +120,8 @@ pub fn build_review_content_manifest(document: &SemanticReviewDocument) -> Revie
     }
 }
 
-fn semantic_gap_source(file: &SemanticReviewFile) -> ReviewGapSource {
-    ReviewGapSource {
+fn semantic_gap_geometry(file: &SemanticReviewFile) -> ReviewGapGeometry {
+    ReviewGapGeometry {
         hunks: file
             .hunks
             .iter()
@@ -138,8 +135,8 @@ fn semantic_gap_source(file: &SemanticReviewFile) -> ReviewGapSource {
                 deletion_line_index: hunk.deletion_line_index,
             })
             .collect(),
-        addition_lines: file.addition_lines.clone(),
-        deletion_lines: file.deletion_lines.clone(),
+        addition_line_count: file.addition_lines.len(),
+        deletion_line_count: file.deletion_lines.len(),
         is_partial: file.flags.partial,
     }
 }
@@ -347,6 +344,45 @@ mod tests {
         );
         assert_eq!(manifest.trailing_gap.as_ref().unwrap().old_range, [7, 12]);
         assert_eq!(manifest.hunks[0].blocks, file.hunks[0].hunk_content);
+    }
+
+    #[test]
+    fn manifest_gap_geometry_matches_owned_sources_without_retaining_their_text() {
+        for partial in [false, true] {
+            for (old_len, new_len) in [(0, 0), (6, 6), (12, 12), (12, 13)] {
+                let mut file = projected_file();
+                file.flags.partial = partial;
+                file.deletion_lines.resize(old_len, "old tail\n".into());
+                file.addition_lines.resize(new_len, "new tail\n".into());
+                let geometry = semantic_gap_geometry(&file);
+                let owned = crate::ReviewGapSource {
+                    hunks: geometry.hunks.clone(),
+                    addition_lines: file.addition_lines.clone(),
+                    deletion_lines: file.deletion_lines.clone(),
+                    is_partial: partial,
+                };
+                let manifest = build_review_content_manifest_file(&file);
+                for index in 0..=file.hunks.len() {
+                    assert_eq!(
+                        geometry.leading_gap(index),
+                        crate::review_leading_gap(&owned, index)
+                    );
+                }
+                assert_eq!(geometry.trailing_gap(), crate::review_trailing_gap(&owned));
+                assert_eq!(
+                    manifest.trailing_gap,
+                    geometry.trailing_gap().map(manifest_gap)
+                );
+                assert_eq!(manifest.addition_lines, file.addition_lines);
+                assert_eq!(manifest.deletion_lines, file.deletion_lines);
+                file.addition_lines.clear();
+                file.deletion_lines.clear();
+                assert_eq!(geometry.addition_line_count, new_len);
+                assert_eq!(geometry.deletion_line_count, old_len);
+                assert_eq!(manifest.addition_lines.len(), new_len);
+                assert_eq!(manifest.deletion_lines.len(), old_len);
+            }
+        }
     }
 
     #[test]
