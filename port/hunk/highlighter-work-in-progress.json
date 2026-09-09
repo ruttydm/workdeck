@@ -1,6 +1,16 @@
 {
   "id": "2c00f4358b89:src/ui/highlights/useLineHighlights.ts:0-16054",
   "reason": "Full cache lifecycle parity is not established; prior mapping reopened. These paths are progress references, not a completed mapping.",
+  "postDeferredProjectionValidation": {
+    "commit": "0fb2296a",
+    "command": "CARGO_INCREMENTAL=0 cargo test -p workdeck-examples --test line_highlighter",
+    "passed": 25,
+    "failed": 0,
+    "ignored": 0,
+    "filteredOut": 0,
+    "seconds": 10.69,
+    "scope": "Compiled subprocess concurrency, source reads, cancellation, deadlines, saved-note updates and live cell painting. Does not complete the source hook interval."
+  },
   "settledGenerationFastPath": "Unchanged fully cached generations with no pending requests reuse their published map without rebuilding retention/publication maps. Retired completion messages are still drained. Lifecycle tests cover invalidation, reordered/removed registrations and late-result cleanup. This is not a measured release-benchmark result.",
   "provenanceGate": "For the pinned Hunk baseline, cargo xtask port audit verifies the reorder/removal fixtures name both exact pins and resolves their recorded source blob at each pin. This check validates provenance, not capture honesty or complete behavioral coverage.",
   "registrationReorderRegression": {

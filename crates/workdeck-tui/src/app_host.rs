@@ -1117,6 +1117,93 @@ mod tests {
     }
 
     #[test]
+    fn plain_launch_reload_cannot_enable_markup_and_rejected_comments_leave_no_state() {
+        for launch_experimental in [None, Some(false)] {
+            for reset_app in [false, true] {
+                let repo = tempfile::tempdir().unwrap();
+                fs::create_dir(repo.path().join(".git")).unwrap();
+                let initial = vcs_input(CommonOptions {
+                    experimental: launch_experimental,
+                    ..CommonOptions::default()
+                });
+                let mut app = app();
+                app.options.review_input = Some(initial.clone());
+                let mut coordinator =
+                    AppHostReloadCoordinator::new(initial, repo.path(), Some(repo.path())).unwrap();
+                let requested = vcs_input(CommonOptions {
+                    experimental: Some(true),
+                    ..CommonOptions::default()
+                });
+                let plan = coordinator
+                    .plan(
+                        &serde_json::to_value(core_cli_input_to_daemon(requested)).unwrap(),
+                        ReloadSessionOptions {
+                            reset_app: Some(reset_app),
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap();
+                let replacement = app.with_state(|state| state.changeset().clone());
+                let mut loader = |input: &CliInput,
+                                  cwd: &Path,
+                                  _: bool,
+                                  _: &VcsCatalog,
+                                  _: &[LoadedExtension]| {
+                    assert_eq!(input.options().experimental, Some(false));
+                    Ok(DynamicReviewLoad {
+                        input: input.clone(),
+                        changeset: replacement.clone(),
+                        replacement_extensions: None,
+                        replacement_vcs_catalog: None,
+                        host_options: DynamicReviewHostOptions {
+                            command_cwd: cwd.to_owned(),
+                            repo_root: Some(cwd.to_owned()),
+                            ..Default::default()
+                        },
+                    })
+                };
+                crate::commit_dynamic_review_reload(
+                    &mut app,
+                    &mut coordinator,
+                    plan,
+                    &mut loader,
+                    &mut workdeck_vcs::bundled_vcs_catalog().clone(),
+                )
+                .unwrap();
+                assert_eq!(
+                    coordinator.current_input().options().experimental,
+                    Some(false)
+                );
+                assert_eq!(
+                    app.options
+                        .review_input
+                        .as_ref()
+                        .unwrap()
+                        .options()
+                        .experimental,
+                    Some(false)
+                );
+                let mut comment: workdeck_session::CommentToolInput = serde_json::from_value(
+                    serde_json::json!({"filePath":"a.rs","side":"new","line":1,
+                        "summary":"Plain fallback","markup":"<badge>disabled</badge>"}),
+                )
+                .unwrap();
+                let before = app.with_state(|state| state.state_revision());
+                let error = app
+                    .session_add_live_comment(&comment, "markup-attempt", false)
+                    .unwrap_err();
+                assert!(error.contains("Relaunch Workdeck with --experimental"));
+                assert_eq!(app.with_state(|state| state.state_revision()), before);
+                assert!(app.with_state(|state| state.comments().is_empty()));
+                comment.target.markup = None;
+                app.session_add_live_comment(&comment, "plain-comment", false)
+                    .unwrap();
+                assert_eq!(app.with_state(|state| state.comments().len()), 1);
+            }
+        }
+    }
+
+    #[test]
     fn reload_plans_restore_launch_authority_validate_before_io_and_commit_explicitly() {
         let repo = tempfile::tempdir().unwrap();
         fs::create_dir(repo.path().join(".git")).unwrap();
