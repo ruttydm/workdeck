@@ -16,8 +16,7 @@ as global and system configuration, verifies Git can read its probe, applies the
 test environment, verifies the probe is absent, and checks the original file is
 unchanged. Direct `cargo test` does not receive this wrapper automatically.
 The baseline `.env.test` ledger record remains unmapped pending complete test
-entry-point coverage and native platform verification. This is not a claim that
-the complete workspace passes under the new isolated environment.
+entry-point coverage and native platform verification.
 
 At clean `65110d29`, the VCS library passed under both null-config variables:
 241 tests, zero failures/ignored/filtered, 132.05 seconds on Darwin arm64.
@@ -32,3 +31,17 @@ arguments from an empty non-repository directory and a PATH without Cargo or Git
 All four cases report `test accepts no arguments`, exit 1, emit no stdout and
 create no files. This confirms validation happens before repository discovery or
 test spawning; it does not exercise a successful whole-workspace child run.
+
+The complete `CARGO_INCREMENTAL=0 cargo xtask test` run subsequently exited 0 at
+clean `de047d8ffba009f26c0793e452b15b625389ccf0` on Darwin arm64. The child retained
+the locked workspace/all-targets scope. The xtask unit suite explicitly ignored
+`ci_changes::tests::capture_pinned_ci_change_oracles` (an opt-in source-oracle
+capture helper); this is not a claim that every declared test executed.
+See [the checkpoint evidence](../port/hunk/verification-de047d8f.json).
+
+During that run, the VCS suite took 269.46 seconds and passed all 241 tests.
+A one-second native stack sample during the delay showed notify FSEvents workers
+waiting in `FSEventsGetCurrentEventId` and `FSEventStreamStart` RPCs, registration
+waiting on a receiver, and teardown joining watcher threads. These waits cleared
+without restarting the process. The sample identifies the observed wait location,
+not an established root cause or a watcher latency acceptance result.

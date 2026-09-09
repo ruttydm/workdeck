@@ -1,0 +1,34 @@
+{
+  "commit": "de047d8ffba009f26c0793e452b15b625389ccf0",
+  "worktreeAtLaunch": "clean",
+  "host": "Darwin arm64",
+  "command": "CARGO_INCREMENTAL=0 cargo xtask test",
+  "childCommand": "cargo test --locked --workspace --all-targets",
+  "childEnvironmentOverrides": {
+    "GIT_CONFIG_GLOBAL": "/dev/null",
+    "GIT_CONFIG_SYSTEM": "/dev/null"
+  },
+  "exitCode": 0,
+  "explicitlyIgnoredTest": "ci_changes::tests::capture_pinned_ci_change_oracles",
+  "observedSuiteCheckpoints": {
+    "workdeck-tui library": { "passed": 1102, "failed": 0, "seconds": 131.88 },
+    "workdeck-vcs library": { "passed": 241, "failed": 0, "seconds": 269.46 },
+    "xtask unit": { "passed": 244, "failed": 0, "ignored": 1, "seconds": 39.69 },
+    "xtask test_cli": { "passed": 1, "failed": 0, "seconds": 0.03 },
+    "xtask theme_probe_pty": { "passed": 1, "failed": 0, "seconds": 3.32 }
+  },
+  "strictAudit": {
+    "command": "target/debug/xtask port audit",
+    "exitCode": 1,
+    "baselineFiles": 1257,
+    "records": 1326,
+    "unmappedRecords": 267,
+    "cachedPendingUpstreamCommits": 11
+  },
+  "limitations": [
+    "Suite checkpoints are selected observed summaries, not an aggregate test count or a complete raw transcript.",
+    "Successful Cargo exit does not establish execution of opt-in or availability-conditional tests.",
+    "Not a Clippy, cargo deny, full verify, benchmark, website, installer, signing or native cross-platform checkpoint.",
+    "No final upstream fetch was performed and no ledger disposition was changed."
+  ]
+}
