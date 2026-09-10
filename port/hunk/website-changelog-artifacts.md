@@ -1,5 +1,8 @@
 # Native changelog artifact composition
 
+A read-only [write plan](website-changelog-write-plan.md) records exact originals
+and proposed edits; application and recovery are not yet connected.
+
 The read-only [artifact checker](website-changelog-check.md) now reports stale
 outputs and guards against a collapsed generation result. Writing remains open.
 

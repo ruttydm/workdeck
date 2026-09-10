@@ -2583,6 +2583,9 @@ fn print_help() {
     println!("cargo xtask changelog latest <markdown-file> <recorded-dates.json> [notes.json]");
     println!("cargo xtask changelog artifacts <markdown-file> <recorded-dates.json> [notes.json]");
     println!(
+        "cargo xtask changelog artifacts-plan <markdown-file> <recorded-dates.json> [notes.json]"
+    );
+    println!(
         "cargo xtask changelog artifacts-check <markdown-file> <recorded-dates.json> [notes.json]"
     );
     println!("cargo xtask changelog index-card <markdown-file> <dates.json>");

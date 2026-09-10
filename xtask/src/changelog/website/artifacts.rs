@@ -89,7 +89,7 @@ fn generate(
 pub(in crate::changelog) fn run_artifacts(
     repo: &Path,
     mut args: impl Iterator<Item = String>,
-    check: bool,
+    mode: &str,
 ) -> Result<()> {
     let Some(markdown) = args.next() else {
         bail!("changelog artifacts requires Markdown and recorded dates JSON files");
@@ -110,7 +110,14 @@ pub(in crate::changelog) fn run_artifacts(
         None => serde_json::json!({}),
     };
     let output = generate(&markdown, &recorded, notes, |v| tag_date(repo, v))?;
-    if check {
+    if mode == "plan" {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&write_plan(repo, &output)?)?
+        );
+        return Ok(());
+    }
+    if mode == "check" {
         let stale = stale_paths(repo, &output)?;
         if !stale.is_empty() {
             bail!(
@@ -130,6 +137,28 @@ pub(in crate::changelog) fn run_artifacts(
     }
     println!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
+}
+
+fn write_plan(repo: &Path, artifacts: &BTreeMap<String, String>) -> Result<serde_json::Value> {
+    let stale = stale_paths(repo, artifacts)?;
+    let mut edits = BTreeMap::new();
+    let mut originals = BTreeMap::<String, Option<Vec<u8>>>::new();
+    for path in stale {
+        let original = match std::fs::symlink_metadata(repo.join(&path)) {
+            Ok(metadata) => {
+                anyhow::ensure!(
+                    metadata.is_file() && !metadata.file_type().is_symlink(),
+                    "artifact target must be a regular file: {path}"
+                );
+                Some(std::fs::read(repo.join(&path))?)
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error.into()),
+        };
+        edits.insert(path.clone(), artifacts.get(&path).cloned());
+        originals.insert(path, original);
+    }
+    Ok(serde_json::json!({"schema":1,"edits":edits,"originals":originals}))
 }
 
 fn missing_card_images(repo: &Path, artifacts: &BTreeMap<String, String>) -> Result<Vec<String>> {
@@ -187,6 +216,35 @@ mod tests {
     use super::*;
 
     const SAMPLE: &str = include_str!("../../../../port/hunk/website-changelog-test-sample.md");
+
+    #[test]
+    fn artifact_write_plan_records_exact_originals_and_orphans_without_writes() {
+        let repo = tempfile::tempdir().unwrap();
+        let directory = repo.path().join("site/content/changelog");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("index.md"), "same").unwrap();
+        std::fs::write(directory.join("old.md"), [0xff, 0, 1]).unwrap();
+        let artifacts = BTreeMap::from([
+            ("site/content/changelog/index.md".into(), "same".into()),
+            ("site/data/releases/latest.json".into(), "null\n".into()),
+        ]);
+        let plan = write_plan(repo.path(), &artifacts).unwrap();
+        assert_eq!(plan["schema"], 1);
+        assert_eq!(plan["edits"].as_object().unwrap().len(), 2);
+        assert!(plan["edits"]["site/content/changelog/old.md"].is_null());
+        assert_eq!(
+            plan["originals"]["site/content/changelog/old.md"],
+            serde_json::json!([255, 0, 1])
+        );
+        assert!(plan["originals"]["site/data/releases/latest.json"].is_null());
+        assert_eq!(plan["edits"]["site/data/releases/latest.json"], "null\n");
+        assert!(!repo.path().join("site/data").exists());
+        assert_eq!(
+            std::fs::read(directory.join("old.md")).unwrap(),
+            [255, 0, 1]
+        );
+        assert_eq!(write_plan(repo.path(), &artifacts).unwrap(), plan);
+    }
 
     fn pinned_default_artifacts() -> BTreeMap<String, String> {
         let read = |path: &str| {
