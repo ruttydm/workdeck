@@ -1332,6 +1332,35 @@ mod tests {
     }
 
     #[test]
+    fn persistence_projection_matches_pinned_semantic_size_oracle() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/semantic-note-size-oracle.json"
+        ))
+        .unwrap();
+        let note: ReviewComment = serde_json::from_value(serde_json::json!({
+            "id": "user:1700000000000-1", "parent_id": "user:parent", "source": "user",
+            "author": "user", "created_at": "2023-11-14T22:13:20.000Z",
+            "updated_at": "2023-11-14T22:13:21.123Z", "file_path": "alpha.ts",
+            "hunk_index": 0, "side": "new", "line": 5,
+            "summary": "Quote \" and slash \\\n🧪\t終", "rationale": null, "editable": true,
+            "anchor": {"file_key": "alpha", "old_range": {"start":5,"end":7},
+                "new_range": {"start":5,"end":8}, "preferred_side":"new", "preferred_line":5,
+                "intersecting_hunk_indices":[0,1], "owner_hunk_index":0}
+        }))
+        .unwrap();
+        let projected = note.semantic_note();
+        assert_eq!(serde_json::to_value(&projected).unwrap(), oracle["note"]);
+        assert_eq!(
+            review_note_byte_length(&projected) as u64,
+            oracle["bytes"].as_u64().unwrap()
+        );
+        assert_eq!(
+            review_note_within_size_limit(&projected),
+            oracle["withinLimit"].as_bool().unwrap()
+        );
+    }
+
+    #[test]
     fn note_size_counts_whole_json_and_multibyte_text() {
         let mut comment = ReviewComment {
             id: "note:1".into(),

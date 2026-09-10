@@ -1,0 +1,41 @@
+{
+  "baselines": [
+    "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+  ],
+  "runtime": "Bun 1.3.14",
+  "source": "src/core/review/noteSize.ts",
+  "note": {
+    "id": "user:1700000000000-1",
+    "parentId": "user:parent",
+    "source": "user",
+    "originalSource": "user",
+    "fileKey": "alpha",
+    "anchor": {
+      "oldRange": [
+        5,
+        7
+      ],
+      "newRange": [
+        5,
+        8
+      ],
+      "preferred": {
+        "side": "new",
+        "line": 5
+      },
+      "intersectingHunkIndices": [
+        0,
+        1
+      ],
+      "ownerHunkIndex": 0
+    },
+    "summary": "Quote \" and slash \\\n🧪\t終",
+    "author": "user",
+    "createdAt": "2023-11-14T22:13:20.000Z",
+    "updatedAt": "2023-11-14T22:13:21.123Z",
+    "editable": true
+  },
+  "bytes": 399,
+  "withinLimit": true
+}

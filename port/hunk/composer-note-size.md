@@ -34,3 +34,23 @@ disposable Bun 1.3.14: four tests and six assertions passed per pin. Those tests
 verify framing, field-order independence, combined-field overflow and multibyte
 byte counting. This is not yet a frozen differential fixture for the complete
 native projected note; no additional source interval is mapped.
+
+## Frozen projection oracle
+
+`semantic-note-size-oracle.json` records identical outputs from both pinned
+versions of `src/core/review/noteSize.ts`, executed with disposable Bun 1.3.14.
+The input includes parent identity, old/new ranges, preferred line, two hunk
+indices, author, timestamps and a body containing quotes, a backslash, newline,
+tab, emoji and CJK text. Both report 399 serialized UTF-8 bytes and acceptance.
+
+`workdeck_review::tests::persistence_projection_matches_pinned_semantic_size_oracle`
+constructs a native persistence note with that content and additional native
+file/line fields, then checks its complete projected JSON, byte count and limit
+result against the frozen output. The focused test passed, along with formatting
+and diff checks. This closes one projected-note differential vector, not the
+complete note fixture matrix or any additional ledger interval.
+All 179 review library tests passed in 0.02 seconds with the oracle test included.
+To recapture in a disposable pinned checkout, import `reviewNoteByteLength` and
+`reviewNoteWithinSizeLimit` from `src/core/review/noteSize.ts`, pass the committed
+fixture's `note` object unchanged, and compare both results with `bytes` and
+`withinLimit`. No original runtime is required by the committed Rust test.
