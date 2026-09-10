@@ -1,11 +1,12 @@
-# Repository issue forms
+# Repository forms and dependency-update policy
 
-Two complete Hunk baseline blobs are reproduced by native Rust tooling:
+Three complete Hunk baseline blobs are reproduced by native Rust tooling:
 
 | Source | Blob | Covered bytes | Destination |
 | --- | --- | --- | --- |
 | `.github/ISSUE_TEMPLATE/bug.yml` | `1a23f41ba03ba9e8c3c75b5a5ecdae897401be89` | `[0,1152)` | same Workdeck path |
 | `.github/ISSUE_TEMPLATE/contribution.yml` | `7b96da37888c55c57da671cc1b3a802fa1e53eb2` | `[0,978)` | same Workdeck path |
+| `.github/dependabot.yml` | `81468bfb07f37fbbcd584936048cdd3b765f22a5` | `[0,256)` | same Workdeck path |
 
 `cargo xtask repository-forms generate` reads each entire source through
 `git show 2c00f4358b89cfc0a6b04459ffc538ba601aa3c2:<path>`; there is no committed
@@ -23,6 +24,16 @@ guide; it never repairs files. Both `cargo xtask verify` and strict pinned-sourc
 `cargo xtask port audit` run that check. Symlinked form paths are rejected.
 The native tests check transformation fidelity, field requirements, malformed
 YAML, empty forms, and missing/duplicated source links.
+
+The dependency-update policy is retained byte-for-byte after the attribution
+comments: GitHub Actions only, root directory, monthly schedule, 14-day cooldown,
+one wildcard group and one open PR. There is no npm ecosystem in this pinned
+file, and no Cargo automation is invented as its replacement. The native test
+rejects drift in every policy field and additional fields. All three artifacts
+are checked by the same `repository-forms` command and strict audit integration.
+The three generator tests, complete-byte check and scoped xtask Clippy passed
+locally. This is verified configuration retention, not a claim that GitHub has
+executed the automation; the configuration has not been pushed or remotely enabled.
 
 `CONTRIBUTING.md` adapts the upstream guide to existing native build, extension,
 test, media and release-fragment workflows. Its broader source interval remains
