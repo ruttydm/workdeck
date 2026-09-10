@@ -1,6 +1,7 @@
 //! Native artifact composition from MIT-licensed Hunk generate-changelog.ts.
 //! Copyright (c) Modem Labs Inc. See THIRD_PARTY_NOTICES.
 use super::*;
+use anyhow::Context;
 use std::collections::BTreeMap;
 
 fn generate(
@@ -91,6 +92,14 @@ pub(in crate::changelog) fn run_artifacts(
     mut args: impl Iterator<Item = String>,
     mode: &str,
 ) -> Result<()> {
+    let saved_path = if mode == "plan-check" {
+        Some(
+            args.next()
+                .context("artifacts-plan-check requires a saved plan path")?,
+        )
+    } else {
+        None
+    };
     let Some(markdown) = args.next() else {
         bail!("changelog artifacts requires Markdown and recorded dates JSON files");
     };
@@ -110,6 +119,16 @@ pub(in crate::changelog) fn run_artifacts(
         None => serde_json::json!({}),
     };
     let output = generate(&markdown, &recorded, notes, |v| tag_date(repo, v))?;
+    if let Some(path) = saved_path {
+        let saved: ArtifactPlan = serde_json::from_slice(&std::fs::read(repo.join(path))?)?;
+        saved.validate()?;
+        let current = write_plan(repo, &output)?;
+        anyhow::ensure!(
+            serde_json::to_value(saved)? == current,
+            "saved artifact plan is stale or modified"
+        );
+        return Ok(());
+    }
     if mode == "plan" {
         println!(
             "{}",

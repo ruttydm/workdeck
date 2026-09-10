@@ -11,6 +11,95 @@ fn run(repo: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
+fn artifact_saved_plan_check_rejects_stale_and_modified_plans() {
+    let repo = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    std::fs::write(repo.path().join("history.md"), "## 1.0.0\n").unwrap();
+    std::fs::write(repo.path().join("dates.json"), "{}").unwrap();
+    let generated = run(
+        repo.path(),
+        &["changelog", "artifacts-plan", "history.md", "dates.json"],
+    );
+    assert!(generated.status.success());
+    std::fs::write(repo.path().join("plan.json"), &generated.stdout).unwrap();
+    let args = [
+        "changelog",
+        "artifacts-plan-check",
+        "plan.json",
+        "history.md",
+        "dates.json",
+    ];
+    let current = run(repo.path(), &args);
+    assert!(
+        current.status.success(),
+        "{}",
+        String::from_utf8_lossy(&current.stderr)
+    );
+    assert!(current.stdout.is_empty());
+    assert!(current.stderr.is_empty());
+    let mut unknown_field: serde_json::Value = serde_json::from_slice(&generated.stdout).unwrap();
+    unknown_field["unexpected"] = true.into();
+    std::fs::write(repo.path().join("plan.json"), unknown_field.to_string()).unwrap();
+    let invalid = run(repo.path(), &args);
+    assert!(!invalid.status.success());
+    assert!(invalid.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("unknown field"));
+    std::fs::write(repo.path().join("plan.json"), &generated.stdout).unwrap();
+    std::fs::write(repo.path().join("dates.json"), r#"{"1.0.0":"2026-08-01"}"#).unwrap();
+    let stale = run(repo.path(), &args);
+    assert!(!stale.status.success());
+    assert!(stale.stdout.is_empty());
+    assert!(
+        String::from_utf8(stale.stderr)
+            .unwrap()
+            .contains("stale or modified")
+    );
+    std::fs::write(repo.path().join("dates.json"), "{}").unwrap();
+    let mut modified: serde_json::Value = serde_json::from_slice(&generated.stdout).unwrap();
+    modified["edits"]["site/data/releases/latest.json"] = "tampered".into();
+    std::fs::write(repo.path().join("plan.json"), modified.to_string()).unwrap();
+    let output = run(repo.path(), &args);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("stale or modified")
+    );
+    std::fs::write(repo.path().join("plan.json"), &generated.stdout).unwrap();
+    std::fs::create_dir_all(repo.path().join("site/data/releases")).unwrap();
+    std::fs::write(
+        repo.path().join("site/data/releases/latest.json"),
+        "external change",
+    )
+    .unwrap();
+    let output = run(repo.path(), &args);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("stale or modified")
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("site/data/releases/latest.json")).unwrap(),
+        "external change"
+    );
+    assert!(!repo.path().join(".agents").exists());
+    assert_eq!(
+        std::fs::read(repo.path().join("plan.json")).unwrap(),
+        generated.stdout
+    );
+}
+
+#[test]
 fn artifact_plan_cli_records_creation_and_changes_without_writes() {
     let repo = tempfile::tempdir().unwrap();
     assert!(

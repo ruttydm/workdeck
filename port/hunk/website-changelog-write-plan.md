@@ -43,3 +43,19 @@ evidence for arbitrary orphan filenames. The checker still reports such orphans.
 
 Typed-plan validation, byte-preserving plan construction and plan CLI tests pass.
 Strict xtask Clippy, formatting and whitespace checks pass. Apply remains open.
+
+## Saved-plan checking
+
+`cargo xtask changelog artifacts-plan-check <saved-plan.json> <markdown-file> <recorded-dates.json> [notes.json]`
+validates the typed saved plan and compares it with a newly generated plan using
+the current inputs, tag dates and destination bytes. Success is silent. Edited
+replacement content, changed output-affecting dates, changed destination bytes,
+and unknown plan fields fail without modifying the plan or generated files.
+This checks the resulting plan, not an input-file hash: input changes that leave
+the resulting plan identical are permitted. It does not reserve files against
+later changes, validate destination parents for writing, or authorize an apply.
+
+The CLI regression checks these rejection paths and preservation of destination
+and saved-plan bytes, with no `.agents` state creation. The pending implementation
+initially lacked the `anyhow::Context` import; compilation exposed this and the
+import is now explicit. No additional Hunk source interval is claimed complete.

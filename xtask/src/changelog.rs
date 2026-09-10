@@ -215,6 +215,7 @@ pub(super) fn run(repo: &Path, mut args: impl Iterator<Item = String>) -> Result
         Some("artifacts") => return website::run_artifacts(repo, args, "generate"),
         Some("artifacts-check") => return website::run_artifacts(repo, args, "check"),
         Some("artifacts-plan") => return website::run_artifacts(repo, args, "plan"),
+        Some("artifacts-plan-check") => return website::run_artifacts(repo, args, "plan-check"),
         Some("upstream-history") => {}
         _ => bail!(
             "changelog requires parse <markdown-file>, series <markdown-file>, summaries <markdown-file> [notes.json], resolved-summaries <markdown-file> <dates.json> [notes.json], dates <markdown-file> <recorded-dates.json>, publication <markdown-file> <dates.json>, release-notes <markdown-file> <dates.json>, metadata <markdown-file> <dates.json>, video <input.json>, pages <markdown-file> <dates.json> [notes.json], index-card <markdown-file> <dates.json>, feed <markdown-file> <dates.json> [notes.json], index <markdown-file> <dates.json> [notes.json], latest <markdown-file> <recorded-dates.json> [notes.json], upstream-history [--check], add <id> <patch|minor|major|empty> [body], status, plan, check-plan <saved-plan.json>, or apply-plan <saved-plan.json> <new-backup-directory>"
