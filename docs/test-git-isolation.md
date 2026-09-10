@@ -15,8 +15,9 @@ The executable regression supplies a real temporary configuration independently
 as global and system configuration, verifies Git can read its probe, applies the
 test environment, verifies the probe is absent, and checks the original file is
 unchanged. Direct `cargo test` does not receive this wrapper automatically.
-The baseline `.env.test` ledger record remains unmapped pending complete test
-entry-point coverage and native platform verification.
+The baseline `.env.test` record is mapped to this native wrapper and its
+cross-platform null-device test. Full workspace parity and Windows execution
+remain separate release gates.
 
 At clean `65110d29`, the VCS library passed under both null-config variables:
 241 tests, zero failures/ignored/filtered, 132.05 seconds on Darwin arm64.

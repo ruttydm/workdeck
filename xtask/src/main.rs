@@ -37,6 +37,7 @@ mod skill;
 mod social_cards;
 mod term_video;
 mod theme_probe;
+mod tooling_configs;
 mod upstream_refs;
 
 const DEFAULT_BASELINE: &str = "hunk-port/main-2c00f435^{}";
@@ -1701,6 +1702,8 @@ fn verify() -> Result<()> {
     skill::check(&repo)?;
     architecture::check(&repo)?;
     repository_forms::run(&repo, false)?;
+    let baseline = resolve_commit(&repo, DEFAULT_BASELINE)?;
+    tooling_configs::verify(&repo, &baseline)?;
     changelog::run(
         &repo,
         ["upstream-history".into(), "--check".into()].into_iter(),
@@ -2004,6 +2007,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     let baseline = requested_baseline.unwrap_or_else(|| records[0].baseline.clone());
     port_oracles::verify(&repo, &baseline)?;
     repository_forms::verify(&repo, &baseline)?;
+    tooling_configs::verify(&repo, &baseline)?;
     benchmark::verify_historical_for_baseline(&repo, &baseline)?;
     let entries = read_tree(&repo, &baseline)?;
     let expected = entries
