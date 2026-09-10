@@ -731,6 +731,69 @@ pub(super) fn run(
 mod tests {
     use super::*;
 
+    #[test]
+    fn source_dates_prefer_annotated_tag_and_fall_back_to_commit() {
+        assert_eq!(
+            resolve_tag_date("2026-08-29\n", "2026-08-28\n").as_deref(),
+            Some("2026-08-29")
+        );
+        assert_eq!(
+            resolve_tag_date("\n", "2026-08-28\n").as_deref(),
+            Some("2026-08-28")
+        );
+        assert_eq!(resolve_tag_date("not-a-date", ""), None);
+    }
+
+    #[test]
+    fn source_dates_preserve_recorded_date() {
+        let releases = parse_changelog(SOURCE_SAMPLE);
+        let recorded = std::collections::BTreeMap::from([("0.19.0".into(), "2020-01-01".into())]);
+        let resolved = resolve_dates(&releases, &recorded, |_| Some("2099-12-31".into()));
+        assert_eq!(resolved["0.19.0"], "2020-01-01");
+    }
+
+    #[test]
+    fn source_dates_fill_missing_from_lookup() {
+        let releases = parse_changelog(SOURCE_SAMPLE);
+        let resolved = resolve_dates(&releases, &Default::default(), |version| {
+            (version == "0.19.0").then(|| "2026-08-16".into())
+        });
+        assert_eq!(resolved["0.19.0"], "2026-08-16");
+    }
+
+    #[test]
+    fn source_dates_legacy_heading_precedes_lookup() {
+        let releases = parse_changelog(SOURCE_SAMPLE);
+        let resolved = resolve_dates(&releases, &Default::default(), |_| {
+            Some("2099-12-31".into())
+        });
+        assert_eq!(resolved["0.15.3"], "2026-06-13");
+    }
+
+    #[test]
+    fn source_dates_unresolved_version_remains_absent() {
+        let releases = parse_changelog(SOURCE_SAMPLE);
+        assert!(
+            resolve_dates(&releases, &Default::default(), |_| None)
+                .get("0.19.0")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn source_dates_recorded_keys_are_newest_first() {
+        let releases = parse_changelog(SOURCE_SAMPLE);
+        let recorded = std::collections::BTreeMap::from([
+            ("0.18.0".into(), "2026-08-08".into()),
+            ("0.19.0".into(), "2026-08-16".into()),
+        ]);
+        let resolved = resolve_dates(&releases, &recorded, |_| None);
+        assert_eq!(
+            resolved.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["0.19.0", "0.18.0", "0.15.3"]
+        );
+    }
+
     const SOURCE_SAMPLE: &str = include_str!("../../../port/hunk/website-changelog-test-sample.md");
 
     #[test]
