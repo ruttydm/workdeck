@@ -5,6 +5,53 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 mod publication;
 
+pub(super) fn run_generate(
+    repo: &std::path::Path,
+    mut args: impl Iterator<Item = String>,
+) -> Result<()> {
+    use anyhow::Context;
+    let cards = args.next().context("social-cards-generate requires cards, font, WebDriver, Chromium and new external backup paths")?;
+    let font = args.next().context("font path required")?;
+    let driver = args.next().context("WebDriver path required")?;
+    let browser = args.next().context("Chromium path required")?;
+    let backup = args.next().context("new external backup required")?;
+    let requested: Vec<_> = args.collect();
+    let _lock = crate::changelog::publication_lock(repo)?;
+    let targets = select(
+        serde_json::from_slice(&std::fs::read(repo.join(cards))?)?,
+        &requested,
+    )?;
+    let font = std::fs::read(repo.join(font))?;
+    let documents = targets
+        .iter()
+        .map(|target| render_html(target, &font))
+        .collect::<Vec<_>>();
+    let staging = crate::term_video::capture_card_documents(
+        &repo.join(driver),
+        &repo.join(browser),
+        &documents,
+    )?;
+    let report = capture_report(staging.path(), &targets, requested.is_empty())?;
+    save_capture_manifest(staging.path(), &serde_json::to_string_pretty(&report)?)?;
+    let plan = publication::plan(repo, staging.path(), &targets, requested.is_empty())?;
+    if !plan.replacements.is_empty() || !plan.remove_directories.is_empty() {
+        publication::apply(repo, &plan, &repo.join(backup), |_| Ok(()))?;
+    }
+    for target in &targets {
+        println!("{}.png", target.card.slug);
+    }
+    println!(
+        "Rendered {} card(s):\n{}",
+        targets.len(),
+        targets
+            .iter()
+            .map(|target| target.output_file.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    Ok(())
+}
+
 pub(super) fn run_publish(
     repo: &std::path::Path,
     mut args: impl Iterator<Item = String>,

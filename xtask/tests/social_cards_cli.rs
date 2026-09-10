@@ -1,6 +1,68 @@
 use std::{fs, process::Command};
 
 #[test]
+#[ignore = "requires explicit WORKDECK_ORACLE_DRIVER, WORKDECK_ORACLE_BROWSER and WORKDECK_ORACLE_FONT paths"]
+fn native_generator_captures_then_publishes_without_partial_capture_writes() {
+    let repo = tempfile::tempdir().unwrap();
+    let recovery = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    fs::write(repo.path().join("cards.json"), b"[]").unwrap();
+    fs::create_dir_all(repo.path().join("site/static/changelog/og")).unwrap();
+    let stale = repo.path().join("site/static/changelog/og/old.png");
+    fs::write(&stale, b"preserve on capture failure").unwrap();
+    let font = std::env::var_os("WORKDECK_ORACLE_FONT").expect("font");
+    let browser = std::env::var_os("WORKDECK_ORACLE_BROWSER").expect("browser");
+    let driver = std::env::var_os("WORKDECK_ORACLE_DRIVER").expect("driver");
+    let backup = recovery.path().join("backup");
+    let run = |driver: &std::ffi::OsStr| {
+        Command::new(env!("CARGO_BIN_EXE_xtask"))
+            .current_dir(repo.path())
+            .args(["social-cards-generate", "cards.json"])
+            .arg(&font)
+            .arg(driver)
+            .arg(&browser)
+            .arg(&backup)
+            .output()
+            .unwrap()
+    };
+    let failed = run(std::ffi::OsStr::new("missing-driver"));
+    assert!(!failed.status.success());
+    assert!(failed.stdout.is_empty());
+    assert_eq!(fs::read(&stale).unwrap(), b"preserve on capture failure");
+    assert!(!backup.exists());
+    assert!(!repo.path().join("site/static/extensions").exists());
+    let output = run(&driver);
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        output.stdout,
+        b"extensions.png\nRendered 1 card(s):\nsite/static/extensions/og.png\n"
+    );
+    assert!(!stale.exists());
+    assert!(!repo.path().join("site/static/changelog/og").exists());
+    let bytes = fs::read(repo.path().join("site/static/extensions/og.png")).unwrap();
+    let reader = png::Decoder::new(std::io::Cursor::new(bytes))
+        .read_info()
+        .unwrap();
+    assert_eq!((reader.info().width, reader.info().height), (1200, 630));
+    let saved: serde_json::Value =
+        serde_json::from_slice(&fs::read(backup.join("recovery.json")).unwrap()).unwrap();
+    assert_eq!(
+        saved["originals"]["site/static/changelog/og/old.png"],
+        serde_json::json!(b"preserve on capture failure".to_vec())
+    );
+    assert_eq!(fs::read(repo.path().join("cards.json")).unwrap(), b"[]");
+    assert!(!repo.path().join(".agents").exists());
+}
+
+#[test]
 fn publication_cli_applies_checks_staleness_and_preserves_targeted_images() {
     use sha2::{Digest, Sha256};
     let repo = tempfile::tempdir().unwrap();

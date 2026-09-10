@@ -313,3 +313,26 @@ time. This verifies rendered equivalence for the frozen HTML corpus using one
 browser transport, not the original Playwright lifecycle, cross-platform font
 rasterization, every possible card input, or complete generator parity. The
 source ledger interval remains unmapped.
+
+## Connected native generation command
+
+`cargo xtask social-cards-generate <cards.json> <font.woff2> <webdriver> <chromium> <new-external-backup> [slug ...]`
+now connects target selection, HTML generation, browser capture, capture
+validation and recoverable local publication. It holds the shared release lock,
+renders the complete selection before publication begins, and cleans its owned
+scratch directory on success or failure. The backup is required for changed
+outputs and must be new and outside the repository. No package manager or
+JavaScript runtime participates. Standard output lists each selected PNG and
+the rendered count and Workdeck destination paths, following the upstream text
+shape; progress timing is not claimed identical.
+
+The ignored CLI test
+`native_generator_captures_then_publishes_without_partial_capture_writes` passed
+using the real browser/driver/font documented above. It verifies a failed launch
+preserves stale site images and creates no backup or destination, then verifies
+a successful full run, exact summary stdout, PNG geometry, stale-directory
+removal, original-byte recovery data and absence of `.agents` state. Invoke it
+with the same `WORKDECK_ORACLE_*` environment variables as the pixel test.
+No actual repository site outputs were modified by the isolated test. Explicit
+tool/asset paths and recovery arguments intentionally adapt the maintainer
+workflow; full upstream-script lifecycle and repository-wide parity remain open.
