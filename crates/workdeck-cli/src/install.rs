@@ -519,12 +519,44 @@ fn conflict_description(observation: &PathFileObservation, target: &Path) -> Str
         Shadowing::ShadowedByTarget => format!("is shadowed by {}", target.display()),
     };
     format!(
-        "{} (inferred owner: {}; {shadowing})",
+        "{} (inferred owner: {}; {shadowing})\n    Removal guidance: {}",
         observation.diagnostic_path.display(),
         observation
             .manager_hint
-            .unwrap_or("another package manager")
+            .unwrap_or("another package manager"),
+        conflict_remediation(observation.manager_hint),
     )
+}
+
+// Diagnostic text only: layout hints do not prove package ownership, and no
+// package manager or competing executable is invoked by conflict discovery.
+fn conflict_remediation(manager: Option<&str>) -> &'static str {
+    match manager {
+        Some("Cargo") => "If Cargo owns this installation, run `cargo uninstall workdeck`.",
+        Some("Homebrew") => "If Homebrew owns this installation, run `brew uninstall workdeck`.",
+        Some("Homebrew or another package manager") => {
+            "Confirm ownership first; use `brew uninstall workdeck` only if Homebrew owns this path, otherwise use its owning package manager."
+        }
+        Some("mise") => "If mise owns this installation, run `mise uninstall workdeck`.",
+        Some("Nix") => {
+            "Remove Workdeck from the owning Nix profile or declarative configuration; do not delete files from /nix/store."
+        }
+        Some("Workdeck standalone installer") => {
+            "Remove the competing standalone installation after preserving its recovery files; do not remove .agents/workdeck project data or Workdeck configuration."
+        }
+        Some("legacy npm") => {
+            "Identify the owning package using the npm runtime for this path, then uninstall that package globally with that same runtime. Workdeck does not publish an npm package."
+        }
+        Some("legacy Bun") => {
+            "Identify the owning global Bun package, then remove it with its owning Bun installation. Workdeck does not publish a Bun package."
+        }
+        Some("legacy pnpm") => {
+            "Identify the owning global pnpm package, then remove it with its owning pnpm installation. Workdeck does not publish a pnpm package."
+        }
+        _ => {
+            "Remove this competing executable using the package manager or installer that owns it."
+        }
+    }
 }
 
 fn executable_access(path: &Path) -> Option<bool> {
@@ -844,6 +876,36 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn conflict_removal_guidance_is_owner_specific_and_never_invents_legacy_packages() {
+        for (owner, expected) in [
+            ("Cargo", "cargo uninstall workdeck"),
+            ("Homebrew", "brew uninstall workdeck"),
+            (
+                "Homebrew or another package manager",
+                "Confirm ownership first",
+            ),
+            ("mise", "mise uninstall workdeck"),
+            ("Nix", "do not delete files from /nix/store"),
+            (
+                "Workdeck standalone installer",
+                "preserving its recovery files",
+            ),
+            ("legacy npm", "same runtime"),
+            ("legacy Bun", "owning Bun installation"),
+            ("legacy pnpm", "owning pnpm installation"),
+        ] {
+            let guidance = conflict_remediation(Some(owner));
+            assert!(guidance.contains(expected), "{owner}: {guidance}");
+            assert!(!guidance.contains("hunkdiff"));
+            assert!(!guidance.contains("rm -rf"));
+        }
+        assert_eq!(
+            conflict_remediation(None),
+            conflict_remediation(Some("unknown"))
+        );
+    }
 
     #[test]
     fn conflict_details_report_inferred_owner_and_all_path_order_states() {

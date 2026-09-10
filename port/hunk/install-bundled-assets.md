@@ -1,5 +1,22 @@
 # Bundled installer assets
 
+## Competing-install removal guidance
+
+Conflict errors now pair inferred ownership and PATH precedence with removal
+guidance. Cargo, Homebrew and mise commands are conditional on confirmed
+ownership. Nix guidance preserves the store and points to its owning profile or
+declarative configuration. Standalone guidance preserves recovery files, project
+data and configuration. Legacy npm/Bun/pnpm paths require identifying the actual
+owning package and runtime, rather than inventing a Workdeck package published
+through those channels. Detection and diagnostics invoke no package manager and
+remove nothing.
+
+Three focused conflict tests and strict CLI all-target Clippy pass. This ports
+the diagnostic purpose of Hunk's `competing_install_remediation` under Workdeck's
+native distribution policy; source-specific legacy package names are not
+asserted as Workdeck packages. Candidate version probing and complete installer
+parity remain outstanding, and the installer source interval remains unmapped.
+
 ## Standalone PATH integration
 
 On Unix, standalone installation now plans PATH configuration before release
