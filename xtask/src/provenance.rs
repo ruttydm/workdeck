@@ -1,6 +1,7 @@
 //! Structural/subject checks only: these do not authenticate a builder or signature.
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
+use workdeck_cli::install::attestation::{verification_args, wait_verifier};
 
 pub(crate) fn verify_ci_snapshot(binary: &[u8], bundle: &[u8], name: &str) -> Result<()> {
     // Private temporary copies prevent later changes to original inputs from changing
@@ -44,46 +45,6 @@ fn verification_snapshot(binary: &[u8], bundle: &[u8], name: &str) -> Result<tem
     Ok(directory)
 }
 
-fn verification_args(repo: &str, digest: &str, reference: &str) -> Result<Vec<String>> {
-    let parts: Vec<_> = repo.split('/').collect();
-    if parts.len() != 2
-        || parts.iter().any(|part| {
-            part.is_empty()
-                || !part
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
-        })
-    {
-        bail!("expected explicit GitHub OWNER/REPO");
-    }
-    if !matches!(digest.len(), 40 | 64) || !digest.bytes().all(|b| b.is_ascii_hexdigit()) {
-        bail!("expected full source commit digest");
-    }
-    if !reference.starts_with("refs/tags/")
-        || reference.len() == "refs/tags/".len()
-        || reference.chars().any(char::is_whitespace)
-    {
-        bail!("release verification requires a full tag ref");
-    }
-    Ok(vec![
-        "--hostname".into(),
-        "github.com".into(),
-        "--repo".into(),
-        repo.into(),
-        "--signer-workflow".into(),
-        format!("{repo}/.github/workflows/release.yml"),
-        "--source-digest".into(),
-        digest.into(),
-        "--source-ref".into(),
-        reference.into(),
-        "--cert-oidc-issuer".into(),
-        "https://token.actions.githubusercontent.com".into(),
-        "--predicate-type".into(),
-        "https://slsa.dev/provenance/v1".into(),
-        "--deny-self-hosted-runners".into(),
-    ])
-}
-
 /// Invoke the declared native GitHub CLI verifier; decoding alone is insufficient.
 pub(crate) fn verify(args: impl Iterator<Item = String>) -> Result<()> {
     use std::{
@@ -122,33 +83,6 @@ pub(crate) fn verify(args: impl Iterator<Item = String>) -> Result<()> {
     println!(
         "Attestation verified by gh for the specified repository, release workflow, commit and tag; other release gates remain independent."
     );
-    Ok(())
-}
-
-fn wait_verifier(child: &mut std::process::Child, timeout: std::time::Duration) -> Result<()> {
-    use std::time::{Duration, Instant};
-    let started = Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                if !status.success() {
-                    bail!("attestation verifier failed: {status}");
-                }
-                break;
-            }
-            Ok(None) if started.elapsed() < timeout => {
-                std::thread::sleep(Duration::from_millis(50))
-            }
-            result => {
-                let _ = child.kill();
-                let _ = child.wait();
-                if let Err(error) = result {
-                    return Err(error).context("poll attestation verifier");
-                }
-                bail!("attestation verifier exceeded deadline {timeout:?}");
-            }
-        }
-    }
     Ok(())
 }
 

@@ -6,6 +6,7 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+pub mod attestation;
 mod staging;
 mod transaction;
 pub use staging::{prepare_verified_archive, stage};
