@@ -21,9 +21,8 @@ the nearest gap, and a new note` passed on main
 `4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd` under disposable Bun 1.3.14,
 one test and eighteen assertions per pin.
 
-This is supplemental evidence, not a ledger mapping. Native draft cancellation
-in this test uses direct state cleanup, and the source's absent measured-line
-setup is not reproduced here. The source
+This is supplemental evidence, not a ledger mapping. The source's absent
+measured-line setup is not reproduced here. The source
 test and runtime hook remain unmapped; those obligations are not waived.
 
 After the gap-policy fix, all 1,218 TUI library tests passed (10.78 seconds).
@@ -37,7 +36,18 @@ It then substitutes each of the three effects for each of the three command
 IDs (nine combinations), verifying dispatch follows the declaration rather
 than the ID. This guards the architectural requirement beyond checking the
 current default outcomes. The focused test passed, along with formatting and
-diff checks. Remaining measured-line and cancellation obligations still prevent
+diff checks. The remaining measured-line obligation still prevents
 mapping the full source test; no ledger disposition changed.
 
 All 1,219 TUI library tests passed after this addition (8.60 seconds).
+
+## Real draft cancellation input
+
+The sequence now sends Escape through `ReviewApp::handle_key` instead of
+clearing the composer directly. It asserts the draft is absent, focus is back
+in Review, and no comments were persisted before executing the gap command.
+The focused test passed (0.75 seconds). This closes the direct-cleanup test
+shortcut; it does not reproduce the source harness's unpublished line cursors.
+
+All 1,219 TUI library tests passed after the input change (8.63 seconds),
+with formatting and diff checks passing. Ledger dispositions are unchanged.

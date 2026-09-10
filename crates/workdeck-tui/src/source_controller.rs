@@ -555,7 +555,10 @@ pub(super) mod tests {
         assert_eq!(target.hunk_index, 0);
         assert_eq!(target.side, ReviewSide::New);
         assert_eq!(target.line, 1);
-        app.note_composer = None;
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.note_composer.is_none());
+        assert_eq!(app.focus, Focus::Review);
+        assert!(app.with_state(|state| state.comments().is_empty()));
         assert!(app.execute_extension_review_command("workdeck.review.toggleHunkGap", 1));
         sender.send(source).unwrap();
         drain_one(&mut app);
