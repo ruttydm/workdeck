@@ -944,6 +944,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn prerelease_series_cards_match_main_oracle() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/website-changelog-prerelease-card-oracle.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            fixture["baseline"],
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2"
+        );
+        let cases = fixture["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 6);
+        for case in cases {
+            let series = group_into_series(parse_changelog(case["input"].as_str().unwrap()))
+                .pop()
+                .unwrap();
+            let dates = serde_json::from_value(case["dates"].clone()).unwrap();
+            assert_eq!(
+                series_card(
+                    &series,
+                    Some("An **editorial** summary."),
+                    &dates,
+                    false,
+                    "Hunk"
+                ),
+                case["expected"]
+            );
+        }
+    }
+
+    #[test]
     fn stable_series_cards_match_both_pinned_oracles() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
             "../../../port/hunk/website-changelog-card-oracle.json"

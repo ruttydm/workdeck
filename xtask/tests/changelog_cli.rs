@@ -75,6 +75,17 @@ fn pages_cli_composes_overlays_and_never_writes_site_files() {
             .contains("Prerelease · August 2, 2026")
     );
     let stable = pages[2]["markdown"].as_str().unwrap();
+    assert!(pages[0]["card"].get("latest").is_none());
+    assert!(pages[1]["card"].get("latest").is_none());
+    assert!(
+        pages[1]["card"]["meta"]
+            .as_str()
+            .unwrap()
+            .starts_with("Prerelease · ")
+    );
+    assert_eq!(pages[2]["card"]["latest"], true);
+    assert_eq!(pages[2]["card"]["title"], "Workdeck 1.0");
+    assert_eq!(pages[2]["card"]["tagline"], "Editorial lead.");
     assert!(stable.contains("Editorial lead."));
     assert!(stable.contains("--tag v1.0.0 --package workdeck-cli --locked"));
     assert!(stable.contains("workdeck update"));

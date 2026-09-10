@@ -225,6 +225,17 @@ by the command and the directory inventory contains no new repository state.
 All eight changelog CLI tests pass. Complete page rendering remains open, and
 no ledger mapping changed.
 
+## Prerelease card verification
+
+Six new executed main-pin fixtures cover beta-only and mixed stable/beta series
+under absent, beta-only and mixed publication dates, with an editorial override.
+The exact native card-object comparison passes. These target main's publication
+semantics; stable's differing prerelease policy is not normalized into a pass.
+The pages CLI test now checks beta-card labeling, absent latest markers on newer
+unpublished/prerelease series, and the older published stable card's latest marker,
+Workdeck title and overlay tagline. The updated CLI test passes. No ledger mapping
+changed; card-image generation and final website integration remain open.
+
 ## Release video fragments
 
 `cargo xtask changelog video <input.json>` renders a static video fragment from
