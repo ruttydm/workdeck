@@ -1,5 +1,9 @@
 # Website changelog parser continuation
 
+The partial native RSS command and its frozen-output verification are documented
+in [website-changelog-feed.md](website-changelog-feed.md). Generator coverage
+remains incomplete; this continuation does not change ledger mappings.
+
 `cargo xtask changelog parse <markdown-file>` reads a changelog and prints parsed
 release JSON without writing repository state. The new parser translates the
 release-ordering, Changesets bullet cleanup, fenced heading/bullet handling,

@@ -8,7 +8,9 @@ use std::cmp::Ordering;
 use std::path::Path;
 use std::sync::LazyLock;
 
+mod feed;
 mod pages;
+pub(super) use feed::run_feed;
 pub(super) use pages::run_pages;
 
 // Keep regular-expression whitespace aligned with the pinned JavaScript parser.
