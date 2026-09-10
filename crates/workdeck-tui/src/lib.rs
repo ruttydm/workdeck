@@ -19143,6 +19143,71 @@ mod tests {
     }
 
     #[test]
+    fn mouse_delete_rejects_parent_notes_without_mutation() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        let file_key = app.with_state(|state| state.changeset().files[0].key.clone());
+        let mut root = saved_comment(&file_key, "user:mouse-root", "Root note");
+        root.source = "user".into();
+        root.editable = true;
+        let mut child = root.clone();
+        child.id = "user:mouse-child".into();
+        child.parent_id = Some(root.id.clone());
+        child.summary = "Child reply".into();
+        app.with_state(|state| {
+            state.add_comment(root).unwrap();
+            state.add_comment(child).unwrap();
+        });
+        app.saved_note_hover = Some("user:mouse-root".into());
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        let bounds = app
+            .saved_note_actions
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(_, action)| *action == AgentInlineNoteAction::Delete)
+            .map(|(bounds, _)| *bounds)
+            .expect("rendered delete action");
+        let before = app.with_state(|state| (state.comments().to_vec(), state.state_revision()));
+        app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: bounds.x,
+            row: bounds.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert_eq!(
+            app.with_state(|state| (state.comments().to_vec(), state.state_revision())),
+            before
+        );
+        assert_eq!(
+            app.status.as_deref(),
+            Some("Review note user:mouse-root cannot be removed while it has replies.")
+        );
+        for (id, remaining) in [("user:mouse-child", 1), ("user:mouse-root", 0)] {
+            app.saved_note_hover = Some(id.into());
+            rendered_review_frame(&mut terminal, &app);
+            let bounds = app
+                .saved_note_actions
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|(_, action)| *action == AgentInlineNoteAction::Delete)
+                .map(|(bounds, _)| *bounds)
+                .expect("rendered leaf delete action");
+            app.handle_mouse_event(MouseEvent {
+                kind: MouseEventKind::Up(MouseButton::Left),
+                column: bounds.x,
+                row: bounds.y,
+                modifiers: KeyModifiers::NONE,
+            });
+            app.with_state(|state| {
+                assert_eq!(state.comments().len(), remaining);
+                assert!(state.comments().iter().all(|note| note.id != id));
+            });
+        }
+    }
+
+    #[test]
     fn user_note_composer_edits_and_replies_with_stable_public_identity() {
         let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
         let file_key = app.with_state(|state| state.changeset().files[0].key.clone());

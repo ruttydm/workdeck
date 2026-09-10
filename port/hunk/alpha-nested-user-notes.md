@@ -27,3 +27,18 @@ tests passed in 8.78 seconds. Formatting and diff checks passed.
 Strict audit reached the incomplete-coverage gate: 1,257 files, 1,434 interval
 records, 467 translated-test records, 277 unmapped records and 92 pending upstream
 commits. It failed as expected on unmapped records; this is not release parity.
+
+## Rendered mouse deletion regression
+
+`tests::mouse_delete_rejects_parent_notes_without_mutation` creates a parent and
+child, renders a 100-by-30 Ratatui frame, finds the actual rendered Delete action
+rectangle and sends a left-button release through `handle_mouse_event`. The
+parent rejection must preserve all stored comments and the state revision and
+display the exact error. It then rerenders and clicks the child and parent Delete
+actions in leaf-first order, checking removal after each click. This exercises
+rendered hit routing rather than injecting a synthetic action rectangle.
+
+This supplements the session-level nested-note test; it does not map another
+Hunk source interval or establish complete terminal-frame parity.
+All 1,235 TUI library tests passed in 8.77 seconds after adding this regression;
+formatting and diff checks passed.
