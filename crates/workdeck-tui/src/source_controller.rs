@@ -55,6 +55,7 @@ impl ReviewSourceLoader for VcsSourceLoader {
 
 pub(super) struct SourceLoaderBinding {
     identity: Option<String>,
+    vcs_runtime_identity: Option<u64>,
     loader: Arc<dyn ReviewSourceLoader>,
 }
 
@@ -88,22 +89,24 @@ impl ReviewApp {
                 continue;
             };
             installed.insert(file.key.clone());
+            let runtime_identity = capability.runtime_identity();
             let loader: Arc<dyn ReviewSourceLoader> = Arc::new(VcsSourceLoader(capability));
-            let retained = file.source_attested
-                && self
-                    .source_loaders
-                    .get(&file.key)
-                    .is_some_and(|binding| binding.identity == file.source_identity);
+            let retained = self.source_loaders.get(&file.key).is_some_and(|binding| {
+                binding.identity == file.source_identity
+                    && (file.source_attested
+                        || binding.vcs_runtime_identity == Some(runtime_identity))
+            });
             if retained {
                 self.source_loaders.insert(
                     file.key.clone(),
                     SourceLoaderBinding {
                         identity: file.source_identity.clone(),
+                        vcs_runtime_identity: Some(runtime_identity),
                         loader,
                     },
                 );
             } else {
-                self.bind_source_loader(file, loader);
+                self.bind_source_loader(file, loader, Some(runtime_identity));
             }
         }
         let retired = self
@@ -138,17 +141,23 @@ impl ReviewApp {
         let Some(file) = file else {
             return false;
         };
-        self.bind_source_loader(file, loader);
+        self.bind_source_loader(file, loader, None);
         true
     }
 
-    fn bind_source_loader(&mut self, file: &DiffFile, loader: Arc<dyn ReviewSourceLoader>) {
+    fn bind_source_loader(
+        &mut self,
+        file: &DiffFile,
+        loader: Arc<dyn ReviewSourceLoader>,
+        vcs_runtime_identity: Option<u64>,
+    ) {
         self.source_requests
             .retire(&BTreeSet::from([file.key.clone()]));
         self.source_loaders.insert(
             file.key.clone(),
             SourceLoaderBinding {
                 identity: file.source_identity.clone(),
+                vcs_runtime_identity,
                 loader,
             },
         );
@@ -389,6 +398,57 @@ pub(super) mod tests {
                 .all(|file| app.options.source_presentation.available(file))
         );
         assert_eq!(reads.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn reinstalling_same_unversioned_vcs_reader_keeps_loaded_presentation() {
+        fn provider(text: &'static str) -> (Changeset, workdeck_vcs::VcsSourceCapabilities) {
+            workdeck_vcs::materialize_vcs_patch_result_deferred(
+                workdeck_vcs::VcsPatchResult {
+                    repo_root: ".".into(), source_label: "repo".into(), title: "working tree".into(),
+                    patch_text: "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -3 +3 @@\n-old\n+new\n".into(),
+                    untracked_paths: vec![], extra_files: vec![], source_cache_key: None,
+                    source_reader: Some(Arc::new(move |_| Ok(workdeck_vcs::VcsFileSourceResult::Source(
+                        workdeck_core::SourceSnapshot::new(text.into(), workdeck_core::SourceOrigin::WorkingTree, false)
+                    )))),
+                }, "repo", workdeck_core::ChangesetSource::WorkingTree { staged: false },
+            ).unwrap()
+        }
+        let (review, capabilities) = provider("initial-one\ninitial-two\nnew\n");
+        assert!(!review.files[0].source_attested);
+        let mut app = ReviewApp::new(
+            review.clone(),
+            ReviewOptions {
+                highlight: false,
+                source_capabilities: Some(capabilities.clone()),
+                ..Default::default()
+            },
+        );
+        app.toggle_source_gap();
+        // Reinstalling while the worker is pending must not retire its completion.
+        app.install_vcs_source_capabilities(&capabilities);
+        drain_one(&mut app);
+        let selected = app.with_state(|state| state.selection());
+        let before = rows(&app);
+        app.reload(review.clone());
+        app.install_vcs_source_capabilities(&capabilities);
+        assert!(
+            matches!(app.options.source_presentation.status(&review.files[0]),
+            Some(workdeck_review::ReviewSourceStatus::Loaded { text }) if text.starts_with("initial-one"))
+        );
+        assert_eq!(rows(&app), before);
+        assert_eq!(app.with_state(|state| state.selection()), selected);
+
+        let (replacement, fresh_capabilities) = provider("fresh-one\nfresh-two\nnew\n");
+        assert_eq!(replacement, review);
+        app.install_vcs_source_capabilities(&fresh_capabilities);
+        assert!(matches!(
+            app.options.source_presentation.status(&review.files[0]),
+            Some(workdeck_review::ReviewSourceStatus::Loading)
+        ));
+        drain_one(&mut app);
+        assert!(rows(&app).contains("fresh-one"));
+        assert!(!rows(&app).contains("initial-one"));
     }
 
     pub(crate) fn drain_one(app: &mut ReviewApp) {

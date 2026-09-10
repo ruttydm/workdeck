@@ -1,5 +1,14 @@
 # Hunk semantic-port ledger
 
+## Unchanged VCS reader reinstallation
+
+The production capability installer now retains pending or loaded presentation
+when the exact same unversioned VCS reader is reinstalled. New unversioned
+readers still refresh open gaps; actual document replacements retain their
+retirement rules. The regression reproduced the redundant loading cycle and
+now passes with all 1,185 TUI tests. See
+[scope and verification](vcs-reader-reinstallation.md). No ledger coverage is added.
+
 ## Identical reloads retain source state
 
 An identical soft reload no longer retires an unversioned reader and its loaded
