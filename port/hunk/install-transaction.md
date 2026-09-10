@@ -22,3 +22,12 @@ backup bytes, refusal to overwrite a backup, preservation of a precommit externa
 edit, temporary-file cleanup, and symlink-target rejection. Tests only mutate
 temporary fixtures. No user-installed executable has been replaced. No source
 ledger interval is advanced by this incremental native implementation.
+
+Binary reads now validate the opened file handle and read at most the observed
+length plus one byte. Growth, truncation and oversized declarations fail rather
+than bypassing the bound. Unix opens also use no-follow and nonblocking flags
+to reject symlink substitution and avoid FIFO blocking. This does not close the
+final rename race, and equivalent Windows reparse-point handling remains open.
+All 31 installer tests pass, including a bounded-read test with an endless input.
+The broader `cargo test -p workdeck-cli --lib` run also passes all 271 tests.
+This does not include CLI integration targets or the full workspace suite.
