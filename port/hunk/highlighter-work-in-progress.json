@@ -21,7 +21,7 @@
     "scope": "Compiled subprocess concurrency, source reads, cancellation, deadlines, saved-note updates and live cell painting. Does not complete the source hook interval."
   },
   "settledGenerationFastPath": "Unchanged fully cached generations with no pending requests reuse their published map without rebuilding retention/publication maps. Retired completion messages are still drained. Lifecycle tests cover invalidation, reordered/removed registrations and late-result cleanup. This is not a measured release-benchmark result.",
-  "provenanceGate": "For the pinned Hunk baseline, cargo xtask port audit verifies the reorder/removal fixtures name both exact pins and resolves their recorded source blob at each pin. This check validates provenance, not capture honesty or complete behavioral coverage.",
+  "provenanceGate": "For the pinned Hunk baseline, cargo xtask port audit verifies the reorder/removal fixtures name both exact pins and resolves their recorded source blob at each pin. It also requires nonblank runtime/capture metadata, an explicit boolean declaration that both pinned results are identical, and a nonempty trace object. Native TUI tests independently compare actual execution results against the complete frozen trace. These checks validate metadata consistency and replay parity, not capture honesty or complete behavioral coverage.",
   "registrationReorderRegression": {
     "test": "line_highlights::tests::reordering_live_registrations_reuses_parts_but_reorders_published_marks",
     "behavior": "Reordering existing registrations reuses cached contributions, changes merged mark order without extension calls, and retains map identity on the next unchanged frame.",

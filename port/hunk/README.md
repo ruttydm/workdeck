@@ -1,5 +1,16 @@
 # Hunk semantic-port ledger
 
+## Highlighter oracle metadata is enforced
+
+The shared-trace provenance gate now rejects missing or blank runtime/capture
+metadata, absent or non-object traces, and any value other than boolean `true`
+for the declaration that both pinned captures matched. Previously the gate
+checked only pins, source path and blob identity. Adversarial mutations cover
+missing fields, nulls, wrong types, empty values and contradictory declarations.
+The native reorder/removal tests already compare execution against the frozen
+trace; neither metadata checks nor those comparisons prove how a fixture was
+originally captured. No fixture was recaptured or ledger record mapped here.
+
 ## Disabling and re-enabling line highlighters
 
 Two native lifecycle tests now cover the pinned hook's empty-registration path.

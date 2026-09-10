@@ -14,6 +14,24 @@ const FIXTURES: [&str; 2] = [
 ];
 
 fn validate(value: &Value, mut blob: impl FnMut(&str, &str) -> Result<String>) -> Result<()> {
+    for field in ["runtime", "capture"] {
+        ensure!(
+            value[field]
+                .as_str()
+                .is_some_and(|text| !text.trim().is_empty()),
+            "highlighter oracle {field} metadata missing"
+        );
+    }
+    ensure!(
+        value["resultsIdenticalAtBothPins"] == Value::Bool(true),
+        "shared highlighter trace requires identical results at both pins"
+    );
+    ensure!(
+        value["trace"]
+            .as_object()
+            .is_some_and(|trace| !trace.is_empty()),
+        "highlighter oracle executable trace missing"
+    );
     ensure!(
         value["baselines"] == serde_json::json!(PINS),
         "highlighter oracle must identify both exact source pins"
@@ -75,6 +93,42 @@ mod tests {
                 assert!(validate(&changed, resolve).is_err());
             }
             assert!(validate(&value, |_, _| Ok("wrong-object".into())).is_err());
+            for key in ["runtime", "capture", "resultsIdenticalAtBothPins", "trace"] {
+                let mut missing = value.clone();
+                missing.as_object_mut().unwrap().remove(key);
+                assert!(validate(&missing, resolve).is_err(), "missing {key}");
+                missing[key] = Value::Null;
+                assert!(validate(&missing, resolve).is_err(), "null {key}");
+            }
+            for key in ["runtime", "capture"] {
+                for invalid in [
+                    serde_json::json!(" \n\t"),
+                    serde_json::json!(42),
+                    serde_json::json!({}),
+                ] {
+                    let mut changed = value.clone();
+                    changed[key] = invalid;
+                    assert!(validate(&changed, resolve).is_err(), "invalid {key}");
+                }
+            }
+            for invalid in [
+                serde_json::json!(false),
+                serde_json::json!("true"),
+                serde_json::json!(1),
+            ] {
+                let mut changed = value.clone();
+                changed["resultsIdenticalAtBothPins"] = invalid;
+                assert!(validate(&changed, resolve).is_err());
+            }
+            for invalid in [
+                serde_json::json!({}),
+                serde_json::json!([]),
+                serde_json::json!("trace"),
+            ] {
+                let mut changed = value.clone();
+                changed["trace"] = invalid;
+                assert!(validate(&changed, resolve).is_err());
+            }
         }
     }
 }
