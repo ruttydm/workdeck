@@ -32,10 +32,9 @@ cargo xtask skill check
 The skill instructs agents to avoid launching interactive commands such as `workdeck diff` themselves. The user owns the TUI; the agent talks to an already-live review through `workdeck session *`.
 
 Keep a human-owned `workdeck diff` session open while the agent uses the session
-CLI. The broader agent workflow guide is still being migrated. Workdeck session
+CLI. See [Review with an agent](/docs/agents/review-with-an-agent/). Workdeck session
 control does not take over Herder's agent-process or PTY ownership.
 
 Adapted from Hunk's pinned MIT guide, Copyright Modem Labs Inc. The website
 artifact is generated in the repository; deployment and all-platform installation
 qualification remain separate release gates. This source interval stays unmapped.
-
