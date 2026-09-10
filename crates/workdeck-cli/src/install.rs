@@ -8,7 +8,9 @@ use std::path::{Path, PathBuf};
 
 pub mod attestation;
 mod authenticated;
+mod download;
 pub use authenticated::{ReleaseIdentity, install_authenticated_archive};
+pub use download::{DownloadedRelease, download_release};
 mod staging;
 mod transaction;
 pub use staging::{prepare_verified_archive, stage};

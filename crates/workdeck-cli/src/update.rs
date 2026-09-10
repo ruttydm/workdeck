@@ -664,7 +664,7 @@ fn powershell_install_script() -> String {
     )
 }
 
-fn direct_target(
+pub(crate) fn direct_target(
     platform: UpdatePlatform,
     architecture: &str,
 ) -> Result<(&'static str, &'static str), UpdateError> {
