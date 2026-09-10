@@ -16025,12 +16025,68 @@ fn note_composer_cursor_cell(
 mod tests {
     use super::*;
     use ratatui::backend::TestBackend;
+    use std::{fs, io, path::Path};
     use workdeck_core::{
         AgentAnnotation, AgentFileContext, ChangesetSource, CliInput, CommonOptions,
         FileSourceSnapshots, LineRange, SourceOrigin, SourceSnapshot, VcsDiffCommandInput,
     };
     use workdeck_diff::{create_two_files_patch, parse_patch};
     use workdeck_review::{CommentAnchor, ReviewComment};
+
+    // Translated from Hunk test/helpers/filesystem.ts (2c00f435, MIT,
+    // Modem Labs Inc.; see THIRD_PARTY_NOTICES). Node's rm(..., force:true)
+    // treats an already-removed directory as success; Rust's equivalent is
+    // the explicit NotFound branch below. Windows can transiently report
+    // EBUSY, ENOTEMPTY, or EPERM while test processes release handles.
+    fn remove_test_directory(path: &Path) -> io::Result<()> {
+        for attempt in 0..=20 {
+            match fs::remove_dir_all(path) {
+                Ok(()) => return Ok(()),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+                Err(error) if is_retryable_remove_error(&error) && attempt < 20 => {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        unreachable!("bounded removal loop always returns")
+    }
+
+    fn is_retryable_remove_error(error: &io::Error) -> bool {
+        let Some(code) = error.raw_os_error() else {
+            return false;
+        };
+        if cfg!(windows) {
+            // ERROR_ACCESS_DENIED, ERROR_DIR_NOT_EMPTY, and ERROR_BUSY.
+            matches!(code, 5 | 145 | 170)
+        } else {
+            // EBUSY, ENOTEMPTY, and EPERM on Unix hosts.
+            matches!(code, 16 | 66 | 1)
+        }
+    }
+
+    #[test]
+    fn remove_test_directory_is_recursive_forced_and_bounded_on_transient_errors() {
+        let root = tempfile::tempdir().unwrap();
+        let nested = root.path().join("fixture").join("child");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join("payload"), "fixture").unwrap();
+        let target = root.path().join("fixture");
+        assert!(remove_test_directory(&target).is_ok());
+        assert!(!target.exists());
+        // force:true / Node rm semantics: a missing path is not an error.
+        assert!(remove_test_directory(&target).is_ok());
+
+        let retry_code = if cfg!(windows) { 170 } else { 16 };
+        assert!(is_retryable_remove_error(&io::Error::from_raw_os_error(
+            retry_code
+        )));
+        assert!(!is_retryable_remove_error(&io::Error::from_raw_os_error(2)));
+        assert!(!is_retryable_remove_error(&io::Error::new(
+            io::ErrorKind::Other,
+            "no operating-system error code",
+        )));
+    }
 
     #[test]
     fn emphasis_runs_match_character_reference_for_unicode_and_overlapping_ranges() {
