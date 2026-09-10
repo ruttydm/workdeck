@@ -236,3 +236,12 @@ fails cleanup, preserves that image and restores the earlier deleted image.
 The five-step rollback matrix additionally verifies restoration of Unix 0750
 and 0700 permissions on nested directories. This covers the injected event
 sequence, not arbitrary concurrent filesystem interleavings.
+
+Full plans now retain the entire original changelog-file inventory, including
+unchanged images. Application compares it before creating recovery data and
+compares the expected final inventory after writes. A new file in a retained
+directory is detected rather than silently accepted as a complete full run.
+The regression covers additions before application (no backup or writes) and
+during application (rollback with the new file preserved). Eleven social-card
+unit tests pass. These checks do not provide isolation against changes after the
+final check, ABA edits, or parent replacement between filesystem operations.

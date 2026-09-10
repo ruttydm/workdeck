@@ -34,6 +34,19 @@ pub(in crate::social_cards) fn apply(
         "publication plan keys differ"
     );
     let repo = repo.canonicalize()?;
+    if let Some(expected) = &plan.full_inventory {
+        let mut current = BTreeMap::new();
+        super::inventory(
+            &repo,
+            super::CHANGELOG,
+            &mut current,
+            &mut Default::default(),
+        )?;
+        ensure!(
+            &current == expected,
+            "full publication inventory changed before application"
+        );
+    }
     let parent = backup
         .parent()
         .context("backup parent missing")?
@@ -153,6 +166,29 @@ pub(in crate::social_cards) fn apply(
                 "publication changed after write: {name}"
             );
         }
+        if let Some(original) = &plan.full_inventory {
+            let mut expected = original.clone();
+            for (name, bytes) in &plan.replacements {
+                if name.starts_with(&format!("{}/", super::CHANGELOG)) {
+                    if bytes.is_some() {
+                        expected.insert(name.clone(), bytes.clone());
+                    } else {
+                        expected.remove(name);
+                    }
+                }
+            }
+            let mut current = BTreeMap::new();
+            super::inventory(
+                &repo,
+                super::CHANGELOG,
+                &mut current,
+                &mut Default::default(),
+            )?;
+            ensure!(
+                current == expected,
+                "full publication inventory changed during application"
+            );
+        }
         Ok(())
     })();
     if let Err(error) = result {
@@ -207,6 +243,41 @@ pub(in crate::social_cards) fn apply(
 mod tests {
     use super::*;
     #[test]
+    fn full_inventory_detects_new_files_in_retained_directories() {
+        for before in [false, true] {
+            let outer = tempfile::tempdir().unwrap();
+            let repo = outer.path().join("repo");
+            fs::create_dir_all(repo.join(super::super::CHANGELOG)).unwrap();
+            let name = "site/static/changelog/og/index.png".to_string();
+            let extra = repo.join("site/static/changelog/og/new.png");
+            fs::write(repo.join(&name), b"original").unwrap();
+            let originals = BTreeMap::from([(name.clone(), Some(b"original".to_vec()))]);
+            let plan = Plan {
+                full_inventory: Some(originals.clone()),
+                remove_directories: Default::default(),
+                originals,
+                replacements: BTreeMap::from([(name.clone(), Some(b"replacement".to_vec()))]),
+            };
+            if before {
+                fs::write(&extra, b"new image").unwrap();
+            }
+            let backup = outer.path().join("backup");
+            let error = apply(&repo, &plan, &backup, |_| {
+                fs::write(&extra, b"new image")?;
+                Ok(())
+            })
+            .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("full publication inventory changed")
+            );
+            assert_eq!(fs::read(repo.join(name)).unwrap(), b"original");
+            assert_eq!(fs::read(extra).unwrap(), b"new image");
+            assert_eq!(backup.exists(), !before);
+        }
+    }
+    #[test]
     fn cleanup_preserves_new_entries_and_rolls_back_prior_deletions() {
         let outer = tempfile::tempdir().unwrap();
         let repo = outer.path().join("repo");
@@ -216,6 +287,7 @@ mod tests {
         let newcomer = repo.join(directory).join("new.png");
         fs::write(repo.join(&old), b"original").unwrap();
         let plan = Plan {
+            full_inventory: None,
             remove_directories: [directory.into()].into_iter().collect(),
             originals: BTreeMap::from([(old.clone(), Some(b"original".to_vec()))]),
             replacements: BTreeMap::from([(old.clone(), None)]),
@@ -259,6 +331,7 @@ mod tests {
             fs::write(repo.join(&a), [0, 255, 1]).unwrap();
             fs::write(repo.join(&b), b"stale").unwrap();
             let plan = Plan {
+                full_inventory: None,
                 remove_directories: [empty.to_string(), nested.to_string()]
                     .into_iter()
                     .collect(),

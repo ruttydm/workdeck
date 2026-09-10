@@ -14,6 +14,7 @@ const CHANGELOG: &str = "site/static/changelog/og";
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Plan {
+    pub full_inventory: Option<BTreeMap<String, Option<Vec<u8>>>>,
     pub remove_directories: BTreeSet<String>,
     pub originals: BTreeMap<String, Option<Vec<u8>>>,
     pub replacements: BTreeMap<String, Option<Vec<u8>>>,
@@ -60,6 +61,7 @@ fn inventory(
     files: &mut BTreeMap<String, Option<Vec<u8>>>,
     directories: &mut BTreeSet<String>,
 ) -> Result<()> {
+    check_parents(repo, relative)?;
     let path = repo.join(relative);
     let metadata = match fs::symlink_metadata(&path) {
         Ok(metadata) => metadata,
@@ -98,6 +100,7 @@ pub(super) fn plan(repo: &Path, staging: &Path, targets: &[Target], full: bool) 
         inventory(repo, CHANGELOG, &mut originals, &mut remove_directories)?;
         replacements.extend(originals.keys().map(|name| (name.clone(), None)));
     }
+    let full_inventory = full.then(|| originals.clone());
     for (target, bytes) in targets.iter().zip(images) {
         let name = &target.output_file;
         check_parents(repo, name)?;
@@ -116,6 +119,7 @@ pub(super) fn plan(repo: &Path, staging: &Path, targets: &[Target], full: bool) 
             .any(|target| target.output_file.starts_with(&format!("{dir}/")))
     });
     Ok(Plan {
+        full_inventory,
         remove_directories,
         originals,
         replacements,
