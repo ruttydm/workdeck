@@ -11,6 +11,104 @@ fn run(repo: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
+fn dates_cli_uses_real_tag_dates_and_preserves_recorded_inputs() {
+    let repo = tempfile::tempdir().unwrap();
+    let git = |args: &[&str], date: &str| {
+        let output = Command::new("git")
+            .current_dir(repo.path())
+            .args(args)
+            .env(
+                "GIT_CONFIG_GLOBAL",
+                repo.path().join("nonexistent-global-config"),
+            )
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_AUTHOR_NAME", "Fixture")
+            .env("GIT_AUTHOR_EMAIL", "fixture@example.invalid")
+            .env("GIT_COMMITTER_NAME", "Fixture")
+            .env("GIT_COMMITTER_EMAIL", "fixture@example.invalid")
+            .env("GIT_AUTHOR_DATE", date)
+            .env("GIT_COMMITTER_DATE", date)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    git(&["init", "--quiet"], "2026-08-28T12:00:00+00:00");
+    git(
+        &[
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "fixture",
+        ],
+        "2026-08-28T12:00:00+00:00",
+    );
+    git(
+        &[
+            "-c",
+            "tag.gpgSign=false",
+            "tag",
+            "-a",
+            "v1.2.0",
+            "-m",
+            "published",
+        ],
+        "2026-08-29T12:00:00+00:00",
+    );
+    git(
+        &["-c", "tag.gpgSign=false", "tag", "v1.1.0"],
+        "2026-08-30T12:00:00+00:00",
+    );
+    let markdown = "## 1.3.0\n## 1.2.0\n## 1.1.0\n## [1.0.0] - 2020-01-01\n";
+    let input = repo.path().join("history.md");
+    let recorded = repo.path().join("dates.json");
+    std::fs::write(&input, markdown).unwrap();
+    let output = run(
+        repo.path(),
+        &["changelog", "dates", "history.md", "dates.json"],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap(),
+        serde_json::json!({
+            "1.2.0":"2026-08-29", "1.1.0":"2026-08-28", "1.0.0":"2020-01-01"
+        })
+    );
+    assert!(!recorded.exists());
+    let original = r#"{"1.2.0":"1999-01-01","9.9.9":"2000-01-01"}"#;
+    std::fs::write(&recorded, original).unwrap();
+    let output = run(
+        repo.path(),
+        &["changelog", "dates", "history.md", "dates.json"],
+    );
+    assert!(output.status.success());
+    let dates: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(dates["1.2.0"], "1999-01-01");
+    assert!(dates.get("9.9.9").is_none());
+    assert_eq!(std::fs::read_to_string(&recorded).unwrap(), original);
+    std::fs::write(&recorded, "{broken").unwrap();
+    let output = run(
+        repo.path(),
+        &["changelog", "dates", "history.md", "dates.json"],
+    );
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(!output.stderr.is_empty());
+    assert_eq!(std::fs::read_to_string(recorded).unwrap(), "{broken");
+    assert_eq!(std::fs::read_to_string(input).unwrap(), markdown);
+}
+
+#[test]
 fn website_parser_cli_is_read_only_and_rejects_extra_arguments() {
     let repo = tempfile::tempdir().unwrap();
     assert!(

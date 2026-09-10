@@ -66,3 +66,18 @@ precedence, unresolved and stale entries, key ordering, and tag-date string
 selection. All six parser/grouping/date tests passed in 0.06 seconds. Real Git-tag
 fixtures, date-command integration checks and frozen date oracles remain to be
 added before claiming complete date-resolution parity. No ledger mapping changed.
+
+## Executed date oracles and real tags
+
+`website-changelog-dates-oracle.json` now freezes both pins' resolved date maps,
+key order and lookup call sequence for recorded, legacy, missing and stale entries.
+The main pin also provides exported `resolveTagDate` vectors; stable does not
+export that helper, which is explicitly recorded rather than treated as a pass.
+All seven parser/grouping/date unit tests passed in 0.06 seconds.
+
+The CLI regression creates a real temporary Git repository with an annotated
+tag dated one day after its commit and a lightweight tag pointing at that commit.
+It checks the distinct publication dates, unresolved versions, heading dates,
+recorded overrides, stale-entry omission, and unchanged inputs. A missing date
+file is not created; malformed JSON produces an error and no output or rewrite.
+This remains partial generator evidence, not a new ledger mapping.

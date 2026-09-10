@@ -361,6 +361,43 @@ mod tests {
     use super::*;
 
     #[test]
+    fn date_maps_and_lookup_calls_match_frozen_pins() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/website-changelog-dates-oracle.json"
+        ))
+        .unwrap();
+        let releases = parse_changelog(fixture["input"].as_str().unwrap());
+        let recorded = serde_json::from_value(fixture["recorded"].clone()).unwrap();
+        let cases = fixture["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 2);
+        for case in cases {
+            let mut calls = Vec::new();
+            let dates = resolve_dates(&releases, &recorded, |version| {
+                calls.push(version.to_owned());
+                fixture["lookup"][version].as_str().map(str::to_owned)
+            });
+            assert_eq!(
+                serde_json::to_value(dates.keys().collect::<Vec<_>>()).unwrap(),
+                case["keys"]
+            );
+            assert_eq!(serde_json::to_value(dates).unwrap(), case["dates"]);
+            assert_eq!(serde_json::to_value(calls).unwrap(), case["lookupCalls"]);
+            for tag in case["tagDates"].as_array().unwrap() {
+                assert_eq!(
+                    serde_json::to_value(resolve_tag_date(
+                        tag["tagger"].as_str().unwrap(),
+                        tag["commit"].as_str().unwrap()
+                    ))
+                    .unwrap(),
+                    tag["expected"]
+                );
+            }
+        }
+        assert_eq!(cases[0]["tagHelperExported"], true);
+        assert_eq!(cases[1]["tagHelperExported"], false);
+    }
+
+    #[test]
     fn dates_preserve_recorded_values_prefer_headings_and_sort_without_stale_entries() {
         let releases =
             parse_changelog("## 0.19.0\n## 0.18.0\n## [0.15.3] - 2026-06-13\n## 0.14.0\n");
