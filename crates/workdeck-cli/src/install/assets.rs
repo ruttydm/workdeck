@@ -16,9 +16,10 @@ pub fn install_authenticated_skills(
     checksums: &Path,
     target: &Path,
     recovery: &Path,
+    expected_target: &str,
     identity: super::ReleaseIdentity<'_>,
 ) -> Result<()> {
-    install_from_archive(target, recovery, || {
+    install_from_archive(target, recovery, expected_target, || {
         super::prepare_authenticated_archive(archive, checksums, identity)
     })
 }
@@ -26,8 +27,10 @@ pub fn install_authenticated_skills(
 fn install_from_archive(
     target: &Path,
     recovery: &Path,
+    expected_target: &str,
     stage: impl FnOnce() -> Result<tempfile::TempDir>,
 ) -> Result<()> {
+    super::metadata::PrebuiltMetadata::for_target(expected_target)?;
     let staged = stage()?;
     let mut roots = fs::read_dir(staged.path())?;
     let root = roots
@@ -43,6 +46,10 @@ fn install_from_archive(
         .and_then(|name| name.to_str())
         .and_then(|name| name.strip_prefix("workdeck-"))
         .context("invalid native package wrapper")?;
+    ensure!(
+        triple == expected_target,
+        "archive target does not match selected installation target"
+    );
     use std::io::Read;
     let mut metadata = Vec::new();
     fs::File::open(root.join("metadata.json"))?
@@ -235,7 +242,7 @@ mod tests {
         let target = destination.path().join("skills");
         let recovery = destination.path().join("recovery");
         assert!(
-            install_from_archive(&target, &recovery, || {
+            install_from_archive(&target, &recovery, "aarch64-apple-darwin", || {
                 super::super::staging::prepare_archive(&archive, &checksums, |_| {
                     anyhow::bail!("untrusted archive")
                 })
@@ -244,7 +251,7 @@ mod tests {
         );
         assert_eq!(fs::read_dir(destination.path()).unwrap().count(), 0);
         assert!(
-            install_from_archive(&target, &recovery, || {
+            install_from_archive(&target, &recovery, "aarch64-apple-darwin", || {
                 let staged =
                     super::super::staging::prepare_archive(&archive, &checksums, |_| Ok(()))?;
                 fs::write(
@@ -258,7 +265,22 @@ mod tests {
             .is_err()
         );
         assert_eq!(fs::read_dir(destination.path()).unwrap().count(), 0);
-        install_from_archive(&target, &recovery, || {
+        let wrong_platform =
+            install_from_archive(&target, &recovery, "x86_64-pc-windows-msvc", || {
+                super::super::staging::prepare_archive(&archive, &checksums, |_| Ok(()))
+            });
+        assert!(
+            wrong_platform
+                .unwrap_err()
+                .to_string()
+                .contains("selected installation target")
+        );
+        assert_eq!(fs::read_dir(destination.path()).unwrap().count(), 0);
+        let invalid_target = install_from_archive(&target, &recovery, "invalid-target", || {
+            panic!("unsupported target must be rejected before staging")
+        });
+        assert!(invalid_target.is_err());
+        install_from_archive(&target, &recovery, "aarch64-apple-darwin", || {
             super::super::staging::prepare_archive(&archive, &checksums, |_| Ok(()))
         })
         .unwrap();

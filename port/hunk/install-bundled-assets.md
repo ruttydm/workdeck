@@ -139,5 +139,14 @@ native target. Authenticated skills installation validates metadata against its
 `workdeck-<target>` wrapper before destination writes. A malformed-metadata
 integration case leaves the destination empty. The shared metadata test, existing
 five-target packaging test and both asset tests pass on macOS. Metadata is still
-not committed to the installation directory, and validating an archive's own
-target is not yet a host/selected-target compatibility gate.
+not committed to the installation directory.
+
+Authenticated skills installation now requires a caller-selected native target
+independent of archive metadata. Unsupported selections fail before staging or
+verification; the authenticated archive wrapper must match that selection before
+any destination writes. An integration regression passes a valid macOS arm64
+archive with a Windows x64 selection and confirms rejection with an untouched
+destination. It also checks that unsupported selections never invoke staging.
+Both asset tests pass with these cases. The eventual installer composition root
+must derive this selection from its platform detection; the asset API deliberately
+does not infer the desired target from the archive itself.
