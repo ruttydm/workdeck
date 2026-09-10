@@ -566,6 +566,42 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn selected_alpha_gap_reads_new_side_once() {
+        struct SideLoader {
+            calls: Mutex<Vec<ReviewSide>>,
+            text: String,
+        }
+        impl ReviewSourceLoader for SideLoader {
+            fn get_full_text(
+                &self,
+                _: &DiffFile,
+                side: ReviewSide,
+            ) -> std::result::Result<Option<String>, ReviewSourceLoadError> {
+                self.calls.lock().unwrap().push(side);
+                Ok((side == ReviewSide::New).then(|| self.text.clone()))
+            }
+        }
+        let before = (1..=30)
+            .map(|line| format!("line {line}\n"))
+            .collect::<String>();
+        let after = before.replace("line 5\n", "line 5 changed\n");
+        let mut review = pinned_review_from_text("alpha", "alpha.ts", &before, &after);
+        review.files[0].language = None;
+        review.refresh_review_identities();
+        let key = review.files[0].key.clone();
+        let loader = Arc::new(SideLoader {
+            calls: Mutex::new(vec![]),
+            text: after,
+        });
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        assert!(app.install_source_loader(&key, loader.clone()));
+        app.toggle_source_gap();
+        drain_one(&mut app);
+        assert!(app.expanded_gaps.contains(&(key, 0)));
+        assert_eq!(*loader.calls.lock().unwrap(), [ReviewSide::New]);
+    }
+
+    #[test]
     fn alpha_gap_reports_too_large_source_status() {
         struct TooLargeLoader;
         impl ReviewSourceLoader for TooLargeLoader {
