@@ -271,9 +271,17 @@ not replacement of the destination or deletion of another installation. The
 gate lists observed conflicting paths. Its test verifies refusal, explicit
 override and unchanged candidate bytes/no destination creation.
 
-Legacy nvm discovery and complete source manager/version/removal diagnostics are
+Complete source manager/version/removal diagnostics are
 still missing. Lower-level archive/tooling installation APIs remain explicit
 operations and do not implicitly run process-environment conflict discovery.
+
+Inactive discovery now also inspects `.nvm/versions/node/*/bin/workdeck` (or
+`workdeck.exe`) before Mise candidates, preserving sorted source glob order.
+This is read-only legacy layout detection: no Node/npm process or runtime is
+used. Missing roots yield no candidates; other directory-read failures propagate.
+Both preflight and the standalone conflict gate share the combined scan. A native
+test passes for absent roots, sorted inactive versions, nvm-before-Mise ordering,
+force decisions with empty PATH and unchanged candidate bytes.
 
 All 48 CLI integration tests passed before adding the default-root selection.
 The updated installer CLI regression also passes: invalid versions create no

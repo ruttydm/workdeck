@@ -479,7 +479,7 @@ fn check_install_conflicts(
     };
     let target = root.join("bin").join(executable);
     let inactive = home
-        .map(|home| inactive_mise_candidates(home, executable))
+        .map(|home| inactive_install_candidates(home, executable))
         .transpose()?
         .unwrap_or_default();
     let observations = observe_candidates(
@@ -588,6 +588,24 @@ fn observe_path_files(
         executable,
         entries.iter().map(|entry| entry.join(executable)),
     )
+}
+
+fn inactive_install_candidates(home: &Path, executable: &str) -> std::io::Result<Vec<PathBuf>> {
+    let root = home.join(".nvm/versions/node");
+    let mut versions = match std::fs::read_dir(&root) {
+        Ok(listing) => listing
+            .map(|entry| entry.map(|entry| entry.path()))
+            .collect::<std::io::Result<Vec<_>>>()?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => return Err(error),
+    };
+    versions.sort();
+    let mut candidates = versions
+        .into_iter()
+        .map(|version| version.join("bin").join(executable))
+        .collect::<Vec<_>>();
+    candidates.extend(inactive_mise_candidates(home, executable)?);
+    Ok(candidates)
 }
 
 fn inactive_mise_candidates(home: &Path, executable: &str) -> std::io::Result<Vec<PathBuf>> {
@@ -771,7 +789,7 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
     let entries: Vec<_> =
         std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).collect();
     // These are file observations, not completed executable/manager conflict classification.
-    let inactive = inactive_mise_candidates(Path::new(&home), executable)?;
+    let inactive = inactive_install_candidates(Path::new(&home), executable)?;
     let existing_path_files = observe_candidates(
         &target,
         &entries,
@@ -797,6 +815,51 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inactive_nvm_installations_are_discovered_before_mise_without_execution() {
+        let home = tempfile::tempdir().unwrap();
+        let executable = if cfg!(windows) {
+            "workdeck.exe"
+        } else {
+            "workdeck"
+        };
+        assert!(
+            inactive_install_candidates(home.path(), executable)
+                .unwrap()
+                .is_empty()
+        );
+        for version in ["v22", "v18"] {
+            let directory = home
+                .path()
+                .join(".nvm/versions/node")
+                .join(version)
+                .join("bin");
+            std::fs::create_dir_all(&directory).unwrap();
+            let binary = directory.join(executable);
+            std::fs::write(&binary, b"not executed").unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+        }
+        std::fs::create_dir_all(
+            home.path()
+                .join(".local/share/mise/installs/workdeck/1.0/bin"),
+        )
+        .unwrap();
+        let candidates = inactive_install_candidates(home.path(), executable).unwrap();
+        assert_eq!(candidates.len(), 4);
+        assert!(candidates[0].starts_with(home.path().join(".nvm/versions/node/v18")));
+        assert!(candidates[1].starts_with(home.path().join(".nvm/versions/node/v22")));
+        assert!(candidates[2].starts_with(home.path().join(".local/share/mise")));
+        let target = home.path().join("new-install");
+        assert!(check_install_conflicts(&target, &[], Some(home.path()), false).is_err());
+        check_install_conflicts(&target, &[], Some(home.path()), true).unwrap();
+        assert!(!target.exists());
+        assert_eq!(std::fs::read(&candidates[0]).unwrap(), b"not executed");
+    }
 
     #[test]
     fn install_conflict_gate_requires_explicit_force_without_mutating_candidates() {
