@@ -35,6 +35,11 @@ tests: a symlinked site parent cannot redirect writes outside the repository,
 stale original bytes cause rejection before backup creation, and a backup inside
 the repository is refused without modifying targets. These tests run on macOS;
 they do not establish Windows reparse-point behavior or race-free path traversal.
+The CLI integration also holds the release lock from a separate process and
+confirms application fails before creating a backup or new data directory and
+without replacing the original index. After releasing that lock, the same plan
+applies successfully. Top-level tooling help advertises the full application
+argument order. All 23 changelog CLI tests pass with these assertions.
 
 ## Read-only planning and historical checkpoints
 

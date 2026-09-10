@@ -43,6 +43,36 @@ fn artifact_apply_cli_regenerates_plan_and_retains_original_bytes() {
     std::fs::write(repo.join("plan.json"), &generated.stdout).unwrap();
     let plan: serde_json::Value = serde_json::from_slice(&generated.stdout).unwrap();
     let backup = root.path().join("backup");
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(repo.join(".git/workdeck-release.lock"))
+        .unwrap();
+    lock.try_lock().unwrap();
+    let blocked = run(
+        &repo,
+        &[
+            "changelog",
+            "artifacts-apply",
+            "plan.json",
+            backup.to_str().unwrap(),
+            "history.md",
+            "dates.json",
+        ],
+    );
+    assert!(!blocked.status.success());
+    assert!(
+        String::from_utf8_lossy(&blocked.stderr)
+            .contains("another release application holds the lock")
+    );
+    assert!(!backup.exists());
+    assert_eq!(
+        std::fs::read(repo.join("site/content/changelog/index.md")).unwrap(),
+        b"original index"
+    );
+    assert!(!repo.join("site/data").exists());
+    drop(lock);
     let applied = run(
         &repo,
         &[
@@ -586,6 +616,13 @@ fn changelog_usage_lists_index_and_latest_commands() {
     let error = String::from_utf8(output.stderr).unwrap();
     assert!(error.contains("index <markdown-file> <dates.json> [notes.json]"));
     assert!(error.contains("latest <markdown-file> <recorded-dates.json> [notes.json]"));
+    let help = run(repo.path(), &[]);
+    assert!(help.status.success());
+    assert!(
+        String::from_utf8_lossy(&help.stdout).contains(
+            "changelog artifacts-apply <saved-plan.json> <new-external-backup-directory>"
+        )
+    );
 }
 
 #[test]
