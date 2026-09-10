@@ -1,5 +1,16 @@
 # Hunk semantic-port ledger
 
+## Addressed gaps reject nonexistent context
+
+The addressed-gap handler now returns a typed `GapNotFound` error when a
+fetch-capable file has no gap at the requested address. The selected-gap command
+still does nothing when no gap exists; files without fetch access retain their
+no-op behavior. The pinned fully deleted-file regression is translated with
+zero source reads and no mutation on rejection. See
+[scope and evidence](deleted-file-gap-validation.md).
+All 1,183 TUI library tests pass; only the complete 1,104-byte source-test
+interval and its intent comment are newly mapped.
+
 ## Live source-error recovery
 
 Additional controller-level tests cover missing, rejected, and oversized source

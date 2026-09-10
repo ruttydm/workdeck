@@ -454,6 +454,98 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn addressed_gap_on_fully_deleted_file_errors_without_source_load() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct DeletedSource(AtomicUsize);
+        impl ReviewSourceLoader for DeletedSource {
+            fn get_full_text(
+                &self,
+                _: &DiffFile,
+                side: ReviewSide,
+            ) -> std::result::Result<Option<String>, ReviewSourceLoadError> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Ok((side == ReviewSide::Old).then(|| "removed\n".into()))
+            }
+        }
+        let mut file = workdeck_diff::diff_from_file_snapshots(
+            workdeck_diff::FileSnapshot {
+                cache_key: "removed:before",
+                contents: "removed\n",
+                name: "removed.ts",
+            },
+            workdeck_diff::FileSnapshot {
+                cache_key: "removed:after",
+                contents: "",
+                name: "removed.ts",
+            },
+            workdeck_diff::FileComparisonOptions { context_radius: 3 },
+        )
+        .unwrap();
+        file.runtime_id = "removed".into();
+        file.language = Some("typescript".into());
+        file.patch.clear();
+        for source in file
+            .sources
+            .old
+            .iter_mut()
+            .chain(file.sources.new.iter_mut())
+        {
+            source.origin = workdeck_core::SourceOrigin::DiffMetadata;
+            source.attested = false;
+        }
+        file.set_sources(file.sources.clone());
+        file.set_source_capability(Some(workdeck_core::SourceCapabilityIdentity {
+            cache_key: None,
+        }));
+        let mut review = workdeck_core::Changeset {
+            id: "deleted".into(),
+            source_label: "repo".into(),
+            title: "repo working tree".into(),
+            summary: None,
+            agent_summary: None,
+            source: workdeck_core::ChangesetSource::WorkingTree { staged: false },
+            files: vec![file],
+        };
+        review.refresh_review_identities();
+        let key = review.files[0].key.clone();
+        assert_eq!(review.files[0].hunks.len(), 1);
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                highlight: false,
+                ..Default::default()
+            },
+        );
+        let loader = Arc::new(DeletedSource(AtomicUsize::new(0)));
+        assert!(app.install_source_loader(&key, loader.clone()));
+        let selection = app.with_state(|state| state.selection());
+        let error = app.toggle_source_gap_for_file(&key, 1).unwrap_err();
+        assert_eq!(
+            error.code,
+            workdeck_review::ReviewIntentPlanningErrorCode::GapNotFound
+        );
+        assert_eq!(
+            error.message,
+            "Review gap trailing:0 does not exist in removed.ts."
+        );
+        assert_eq!(loader.0.load(Ordering::SeqCst), 0);
+        app.with_state(|state| {
+            assert!(
+                app.options
+                    .source_presentation
+                    .status(&state.changeset().files[0])
+                    .is_none()
+            )
+        });
+        assert!(app.expanded_gaps.is_empty());
+        assert!(app.pending_source_reveal.is_none());
+        assert_eq!(app.with_state(|state| state.selection()), selection);
+        app.toggle_source_gap();
+        assert!(app.status.is_none());
+        assert_eq!(loader.0.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
     fn failed_source_loads_render_reason_retry_and_cache_the_recovery() {
         use std::sync::atomic::{AtomicUsize, Ordering};
         struct RecoveringLoader {
@@ -610,8 +702,8 @@ pub(super) mod tests {
                 source: Loader(Mutex::new(source_rx)),
             })
         ));
-        app.toggle_source_gap_for_file(&key, 0);
-        app.toggle_source_gap_for_file(&key, 1);
+        app.toggle_source_gap_for_file(&key, 0).unwrap();
+        app.toggle_source_gap_for_file(&key, 1).unwrap();
         assert_eq!(
             calls_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
             ReviewSide::New

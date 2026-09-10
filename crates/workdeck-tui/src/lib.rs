@@ -8270,30 +8270,53 @@ impl ReviewApp {
         self.toggle_source_gap_target(key, file_index, address, side);
     }
 
-    fn toggle_source_gap_for_file(&mut self, file_key: &str, gap_slot: usize) {
+    fn toggle_source_gap_for_file(
+        &mut self,
+        file_key: &str,
+        gap_slot: usize,
+    ) -> Result<(), workdeck_review::ReviewIntentPlanningError> {
         let target = self.with_state(|state| {
-            let (file_index, file) = state
+            let Some((file_index, file)) = state
                 .changeset()
                 .files
                 .iter()
                 .enumerate()
-                .find(|(_, file)| file.key == file_key)?;
+                .find(|(_, file)| file.key == file_key)
+            else {
+                return Ok(None);
+            };
+            if !self.options.source_presentation.available(file) {
+                return Ok(None);
+            }
             let geometry = workdeck_review::review_gap_geometry_for_file(file);
             let address = if gap_slot == file.hunks.len() {
                 geometry.trailing_gap()
             } else {
                 geometry.leading_gap(gap_slot)
-            }?;
-            Some((
+            }
+            .ok_or_else(|| workdeck_review::ReviewIntentPlanningError {
+                code: workdeck_review::ReviewIntentPlanningErrorCode::GapNotFound,
+                message: format!(
+                    "Review gap {} does not exist in {}.",
+                    if gap_slot == file.hunks.len() {
+                        format!("trailing:{}", file.hunks.len().saturating_sub(1))
+                    } else {
+                        format!("before:{gap_slot}")
+                    },
+                    file.path
+                ),
+            })?;
+            Ok(Some((
                 (file.key.clone(), gap_slot),
                 file_index,
                 address,
                 review_expansion_side(file.change_kind),
-            ))
-        });
+            )))
+        })?;
         if let Some((key, file_index, address, side)) = target {
             self.toggle_source_gap_target(key, file_index, address, side);
         }
+        Ok(())
     }
 
     fn toggle_source_gap_target(
@@ -8952,7 +8975,9 @@ impl ReviewApp {
             return true;
         }
         if matches!(event.kind, MouseEventKind::Up(_)) {
-            self.toggle_source_gap_for_file(&file_key, gap_slot);
+            if let Err(error) = self.toggle_source_gap_for_file(&file_key, gap_slot) {
+                self.status = Some(error.message);
+            }
             self.publish_extension_selection_events();
         } else {
             self.cancel_copy_selection();
@@ -23754,7 +23779,7 @@ mod tests {
                 let scroll = app.scroll;
                 app.status = Some("existing status".into());
                 if addressed {
-                    app.toggle_source_gap_for_file(&key, 0);
+                    app.toggle_source_gap_for_file(&key, 0).unwrap();
                 } else {
                     app.toggle_source_gap();
                 }
