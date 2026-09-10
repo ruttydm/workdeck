@@ -165,3 +165,14 @@ production uses Workdeck's URL. All twelve website unit tests pass. This is not
 full-page parity: frontmatter, videos, cards, installers and adjacent navigation
 remain to be integrated. Date formatting outside the baseline date corpus and
 release-notes CLI integration still require tests. No ledger mapping changed.
+
+## Date formatting edge cases
+
+Executed fixtures from both pins cover 18 inputs each: ordinary and malformed
+dates, missing components, whitespace, hexadecimal/binary/octal and exponential
+fields, NaN, Infinity, and trailing components. The Rust formatter now handles
+these source coercions and uses the existing ECMAScript-compatible number
+formatter. All thirteen website tests pass, including the 95 release bodies.
+These vectors are not exhaustive numeric-conversion proof; extreme radix values
+and broader malformed-input differential testing remain open. No ledger mapping
+changed.

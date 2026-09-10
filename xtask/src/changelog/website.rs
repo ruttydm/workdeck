@@ -403,6 +403,42 @@ pub(super) fn run_publication(repo: &Path, mut args: impl Iterator<Item = String
     Ok(())
 }
 
+fn date_number(text: &str) -> f64 {
+    let text = text.trim_matches(ecmascript_whitespace);
+    if text.is_empty() {
+        return 0.0;
+    }
+    for (prefix, radix) in [
+        ("0x", 16),
+        ("0X", 16),
+        ("0b", 2),
+        ("0B", 2),
+        ("0o", 8),
+        ("0O", 8),
+    ] {
+        if let Some(digits) = text.strip_prefix(prefix) {
+            if digits.is_empty() {
+                return f64::NAN;
+            }
+            return digits
+                .chars()
+                .try_fold(0.0, |value, c| {
+                    c.to_digit(radix)
+                        .map(|digit| value * f64::from(radix) + f64::from(digit))
+                })
+                .unwrap_or(f64::NAN);
+        }
+    }
+    static DECIMAL: LazyLock<Regex> = LazyLock::new(|| {
+        parser_regex(r"^[+-]?(?:Infinity|(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)$")
+    });
+    if DECIMAL.is_match(text) {
+        text.parse().unwrap_or(f64::NAN)
+    } else {
+        f64::NAN
+    }
+}
+
 fn format_release_date(iso: &str) -> String {
     const MONTHS: [&str; 12] = [
         "January",
@@ -420,17 +456,23 @@ fn format_release_date(iso: &str) -> String {
     ];
     let mut parts = iso.split('-');
     let year = parts.next().unwrap_or_default();
-    let month = parts.next().unwrap_or_default().parse::<usize>().ok();
+    let month = date_number(parts.next().unwrap_or_default());
     let day = parts.next().unwrap_or_default();
-    match month
-        .and_then(|m| m.checked_sub(1))
-        .and_then(|m| MONTHS.get(m))
+    match ((1.0..=12.0).contains(&month) && month.fract() == 0.0)
+        .then(|| MONTHS[(month as usize) - 1])
     {
         Some(month) if !year.is_empty() && !day.is_empty() => {
-            let day = day
-                .trim_matches(ecmascript_whitespace)
-                .parse::<f64>()
-                .unwrap_or(f64::NAN);
+            let day = date_number(day);
+            let mut buffer = ryu_js::Buffer::new();
+            let day = if day.is_nan() {
+                "NaN"
+            } else if day == f64::INFINITY {
+                "Infinity"
+            } else if day == f64::NEG_INFINITY {
+                "-Infinity"
+            } else {
+                buffer.format_finite(day)
+            };
             format!("{month} {day}, {year}")
         }
         _ => iso.to_owned(),
@@ -591,6 +633,28 @@ pub(super) fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn date_format_matches_both_pinned_oracles() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/website-changelog-date-format-oracle.json"
+        ))
+        .unwrap();
+        let results = fixture["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        for result in results {
+            let cases = result["cases"].as_array().unwrap();
+            assert_eq!(cases.len(), 18);
+            for case in cases {
+                assert_eq!(
+                    format_release_date(case["input"].as_str().unwrap()),
+                    case["expected"],
+                    "{}",
+                    case["input"]
+                );
+            }
+        }
+    }
 
     #[test]
     fn all_pinned_release_bodies_match_rendered_page_oracles() {

@@ -1,0 +1,159 @@
+{
+  "generator": "Pinned Hunk formatDate under Bun 1.3.14",
+  "results": [
+    {
+      "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "cases": [
+        {
+          "input": "2026-08-16",
+          "expected": "August 16, 2026"
+        },
+        {
+          "input": "2026-1-1",
+          "expected": "January 1, 2026"
+        },
+        {
+          "input": "2026-00-01",
+          "expected": "2026-00-01"
+        },
+        {
+          "input": "2026-13-01",
+          "expected": "2026-13-01"
+        },
+        {
+          "input": "invalid",
+          "expected": "invalid"
+        },
+        {
+          "input": "2026-08-",
+          "expected": "2026-08-"
+        },
+        {
+          "input": "-08-01",
+          "expected": "-08-01"
+        },
+        {
+          "input": "2026- 8 - 16 ",
+          "expected": "August 16, 2026"
+        },
+        {
+          "input": "2026-0x8-0x10",
+          "expected": "August 16, 2026"
+        },
+        {
+          "input": "2026-8e0-1e1",
+          "expected": "August 10, 2026"
+        },
+        {
+          "input": "2026-08-nope",
+          "expected": "August NaN, 2026"
+        },
+        {
+          "input": "2026-08- ",
+          "expected": "August 0, 2026"
+        },
+        {
+          "input": "2026-08-Infinity",
+          "expected": "August Infinity, 2026"
+        },
+        {
+          "input": "2026-08-01-extra",
+          "expected": "August 1, 2026"
+        },
+        {
+          "input": "2026-08-0b10",
+          "expected": "August 2, 2026"
+        },
+        {
+          "input": "2026-08-0o10",
+          "expected": "August 8, 2026"
+        },
+        {
+          "input": "2026-08-+2",
+          "expected": "August 2, 2026"
+        },
+        {
+          "input": "2026-08-1_0",
+          "expected": "August NaN, 2026"
+        }
+      ]
+    },
+    {
+      "baseline": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "cases": [
+        {
+          "input": "2026-08-16",
+          "expected": "August 16, 2026"
+        },
+        {
+          "input": "2026-1-1",
+          "expected": "January 1, 2026"
+        },
+        {
+          "input": "2026-00-01",
+          "expected": "2026-00-01"
+        },
+        {
+          "input": "2026-13-01",
+          "expected": "2026-13-01"
+        },
+        {
+          "input": "invalid",
+          "expected": "invalid"
+        },
+        {
+          "input": "2026-08-",
+          "expected": "2026-08-"
+        },
+        {
+          "input": "-08-01",
+          "expected": "-08-01"
+        },
+        {
+          "input": "2026- 8 - 16 ",
+          "expected": "August 16, 2026"
+        },
+        {
+          "input": "2026-0x8-0x10",
+          "expected": "August 16, 2026"
+        },
+        {
+          "input": "2026-8e0-1e1",
+          "expected": "August 10, 2026"
+        },
+        {
+          "input": "2026-08-nope",
+          "expected": "August NaN, 2026"
+        },
+        {
+          "input": "2026-08- ",
+          "expected": "August 0, 2026"
+        },
+        {
+          "input": "2026-08-Infinity",
+          "expected": "August Infinity, 2026"
+        },
+        {
+          "input": "2026-08-01-extra",
+          "expected": "August 1, 2026"
+        },
+        {
+          "input": "2026-08-0b10",
+          "expected": "August 2, 2026"
+        },
+        {
+          "input": "2026-08-0o10",
+          "expected": "August 8, 2026"
+        },
+        {
+          "input": "2026-08-+2",
+          "expected": "August 2, 2026"
+        },
+        {
+          "input": "2026-08-1_0",
+          "expected": "August NaN, 2026"
+        }
+      ]
+    }
+  ]
+}
