@@ -1197,6 +1197,7 @@ pub struct ReviewApp {
     saved_note_hover: Option<String>,
     saved_note_actions: Mutex<Vec<(Rect, AgentInlineNoteAction)>>,
     note_sequence: u64,
+    saved_note_sequence: u64,
     filter: String,
     filter_cursor: usize,
     filter_scroll: Cell<usize>,
@@ -1495,6 +1496,7 @@ impl ReviewApp {
             saved_note_hover: None,
             saved_note_actions: Mutex::new(Vec::new()),
             note_sequence: 0,
+            saved_note_sequence: 0,
             filter: String::new(),
             filter_cursor: 0,
             filter_scroll: Cell::new(0),
@@ -3020,7 +3022,15 @@ impl ReviewApp {
     }
 
     fn save_note_composer(&mut self) {
-        let Some(composer) = self.note_composer.take() else {
+        let timestamp_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        self.save_note_composer_at(timestamp_ms);
+    }
+
+    fn save_note_composer_at(&mut self, timestamp_ms: u128) {
+        let Some(mut composer) = self.note_composer.take() else {
             return;
         };
         let body = composer.body.trim();
@@ -3028,6 +3038,16 @@ impl ReviewApp {
             self.note_composer_bounds.set(None);
             self.status = Some("empty review note discarded".into());
             return;
+        }
+        if !matches!(composer.kind, ReviewNoteComposerKind::Edit { .. }) {
+            loop {
+                self.saved_note_sequence = self.saved_note_sequence.wrapping_add(1);
+                let id = format!("user:{timestamp_ms}-{}", self.saved_note_sequence);
+                if self.with_state(|state| state.comments().iter().all(|note| note.id != id)) {
+                    composer.id = id;
+                    break;
+                }
+            }
         }
         let extension_note = self.extension_note_from_composer(&composer, body.to_owned(), false);
         let editing = matches!(composer.kind, ReviewNoteComposerKind::Edit { .. });

@@ -12,9 +12,28 @@ passed under disposable Bun 1.3.14 on main
 4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd (one test, fourteen assertions per pin).
 The native focused test passed (0.75 seconds), plus formatting and diff checks.
 
-This is not a complete source mapping: Hunk fixes Date.now and asserts
-`user:<timestamp>-<sequence>` IDs and save return values. Native persisted notes
-currently use `user-note-<sequence>` and save through a void composer method.
-Identifier and callback-result compatibility remain explicit open requirements;
-this test establishes only duplicate suppression, body preservation and uniqueness
-within one live app. No runtime behavior or ledger disposition changed.
+The initial supplemental test did not cover Hunk's fixed-Date.now identifiers
+or save return values, so it did not receive a ledger mapping.
+
+## Save-time identifier compatibility
+
+New native notes now receive `user:<timestamp>-<sequence>` identifiers at save
+time. A separate saved-note sequence prevents draft opening and editing from
+consuming saved identifiers. The production clock supplies Unix milliseconds;
+the same save implementation accepts an explicit timestamp for deterministic
+tests. Existing persisted identifiers are never rewritten, and collisions with
+already stored notes advance the sequence before insertion.
+
+The duplicate-save test now asserts exactly `user:1700000000000-1` and
+`user:1700000000000-2` with a frozen timestamp. The persisted-note collision
+test uses that same timestamp across separate app instances and verifies that
+the original note remains unchanged while the second receives suffix `-2`.
+Extension save events are projected after assigning the persisted identifier.
+
+Verification: the focused duplicate-save test passed, then all 1,232 TUI library
+tests passed (8.62 seconds), including the fixed-clock persisted-ID collision
+case. `cargo fmt --all -- --check` and `git diff --check` passed.
+
+Save return-value compatibility is still open: the native composer method is
+void. This source case remains unmapped; exact identifiers do not establish the
+remaining callback-result assertions or complete lifecycle parity.

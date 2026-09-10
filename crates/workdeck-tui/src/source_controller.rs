@@ -1563,21 +1563,23 @@ pub(super) mod tests {
         let mut app = ReviewApp::new(review, ReviewOptions::default());
         app.open_note_composer();
         app.note_composer.as_mut().unwrap().body = "Save me once.".into();
-        app.save_note_composer();
-        app.save_note_composer();
+        app.save_note_composer_at(1_700_000_000_000);
+        app.save_note_composer_at(1_700_000_000_000);
         let first = app.with_state(|state| {
             assert_eq!(state.comments().len(), 1);
             assert_eq!(state.comments()[0].summary, "Save me once.");
             state.comments()[0].id.clone()
         });
+        assert_eq!(first, "user:1700000000000-1");
         assert!(app.note_composer.is_none());
         app.open_note_composer();
         app.note_composer.as_mut().unwrap().body = "Save me too.".into();
-        app.save_note_composer();
+        app.save_note_composer_at(1_700_000_000_000);
         app.with_state(|state| {
             assert_eq!(state.comments().len(), 2);
             assert_eq!(state.comments()[1].summary, "Save me too.");
             assert_ne!(state.comments()[1].id, first);
+            assert_eq!(state.comments()[1].id, "user:1700000000000-2");
         });
     }
 
@@ -1586,7 +1588,7 @@ pub(super) mod tests {
         let mut original = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
         original.open_note_composer();
         original.note_composer.as_mut().unwrap().body = "Existing note".into();
-        original.save_note_composer();
+        original.save_note_composer_at(1_700_000_000_000);
         let saved = original.with_state(|state| state.comments()[0].clone());
         let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
         app.with_state(|state| state.add_comment(saved.clone()))
@@ -1594,11 +1596,12 @@ pub(super) mod tests {
         app.open_note_composer();
         assert_ne!(app.note_composer.as_ref().unwrap().id, saved.id);
         app.note_composer.as_mut().unwrap().body = "New note".into();
-        app.save_note_composer();
+        app.save_note_composer_at(1_700_000_000_000);
         app.with_state(|state| {
             assert_eq!(state.comments().len(), 2);
             assert_eq!(state.comments()[0], saved);
             assert_eq!(state.comments()[1].summary, "New note");
+            assert_eq!(state.comments()[1].id, "user:1700000000000-2");
         });
     }
 
