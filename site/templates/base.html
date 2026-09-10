@@ -13,6 +13,7 @@
     <header><div class="brand-header-inner" data-context="marketing"><a class="brand-logo" href="/" aria-label="Workdeck home">workdeck</a>
       <div class="brand-header-actions"><nav class="brand-nav" aria-label="Main navigation">
         <a class="brand-install" href="/#install">Install</a>
+        <a href="/docs/"{% if current_path is defined and current_path is starting_with(pat="/docs/") %} aria-current="page"{% endif %}>Docs</a>
         <a class="brand-extensions" href="/extensions/"{% if current_path is defined and current_path == "/extensions/" %} aria-current="page"{% endif %}>Extensions</a>
         <a class="brand-star" href="{{ config.extra.repository }}" aria-label="Star Workdeck on GitHub">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">

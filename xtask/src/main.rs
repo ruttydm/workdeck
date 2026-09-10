@@ -414,6 +414,12 @@ fn site(command: Option<&str>) -> Result<()> {
                 "extension navigation lacks current-page state"
             );
             let home = fs::read_to_string(public.join("index.html"))?;
+            let install_docs = fs::read_to_string(public.join("docs/start/install/index.html"))?;
+            ensure!(
+                install_docs.contains("href=\"/docs/\" aria-current=\"page\"")
+                    && install_docs.contains("Install and verify"),
+                "installation documentation or active Docs navigation missing"
+            );
             ensure!(
                 home.contains("id=\"install\""),
                 "header install target missing"

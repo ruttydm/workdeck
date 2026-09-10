@@ -434,3 +434,15 @@ for all three commands with a changed font, before any site server or build
 starts. Six site-asset unit tests pass, including duplicate inventory paths and
 a symlinked static-directory parent; the latter preserves the external file.
 These path checks are not a sandbox against concurrent parent replacement.
+
+## Initial native documentation routes
+
+The site now builds `/docs/`, `/docs/start/` and `/docs/start/install/` through a
+native Zola documentation template. The install page documents source builds,
+the current native installer/update interface and remaining release gates. It
+does not relabel Hunk npm/Homebrew/mise/Discord availability as Workdeck's.
+Docs navigation marks these routes current, and site checking verifies the
+rendered install page and active navigation. The Getting Started section keeps
+the install page attached to the documentation hierarchy rather than orphaned.
+This is an initial adaptation, not completion of the 5,438-byte upstream install
+page or the documentation corpus. That source record remains unmapped.
