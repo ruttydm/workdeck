@@ -150,3 +150,25 @@ destination. It also checks that unsupported selections never invoke staging.
 Both asset tests pass with these cases. The eventual installer composition root
 must derive this selection from its platform detection; the asset API deliberately
 does not infer the desired target from the archive itself.
+
+## Metadata file transaction
+
+`install::metadata::install` validates caller-authenticated bytes against the
+selected target before writes. It permits only a `metadata.json` destination,
+uses the native installer lock and creates a new recovery JSON record with the
+absolute destination and exact original bytes (null when absent). It never
+overwrites a recovery record. Existing metadata reads are bounded to 64 KiB and
+reject links/reparse points using the shared opened-handle reader.
+
+The replacement is synchronized in a destination-directory temporary file;
+existing permissions are preserved and content/permissions are checked again
+before publication. An absent destination uses no-overwrite publication. New
+files inherit the temporary file's private Unix mode. Recovery is retained on
+later failure. Parent races and concurrent writes after the last check still
+require caller coordination; automatic rollback across other installer resources
+and directory crash durability are not provided by this primitive.
+
+All 56 installer library tests pass on macOS after this change. The new test
+covers invalid input without writes, first creation, exact non-UTF-8 original
+recovery, recovery collisions and preservation of an injected concurrent edit.
+The metadata transaction has not yet been wired into the coordinated installer.

@@ -116,6 +116,10 @@ fn bounded_bytes(reader: impl Read, expected: u64) -> Result<Vec<u8>> {
 }
 
 pub(super) fn read_binary(path: &Path) -> Result<(fs::Metadata, Vec<u8>)> {
+    read_file_limited(path, 2 * 1024 * 1024 * 1024)
+}
+
+pub(super) fn read_file_limited(path: &Path, limit: u64) -> Result<(fs::Metadata, Vec<u8>)> {
     regular(path)?;
     let mut options = fs::OpenOptions::new();
     options.read(true);
@@ -129,6 +133,10 @@ pub(super) fn read_binary(path: &Path) -> Result<(fs::Metadata, Vec<u8>)> {
     open_reparse_point_itself(&mut options);
     let file = options.open(path)?;
     let metadata = file.metadata()?;
+    ensure!(
+        metadata.len() <= limit,
+        "installation file exceeds read limit"
+    );
     reject_reparse_point(&metadata)?;
     ensure!(
         metadata.is_file(),
