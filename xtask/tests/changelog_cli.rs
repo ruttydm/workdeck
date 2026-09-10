@@ -11,6 +11,80 @@ fn run(repo: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
+fn metadata_cli_quotes_and_truncates_without_writes() {
+    let repo = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    let long = "word ".repeat(40);
+    let markdown = format!(
+        "## 1.0.0\n### Highlights\nUse **\"jj\"** and [docs](/docs/).\n## 2.0.0\n### Highlights\n{long}\n## 3.0.0\n"
+    );
+    let input = repo.path().join("history.md");
+    let dates = repo.path().join("dates.json");
+    std::fs::write(&input, &markdown).unwrap();
+    std::fs::write(&dates, "{}").unwrap();
+    let output = run(
+        repo.path(),
+        &["changelog", "metadata", "history.md", "dates.json"],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    let clipped = format!("{}…", "word ".repeat(31).trim_end());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap(),
+        serde_json::json!([
+            {"minor":"3.0", "description":"Release notes for Workdeck 3.0: 1 release.", "yamlDescription":"\"Release notes for Workdeck 3.0: 1 release.\""},
+            {"minor":"2.0", "description":clipped, "yamlDescription":format!("\"{clipped}\"")},
+            {"minor":"1.0", "description":"Use \"jj\" and docs.", "yamlDescription":"'Use \"jj\" and docs.'"}
+        ])
+    );
+    for args in [
+        vec!["changelog", "metadata"],
+        vec!["changelog", "metadata", "history.md"],
+        vec!["changelog", "metadata", "missing.md", "dates.json"],
+        vec!["changelog", "metadata", "history.md", "missing.json"],
+        vec!["changelog", "metadata", "history.md", "dates.json", "extra"],
+    ] {
+        let output = run(repo.path(), &args);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+    }
+    assert_eq!(std::fs::read_to_string(&dates).unwrap(), "{}");
+    for invalid in ["{broken", r#"{"1.0.0":42}"#] {
+        std::fs::write(&dates, invalid).unwrap();
+        let output = run(
+            repo.path(),
+            &["changelog", "metadata", "history.md", "dates.json"],
+        );
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+        assert_eq!(std::fs::read_to_string(&dates).unwrap(), invalid);
+    }
+    assert_eq!(std::fs::read_to_string(&input).unwrap(), markdown);
+    let mut entries = std::fs::read_dir(repo.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect::<Vec<_>>();
+    entries.sort();
+    assert_eq!(
+        entries,
+        [".git", "dates.json", "history.md"].map(std::ffi::OsString::from)
+    );
+}
+
+#[test]
 fn resolved_summaries_cli_renders_fallback_and_preserves_inputs() {
     let repo = tempfile::tempdir().unwrap();
     assert!(

@@ -256,6 +256,16 @@ explicitly preserved by the capture decoder; the first capture's default decoder
 incorrectly stripped it and was corrected before committing. The corrected oracle
 test and strict xtask Clippy pass. No ledger mapping changed.
 
+## Metadata CLI integration
+
+The metadata command now has an exact-output temporary-repository test covering
+descending series, Workdeck factual fallback, Markdown unwrapping, single-quoted
+YAML around double quotes, and truncation at the fixed 155-unit description limit.
+Missing and extra arguments, missing files and malformed/invalid date JSON fail
+without stdout. Inputs and directory contents are checked for unintended writes.
+All nine changelog CLI integration tests pass. Full page rendering remains open;
+no ledger mapping changed.
+
 ## Large radix date rounding
 
 A further executed two-pin fixture exposed a real per-digit accumulation error:
