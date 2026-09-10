@@ -1,5 +1,14 @@
 # Hunk semantic-port ledger
 
+## Stale source rejection is observable without state restoration
+
+The adjacent stale-rejection regression is translated with controlled failure
+ordering and real stderr capture from the live controller. It verifies the file,
+side, runtime ID, and diagnostic text while leaving replacement-review state
+untouched. Both pinned runs and all 1,187 native TUI library tests pass. See
+[scope and evidence](stale-alpha-source-rejection.md). Only the complete
+1,597-byte test body is newly mapped.
+
 ## Retired source loads cannot restore cursor requests
 
 The pending-alpha-reload regression is translated with complete before/after

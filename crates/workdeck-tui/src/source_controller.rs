@@ -1029,4 +1029,83 @@ pub(super) mod tests {
         assert_eq!(*first.calls.lock().unwrap(), [ReviewSide::New]);
         assert_eq!(*second.calls.lock().unwrap(), [ReviewSide::New]);
     }
+
+    #[test]
+    fn stale_alpha_source_rejection_logs_context_without_repopulating_review() {
+        const CHILD: &str = "WORKDECK_TEST_STALE_ALPHA_SOURCE_REJECTION";
+        if std::env::var_os(CHILD).is_none() {
+            // Capture the real controller's stderr without redirecting the
+            // process-wide output of other concurrently running tests.
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "source_controller::tests::stale_alpha_source_rejection_logs_context_without_repopulating_review", "--nocapture"])
+                .env(CHILD, "1").output().unwrap();
+            let stderr = String::from_utf8(output.stderr).unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{stderr}",
+                String::from_utf8_lossy(&output.stdout)
+            );
+            assert!(
+                stderr.contains("ignored stale new source load failure"),
+                "{stderr}"
+            );
+            assert!(stderr.contains("alpha.ts"), "{stderr}");
+            assert!(stderr.contains("(alpha)"), "{stderr}");
+            assert!(stderr.contains("stale failure"), "{stderr}");
+            assert_eq!(
+                stderr
+                    .lines()
+                    .filter(|line| line.contains("ignored stale new source load failure"))
+                    .count(),
+                1
+            );
+            return;
+        }
+        struct RejectedLoader(Mutex<mpsc::Receiver<()>>);
+        impl ReviewSourceLoader for RejectedLoader {
+            fn get_full_text(
+                &self,
+                _: &DiffFile,
+                side: ReviewSide,
+            ) -> std::result::Result<Option<String>, ReviewSourceLoadError> {
+                assert_eq!(side, ReviewSide::New);
+                self.0
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(5))
+                    .unwrap();
+                Err(ReviewSourceLoadError::Unavailable("stale failure".into()))
+            }
+        }
+        let (reject, deferred) = mpsc::channel();
+        let review = pinned_alpha_source_review(800);
+        let key = review.files[0].key.clone();
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                highlight: false,
+                ..Default::default()
+            },
+        );
+        assert!(app.install_source_loader(&key, Arc::new(RejectedLoader(Mutex::new(deferred)))));
+        app.toggle_source_gap_for_file(&key, 0).unwrap();
+        app.reload(pinned_alpha_source_review(900));
+        let (next_sender, next_receiver) = mpsc::channel();
+        next_sender.send("second\n".into()).unwrap();
+        assert!(app.install_source_loader(&key, Arc::new(Loader(Mutex::new(next_receiver)))));
+        let selection = app.with_state(|state| state.selection());
+        reject.send(()).unwrap();
+        drain_one(&mut app);
+        app.with_state(|state| {
+            assert!(
+                app.options
+                    .source_presentation
+                    .status(&state.changeset().files[0])
+                    .is_none()
+            )
+        });
+        assert!(app.expanded_gaps.is_empty());
+        assert!(app.pending_source_reveal.is_none());
+        assert_eq!(app.with_state(|state| state.selection()), selection);
+    }
 }
