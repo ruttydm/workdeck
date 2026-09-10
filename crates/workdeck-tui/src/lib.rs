@@ -2983,7 +2983,7 @@ impl ReviewApp {
         })
     }
 
-    fn restore_note_composer_line_cursor(&mut self) {
+    fn reveal_keyboard_note_composer(&mut self) {
         let Some(target) = self.note_composer.as_ref().map(|composer| composer.target) else {
             return;
         };
@@ -2995,6 +2995,29 @@ impl ReviewApp {
         if let Some(cursor) = cursor {
             self.apply_review_line_cursor(cursor);
         }
+        let rows = self.current_review_geometry_rows();
+        let Some((top, height)) = self
+            .note_composer
+            .as_ref()
+            .and_then(|composer| rows.note_bounds.get(&composer.id))
+            .copied()
+        else {
+            return;
+        };
+        let viewport = usize::from(
+            self.review_height
+                .get()
+                .saturating_sub(self.review_reserved_rows())
+                .max(1),
+        );
+        self.scroll = usize::try_from(hunk_scroll::compute_line_reveal_scroll_top(
+            i64::try_from(top).unwrap_or(i64::MAX),
+            i64::try_from(height).unwrap_or(i64::MAX),
+            i64::try_from(self.scroll).unwrap_or(i64::MAX),
+            i64::try_from(viewport).unwrap_or(i64::MAX),
+        ))
+        .unwrap_or(usize::MAX)
+        .min(rows.lines.len().saturating_sub(viewport));
     }
 
     fn publish_note_composer_edited(&mut self, composer: ReviewNoteComposer) {
@@ -3633,11 +3656,11 @@ impl ReviewApp {
             }
             AppCommandAction::EditActiveNote => {
                 self.open_active_note_edit();
-                self.restore_note_composer_line_cursor();
+                self.reveal_keyboard_note_composer();
             }
             AppCommandAction::ReplyToActiveNote => {
                 self.open_active_note_reply();
-                self.restore_note_composer_line_cursor();
+                self.reveal_keyboard_note_composer();
             }
             AppCommandAction::StepDiffLine(delta) => self.step_diff_line(delta),
             AppCommandAction::ScrollCodeHorizontally(delta) => {

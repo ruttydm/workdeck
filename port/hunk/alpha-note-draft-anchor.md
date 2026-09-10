@@ -46,3 +46,20 @@ the source reveal-request/stable-key assertions remain open; no source interval
 is newly mapped by this change.
 All 1,236 TUI library tests passed in 8.77 seconds after the cursor fix, including
 the separate pointer-preservation test. Formatting and diff checks passed.
+
+## Keyboard composer visibility
+
+The same keyboard regression now uses an 80-by-8 review viewport and an initial
+scroll offset of zero. Its first run after adding geometry assertions failed:
+Edit left scroll at zero where the draft bounds required offset three. The
+keyboard route now uses `compute_line_reveal_scroll_top` on the draft's measured
+note bounds, capped by the stream's maximum scroll, after restoring its cursor.
+The source basis is `DiffPane.tsx` lines 2198–2216, which reveals default drafts
+using `computeLineRevealScrollTop`, and `hunkScroll.ts` lines 76–107.
+
+The test checks required scrolling for both Edit and Reply. Mouse-targeted draft
+opening remains separate and preserves its offset. Complete source stable-key,
+reveal-request and prior viewport-anchor reconciliation remain unproven; no
+additional ledger interval is mapped.
+All 1,236 TUI library tests passed in 8.70 seconds after this change; formatting
+and diff checks passed.

@@ -1569,12 +1569,28 @@ pub(super) mod tests {
             super::super::AppCommandAction::EditActiveNote,
             super::super::AppCommandAction::ReplyToActiveNote,
         ] {
+            app.review_width.set(80);
+            app.review_height.set(8);
             app.step_diff_line(2);
             assert_ne!(app.current_review_line_cursor().unwrap().target, target);
             app.saved_note_hover = Some(root.id.clone());
+            app.scroll = 0;
             app.apply_builtin_command_action(action);
             assert_eq!(app.note_composer.as_ref().unwrap().target, target);
             assert_eq!(app.current_review_line_cursor().unwrap().target, target);
+            let rows = app.current_review_geometry_rows();
+            let (top, height) = rows.note_bounds[&app.note_composer.as_ref().unwrap().id];
+            let viewport = usize::from(
+                app.review_height
+                    .get()
+                    .saturating_sub(app.review_reserved_rows())
+                    .max(1),
+            );
+            assert!(top + height > viewport, "fixture must require scrolling");
+            assert_eq!(
+                app.scroll,
+                (top + height - viewport).min(rows.lines.len().saturating_sub(viewport))
+            );
             app.handle_key(crossterm::event::KeyEvent::new(
                 crossterm::event::KeyCode::Esc,
                 crossterm::event::KeyModifiers::NONE,
