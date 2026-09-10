@@ -357,3 +357,13 @@ or symlinked asset paths fail validation. The binary Cargo-dependency SBOM is
 intentionally unchanged: this font is not embedded in the shipped executable.
 This is an inventory for the retained font assets, not a complete website/source
 SBOM or proof of integration with every release archive.
+
+The native site's main stylesheet now loads the retained Latin variable font
+directly and uses Hunk's font fallback stack under Workdeck ownership. Code,
+keyboard and preformatted elements inherit it. The face retains normal style,
+100–800 weights and `swap` display from the verified Fontsource CSS, without a
+package import. Three site-asset tests pass. This is Latin typography wiring,
+not full `brand.css` parity: other script subsets, palette, shared header/footer
+geometry and responsive behavior remain unmapped. Zola was not found on PATH
+during this checkpoint, so no complete site build or browser-page validation
+is claimed.

@@ -131,4 +131,19 @@ mod tests {
             assert_eq!(component["type"], "file");
         }
     }
+
+    #[test]
+    fn site_styles_reference_the_retained_font_without_package_imports() {
+        let repo = crate::repo_root().unwrap();
+        let css = fs::read_to_string(repo.join("site/static/main.css")).unwrap();
+        assert!(css.contains("url(\"/fonts/jetbrains-mono-latin-wght-normal.woff2\")"));
+        assert!(css.contains("font-weight: 100 800"));
+        assert!(css.contains("font-display: swap"));
+        assert!(!css.contains("@import"));
+        assert!(
+            repo.join("site/static/fonts/jetbrains-mono-latin-wght-normal.woff2")
+                .is_file()
+        );
+        sbom(&repo).unwrap();
+    }
 }
