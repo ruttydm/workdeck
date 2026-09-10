@@ -731,6 +731,62 @@ pub(super) fn run(
 mod tests {
     use super::*;
 
+    #[test]
+    fn published_policy_preserves_dated_prereleases_without_stable_promotion() {
+        let dated = ReleaseEntry {
+            version: "0.19.0".into(),
+            prerelease: false,
+            heading_date: None,
+            highlights: None,
+            sections: vec![],
+        };
+        let prerelease = ReleaseEntry {
+            version: "0.19.0-beta.0".into(),
+            prerelease: true,
+            heading_date: None,
+            highlights: None,
+            sections: vec![],
+        };
+        let dates = std::collections::BTreeMap::from([("0.19.0".into(), "2026-08-16".into())]);
+        let beta_dates =
+            std::collections::BTreeMap::from([("0.19.0-beta.0".into(), "2026-08-10".into())]);
+        assert!(is_published(&dated, &dates));
+        assert!(!is_published(&dated, &Default::default()));
+        assert!(is_published(&prerelease, &beta_dates));
+        assert!(is_stable_published(&dated, &dates));
+        assert!(!is_stable_published(&prerelease, &beta_dates));
+    }
+
+    #[test]
+    fn prerelease_comparison_has_defined_order_for_source_nan_regressions() {
+        // Ordering cannot represent NaN; also check the exact ordering of each
+        // source regression pair rather than only its finite-number property.
+        for (a, b, expected) in [
+            ("0.19.0-rc", "0.19.0", Ordering::Greater),
+            ("0.19.0-rc", "0.19.0-beta.1", Ordering::Less),
+            ("0.19.0", "0.19.0", Ordering::Equal),
+        ] {
+            assert_eq!(compare_versions(a, b), expected);
+        }
+    }
+
+    #[test]
+    fn prerelease_ordering_places_stable_above_unnumbered_channel() {
+        let mut versions = ["0.19.0-rc", "0.19.0-beta.1", "0.19.0"];
+        versions.sort_by(|a, b| compare_versions(a, b));
+        assert_eq!(versions, ["0.19.0", "0.19.0-rc", "0.19.0-beta.1"]);
+    }
+
+    #[test]
+    fn prerelease_ordering_compares_channels_and_numbers() {
+        let mut versions = ["0.19.0-alpha.99", "0.19.0-beta.2", "0.19.0-beta.10"];
+        versions.sort_by(|a, b| compare_versions(a, b));
+        assert_eq!(
+            versions,
+            ["0.19.0-beta.10", "0.19.0-beta.2", "0.19.0-alpha.99"]
+        );
+    }
+
     // Legacy compare-link reference tables belong to no release. Do not fold
     // them into the oldest release's prose, but retain fenced syntax examples.
     #[test]
