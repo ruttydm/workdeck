@@ -26204,6 +26204,43 @@ mod tests {
         );
     }
 
+    // Adapted from Hunk's openThemesModalFromViewMenu interaction helper
+    // (2c00f435, MIT, Modem Labs Inc.; see THIRD_PARTY_NOTICES).
+    // Native input and cell-buffer rendering settle synchronously here, so
+    // the OpenTUI scheduler sleeps are not part of this helper's contract.
+    fn open_themes_modal_from_view_menu(
+        terminal: &mut Terminal<TestBackend>,
+        app: &mut ReviewApp,
+    ) -> String {
+        app.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE));
+        assert!(rendered_review_frame(terminal, app).contains("Toggle files/filter focus"));
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        rendered_review_frame(terminal, app);
+        app.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+        let frame = rendered_review_frame(terminal, app);
+        assert!(frame.contains("Theme selector"), "{frame}");
+        frame
+    }
+
+    #[test]
+    fn view_menu_theme_selector_opens_at_representative_terminal_sizes() {
+        for (width, height) in [(40, 12), (80, 24), (140, 32), (220, 20)] {
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+            let original = app.options.theme.clone();
+            rendered_review_frame(&mut terminal, &app);
+            open_themes_modal_from_view_menu(&mut terminal, &mut app);
+            app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+            let frame = rendered_review_frame(&mut terminal, &app);
+            assert!(
+                !frame.contains("Theme selector"),
+                "{width}x{height}: {frame}"
+            );
+            assert_eq!(app.options.theme.id, original.id);
+            assert_eq!(app.options.theme.accent, original.accent);
+        }
+    }
+
     #[test]
     fn custom_theme_stays_active_when_opened_through_view_menu() {
         let custom: NamedCustomThemeConfig = serde_json::from_value(serde_json::json!({
@@ -26222,13 +26259,7 @@ mod tests {
         );
         let mut terminal = Terminal::new(TestBackend::new(220, 20)).unwrap();
         rendered_review_frame(&mut terminal, &app);
-        app.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE));
-        assert!(rendered_review_frame(&mut terminal, &app).contains("Toggle files/filter focus"));
-        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
-        rendered_review_frame(&mut terminal, &app);
-        app.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
-        let frame = rendered_review_frame(&mut terminal, &app);
-        assert!(frame.contains("Theme selector"), "{frame}");
+        let frame = open_themes_modal_from_view_menu(&mut terminal, &mut app);
         assert!(frame.contains("›  My Theme"), "{frame}");
         assert!(frame.contains("active"), "{frame}");
         assert_eq!(app.options.theme.id, "custom");
