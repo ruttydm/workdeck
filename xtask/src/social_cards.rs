@@ -3,6 +3,26 @@
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
+mod publication;
+
+pub(super) fn run_publication_plan(
+    repo: &std::path::Path,
+    mut args: impl Iterator<Item = String>,
+) -> Result<()> {
+    use anyhow::Context;
+    let staging = args
+        .next()
+        .context("social-cards-publication-plan requires staging directory and cards.json")?;
+    let cards = args.next().context("cards.json required")?;
+    let requested: Vec<_> = args.collect();
+    let targets = select(
+        serde_json::from_slice(&std::fs::read(repo.join(cards))?)?,
+        &requested,
+    )?;
+    let plan = publication::plan(repo, &repo.join(staging), &targets, requested.is_empty())?;
+    println!("{}", serde_json::to_string_pretty(&plan)?);
+    Ok(())
+}
 
 fn escape_html(value: &str) -> String {
     value

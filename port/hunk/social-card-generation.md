@@ -151,3 +151,16 @@ replays them using Rust alone. To deliberately regenerate from the two pinned
 sources, run the ignored oracle with `WORKDECK_CAPTURE_SOCIAL_HTML_ORACLE=1`.
 Capture is written only after every live comparison passes. The frozen corpus
 covers HTML rendering only, not browser cells, font fidelity or publication.
+
+## Publication planning
+
+`cargo xtask social-cards-publication-plan <staging-directory> <cards.json> [slug ...]`
+validates the saved capture and produces exact original/replacement byte maps.
+A full run includes stale files under `site/static/changelog/og` as deletions;
+a targeted run only considers selected destinations. Unchanged bytes are omitted.
+Standalone page images are never swept. Planning does not modify site files.
+Existing symlinks/nonregular entries and duplicate destination writes are
+rejected. The full-set inventory includes nested files, but empty-directory
+removal, application/recovery, and protection against changes after planning
+remain unfinished. Eight social-card unit tests pass, including the full versus
+targeted stale-image regression; this does not establish publication parity.
