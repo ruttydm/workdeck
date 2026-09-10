@@ -259,3 +259,30 @@ Before a real capture, provide a compatible declared ChromeDriver binary and
 the verified font asset to `social-cards-capture`. No live browser capture or
 font-fidelity result is claimed by this checkpoint. Existing Chrome was queried
 for its version only; no user browser profile was opened or modified.
+
+## Native browser smoke capture
+
+A subsequent live capture succeeded using Google Chrome 152.0.7977.83 and
+ChromeDriver 152.0.7977.82 (mac-arm64), selected from Google's Chrome for Testing
+build metadata. Driver ZIP source:
+`https://storage.googleapis.com/chrome-for-testing-public/152.0.7977.82/mac-arm64/chromedriver-mac-arm64.zip`;
+SHA-256 `f5d378ce382494416bb3243491ef30a5d22b12cfd2ab7cb5fdf6c448bff8abbb`.
+The driver and its bundled notices remain in temporary storage, not the repository.
+
+The font came from `@fontsource-variable/jetbrains-mono` 5.3.0, the exact pinned
+website lockfile resolution. The downloaded archive's SHA-512 matched
+`F32xpS2NsGYoQi2ADSkKTgpJj7ozajsGgDJ8woTnqjmIB+dxDIqImjl4pXZVEExu8UFZ2ndhmX18EBS/hdz3Lw==`.
+Only its license, metadata and `jetbrains-mono-latin-wght-normal.woff2` were
+extracted; no package manager or JavaScript runtime was used. Font SHA-256:
+`18be452724bfdc236c074ca94a249a7f41a86752c7d04ab258ce9ed5651f6a7e`.
+The asset is SIL OFL 1.1, Copyright 2020 The JetBrains Mono Project Authors.
+The font itself is not committed by this checkpoint.
+
+With an empty card manifest and the `extensions` selector, native capture
+produced the visually inspected `port/hunk/fixtures/social-card-extensions-native.png`:
+1200×630, 39,455 bytes, SHA-256
+`5c619830bf299866b8df747d7fef10c4b90640a8aaae9375cd8aa4ea8c1fdfaa`.
+`social-cards-check` accepted the saved capture. This image derives from Hunk's
+MIT card layout (Copyright Modem Labs Inc.) with Workdeck branding. No site file
+was published. This proves one native browser smoke path, not dual-baseline pixel
+parity, cross-platform rendering, or complete generator behavior.
