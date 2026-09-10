@@ -415,6 +415,23 @@ fn site(command: Option<&str>) -> Result<()> {
             );
             let home = fs::read_to_string(public.join("index.html"))?;
             let install_docs = fs::read_to_string(public.join("docs/start/install/index.html"))?;
+            for route in [
+                "docs",
+                "docs/start",
+                "docs/configure",
+                "docs/workflows",
+                "docs/help",
+            ] {
+                let section_html = fs::read_to_string(public.join(route).join("index.html"))?;
+                ensure!(
+                    section_html.contains("aria-label=\"Documentation sections\""),
+                    "documentation section navigation missing in {route}"
+                );
+                ensure!(
+                    install_docs.contains(&format!("href=\"/{route}/\"")),
+                    "documentation navigation target missing: {route}"
+                );
+            }
             ensure!(
                 install_docs.contains("href=\"/docs/\" aria-current=\"page\"")
                     && install_docs.contains("Install and verify"),

@@ -9,6 +9,10 @@ available source-build workflows from release channels that still require
 qualification. Passing individual tests does not establish complete Hunk parity.
 
 - [Install and verify a source build](/docs/start/install/)
+- [Review quick start and input controls](/docs/start/)
+- [Keybindings, layout and display](/docs/configure/)
+- [Git integration workflows](/docs/workflows/)
+- [Compatibility and troubleshooting](/docs/help/)
 - [Legacy extension migration inventory](/extensions/)
 
 The repository's `port/hunk/ledger.jsonl` and strict `cargo xtask port audit`

@@ -1,6 +1,13 @@
 {% extends "base.html" %}
 {% block title %}{% if page is defined %}{{ page.title }}{% else %}{{ section.title }}{% endif %} · {{ config.title }}{% endblock title %}
 {% block content %}
+<nav class="docs-navigation" aria-label="Documentation sections">
+  <a href="/docs/">Overview</a>
+  <a href="/docs/start/">Getting started</a>
+  <a href="/docs/configure/">Configuration</a>
+  <a href="/docs/workflows/">Workflows</a>
+  <a href="/docs/help/">Help</a>
+</nav>
 <article class="documentation">
   <h1>{% if page is defined %}{{ page.title }}{% else %}{{ section.title }}{% endif %}</h1>
   {% if page is defined %}{{ page.content | safe }}{% else %}{{ section.content | safe }}{% endif %}
