@@ -736,7 +736,15 @@ impl ReviewApp {
                     .with_state(|state| state.reveal_line(file_index, side, line))
                     .is_ok()
             {
-                self.scroll_to_selected_line();
+                let revealed = if self.options.cursor_line == crate::CursorLineMode::Off {
+                    self.with_state(|state| state.select_hunk(file_index, hunk_index))
+                        .map_err(|error| error.to_string())?;
+                    self.scroll_to_selection();
+                    RevealedTarget::Hunk
+                } else {
+                    self.scroll_to_selected_line();
+                    RevealedTarget::Line
+                };
                 self.publish_extension_selection_events();
                 let selected_hunk = selected_hunk(&file, hunk_index);
                 return Ok(NavigatedSelectionResult {
@@ -744,7 +752,7 @@ impl ReviewApp {
                     file_path: file.path,
                     hunk_index: u64::try_from(hunk_index).unwrap_or(u64::MAX),
                     selected_hunk,
-                    revealed: Some(RevealedTarget::Line),
+                    revealed: Some(revealed),
                     side: Some(side),
                     line: Some(u64::from(line)),
                 });
@@ -838,6 +846,7 @@ impl ReviewApp {
                 &self.filter,
             );
             if visible
+                && self.options.cursor_line != crate::CursorLineMode::Off
                 && self
                     .with_state(|state| state.reveal_line(file_index, input.side, line))
                     .is_ok()
@@ -1750,5 +1759,43 @@ mod tests {
             .unwrap();
         assert_eq!(cleared.removed_count, 1);
         assert_eq!(cleared.remaining_count, 0);
+    }
+
+    #[test]
+    fn cursor_off_agent_highlight_reports_hunk_fallback() {
+        let mut app = ReviewApp::new(
+            changeset("before.rs", "old", "before"),
+            ReviewOptions {
+                cursor_line: crate::CursorLineMode::Off,
+                ..Default::default()
+            },
+        );
+        let result = app
+            .session_add_agent_line_highlight(&HighlightToolInput {
+                target_session: SessionSelector::default(),
+                file_path: "before.rs".into(),
+                side: ReviewSide::New,
+                line: 1,
+                start: 0,
+                end: 3,
+                tone: None,
+                reveal: Some(true),
+            })
+            .unwrap();
+        assert_eq!(result.revealed, Some(RevealedTarget::Hunk));
+        assert_eq!(result.file_mark_count, 1);
+        let navigation = app
+            .session_navigate_to_location(&NavigateToHunkToolInput {
+                target_session: SessionSelector::default(),
+                file_path: Some("before.rs".into()),
+                hunk_index: None,
+                side: Some(ReviewSide::New),
+                line: Some(1),
+                comment_direction: None,
+            })
+            .unwrap();
+        assert_eq!(navigation.revealed, Some(RevealedTarget::Hunk));
+        assert_eq!(navigation.side, Some(ReviewSide::New));
+        assert_eq!(navigation.line, Some(1));
     }
 }
