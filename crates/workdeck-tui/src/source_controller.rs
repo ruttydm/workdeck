@@ -1973,6 +1973,48 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn alpha_comment_batch_preserves_order_and_reveals_first_hunk() {
+        let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
+        let target = |hunk_index, summary: &str| workdeck_session::CommentTargetInput {
+            file_path: "alpha.ts".into(),
+            hunk_index: Some(hunk_index),
+            side: None,
+            line: None,
+            summary: summary.into(),
+            rationale: None,
+            markup: None,
+            author: None,
+        };
+        let result = app
+            .session_add_live_comment_batch(
+                &[target(1, "Later hunk note"), target(0, "Earlier hunk note")],
+                "request-1",
+                true,
+            )
+            .unwrap();
+        assert_eq!(
+            result
+                .applied
+                .iter()
+                .map(|comment| comment.hunk_index)
+                .collect::<Vec<_>>(),
+            [1, 0]
+        );
+        assert_eq!(app.with_state(|state| state.comments().len()), 2);
+        assert_eq!(
+            app.with_state(|state| state.selection().hunk_index),
+            Some(1)
+        );
+        assert_eq!(
+            app.session_live_comment_summaries()
+                .iter()
+                .map(|comment| comment.summary.as_str())
+                .collect::<Vec<_>>(),
+            ["Later hunk note", "Earlier hunk note"]
+        );
+    }
+
+    #[test]
     fn invalid_alpha_comment_batch_is_atomic() {
         let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
         let target = |path: &str, summary: &str| workdeck_session::CommentTargetInput {
