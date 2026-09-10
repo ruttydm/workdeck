@@ -200,3 +200,14 @@ instead of reopening staged paths after validation. A changed or missing file
 between validation and a second read can therefore no longer become an unchecked
 replacement or accidental deletion. This does not remove races in initial path
 resolution or concurrent edits to publication destinations.
+
+## Broader verification checkpoint
+
+At `cc1f68ee`, `cargo test -p xtask --all-targets` passed: 354 unit tests,
+37 integration/PTY tests, and six explicitly ignored unit tests. This includes
+the shared media compositor and release tooling, not just social-card tests.
+The strict `cargo xtask port audit` still exits 1 with 1,257 baseline files,
+1,459 ledger intervals, 280 unmapped records and 92 cached upstream delta
+commits. No upstream fetch was performed for this checkpoint. Neither result
+establishes full workspace verification, native-platform parity or release
+readiness; no ledger dispositions were changed.
