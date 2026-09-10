@@ -680,6 +680,83 @@ fn powershell_update_uses_downloaded_script_and_version_env() {
 }
 
 #[test]
+fn direct_update_targets_match_every_native_release_matrix_entry() {
+    let cases = [
+        (
+            UpdatePlatform::Macos,
+            "aarch64",
+            "aarch64-apple-darwin",
+            "tar.gz",
+            "workdeck",
+        ),
+        (
+            UpdatePlatform::Macos,
+            "x86_64",
+            "x86_64-apple-darwin",
+            "tar.gz",
+            "workdeck",
+        ),
+        (
+            UpdatePlatform::Linux,
+            "aarch64",
+            "aarch64-unknown-linux-gnu",
+            "tar.gz",
+            "workdeck",
+        ),
+        (
+            UpdatePlatform::Linux,
+            "x86_64",
+            "x86_64-unknown-linux-gnu",
+            "tar.gz",
+            "workdeck",
+        ),
+        (
+            UpdatePlatform::Windows,
+            "x86_64",
+            "x86_64-pc-windows-msvc",
+            "zip",
+            "workdeck.exe",
+        ),
+    ];
+    let workflow = include_str!("../../../../.github/workflows/release.yml");
+    let workflow_targets: std::collections::BTreeSet<_> = workflow
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("target: "))
+        .collect();
+    assert_eq!(workflow_targets, cases.iter().map(|case| case.2).collect());
+    for (platform, architecture, target, extension, executable) in cases {
+        let mut harness = UpdateHarness::new(WorkdeckInstallSource::Direct, "1.1.0");
+        harness.context.platform = platform;
+        harness.context.architecture = architecture.into();
+        harness.run(update_input()).unwrap();
+        let invocations = harness.invocations.lock().unwrap();
+        assert_eq!(invocations.len(), 1);
+        let invocation = &invocations[0];
+        let environment = invocation.env.as_ref().unwrap();
+        let archive = format!("workdeck-{target}.{extension}");
+        assert_eq!(environment["WORKDECK_DIRECT_ARCHIVE"], archive);
+        let url = format!("https://github.com/ruttydm/workdeck/releases/download/v1.1.0/{archive}");
+        assert_eq!(environment["WORKDECK_DIRECT_ARCHIVE_URL"], url);
+        assert_eq!(
+            environment["WORKDECK_DIRECT_CHECKSUM_URL"],
+            format!("{url}.sha256")
+        );
+        assert_eq!(
+            environment["WORKDECK_DIRECT_BINARY"],
+            format!("workdeck-{target}/{executable}")
+        );
+    }
+    for platform in [
+        UpdatePlatform::Macos,
+        UpdatePlatform::Linux,
+        UpdatePlatform::Windows,
+    ] {
+        assert!(direct_target(platform, "riscv64").is_err());
+    }
+    assert!(direct_target(UpdatePlatform::Windows, "aarch64").is_err());
+}
+
+#[test]
 fn direct_update_selects_platform_archive_and_checksum() {
     let mut harness = UpdateHarness::new(WorkdeckInstallSource::Direct, "1.1.0");
     harness.context.platform = UpdatePlatform::Macos;

@@ -22,3 +22,10 @@ All 63 `workdeck-cli` updater unit tests pass after the correction. The direct
 macOS and Windows tests explicitly assert target-triple URLs and wrapped binary
 paths. Formatting and whitespace checks pass. These are invocation-level tests,
 not live release-download, extraction or binary-replacement evidence.
+
+The follow-up `direct_update_targets_match_every_native_release_matrix_entry`
+test compares the complete target set against the checked-in release workflow,
+then checks exact versioned archive URLs, checksum URLs and wrapped executable
+paths for all five platforms. Unsupported architectures are rejected. All 64
+updater unit tests pass. This guards the workflow-to-updater naming contract;
+it does not execute those platforms or replace artifact-content smoke tests.
