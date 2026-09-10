@@ -717,6 +717,14 @@ fn settle_transform_attempt(
             return (previous, previous_public);
         }
     };
+    let emitted: Vec<workdeck_extension_api::TransformNotification> = value
+        .get("notifications")
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
+        .unwrap_or_default();
+    for notification in emitted {
+        notifications.notify(notification.message, notification.notification_type);
+    }
     match decode_transform_response(value, &previous, &previous_public, source_capabilities) {
         Ok(next) => next,
         Err(error) => {
@@ -4472,11 +4480,17 @@ mod tests {
             serde_json::json!({ "changeset": { "files": null } }),
             serde_json::json!({ "changeset": { "files": [null] } }),
             serde_json::to_value(TransformResponse {
+                notifications: Vec::new(),
                 changeset: duplicate,
             })
             .unwrap(),
-            serde_json::to_value(TransformResponse { changeset: empty }).unwrap(),
             serde_json::to_value(TransformResponse {
+                notifications: Vec::new(),
+                changeset: empty,
+            })
+            .unwrap(),
+            serde_json::to_value(TransformResponse {
+                notifications: Vec::new(),
                 changeset: invented_metadata,
             })
             .unwrap(),
@@ -4485,6 +4499,7 @@ mod tests {
         }
 
         let mut malformed = serde_json::to_value(TransformResponse {
+            notifications: Vec::new(),
             changeset: project_extension_changeset(&original),
         })
         .unwrap();
@@ -4502,6 +4517,7 @@ mod tests {
         first_public.files[0].path = "renamed-b.rs".into();
         let (first, first_public) = decode_transform_response(
             serde_json::to_value(TransformResponse {
+                notifications: Vec::new(),
                 changeset: first_public,
             })
             .unwrap(),
@@ -4519,6 +4535,7 @@ mod tests {
         second_public.title = "filtered".into();
         let (second, second_public) = decode_transform_response(
             serde_json::to_value(TransformResponse {
+                notifications: Vec::new(),
                 changeset: second_public,
             })
             .unwrap(),
@@ -4578,7 +4595,11 @@ mod tests {
         public.files.reverse();
         public.files[0].path = "display-only.rs".into();
         public.files[0].id = "display-id".into();
-        let value = serde_json::to_value(TransformResponse { changeset: public }).unwrap();
+        let value = serde_json::to_value(TransformResponse {
+            notifications: Vec::new(),
+            changeset: public,
+        })
+        .unwrap();
         let (legacy, _) =
             decode_transform_response(value.clone(), &original, &original_public, None).unwrap();
         assert!(prior_sources.get(&legacy.files[0]).is_none());
@@ -4605,6 +4626,7 @@ mod tests {
         filtered.files[0].path = "second-display.rs".into();
         let (second, second_public) = decode_transform_response(
             serde_json::to_value(TransformResponse {
+                notifications: Vec::new(),
                 changeset: filtered.clone(),
             })
             .unwrap(),
@@ -4632,7 +4654,11 @@ mod tests {
         invalid.files.push(forged);
         assert!(
             decode_transform_response(
-                serde_json::to_value(TransformResponse { changeset: invalid }).unwrap(),
+                serde_json::to_value(TransformResponse {
+                    notifications: Vec::new(),
+                    changeset: invalid
+                })
+                .unwrap(),
                 &second,
                 &second_public,
                 Some(&mut sources),
@@ -4646,6 +4672,7 @@ mod tests {
         let mut empty = workdeck_vcs::VcsSourceCapabilities::default();
         let (unbound, _) = decode_transform_response(
             serde_json::to_value(TransformResponse {
+                notifications: Vec::new(),
                 changeset: filtered,
             })
             .unwrap(),
@@ -4656,6 +4683,89 @@ mod tests {
         .unwrap();
         assert!(empty.get(&unbound.files[0]).is_none());
         assert_eq!(*reads.lock().unwrap(), vec!["b.rs"]);
+    }
+
+    #[test]
+    fn transform_notifications_preserve_order_before_invalid_result_warning() {
+        let original = transform_fixture();
+        let hub = ExtensionNotificationHub::new();
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let capture = Arc::clone(&received);
+        let _subscription = hub.subscribe(move |notice| capture.lock().unwrap().push(notice));
+        for invalid in [false, true] {
+            let mut value = serde_json::json!({
+                "changeset": project_extension_changeset(&original),
+                "notifications": [
+                    {"message":"hello", "type":"warning"},
+                    {"message":"second", "type":"info"}
+                ]
+            });
+            if invalid {
+                value["changeset"] = Value::Null;
+            }
+            let next = settle_transform_attempt(
+                "notifier",
+                &hub,
+                original.clone(),
+                project_extension_changeset(&original),
+                Ok(value),
+                None,
+            );
+            assert_eq!(next.0, original);
+            let mut notices = received.lock().unwrap();
+            assert_eq!(notices[0].message, "hello");
+            assert_eq!(notices[0].notification_type, ExtensionNotifyType::Warning);
+            assert_eq!(notices[1].message, "second");
+            assert!(notices[0].id < notices[1].id);
+            assert_eq!(notices.len(), if invalid { 3 } else { 2 });
+            if invalid {
+                assert!(notices[2].message.contains("invalid changeset"));
+            }
+            notices.clear();
+        }
+    }
+
+    #[test]
+    fn transform_notification_wire_defaults_and_malformed_payloads_are_checked() {
+        let original = transform_fixture();
+        let public = project_extension_changeset(&original);
+        let legacy = serde_json::json!({"changeset": public});
+        let decoded: TransformResponse = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(decoded.notifications.is_empty());
+        assert!(
+            serde_json::to_value(decoded)
+                .unwrap()
+                .get("notifications")
+                .is_none()
+        );
+        assert!(decode_transform_response(legacy, &original, &public, None).is_ok());
+        for malformed in [
+            Value::Null,
+            serde_json::json!({"message":"not an array"}),
+            serde_json::json!([{"message":42,"type":"info"}]),
+            serde_json::json!([{"message":"bad severity","type":"success"}]),
+            serde_json::json!([{"message":"forged identity","type":"info","id":999}]),
+        ] {
+            let hub = ExtensionNotificationHub::new();
+            let received = Arc::new(Mutex::new(Vec::new()));
+            let capture = Arc::clone(&received);
+            let _subscription = hub.subscribe(move |notice| capture.lock().unwrap().push(notice));
+            let mut changed = public.clone();
+            changed.title = "must not commit".into();
+            let next = settle_transform_attempt(
+                "notifier",
+                &hub,
+                original.clone(),
+                public.clone(),
+                Ok(serde_json::json!({"changeset":changed,"notifications":malformed})),
+                None,
+            );
+            assert_eq!(next.0, original);
+            let notices = received.lock().unwrap();
+            assert_eq!(notices.len(), 1);
+            assert!(notices[0].message.contains("invalid changeset"));
+            assert_eq!(notices[0].notification_type, ExtensionNotifyType::Warning);
+        }
     }
 
     #[test]

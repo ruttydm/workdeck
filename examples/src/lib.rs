@@ -1,5 +1,8 @@
 //! Workspace-compiled source pairs used by Workdeck's review examples.
 
+#[path = "../extensions/collapse-generated/extension.rs"]
+pub mod collapse_generated_extension;
+
 #[path = "../extensions/current-line-lens/extension.rs"]
 pub mod current_line_lens_extension;
 

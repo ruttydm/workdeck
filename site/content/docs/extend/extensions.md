@@ -33,6 +33,13 @@ under `examples/extensions/startup-lifecycle/` in the repository.
 
 ## Load and manage
 
+The compiled `examples/extensions/collapse-generated` example filters lockfiles
+and generated output while preserving the other files and reporting the number
+hidden. Its README includes build/loading instructions and configurable patterns;
+its Rust tests exercise the filter and newline-delimited protocol. It does not
+require a JavaScript runtime. Notifications use the host's independent
+`workdeck/notify` protocol rather than waiting for a successful transform result.
+
 ```sh
 workdeck extension validate ./my-extension/workdeck-extension.toml
 workdeck diff --extension ./my-extension

@@ -1137,6 +1137,17 @@ pub struct TransformRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransformResponse {
     pub changeset: ExtensionChangeset,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notifications: Vec<TransformNotification>,
+}
+
+/// Notifications emitted during a transform; IDs remain host-owned.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TransformNotification {
+    pub message: String,
+    #[serde(rename = "type")]
+    pub notification_type: ExtensionNotifyType,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
