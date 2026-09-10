@@ -23,3 +23,18 @@ emitted policy and rejects a stale `hunk.dev` reference.
 static `data-theme="light"` declaration on the native Zola `<html>` element and
 the existing light-first CSS. The site check asserts the declaration and the
 no-application-JavaScript boundary.
+
+The shared Astro shell is represented by the native base/docs templates:
+
+- `BrandHeader.astro` becomes the Workdeck-aware header with Docs, Extensions,
+  Changelog, Install, Community, and repository controls;
+- `BrandFooter.astro` becomes the MIT/Docs/GitHub/`llms.txt` footer, with no npm
+  publishing link;
+- `DocsHead.astro` becomes canonical and Markdown-alternate links plus a
+  schema.org breadcrumb script (structured metadata, not application code);
+- `DocsMarkdownContent.astro` wraps changelog routes in `data-changelog`;
+- `DocsMobileMenuFooter.astro` becomes keyboard- and screen-reader-visible
+  community links in the docs shell.
+
+The generated docs smoke check asserts these controls and rejects application
+JavaScript. Native Zola Markdown exports provide the advertised `.md` routes.

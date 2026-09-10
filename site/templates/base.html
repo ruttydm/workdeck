@@ -3,6 +3,9 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    {% if current_path is defined %}
+    <link rel="canonical" href="{{ config.base_url }}{{ current_path }}">
+    {% endif %}
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     {% block metadata %}<meta name="description" content="{{ config.description }}">{% endblock metadata %}
     <title>{% block title %}{{ config.title }}{% endblock title %}</title>
@@ -11,11 +14,13 @@
     <link rel="stylesheet" href="/main.css">
   </head>
   <body>
-    <header><div class="brand-header-inner" data-context="marketing"><a class="brand-logo" href="/" aria-label="Workdeck home">workdeck</a>
+    <header><div class="brand-header-inner" data-context="{% if current_path is defined and current_path is starting_with(pat="/docs/") %}docs{% else %}marketing{% endif %}"><a class="brand-logo" href="/" aria-label="Workdeck home">workdeck</a>
       <div class="brand-header-actions"><nav class="brand-nav" aria-label="Main navigation">
-        <a class="brand-install" href="/#install">Install</a>
+        <a class="brand-install" href="{% if current_path is defined and current_path is starting_with(pat="/docs/") %}/docs/start/install/{% else %}/#install{% endif %}">Install</a>
         <a href="/docs/"{% if current_path is defined and current_path is starting_with(pat="/docs/") %} aria-current="page"{% endif %}>Docs</a>
         <a class="brand-extensions" href="/extensions/"{% if current_path is defined and current_path == "/extensions/" %} aria-current="page"{% endif %}>Extensions</a>
+        <a href="/changelog/"{% if current_path is defined and current_path is starting_with(pat="/changelog") %} aria-current="page"{% endif %}>Changelog</a>
+        <a class="brand-discord" href="{{ config.extra.repository }}/discussions">Community</a>
         <a class="brand-star" href="{{ config.extra.repository }}" aria-label="Star Workdeck on GitHub">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="m12 3 2.75 5.57 6.15.9-4.45 4.33 1.05 6.12L12 17.03l-5.5 2.89 1.05-6.12L3.1 9.47l6.15-.9L12 3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"></path>
@@ -27,7 +32,7 @@
     </header>
     <main>{% block content %}{% endblock content %}</main>
     <footer class="brand-footer" data-context="{% if current_path is defined and current_path is starting_with(pat="/docs/") %}docs{% else %}marketing{% endif %}">
-      <div class="brand-footer-links"><a href="{{ config.extra.repository }}">GitHub</a><a href="{{ config.extra.repository }}/blob/main/LICENSE">MIT</a></div>
+      <div class="brand-footer-links"><a href="/docs/">Docs</a><a href="{{ config.extra.repository }}">GitHub</a><a href="/llms.txt">llms.txt</a><a href="{{ config.extra.repository }}/blob/main/LICENSE">MIT</a></div>
       <span>Workdeck: MIT. Third-party components retain their own licenses.</span>
     </footer>
   </body>

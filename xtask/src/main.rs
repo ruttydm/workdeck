@@ -473,6 +473,24 @@ fn site(command: Option<&str>) -> Result<()> {
                 install_docs.contains("class=\"brand-footer\" data-context=\"docs\""),
                 "documentation footer context missing"
             );
+            ensure!(
+                install_docs.contains(
+                    "rel=\"alternate\" type=\"text/markdown\" href=\"/docs/start/install.md\""
+                ) && install_docs.contains("type=\"application/ld+json\"")
+                    && !install_docs.contains("type=\"text/javascript\""),
+                "documentation head metadata or no-application-JavaScript boundary missing"
+            );
+            ensure!(
+                install_docs.contains("href=\"/changelog/\"")
+                    && install_docs
+                        .contains("href=\"https://github.com/ruttydm/workdeck/discussions\"")
+                    && install_docs.contains("class=\"mobile-preferences\""),
+                "documentation header or mobile community controls missing"
+            );
+            ensure!(
+                install_docs.matches("href=\"/llms.txt\"").count() == 1,
+                "documentation footer Markdown index link missing or duplicated"
+            );
             for route in [
                 "docs",
                 "docs/start",
