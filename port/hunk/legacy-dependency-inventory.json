@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "source_commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "inputs": [
+    {"path":"bun.lock","bytes":83627,"sha256":"b2b43bcbac57d09213916d9bec04f883f06e482074dd754fde5b8f8bbd379bd9","lines":808,"format":"bun-jsonc","package_entries":361},
+    {"path":"website/bun.lock","bytes":149651,"sha256":"c68ef2a2eac3c8474d80991b8df49e7a5b89a55038b3b9219931d94f114c4bfd","lines":1193,"format":"bun-jsonc","package_entries":584},
+    {"path":"test/cli/install-vm/controller-deps/package-lock.json","bytes":133490,"sha256":"683bae96b7ec6b1c216a95758025c44a9367ab2ad00ac91fb68b8e8f7c334698","lines":3628,"format":"json","package_entries":316},
+    {"path":"package.json","bytes":7280,"sha256":"4161e385ae7f69a741e457b068ff0be822639b75ceb9d454303015fe1d6f2446","lines":184,"format":"json","package_entries":0},
+    {"path":"website/package.json","bytes":684,"sha256":"2da7ecf1b1de6996a8a193e9f8fbf6a49930b5a752c6c4fc89dcfb09a14ecb51","lines":27,"format":"json","package_entries":0},
+    {"path":"test/cli/install-vm/controller-deps/package.json","bytes":135,"sha256":"d43498eafbb820e25623384033c9ed2c04b57b07f165830632b93fd0a98cceca","lines":8,"format":"json","package_entries":0}
+  ]
+}
