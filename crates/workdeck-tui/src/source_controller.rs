@@ -1556,6 +1556,36 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn composer_enforces_exact_semantic_note_byte_boundary() {
+        let make_app = || ReviewApp::new(pinned_alpha_source_review(800), ReviewOptions::default());
+        let mut probe = make_app();
+        probe.open_note_composer();
+        probe.note_composer.as_mut().unwrap().body = "x".into();
+        let sample = probe.save_note_composer_at(1_700_000_000_000).unwrap();
+        let overhead = workdeck_review::review_note_byte_length(&sample.semantic_note()) - 1;
+        let body_length = workdeck_review::MAX_REVIEW_NOTE_BYTES - overhead;
+        let mut exact = make_app();
+        exact.open_note_composer();
+        exact.note_composer.as_mut().unwrap().body = "x".repeat(body_length);
+        let saved = exact.save_note_composer_at(1_700_000_000_000).unwrap();
+        assert_eq!(
+            workdeck_review::review_note_byte_length(&saved.semantic_note()),
+            workdeck_review::MAX_REVIEW_NOTE_BYTES
+        );
+        let mut over = make_app();
+        over.open_note_composer();
+        over.note_composer.as_mut().unwrap().body = "x".repeat(body_length + 1);
+        let draft_id = over.note_composer.as_ref().unwrap().id.clone();
+        assert!(over.save_note_composer_at(1_700_000_000_000).is_none());
+        assert_eq!(over.note_composer.as_ref().unwrap().id, draft_id);
+        assert_eq!(
+            over.note_composer.as_ref().unwrap().body.len(),
+            body_length + 1
+        );
+        assert!(over.with_state(|state| state.comments().is_empty()));
+    }
+
+    #[test]
     fn oversized_note_saves_preserve_drafts_without_mutation() {
         let mut app = ReviewApp::new(pinned_alpha_source_review(800), ReviewOptions::default());
         app.open_note_composer();
