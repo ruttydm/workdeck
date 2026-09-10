@@ -60,3 +60,7 @@ source bytes.
 
 All 19 changelog CLI tests pass after this addition. Strict xtask Clippy,
 formatting and whitespace checks pass.
+
+The original two-test [cleanup safety group](changelog-cleanup-tests.md) is now
+translated using the pinned full-tree inputs and disposable native outputs. Its
+799-byte interval is mapped; write/delete behavior remains unimplemented.

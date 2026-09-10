@@ -188,6 +188,75 @@ mod tests {
 
     const SAMPLE: &str = include_str!("../../../../port/hunk/website-changelog-test-sample.md");
 
+    fn pinned_default_artifacts() -> BTreeMap<String, String> {
+        let read = |path: &str| {
+            let output = std::process::Command::new("git")
+                .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap())
+                .args([
+                    "show",
+                    &format!("2c00f4358b89cfc0a6b04459ffc538ba601aa3c2:{path}"),
+                ])
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8(output.stdout).unwrap()
+        };
+        generate(
+            &read("CHANGELOG.md"),
+            &serde_json::from_str(&read("website/releases/dates.json")).unwrap(),
+            serde_json::from_str(&read("website/releases/notes.json")).unwrap(),
+            |_| None,
+        )
+        .unwrap()
+    }
+
+    fn install_test_artifacts(repo: &Path, artifacts: &BTreeMap<String, String>) {
+        for (path, content) in artifacts {
+            let path = repo.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, content).unwrap();
+        }
+    }
+
+    #[test]
+    fn source_cleanup_refuses_removing_most_generated_pages() {
+        let repo = tempfile::tempdir().unwrap();
+        let artifacts = pinned_default_artifacts();
+        install_test_artifacts(repo.path(), &artifacts);
+        assert!(
+            stale_paths(repo.path(), &BTreeMap::new())
+                .unwrap_err()
+                .to_string()
+                .contains("Refusing to remove")
+        );
+        for (path, content) in artifacts {
+            assert_eq!(
+                std::fs::read_to_string(repo.path().join(path)).unwrap(),
+                content
+            );
+        }
+    }
+
+    #[test]
+    fn source_cleanup_reports_genuinely_stale_output() {
+        let repo = tempfile::tempdir().unwrap();
+        let mut artifacts = pinned_default_artifacts();
+        install_test_artifacts(repo.path(), &artifacts);
+        // The source inserts dates.json first; native map ordering is separate.
+        let first = "site/data/releases/dates.json";
+        assert!(artifacts.contains_key(first));
+        let original = artifacts.insert(first.into(), "stale".into()).unwrap();
+        assert_eq!(stale_paths(repo.path(), &artifacts).unwrap(), [first]);
+        assert_eq!(
+            std::fs::read_to_string(repo.path().join(first)).unwrap(),
+            original
+        );
+    }
+
     #[test]
     fn missing_card_images_preserve_order_duplicates_and_presence_semantics() {
         let repo = tempfile::tempdir().unwrap();
