@@ -20,6 +20,17 @@ The committed pane controller owns that evaluator and all state transitions that
 
 The mounted review shell performs that probe against the currently filtered file projection before each changed availability signature reaches four-edge planning. False results hide the pane without closing its logical state, so clearing a filter can restore it; failures quarantine only the throwing registration. The named Files role remains one toggle across left, right, top, or bottom replacements, and a failed replacement's injected built-in fallback can be closed and reopened by the same command.
 
+Explicit native `OpenPane` and toggle-open actions for left/right panes reveal the
+side area instead of leaving the newly opened pane suppressed by automatic
+sidebar visibility. Closing a pane does not hide the area or close its siblings.
+The four-edge planner still enforces available terminal space. This matches the
+pinned controller's `revealIfSide` transition; the host regression
+`extension_side_pane_open_reveals_area_but_close_does_not_hide_it` covers both side
+placements and both opening actions. The native launch capture subsequently
+passed all six triage frames, including saved rationale and a second decision,
+plus both raw/rendered palette and dependency file-view pairs (10 frames across
+three sessions). This is a native integration check, not dual-baseline parity.
+
 Extension commands share one resolved session keymap with built-ins. The native command table probes built-in matchers first and then prior extension registrations in load order, removes only each conflicting chord, and derives dispatch plus menu labels from the accepted set. Commands with no remaining chord stay available in the Extensions menu. A user remap replaces the extension's declared defaults, and moving a built-in releases its former chord for an extension to claim.
 
 Every `workdeck/pane/render` request carries the filtered files, selected file and hunk, optional current line, paint theme, exact allocated cells, and `ExtensionResolvedKeybindings`. Its `get_keys` and `matches` helpers use the shared chord grammar; bindings removed by live conflict resolution are absent. A declarative `ViewNode::List` with a selected item follows that item inside its Ratatui viewport, providing the native equivalent of Hunk's documented `scrollChildIntoView` recipe without exposing renderer objects across JSON-RPC.

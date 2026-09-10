@@ -34,3 +34,27 @@ is the unedited `review-walk-00` frame, SHA-256
 `602a383272c92dec03031b256fa4807b0d3c08afe74b871a1db33d340efa4e96`.
 The demo repository and configuration were temporary. This is native capture
 evidence, not a dual-baseline terminal-golden or performance-parity result.
+
+## Remaining-scene capture failure
+
+The subsequent native run selected `stml,cli,pager,triage,fileview` with the same
+host font and `NO_COLOR` unset. It exited with status 1 in the triage scene:
+after `triage-review`, pressing `y` did not produce the expected `Review triage`
+text within 10 seconds. The captured terminal still displayed the review stream.
+This is an unresolved runtime/capture integration failure, not a passing run.
+
+Before that failure, the run emitted five markup frames, five CLI frames and
+four pager frames. File-view scenes were not reached. Those temporary frames
+are diagnostic output, not committed oracle fixtures or proof of visual parity.
+Investigate extension command dispatch, pane-open state and pane visibility
+before changing the capture expectation; the bundled triage extension still
+declares `y` as its toggle binding and `Review triage` as its pane title.
+
+The failure was subsequently resolved in the mounted host: opening a side pane
+now reveals its area instead of leaving automatic sidebar visibility in force.
+The focused host regression passed. A fresh binary and an unchanged capture
+script then completed `triage,fileview` with exit 0: six triage frames and four
+file-view frames across three sessions. Inspection of `triage-board` confirmed
+the visible board, saved rationale and second decision. The earlier failed run
+remains failure evidence; this successful rerun does not establish comparison
+against either pinned Hunk terminal oracle.

@@ -5122,6 +5122,12 @@ impl ReviewApp {
                         continue;
                     };
                     runtime.open.insert(pane_key.clone());
+                    if runtime.session_panes.iter().any(|pane| {
+                        pane.key == pane_key
+                            && matches!(pane.placement, PanePlacement::Left | PanePlacement::Right)
+                    }) {
+                        self.options.sidebar_visibility = SidebarVisibility::Visible;
+                    }
                     runtime.cached_renders.remove(&pane_key);
                 }
                 ExtensionHostAction::ClosePane { id } => {
@@ -5157,6 +5163,15 @@ impl ReviewApp {
                     };
                     if !runtime.open.remove(&pane_key) {
                         runtime.open.insert(pane_key.clone());
+                        if runtime.session_panes.iter().any(|pane| {
+                            pane.key == pane_key
+                                && matches!(
+                                    pane.placement,
+                                    PanePlacement::Left | PanePlacement::Right
+                                )
+                        }) {
+                            self.options.sidebar_visibility = SidebarVisibility::Visible;
+                        }
                     }
                     runtime.cached_renders.remove(&pane_key);
                 }
@@ -19659,6 +19674,40 @@ mod tests {
             .collect::<String>();
         assert!(rendered.contains("old"), "pane frame: {rendered:?}");
         assert!(rendered.contains("new"), "pane frame: {rendered:?}");
+    }
+
+    #[test]
+    fn extension_side_pane_open_reveals_area_but_close_does_not_hide_it() {
+        for placement in [PanePlacement::Left, PanePlacement::Right] {
+            let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+            let mut pane = bundled_files_pane().clone();
+            pane.id = "triage".into();
+            pane.placement = placement;
+            let registered = RegisteredExtensionPane::new("probe", pane);
+            app.extension_pane_runtime.lock().unwrap().session_panes =
+                build_session_panes(&[registered]);
+            for action in [
+                ExtensionHostAction::OpenPane {
+                    id: "triage".into(),
+                },
+                ExtensionHostAction::TogglePane {
+                    id: "triage".into(),
+                },
+            ] {
+                app.extension_pane_runtime.lock().unwrap().open.clear();
+                app.options.sidebar_visibility = SidebarVisibility::Auto;
+                app.apply_extension_actions(0, "probe", vec![action]);
+                assert_eq!(app.options.sidebar_visibility, SidebarVisibility::Visible);
+                app.apply_extension_actions(
+                    0,
+                    "probe",
+                    vec![ExtensionHostAction::ClosePane {
+                        id: "triage".into(),
+                    }],
+                );
+                assert_eq!(app.options.sidebar_visibility, SidebarVisibility::Visible);
+            }
+        }
     }
 
     #[test]
