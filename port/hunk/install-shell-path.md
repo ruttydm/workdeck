@@ -15,8 +15,9 @@ edits use Workdeck attribution; planning never creates a file or directory.
 
 Two native tests pass across shell selection, quoting, binary original content,
 GitHub Actions, no-modify precedence and substring idempotence. Transactional
-profile application, backups, end-to-end shell startup execution and full source
-diagnostic parity remain open. No installer interval is mapped complete.
+profile application and backup work is described below; end-to-end shell startup
+execution and full source diagnostic parity remain open. No installer interval is
+mapped complete.
 
 Expanded tests cover redirected and empty `ZDOTDIR`, Bash's complete startup-file
 precedence, missing-profile defaults and duplicate GitHub Actions appends. Shell
@@ -24,3 +25,30 @@ selection now strips trailing slashes before selecting the basename, matching
 the pinned `basename "$SHELL"` behavior; `/bin/bash///` selects Bash rather than
 falling through to `.profile`. Four native PATH-planner tests pass without writing
 the proposed edits or creating the redirected zsh directory.
+
+## Explicit application and recovery
+
+`install::shell_path::apply` applies an edit only when the existing bytes still
+match the plan. Before replacement it creates a new, non-overwriting recovery
+JSON file containing the absolute profile path, exact original bytes (or null
+for an absent profile), and the original Unix permission mode. The recovery path
+must differ from the profile path, including when the profile does not yet exist.
+Skipped and already-present plans do not write anything.
+
+Replacement uses a synchronized temporary file in the destination directory.
+Existing permissions are preserved and rechecked alongside content immediately
+before replacement. Missing profiles use non-overwriting creation; on Unix new
+profiles inherit the temporary file's private mode, rather than shell umask
+defaults. Failures after recovery creation retain the recovery record.
+
+Tests use temporary directories only: original non-UTF-8 bytes, stale plans,
+idempotent replanning, preexisting recovery files, missing fish directories and
+recovery/profile path collisions. These do not execute user shell startup files.
+Parent-directory races, a write after the final content check, crash-durable
+directory synchronization, multi-file rollback and installer command integration
+remain open. Late failures may leave newly created parent directories behind.
+This API does not establish complete installer parity or change ledger coverage.
+
+Verification: `cargo test -p workdeck-cli --lib install::shell_path` passes all
+seven tests on this macOS host. This is scoped native coverage, not cross-platform
+or source-oracle evidence for the application transaction.

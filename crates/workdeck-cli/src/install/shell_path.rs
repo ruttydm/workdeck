@@ -1,7 +1,8 @@
-//! Read-only planning of PATH edits from Hunk's MIT-licensed installer behavior.
+//! PATH edit planning and explicit application, derived from Hunk's MIT installer.
 //! Copyright (c) Modem Labs Inc. See THIRD_PARTY_NOTICES.
-use anyhow::Result;
+use anyhow::{Context, Result, ensure};
 use std::collections::BTreeMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -13,6 +14,99 @@ pub enum ShellPathPlan {
         original: Option<Vec<u8>>,
         replacement: Vec<u8>,
     },
+}
+
+/// Apply a plan to a quiescent destination, retaining a new recovery JSON file.
+/// Parent-directory races and multi-file installation rollback require caller coordination.
+pub fn apply(plan: &ShellPathPlan, recovery: &Path) -> Result<bool> {
+    let ShellPathPlan::Edit {
+        path,
+        original,
+        replacement,
+    } = plan
+    else {
+        return Ok(false);
+    };
+    ensure!(
+        replacement.starts_with(original.as_deref().unwrap_or_default()),
+        "PATH edit must preserve original bytes"
+    );
+    ensure!(
+        original.as_deref() != Some(replacement.as_slice()),
+        "PATH edit is unchanged"
+    );
+    let current = read_existing(path)?;
+    ensure!(
+        current.as_ref().map(|(_, bytes)| bytes) == original.as_ref(),
+        "shell profile changed since planning"
+    );
+    let recovery_parent = recovery
+        .parent()
+        .context("recovery file needs a parent")?
+        .canonicalize()?;
+    let recovery =
+        recovery_parent.join(recovery.file_name().context("recovery filename required")?);
+    if let Some(parent) = path.parent().and_then(|parent| parent.canonicalize().ok()) {
+        ensure!(
+            parent.join(path.file_name().context("profile filename required")?) != recovery,
+            "recovery file must differ from profile"
+        );
+    }
+    let mut record = tempfile::NamedTempFile::new_in(&recovery_parent)?;
+    #[cfg(unix)]
+    let mode = {
+        use std::os::unix::fs::PermissionsExt;
+        current
+            .as_ref()
+            .map(|(metadata, _)| metadata.permissions().mode())
+    };
+    #[cfg(not(unix))]
+    let mode: Option<u32> = None;
+    serde_json::to_writer(
+        record.as_file_mut(),
+        &serde_json::json!({"schema":1,"path":std::path::absolute(path)?,"original":original,"unixMode":mode}),
+    )?;
+    record.as_file().sync_all()?;
+    record
+        .persist_noclobber(&recovery)
+        .context("recovery file exists or cannot be created")?;
+    let parent = path.parent().context("profile needs a parent")?;
+    std::fs::create_dir_all(parent)?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    temporary.write_all(replacement)?;
+    if let Some((metadata, _)) = &current {
+        temporary
+            .as_file()
+            .set_permissions(metadata.permissions())?;
+    }
+    temporary.as_file().sync_all()?;
+    let rechecked = read_existing(path)?;
+    ensure!(
+        rechecked.as_ref().map(|(_, bytes)| bytes) == original.as_ref()
+            && rechecked
+                .as_ref()
+                .map(|(metadata, _)| metadata.permissions())
+                == current.as_ref().map(|(metadata, _)| metadata.permissions()),
+        "shell profile changed before replacement; recovery retained"
+    );
+    if original.is_none() {
+        temporary
+            .persist_noclobber(path)
+            .context("profile appeared before creation; recovery retained")?;
+    } else {
+        temporary
+            .persist(path)
+            .context("profile replacement failed; recovery retained")?;
+    }
+    Ok(true)
+}
+
+fn read_existing(path: &Path) -> Result<Option<(std::fs::Metadata, Vec<u8>)>> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => Ok(Some(super::transaction::read_binary(path)?)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// Plan without writing profiles, creating directories or changing this process's PATH.
@@ -84,6 +178,58 @@ pub fn plan(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recovery_cannot_create_the_missing_profile() {
+        let home = tempfile::tempdir().unwrap();
+        let planned = plan("/app/bin", home.path(), &BTreeMap::new(), false).unwrap();
+        let profile = home.path().join(".profile");
+        assert!(
+            apply(&planned, &profile)
+                .unwrap_err()
+                .to_string()
+                .contains("must differ")
+        );
+        assert!(!profile.exists());
+        assert_eq!(std::fs::read_dir(home.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn profile_apply_preserves_original_recovery_and_rejects_stale_plans() {
+        let home = tempfile::tempdir().unwrap();
+        let profile = home.path().join(".profile");
+        std::fs::write(&profile, [0xff, b'\n']).unwrap();
+        let planned = plan("/app/bin", home.path(), &BTreeMap::new(), false).unwrap();
+        let recovery = home.path().join("profile-backup.json");
+        assert!(apply(&planned, &recovery).unwrap());
+        let record: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&recovery).unwrap()).unwrap();
+        assert_eq!(record["original"], serde_json::json!([255, 10]));
+        let written = std::fs::read(&profile).unwrap();
+        assert!(written.starts_with(&[0xff, b'\n']));
+        assert!(apply(&planned, &home.path().join("second-backup")).is_err());
+        assert!(!home.path().join("second-backup").exists());
+        assert_eq!(std::fs::read(&profile).unwrap(), written);
+        let again = plan("/app/bin", home.path(), &BTreeMap::new(), false).unwrap();
+        assert!(!apply(&again, &recovery).unwrap());
+    }
+
+    #[test]
+    fn missing_profile_creation_records_absence_and_refuses_existing_recovery() {
+        let home = tempfile::tempdir().unwrap();
+        let env = BTreeMap::from([("SHELL".into(), "/bin/fish".into())]);
+        let planned = plan("/app/bin", home.path(), &env, false).unwrap();
+        let recovery = home.path().join("backup.json");
+        std::fs::write(&recovery, b"existing").unwrap();
+        assert!(apply(&planned, &recovery).is_err());
+        assert!(!home.path().join(".config").exists());
+        let recovery = home.path().join("new-backup.json");
+        assert!(apply(&planned, &recovery).unwrap());
+        let record: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&recovery).unwrap()).unwrap();
+        assert!(record["original"].is_null());
+        assert!(home.path().join(".config/fish/config.fish").is_file());
+    }
 
     #[test]
     fn shell_selection_quoting_and_existing_bytes_are_preserved_without_writes() {
