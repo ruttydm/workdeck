@@ -1039,6 +1039,46 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn pointer_note_start_moves_alpha_cursor_and_selection_to_note_line() {
+        for cursor_line in [crate::CursorLineMode::Row, crate::CursorLineMode::Off] {
+            for line in [12, 9] {
+                let mut app = ReviewApp::new(
+                    pinned_two_hunk_alpha_review(),
+                    ReviewOptions {
+                        cursor_line,
+                        ..Default::default()
+                    },
+                );
+                let target = crate::ReviewNoteTarget {
+                    file_index: 0,
+                    hunk_index: 1,
+                    side: ReviewSide::New,
+                    line,
+                };
+                app.note_hover_hit
+                    .set(Some((ratatui::layout::Rect::new(1, 1, 1, 1), target)));
+                assert!(app.handle_note_mouse(
+                    &crossterm::event::MouseEvent {
+                        kind: crossterm::event::MouseEventKind::Up(
+                            crossterm::event::MouseButton::Left
+                        ),
+                        column: 1,
+                        row: 1,
+                        modifiers: crossterm::event::KeyModifiers::NONE,
+                    },
+                    std::time::Instant::now(),
+                ));
+                assert_eq!(app.note_composer.as_ref().unwrap().target, target);
+                assert_eq!(app.current_review_line_cursor().unwrap().target, target);
+                let selection = app.with_state(|state| state.selection());
+                assert_eq!(selection.hunk_index, Some(1));
+                assert_eq!(selection.side, Some(ReviewSide::New));
+                assert_eq!(selection.line, Some(line));
+            }
+        }
+    }
+
+    #[test]
     fn pending_source_cannot_repopulate_reloaded_alpha_review() {
         struct TrackedLoader {
             calls: Mutex<Vec<ReviewSide>>,

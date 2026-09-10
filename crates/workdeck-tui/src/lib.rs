@@ -2782,6 +2782,10 @@ impl ReviewApp {
             self.status = Some("select a changed review line before adding a note".into());
             return;
         };
+        self.open_note_composer_for_target(target);
+    }
+
+    fn open_note_composer_for_target(&mut self, target: ReviewNoteTarget) {
         self.note_sequence = self.note_sequence.saturating_add(1);
         self.note_composer = Some(ReviewNoteComposer {
             id: format!("user-note-{}", self.note_sequence),
@@ -8651,11 +8655,9 @@ impl ReviewApp {
                 {
                     self.apply_review_line_cursor(cursor);
                 }
-                self.open_note_composer();
-                // A pointer anchor must win even when keyboard cursor highlighting is off.
-                if let Some(composer) = self.note_composer.as_mut() {
-                    composer.target = target;
-                }
+                // Keep the explicit pointer anchor throughout initialization, including
+                // the reveal performed when keyboard cursor highlighting is off.
+                self.open_note_composer_for_target(target);
                 self.clear_note_hover();
             }
             return true;
