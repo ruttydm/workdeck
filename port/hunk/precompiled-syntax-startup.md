@@ -29,6 +29,11 @@ Twenty consecutive fresh-process repetitions passed that same assertion, and
 all 18 review-triage integration tests passed in 4.93 seconds. Formatting and
 diff checks passed.
 
+At clean implementation commit `f6fdee22b875c9c3d58f626e1911723921a83fcd`,
+strict workspace/all-target Clippy passed in 34.81 seconds with incremental
+compilation disabled and two build jobs. A full workspace/all-target test rerun
+was then started; no success is claimed before its terminal result.
+
 This is a native startup regression fix, not a same-host Hunk benchmark result.
 Full workspace, cross-platform build/package and release verification remain
 required, as do the latency and peak-memory parity gates. No source-ledger
