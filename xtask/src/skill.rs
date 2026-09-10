@@ -8,6 +8,7 @@ use std::path::Path;
 use workdeck_session::render_workdeck_review_skill;
 
 const REVIEW_SKILL: &str = "skills/workdeck-review/SKILL.md";
+const WEB_REVIEW_SKILL: &str = "site/static/docs/workdeck-review-skill.md";
 const BUNDLED_SKILLS_ORACLE: &str = "port/hunk/oracles/bundled-skills.json";
 
 #[derive(Debug, Deserialize)]
@@ -41,31 +42,45 @@ struct BundledSkillSection {
 }
 
 pub(crate) fn generate(repo: &Path) -> Result<()> {
-    let destination = repo.join(REVIEW_SKILL);
     let rendered = render_workdeck_review_skill();
-    if fs::read_to_string(&destination)
-        .ok()
-        .is_some_and(|current| normalize_newlines(&current) == rendered)
-    {
-        println!("{REVIEW_SKILL} is already current");
-        return Ok(());
+    for path in [REVIEW_SKILL, WEB_REVIEW_SKILL] {
+        let destination = repo.join(path);
+        if fs::read_to_string(&destination)
+            .ok()
+            .is_some_and(|current| normalize_newlines(&current) == rendered)
+        {
+            println!("{path} is already current");
+            continue;
+        }
+        fs::create_dir_all(
+            destination
+                .parent()
+                .context("skill destination needs a parent")?,
+        )?;
+        fs::write(&destination, &rendered)
+            .with_context(|| format!("write generated review skill {}", destination.display()))?;
+        println!("wrote {path}");
     }
-    fs::write(&destination, rendered)
-        .with_context(|| format!("write generated review skill {}", destination.display()))?;
-    println!("wrote {REVIEW_SKILL}");
     Ok(())
 }
 
 pub(crate) fn check(repo: &Path) -> Result<()> {
-    let destination = repo.join(REVIEW_SKILL);
-    let checked_in = fs::read_to_string(&destination)
-        .with_context(|| format!("read generated review skill {}", destination.display()))?;
-    let rendered = render_workdeck_review_skill();
-    if normalize_newlines(&checked_in) != rendered {
-        bail!("{REVIEW_SKILL} is out of date; run `cargo xtask skill generate`");
-    }
+    check_generated_skills(repo)?;
     println!("Workdeck review skill is current");
     check_static_skills(repo)?;
+    Ok(())
+}
+
+fn check_generated_skills(repo: &Path) -> Result<()> {
+    let rendered = render_workdeck_review_skill();
+    for path in [REVIEW_SKILL, WEB_REVIEW_SKILL] {
+        let destination = repo.join(path);
+        let checked_in = fs::read_to_string(&destination)
+            .with_context(|| format!("read generated review skill {}", destination.display()))?;
+        if normalize_newlines(&checked_in) != rendered {
+            bail!("{path} is out of date; run `cargo xtask skill generate`");
+        }
+    }
     Ok(())
 }
 
@@ -252,6 +267,40 @@ fn normalize_newlines(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn generated_installed_and_web_skills_are_identical_and_repairable() {
+        let repo = tempfile::tempdir().unwrap();
+        generate(repo.path()).unwrap();
+        check_generated_skills(repo.path()).unwrap();
+        let installed = fs::read(repo.path().join(REVIEW_SKILL)).unwrap();
+        assert_eq!(
+            installed,
+            fs::read(repo.path().join(WEB_REVIEW_SKILL)).unwrap()
+        );
+        fs::write(repo.path().join(WEB_REVIEW_SKILL), "stale website skill").unwrap();
+        let error = check_generated_skills(repo.path()).unwrap_err().to_string();
+        assert!(error.contains(WEB_REVIEW_SKILL));
+        assert!(error.contains("out of date"));
+        assert_eq!(
+            fs::read(repo.path().join(WEB_REVIEW_SKILL)).unwrap(),
+            b"stale website skill"
+        );
+        generate(repo.path()).unwrap();
+        check_generated_skills(repo.path()).unwrap();
+        assert_eq!(installed, fs::read(repo.path().join(REVIEW_SKILL)).unwrap());
+        assert_eq!(
+            installed,
+            fs::read(repo.path().join(WEB_REVIEW_SKILL)).unwrap()
+        );
+        fs::remove_file(repo.path().join(WEB_REVIEW_SKILL)).unwrap();
+        assert!(
+            check_generated_skills(repo.path())
+                .unwrap_err()
+                .to_string()
+                .contains(WEB_REVIEW_SKILL)
+        );
+    }
 
     #[test]
     fn normalizes_checkout_line_endings() {
