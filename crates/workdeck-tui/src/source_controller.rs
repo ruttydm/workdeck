@@ -1057,6 +1057,60 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn filter_hides_alpha_cursor_and_clearing_restores_it() {
+        let mut review =
+            pinned_alpha_review_from_text("export const alpha = 1;\n", "export const alpha = 2;\n");
+        let mut beta = workdeck_diff::diff_from_file_snapshots(
+            workdeck_diff::FileSnapshot {
+                cache_key: "beta:before",
+                contents: "export const beta = 1;\n",
+                name: "beta.ts",
+            },
+            workdeck_diff::FileSnapshot {
+                cache_key: "beta:after",
+                contents: "export const betaValue = 2;\n",
+                name: "beta.ts",
+            },
+            workdeck_diff::FileComparisonOptions { context_radius: 3 },
+        )
+        .unwrap();
+        beta.runtime_id = "beta".into();
+        beta.language = Some("typescript".into());
+        beta.patch.clear();
+        for source in beta
+            .sources
+            .old
+            .iter_mut()
+            .chain(beta.sources.new.iter_mut())
+        {
+            source.origin = workdeck_core::SourceOrigin::DiffMetadata;
+            source.attested = false;
+        }
+        beta.set_sources(beta.sources.clone());
+        review.files[0].set_source_capability(None);
+        review.files.push(beta);
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        let initial = app.current_review_line_cursor().unwrap();
+        assert_eq!(initial.target.file_index, 0);
+        let selected = app.with_state(|state| state.selection());
+        app.focus = crate::Focus::Filter;
+        for character in "beta".chars() {
+            assert!(app.handle_filter_key(&crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Char(character),
+                crossterm::event::KeyModifiers::NONE,
+            )));
+        }
+        assert!(app.current_review_line_cursor().is_none());
+        assert_eq!(app.with_state(|state| state.selection()), selected);
+        assert!(app.handle_filter_key(&crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Esc,
+            crossterm::event::KeyModifiers::NONE,
+        )));
+        assert_eq!(app.current_review_line_cursor(), Some(initial));
+    }
+
+    #[test]
     fn reload_recovers_alpha_cursor_when_selected_hunk_is_retired() {
         let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
         app.select_extension_review_hunk("test", "alpha", 1);
