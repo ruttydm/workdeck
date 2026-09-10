@@ -24,8 +24,18 @@ authentication and recovery. `workdeck skill path` now prefers an existing skill
 under the executable directory or its ancestors, so source and unpacked native
 archive layouts resolve without writing user configuration. If no skill exists,
 the prior embedded-content fallback still materializes it under user configuration.
-Source-compatible metadata, asset-update rollback and full installer orchestration
+Metadata installation, asset-update rollback and full installer orchestration
 remain open. This change does not map the baseline installer interval complete.
+
+`xtask release package` now includes `metadata.json` with the four source fields
+from `scripts/build-prebuilt-artifact.ts`: `packageName`, `os`, `cpu` and
+`binaryName`. The package name matches the native `workdeck-<target>` wrapper;
+OS tokens remain `darwin`/`linux`/`windows`, CPU tokens remain `arm64`/`x64`, and
+the executable is `workdeck` or `workdeck.exe`. Output uses indented JSON with a
+trailing newline. Unsupported target triples fail before packaging. The explicit
+five-target metadata unit test passes, including unsupported-target rejection.
+This does not establish all behavior of the original staging script: its source
+ledger record remains unmapped.
 
 The resolver translates the native-layout ancestor search from Hunk's
 `src/core/run/paths.ts` and normalizes names by trimming whitespace and lowercasing.

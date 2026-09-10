@@ -1268,6 +1268,7 @@ fn licenses(output: PathBuf) -> Result<()> {
 
 fn package_release(options: PackageOptions) -> Result<()> {
     let repo = repo_root()?;
+    let metadata = prebuilt_metadata(&options.target)?;
     let executable_name = if options.target.contains("windows") {
         "workdeck.exe"
     } else {
@@ -1295,6 +1296,7 @@ fn package_release(options: PackageOptions) -> Result<()> {
         &inventory_bytes,
         &sbom,
     )?;
+    entries.push((format!("{root}/metadata.json"), metadata, 0o644));
     let mut provenance_bytes = Vec::new();
     File::open(&options.provenance)?
         .take(1024 * 1024 + 1)
@@ -1339,6 +1341,26 @@ fn package_release(options: PackageOptions) -> Result<()> {
     println!("packaged {}", relative_to(&repo, &archive));
     println!("checksum {}", relative_to(&repo, &checksum));
     Ok(())
+}
+
+/// Native translation of Hunk's MIT prebuilt artifact metadata schema.
+fn prebuilt_metadata(target: &str) -> Result<Vec<u8>> {
+    let (os, cpu, binary_name) = match target {
+        "aarch64-apple-darwin" => ("darwin", "arm64", "workdeck"),
+        "x86_64-apple-darwin" => ("darwin", "x64", "workdeck"),
+        "aarch64-unknown-linux-gnu" => ("linux", "arm64", "workdeck"),
+        "x86_64-unknown-linux-gnu" => ("linux", "x64", "workdeck"),
+        "x86_64-pc-windows-msvc" => ("windows", "x64", "workdeck.exe"),
+        _ => bail!("unsupported release package target {target:?}"),
+    };
+    let mut bytes = serde_json::to_vec_pretty(&serde_json::json!({
+        "packageName": format!("workdeck-{target}"),
+        "os": os,
+        "cpu": cpu,
+        "binaryName": binary_name,
+    }))?;
+    bytes.push(b'\n');
+    Ok(bytes)
 }
 
 fn release_entries<'a>(
@@ -3053,5 +3075,27 @@ mod tests {
             assert!(names.contains(&format!("workdeck-test/third-party/themes/{notice}")));
         }
         assert!(names.contains("workdeck-test/third-party/grammars/shikijs-langs-LICENSE"));
+    }
+
+    #[test]
+    fn prebuilt_metadata_preserves_source_fields_for_all_native_targets() {
+        for (target, os, cpu, binary) in [
+            ("aarch64-apple-darwin", "darwin", "arm64", "workdeck"),
+            ("x86_64-apple-darwin", "darwin", "x64", "workdeck"),
+            ("aarch64-unknown-linux-gnu", "linux", "arm64", "workdeck"),
+            ("x86_64-unknown-linux-gnu", "linux", "x64", "workdeck"),
+            ("x86_64-pc-windows-msvc", "windows", "x64", "workdeck.exe"),
+        ] {
+            let bytes = crate::prebuilt_metadata(target).unwrap();
+            assert_eq!(bytes.last(), Some(&b'\n'));
+            let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(
+                value,
+                serde_json::json!({"packageName":format!("workdeck-{target}"), "os":os, "cpu":cpu, "binaryName":binary})
+            );
+            assert_eq!(value.as_object().unwrap().len(), 4);
+        }
+        assert!(crate::prebuilt_metadata("aarch64-pc-windows-msvc").is_err());
+        assert!(crate::prebuilt_metadata("../../outside").is_err());
     }
 }
