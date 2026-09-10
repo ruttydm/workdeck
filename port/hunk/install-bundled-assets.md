@@ -1,5 +1,21 @@
 # Bundled installer assets
 
+## Absent executable candidates on non-Unix hosts
+
+Candidate inspection now checks filesystem metadata before asking the platform
+about execution access. Missing paths and directories are non-conflicts on every
+platform. Previously, the non-Unix branch reported every candidate as unresolved,
+including nonexistent `workdeck.exe` files, preventing an otherwise empty PATH
+from passing installation preflight. Existing regular files still require native
+execution-access evidence; permission and other metadata errors remain unresolved.
+Neither an `.exe` suffix nor `--force` is treated as proof of execution access.
+
+The shared regression test passes on macOS with missing files, directories,
+injected regular-file access outcomes and metadata permission failure. It also
+exercises the full conflict check against an empty candidate directory. This is
+not native Windows execution evidence; Windows regular-file access detection
+and the native release matrix remain incomplete.
+
 ## Workspace verification checkpoint (`e71b3ffc`)
 
 On the macOS arm64 development host, `CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2

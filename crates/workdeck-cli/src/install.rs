@@ -560,15 +560,25 @@ fn conflict_remediation(manager: Option<&str>) -> &'static str {
 }
 
 fn executable_access(path: &Path) -> Option<bool> {
+    executable_access_with(std::fs::metadata(path), || native_executable_access(path))
+}
+
+fn executable_access_with(
+    metadata: std::io::Result<std::fs::Metadata>,
+    native_access: impl FnOnce() -> Option<bool>,
+) -> Option<bool> {
+    match metadata {
+        Ok(metadata) if !metadata.is_file() => Some(false),
+        Ok(_) => native_access(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Some(false),
+        Err(_) => None,
+    }
+}
+
+fn native_executable_access(path: &Path) -> Option<bool> {
     #[cfg(unix)]
     {
         use rustix::fs::{Access, AtFlags, CWD, accessat};
-        match std::fs::metadata(path) {
-            Ok(metadata) if !metadata.is_file() => return Some(false),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Some(false),
-            Err(_) => return None,
-            _ => {}
-        }
         classify_execute_access(accessat(CWD, path, Access::EXEC_OK, AtFlags::EACCESS))
     }
     #[cfg(not(unix))]
@@ -876,6 +886,43 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn absent_candidates_do_not_require_native_executable_access() {
+        let root = tempfile::tempdir().unwrap();
+        for path in [
+            root.path().join("missing/workdeck.exe"),
+            root.path().to_owned(),
+        ] {
+            assert_eq!(
+                executable_access_with(std::fs::metadata(&path), || panic!("not a file")),
+                Some(false)
+            );
+            assert_eq!(executable_access(&path), Some(false));
+        }
+        let binary = root.path().join("workdeck.exe");
+        std::fs::write(&binary, b"not executable proof").unwrap();
+        for access in [None, Some(false), Some(true)] {
+            assert_eq!(
+                executable_access_with(std::fs::metadata(&binary), || access),
+                access
+            );
+        }
+        assert_eq!(
+            executable_access_with(
+                Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied)),
+                || panic!("metadata failure must stay unresolved")
+            ),
+            None
+        );
+        check_install_conflicts(
+            &root.path().join("destination"),
+            &[root.path().join("empty-bin")],
+            None,
+            false,
+        )
+        .unwrap();
+    }
 
     #[test]
     fn conflict_removal_guidance_is_owner_specific_and_never_invents_legacy_packages() {
