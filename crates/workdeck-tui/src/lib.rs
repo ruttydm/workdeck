@@ -20077,6 +20077,44 @@ mod tests {
         }
     }
 
+    // Hunk AppHost.interactions.test.tsx helper translations, MIT;
+    // see THIRD_PARTY_NOTICES. Render after every dispatched navigation key.
+    fn press_hunk_navigation_key(
+        terminal: &mut Terminal<TestBackend>,
+        app: &mut ReviewApp,
+        key: char,
+        count: usize,
+    ) {
+        assert!(matches!(key, '[' | ']'));
+        for _ in 0..count {
+            app.handle_key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE));
+            rendered_review_frame(terminal, app);
+        }
+    }
+
+    fn first_cross_file_hunk_navigation_header(frame: &str) -> &str {
+        frame
+            .lines()
+            .map(str::trim)
+            .find(|line| line.starts_with("long-file.txt") || line.starts_with("short-file.ts"))
+            .unwrap_or("")
+    }
+
+    #[test]
+    fn cross_file_header_helper_preserves_first_match_and_empty_fallback() {
+        assert_eq!(first_cross_file_hunk_navigation_header("unrelated\n"), "");
+        assert_eq!(
+            first_cross_file_hunk_navigation_header(
+                "other\n  long-file.txt  +18  \nshort-file.ts +2\n"
+            ),
+            "long-file.txt  +18"
+        );
+        assert_eq!(
+            first_cross_file_hunk_navigation_header(" short-file.ts +2\nlong-file.txt"),
+            "short-file.ts +2"
+        );
+    }
+
     #[test]
     fn cross_file_hunk_sequence_preserves_destination_header_and_backward_target() {
         let mut app = ReviewApp::new(
@@ -20085,28 +20123,20 @@ mod tests {
         );
         let mut terminal = Terminal::new(TestBackend::new(120, 16)).unwrap();
         rendered_review_frame(&mut terminal, &app);
-        for _ in 0..18 {
-            app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
-            rendered_review_frame(&mut terminal, &app);
-        }
-        let first_header = |frame: &str| {
-            frame
-                .lines()
-                .map(str::trim)
-                .find(|line| line.starts_with("long-file.txt") || line.starts_with("short-file.ts"))
-                .unwrap()
-                .to_owned()
-        };
+        press_hunk_navigation_key(&mut terminal, &mut app, ']', 18);
         let top = rendered_review_frame(&mut terminal, &app);
-        assert!(first_header(&top).contains("short-file.ts"), "{top}");
+        assert!(
+            first_cross_file_hunk_navigation_header(&top).contains("short-file.ts"),
+            "{top}"
+        );
         app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
         let middle = rendered_review_frame(&mut terminal, &app);
-        assert!(first_header(&middle).contains("short-file.ts"), "{middle}");
+        assert!(
+            first_cross_file_hunk_navigation_header(&middle).contains("short-file.ts"),
+            "{middle}"
+        );
         assert!(!middle.contains("line 341 changed"), "{middle}");
-        for _ in 0..2 {
-            app.handle_key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE));
-            rendered_review_frame(&mut terminal, &app);
-        }
+        press_hunk_navigation_key(&mut terminal, &mut app, '[', 2);
         let back = rendered_review_frame(&mut terminal, &app);
         assert!(back.contains("line 341 changed"), "{back}");
         assert!(!back.contains("line 002 changed"), "{back}");

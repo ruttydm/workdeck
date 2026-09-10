@@ -23,6 +23,22 @@ Both tests passed locally on macOS arm64. These assertions inspect native
 cell-buffer text and application state, not frozen upstream terminal frames.
 They do not establish geometry parity or cross-platform success.
 
-The source interval at bytes `[15678,17425)` also owns hunk-navigation and
-snapshot-waiting helpers. It remains unmapped; this partial translation must
+The adjacent native `press_hunk_navigation_key` helper dispatches each `[` or
+`]` separately and renders after each key, as the pinned helper does.
+`first_cross_file_hunk_navigation_header` preserves first-match ordering,
+whitespace trimming, and the source's empty-string fallback (the previous
+inline native closure panicked when no header was present).
+
+`cross_file_hunk_sequence_preserves_destination_header_and_backward_target`
+uses both helpers against the native review stream: 18 forward steps enter
+the short file, one more reaches its middle hunk, and two backward steps
+return to the last long-file hunk rather than its first hunk.
+`cross_file_header_helper_preserves_first_match_and_empty_fallback` directly
+tests ordering, trimming, and missing-header behavior.
+
+After these translations, `cargo test -p workdeck-tui --lib` passed all
+1,261 tests with zero failures and zero ignored tests on macOS arm64.
+
+The source interval at bytes `[15678,17425)` also owns the
+snapshot-waiting helper. It remains unmapped; this partial translation must
 not be used to claim completion of that interval or the whole source file.
