@@ -77,3 +77,15 @@ Stable-key identity and the complete keyboard/default draft reveal protocol
 remain separate obligations. This extension does not yet map the source interval.
 All 1,250 TUI library tests passed in 9.23 seconds; formatting and diff checks
 passed.
+
+## Keyboard draft intent
+
+Successful keyboard Edit/Reply now applies the core `REVIEW_DRAFT_START_REVEAL`
+request before resolving the composer geometry. This increments the hunk reveal
+token, preserves the file token, and sets the note-reveal flag, which the composer
+visibility calculation consumes. The keyboard test checks all three fields for
+each action as well as the restored line target and narrow-viewport scroll.
+Pointer opening still uses the viewport-preserving request. This does not yet
+cover every source stable-key or default new-draft reveal path.
+All 1,250 TUI library tests passed in 9.22 seconds; formatting and diff checks
+passed. No ledger disposition changed.

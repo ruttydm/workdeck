@@ -2008,7 +2008,11 @@ pub(super) mod tests {
             assert_ne!(app.current_review_line_cursor().unwrap().target, target);
             app.saved_note_hover = Some(root.id.clone());
             app.scroll = 0;
+            let reveal = app.review_reveal;
             app.apply_builtin_command_action(action);
+            assert_eq!(app.review_reveal.hunk_token, reveal.hunk_token + 1);
+            assert_eq!(app.review_reveal.file_top_token, reveal.file_top_token);
+            assert!(app.review_reveal.scroll_to_note);
             assert_eq!(app.note_composer.as_ref().unwrap().target, target);
             assert_eq!(app.current_review_line_cursor().unwrap().target, target);
             let rows = app.current_review_geometry_rows();

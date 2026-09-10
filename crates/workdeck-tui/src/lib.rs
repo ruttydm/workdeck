@@ -3003,6 +3003,10 @@ impl ReviewApp {
         let Some(target) = self.note_composer.as_ref().map(|composer| composer.target) else {
             return;
         };
+        self.review_reveal = workdeck_review::apply_review_reveal_request(
+            self.review_reveal,
+            workdeck_review::REVIEW_DRAFT_START_REVEAL,
+        );
         let cursor = self
             .current_review_geometry_rows()
             .line_cursors
@@ -3015,6 +3019,7 @@ impl ReviewApp {
         let Some((top, height)) = self
             .note_composer
             .as_ref()
+            .filter(|_| self.review_reveal.scroll_to_note)
             .and_then(|composer| rows.note_bounds.get(&composer.id))
             .copied()
         else {
