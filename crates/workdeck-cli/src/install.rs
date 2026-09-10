@@ -13,7 +13,7 @@ mod authenticated;
 mod download;
 mod fresh;
 pub use fresh::{
-    create_authenticated_installation, install_release, install_release_on_host,
+    InstalledPath, create_authenticated_installation, install_release, install_release_on_host,
     install_requested_on_host,
 };
 pub mod metadata;

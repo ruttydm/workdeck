@@ -21,6 +21,13 @@ Strict CLI all-target Clippy passed before the additional opt-out/help assertion
 This is partial installer implementation; the full `install.sh` ledger interval
 remains unmapped.
 
+PATH completion now retains a typed outcome: skipped, already present, shell
+profile edited, or GitHub Actions workflow file appended. CLI diagnostics name
+the affected file and only advise shell restarts for profile edits; workflow
+updates explicitly take effect in later steps. All six `install::fresh` unit
+tests pass, including outcome selection and the opt-out taking precedence over
+`GITHUB_PATH`. These tests do not constitute full installer oracle parity.
+
 ## Latest regression checkpoint (`9e19a586`)
 
 Strict Clippy passes for `workdeck-cli` and `xtask` with `--all-targets -- -D

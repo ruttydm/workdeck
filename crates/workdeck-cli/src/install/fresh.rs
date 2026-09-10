@@ -2,12 +2,49 @@
 use anyhow::{Context, Result, ensure};
 use std::{fs, io::Read, path::Path};
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum InstalledPath {
+    Skipped,
+    AlreadyPresent(std::path::PathBuf),
+    ShellProfile(std::path::PathBuf),
+    GithubActions(std::path::PathBuf),
+}
+
+impl std::fmt::Display for InstalledPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Skipped => write!(f, "PATH configuration was not modified."),
+            Self::AlreadyPresent(path) => write!(f, "{} already configures PATH.", path.display()),
+            Self::ShellProfile(path) => write!(
+                f,
+                "PATH configuration updated in {}; restart every open shell and terminal pane.",
+                path.display()
+            ),
+            Self::GithubActions(path) => write!(
+                f,
+                "Added installation bin directory to GITHUB_PATH ({}) for later workflow steps.",
+                path.display()
+            ),
+        }
+    }
+}
+
+fn installed_path(plan: &super::shell_path::ShellPathPlan, github: bool) -> InstalledPath {
+    use super::shell_path::ShellPathPlan;
+    match plan {
+        ShellPathPlan::Skipped => InstalledPath::Skipped,
+        ShellPathPlan::AlreadyPresent(path) => InstalledPath::AlreadyPresent(path.clone()),
+        ShellPathPlan::Edit { path, .. } if github => InstalledPath::GithubActions(path.clone()),
+        ShellPathPlan::Edit { path, .. } => InstalledPath::ShellProfile(path.clone()),
+    }
+}
+
 pub fn install_requested_on_host(
     version: Option<&str>,
     destination: &Path,
     allow_conflicts: bool,
     no_modify_path: bool,
-) -> Result<(String, bool)> {
+) -> Result<(String, InstalledPath)> {
     if let Some(version) = version {
         crate::update::parse_update_version(version)?;
     }
@@ -46,10 +83,16 @@ pub fn install_requested_on_host(
         .latest
         .context("could not resolve the newest Workdeck release from GitHub")
     })?;
-    let modified = install_then_configure(&destination, &plan, || {
+    install_then_configure(&destination, &plan, || {
         install_release_on_host(&version, &destination)
     })?;
-    Ok((version, modified))
+    let outcome = installed_path(
+        &plan,
+        environment
+            .get("GITHUB_PATH")
+            .is_some_and(|value| !value.is_empty()),
+    );
+    Ok((version, outcome))
 }
 
 fn install_then_configure(
@@ -234,6 +277,43 @@ fn publish(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn path_outcomes_distinguish_workflow_steps_from_shell_restarts() {
+        let home = tempfile::tempdir().unwrap();
+        let github_path = home.path().join("github-path");
+        let env = std::collections::BTreeMap::from([(
+            "GITHUB_PATH".into(),
+            github_path.to_string_lossy().into_owned(),
+        )]);
+        let plan = super::super::shell_path::plan("/app/bin", home.path(), &env, false).unwrap();
+        let outcome = installed_path(&plan, true);
+        assert_eq!(outcome, InstalledPath::GithubActions(github_path));
+        assert!(outcome.to_string().contains("later workflow steps"));
+        assert!(!outcome.to_string().contains("restart"));
+        let skipped = super::super::shell_path::plan("/app/bin", home.path(), &env, true).unwrap();
+        assert_eq!(installed_path(&skipped, true), InstalledPath::Skipped);
+        let plan =
+            super::super::shell_path::plan("/app/bin", home.path(), &Default::default(), false)
+                .unwrap();
+        let outcome = installed_path(&plan, false);
+        assert_eq!(
+            outcome,
+            InstalledPath::ShellProfile(home.path().join(".profile"))
+        );
+        assert!(outcome.to_string().contains("restart every open shell"));
+        let present =
+            super::super::shell_path::ShellPathPlan::AlreadyPresent(home.path().join(".profile"));
+        assert_eq!(
+            installed_path(&present, false),
+            InstalledPath::AlreadyPresent(home.path().join(".profile"))
+        );
+        assert!(
+            !installed_path(&present, false)
+                .to_string()
+                .contains("updated")
+        );
+        assert_eq!(fs::read_dir(home.path()).unwrap().count(), 0);
+    }
     #[test]
     fn skipped_path_configuration_installs_without_recovery_artifacts() {
         let home = tempfile::tempdir().unwrap();

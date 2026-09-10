@@ -8044,20 +8044,15 @@ fn handle_global_command(cwd: &Path, command: Command) -> Result<()> {
                     .ok()
                     .filter(|value| !value.is_empty())
             });
-            let (version, path_modified) = workdeck_cli::install::install_requested_on_host(
+            let (version, path_outcome) = workdeck_cli::install::install_requested_on_host(
                 version.as_deref(),
                 &destination,
                 force || std::env::var("WORKDECK_ALLOW_CONFLICTING_INSTALLS").as_deref() == Ok("1"),
                 no_modify_path || std::env::var("WORKDECK_NO_MODIFY_PATH").as_deref() == Ok("1"),
             )?;
             println!(
-                "Installed Workdeck {version} to {}. {}",
-                destination.display(),
-                if path_modified {
-                    "PATH configuration updated; restart your shell to use it."
-                } else {
-                    "PATH configuration was not modified."
-                }
+                "Installed Workdeck {version} to {}. {path_outcome}",
+                destination.display()
             );
             Ok(())
         }
