@@ -50,3 +50,13 @@ Windows link behavior remains for native platform CI.
 
 Both additional native tests pass on macOS, together with strict xtask Clippy,
 workspace formatting and diff whitespace checks. Ledger coverage is unchanged.
+
+The public CLI now also has a collapsed-generation regression: an input with no
+release headings and three existing pages fails at the two-of-three orphan guard,
+before image checking. Every original page and input is verified byte-for-byte
+unchanged, and no data, static or Workdeck state directory is created. This closes
+the CLI wiring check for the guard without enabling deletion or mapping additional
+source bytes.
+
+All 19 changelog CLI tests pass after this addition. Strict xtask Clippy,
+formatting and whitespace checks pass.

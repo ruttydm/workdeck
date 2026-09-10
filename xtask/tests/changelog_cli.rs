@@ -11,6 +11,52 @@ fn run(repo: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
+fn artifact_check_cli_rejects_collapsed_generation_before_image_checks() {
+    let repo = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    std::fs::write(repo.path().join("history.md"), "# No release headings\n").unwrap();
+    std::fs::write(repo.path().join("dates.json"), "{}").unwrap();
+    let directory = repo.path().join("site/content/changelog");
+    std::fs::create_dir_all(&directory).unwrap();
+    for name in ["index.md", "1.0.md", "1.1.md"] {
+        std::fs::write(directory.join(name), format!("original {name}\n")).unwrap();
+    }
+    let output = run(
+        repo.path(),
+        &["changelog", "artifacts-check", "history.md", "dates.json"],
+    );
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert!(error.contains("Refusing to remove 2 of 3 generated changelog pages"));
+    assert!(!error.contains("social card image"));
+    for name in ["index.md", "1.0.md", "1.1.md"] {
+        assert_eq!(
+            std::fs::read_to_string(directory.join(name)).unwrap(),
+            format!("original {name}\n")
+        );
+    }
+    assert!(!repo.path().join("site/data").exists());
+    assert!(!repo.path().join("site/static").exists());
+    assert!(!repo.path().join(".agents").exists());
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("history.md")).unwrap(),
+        "# No release headings\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("dates.json")).unwrap(),
+        "{}"
+    );
+}
+
+#[test]
 fn artifact_check_cli_reports_stale_then_accepts_matching_output() {
     let repo = tempfile::tempdir().unwrap();
     assert!(
