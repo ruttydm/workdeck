@@ -38,6 +38,29 @@ struct Original {
     permissions: fs::Permissions,
 }
 
+fn require_safe_target(repo: &Path, name: &str) -> Result<()> {
+    let relative = Path::new(name);
+    ensure!(
+        relative
+            .components()
+            .all(|c| matches!(c, std::path::Component::Normal(_))),
+        "release target must be repository-relative"
+    );
+    ensure!(!name.is_empty(), "release target cannot be empty");
+    let mut current = repo.to_path_buf();
+    let components: Vec<_> = relative.components().collect();
+    for component in components.iter().take(components.len() - 1) {
+        current.push(component.as_os_str());
+        let metadata = fs::symlink_metadata(&current)?;
+        ensure!(
+            metadata.is_dir() && !metadata.file_type().is_symlink(),
+            "release target parent must be a real directory: {}",
+            current.display()
+        );
+    }
+    Ok(())
+}
+
 fn require_contents(path: &Path, expected: Option<&[u8]>) -> Result<()> {
     match fs::symlink_metadata(path) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound && expected.is_none() => Ok(()),
@@ -111,6 +134,7 @@ fn apply(
     );
     let mut originals = BTreeMap::new();
     for name in targets.keys() {
+        require_safe_target(&repo, name)?;
         let path = repo.join(name);
         let original = match fs::symlink_metadata(&path) {
             Ok(metadata) => {
@@ -156,6 +180,7 @@ fn apply(
     let mut written = Vec::new();
     let result = (|| -> Result<()> {
         for (name, contents) in &targets {
+            require_safe_target(&repo, name)?;
             let path = repo.join(name);
             require_contents(
                 &path,
@@ -175,6 +200,7 @@ fn apply(
             after_write(written.len())?;
         }
         for (name, contents) in &targets {
+            require_safe_target(&repo, name)?;
             require_contents(
                 &repo.join(name),
                 contents.as_ref().map(|contents| contents.as_bytes()),
@@ -186,6 +212,10 @@ fn apply(
         let mut failures = Vec::new();
         for name in written.into_iter().rev() {
             let path = repo.join(name);
+            if let Err(error) = require_safe_target(&repo, name) {
+                failures.push(format!("{name}: parent conflict preserved: {error}"));
+                continue;
+            }
             if let Err(error) = require_contents(
                 &path,
                 targets[name].as_ref().map(|contents| contents.as_bytes()),
@@ -214,6 +244,39 @@ fn apply(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn release_target_paths_reject_traversal_and_non_directory_parents() {
+        let repo = tempfile::tempdir().unwrap();
+        fs::create_dir(repo.path().join("release")).unwrap();
+        require_safe_target(repo.path(), "Cargo.toml").unwrap();
+        require_safe_target(repo.path(), "release/new.md").unwrap();
+        for name in [
+            "",
+            "../outside",
+            "/outside",
+            "release/../outside",
+            "./Cargo.toml",
+        ] {
+            assert!(require_safe_target(repo.path(), name).is_err(), "{name}");
+        }
+        fs::write(repo.path().join("file"), "preserve").unwrap();
+        assert!(require_safe_target(repo.path(), "file/target").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn release_target_paths_reject_symlinked_parent_directories() {
+        let repo = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("target"), "preserve").unwrap();
+        std::os::unix::fs::symlink(outside.path(), repo.path().join("release")).unwrap();
+        assert!(require_safe_target(repo.path(), "release/target").is_err());
+        assert_eq!(
+            fs::read_to_string(outside.path().join("target")).unwrap(),
+            "preserve"
+        );
+    }
 
     #[test]
     fn apply_restores_each_interrupted_step_and_retains_backups() {
