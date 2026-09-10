@@ -387,10 +387,12 @@ fn site(command: Option<&str>) -> Result<()> {
     match command {
         Some("build") => {
             site_assets::sbom(&repo)?;
+            skill::check_generated_skills(&repo)?;
             run_checked(&site, "zola", &["build"])
         }
         Some("check") => {
             site_assets::sbom(&repo)?;
+            skill::check_generated_skills(&repo)?;
             run_checked(&site, "zola", &["check"])?;
             let output = tempfile::tempdir()?;
             let public = output.path().join("public");
@@ -486,6 +488,7 @@ fn site(command: Option<&str>) -> Result<()> {
         }
         Some("serve") => {
             site_assets::sbom(&repo)?;
+            skill::check_generated_skills(&repo)?;
             run_checked(&site, "zola", &["serve"])
         }
         _ => bail!("site requires build, check, or serve"),

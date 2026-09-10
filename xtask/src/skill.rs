@@ -71,7 +71,7 @@ pub(crate) fn check(repo: &Path) -> Result<()> {
     Ok(())
 }
 
-fn check_generated_skills(repo: &Path) -> Result<()> {
+pub(crate) fn check_generated_skills(repo: &Path) -> Result<()> {
     let rendered = render_workdeck_review_skill();
     for path in [REVIEW_SKILL, WEB_REVIEW_SKILL] {
         let destination = repo.join(path);
