@@ -1556,6 +1556,32 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn note_save_rechecks_editability_without_consuming_draft() {
+        let mut app = ReviewApp::new(pinned_alpha_source_review(800), ReviewOptions::default());
+        app.open_note_composer();
+        app.note_composer.as_mut().unwrap().body = "Original".into();
+        let mut original = app.save_note_composer().unwrap();
+        app.saved_note_hover = Some(original.id.clone());
+        app.open_active_note_edit();
+        app.note_composer.as_mut().unwrap().body = "Unsaved edit".into();
+        let draft_id = app.note_composer.as_ref().unwrap().id.clone();
+        app.with_state(|state| state.remove_comment(&original.id));
+        original.editable = false;
+        app.with_state(|state| state.add_comment(original.clone()))
+            .unwrap();
+        let revision = app.with_state(|state| state.state_revision());
+        assert!(app.save_note_composer().is_none());
+        assert_eq!(app.note_composer.as_ref().unwrap().id, draft_id);
+        assert_eq!(app.note_composer.as_ref().unwrap().body, "Unsaved edit");
+        assert_eq!(
+            app.with_state(|state| state.comments()[0].clone()),
+            original
+        );
+        assert_eq!(app.with_state(|state| state.state_revision()), revision);
+        assert!(app.status.as_deref().unwrap().contains("is not editable."));
+    }
+
+    #[test]
     fn composer_enforces_exact_semantic_note_byte_boundary() {
         let make_app = || ReviewApp::new(pinned_alpha_source_review(800), ReviewOptions::default());
         let mut probe = make_app();

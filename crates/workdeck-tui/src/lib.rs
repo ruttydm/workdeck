@@ -3147,6 +3147,11 @@ impl ReviewApp {
                         workdeck_review::ReviewError::UnknownComment(target_note_id.clone())
                     })?
                     .clone();
+                if !candidate.editable {
+                    return Err(workdeck_review::ReviewError::InvalidCommentTarget(format!(
+                        "Review note {target_note_id} is not editable."
+                    )));
+                }
                 candidate.summary = body.to_owned();
                 candidate.updated_at = Some(timestamp.clone());
                 if !workdeck_review::review_note_within_size_limit(&candidate.semantic_note()) {
