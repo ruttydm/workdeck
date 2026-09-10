@@ -326,18 +326,23 @@ pub(super) fn run_dates(repo: &Path, args: impl Iterator<Item = String>) -> Resu
     Ok(())
 }
 
+fn minor_series_of(version: &str) -> String {
+    let mut parts = version.split('-').next().unwrap_or_default().split('.');
+    format!(
+        "{}.{}",
+        parts.next().unwrap_or("0"),
+        parts.next().unwrap_or("0")
+    )
+}
+
+fn version_anchor(version: &str) -> String {
+    format!("v{}", version.replace('.', "-"))
+}
+
 fn group_into_series(releases: Vec<ReleaseEntry>) -> Vec<ReleaseSeries> {
     let mut groups = std::collections::BTreeMap::<String, Vec<ReleaseEntry>>::new();
     for release in releases {
-        let minor = release
-            .version
-            .split('-')
-            .next()
-            .unwrap_or_default()
-            .split('.')
-            .take(2)
-            .collect::<Vec<_>>()
-            .join(".");
+        let minor = minor_series_of(&release.version);
         groups.entry(minor).or_default().push(release);
     }
     let mut series = groups
@@ -523,8 +528,8 @@ fn render_release_body(
             .unwrap_or_else(|| "Unreleased".into());
         lines.extend([
             format!(
-                "<a class=\"release-separator\" id=\"v{}\"></a>",
-                release.version.replace('.', "-")
+                "<a class=\"release-separator\" id=\"{}\"></a>",
+                version_anchor(&release.version)
             ),
             String::new(),
             format!("### {}", release.version),
@@ -730,6 +735,31 @@ pub(super) fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_versions_order_releases_newest_first() {
+        let mut versions = ["0.9.0", "0.18.2", "0.10.0"];
+        versions.sort_by(|a, b| compare_versions(a, b));
+        assert_eq!(versions, ["0.18.2", "0.10.0", "0.9.0"]);
+    }
+
+    #[test]
+    fn source_versions_sort_stable_above_own_prereleases() {
+        let mut versions = ["0.19.0-beta.0", "0.19.0", "0.19.0-beta.1"];
+        versions.sort_by(|a, b| compare_versions(a, b));
+        assert_eq!(versions, ["0.19.0", "0.19.0-beta.1", "0.19.0-beta.0"]);
+    }
+
+    #[test]
+    fn source_versions_derive_minor_series() {
+        assert_eq!(minor_series_of("0.18.2"), "0.18");
+        assert_eq!(minor_series_of("0.19.0-beta.0"), "0.19");
+    }
+
+    #[test]
+    fn source_versions_build_readable_anchor() {
+        assert_eq!(version_anchor("0.18.2"), "v0-18-2");
+    }
 
     #[test]
     fn source_dates_prefer_annotated_tag_and_fall_back_to_commit() {
