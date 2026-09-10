@@ -51,3 +51,11 @@ shortcut; it does not reproduce the source harness's unpublished line cursors.
 
 All 1,219 TUI library tests passed after the input change (8.63 seconds),
 with formatting and diff checks passing. Ledger dispositions are unchanged.
+# Catalog declaration assertions
+
+The native command-sequence regression now explicitly checks the shared catalog
+effects for `workdeck.view.toggleAgentNotes`, `workdeck.review.toggleHunkGap`
+and `workdeck.review.startNote` before executing them. These correspond to the
+three declaration assertions at the beginning of the pinned source case.
+The focused native test passed in 0.77 seconds. The no-measured-cursor setup is
+still not reproduced by this sequence, so its source interval remains unmapped.

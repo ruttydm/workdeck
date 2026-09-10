@@ -60,3 +60,9 @@ React mount/flush/destroy scaffolding. Only this complete test interval is now
 mapped. The runtime hook and other source-test intervals remain separate work.
 All 1,254 native TUI library tests passed in 9.80 seconds; formatting and diff
 checks passed. The strict audit refresh was started after this mapping.
+
+The strict audit completed after commit `538dc185`, exiting 1 at the incomplete
+coverage gate: 1,257 baseline files, 1,440 interval records, 473 translated-test
+records, 277 unmapped records, five tracked stable-only commits and 92 pending
+upstream commits. This is not an audit pass; gates after the incomplete-coverage
+check remain unproven. No fresh upstream fetch was part of this audit.

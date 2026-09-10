@@ -521,6 +521,26 @@ pub(super) mod tests {
 
     #[test]
     fn alpha_catalog_commands_toggle_notes_start_draft_and_expand_next_gap() {
+        for (id, effect) in [
+            (
+                "workdeck.view.toggleAgentNotes",
+                workdeck_review::AppCommandReviewEffect::ToggleNoteVisibility,
+            ),
+            (
+                "workdeck.review.toggleHunkGap",
+                workdeck_review::AppCommandReviewEffect::ToggleSelectedGap,
+            ),
+            (
+                "workdeck.review.startNote",
+                workdeck_review::AppCommandReviewEffect::StartDraft,
+            ),
+        ] {
+            let entry = workdeck_review::APP_COMMAND_CATALOG
+                .iter()
+                .find(|entry| entry.id == id)
+                .unwrap();
+            assert_eq!(entry.review, Some(effect), "{id}");
+        }
         let mut review = pinned_two_hunk_alpha_review();
         review.files[0].set_source_capability(Some(workdeck_core::SourceCapabilityIdentity {
             cache_key: None,
