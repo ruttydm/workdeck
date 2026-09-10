@@ -5,6 +5,36 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 mod publication;
 
+pub(super) fn run_publish(
+    repo: &std::path::Path,
+    mut args: impl Iterator<Item = String>,
+) -> Result<()> {
+    use anyhow::Context;
+    let saved = args
+        .next()
+        .context("social-cards-publish requires plan, backup, staging directory and cards.json")?;
+    let backup = args.next().context("backup directory required")?;
+    let staging = args.next().context("staging directory required")?;
+    let cards = args.next().context("cards.json required")?;
+    let requested: Vec<_> = args.collect();
+    let _lock = crate::changelog::publication_lock(repo)?;
+    let saved: publication::Plan = serde_json::from_slice(&std::fs::read(repo.join(saved))?)?;
+    let targets = select(
+        serde_json::from_slice(&std::fs::read(repo.join(cards))?)?,
+        &requested,
+    )?;
+    let current = publication::plan(repo, &repo.join(staging), &targets, requested.is_empty())?;
+    ensure!(saved == current, "publication plan is stale or modified");
+    if !current.replacements.is_empty() {
+        publication::apply(repo, &current, &repo.join(backup), |_| Ok(()))?;
+    }
+    println!(
+        "{}",
+        serde_json::json!({"applied": !current.replacements.is_empty(), "files": current.replacements.len()})
+    );
+    Ok(())
+}
+
 pub(super) fn run_publication_plan(
     repo: &std::path::Path,
     mut args: impl Iterator<Item = String>,

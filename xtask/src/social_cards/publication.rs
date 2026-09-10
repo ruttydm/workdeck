@@ -2,16 +2,20 @@
 //! Planning is read-only; application must revalidate originals before writing.
 use super::{Target, check_capture};
 use anyhow::{Result, ensure};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fs, path::Path};
 
 const CHANGELOG: &str = "site/static/changelog/og";
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub(super) struct Plan {
     pub originals: BTreeMap<String, Option<Vec<u8>>>,
     pub replacements: BTreeMap<String, Option<Vec<u8>>>,
 }
+
+mod application;
+pub(super) use application::apply;
 
 fn read_regular(path: &Path) -> Result<Option<Vec<u8>>> {
     match fs::symlink_metadata(path) {

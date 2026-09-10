@@ -341,3 +341,6 @@ mod tests {
         );
     }
 }
+pub(crate) fn publication_lock(repo: &std::path::Path) -> anyhow::Result<std::fs::File> {
+    fragments::repository_release_lock(repo)
+}

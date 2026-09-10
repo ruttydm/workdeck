@@ -271,6 +271,7 @@ fn run() -> Result<()> {
         Some("install-create") => install::create(args),
         Some("changelog") => changelog::run(&repo_root()?, args),
         Some("social-cards-plan") => social_cards::run(&repo_root()?, args),
+        Some("social-cards-publish") => social_cards::run_publish(&repo_root()?, args),
         Some("social-cards-publication-plan") => {
             social_cards::run_publication_plan(&repo_root()?, args)
         }
@@ -2550,6 +2551,9 @@ fn relative_to(repo: &Path, path: &Path) -> String {
 
 fn print_help() {
     println!("cargo xtask social-cards-plan <cards.json> [slug ...]");
+    println!(
+        "cargo xtask social-cards-publish <plan.json> <new-external-backup> <staging-directory> <cards.json> [slug ...]"
+    );
     println!(
         "cargo xtask social-cards-publication-plan <staging-directory> <cards.json> [slug ...]"
     );

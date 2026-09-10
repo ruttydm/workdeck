@@ -164,3 +164,23 @@ rejected. The full-set inventory includes nested files, but empty-directory
 removal, application/recovery, and protection against changes after planning
 remain unfinished. Eight social-card unit tests pass, including the full versus
 targeted stale-image regression; this does not establish publication parity.
+
+## Local publication application
+
+`cargo xtask social-cards-publish <plan.json> <new-external-backup> <staging-directory> <cards.json> [slug ...]`
+holds the shared repository release lock, regenerates the publication plan and
+requires exact equality with the supplied plan. Changed files are written with
+sibling temporary files; absent destinations use exclusive persistence.
+Original bytes and permissions are saved before the first write in a new backup
+directory outside the repository. A failure rolls back already written files
+only if they still contain the operation's replacement, preserving detected
+concurrent edits and reporting recovery conflicts. Staging captures are retained.
+An unchanged plan succeeds without creating a backup. This command changes local
+site files only; it does not upload or release them.
+
+Nine social-card unit tests pass, including binary replacement, deletion and
+creation, successful application, and injected failure after each of the three
+writes with exact original-byte recovery. CLI end-to-end application tests are
+still needed. Filesystem races, directory-entry crash durability, empty-directory
+cleanup and changes to the full-set inventory during application remain open;
+the implementation is not a crash-atomic publication transaction or full parity.
