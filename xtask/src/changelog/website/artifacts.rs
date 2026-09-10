@@ -143,10 +143,20 @@ pub(in crate::changelog) fn run_artifacts(
             "saved artifact plan is stale or modified"
         );
         if let Some(backup) = backup {
-            application::apply(repo, &saved, &repo.join(backup), |_| Ok(()))?;
+            if !saved.edits.is_empty() {
+                application::apply(repo, &saved, &repo.join(backup), |_| Ok(()))?;
+            }
+            let missing = missing_card_images(repo, &output)?;
+            if !missing.is_empty() {
+                eprintln!("Missing {} social card image(s):", missing.len());
+                for path in &missing {
+                    eprintln!("  {path}");
+                }
+                eprintln!("Generate the listed social card images before publishing the site.");
+            }
             println!(
                 "{}",
-                serde_json::json!({"applied":true,"artifacts":saved.edits.len()})
+                serde_json::json!({"applied":!saved.edits.is_empty(),"artifacts":saved.edits.len(),"missingCardImages":missing})
             );
         }
         return Ok(());

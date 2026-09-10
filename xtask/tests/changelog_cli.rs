@@ -85,6 +85,14 @@ fn artifact_apply_cli_regenerates_plan_and_retains_original_bytes() {
         ],
     );
     assert!(applied.status.success(), "{:?}", applied);
+    assert!(String::from_utf8_lossy(&applied.stderr).contains("social card image(s)"));
+    let applied_json: serde_json::Value = serde_json::from_slice(&applied.stdout).unwrap();
+    assert!(
+        !applied_json["missingCardImages"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
     assert_eq!(
         serde_json::from_slice::<serde_json::Value>(&applied.stdout).unwrap()["applied"],
         true
@@ -116,6 +124,33 @@ fn artifact_apply_cli_regenerates_plan_and_retains_original_bytes() {
         std::fs::read(repo.join("plan.json")).unwrap(),
         generated.stdout
     );
+    let current = run(
+        &repo,
+        &["changelog", "artifacts-plan", "history.md", "dates.json"],
+    );
+    assert!(current.status.success());
+    std::fs::write(repo.join("current-plan.json"), current.stdout).unwrap();
+    let unchanged = run(
+        &repo,
+        &[
+            "changelog",
+            "artifacts-apply",
+            "current-plan.json",
+            second.to_str().unwrap(),
+            "history.md",
+            "dates.json",
+        ],
+    );
+    assert!(unchanged.status.success(), "{unchanged:?}");
+    let unchanged_json: serde_json::Value = serde_json::from_slice(&unchanged.stdout).unwrap();
+    assert_eq!(unchanged_json["applied"], false);
+    assert_eq!(unchanged_json["artifacts"], 0);
+    assert_eq!(
+        unchanged_json["missingCardImages"],
+        applied_json["missingCardImages"]
+    );
+    assert!(String::from_utf8_lossy(&unchanged.stderr).contains("social card image(s)"));
+    assert!(!second.exists());
 }
 
 #[test]

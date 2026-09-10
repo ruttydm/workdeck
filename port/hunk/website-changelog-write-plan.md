@@ -2,6 +2,14 @@
 
 ## Recoverable application
 
+Application reports missing social-card images on stderr after successful
+writes, and includes their paths in the JSON `missingCardImages` field. This is
+a warning in write mode; the existing check mode remains a failing gate when
+images are missing. A freshly validated empty plan succeeds with `applied: false`
+and `artifacts: 0`, creates no backup and still reports missing images. It may
+acquire/create the shared advisory lock; it is not a read-only inspection command.
+The CLI regression verifies both newly written and already-current outcomes.
+
 `cargo xtask changelog artifacts-apply <saved-plan.json> <new-external-backup-directory> <markdown-file> <recorded-dates.json> [notes.json]`
 acquires the shared Git-local release lock, regenerates the current artifact plan
 and requires it to equal the saved plan before applying. Only the already
