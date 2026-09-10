@@ -261,6 +261,27 @@ tests call the complete page renderer, while the native tests currently call
 the fragment renderer with the resolved page summary. Full-page composition must
 be implemented and tested before the source block receives a ledger disposition.
 
+## Zola series-page composition
+
+`cargo xtask changelog pages <markdown-file> <dates.json> [notes.json]` emits
+JSON containing composed series-page Markdown without writing site files. The
+composer joins editorial/factual summaries, datelines, videos, Highlights bodies,
+related links, release bodies and neighboring-series navigation. It emits TOML
+frontmatter for Zola and removes only the Astro-specific script attribute, without
+altering matching text in JSON-LD values.
+
+Install instructions use the repository's documented Cargo/Git package route,
+pinned to the dated stable version's tag, never npm. Current stable pages also
+show `workdeck update`; prerelease-only and unpublished pages offer no install
+command. This generates instructions, not evidence that a tag or install succeeds.
+
+Two native composition tests pass, covering parsed TOML, each composed section,
+no duplicated lead paragraph, Workdeck links/branding, pinned install selection,
+and prerelease/unpublished suppression. The new command is still incomplete:
+social-card metadata, full overlay/tagline support, index/feed generation, final
+site template integration, complete source page tests and differential full-page
+verification remain open. No ledger mapping changed.
+
 ## Verification refresh after original-test translations
 
 At `2408adfb`, strict `cargo clippy -p xtask --all-targets -- -D warnings`

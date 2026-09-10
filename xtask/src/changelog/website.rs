@@ -8,6 +8,9 @@ use std::cmp::Ordering;
 use std::path::Path;
 use std::sync::LazyLock;
 
+mod pages;
+pub(super) use pages::run_pages;
+
 // Keep regular-expression whitespace aligned with the pinned JavaScript parser.
 fn parser_regex(pattern: &str) -> Regex {
     const SPACE: &str = r"\x09-\x0d\x20\u{00a0}\u{1680}\u{2000}-\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}";
