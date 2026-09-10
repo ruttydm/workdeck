@@ -10,6 +10,7 @@ use workdeck_session::render_workdeck_review_skill;
 const REVIEW_SKILL: &str = "skills/workdeck-review/SKILL.md";
 const WEB_REVIEW_SKILL: &str = "site/static/docs/workdeck-review-skill.md";
 const BUNDLED_SKILLS_ORACLE: &str = "port/hunk/oracles/bundled-skills.json";
+const PINNED_BASELINE: &str = "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2";
 
 #[derive(Debug, Deserialize)]
 struct BundledSkillsOracle {
@@ -68,6 +69,44 @@ pub(crate) fn check(repo: &Path) -> Result<()> {
     check_generated_skills(repo)?;
     println!("Workdeck review skill is current");
     check_static_skills(repo)?;
+    verify_pinned_web_review_skill(repo, PINNED_BASELINE)?;
+    Ok(())
+}
+
+/// The website's public review-skill page was a second generated copy of the
+/// bundled Hunk skill.  Keep its complete pinned blob accounted for without
+/// retaining a second handwritten document: the native website artifact is
+/// rendered by the same typed Rust source as the installed skill.
+pub(crate) fn verify_pinned_web_review_skill(repo: &Path, baseline: &str) -> Result<()> {
+    if baseline != PINNED_BASELINE {
+        return Ok(());
+    }
+    let web = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2:website/public/docs/hunk-review-skill.md",
+        ],
+    )?;
+    let bundled = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2:skills/hunk-review/SKILL.md",
+        ],
+    )?;
+    if web != bundled || web.len() != 12_927 {
+        bail!("pinned website review skill no longer matches the bundled source blob");
+    }
+    let expected = render_workdeck_review_skill();
+    let current = fs::read_to_string(repo.join(WEB_REVIEW_SKILL))
+        .with_context(|| format!("read generated website skill {WEB_REVIEW_SKILL}"))?;
+    if normalize_newlines(&current) != expected {
+        bail!("{WEB_REVIEW_SKILL} is out of date; run `cargo xtask skill generate`");
+    }
+    if !current.contains("Workdeck") || current.contains("hunk diff") {
+        bail!("{WEB_REVIEW_SKILL} is missing native Workdeck guidance");
+    }
     Ok(())
 }
 

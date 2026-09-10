@@ -1757,6 +1757,7 @@ fn verify() -> Result<()> {
     let baseline = resolve_commit(&repo, DEFAULT_BASELINE)?;
     tooling_configs::verify(&repo, &baseline)?;
     changeset_config::verify(&repo, &baseline)?;
+    skill::verify_pinned_web_review_skill(&repo, &baseline)?;
     changelog::verify_pinned_website_inputs(&repo, &baseline)?;
     changelog::run(
         &repo,
