@@ -13,6 +13,15 @@ mod index;
 mod json;
 mod latest;
 mod pages;
+
+fn release_card_metadata(metadata: &mut toml_edit::DocumentMut, card: &serde_json::Value) {
+    metadata["template"] = toml_edit::value("release.html");
+    metadata["extra"]["social_image"] = toml_edit::value(format!(
+        "https://workdeck.dev/changelog/og/{}.png",
+        card["slug"].as_str().unwrap()
+    ));
+    metadata["extra"]["social_image_alt"] = toml_edit::value(card["alt"].as_str().unwrap());
+}
 pub(super) use feed::run_feed;
 pub(super) use index::run_index;
 pub(super) use latest::run_latest;

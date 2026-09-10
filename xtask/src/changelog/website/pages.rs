@@ -34,6 +34,17 @@ mod tests {
             .unwrap();
         assert_eq!(metadata["title"].as_str(), Some("Workdeck 1.2"));
         assert_eq!(metadata["path"].as_str(), Some("changelog/1.2/"));
+        assert_eq!(metadata["template"].as_str(), Some("release.html"));
+        assert_eq!(
+            metadata["extra"]["social_image"].as_str(),
+            Some("https://workdeck.dev/changelog/og/1.2.png")
+        );
+        assert!(
+            metadata["extra"]["social_image_alt"]
+                .as_str()
+                .unwrap()
+                .starts_with("Workdeck 1.2 release notes")
+        );
         assert_eq!(page.matches("\nA lead.\n").count(), 1);
         assert!(page.contains("## Highlights\n\n- Detail."));
         assert!(page.contains("## Related documentation\n\n- [Docs](/docs/)"));
@@ -96,6 +107,16 @@ pub(super) fn render_page(
     frontmatter["title"] = toml_edit::value(format!("Workdeck {}", series.minor));
     frontmatter["description"] = toml_edit::value(description);
     frontmatter["path"] = toml_edit::value(format!("changelog/{}/", series.minor));
+    release_card_metadata(
+        &mut frontmatter,
+        &series_card(
+            series,
+            notes.summary.as_deref(),
+            dates,
+            latest.is_some_and(|v| minor_series_of(v) == series.minor),
+            "Workdeck",
+        ),
+    );
     let mut lines = vec![
         "+++".into(),
         frontmatter.to_string().trim_end().into(),

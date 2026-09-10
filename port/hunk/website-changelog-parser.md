@@ -1,5 +1,9 @@
 # Website changelog parser continuation
 
+Release-card metadata now crosses the generator/template boundary; see
+[website-release-template.md](website-release-template.md) for implementation
+and the still-unverified real Zola rendering gate.
+
 ## Verification after index and landing metadata CLI integration
 
 The unchanged-tree `cargo test -p xtask --all-targets` rerun passed 353 tests:
