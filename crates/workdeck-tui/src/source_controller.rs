@@ -1582,6 +1582,22 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn cursor_enabled_draft_without_measured_lines_requests_reveal() {
+        let mut review = pinned_alpha_source_review(800);
+        review.files[0].hunks[0].lines.clear();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        assert_ne!(app.options.cursor_line, super::super::CursorLineMode::Off);
+        assert!(app.current_review_line_cursor().is_none());
+        let target = app.current_note_target().unwrap();
+        let before = app.review_reveal;
+        app.open_note_composer();
+        assert_eq!(app.note_composer.as_ref().unwrap().target, target);
+        assert_eq!(app.review_reveal.hunk_token, before.hunk_token + 1);
+        assert_eq!(app.review_reveal.file_top_token, before.file_top_token);
+        assert!(app.review_reveal.scroll_to_note);
+    }
+
+    #[test]
     fn cursor_off_new_draft_requests_composer_reveal() {
         let mut app = ReviewApp::new(
             pinned_alpha_source_review(800),

@@ -2796,12 +2796,14 @@ impl ReviewApp {
     }
 
     fn open_note_composer(&mut self) {
+        let has_cursor_target = self.options.cursor_line != CursorLineMode::Off
+            && self.current_review_line_cursor().is_some();
         let Some(target) = self.current_note_target() else {
             self.status = Some("select a changed review line before adding a note".into());
             return;
         };
         self.open_note_composer_for_target(target);
-        if self.status.is_none() && self.options.cursor_line == CursorLineMode::Off {
+        if self.status.is_none() && !has_cursor_target {
             self.reveal_keyboard_note_composer();
         }
     }

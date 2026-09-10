@@ -1,5 +1,24 @@
 # Alpha note draft anchor
 
+## Missing measured cursor fallback
+
+Pinned `useUserNoteComposer.ts` computes viewport preservation from an explicit
+target or a non-null implicit cursor, not from keyboard cursor mode alone.
+The native keyboard opener now checks for an actual measured cursor before
+choosing viewport preservation. An enabled cursor mode with no measured line
+requests the default composer reveal instead.
+
+`cursor_enabled_draft_without_measured_lines_requests_reveal` supplies a hunk
+without renderable lines, verifies the absence of a measured cursor and the
+presence of a fallback note target, then checks the draft target and reveal
+tokens. This is a supplemental edge-case regression, not a complete translation
+of the source composer test corpus. The focused regression passed in 0.76 seconds
+and all 1,254 native TUI library tests passed in 9.24 seconds. Pinned main's
+`useUserNoteComposer.test.tsx` passed all ten tests and 25 assertions under the
+disposable Bun 1.3.14 oracle. The file is absent from the pinned stable tree,
+verified with `git cat-file`; no stable composer-suite pass is claimed. No ledger
+interval is mapped by this change.
+
 `source_controller::tests::alpha_mouse_targeted_note_drafts_preserve_cursor_and_scroll`
 uses the alpha8 source fixture, saves a root note, moves the cursor two lines,
 and targets that note for editing and then replying, with a real Escape cancel
