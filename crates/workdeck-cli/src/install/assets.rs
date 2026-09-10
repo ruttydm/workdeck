@@ -59,7 +59,7 @@ fn install_from_archive(
     install_skill_tree(&root.join("skills"), target, recovery)
 }
 
-fn rename_new(source: &Path, target: &Path) -> Result<()> {
+pub(super) fn rename_new(source: &Path, target: &Path) -> Result<()> {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     rustix::fs::renameat_with(
         rustix::fs::CWD,
@@ -75,12 +75,13 @@ fn rename_new(source: &Path, target: &Path) -> Result<()> {
     Ok(())
 }
 
-fn copy_tree(
+pub(super) fn copy_tree(
     source: &Path,
     target: &Path,
     count: &mut usize,
     bytes: &mut u64,
     depth: usize,
+    byte_limit: u64,
 ) -> Result<()> {
     ensure!(depth <= 64, "skills tree exceeds nesting limit");
     super::transaction::reject_reparse_point(&fs::symlink_metadata(source)?)?;
@@ -97,7 +98,14 @@ fn copy_tree(
         super::transaction::reject_reparse_point(&metadata)?;
         let destination = target.join(entry.file_name());
         if metadata.file_type().is_dir() {
-            copy_tree(&entry.path(), &destination, count, bytes, depth + 1)?;
+            copy_tree(
+                &entry.path(),
+                &destination,
+                count,
+                bytes,
+                depth + 1,
+                byte_limit,
+            )?;
         } else {
             ensure!(
                 metadata.file_type().is_file(),
@@ -106,8 +114,9 @@ fn copy_tree(
             *bytes = bytes
                 .checked_add(metadata.len())
                 .context("skills size overflow")?;
-            ensure!(*bytes <= 64 * 1024 * 1024, "skills tree exceeds byte limit");
-            let (_, content) = super::transaction::read_binary(&entry.path())?;
+            ensure!(*bytes <= byte_limit, "asset tree exceeds byte limit");
+            let (_, content) =
+                super::transaction::read_file_limited(&entry.path(), metadata.len())?;
             ensure!(
                 content.len() as u64 == metadata.len(),
                 "skill changed during copy"
@@ -146,7 +155,7 @@ fn install(
         .prefix(".workdeck-skills-")
         .tempdir_in(&parent)?;
     let prepared = temporary.path().join("skills");
-    copy_tree(source, &prepared, &mut 0, &mut 0, 0)?;
+    copy_tree(source, &prepared, &mut 0, &mut 0, 0, 64 * 1024 * 1024)?;
     for name in workdeck_core::BUNDLED_SKILL_NAMES {
         ensure!(
             prepared.join(name).join("SKILL.md").is_file(),

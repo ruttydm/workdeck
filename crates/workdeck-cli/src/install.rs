@@ -11,6 +11,8 @@ pub mod attestation;
 pub use assets::{install_authenticated_skills, install_skill_tree};
 mod authenticated;
 mod download;
+mod fresh;
+pub use fresh::create_authenticated_installation;
 pub mod metadata;
 mod release_identity;
 pub mod shell_path;

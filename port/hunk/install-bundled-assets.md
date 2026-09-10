@@ -172,3 +172,26 @@ All 56 installer library tests pass on macOS after this change. The new test
 covers invalid input without writes, first creation, exact non-UTF-8 original
 recovery, recovery collisions and preservation of an injected concurrent edit.
 The metadata transaction has not yet been wired into the coordinated installer.
+
+## Complete first-install publication
+
+`install::create_authenticated_installation` now coordinates a new native
+installation root. It authenticates the complete archive, validates its wrapper
+and metadata against an independently selected target, requires all four skills,
+and copies the package into a private sibling directory. The binary is relocated
+to `bin/workdeck` (or `bin/workdeck.exe`), while skills, metadata, license files,
+SBOM, provenance and remaining packaged content stay alongside `bin`.
+
+The prepared tree is published by a single exclusive directory rename. Existing
+roots, including empty directories created just before publication, are never
+replaced. Failed staging/preparation cleans up the private tree. The copy has
+bounded entry/depth limits and a 2-GiB overall budget; opened files cannot grow
+beyond the observed size during copying. On Unix the executable receives mode
+0755. The parent must already exist and remain coordinated by the caller.
+
+The native first-install test checks full layout publication, authentication
+rejection, injected prepublication failure and existing/racing destinations.
+It injects staging and does not establish live archive-signature verification.
+This API does not update an existing installation, edit PATH, resolve/download a
+release, implement CLI orchestration or guarantee directory crash durability.
+Those remain required parts of the original goal; no ledger interval is closed.
