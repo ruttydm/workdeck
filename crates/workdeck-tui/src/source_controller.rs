@@ -1293,6 +1293,21 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn measured_line_lookup_excludes_gaps_hidden_files_and_disabled_cursor() {
+        let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
+        assert!(app.has_measured_review_line(0, ReviewSide::New, 12));
+        assert!(app.has_measured_review_line(0, ReviewSide::Old, 1));
+        assert!(!app.has_measured_review_line(0, ReviewSide::New, 6));
+        assert!(!app.has_measured_review_line(1, ReviewSide::New, 12));
+        assert!(!app.has_measured_review_line(0, ReviewSide::New, 9001));
+        app.filter = "beta".into();
+        assert!(!app.has_measured_review_line(0, ReviewSide::New, 12));
+        app.filter.clear();
+        app.options.cursor_line = crate::CursorLineMode::Off;
+        assert!(!app.has_measured_review_line(0, ReviewSide::New, 12));
+    }
+
+    #[test]
     fn alpha_session_navigation_without_cursor_rows_reports_hunk_fallback() {
         let mut app = ReviewApp::new(
             pinned_two_hunk_alpha_review(),

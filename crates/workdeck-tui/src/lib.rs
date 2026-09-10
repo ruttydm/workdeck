@@ -3787,6 +3787,19 @@ impl ReviewApp {
         self.current_review_line_cursor_in(&cursors)
     }
 
+    fn has_measured_review_line(&self, file_index: usize, side: ReviewSide, line: u32) -> bool {
+        self.options.cursor_line != CursorLineMode::Off
+            && self
+                .current_review_geometry_rows()
+                .line_cursors
+                .iter()
+                .any(|cursor| {
+                    cursor.target.file_index == file_index
+                        && cursor.target.side == side
+                        && cursor.target.line == line
+                })
+    }
+
     /// Rebuild Hunk's selected split-row painter from the canonical Rust row plan.
     fn current_extension_line_paint(&self) -> Option<ExtensionCurrentLinePaint> {
         if self.options.cursor_line == CursorLineMode::Off
@@ -7503,7 +7516,7 @@ impl ReviewApp {
             );
             return;
         }
-        if self.options.cursor_line == CursorLineMode::Off {
+        if !self.has_measured_review_line(target.file_index, target.side, target.line) {
             self.with_state(|state| {
                 let hunk_index = state
                     .selection()

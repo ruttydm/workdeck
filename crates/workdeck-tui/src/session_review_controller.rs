@@ -736,7 +736,7 @@ impl ReviewApp {
                     .with_state(|state| state.reveal_line(file_index, side, line))
                     .is_ok()
             {
-                let revealed = if self.options.cursor_line == crate::CursorLineMode::Off {
+                let revealed = if !self.has_measured_review_line(file_index, side, line) {
                     self.with_state(|state| state.select_hunk(file_index, hunk_index))
                         .map_err(|error| error.to_string())?;
                     self.scroll_to_selection();
@@ -843,7 +843,7 @@ impl ReviewApp {
                 &self.filter,
             );
             if visible
-                && self.options.cursor_line != crate::CursorLineMode::Off
+                && self.has_measured_review_line(file_index, input.side, line)
                 && self
                     .with_state(|state| state.reveal_line(file_index, input.side, line))
                     .is_ok()
