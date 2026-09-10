@@ -1332,6 +1332,39 @@ mod tests {
     }
 
     #[test]
+    fn semantic_note_boundaries_match_both_pinned_oracles() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/semantic-note-size-oracle.json"
+        ))
+        .unwrap();
+        let boundaries: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/semantic-note-size-boundaries.json"
+        ))
+        .unwrap();
+        let mut note: workdeck_core::SemanticReviewNote =
+            serde_json::from_value(oracle["note"].clone()).unwrap();
+        note.summary.clear();
+        assert_eq!(
+            review_note_byte_length(&note) as u64,
+            boundaries["overhead"].as_u64().unwrap()
+        );
+        for row in boundaries["rows"].as_array().unwrap() {
+            note.summary = boundaries["summary_unit"]
+                .as_str()
+                .unwrap()
+                .repeat(row["repeat"].as_u64().unwrap() as usize);
+            assert_eq!(
+                review_note_byte_length(&note) as u64,
+                row["bytes"].as_u64().unwrap()
+            );
+            assert_eq!(
+                review_note_within_size_limit(&note),
+                row["withinLimit"].as_bool().unwrap()
+            );
+        }
+    }
+
+    #[test]
     fn persistence_projection_matches_pinned_semantic_size_oracle() {
         let oracle: serde_json::Value = serde_json::from_str(include_str!(
             "../../../port/hunk/semantic-note-size-oracle.json"

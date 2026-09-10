@@ -54,3 +54,20 @@ To recapture in a disposable pinned checkout, import `reviewNoteByteLength` and
 `reviewNoteWithinSizeLimit` from `src/core/review/noteSize.ts`, pass the committed
 fixture's `note` object unchanged, and compare both results with `bytes` and
 `withinLimit`. No original runtime is required by the committed Rust test.
+
+## Frozen exact boundary vectors
+
+Both pinned source versions also produced identical outputs for the same
+semantic note with an ASCII summary: 367 bytes of metadata, acceptance of
+261,777 `x` characters (262,144 total bytes), and rejection of 261,778 characters
+(262,145 total). `semantic-note-size-boundaries.json` stores the repeat recipes
+and observed results without duplicating large payloads.
+
+`semantic_note_boundaries_match_both_pinned_oracles` reconstructs each input from
+the base fixture and checks overhead, exact serialized byte count and acceptance.
+To recapture, clear the base note's summary, measure its overhead with pinned
+`reviewNoteByteLength`, and use `MAX_REVIEW_NOTE_BYTES - overhead + extra`
+characters for `extra` zero and one. This adds exact source/native boundary
+vectors; it does not map additional source intervals.
+All 180 review library tests passed in 0.04 seconds; formatting and diff checks
+passed.
