@@ -336,3 +336,15 @@ with the same `WORKDECK_ORACLE_*` environment variables as the pixel test.
 No actual repository site outputs were modified by the isolated test. Explicit
 tool/asset paths and recovery arguments intentionally adapt the maintainer
 workflow; full upstream-script lifecycle and repository-wide parity remain open.
+
+## Retained font asset
+
+The verified, unmodified WOFF2 now lives at
+`site/static/fonts/jetbrains-mono-latin-wght-normal.woff2`, alongside the complete
+supplied `jetbrains-mono-LICENSE.txt`. `THIRD_PARTY_NOTICES` identifies its
+non-MIT SIL OFL 1.1 licensing. The Rust asset test checks exact font and license
+SHA-256 values and the notice reference. Use this checkout path as the font
+argument to native generation; no temporary package archive is needed thereafter.
+This adds a third-party asset, not a TypeScript source mirror or runtime
+dependency. Website typography integration and distribution-wide asset SBOM
+coverage remain separate work.

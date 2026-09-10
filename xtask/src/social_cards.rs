@@ -408,6 +408,32 @@ pub(super) fn run(repo: &std::path::Path, mut args: impl Iterator<Item = String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn retained_site_font_and_license_match_verified_source_assets() {
+        use sha2::{Digest, Sha256};
+        let repo = crate::repo_root().unwrap();
+        for (path, expected) in [
+            (
+                "site/static/fonts/jetbrains-mono-latin-wght-normal.woff2",
+                "18be452724bfdc236c074ca94a249a7f41a86752c7d04ab258ce9ed5651f6a7e",
+            ),
+            (
+                "site/static/fonts/jetbrains-mono-LICENSE.txt",
+                "403581b69dac5cff4079205e01c6b467e56af449ecbd7247693ddb1baafa005b",
+            ),
+        ] {
+            assert_eq!(
+                format!(
+                    "{:x}",
+                    Sha256::digest(std::fs::read(repo.join(path)).unwrap())
+                ),
+                expected,
+                "{path}"
+            );
+        }
+        let notices = std::fs::read_to_string(repo.join("THIRD_PARTY_NOTICES")).unwrap();
+        assert!(notices.contains("site/static/fonts/jetbrains-mono-LICENSE.txt"));
+    }
     #[derive(Serialize, Deserialize)]
     struct HtmlOracle {
         commit: String,
