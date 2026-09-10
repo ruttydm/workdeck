@@ -6,6 +6,29 @@ use std::time::Instant;
 use serde_json::json;
 
 #[test]
+fn native_runner_failure_does_not_fall_back_to_command_execution() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("workdeck");
+    std::fs::write(&target, b"original").unwrap();
+    let result = NativeUpdateCommandRunner
+        .run(&UpdateInvocation {
+            command: vec!["nonexistent-fallback-must-not-run".into()],
+            env: None,
+            native: Some(NativeDirectUpdate {
+                version: "../invalid".into(),
+                platform: UpdatePlatform::Linux,
+                architecture: "x86_64".into(),
+                executable: target.to_string_lossy().into_owned(),
+            }),
+        })
+        .unwrap();
+    assert_eq!(result.exit_code, 1);
+    assert!(result.stderr.contains("Invalid version"));
+    assert_eq!(std::fs::read(&target).unwrap(), b"original");
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+}
+
+#[test]
 fn native_release_http_preserves_status_headers_and_rejects_invalid_or_large_bodies() {
     use std::io::{BufRead, BufReader, Write};
     use std::net::TcpListener;
@@ -796,6 +819,15 @@ fn direct_update_targets_match_every_native_release_matrix_entry() {
         let invocations = harness.invocations.lock().unwrap();
         assert_eq!(invocations.len(), 1);
         let invocation = &invocations[0];
+        if platform == UpdatePlatform::Windows {
+            assert!(invocation.native.is_none());
+        } else {
+            let native = invocation.native.as_ref().unwrap();
+            assert_eq!(native.version, "1.1.0");
+            assert_eq!(native.platform, platform);
+            assert_eq!(native.architecture, architecture);
+            assert_eq!(native.executable, harness.context.executable_path);
+        }
         let environment = invocation.env.as_ref().unwrap();
         let archive = format!("workdeck-{target}.{extension}");
         assert_eq!(environment["WORKDECK_DIRECT_ARCHIVE"], archive);

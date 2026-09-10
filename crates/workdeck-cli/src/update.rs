@@ -420,6 +420,45 @@ impl ReleaseFetcher for NativeReleaseFetcher {
 pub struct UpdateInvocation {
     pub command: Vec<String>,
     pub env: Option<BTreeMap<String, String>>,
+    pub native: Option<NativeDirectUpdate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeDirectUpdate {
+    pub version: String,
+    pub platform: UpdatePlatform,
+    pub architecture: String,
+    pub executable: String,
+}
+
+impl NativeDirectUpdate {
+    fn execute(&self) -> anyhow::Result<()> {
+        use crate::install;
+        let identity = install::resolve_release_identity(&self.version)?;
+        let downloaded =
+            install::download_release(&identity.version, self.platform, &self.architecture)?;
+        let target = std::path::Path::new(&self.executable);
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_nanos();
+        let backup = target.with_file_name(format!(
+            "workdeck.backup.{}.{timestamp}",
+            std::process::id()
+        ));
+        install::install_authenticated_archive(
+            &downloaded.archive(),
+            &downloaded.checksums(),
+            target,
+            &backup,
+            install::ReleaseIdentity {
+                repository: "ruttydm/workdeck",
+                commit: &identity.commit,
+                tag_ref: &identity.tag_ref,
+            },
+        )?;
+        eprintln!("Original Workdeck binary retained at {}", backup.display());
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -472,6 +511,18 @@ struct NativeUpdateCommandRunner;
 
 impl UpdateCommandRunner for NativeUpdateCommandRunner {
     fn run(&self, invocation: &UpdateInvocation) -> Result<UpdateProcessResult, String> {
+        if let Some(native) = &invocation.native {
+            return Ok(match native.execute() {
+                Ok(()) => UpdateProcessResult {
+                    exit_code: 0,
+                    stderr: String::new(),
+                },
+                Err(error) => UpdateProcessResult {
+                    exit_code: 1,
+                    stderr: format!("{error:#}"),
+                },
+            });
+        }
         let (program, arguments) = invocation
             .command
             .split_first()
@@ -743,6 +794,12 @@ fn direct_update_invocation(
     Ok(UpdateInvocation {
         command,
         env: Some(env),
+        native: (context.platform != UpdatePlatform::Windows).then(|| NativeDirectUpdate {
+            version: target_version.into(),
+            platform: context.platform,
+            architecture: context.architecture.clone(),
+            executable: context.executable_path.clone(),
+        }),
     })
 }
 
@@ -754,6 +811,7 @@ fn build_update_invocation(
     let mut env = context.env.clone();
     let invocation = match source {
         WorkdeckInstallSource::Cargo => UpdateInvocation {
+            native: None,
             command: vec![
                 "cargo".into(),
                 "install".into(),
@@ -766,12 +824,14 @@ fn build_update_invocation(
             env: None,
         },
         WorkdeckInstallSource::Homebrew => UpdateInvocation {
+            native: None,
             command: vec!["brew".into(), "upgrade".into(), "workdeck".into()],
             env: None,
         },
         WorkdeckInstallSource::Curl => {
             env.insert(INSTALL_VERSION_ENV.into(), target_version.into());
             UpdateInvocation {
+                native: None,
                 command: vec!["sh".into(), "-c".into(), shell_install_script()],
                 env: Some(env),
             }
@@ -779,6 +839,7 @@ fn build_update_invocation(
         WorkdeckInstallSource::PowerShell => {
             env.insert(INSTALL_VERSION_ENV.into(), target_version.into());
             UpdateInvocation {
+                native: None,
                 command: vec![
                     "powershell.exe".into(),
                     "-NoProfile".into(),
@@ -910,7 +971,11 @@ pub fn run_self_update(
         return Ok(result);
     }
     let invocation = build_update_invocation(source, &target, context)?;
-    let command_text = invocation.command.join(" ");
+    let command_text = if invocation.native.is_some() {
+        "native signed GitHub update".to_owned()
+    } else {
+        invocation.command.join(" ")
+    };
     let mut result = SelfUpdateResult {
         exit_code: 0,
         stdout: format!(

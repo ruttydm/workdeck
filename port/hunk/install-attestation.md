@@ -57,3 +57,22 @@ can constrain attestation verification. Lookup alone is not authentication.
 
 Two injected-response tests cover lightweight/annotated tags and rejection cases.
 Live GitHub API behavior and complete updater orchestration remain unverified.
+
+## Direct updater connection
+
+macOS/Linux direct-update invocations now carry a typed `NativeDirectUpdate`.
+The production runner resolves the expected commit, downloads the pinned archive
+and checksum, authenticates the staged binary with the declared `gh` verifier,
+and replaces the existing binary with a timestamped retained backup. Progress
+labels this as a native signed GitHub update. Failure returns a nonzero update
+result and never falls back to command execution. Other package-manager channels
+are unchanged. Windows retains its previous process-exit handoff pending a native
+implementation; obsolete Unix command construction is retained but bypassed until
+replacement qualification permits its removal.
+
+The 281-test CLI library suite passes after connection. Platform-matrix tests
+assert native selection and exact requested version/target. A further production
+runner test uses an invalid version to prove failure precedes network or file
+writes and does not execute a fallback command. No live update was run. Live
+signed-release verification, cross-platform qualification, asset installation,
+crash recovery and the documented filesystem race limits remain release gates.
