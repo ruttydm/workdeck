@@ -58,3 +58,9 @@ The complete 1,747-byte interval `[15678,17425)` (lines 509–578) now maps all
 four helper functions, comments, and separators to these native tests and
 source-attribution comments. The ledger marks only this interval translated;
 other helper intervals and the whole-file completion remain outstanding.
+
+The one-line `describe("App interactions", () => {` wrapper at bytes
+`[17755,17792)` is represented by the native `tests` modules in `lib.rs` and
+`app_host.rs`; the mapped tests above are executable members of that suite.
+The ledger records this structural test wrapper separately so no source bytes
+are silently omitted.
