@@ -62,6 +62,28 @@ fn read_binary(path: &Path) -> Result<(fs::Metadata, Vec<u8>)> {
     Ok((metadata, bytes))
 }
 
+fn lock_directory(parent: &Path) -> Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600).custom_flags(
+            (rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK).bits() as i32,
+        );
+    }
+    let file = options.open(parent.join(".workdeck-install.lock"))?;
+    ensure!(
+        file.metadata()?.is_file(),
+        "installation lock must be a regular file"
+    );
+    file.try_lock()
+        .context("another native installation holds the destination lock")?;
+    // Keep the lock file after releasing its handle: unlinking it could let
+    // another writer lock a different inode while an existing waiter owns this one.
+    Ok(file)
+}
+
 fn replace(
     target: &Path,
     payload: &[u8],
@@ -86,6 +108,7 @@ fn replace(
         .context("binary target requires a parent")?
         .canonicalize()?;
     let target = parent.join(name);
+    let _lock = lock_directory(&parent)?;
     let backup_parent = backup
         .parent()
         .context("backup requires a parent")?
@@ -148,7 +171,29 @@ mod tests {
         assert!(replace_binary_with_backup(&target, b"third", &backup).is_err());
         assert_eq!(fs::read(&target).unwrap(), b"new\0binary");
         assert_eq!(fs::read(&backup).unwrap(), b"old\0binary");
-        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 3);
+    }
+
+    #[test]
+    fn cooperating_replacements_are_serialized_without_removing_lock_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("workdeck");
+        let backup = dir.path().join("backup");
+        let competing_backup = dir.path().join("competing-backup");
+        fs::write(&target, b"original").unwrap();
+        replace(&target, b"replacement", &backup, || {
+            let failure =
+                replace_binary_with_backup(&target, b"competing", &competing_backup).unwrap_err();
+            assert!(failure.to_string().contains("destination lock"));
+            assert!(!competing_backup.exists());
+            assert_eq!(fs::read(&target)?, b"original");
+            Ok(())
+        })
+        .unwrap();
+        assert!(dir.path().join(".workdeck-install.lock").is_file());
+        replace_binary_with_backup(&target, b"subsequent", &competing_backup).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"subsequent");
+        assert_eq!(fs::read(&competing_backup).unwrap(), b"replacement");
     }
 
     #[test]
@@ -169,7 +214,23 @@ mod tests {
         );
         assert_eq!(fs::read(&target).unwrap(), b"external edit");
         assert_eq!(fs::read(&backup).unwrap(), b"original");
-        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 3);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlink_lock_without_touching_binary_or_link_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("workdeck");
+        let outside = dir.path().join("other-file");
+        let backup = dir.path().join("backup");
+        fs::write(&target, b"original").unwrap();
+        fs::write(&outside, b"unrelated").unwrap();
+        std::os::unix::fs::symlink(&outside, dir.path().join(".workdeck-install.lock")).unwrap();
+        assert!(replace_binary_with_backup(&target, b"replacement", &backup).is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"original");
+        assert_eq!(fs::read(&outside).unwrap(), b"unrelated");
+        assert!(!backup.exists());
     }
 
     #[cfg(unix)]

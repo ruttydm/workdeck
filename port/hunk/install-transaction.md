@@ -31,3 +31,15 @@ final rename race, and equivalent Windows reparse-point handling remains open.
 All 31 installer tests pass, including a bounded-read test with an endless input.
 The broader `cargo test -p workdeck-cli --lib` run also passes all 271 tests.
 This does not include CLI integration targets or the full workspace suite.
+
+Cooperating replacement calls now hold an exclusive advisory lock on the
+persistent destination-side `.workdeck-install.lock` file. The file is not
+unlinked after unlocking, avoiding separate lock inodes for overlapping callers.
+Content is never truncated, and Unix lock creation is mode 0600 with no-follow
+and nonblocking opens. Contending calls fail before creating their backup or
+changing the binary; a subsequent call succeeds after the first handle closes.
+Tests also reject a Unix symlink lock without modifying its target. This only
+coordinates callers of this helper: unrelated writers, hostile directory changes
+and Windows reparse-point substitution remain outside the guarantee. The lock
+file is intentional persistent installation state, not repository state created
+by a read-only command.
