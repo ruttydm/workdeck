@@ -2532,6 +2532,39 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn alpha_session_navigation_with_enabled_cursor_and_no_lines_falls_back() {
+        let mut review = pinned_two_hunk_alpha_review();
+        for hunk in &mut review.files[0].hunks {
+            hunk.lines.clear();
+        }
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        assert_ne!(app.options.cursor_line, crate::CursorLineMode::Off);
+        assert!(app.current_review_geometry_rows().line_cursors.is_empty());
+        assert!(!app.has_measured_review_line(0, ReviewSide::New, 12));
+        let result = app
+            .session_navigate_to_location(&workdeck_session::NavigateToHunkToolInput {
+                target_session: Default::default(),
+                file_path: Some("alpha.ts".into()),
+                hunk_index: None,
+                side: Some(ReviewSide::New),
+                line: Some(12),
+                comment_direction: None,
+            })
+            .unwrap();
+        assert_eq!(result.file_path, "alpha.ts");
+        assert_eq!(result.hunk_index, 1);
+        assert_eq!(
+            result.revealed,
+            Some(workdeck_session::RevealedTarget::Hunk)
+        );
+        assert_eq!(
+            app.with_state(|state| state.selection().hunk_index),
+            Some(1)
+        );
+        assert!(app.current_review_geometry_rows().line_cursors.is_empty());
+    }
+
+    #[test]
     fn alpha_session_navigation_without_cursor_rows_reports_hunk_fallback() {
         let mut app = ReviewApp::new(
             pinned_two_hunk_alpha_review(),

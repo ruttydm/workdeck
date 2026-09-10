@@ -18,3 +18,20 @@ No additional source ledger mapping is claimed by this supplemental test.
 
 All 1,203 TUI library tests passed (9.45 seconds), with formatting and diff
 checks passing. Production code is unchanged by this qualification.
+
+## Enabled cursor with absent renderable lines
+
+`alpha_session_navigation_with_enabled_cursor_and_no_lines_falls_back` retains
+the two-hunk file's source ranges but removes its renderable line entries. It
+asserts cursor mode is enabled, the geometry's cursor list is empty before and
+after navigation, and line 12 has no measured row. The actual session entry point
+returns alpha.ts, hunk 1 and the hunk reveal outcome, with selected hunk 1.
+The focused regression passed in 0.73 seconds. The matching source fallback test
+was rerun on both pinned baselines: one test and four assertions passed per pin.
+
+This verifies the fallback is not exclusively a cursor-off behavior. It does
+not reproduce the source harness's independent suppression of published cursors
+while retaining full renderable content; that distinction remains open. No
+runtime code or source-ledger disposition changed.
+All 1,255 native TUI library tests passed in 8.78 seconds; formatting and diff
+checks passed.
