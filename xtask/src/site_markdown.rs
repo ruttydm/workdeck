@@ -95,9 +95,32 @@ fn collect(root: &Path, directory: &Path, sources: &mut BTreeMap<String, String>
 }
 
 fn render(sources: &BTreeMap<String, String>) -> Result<BTreeMap<String, String>> {
+    let mut draft_sections = Vec::new();
+    for (path, source) in sources {
+        if path == "_index.md" || path.ends_with("/_index.md") {
+            let normalized = source.replace("\r\n", "\n");
+            let remainder = normalized
+                .strip_prefix("+++\n")
+                .context("section needs TOML frontmatter")?;
+            let (metadata, _) = remainder
+                .split_once("\n+++\n")
+                .context("unclosed section frontmatter")?;
+            let metadata: toml_edit::DocumentMut = metadata.parse()?;
+            if metadata.get("draft").and_then(|value| value.as_bool()) == Some(true) {
+                draft_sections.push(
+                    path.strip_suffix("_index.md")
+                        .expect("section suffix")
+                        .to_owned(),
+                );
+            }
+        }
+    }
     let mut pages = Vec::new();
     for (path, source) in sources {
         if !(path.starts_with("docs/") || path.starts_with("changelog/")) {
+            continue;
+        }
+        if draft_sections.iter().any(|prefix| path.starts_with(prefix)) {
             continue;
         }
         let source = source.replace("\r\n", "\n");
@@ -296,6 +319,29 @@ mod tests {
                 "{route}"
             );
         }
+    }
+
+    #[test]
+    fn draft_sections_exclude_descendants_without_hiding_similarly_named_siblings() {
+        let sources = BTreeMap::from([
+            (
+                "docs/private/_index.md".into(),
+                "+++\ntitle = 'Draft section'\ndraft = true\n+++\nunpublished section\n".into(),
+            ),
+            (
+                "docs/private/nested/page.md".into(),
+                page("Draft child", "unpublished child"),
+            ),
+            (
+                "docs/private-public/page.md".into(),
+                page("Public sibling", "public body"),
+            ),
+        ]);
+        let output = render(&sources).unwrap();
+        assert!(!output.contains_key("docs/private.md"));
+        assert!(!output.contains_key("docs/private/nested/page.md"));
+        assert!(output.contains_key("docs/private-public/page.md"));
+        assert!(output.values().all(|body| !body.contains("unpublished")));
     }
 
     #[cfg(unix)]
