@@ -189,6 +189,66 @@ mod tests {
     const SAMPLE: &str = include_str!("../../../../port/hunk/website-changelog-test-sample.md");
 
     #[test]
+    fn missing_card_images_preserve_order_duplicates_and_presence_semantics() {
+        let repo = tempfile::tempdir().unwrap();
+        let artifacts = BTreeMap::from([(
+            "site/data/releases/cards.json".into(),
+            r#"[{"slug":"2.0"},{"slug":"index"},{"slug":"2.0"}]"#.into(),
+        )]);
+        assert_eq!(
+            missing_card_images(repo.path(), &artifacts).unwrap(),
+            [
+                "site/static/changelog/og/2.0.png",
+                "site/static/changelog/og/index.png",
+                "site/static/changelog/og/2.0.png"
+            ]
+        );
+        assert!(!repo.path().join("site").exists());
+        let directory = repo.path().join("site/static/changelog/og");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(
+            directory.join("2.0.png"),
+            "not a PNG: presence-only fixture",
+        )
+        .unwrap();
+        assert_eq!(
+            missing_card_images(repo.path(), &artifacts).unwrap(),
+            ["site/static/changelog/og/index.png"]
+        );
+        // Like existsSync, the source presence gate also accepts a directory.
+        // A separate image-validation gate must reject invalid image content.
+        std::fs::create_dir(directory.join("index.png")).unwrap();
+        assert!(
+            missing_card_images(repo.path(), &artifacts)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn missing_card_images_follow_links_and_report_dangling_links() {
+        let repo = tempfile::tempdir().unwrap();
+        let directory = repo.path().join("site/static/changelog/og");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("present"), "presence fixture").unwrap();
+        std::os::unix::fs::symlink("present", directory.join("1.0.png")).unwrap();
+        std::os::unix::fs::symlink("absent", directory.join("2.0.png")).unwrap();
+        let artifacts = BTreeMap::from([(
+            "site/data/releases/cards.json".into(),
+            r#"[{"slug":"1.0"},{"slug":"2.0"}]"#.into(),
+        )]);
+        assert_eq!(
+            missing_card_images(repo.path(), &artifacts).unwrap(),
+            ["site/static/changelog/og/2.0.png"]
+        );
+        assert_eq!(
+            std::fs::read_link(directory.join("2.0.png")).unwrap(),
+            std::path::PathBuf::from("absent")
+        );
+    }
+
+    #[test]
     fn artifact_check_refuses_collapsed_output_without_deleting_pages() {
         let repo = tempfile::tempdir().unwrap();
         let directory = repo.path().join("site/content/changelog");

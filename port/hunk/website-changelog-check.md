@@ -39,3 +39,14 @@ test-only presence fixtures exist. Real image rendering and validation remain op
 
 The updated CLI regression, strict xtask Clippy, formatting and whitespace checks
 pass. No source-ledger interval is marked complete by this continuation.
+
+Additional native tests preserve card order and repeated missing references, and
+confirm that neither a missing site directory nor dangling links are repaired.
+Presence semantics intentionally mirror `existsSync`: arbitrary file bytes and
+directories count as present, valid symlinks are followed, and dangling symlinks
+are missing. This makes the limitation explicit: a successful presence check is
+not a successful image-integrity or visual gate. Symlink coverage is Unix-only;
+Windows link behavior remains for native platform CI.
+
+Both additional native tests pass on macOS, together with strict xtask Clippy,
+workspace formatting and diff whitespace checks. Ledger coverage is unchanged.
