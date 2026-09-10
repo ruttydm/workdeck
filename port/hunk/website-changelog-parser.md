@@ -1,5 +1,22 @@
 # Website changelog parser continuation
 
+## Verification after index and landing metadata CLI integration
+
+The unchanged-tree `cargo test -p xtask --all-targets` rerun passed 353 tests:
+328 unit tests, 16 changelog CLI tests, seven catalog CLI tests, one workspace
+command test and one real-PTY test. One existing oracle-capture unit test remains
+ignored. Strict xtask Clippy, workspace formatting and diff whitespace checks
+passed. The changelog usage error now lists index and latest, with a regression
+test checking their complete argument forms.
+
+An earlier overlapping build ran the newly compiled usage test against an older
+CLI executable and failed. That mixed-artifact run is not counted as passing;
+the complete unchanged-tree rerun above is the verification result.
+
+Strict port audit still fails: 1,257 baseline files, 1,454 intervals, 281 unmapped
+intervals and 92 upstream commits on existing fetched refs. No fresh upstream
+fetch, full-workspace gate or cross-platform release gate is claimed here.
+
 Landing-page release selection and its pinned artifact comparisons are documented
 in [website-changelog-latest.md](website-changelog-latest.md).
 

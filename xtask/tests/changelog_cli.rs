@@ -11,6 +11,25 @@ fn run(repo: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
+fn changelog_usage_lists_index_and_latest_commands() {
+    let repo = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    let output = run(repo.path(), &["changelog"]);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert!(error.contains("index <markdown-file> <dates.json> [notes.json]"));
+    assert!(error.contains("latest <markdown-file> <recorded-dates.json> [notes.json]"));
+}
+
+#[test]
 fn latest_cli_matches_artifacts_and_preserves_inputs() {
     let repo = tempfile::tempdir().unwrap();
     assert!(
