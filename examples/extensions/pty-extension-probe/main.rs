@@ -69,7 +69,10 @@ fn registrations(kind: &str) -> Vec<Registration> {
             },
         }];
     }
-    if matches!(kind, "transform" | "source-transform") {
+    if matches!(
+        kind,
+        "transform" | "source-transform" | "notify-error" | "notify-crash" | "notify-invalid"
+    ) {
         return vec![Registration::ChangesetTransform {
             id: "filter-beta".into(),
         }];
@@ -187,6 +190,12 @@ fn dispatch(
             })
         }
         "workdeck/changeset/transform" => {
+            if kind == "notify-error" {
+                return Err(io::Error::other("deliberate transform failure"));
+            }
+            if kind == "notify-invalid" {
+                return value(serde_json::json!({"changeset": null}));
+            }
             let mut changeset = request.params["changeset"].clone();
             changeset["title"] = "REPO EXTENSION ACTIVE".into();
             changeset["files"]
@@ -374,6 +383,26 @@ fn main() -> io::Result<()> {
             return Ok(());
         }
         let request: JsonRpcRequest = serde_json::from_value(envelope).map_err(io::Error::other)?;
+        if request.method == "workdeck/changeset/transform"
+            && matches!(
+                kind.trim(),
+                "notify-error" | "notify-crash" | "notify-invalid"
+            )
+        {
+            serde_json::to_writer(
+                &mut output,
+                &serde_json::json!({
+                    "jsonrpc": "2.0", "method": "workdeck/notify",
+                    "params": {"message": "before failure", "type": "info"}
+                }),
+            )
+            .map_err(io::Error::other)?;
+            output.write_all(b"\n")?;
+            output.flush()?;
+            if kind.trim() == "notify-crash" {
+                std::process::exit(17);
+            }
+        }
         let response = match dispatch(&request, kind.trim(), &mut captured_file) {
             Ok(result) => JsonRpcResponse {
                 jsonrpc: "2.0".into(),

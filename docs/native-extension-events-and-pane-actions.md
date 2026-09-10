@@ -95,6 +95,21 @@ review working directory and the owning extension's currently open local pane ID
 exact state alias for `panes`. Native callbacks request notifications, pane changes, navigation,
 dialogs, and further events by returning their corresponding declarative host actions.
 
+Extensions can also emit independent newline-delimited `workdeck/notify` JSON-RPC
+notifications. The stdout reader delivers those to the shared notification hub
+before routing subsequent responses or EOF to the request waiter. Thus an emitted
+notification is not discarded when the transform subsequently returns a JSON-RPC
+error, returns an invalid changeset, or exits abruptly. The host then warns and
+retains the previous changeset. `examples/tests/transform_notifications.rs`
+executes all three cases against a compiled child, checking notification order,
+host-assigned increasing IDs, severity, and complete changeset preservation. This
+is native macOS evidence, not a frozen cross-platform or dual-baseline oracle.
+After adding the failure probes, `cargo test -p workdeck-examples --all-targets
+-- --quiet` passed all 42 library unit tests and 230 integration tests (zero
+ignored); `cargo clippy -p workdeck-examples --all-targets -- -D warnings` also
+passed on the same host. No source-ledger disposition was advanced by these
+supplemental failure tests.
+
 The provider is installed only after the review app has committed, before startup events are published. Runtime replacement installs the successor before retiring the predecessor, and cleanup is identity checked so stale teardown cannot detach the newer provider. Retirement atomically changes the registry from ready to closing before any shutdown work, making retained pane, navigation, dialog, and event capabilities inert immediately. Every process subscribed to `shutdown` receives at most one best-effort retirement notification, all retiring processes share one 250 ms deadline, and uncooperative children are terminated. Dropping the review app removes the active provider.
 
 The complete pinned lifecycle set is:

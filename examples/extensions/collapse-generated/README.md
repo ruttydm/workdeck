@@ -38,6 +38,9 @@ the side-effect ordering of the upstream example. This example instead sends
 independent `workdeck/notify` frames before the transform response, using the
 host's existing notification transport. Response-only notifications cannot
 represent side effects preceding a process crash or JSON-RPC error.
+The separate `transform_notifications` subprocess test verifies that independent
+notifications survive a subsequent error response, invalid result, or abrupt
+child exit, precede the host warning, and leave the original changeset intact.
 
 Validation: `cargo test -p workdeck-examples --lib collapse_generated` exercises
 configuration, wildcard semantics, metadata preservation, count wording, and
