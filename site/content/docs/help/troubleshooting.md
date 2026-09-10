@@ -50,7 +50,7 @@ Press `?` for shortcuts, `t` for themes, and `l` for line numbers. See [terminal
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
 | `WORKDECK_DEBUG=1`     | Enable available debug failure details; inspect for sensitive data before sharing.                                                          |
 | `WORKDECK_MCP_DISABLE` | Set to `1` to start the TUI without registering a live session (escape hatch for daemon trouble).                            |
-| `WORKDECK_TEXT_PAGER`  | Choose the plain-text pager used for non-diff output (the website pager guide is still being migrated). |
+| `WORKDECK_TEXT_PAGER`  | Choose the plain-text pager used for non-diff output; see [Git pager and difftool](/docs/workflows/git-pager-and-difftool/). |
 
 ## Get command-specific help
 
@@ -70,4 +70,3 @@ content in a bug report.
 Adapted from Hunk's pinned MIT documentation, Copyright Modem Labs Inc. This
 page remains unmapped while complete migration and behavioral evidence are
 verified; successful diagnosis of one environment does not qualify every platform.
-
