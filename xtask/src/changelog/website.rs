@@ -785,6 +785,43 @@ mod tests {
     use super::*;
 
     #[test]
+    fn source_text_reduces_markdown_to_plain_text() {
+        assert_eq!(
+            to_plain_text("Use **`hunk diff`** and [the docs](/docs/)."),
+            "Use hunk diff and the docs."
+        );
+    }
+
+    #[test]
+    fn source_text_truncates_on_word_boundary() {
+        assert_eq!(truncate_description("one two three four", 12), "one two…");
+    }
+
+    #[test]
+    fn source_text_leaves_short_text_alone() {
+        assert_eq!(truncate_description("short", 12), "short");
+    }
+
+    #[test]
+    fn source_text_quotes_frontmatter_like_source_formatter() {
+        // Generated scalars must retain the source formatter's quote choice.
+        assert_eq!(yaml_string("plain text"), "\"plain text\"");
+        assert_eq!(
+            yaml_string("vcs = \"jj\" support"),
+            "'vcs = \"jj\" support'"
+        );
+        assert_eq!(
+            yaml_string("Hunk's \"jj\" support"),
+            "\"Hunk's \\\"jj\\\" support\""
+        );
+    }
+
+    #[test]
+    fn source_text_formats_iso_date() {
+        assert_eq!(format_release_date("2026-08-16"), "August 16, 2026");
+    }
+
+    #[test]
     fn description_encoding_matches_both_pinned_oracles() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
             "../../../port/hunk/website-changelog-description-oracle.json"
