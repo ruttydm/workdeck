@@ -11,6 +11,150 @@ fn run(repo: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
+fn pages_cli_composes_overlays_and_never_writes_site_files() {
+    let repo = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    let inputs = [
+        (
+            "history.md",
+            "## 1.0.0\n### Fixed\n- Fix.\n## 2.0.0-beta.1\n## 3.0.0\n",
+        ),
+        (
+            "dates.json",
+            r#"{"1.0.0":"2026-08-01","2.0.0-beta.1":"2026-08-02"}"#,
+        ),
+        (
+            "notes.json",
+            r#"{"1.0":{"summary":"Editorial lead.","video":{"mp4":"/v.mp4"},"links":[{"label":"Docs","href":"/docs/"}]}}"#,
+        ),
+    ];
+    for (name, content) in inputs {
+        std::fs::write(repo.path().join(name), content).unwrap();
+    }
+    let output = run(
+        repo.path(),
+        &[
+            "changelog",
+            "pages",
+            "history.md",
+            "dates.json",
+            "notes.json",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    let pages: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let pages = pages.as_array().unwrap();
+    assert_eq!(
+        pages
+            .iter()
+            .map(|p| p["minor"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["3.0", "2.0", "1.0"]
+    );
+    for page in &pages[..2] {
+        let markdown = page["markdown"].as_str().unwrap();
+        assert!(!markdown.contains("cargo install"));
+        assert!(!markdown.contains("workdeck update"));
+    }
+    assert!(
+        pages[1]["markdown"]
+            .as_str()
+            .unwrap()
+            .contains("Prerelease · August 2, 2026")
+    );
+    let stable = pages[2]["markdown"].as_str().unwrap();
+    assert!(stable.contains("Editorial lead."));
+    assert!(stable.contains("--tag v1.0.0 --package workdeck-cli --locked"));
+    assert!(stable.contains("workdeck update"));
+    assert!(stable.contains("<source src=\"/v.mp4\""));
+    assert!(stable.contains("- [Docs](/docs/)"));
+    assert!(stable.contains("[Newer: Workdeck 2.0]"));
+    let no_notes = run(
+        repo.path(),
+        &["changelog", "pages", "history.md", "dates.json"],
+    );
+    assert!(no_notes.status.success());
+    assert!(
+        !String::from_utf8(no_notes.stdout)
+            .unwrap()
+            .contains("Editorial lead.")
+    );
+    for args in [
+        vec!["changelog", "pages"],
+        vec!["changelog", "pages", "history.md"],
+        vec!["changelog", "pages", "missing.md", "dates.json"],
+        vec!["changelog", "pages", "history.md", "missing.json"],
+        vec![
+            "changelog",
+            "pages",
+            "history.md",
+            "dates.json",
+            "missing.json",
+        ],
+        vec![
+            "changelog",
+            "pages",
+            "history.md",
+            "dates.json",
+            "notes.json",
+            "extra",
+        ],
+    ] {
+        let output = run(repo.path(), &args);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+    }
+    for (name, content) in inputs {
+        assert_eq!(
+            std::fs::read_to_string(repo.path().join(name)).unwrap(),
+            content
+        );
+    }
+    for invalid in ["{broken", r#"{"1.0":{"video":{"mp4":42}}}"#] {
+        std::fs::write(repo.path().join("notes.json"), invalid).unwrap();
+        let output = run(
+            repo.path(),
+            &[
+                "changelog",
+                "pages",
+                "history.md",
+                "dates.json",
+                "notes.json",
+            ],
+        );
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+        assert_eq!(
+            std::fs::read_to_string(repo.path().join("notes.json")).unwrap(),
+            invalid
+        );
+    }
+    let mut entries = std::fs::read_dir(repo.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect::<Vec<_>>();
+    entries.sort();
+    assert_eq!(
+        entries,
+        [".git", "dates.json", "history.md", "notes.json"].map(std::ffi::OsString::from)
+    );
+}
+
+#[test]
 fn video_cli_escapes_markup_and_preserves_input() {
     let repo = tempfile::tempdir().unwrap();
     assert!(

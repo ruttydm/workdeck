@@ -282,6 +282,16 @@ social-card metadata, full overlay/tagline support, index/feed generation, final
 site template integration, complete source page tests and differential full-page
 verification remain open. No ledger mapping changed.
 
+## Pages command integration
+
+The pages CLI regression exercises three series (unpublished, prerelease-only,
+and published stable), verifying order, install suppression, current-stable
+selection, editorial/video/link overlays and adjacent-series links. It also
+runs without overlays, rejects missing/extra inputs and malformed overlay JSON,
+and checks input preservation plus an unchanged root-directory inventory. It
+does not generate or modify site files. All eleven changelog CLI tests pass;
+full-page differential and final website integration remain open.
+
 ## Verification refresh after original-test translations
 
 At `2408adfb`, strict `cargo clippy -p xtask --all-targets -- -D warnings`
