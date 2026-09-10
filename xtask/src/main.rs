@@ -454,6 +454,13 @@ fn site(command: Option<&str>) -> Result<()> {
                 public.join("favicon.svg").is_file(),
                 "Workdeck favicon asset missing"
             );
+            let robots = fs::read_to_string(public.join("robots.txt"))?;
+            ensure!(
+                robots.contains("# workdeck.dev")
+                    && robots.contains("Sitemap: https://workdeck.dev/sitemap.xml")
+                    && !robots.contains("hunk.dev"),
+                "native robots policy is missing or still branded Hunk"
+            );
             let home = fs::read_to_string(public.join("index.html"))?;
             let install_docs = fs::read_to_string(public.join("docs/start/install/index.html"))?;
             ensure!(

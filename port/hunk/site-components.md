@@ -13,3 +13,8 @@ Labs Inc.; see `THIRD_PARTY_NOTICES`.
 The two identical Hunk favicon records are represented by the single generated
 `site/static/favicon.svg` Workdeck mark. The Zola shell links and emits that
 asset, and `cargo xtask site check` verifies both the link and the built file.
+
+The pinned `website/public/robots.txt` is adapted at `site/static/robots.txt`:
+all crawler allowances and Markdown-feed guidance remain, while the Workdeck
+domain and sitemap replace Hunk's domain. The same site check verifies the
+emitted policy and rejects a stale `hunk.dev` reference.
