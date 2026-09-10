@@ -79,6 +79,56 @@ mod tests {
     use super::*;
 
     #[test]
+    fn source_formatter_keeps_short_primitive_array_inline() {
+        assert_eq!(
+            format(&serde_json::json!({"chips":["0.18.2","0.18.1"]})),
+            "{\n  \"chips\": [\"0.18.2\", \"0.18.1\"]\n}"
+        );
+    }
+
+    #[test]
+    fn source_formatter_expands_arrays_past_print_width() {
+        let long: Vec<_> = (0..14).map(|i| format!("0.17.{i}")).collect();
+        let printed = format(&serde_json::json!({"chips":long}));
+        assert!(printed.contains("\"chips\": [\n"));
+        for line in printed.split('\n') {
+            assert!(line.encode_utf16().count() <= 100);
+        }
+    }
+
+    #[test]
+    fn source_formatter_counts_key_toward_array_width() {
+        let chips: Vec<_> = (0..9).map(|i| format!("0.20.{i}")).collect();
+        let printed = format(&serde_json::json!([{"slug":"0.20","chips":chips,"alt":"x"}]));
+        assert!(printed.contains("\"chips\": [\n"));
+        for line in printed.split('\n') {
+            assert!(line.encode_utf16().count() <= 100);
+        }
+    }
+
+    #[test]
+    fn source_formatter_final_key_has_no_comma_budget() {
+        let chips: Vec<_> = (0..8).map(|i| format!("0.20.{i}")).collect();
+        assert!(format(&serde_json::json!([{"chips":chips}])).contains("\"chips\": [\"0.20.0\""));
+    }
+
+    #[test]
+    fn source_formatter_expands_object_arrays() {
+        assert_eq!(
+            format(&serde_json::json!([{"a":1}])),
+            "[\n  {\n    \"a\": 1\n  }\n]"
+        );
+    }
+
+    #[test]
+    fn source_formatter_empty_containers_stay_compact() {
+        assert_eq!(
+            format(&serde_json::json!({"a":[],"b":{}})),
+            "{\n  \"a\": [],\n  \"b\": {}\n}"
+        );
+    }
+
+    #[test]
     fn generated_json_matches_dual_pin_formatter_oracles() {
         let fixture: Value = serde_json::from_str(include_str!(
             "../../../../port/hunk/website-changelog-json-oracle.json"

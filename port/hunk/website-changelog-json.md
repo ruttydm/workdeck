@@ -22,3 +22,7 @@ MIT Modem Labs Inc. attribution is retained in the Rust module and notices.
 Verification: all 16 frozen formatter outputs match, all 16 changelog CLI tests
 pass after integration, and strict xtask Clippy, workspace formatting and diff
 whitespace checks pass. No ledger interval is mapped by this partial port.
+
+The later [source-test translation](changelog-json-tests.md) maps six original
+tests with 41 assertions in two exact intervals. The intervening undefined-member
+test and the runtime generator remain unmapped.
