@@ -379,6 +379,38 @@ fn bundled_skill_paths_support_hunk_namesake_aliases_under_workdeck_branding() {
 }
 
 #[test]
+fn first_install_command_is_headless_and_rejects_invalid_versions_without_state() {
+    let dir = tempdir().unwrap();
+    workdeck()
+        .current_dir(dir.path())
+        .args(["install", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--destination"));
+    let output = workdeck()
+        .current_dir(dir.path())
+        .args(["install", "invalid", "--destination", "new-install"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("not a git repository"));
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+    fs::create_dir(dir.path().join("existing")).unwrap();
+    workdeck()
+        .current_dir(dir.path())
+        .args(["install", "1.2.3", "--destination", "existing"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("installation root already exists"));
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    assert_eq!(
+        fs::read_dir(dir.path().join("existing")).unwrap().count(),
+        0
+    );
+}
+
+#[test]
 fn relocated_binary_resolves_packaged_skills_without_user_state() {
     let installation = tempdir().unwrap();
     let config = tempdir().unwrap();

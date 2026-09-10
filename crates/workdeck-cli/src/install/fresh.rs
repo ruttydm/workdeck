@@ -54,6 +54,7 @@ fn install_release_with(
 ) -> Result<()> {
     let version = crate::update::parse_update_version(version)?;
     let (target, _) = crate::update::direct_target(platform, architecture)?;
+    let destination = std::path::absolute(destination)?;
     let name = destination
         .file_name()
         .context("installation root requires a name")?;
@@ -111,6 +112,7 @@ fn publish(
             "missing bundled skill {skill}"
         );
     }
+    let destination = std::path::absolute(destination)?;
     let name = destination
         .file_name()
         .context("installation root requires a name")?;

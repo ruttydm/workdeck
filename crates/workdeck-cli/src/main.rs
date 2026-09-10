@@ -221,6 +221,13 @@ enum Command {
         #[command(subcommand)]
         command: Option<SkillCommand>,
     },
+    #[command(about = "Install an exact signed release into a new directory; leave PATH unchanged")]
+    Install {
+        #[arg(value_name = "VERSION")]
+        version: String,
+        #[arg(long, value_name = "DIRECTORY")]
+        destination: PathBuf,
+    },
     #[command(about = "Update Workdeck through the channel that installed it")]
     Update {
         #[arg(value_name = "VERSION", help = "Install an exact release version")]
@@ -5468,6 +5475,7 @@ fn is_builtin_cli_command_name(name: &str) -> bool {
             | "markup"
             | "skill"
             | "update"
+            | "install"
             | "status"
             | "files"
             | "changes"
@@ -5663,6 +5671,7 @@ fn run_with_preloaded_extensions(
             | Command::Migrate { .. }
             | Command::Markup { .. }
             | Command::Skill { .. }
+            | Command::Install { .. }
             | Command::Update { .. } => {
                 unreachable!("global commands are handled before repository config load")
             }
@@ -5856,6 +5865,7 @@ impl Command {
                     | Command::Migrate { .. }
                     | Command::Markup { .. }
                     | Command::Skill { .. }
+                    | Command::Install { .. }
                     | Command::Update { .. }
             )
     }
@@ -5881,7 +5891,7 @@ impl Command {
             Command::Migrate { command } => command.wants_json(),
             Command::Markup { command } => command.as_ref().is_some_and(MarkupCommand::wants_json),
             Command::Skill { command } => command.as_ref().is_some_and(SkillCommand::wants_json),
-            Command::Update { .. } => false,
+            Command::Update { .. } | Command::Install { .. } => false,
             Command::Status { json } => *json,
             Command::Files { command } => command.wants_json(),
             Command::Changes { command } => command.wants_json(),
@@ -8003,6 +8013,17 @@ fn handle_global_command(cwd: &Path, command: Command) -> Result<()> {
         Command::Migrate { command } => handle_migrate_command(cwd, command),
         Command::Markup { command } => handle_markup_command(command),
         Command::Skill { command } => handle_skill_command(command),
+        Command::Install {
+            version,
+            destination,
+        } => {
+            workdeck_cli::install::install_release_on_host(&version, &destination)?;
+            println!(
+                "Installed Workdeck {version} to {}. PATH was not modified.",
+                destination.display()
+            );
+            Ok(())
+        }
         Command::Update {
             version,
             method,
@@ -8872,6 +8893,7 @@ fn review_command_input(command: Option<Command>) -> Result<CliInput> {
         | Some(Command::Migrate { .. })
         | Some(Command::Markup { .. })
         | Some(Command::Skill { .. })
+        | Some(Command::Install { .. })
         | Some(Command::Update { .. })
         | Some(Command::Status { .. })
         | Some(Command::Files { .. })

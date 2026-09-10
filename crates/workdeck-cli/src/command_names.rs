@@ -20,7 +20,7 @@ mod tests {
 
     #[test]
     fn recognizes_builtins_extension_grammar_and_product_reservations() {
-        for name in ["diff", "session", "ext", "help", "issue"] {
+        for name in ["diff", "session", "ext", "help", "issue", "install"] {
             assert!(is_built_in_cli_command_name(name));
             assert!(is_reserved_extension_cli_command_name(name));
         }

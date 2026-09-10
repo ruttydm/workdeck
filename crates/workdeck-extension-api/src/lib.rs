@@ -71,6 +71,7 @@ pub const BUILT_IN_CLI_COMMAND_NAMES: &[&str] = &[
     "extension",
     "ext",
     "update",
+    "install",
     "daemon",
     "mcp",
     "help",
