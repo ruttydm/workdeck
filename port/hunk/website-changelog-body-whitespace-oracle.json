@@ -1,0 +1,911 @@
+{
+  "generator": "Pinned Hunk parseChangelog under Bun 1.3.14",
+  "results": [
+    {
+      "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "cases": [
+        {
+          "input": "## [1.2.3]﻿-﻿2026-08-01\n### Fixed\n- ok",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "headingDate": "2026-08-01",
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### ﻿Highlights﻿\n﻿lead﻿\n\n[x]:﻿url",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "highlights": "lead",
+              "sections": []
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n- ﻿[#12](url)﻿[`abcdef0`](url)﻿-﻿text﻿\n﻿* nested\n﻿continuation﻿",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "text﻿\n﻿* nested continuation",
+                      "pullRequest": 12
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n- example\n﻿```\n### fake\n- inside\n﻿```\n### Added\n- real",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "example\n﻿```\n### fake\n- inside ```"
+                    }
+                  ]
+                },
+                {
+                  "title": "Added",
+                  "entries": [
+                    {
+                      "description": "real"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## [1.2.3]-2026-08-01\n### Fixed\n- ok",
+          "expected": []
+        },
+        {
+          "input": "## 1.2.3\n### Highlights\nlead\n\n[x]:url",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": []
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n- [#12](url)[`abcdef0`](url)-text\n* nested\ncontinuation",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "[#12](url)[`abcdef0`](url)-text * nested continuation"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n- example\n```\n### fake\n- inside\n```\n### Added\n- real",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "example ```"
+                    }
+                  ]
+                },
+                {
+                  "title": "fake",
+                  "entries": [
+                    {
+                      "description": "inside ```"
+                    }
+                  ]
+                },
+                {
+                  "title": "Added",
+                  "entries": [
+                    {
+                      "description": "real"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## [1.2.3]\u001c-\u001c2026-08-01\n### Fixed\n- ok",
+          "expected": []
+        },
+        {
+          "input": "## 1.2.3\n### \u001cHighlights\u001c\n\u001clead\u001c\n\n[x]:\u001curl",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": []
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n- \u001c[#12](url)\u001c[`abcdef0`](url)\u001c-\u001ctext\u001c\n\u001c* nested\n\u001ccontinuation\u001c",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "\u001c[#12](url)\u001c[`abcdef0`](url)\u001c-\u001ctext\u001c \u001c* nested \u001ccontinuation\u001c"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n- example\n\u001c```\n### fake\n- inside\n\u001c```\n### Added\n- real",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "example \u001c```"
+                    }
+                  ]
+                },
+                {
+                  "title": "fake",
+                  "entries": [
+                    {
+                      "description": "inside \u001c```"
+                    }
+                  ]
+                },
+                {
+                  "title": "Added",
+                  "entries": [
+                    {
+                      "description": "real"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## [1.2.3] - 2026-08-01\n### Fixed\n- ok",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "headingDate": "2026-08-01",
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n###  Highlights \n lead \n\n[x]: url",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "highlights": "lead",
+              "sections": []
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n-  [#12](url) [`abcdef0`](url) - text \n * nested\n continuation ",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "text \n * nested continuation",
+                      "pullRequest": 12
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n- example\n ```\n### fake\n- inside\n ```\n### Added\n- real",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "example\n ```\n### fake\n- inside ```"
+                    }
+                  ]
+                },
+                {
+                  "title": "Added",
+                  "entries": [
+                    {
+                      "description": "real"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## [1.2.3] - 2026-08-01\n### Fixed\n- ok",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "headingDate": "2026-08-01",
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n###  Highlights \n lead \n\n[x]: url",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "highlights": "lead",
+              "sections": []
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n-  [#12](url) [`abcdef0`](url) - text \n * nested\n continuation ",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "text \n * nested continuation",
+                      "pullRequest": 12
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n- example\n ```\n### fake\n- inside\n ```\n### Added\n- real",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "example\n ```\n### fake\n- inside ```"
+                    }
+                  ]
+                },
+                {
+                  "title": "Added",
+                  "entries": [
+                    {
+                      "description": "real"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## [1.2.3]　-　2026-08-01\n### Fixed\n- ok",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "headingDate": "2026-08-01",
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### 　Highlights　\n　lead　\n\n[x]:　url",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "highlights": "lead",
+              "sections": []
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n- 　[#12](url)　[`abcdef0`](url)　-　text　\n　* nested\n　continuation　",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "text　\n　* nested continuation",
+                      "pullRequest": 12
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n- example\n　```\n### fake\n- inside\n　```\n### Added\n- real",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "example\n　```\n### fake\n- inside ```"
+                    }
+                  ]
+                },
+                {
+                  "title": "Added",
+                  "entries": [
+                    {
+                      "description": "real"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "baseline": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "cases": [
+        {
+          "input": "## [1.2.3]﻿-﻿2026-08-01\n### Fixed\n- ok",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "headingDate": "2026-08-01",
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### ﻿Highlights﻿\n﻿lead﻿\n\n[x]:﻿url",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "highlights": "lead",
+              "sections": []
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n- ﻿[#12](url)﻿[`abcdef0`](url)﻿-﻿text﻿\n﻿* nested\n﻿continuation﻿",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "text﻿\n﻿* nested continuation",
+                      "pullRequest": 12
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n- example\n﻿```\n### fake\n- inside\n﻿```\n### Added\n- real",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "example\n﻿```\n### fake\n- inside ```"
+                    }
+                  ]
+                },
+                {
+                  "title": "Added",
+                  "entries": [
+                    {
+                      "description": "real"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## [1.2.3]-2026-08-01\n### Fixed\n- ok",
+          "expected": []
+        },
+        {
+          "input": "## 1.2.3\n### Highlights\nlead\n\n[x]:url",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": []
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n- [#12](url)[`abcdef0`](url)-text\n* nested\ncontinuation",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "[#12](url)[`abcdef0`](url)-text * nested continuation"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n- example\n```\n### fake\n- inside\n```\n### Added\n- real",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "example ```"
+                    }
+                  ]
+                },
+                {
+                  "title": "fake",
+                  "entries": [
+                    {
+                      "description": "inside ```"
+                    }
+                  ]
+                },
+                {
+                  "title": "Added",
+                  "entries": [
+                    {
+                      "description": "real"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## [1.2.3]\u001c-\u001c2026-08-01\n### Fixed\n- ok",
+          "expected": []
+        },
+        {
+          "input": "## 1.2.3\n### \u001cHighlights\u001c\n\u001clead\u001c\n\n[x]:\u001curl",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": []
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n- \u001c[#12](url)\u001c[`abcdef0`](url)\u001c-\u001ctext\u001c\n\u001c* nested\n\u001ccontinuation\u001c",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "\u001c[#12](url)\u001c[`abcdef0`](url)\u001c-\u001ctext\u001c \u001c* nested \u001ccontinuation\u001c"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n- example\n\u001c```\n### fake\n- inside\n\u001c```\n### Added\n- real",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "example \u001c```"
+                    }
+                  ]
+                },
+                {
+                  "title": "fake",
+                  "entries": [
+                    {
+                      "description": "inside \u001c```"
+                    }
+                  ]
+                },
+                {
+                  "title": "Added",
+                  "entries": [
+                    {
+                      "description": "real"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## [1.2.3] - 2026-08-01\n### Fixed\n- ok",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "headingDate": "2026-08-01",
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n###  Highlights \n lead \n\n[x]: url",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "highlights": "lead",
+              "sections": []
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n-  [#12](url) [`abcdef0`](url) - text \n * nested\n continuation ",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "text \n * nested continuation",
+                      "pullRequest": 12
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n- example\n ```\n### fake\n- inside\n ```\n### Added\n- real",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "example\n ```\n### fake\n- inside ```"
+                    }
+                  ]
+                },
+                {
+                  "title": "Added",
+                  "entries": [
+                    {
+                      "description": "real"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## [1.2.3] - 2026-08-01\n### Fixed\n- ok",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "headingDate": "2026-08-01",
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n###  Highlights \n lead \n\n[x]: url",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "highlights": "lead",
+              "sections": []
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n-  [#12](url) [`abcdef0`](url) - text \n * nested\n continuation ",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "text \n * nested continuation",
+                      "pullRequest": 12
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n- example\n ```\n### fake\n- inside\n ```\n### Added\n- real",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "example\n ```\n### fake\n- inside ```"
+                    }
+                  ]
+                },
+                {
+                  "title": "Added",
+                  "entries": [
+                    {
+                      "description": "real"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## [1.2.3]　-　2026-08-01\n### Fixed\n- ok",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "headingDate": "2026-08-01",
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### 　Highlights　\n　lead　\n\n[x]:　url",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "highlights": "lead",
+              "sections": []
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n- 　[#12](url)　[`abcdef0`](url)　-　text　\n　* nested\n　continuation　",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "text　\n　* nested continuation",
+                      "pullRequest": 12
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "input": "## 1.2.3\n### Fixed\n- example\n　```\n### fake\n- inside\n　```\n### Added\n- real",
+          "expected": [
+            {
+              "version": "1.2.3",
+              "prerelease": false,
+              "sections": [
+                {
+                  "title": "Fixed",
+                  "entries": [
+                    {
+                      "description": "example\n　```\n### fake\n- inside ```"
+                    }
+                  ]
+                },
+                {
+                  "title": "Added",
+                  "entries": [
+                    {
+                      "description": "real"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

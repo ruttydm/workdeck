@@ -8,17 +8,28 @@ use std::cmp::Ordering;
 use std::path::Path;
 use std::sync::LazyLock;
 
+// Keep regular-expression whitespace aligned with the pinned JavaScript parser.
+fn parser_regex(pattern: &str) -> Regex {
+    const SPACE: &str = r"\x09-\x0d\x20\u{00a0}\u{1680}\u{2000}-\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}";
+    Regex::new(
+        &pattern
+            .replace(r"\S", &format!("[^{SPACE}]"))
+            .replace(r"\s", &format!("[{SPACE}]")),
+    )
+    .unwrap()
+}
+
 static VERSION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?$").unwrap());
 static LEGACY: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^\[([^\]]+)\]\s*-\s*([0-9]{4}-[0-9]{2}-[0-9]{2})$").unwrap());
-static REFERENCE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\[[^\]]+\]:\s+\S+").unwrap());
-static PR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\[#([0-9]+)\]\([^)]+\)\s*").unwrap());
+    LazyLock::new(|| parser_regex(r"^\[([^\]]+)\]\s*-\s*([0-9]{4}-[0-9]{2}-[0-9]{2})$"));
+static REFERENCE: LazyLock<Regex> = LazyLock::new(|| parser_regex(r"^\[[^\]]+\]:\s+\S+"));
+static PR: LazyLock<Regex> = LazyLock::new(|| parser_regex(r"^\[#([0-9]+)\]\([^)]+\)\s*"));
 static COMMITS: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^(?:\[`[0-9a-f]+`\]\([^)]+\)\s*)+").unwrap());
-static DASH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^-\s+").unwrap());
-static SHA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9a-f]{7,40}:\s+").unwrap());
-static NESTED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s+[-*] ").unwrap());
+    LazyLock::new(|| parser_regex(r"^(?:\[`[0-9a-f]+`\]\([^)]+\)\s*)+"));
+static DASH: LazyLock<Regex> = LazyLock::new(|| parser_regex(r"^-\s+"));
+static SHA: LazyLock<Regex> = LazyLock::new(|| parser_regex(r"^[0-9a-f]{7,40}:\s+"));
+static NESTED: LazyLock<Regex> = LazyLock::new(|| parser_regex(r"^\s+[-*] "));
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -105,7 +116,7 @@ fn ecmascript_whitespace(c: char) -> bool {
 }
 
 fn update_fence(line: &str, fence: &mut Option<char>) {
-    let trimmed = line.trim_start();
+    let trimmed = line.trim_start_matches(ecmascript_whitespace);
     let delimiter = if trimmed.starts_with("```") {
         Some('`')
     } else if trimmed.starts_with("~~~") {
@@ -140,7 +151,7 @@ fn split_headings(markdown: &str, marker: &str) -> Vec<String> {
 }
 
 fn parse_entry(raw: &str) -> ChangeEntry {
-    let text = raw.trim();
+    let text = raw.trim_matches(ecmascript_whitespace);
     let captures = PR.captures(text);
     let pull_request = captures.as_ref().and_then(|c| c[1].parse().ok());
     let rest = captures
@@ -150,7 +161,7 @@ fn parse_entry(raw: &str) -> ChangeEntry {
     let rest = DASH.replace(&rest, "");
     let rest = SHA.replace(&rest, "");
     ChangeEntry {
-        description: rest.trim().to_owned(),
+        description: rest.trim_matches(ecmascript_whitespace).to_owned(),
         pull_request,
     }
 }
@@ -166,7 +177,7 @@ fn parse_entries(body: &str) -> Vec<ChangeEntry> {
             entries.push(bullet.to_owned());
             continue;
         }
-        if fence.is_none() && REFERENCE.is_match(line.trim()) {
+        if fence.is_none() && REFERENCE.is_match(line.trim_matches(ecmascript_whitespace)) {
             continue;
         }
         let Some(entry) = entries.last_mut() else {
@@ -175,9 +186,9 @@ fn parse_entries(body: &str) -> Vec<ChangeEntry> {
         if fence.is_some() || NESTED.is_match(line) {
             entry.push('\n');
             entry.push_str(line);
-        } else if !line.trim().is_empty() {
+        } else if !line.trim_matches(ecmascript_whitespace).is_empty() {
             entry.push(' ');
-            entry.push_str(line.trim());
+            entry.push_str(line.trim_matches(ecmascript_whitespace));
         }
     }
     entries
@@ -204,14 +215,14 @@ fn parse_changelog(markdown: &str) -> Vec<ReleaseEntry> {
         let mut highlights = None;
         for block in split_headings(body, "### ") {
             let (title, body) = block.split_once('\n').unwrap_or((&block, ""));
-            let title = title.trim();
+            let title = title.trim_matches(ecmascript_whitespace);
             if title == "Highlights" {
                 let text = body
                     .split('\n')
-                    .filter(|line| !REFERENCE.is_match(line.trim()))
+                    .filter(|line| !REFERENCE.is_match(line.trim_matches(ecmascript_whitespace)))
                     .collect::<Vec<_>>()
                     .join("\n")
-                    .trim()
+                    .trim_matches(ecmascript_whitespace)
                     .to_owned();
                 highlights = (!text.is_empty()).then_some(text);
             } else {
@@ -366,6 +377,28 @@ pub(super) fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn body_whitespace_matches_both_pinned_oracles() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/website-changelog-body-whitespace-oracle.json"
+        ))
+        .unwrap();
+        let results = fixture["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        for result in results {
+            let cases = result["cases"].as_array().unwrap();
+            assert_eq!(cases.len(), 24);
+            for case in cases {
+                assert_eq!(
+                    serde_json::to_value(parse_changelog(case["input"].as_str().unwrap())).unwrap(),
+                    case["expected"],
+                    "{}",
+                    case["input"]
+                );
+            }
+        }
+    }
 
     #[test]
     fn heading_whitespace_matches_both_pinned_oracles() {

@@ -90,3 +90,13 @@ the ECMAScript whitespace set. The executed two-pin results are frozen in
 `website-changelog-whitespace-oracle.json`; all eight website unit tests pass.
 This is a heading-specific correction; other parser whitespace operations and
 the remaining page generator still require parity work. No ledger mapping changed.
+
+## Body whitespace follow-up
+
+Parser trimming and regex whitespace now share ECMAScript's whitespace semantics
+for fences, entries, link preambles, references, nested bullets, legacy headings,
+section titles and Highlights. A second executed oracle fixture covers six
+characters (BOM, NEL, file separator, NBSP, line separator and ideographic space)
+across four input shapes on both pins: 48 comparisons. All nine website unit tests
+pass, including the complete baseline changelog fixtures. The generator remains
+partially ported and its ledger record remains unmapped.
