@@ -446,8 +446,20 @@ fn site(command: Option<&str>) -> Result<()> {
                 html.contains("href=\"/extensions/\" aria-current=\"page\""),
                 "extension navigation lacks current-page state"
             );
+            ensure!(
+                html.contains("rel=\"icon\" href=\"/favicon.svg\""),
+                "Workdeck favicon link missing"
+            );
+            ensure!(
+                public.join("favicon.svg").is_file(),
+                "Workdeck favicon asset missing"
+            );
             let home = fs::read_to_string(public.join("index.html"))?;
             let install_docs = fs::read_to_string(public.join("docs/start/install/index.html"))?;
+            ensure!(
+                install_docs.contains("class=\"brand-footer\" data-context=\"docs\""),
+                "documentation footer context missing"
+            );
             for route in [
                 "docs",
                 "docs/start",

@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     {% block metadata %}<meta name="description" content="{{ config.description }}">{% endblock metadata %}
     <title>{% block title %}{{ config.title }}{% endblock title %}</title>
     <link rel="stylesheet" href="/fonts/jetbrains-mono.css">
@@ -25,7 +26,7 @@
       </div>
     </header>
     <main>{% block content %}{% endblock content %}</main>
-    <footer class="brand-footer" data-context="marketing">
+    <footer class="brand-footer" data-context="{% if current_path is defined and current_path is starting_with(pat="/docs/") %}docs{% else %}marketing{% endif %}">
       <div class="brand-footer-links"><a href="{{ config.extra.repository }}">GitHub</a><a href="{{ config.extra.repository }}/blob/main/LICENSE">MIT</a></div>
       <span>Workdeck: MIT. Third-party components retain their own licenses.</span>
     </footer>
