@@ -64,3 +64,5 @@ repository's release procedure before distributing a build.
 This page adapts installation topics from Hunk's MIT-licensed documentation,
 Copyright Modem Labs Inc. It is not a completed mapping of that source page;
 remaining migration and release-channel documentation is tracked in the port ledger.
+
+Next, [review a working tree or commit](/docs/start/quick-start/).

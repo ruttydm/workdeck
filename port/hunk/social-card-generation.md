@@ -446,3 +446,13 @@ rendered install page and active navigation. The Getting Started section keeps
 the install page attached to the documentation hierarchy rather than orphaned.
 This is an initial adaptation, not completion of the 5,438-byte upstream install
 page or the documentation corpus. That source record remains unmapped.
+
+The initial `/docs/start/quick-start/` route now covers working-tree review,
+untracked exclusion, stream navigation, layouts, commit/path filtering, watch
+mode and the native skill entrypoint. It distinguishes headless `changes diff`
+from the reviewer and flags the missing native screenshot and full agent guide.
+The targeted `workdeck-tui` hunk-navigation test passes using Ratatui's test
+backend (despite its historical `pty_real_` name, this is not a fresh PTY run).
+`cargo xtask site check` passes with three pages, two sections and zero orphans.
+The upstream quick-start's complete content and behavioral evidence are not yet
+accounted for; its source interval remains unmapped.
