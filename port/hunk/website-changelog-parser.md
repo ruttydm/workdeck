@@ -138,3 +138,15 @@ no dates, prerelease-only dates, mixed publication, empty recorded dates and sta
 date keys. Empty strings count as present in these source predicates (not date
 resolution). Eleven website unit tests pass; CLI and generated-page integration
 remain open. No ledger mapping changed.
+
+## Publication CLI integration
+
+The temporary-repository CLI test verifies absent publication dates produce no
+default install target, prerelease-only dates still produce no stable target,
+and a dated older stable version wins over newer unpublished and prerelease
+entries. Stale date keys are ignored and release order comes from parsed versions,
+not input order. Missing/extra arguments, missing files, malformed JSON and invalid
+date value types fail without stdout or input rewrites. The directory inventory
+remains exactly the temporary Git metadata and the two supplied input files.
+All six changelog CLI integration tests pass. Generated-page integration remains
+open, and no ledger mapping changed.

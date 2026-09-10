@@ -11,6 +11,93 @@ fn run(repo: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
+fn publication_cli_never_promotes_unpublished_or_prerelease_versions() {
+    let repo = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    let markdown = "## 1.0.0\n## 3.0.0\n## 2.0.0-rc.1\n";
+    let input = repo.path().join("history.md");
+    let dates_path = repo.path().join("dates.json");
+    std::fs::write(&input, markdown).unwrap();
+    for (dates, expected) in [
+        (
+            "{}",
+            serde_json::json!({"published":[],"stable":[],"latestStable":null}),
+        ),
+        (
+            r#"{"2.0.0-rc.1":"2026-08-01"}"#,
+            serde_json::json!({"published":["2.0.0-rc.1"],"stable":[],"latestStable":null}),
+        ),
+        (
+            r#"{"1.0.0":"2026-07-01","2.0.0-rc.1":"2026-08-01","9.9.9":"2026-09-01"}"#,
+            serde_json::json!({"published":["2.0.0-rc.1","1.0.0"],"stable":["1.0.0"],"latestStable":"1.0.0"}),
+        ),
+    ] {
+        std::fs::write(&dates_path, dates).unwrap();
+        let output = run(
+            repo.path(),
+            &["changelog", "publication", "history.md", "dates.json"],
+        );
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stderr.is_empty());
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap(),
+            expected
+        );
+        assert_eq!(std::fs::read_to_string(&dates_path).unwrap(), dates);
+    }
+    for args in [
+        vec!["changelog", "publication"],
+        vec!["changelog", "publication", "history.md"],
+        vec!["changelog", "publication", "missing.md", "dates.json"],
+        vec!["changelog", "publication", "history.md", "missing.json"],
+        vec![
+            "changelog",
+            "publication",
+            "history.md",
+            "dates.json",
+            "extra",
+        ],
+    ] {
+        let output = run(repo.path(), &args);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+    }
+    for invalid in ["{broken", r#"{"1.0.0":42}"#, "[]"] {
+        std::fs::write(&dates_path, invalid).unwrap();
+        let output = run(
+            repo.path(),
+            &["changelog", "publication", "history.md", "dates.json"],
+        );
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+        assert_eq!(std::fs::read_to_string(&dates_path).unwrap(), invalid);
+    }
+    assert_eq!(std::fs::read_to_string(&input).unwrap(), markdown);
+    let mut entries = std::fs::read_dir(repo.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect::<Vec<_>>();
+    entries.sort();
+    assert_eq!(
+        entries,
+        [".git", "dates.json", "history.md"].map(std::ffi::OsString::from)
+    );
+}
+
+#[test]
 fn summaries_cli_preserves_inputs_and_checks_overlays() {
     let repo = tempfile::tempdir().unwrap();
     assert!(
