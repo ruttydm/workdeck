@@ -2931,6 +2931,21 @@ pub(super) mod tests {
             );
             assert_eq!(annotations["beta"].len(), 1);
             assert_eq!(annotations["beta"][0].summary, "Check beta rename");
+            let files = super::super::public_review::merge_file_annotations_borrowed(
+                &state.changeset().files,
+                &annotations,
+            );
+            let beta = files.iter().find(|file| file.path == "beta.ts").unwrap();
+            assert_eq!(
+                beta.agent
+                    .as_ref()
+                    .unwrap()
+                    .annotations
+                    .iter()
+                    .map(|annotation| annotation.summary.as_str())
+                    .collect::<Vec<_>>(),
+                ["Check beta rename"]
+            );
         });
         assert!(!app.options.agent_notes);
         app.filter = "alpha".into();
@@ -2952,6 +2967,23 @@ pub(super) mod tests {
         app.session_remove_live_comment("comment-1").unwrap();
         assert!(app.session_live_comment_summaries().is_empty());
         app.with_state(|state| {
+            let annotations = super::super::saved_extension_annotations(
+                state.changeset(),
+                state.comments(),
+                app.options.agent_notes,
+            );
+            let files = super::super::public_review::merge_file_annotations_borrowed(
+                &state.changeset().files,
+                &annotations,
+            );
+            assert!(
+                files
+                    .iter()
+                    .find(|file| file.path == "beta.ts")
+                    .unwrap()
+                    .agent
+                    .is_none()
+            );
             assert!(
                 super::super::saved_extension_annotations(
                     state.changeset(),

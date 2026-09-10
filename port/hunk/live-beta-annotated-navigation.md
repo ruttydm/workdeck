@@ -44,3 +44,19 @@ was rerun successfully on both pinned baselines (one test, 23 assertions each).
 These checks close the previously untested reveal flag and annotation-map
 contents, but do not yet assert the merged visible-file object's agent metadata.
 The complete source interval remains unmapped; no runtime change was necessary.
+
+## Completed merged-file assertions
+
+The regression now runs the production `merge_file_annotations_borrowed` step
+after projecting stored notes. It asserts beta's merged agent annotation summaries
+equal exactly `["Check beta rename"]`, then verifies beta's agent metadata is
+absent after removal. The focused test passed in 0.76 seconds.
+
+Together with the existing empty/one/empty live-summary counts, selected beta
+path, hunk zero, note-reveal flag and unchanged generation, this covers every
+assertion in source bytes 15894–18025 (lines 481–538). The test uses a single
+native application throughout; Rust ownership replaces the source harness's
+React mount/flush/destroy scaffolding. Only this complete test interval is now
+mapped. The runtime hook and other source-test intervals remain separate work.
+All 1,254 native TUI library tests passed in 9.80 seconds; formatting and diff
+checks passed. The strict audit refresh was started after this mapping.
