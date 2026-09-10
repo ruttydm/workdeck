@@ -1,0 +1,173 @@
+{
+  "generator": "Pinned Hunk generateChangelogArtifacts under Bun 1.3.14",
+  "results": [
+    {
+      "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "cases": [
+        {
+          "input": "## 2.0.0\n## 1.2.0-beta.1\n## 1.1.0\n",
+          "dates": {},
+          "notes": {},
+          "expected": null
+        },
+        {
+          "input": "## 2.0.0\n## 1.2.0-beta.1\n## 1.1.0\n",
+          "dates": {
+            "1.2.0-beta.1": "2026-08-02"
+          },
+          "notes": {},
+          "expected": null
+        },
+        {
+          "input": "## 2.0.0\n## 1.2.0-beta.1\n## 1.1.0\n",
+          "dates": {
+            "1.1.0": "2026-08-01"
+          },
+          "notes": {},
+          "expected": {
+            "version": "1.1.0",
+            "minor": "1.1",
+            "date": "2026-08-01",
+            "summary": "Release notes for Hunk 1.1: 1 release, August 1, 2026."
+          }
+        },
+        {
+          "input": "## 2.0.0\n## 1.2.0-beta.1\n## 1.1.0\n",
+          "dates": {
+            "1.1.0": "2026-08-01",
+            "1.2.0-beta.1": "2026-08-02"
+          },
+          "notes": {
+            "1.1": {
+              "tagline": ""
+            }
+          },
+          "expected": {
+            "version": "1.1.0",
+            "minor": "1.1",
+            "date": "2026-08-01",
+            "summary": ""
+          }
+        },
+        {
+          "input": "## 2.0.0\n## 1.2.0-beta.1\n## 1.1.0\n",
+          "dates": {
+            "1.1.0": "2026-08-01"
+          },
+          "notes": {
+            "1.1": {
+              "tagline": "Raw **tagline** remains."
+            }
+          },
+          "expected": {
+            "version": "1.1.0",
+            "minor": "1.1",
+            "date": "2026-08-01",
+            "summary": "Raw **tagline** remains."
+          }
+        },
+        {
+          "input": "## 2.0.0\n## 1.2.0-beta.1\n## 1.1.0\n",
+          "dates": {
+            "1.1.0": "2026-08-01"
+          },
+          "notes": {
+            "1.1": {
+              "summary": "A **long** editorial summary with several words that must eventually be truncated before it can exceed the landing-page limit."
+            }
+          },
+          "expected": {
+            "version": "1.1.0",
+            "minor": "1.1",
+            "date": "2026-08-01",
+            "summary": "A long editorial summary with several words that must eventually be…"
+          }
+        }
+      ]
+    },
+    {
+      "baseline": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "cases": [
+        {
+          "input": "## 2.0.0\n## 1.2.0-beta.1\n## 1.1.0\n",
+          "dates": {},
+          "notes": {},
+          "expected": null
+        },
+        {
+          "input": "## 2.0.0\n## 1.2.0-beta.1\n## 1.1.0\n",
+          "dates": {
+            "1.2.0-beta.1": "2026-08-02"
+          },
+          "notes": {},
+          "expected": null
+        },
+        {
+          "input": "## 2.0.0\n## 1.2.0-beta.1\n## 1.1.0\n",
+          "dates": {
+            "1.1.0": "2026-08-01"
+          },
+          "notes": {},
+          "expected": {
+            "version": "1.1.0",
+            "minor": "1.1",
+            "date": "2026-08-01",
+            "summary": "Release notes for Hunk 1.1: 1 release, August 1, 2026."
+          }
+        },
+        {
+          "input": "## 2.0.0\n## 1.2.0-beta.1\n## 1.1.0\n",
+          "dates": {
+            "1.1.0": "2026-08-01",
+            "1.2.0-beta.1": "2026-08-02"
+          },
+          "notes": {
+            "1.1": {
+              "tagline": ""
+            }
+          },
+          "expected": {
+            "version": "1.1.0",
+            "minor": "1.1",
+            "date": "2026-08-01",
+            "summary": ""
+          }
+        },
+        {
+          "input": "## 2.0.0\n## 1.2.0-beta.1\n## 1.1.0\n",
+          "dates": {
+            "1.1.0": "2026-08-01"
+          },
+          "notes": {
+            "1.1": {
+              "tagline": "Raw **tagline** remains."
+            }
+          },
+          "expected": {
+            "version": "1.1.0",
+            "minor": "1.1",
+            "date": "2026-08-01",
+            "summary": "Raw **tagline** remains."
+          }
+        },
+        {
+          "input": "## 2.0.0\n## 1.2.0-beta.1\n## 1.1.0\n",
+          "dates": {
+            "1.1.0": "2026-08-01"
+          },
+          "notes": {
+            "1.1": {
+              "summary": "A **long** editorial summary with several words that must eventually be truncated before it can exceed the landing-page limit."
+            }
+          },
+          "expected": {
+            "version": "1.1.0",
+            "minor": "1.1",
+            "date": "2026-08-01",
+            "summary": "A long editorial summary with several words that must eventually be…"
+          }
+        }
+      ]
+    }
+  ]
+}

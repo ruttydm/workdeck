@@ -1,5 +1,8 @@
 # Website changelog parser continuation
 
+Landing-page release selection and its pinned artifact comparisons are documented
+in [website-changelog-latest.md](website-changelog-latest.md).
+
 The partial native index-page renderer and pinned publication comparisons are
 documented in [website-changelog-index.md](website-changelog-index.md).
 
