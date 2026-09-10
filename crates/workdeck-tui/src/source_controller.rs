@@ -1973,6 +1973,35 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn counted_alpha_file_navigation_commits_only_final_selection() {
+        let mut review = pinned_alpha_source_review(800);
+        review.files[0].set_source_capability(None);
+        for id in ["beta", "gamma", "delta"] {
+            let mut next = pinned_review_from_text(
+                id,
+                &format!("{id}.ts"),
+                &format!("export const {id} = 1;\n"),
+                &format!("export const {id} = 2;\n"),
+            );
+            next.files[0].set_source_capability(None);
+            review.files.push(next.files.remove(0));
+        }
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        let revision = app.with_state(|state| state.state_revision());
+        app.move_selection(ReviewSelectionScope::File, 3);
+        app.with_state(|state| {
+            assert_eq!(state.selected_file().unwrap().path, "delta.ts");
+            assert_eq!(state.selection().hunk_index, Some(0));
+            assert_eq!(state.state_revision(), revision + 1);
+        });
+        let scroll = app.scroll;
+        app.move_selection(ReviewSelectionScope::File, 3);
+        assert_eq!(app.with_state(|state| state.state_revision()), revision + 1);
+        assert_eq!(app.scroll, scroll);
+    }
+
+    #[test]
     fn selection_only_alpha_navigation_retains_document_allocation() {
         let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
         let initial = app.with_state(|state| state.changeset_snapshot());
