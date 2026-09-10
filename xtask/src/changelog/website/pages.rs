@@ -59,6 +59,49 @@ mod tests {
     }
 
     #[test]
+    fn install_target_tracks_published_stable_not_newest_heading() {
+        let series =
+            group_into_series(parse_changelog("## 1.2.2\n\n## 1.2.1-beta.0\n\n## 1.2.0\n"))
+                .pop()
+                .unwrap();
+        let dates = BTreeMap::from([
+            ("1.2.1-beta.0".into(), "2026-08-17".into()),
+            ("1.2.0".into(), "2026-08-16".into()),
+        ]);
+        for latest in [None, Some("1.2.0"), Some("1.3.0")] {
+            let page = render_page(&series, &Notes::default(), &dates, None, None, latest).unwrap();
+            assert!(page.contains("--tag v1.2.0 --package workdeck-cli --locked"));
+            assert!(!page.contains("--tag v1.2.2"));
+            assert!(!page.contains("--tag v1.2.1-beta.0"));
+            assert_eq!(page.contains("workdeck update"), latest == Some("1.2.0"));
+            assert_eq!(
+                page.contains("This is the current release"),
+                latest == Some("1.2.0")
+            );
+            assert_eq!(
+                page.contains("no longer the current release"),
+                latest != Some("1.2.0")
+            );
+            assert!(!page.contains("npm"));
+            for version in ["v1-2-2", "v1-2-1-beta-0", "v1-2-0"] {
+                assert!(page.contains(&format!("id=\"{version}\"")));
+            }
+        }
+        let unpublished = render_page(
+            &series,
+            &Notes::default(),
+            &BTreeMap::new(),
+            None,
+            None,
+            Some("1.2.2"),
+        )
+        .unwrap();
+        assert!(!unpublished.contains("cargo install"));
+        assert!(!unpublished.contains("workdeck update"));
+        assert!(unpublished.contains("Unreleased · 3 releases"));
+    }
+
+    #[test]
     fn prerelease_and_unpublished_pages_have_no_install_command() {
         let series = group_into_series(parse_changelog("## 1.2.0-beta.1\n"))
             .pop()
