@@ -8265,7 +8265,6 @@ impl ReviewApp {
             ))
         });
         let Some((key, file_index, address, side)) = target else {
-            self.status = Some("source expansion is unavailable for this file".into());
             return;
         };
         self.toggle_source_gap_target(key, file_index, address, side);
@@ -8304,6 +8303,16 @@ impl ReviewApp {
         address: ReviewGapAddress,
         side: ReviewSide,
     ) {
+        // Embedded diff text supplies geometry, not authority to fetch source.
+        // Both selected-gap commands and renderer-addressed toggles use this gate.
+        let available = self.with_state(|state| {
+            state.changeset().files.get(file_index).is_some_and(|file| {
+                file.key == key.0 && self.options.source_presentation.available(file)
+            })
+        });
+        if !available {
+            return;
+        }
         let previous = self
             .current_review_line_cursor()
             .map(|cursor| cursor.target);
@@ -21166,10 +21175,7 @@ mod tests {
         assert!(app.take_editor_request().is_none());
 
         app.handle_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE));
-        assert_eq!(
-            app.status.as_deref(),
-            Some("source expansion is unavailable for this file")
-        );
+        assert!(app.status.is_none());
         assert!(app.take_editor_request().is_none());
     }
 
@@ -23733,6 +23739,35 @@ mod tests {
         assert!(changed.source_identity.is_none());
         assert!(!changed.source_attested);
         assert!(!source_presentation::ReviewSourcePresentation::default().available(&changed));
+    }
+
+    #[test]
+    fn gap_commands_without_source_access_leave_review_unchanged() {
+        for review in [pinned_collapsed_top_bootstrap().changeset, changeset()] {
+            for addressed in [false, true] {
+                let key = review.files[0].key.clone();
+                let mut app = ReviewApp::new(review.clone(), ReviewOptions::default());
+                let mut terminal = Terminal::new(TestBackend::new(220, 10)).unwrap();
+                let before = rendered_review_frame(&mut terminal, &app);
+                let selection = app.with_state(|state| state.selection());
+                let cursor = app.current_review_line_cursor();
+                let scroll = app.scroll;
+                app.status = Some("existing status".into());
+                if addressed {
+                    app.toggle_source_gap_for_file(&key, 0);
+                } else {
+                    app.toggle_source_gap();
+                }
+                assert!(app.expanded_gaps.is_empty());
+                assert!(app.gap_cursor_restore.is_empty());
+                assert_eq!(app.with_state(|state| state.selection()), selection);
+                assert_eq!(app.current_review_line_cursor(), cursor);
+                assert_eq!(app.scroll, scroll);
+                assert_eq!(app.status.as_deref(), Some("existing status"));
+                app.status = None;
+                assert_eq!(rendered_review_frame(&mut terminal, &app), before);
+            }
+        }
     }
 
     #[test]

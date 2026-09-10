@@ -1,5 +1,14 @@
 # Hunk semantic-port ledger
 
+## Gap-command source capability
+
+Selected and renderer-addressed gap commands now use the renderer's source
+availability gate before mutating review state. Embedded metadata alone no
+longer marks gaps expanded, and an absent gap no longer invents a status change.
+The native regression first reproduced the mismatch; both pinned source
+no-fetcher tests passed. See [behavior and validation scope](gap-command-capability.md).
+No ledger interval is newly mapped by this runtime correction.
+
 ## Mouse-scroll bootstrap helper
 
 The full 1,051-byte `createMouseScrollSelectionBootstrap` interval is translated
