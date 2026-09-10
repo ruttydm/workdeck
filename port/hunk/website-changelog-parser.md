@@ -302,6 +302,20 @@ assertions; the native `original_page_` filter passed four tests with the same
 assertions. The full series-page test block remains unmapped pending its remaining
 installer, metadata and publication assertions. No ledger mapping changed.
 
+## Series social-card data
+
+Each `pages` result now includes a `card` object: slug, Workdeck title, optional
+editorial tagline, publication/count metadata, optional published-version chips,
+latest marker and alt text. Factual summaries do not become taglines. The native
+implementation includes main's prerelease-only label; dedicated prerelease card
+oracles remain to be added.
+
+Sixteen executed two-pin cases verify stable-release cards with/without dates,
+one/multiple releases, written/absent summaries and latest flags. The exact-object
+oracle test passes. Images, index cards, page social tags and missing-image gates
+remain open. This is data generation, not completed social-card rendering, and
+no ledger mapping changed.
+
 ## Verification refresh after original-test translations
 
 At `2408adfb`, strict `cargo clippy -p xtask --all-targets -- -D warnings`

@@ -238,7 +238,16 @@ pub(in crate::changelog) fn run_pages(
             series.get(index + 1).map(|s| s.minor.as_str()),
             latest.as_deref(),
         )?;
-        pages.push(serde_json::json!({"minor":item.minor,"markdown":markdown}));
+        let card = series_card(
+            item,
+            notes.get(&item.minor).and_then(|n| n.summary.as_deref()),
+            &dates,
+            latest
+                .as_deref()
+                .is_some_and(|v| minor_series_of(v) == item.minor),
+            "Workdeck",
+        );
+        pages.push(serde_json::json!({"minor":item.minor,"markdown":markdown,"card":card}));
     }
     println!("{}", serde_json::to_string_pretty(&pages)?);
     Ok(())

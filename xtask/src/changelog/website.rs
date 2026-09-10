@@ -720,6 +720,63 @@ pub(super) fn run_video(repo: &Path, mut args: impl Iterator<Item = String>) -> 
     Ok(())
 }
 
+fn series_card(
+    series: &ReleaseSeries,
+    overlay: Option<&str>,
+    dates: &std::collections::BTreeMap<String, String>,
+    latest: bool,
+    product: &str,
+) -> serde_json::Value {
+    let published = series
+        .releases
+        .iter()
+        .filter(|r| is_published(r, dates))
+        .collect::<Vec<_>>();
+    let prerelease_only = !published.is_empty() && !published.iter().any(|r| !r.prerelease);
+    let releases = series.releases.len();
+    let changes: usize = series
+        .releases
+        .iter()
+        .flat_map(|r| &r.sections)
+        .map(|s| s.entries.len())
+        .sum();
+    let meta = format!(
+        "{}{} · {releases} release{} · {changes} change{}",
+        if prerelease_only {
+            "Prerelease · "
+        } else {
+            ""
+        },
+        series_span(series, dates).unwrap_or_else(|| "Unreleased".into()),
+        if releases == 1 { "" } else { "s" },
+        if changes == 1 { "" } else { "s" }
+    );
+    let mut card = serde_json::Map::new();
+    card.insert("slug".into(), series.minor.clone().into());
+    card.insert("title".into(), format!("{product} {}", series.minor).into());
+    if let Some(tagline) = series_summary(series, overlay).filter(|s| !s.is_empty()) {
+        card.insert(
+            "tagline".into(),
+            truncate_description(&to_plain_text(&tagline), 140).into(),
+        );
+    }
+    card.insert("meta".into(), meta.clone().into());
+    if published.len() > 1 {
+        card.insert(
+            "chips".into(),
+            serde_json::json!(published.iter().map(|r| &r.version).collect::<Vec<_>>()),
+        );
+    }
+    if latest {
+        card.insert("latest".into(), true.into());
+    }
+    card.insert(
+        "alt".into(),
+        format!("{product} {} release notes — {meta}", series.minor).into(),
+    );
+    card.into()
+}
+
 fn yaml_string(value: &str) -> String {
     if value.contains('"') && !value.contains('\'') {
         format!("'{value}'")
@@ -885,6 +942,36 @@ pub(super) fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stable_series_cards_match_both_pinned_oracles() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/website-changelog-card-oracle.json"
+        ))
+        .unwrap();
+        let results = fixture["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        for result in results {
+            let cases = result["cases"].as_array().unwrap();
+            assert_eq!(cases.len(), 8);
+            for case in cases {
+                let series = group_into_series(parse_changelog(case["input"].as_str().unwrap()))
+                    .pop()
+                    .unwrap();
+                let dates = serde_json::from_value(case["dates"].clone()).unwrap();
+                assert_eq!(
+                    series_card(
+                        &series,
+                        None,
+                        &dates,
+                        case["latest"].as_bool().unwrap(),
+                        "Hunk"
+                    ),
+                    case["expected"]
+                );
+            }
+        }
+    }
 
     fn original_series_page(latest: Option<&str>, neighbors: bool) -> String {
         let series = group_into_series(parse_changelog(SOURCE_SAMPLE));
