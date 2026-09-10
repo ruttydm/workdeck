@@ -75,7 +75,7 @@ fn regular(path: &Path) -> Result<fs::Metadata> {
     Ok(metadata)
 }
 
-fn reject_reparse_point(metadata: &fs::Metadata) -> Result<()> {
+pub(super) fn reject_reparse_point(metadata: &fs::Metadata) -> Result<()> {
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
@@ -138,7 +138,7 @@ pub(super) fn read_binary(path: &Path) -> Result<(fs::Metadata, Vec<u8>)> {
     Ok((metadata, bytes))
 }
 
-fn lock_directory(parent: &Path) -> Result<fs::File> {
+pub(super) fn lock_directory(parent: &Path) -> Result<fs::File> {
     let mut options = fs::OpenOptions::new();
     options.read(true).write(true).create(true).truncate(false);
     #[cfg(unix)]

@@ -93,3 +93,26 @@ current installer additions' compilation and ownership boundaries, not whole-
 product parity, performance, native platform coverage or signed release delivery.
 The next installer integration remains the authenticated asset-tree transaction
 with recovery coordinated with binary installation.
+
+## Recoverable skills-tree transaction
+
+`install::install_skill_tree` now copies a caller-authenticated source tree into
+a private temporary directory on the destination filesystem. It requires all
+four bundled `SKILL.md` files and bounds copying to 10,000 entries, 64 MiB and
+64 levels. Links, special files, Windows reparse points and source/staging
+overlap are rejected. Files are synchronized before publication.
+
+The transaction uses the persistent native installer lock. It creates a new
+recovery directory, moves an existing skills tree into `recovery/skills`, then
+publishes the prepared tree using exclusive rename (NOREPLACE on macOS/Linux).
+An injected publication failure restores the previous tree; restoration will
+not overwrite a competing destination, leaving the recovery tree available
+instead. Existing recovery directories are never reused or overwritten.
+
+This low-level API requires an authenticated, quiescent source and coordinated
+destination parents. It does not itself authenticate assets, commit a binary,
+install metadata, guarantee crash-durable directory changes or provide an atomic
+multi-resource installation. It leaves recovery directories and the lock file
+intentionally. Its native transaction test passes on macOS for successful
+replacement, retained old contents, injected rollback and recovery collisions.
+Windows and Linux execution remain unverified. No ledger interval is completed.

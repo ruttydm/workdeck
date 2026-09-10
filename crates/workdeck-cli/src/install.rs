@@ -6,7 +6,9 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+mod assets;
 pub mod attestation;
+pub use assets::install_skill_tree;
 mod authenticated;
 mod download;
 mod release_identity;
