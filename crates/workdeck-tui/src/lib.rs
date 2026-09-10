@@ -4169,7 +4169,6 @@ impl ReviewApp {
                     for comment in state.comments().iter().filter(|comment| {
                         comment.resolution == workdeck_review::ReviewNoteResolution::Active
                             && comment.anchor.file_key == file.key
-                            && (self.options.agent_notes || comment.source == "user")
                     }) {
                         annotated_file = true;
                         if let Some(owner) = comment.anchor.owner_hunk_index {

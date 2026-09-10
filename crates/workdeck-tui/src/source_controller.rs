@@ -1973,6 +1973,67 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn live_beta_comment_updates_annotated_navigation_without_reload() {
+        let mut review = pinned_review_from_text(
+            "alpha",
+            "alpha.ts",
+            "export const alpha = 1;\n",
+            "export const alpha = 2;\n",
+        );
+        let mut beta = pinned_review_from_text(
+            "beta",
+            "beta.ts",
+            "export const beta = 1;\n",
+            "export const beta = 2;\n",
+        );
+        review.files.push(beta.files.remove(0));
+        for file in &mut review.files {
+            file.set_source_capability(None);
+        }
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        let generation = app.with_state(|state| state.generation());
+        assert!(app.session_live_comment_summaries().is_empty());
+        app.session_add_live_comment(
+            &workdeck_session::CommentToolInput {
+                target_session: Default::default(),
+                target: workdeck_session::CommentTargetInput {
+                    file_path: "beta.ts".into(),
+                    hunk_index: None,
+                    side: Some(ReviewSide::New),
+                    line: Some(1),
+                    summary: "Check beta rename".into(),
+                    rationale: None,
+                    markup: None,
+                    author: None,
+                },
+                reveal: Some(false),
+            },
+            "comment-1",
+            false,
+        )
+        .unwrap();
+        let summaries = app.session_live_comment_summaries();
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].summary, "Check beta rename");
+        app.move_selection(ReviewSelectionScope::AnnotatedHunk, 1);
+        app.with_state(|state| {
+            assert_eq!(state.selected_file().unwrap().path, "beta.ts");
+            assert_eq!(state.selection().hunk_index, Some(0));
+            assert_eq!(state.generation(), generation);
+        });
+        app.session_remove_live_comment("comment-1").unwrap();
+        assert!(app.session_live_comment_summaries().is_empty());
+        app.select_extension_review_hunk("test", "alpha", 0);
+        app.move_selection(ReviewSelectionScope::AnnotatedHunk, 1);
+        app.with_state(|state| {
+            assert_eq!(state.selected_file().unwrap().path, "alpha.ts");
+            assert!(state.comments().is_empty());
+            assert_eq!(state.generation(), generation);
+        });
+    }
+
+    #[test]
     fn counted_alpha_file_navigation_commits_only_final_selection() {
         let mut review = pinned_alpha_source_review(800);
         review.files[0].set_source_capability(None);
