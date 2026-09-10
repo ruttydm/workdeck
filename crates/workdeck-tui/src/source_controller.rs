@@ -894,4 +894,139 @@ pub(super) mod tests {
         assert!(app.source_loaders.is_empty());
         assert!(app.expanded_gaps.is_empty());
     }
+
+    fn pinned_alpha_source_review(value: u32) -> Changeset {
+        let before = (1..=12)
+            .map(|line| format!("export const alpha{line} = {line};\n"))
+            .collect::<String>();
+        let after = before.replace("alpha8 = 8;", &format!("alpha8 = {value};"));
+        let mut file = workdeck_diff::diff_from_file_snapshots(
+            workdeck_diff::FileSnapshot {
+                cache_key: "alpha:before",
+                contents: &before,
+                name: "alpha.ts",
+            },
+            workdeck_diff::FileSnapshot {
+                cache_key: "alpha:after",
+                contents: &after,
+                name: "alpha.ts",
+            },
+            workdeck_diff::FileComparisonOptions { context_radius: 3 },
+        )
+        .unwrap();
+        file.runtime_id = "alpha".into();
+        file.language = Some("typescript".into());
+        file.patch.clear();
+        for source in file
+            .sources
+            .old
+            .iter_mut()
+            .chain(file.sources.new.iter_mut())
+        {
+            source.origin = workdeck_core::SourceOrigin::DiffMetadata;
+            source.attested = false;
+        }
+        file.set_sources(file.sources.clone());
+        file.set_source_capability(Some(workdeck_core::SourceCapabilityIdentity {
+            cache_key: None,
+        }));
+        let mut review = Changeset {
+            id: "alpha-review".into(),
+            source_label: "repo".into(),
+            title: "repo working tree".into(),
+            summary: None,
+            agent_summary: None,
+            source: workdeck_core::ChangesetSource::WorkingTree { staged: false },
+            files: vec![file],
+        };
+        review.refresh_review_identities();
+        review
+    }
+
+    #[test]
+    fn pending_source_cannot_repopulate_reloaded_alpha_review() {
+        struct TrackedLoader {
+            calls: Mutex<Vec<ReviewSide>>,
+            source: Loader,
+        }
+        impl ReviewSourceLoader for TrackedLoader {
+            fn get_full_text(
+                &self,
+                file: &DiffFile,
+                side: ReviewSide,
+            ) -> std::result::Result<Option<String>, ReviewSourceLoadError> {
+                self.calls.lock().unwrap().push(side);
+                self.source.get_full_text(file, side)
+            }
+        }
+        let (first_tx, first_rx) = mpsc::channel();
+        let (second_tx, second_rx) = mpsc::channel();
+        let first = Arc::new(TrackedLoader {
+            calls: Mutex::new(vec![]),
+            source: Loader(Mutex::new(first_rx)),
+        });
+        let second = Arc::new(TrackedLoader {
+            calls: Mutex::new(vec![]),
+            source: Loader(Mutex::new(second_rx)),
+        });
+        let review = pinned_alpha_source_review(800);
+        let key = review.files[0].key.clone();
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                highlight: false,
+                ..Default::default()
+            },
+        );
+        assert!(app.install_source_loader(&key, first.clone()));
+        app.toggle_source_gap_for_file(&key, 0).unwrap();
+        app.with_state(|state| {
+            assert!(matches!(
+                app.options
+                    .source_presentation
+                    .status(&state.changeset().files[0]),
+                Some(workdeck_review::ReviewSourceStatus::Loading)
+            ))
+        });
+
+        app.reload(pinned_alpha_source_review(900));
+        assert!(app.install_source_loader(&key, second.clone()));
+        let selection = app.with_state(|state| state.selection());
+        assert!(app.expanded_gaps.is_empty());
+        app.with_state(|state| {
+            assert!(
+                app.options
+                    .source_presentation
+                    .status(&state.changeset().files[0])
+                    .is_none()
+            )
+        });
+        first_tx.send("first\n".into()).unwrap();
+        drain_one(&mut app);
+        app.with_state(|state| {
+            assert!(
+                app.options
+                    .source_presentation
+                    .status(&state.changeset().files[0])
+                    .is_none()
+            )
+        });
+        assert_eq!(app.with_state(|state| state.selection()), selection);
+        assert!(app.pending_source_reveal.is_none());
+        app.toggle_source_gap_for_file(&key, 0).unwrap();
+        second_tx.send("second\n".into()).unwrap();
+        drain_one(&mut app);
+        app.with_state(|state| {
+            assert_eq!(
+                app.options
+                    .source_presentation
+                    .status(&state.changeset().files[0]),
+                Some(&workdeck_review::ReviewSourceStatus::Loaded {
+                    text: "second\n".into()
+                })
+            )
+        });
+        assert_eq!(*first.calls.lock().unwrap(), [ReviewSide::New]);
+        assert_eq!(*second.calls.lock().unwrap(), [ReviewSide::New]);
+    }
 }

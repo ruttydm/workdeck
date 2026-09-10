@@ -1,5 +1,14 @@
 # Hunk semantic-port ledger
 
+## Retired source loads cannot restore cursor requests
+
+The pending-alpha-reload regression is translated with complete before/after
+metadata and independently controlled old/new readers. It exposed a stale pending
+cursor reveal left behind after source retirement; the reload commit now clears
+that request with the retired identity. Both pinned source runs and all 1,186
+native TUI tests pass. See [scope and evidence](pending-alpha-source-reload.md).
+Only the complete 1,933-byte source test body is newly mapped.
+
 ## Dependency audit and inventory snapshot
 
 `cargo deny check` passes against the current lockfile and existing policy, with

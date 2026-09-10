@@ -2036,6 +2036,13 @@ impl ReviewApp {
                 );
                 self.expanded_gaps
                     .retain(|(file_key, _)| !retired.contains(file_key.as_str()));
+                if self
+                    .pending_source_reveal
+                    .as_ref()
+                    .is_some_and(|pending| retired.contains(pending.gap.0.as_str()))
+                {
+                    self.pending_source_reveal = None;
+                }
                 let mut file_indices = BTreeMap::new();
                 for (index, file) in changeset.files.iter().enumerate() {
                     file_indices.entry(file.key.as_str()).or_insert(index);
