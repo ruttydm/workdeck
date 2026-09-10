@@ -484,6 +484,30 @@ mod tests {
     #[test]
     fn darwin_owned_child_pipe_suppresses_sigpipe_and_returns_broken_pipe() {
         use std::os::fd::AsRawFd;
+        const ISOLATED: &str = "WORKDECK_TEST_ISOLATED_DARWIN_CHILD_PIPE";
+        if std::env::var_os(ISOLATED).is_none() {
+            // Other tests spawn children concurrently. A fork can temporarily
+            // inherit our pipe reader until exec, even after our child exits.
+            // Create the pipe in a fresh single-test process so BrokenPipe tests
+            // the owned child's closure, not unrelated descriptor inheritance.
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "child_pipe::tests::darwin_owned_child_pipe_suppresses_sigpipe_and_returns_broken_pipe",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
+                .env(ISOLATED, "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "isolated pipe test failed: {}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
         let mut child = std::process::Command::new("/usr/bin/true")
             .stdin(std::process::Stdio::piped())
             .spawn()

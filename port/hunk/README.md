@@ -1,5 +1,15 @@
 # Hunk semantic-port ledger
 
+## Broad verification after source-capability fixes
+
+The full local `cargo xtask verify` rerun passes after isolating the Darwin
+closed-child pipe test from concurrent test-process spawning. Workspace tests,
+strict Clippy, optimized build, and large-repository smoke all pass; the one
+default-ignored tooling oracle was explicitly run and passed separately. See
+[the initial failure, fix, and validation limits](darwin-pipe-test-isolation.md).
+No ledger coverage is added. Full source parity and cross-platform release gates
+remain incomplete.
+
 ## Shared source-load cursor ownership
 
 The two-gap asynchronous source-load regression is translated at bytes
