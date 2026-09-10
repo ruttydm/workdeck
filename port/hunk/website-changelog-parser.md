@@ -41,3 +41,13 @@ All three changelog CLI integration tests passed in 2.25 seconds. The parser
 case checks exact JSON output, successful empty stderr, rejection of missing,
 extra and nonexistent-file arguments, unchanged input content, and no new
 repository-root entries after either successful or failed calls.
+
+## Minor-release grouping
+
+`cargo xtask changelog series <markdown-file>` now projects releases into minor
+series, sorting both series and their releases newest-first. The frozen
+`website-changelog-series-oracle.json` records source results for reversed parsed
+input from both pins: 21 main groups and 20 stable groups. The Rust regression
+checks exact group membership/order, unchanged complete release values, and empty
+input. All five parser/grouping tests passed in 0.07 seconds. Both read-only
+commands are listed in xtask help. No ledger interval is newly mapped.

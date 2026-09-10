@@ -2570,6 +2570,8 @@ fn print_help() {
     println!("cargo xtask install-verify ARCHIVE CHECKSUM_FILE");
     println!("cargo xtask install-inspect ARCHIVE [--package]");
     println!("cargo xtask changelog upstream-history [--check]");
+    println!("cargo xtask changelog parse <markdown-file>");
+    println!("cargo xtask changelog series <markdown-file>");
     println!("cargo xtask changelog add <id> <patch|minor|major|empty> [body]");
     println!("cargo xtask changelog status");
     println!("cargo xtask changelog plan");

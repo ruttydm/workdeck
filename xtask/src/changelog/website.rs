@@ -229,24 +229,99 @@ fn parse_changelog(markdown: &str) -> Vec<ReleaseEntry> {
     releases
 }
 
-pub(super) fn run(repo: &Path, mut args: impl Iterator<Item = String>) -> Result<()> {
+#[derive(Debug, Serialize)]
+struct ReleaseSeries {
+    minor: String,
+    releases: Vec<ReleaseEntry>,
+}
+
+fn group_into_series(releases: Vec<ReleaseEntry>) -> Vec<ReleaseSeries> {
+    let mut groups = std::collections::BTreeMap::<String, Vec<ReleaseEntry>>::new();
+    for release in releases {
+        let minor = release
+            .version
+            .split('-')
+            .next()
+            .unwrap_or_default()
+            .split('.')
+            .take(2)
+            .collect::<Vec<_>>()
+            .join(".");
+        groups.entry(minor).or_default().push(release);
+    }
+    let mut series = groups
+        .into_iter()
+        .map(|(minor, mut releases)| {
+            releases.sort_by(|a, b| compare_versions(&a.version, &b.version));
+            ReleaseSeries { minor, releases }
+        })
+        .collect::<Vec<_>>();
+    series.sort_by(|a, b| compare_versions(&format!("{}.0", a.minor), &format!("{}.0", b.minor)));
+    series
+}
+
+pub(super) fn run(
+    repo: &Path,
+    mut args: impl Iterator<Item = String>,
+    grouped: bool,
+) -> Result<()> {
+    let command = if grouped { "series" } else { "parse" };
     let Some(path) = args.next() else {
-        bail!("changelog parse requires a Markdown file");
+        bail!("changelog {command} requires a Markdown file");
     };
     if args.next().is_some() {
-        bail!("changelog parse accepts exactly one Markdown file");
+        bail!("changelog {command} accepts exactly one Markdown file");
     }
     let markdown = std::fs::read_to_string(repo.join(path))?;
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&parse_changelog(&markdown))?
-    );
+    let releases = parse_changelog(&markdown);
+    let json = if grouped {
+        serde_json::to_string_pretty(&group_into_series(releases))?
+    } else {
+        serde_json::to_string_pretty(&releases)?
+    };
+    println!("{json}");
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reverse_ordered_release_groups_match_both_pinned_oracles() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/website-changelog-series-oracle.json"
+        ))
+        .unwrap();
+        let cases = fixture["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 2);
+        for case in cases {
+            let baseline = case["baseline"].as_str().unwrap();
+            let source = std::process::Command::new("git")
+                .current_dir(repo)
+                .args(["show", &format!("{baseline}:CHANGELOG.md")])
+                .output()
+                .unwrap();
+            assert!(source.status.success());
+            let mut releases = parse_changelog(std::str::from_utf8(&source.stdout).unwrap());
+            releases.reverse();
+            let original = releases
+                .iter()
+                .map(|r| (r.version.clone(), serde_json::to_value(r).unwrap()))
+                .collect::<std::collections::BTreeMap<_, _>>();
+            let series = group_into_series(releases);
+            let actual = series.iter().map(|s| serde_json::json!({"minor":s.minor,"versions":s.releases.iter().map(|r| &r.version).collect::<Vec<_>>()})).collect::<Vec<_>>();
+            assert_eq!(serde_json::to_value(actual).unwrap(), case["expected"]);
+            for release in series.iter().flat_map(|s| &s.releases) {
+                assert_eq!(
+                    serde_json::to_value(release).unwrap(),
+                    original[&release.version]
+                );
+            }
+        }
+        assert!(group_into_series(Vec::new()).is_empty());
+    }
 
     #[test]
     fn complete_pinned_changelogs_match_frozen_source_oracles() {
