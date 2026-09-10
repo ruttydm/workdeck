@@ -292,6 +292,16 @@ and checks input preservation plus an unchanged root-directory inventory. It
 does not generate or modify site files. All eleven changelog CLI tests pass;
 full-page differential and final website integration remain open.
 
+## Original page behavior follow-up
+
+Four original series-page tests are now exercised through the native composer:
+current/superseded labeling, stable release anchors, no repeated Highlights lead,
+and neighboring-series links (with Workdeck branding). This restored a missing
+`This is the current release` label. Both source pins passed four tests and seven
+assertions; the native `original_page_` filter passed four tests with the same
+assertions. The full series-page test block remains unmapped pending its remaining
+installer, metadata and publication assertions. No ledger mapping changed.
+
 ## Verification refresh after original-test translations
 
 At `2408adfb`, strict `cargo clippy -p xtask --all-targets -- -D warnings`

@@ -886,6 +886,62 @@ pub(super) fn run(
 mod tests {
     use super::*;
 
+    fn original_series_page(latest: Option<&str>, neighbors: bool) -> String {
+        let series = group_into_series(parse_changelog(SOURCE_SAMPLE));
+        let dates = std::collections::BTreeMap::from([
+            ("0.19.0".into(), "2026-08-16".into()),
+            ("0.19.0-beta.0".into(), "2026-08-10".into()),
+        ]);
+        pages::render_page(
+            &series[0],
+            &Default::default(),
+            &dates,
+            neighbors.then_some("0.20"),
+            neighbors.then_some("0.18"),
+            latest,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn original_page_marks_current_only_for_latest_release() {
+        assert!(
+            original_series_page(Some("0.19.0"), false).contains("This is the current release")
+        );
+        assert!(
+            original_series_page(Some("0.20.0"), false).contains("no longer the current release")
+        );
+    }
+
+    #[test]
+    fn original_page_emits_stable_release_anchor() {
+        assert!(
+            original_series_page(None, false)
+                .contains("<a class=\"release-separator\" id=\"v0-19-0\"></a>")
+        );
+    }
+
+    #[test]
+    fn original_page_does_not_repeat_lead_inside_highlights() {
+        let page = original_series_page(None, false);
+        let highlights = page
+            .split("## Highlights")
+            .nth(1)
+            .unwrap()
+            .split("\n## ")
+            .next()
+            .unwrap();
+        assert!(highlights.contains("**Richer extensions.**"));
+        assert!(!highlights.contains("expands the extension platform"));
+    }
+
+    #[test]
+    fn original_page_links_neighboring_series() {
+        let page = original_series_page(None, true);
+        assert!(page.contains("[Older: Workdeck 0.18](/changelog/0.18/)"));
+        assert!(page.contains("[Newer: Workdeck 0.20](/changelog/0.20/)"));
+    }
+
     fn source_video_page(video: serde_json::Value) -> String {
         let series = group_into_series(parse_changelog(SOURCE_SAMPLE));
         let dates = std::collections::BTreeMap::from([("0.19.0".into(), "2026-08-16".into())]);

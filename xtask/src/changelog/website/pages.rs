@@ -146,7 +146,7 @@ pub(super) fn render_page(
         lines.extend(["```sh".into(), format!("cargo install --git https://github.com/ruttydm/workdeck --tag v{} --package workdeck-cli --locked", release.version), "```".into(), String::new()]);
         if latest == Some(release.version.as_str()) {
             lines.extend([
-                "Already installed? Use the update workflow for your installation:".into(),
+                "This is the current release. Already installed? Use the update workflow for your installation:".into(),
                 String::new(),
                 "```sh".into(),
                 "workdeck update".into(),
