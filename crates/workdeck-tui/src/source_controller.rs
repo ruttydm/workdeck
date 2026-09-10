@@ -2923,6 +2923,15 @@ pub(super) mod tests {
         let summaries = app.session_live_comment_summaries();
         assert_eq!(summaries.len(), 1);
         assert_eq!(summaries[0].summary, "Check beta rename");
+        app.with_state(|state| {
+            let annotations = super::super::saved_extension_annotations(
+                state.changeset(),
+                state.comments(),
+                app.options.agent_notes,
+            );
+            assert_eq!(annotations["beta"].len(), 1);
+            assert_eq!(annotations["beta"][0].summary, "Check beta rename");
+        });
         assert!(!app.options.agent_notes);
         app.filter = "alpha".into();
         let selection = app.with_state(|state| state.selection());
@@ -2934,6 +2943,7 @@ pub(super) mod tests {
         app.filter.clear();
         app.move_selection(ReviewSelectionScope::AnnotatedHunk, 1);
         assert!(!app.options.agent_notes);
+        assert!(app.review_reveal.scroll_to_note);
         app.with_state(|state| {
             assert_eq!(state.selected_file().unwrap().path, "beta.ts");
             assert_eq!(state.selection().hunk_index, Some(0));
@@ -2941,6 +2951,16 @@ pub(super) mod tests {
         });
         app.session_remove_live_comment("comment-1").unwrap();
         assert!(app.session_live_comment_summaries().is_empty());
+        app.with_state(|state| {
+            assert!(
+                super::super::saved_extension_annotations(
+                    state.changeset(),
+                    state.comments(),
+                    app.options.agent_notes,
+                )
+                .is_empty()
+            );
+        });
         app.select_extension_review_hunk("test", "alpha", 0);
         app.move_selection(ReviewSelectionScope::AnnotatedHunk, 1);
         app.with_state(|state| {

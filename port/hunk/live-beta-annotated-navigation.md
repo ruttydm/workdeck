@@ -32,3 +32,15 @@ comment. After clearing the filter, navigation reaches beta, but agent-note
 display stays off. This distinguishes navigation membership from both file
 filtering and note rendering visibility. The focused test passed (0.74 seconds),
 with formatting and diff checks passing. No additional source interval is mapped.
+
+## Reveal intent and annotation projection
+
+The native regression now asserts `review_reveal.scroll_to_note` after annotated
+navigation. It also checks the production `saved_extension_annotations` projection:
+beta has exactly one annotation with the inserted summary, and the projection
+is empty after removal. The focused test passed in 0.75 seconds. The source case
+was rerun successfully on both pinned baselines (one test, 23 assertions each).
+
+These checks close the previously untested reveal flag and annotation-map
+contents, but do not yet assert the merged visible-file object's agent metadata.
+The complete source interval remains unmapped; no runtime change was necessary.
