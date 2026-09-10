@@ -1,5 +1,21 @@
 # Hunk semantic-port ledger
 
+## Dependency audit and inventory snapshot
+
+`cargo deny check` passes against the current lockfile and existing policy, with
+22 duplicate-version warnings, two unused license allowances, and three configured
+unmaintained-crate advisory exceptions (`bincode`, `yaml-rust`, and `paste`).
+The [audit snapshot](dependency-audit.json) records the exact lockfile/policy
+hashes, advisory database revision, tool version, target matrix, and qualifications.
+This is not an exception-free security claim.
+
+The Rust generator produced a [376-package license inventory](dependency-licenses.json)
+with no missing license metadata; a second generation was byte-identical. It
+records Cargo metadata, not proof of complete source attribution or release-archive
+contents. Re-run both commands after dependency changes and refresh the audit
+against the current advisory database before release. No source-ledger coverage
+is added by this evidence refresh.
+
 ## Unchanged VCS reader reinstallation
 
 The production capability installer now retains pending or loaded presentation

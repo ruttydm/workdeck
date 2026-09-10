@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "observedAtUtc": "2026-09-10T01:06:12Z",
+  "sourceCommit": "d98f0c1e036b4ede6e7ba9eea629578155c2b18f",
+  "command": "cargo deny check",
+  "toolVersion": "cargo-deny 0.19.4",
+  "exitCode": 0,
+  "lockfileSha256": "141fce9c70a1de8e4f81d2e6774cad9c64e0a8c78c99b891c5897f9ce62636ac",
+  "policySha256": "96ecea95ef18791ef634156d9f4a630a534941377c287371e81567adffec2634",
+  "advisoryDatabaseCommit": "565436d86a136c840d01ad4a7851fc7391295404",
+  "allFeatures": true,
+  "targets": ["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"],
+  "summary": {
+    "advisories": {"errors": 0, "warnings": 0, "notes": 6, "helps": 0},
+    "bans": {"errors": 0, "warnings": 22, "notes": 0, "helps": 0},
+    "licenses": {"errors": 0, "warnings": 2, "notes": 0, "helps": 326},
+    "sources": {"errors": 0, "warnings": 0, "notes": 0, "helps": 0}
+  },
+  "warningCodes": {"duplicate": 22, "license-not-encountered": 2},
+  "licenseInventory": {
+    "path": "port/hunk/dependency-licenses.json",
+    "command": "cargo xtask licenses --output port/hunk/dependency-licenses.json",
+    "packageCount": 376,
+    "missingLicenseMetadata": 0,
+    "sha256": "d10108e10ea45a656e7b2f2be13717db45726dbdba260bee88f2f8c72c75929a",
+    "secondGenerationByteIdentical": true
+  },
+  "unusedLicenseAllowances": ["MPL-2.0", "Unicode-DFS-2016"],
+  "configuredAdvisoryExceptions": [
+    {"id": "RUSTSEC-2025-0141", "package": "bincode", "informational": "unmaintained"},
+    {"id": "RUSTSEC-2024-0320", "package": "yaml-rust", "informational": "unmaintained"},
+    {"id": "RUSTSEC-2024-0436", "package": "paste", "informational": "unmaintained"}
+  ],
+  "scope": "Accepted under the existing policy, including its exceptions and warning levels. This does not prove exception-free security, third-party source attribution completeness, archive compliance, native target execution, or source parity. Re-run after dependency, policy, or advisory database changes."
+}
