@@ -56,3 +56,17 @@ Strict `cargo xtask port audit` still fails: 1,257 baseline files, 1,459 interva
 280 unmapped records and 92 queued upstream commits on the current preserved
 refs. No new upstream fetch was performed for this verification; this is not the
 required final zero-delta release gate.
+
+## Windows reparse-point handling
+
+Binary and lock opens now use `FILE_FLAG_OPEN_REPARSE_POINT` on Windows and
+reject metadata carrying `FILE_ATTRIBUTE_REPARSE_POINT`. This avoids following
+a final-component reparse point while inspecting the opened handle. It does not
+protect against parent-directory replacement or implement running-binary handoff.
+The six native macOS transaction tests still pass.
+
+An attempted `cargo check -p workdeck-cli --lib --target x86_64-pc-windows-gnu`
+failed in the existing `onig_sys` dependency before checking the CLI: this host
+lacks `x86_64-w64-mingw32-gcc`. Therefore the new Windows branch is not yet
+cross-checked or runtime-verified. The required Windows MSVC native CI gate also
+remains independent and open; no platform qualification is claimed.

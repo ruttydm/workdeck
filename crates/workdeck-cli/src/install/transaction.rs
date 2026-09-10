@@ -16,6 +16,7 @@ pub fn replace_binary_with_backup(target: &Path, payload: &[u8], backup: &Path) 
 
 fn regular(path: &Path) -> Result<fs::Metadata> {
     let metadata = fs::symlink_metadata(path)?;
+    reject_reparse_point(&metadata)?;
     ensure!(
         metadata.is_file() && !metadata.file_type().is_symlink(),
         "binary target must be a regular non-symlink file"
@@ -25,6 +26,32 @@ fn regular(path: &Path) -> Result<fs::Metadata> {
         "binary exceeds installation limit"
     );
     Ok(metadata)
+}
+
+fn reject_reparse_point(metadata: &fs::Metadata) -> Result<()> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        ensure!(
+            metadata.file_attributes()
+                & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+                == 0,
+            "installation path must not be a reparse point"
+        );
+    }
+    #[cfg(not(windows))]
+    let _ = metadata;
+    Ok(())
+}
+
+fn open_reparse_point_itself(options: &mut fs::OpenOptions) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    #[cfg(not(windows))]
+    let _ = options;
 }
 
 fn bounded_bytes(reader: impl Read, expected: u64) -> Result<Vec<u8>> {
@@ -52,8 +79,10 @@ pub(super) fn read_binary(path: &Path) -> Result<(fs::Metadata, Vec<u8>)> {
             (rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK).bits() as i32,
         );
     }
+    open_reparse_point_itself(&mut options);
     let file = options.open(path)?;
     let metadata = file.metadata()?;
+    reject_reparse_point(&metadata)?;
     ensure!(
         metadata.is_file(),
         "opened binary target must be a regular file"
@@ -72,7 +101,9 @@ fn lock_directory(parent: &Path) -> Result<fs::File> {
             (rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK).bits() as i32,
         );
     }
+    open_reparse_point_itself(&mut options);
     let file = options.open(parent.join(".workdeck-install.lock"))?;
+    reject_reparse_point(&file.metadata()?)?;
     ensure!(
         file.metadata()?.is_file(),
         "installation lock must be a regular file"
