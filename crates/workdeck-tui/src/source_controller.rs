@@ -1973,6 +1973,23 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn selection_only_alpha_navigation_retains_document_allocation() {
+        let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
+        let initial = app.with_state(|state| state.changeset_snapshot());
+        let source_identity = initial.files[0].source_identity.clone();
+        let generation = app.with_state(|state| state.generation());
+        app.select_extension_review_hunk("test", "alpha", 1);
+        assert_eq!(
+            app.with_state(|state| state.selection().hunk_index),
+            Some(1)
+        );
+        let current = app.with_state(|state| state.changeset_snapshot());
+        assert!(Arc::ptr_eq(&initial, &current));
+        assert_eq!(current.files[0].source_identity, source_identity);
+        assert_eq!(app.with_state(|state| state.generation()), generation);
+    }
+
+    #[test]
     fn reload_hunk_clamp_preserves_existing_file_only_selection() {
         let mut initial = pinned_two_hunk_alpha_review();
         initial.files[0].hunks.clear();
