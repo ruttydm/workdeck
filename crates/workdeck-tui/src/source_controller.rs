@@ -900,15 +900,19 @@ pub(super) mod tests {
             .map(|line| format!("export const alpha{line} = {line};\n"))
             .collect::<String>();
         let after = before.replace("alpha8 = 8;", &format!("alpha8 = {value};"));
+        pinned_alpha_review_from_text(&before, &after)
+    }
+
+    fn pinned_alpha_review_from_text(before: &str, after: &str) -> Changeset {
         let mut file = workdeck_diff::diff_from_file_snapshots(
             workdeck_diff::FileSnapshot {
                 cache_key: "alpha:before",
-                contents: &before,
+                contents: before,
                 name: "alpha.ts",
             },
             workdeck_diff::FileSnapshot {
                 cache_key: "alpha:after",
-                contents: &after,
+                contents: after,
                 name: "alpha.ts",
             },
             workdeck_diff::FileComparisonOptions { context_radius: 3 },
@@ -941,6 +945,44 @@ pub(super) mod tests {
         };
         review.refresh_review_identities();
         review
+    }
+
+    #[test]
+    fn alpha_cursor_steps_one_row_and_clamps_at_stream_start() {
+        let before = (1..=12)
+            .map(|line| format!("export const line{line} = {line};\n"))
+            .collect::<String>();
+        let after = before
+            .replace("line1 = 1;", "line1 = 100;")
+            .replace("line12 = 12;", "line12 = 1200;");
+        let mut review = pinned_alpha_review_from_text(&before, &after);
+        review.files[0].set_source_capability(None);
+        review.refresh_review_identities();
+        assert_eq!(review.files[0].hunks.len(), 2);
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        let first = app.current_review_line_cursor().unwrap();
+        app.step_diff_line(1);
+        assert_ne!(app.current_review_line_cursor().unwrap(), first);
+        app.step_diff_line(-1);
+        assert_eq!(app.current_review_line_cursor(), Some(first));
+        app.step_diff_line(-1);
+        assert_eq!(app.current_review_line_cursor(), Some(first));
+    }
+
+    #[test]
+    fn initial_alpha_cursor_is_seeded_at_selected_hunk_without_source_reader() {
+        let mut review = pinned_alpha_source_review(800);
+        review.files[0].set_source_capability(None);
+        review.refresh_review_identities();
+        let app = ReviewApp::new(review, ReviewOptions::default());
+        let cursor = app.current_review_line_cursor().unwrap().target;
+        app.with_state(|state| {
+            assert_eq!(
+                state.changeset().files[cursor.file_index].runtime_id,
+                "alpha"
+            );
+        });
+        assert_eq!(cursor.hunk_index, 0);
     }
 
     #[test]
