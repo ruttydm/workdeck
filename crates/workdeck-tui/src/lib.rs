@@ -16082,8 +16082,7 @@ mod tests {
             retry_code
         )));
         assert!(!is_retryable_remove_error(&io::Error::from_raw_os_error(2)));
-        assert!(!is_retryable_remove_error(&io::Error::new(
-            io::ErrorKind::Other,
+        assert!(!is_retryable_remove_error(&io::Error::other(
             "no operating-system error code",
         )));
     }

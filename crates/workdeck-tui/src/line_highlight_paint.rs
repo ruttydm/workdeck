@@ -737,6 +737,62 @@ fn color_hex(color: Color) -> Option<String> {
     }
 }
 
+/// The source test suite receives colors from several terminal backends.  Some
+/// expose byte components while others expose normalized floating-point
+/// components, so the native parity helper keeps that distinction explicit
+/// instead of depending on a renderer-specific buffer type.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CapturedTestColorBuffer<'a> {
+    Bytes(&'a [u8]),
+    Float32(&'a [f32]),
+    Float64(&'a [f64]),
+    Values(&'a [f64]),
+}
+
+/// Convert a captured RGB buffer into the lowercase `#rrggbb` form used by
+/// render assertions.  Alpha is intentionally ignored, matching the pinned
+/// helper.  A missing or incomplete buffer has no color representation.
+#[must_use]
+pub fn captured_test_color_to_hex(buffer: Option<CapturedTestColorBuffer<'_>>) -> Option<String> {
+    let (components, byte_typed) = match buffer? {
+        CapturedTestColorBuffer::Bytes(values) => {
+            if values.len() < 3 {
+                return None;
+            }
+            ([values[0] as f64, values[1] as f64, values[2] as f64], true)
+        }
+        CapturedTestColorBuffer::Float32(values) => {
+            if values.len() < 3 {
+                return None;
+            }
+            (
+                [values[0] as f64, values[1] as f64, values[2] as f64],
+                false,
+            )
+        }
+        CapturedTestColorBuffer::Float64(values) | CapturedTestColorBuffer::Values(values) => {
+            if values.len() < 3 {
+                return None;
+            }
+            ([values[0], values[1], values[2]], false)
+        }
+    };
+    let uses_byte_scale = byte_typed || components.iter().any(|value| *value > 1.0);
+    let component_to_hex = |value: f64| {
+        let scaled = if uses_byte_scale {
+            value
+        } else {
+            value * 255.0
+        };
+        if !scaled.is_finite() {
+            return None;
+        }
+        Some(scaled.clamp(0.0, 255.0).round() as u8)
+    };
+    let [red, green, blue] = components.map(component_to_hex);
+    Some(format!("#{:02x}{:02x}{:02x}", red?, green?, blue?))
+}
+
 fn paint_ratatui_style(
     style: Style,
     tone: HighlightTone,
@@ -921,6 +977,47 @@ mod tests {
         SourceOrigin, SourceSnapshot,
     };
     use workdeck_diff::DEFAULT_TAB_WIDTH;
+
+    #[test]
+    fn captured_test_colors_match_byte_and_normalized_backend_buffers() {
+        assert_eq!(
+            captured_test_color_to_hex(Some(CapturedTestColorBuffer::Bytes(&[0, 16, 255, 99,]))),
+            Some("#0010ff".into())
+        );
+        assert_eq!(
+            captured_test_color_to_hex(Some(CapturedTestColorBuffer::Float32(&[
+                0.0,
+                16.0 / 255.0,
+                1.0,
+            ]))),
+            Some("#0010ff".into())
+        );
+        assert_eq!(
+            captured_test_color_to_hex(Some(CapturedTestColorBuffer::Float64(&[0.0, 0.5, 1.0,]))),
+            Some("#0080ff".into())
+        );
+        assert_eq!(
+            captured_test_color_to_hex(Some(CapturedTestColorBuffer::Values(&[-4.0, 260.0, 1.5,]))),
+            Some("#00ff02".into())
+        );
+    }
+
+    #[test]
+    fn captured_test_colors_reject_missing_non_finite_and_incomplete_buffers() {
+        assert_eq!(captured_test_color_to_hex(None), None);
+        assert_eq!(
+            captured_test_color_to_hex(Some(CapturedTestColorBuffer::Bytes(&[1, 2]))),
+            None
+        );
+        assert_eq!(
+            captured_test_color_to_hex(Some(CapturedTestColorBuffer::Float64(&[
+                0.0,
+                f64::NAN,
+                1.0,
+            ]))),
+            None
+        );
+    }
 
     fn mark(
         side: ReviewSide,
