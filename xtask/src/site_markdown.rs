@@ -12,6 +12,68 @@ pub(crate) fn emit(repo: &Path, output: &Path) -> Result<()> {
     emit_plan(&plan(repo)?, output)
 }
 
+/// Exercise native Zola routing with a disposable site, independently of the
+/// current documentation tree. This runs as part of `xtask site check`.
+pub(crate) fn check_zola_routes() -> Result<()> {
+    let fixture = tempfile::tempdir()?;
+    let root = fixture.path();
+    fs::write(
+        root.join("config.toml"),
+        "base_url = 'https://example.invalid'\n",
+    )?;
+    fs::create_dir(root.join("templates"))?;
+    fs::write(
+        root.join("templates/page.html"),
+        "{{ page.content | safe }}",
+    )?;
+    fs::write(
+        root.join("templates/section.html"),
+        "{{ section.content | safe }}",
+    )?;
+    let sources = BTreeMap::from([
+        ("docs/bundle/index.md".into(), "+++\ntitle = 'Bundle'\n+++\nBundle body\n".into()),
+        ("docs/renamed/index.md".into(), "+++\ntitle = 'Renamed bundle'\nslug = 'new-name'\n+++\nRenamed body\n".into()),
+        ("docs/original.md".into(), "+++\ntitle = 'Renamed page'\nslug = 'different'\n+++\nPage body\n".into()),
+        ("docs/override.md".into(), "+++\ntitle = 'Override'\nslug = 'ignored'\npath = 'elsewhere/custom/'\n+++\nOverride body\n".into()),
+        ("docs/section/_index.md".into(), "+++\ntitle = 'Section'\n+++\nSection body\n".into()),
+    ]);
+    for (path, source) in &sources {
+        let destination = root.join("content").join(path);
+        fs::create_dir_all(destination.parent().context("fixture parent")?)?;
+        fs::write(destination, source)?;
+    }
+    crate::run_checked(root, "zola", &["build"])?;
+    let exports = render(&sources)?;
+    let expected = [
+        "docs/bundle.md",
+        "docs/different.md",
+        "docs/new-name.md",
+        "docs/section.md",
+        "elsewhere/custom.md",
+    ];
+    let routes: Vec<_> = exports
+        .keys()
+        .filter(|name| name.ends_with(".md"))
+        .map(String::as_str)
+        .collect();
+    ensure!(routes == expected, "native routing fixture export mismatch");
+    let public = root.join("public");
+    // emit_plan independently requires every corresponding HTML file to exist.
+    emit_plan(&exports, &public)?;
+    for absent in [
+        "docs/bundle/index/index.html",
+        "docs/renamed/index.html",
+        "docs/original/index.html",
+        "docs/ignored/index.html",
+    ] {
+        ensure!(
+            !public.join(absent).exists(),
+            "Zola routing changed: {absent}"
+        );
+    }
+    Ok(())
+}
+
 fn emit_plan(exports: &BTreeMap<String, String>, output: &Path) -> Result<()> {
     ensure!(
         fs::symlink_metadata(output)?.file_type().is_dir(),
@@ -142,18 +204,7 @@ fn render(sources: &BTreeMap<String, String>) -> Result<BTreeMap<String, String>
             !title.contains(['\n', '\r']),
             "export title must be one line"
         );
-        ensure!(
-            metadata.get("slug").is_none(),
-            "explicit slugs need export routing support"
-        );
-        let inferred = path
-            .strip_suffix("/_index.md")
-            .unwrap_or_else(|| path.strip_suffix(".md").expect("Markdown path"));
-        let route = metadata
-            .get("path")
-            .and_then(|value| value.as_str())
-            .unwrap_or(inferred)
-            .trim_matches('/');
+        let route = page_route(path, &metadata)?;
         ensure!(
             !route.is_empty()
                 && route.split('/').all(|part| !part.is_empty()
@@ -165,7 +216,7 @@ fn render(sources: &BTreeMap<String, String>) -> Result<BTreeMap<String, String>
             "unsafe Markdown export route"
         );
         pages.push((
-            route.to_owned(),
+            route,
             title.to_owned(),
             format!("# {title}\n\n{}\n", body.trim()),
         ));
@@ -212,9 +263,92 @@ fn render(sources: &BTreeMap<String, String>) -> Result<BTreeMap<String, String>
     Ok(outputs)
 }
 
+fn page_route(path: &str, metadata: &toml_edit::DocumentMut) -> Result<String> {
+    let section = path.ends_with("/_index.md");
+    if section {
+        ensure!(
+            metadata.get("path").is_none() && metadata.get("slug").is_none(),
+            "Zola sections do not support path or slug overrides"
+        );
+    }
+    let inferred = path
+        .strip_suffix("/_index.md")
+        .or_else(|| path.strip_suffix("/index.md"))
+        .unwrap_or_else(|| path.strip_suffix(".md").expect("Markdown path"));
+    // An explicit path overrides a page slug in Zola. A bundle's slug replaces
+    // the containing directory name, not the literal index.md filename.
+    let route = if let Some(value) = metadata.get("path") {
+        value
+            .as_str()
+            .context("export path must be a string")?
+            .to_owned()
+    } else if let Some(value) = metadata.get("slug") {
+        let slug = value.as_str().context("export slug must be a string")?;
+        ensure!(
+            !slug.is_empty() && !slug.contains('/'),
+            "export slug must be one nonempty component"
+        );
+        match inferred.rsplit_once('/') {
+            Some((parent, _)) => format!("{parent}/{slug}"),
+            None => slug.to_owned(),
+        }
+    } else {
+        inferred.to_owned()
+    };
+    Ok(route.trim_matches('/').to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn page_bundle_slug_and_explicit_path_match_zola_0234_routes() {
+        // Confirmed by a native Zola 0.23.4 build, not inferred from filenames.
+        let sources = BTreeMap::from([
+            ("docs/bundle/index.md".into(), page("Bundle", "Bundle body")),
+            ("docs/renamed/index.md".into(), "+++\ntitle = 'Renamed bundle'\nslug = 'new-name'\n+++\nRenamed body\n".into()),
+            ("docs/original.md".into(), "+++\ntitle = 'Renamed page'\nslug = 'different'\n+++\nPage body\n".into()),
+            ("docs/override.md".into(), "+++\ntitle = 'Override'\nslug = 'ignored'\npath = 'elsewhere/custom/'\n+++\nOverride body\n".into()),
+        ]);
+        let output = render(&sources).unwrap();
+        let routes: Vec<_> = output
+            .keys()
+            .filter(|name| name.ends_with(".md"))
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            routes,
+            [
+                "docs/bundle.md",
+                "docs/different.md",
+                "docs/new-name.md",
+                "elsewhere/custom.md"
+            ]
+        );
+        assert!(output["docs/new-name.md"].contains("Renamed body"));
+    }
+
+    #[test]
+    fn routing_rejects_invalid_types_unsafe_slugs_and_section_overrides() {
+        for setting in [
+            "slug = '../outside'",
+            "slug = ''",
+            "slug = '..'",
+            "slug = 3",
+            "path = 3",
+            "slug = 'a/b'",
+        ] {
+            let source = format!("+++\ntitle = 'Page'\n{setting}\n+++\nbody\n");
+            assert!(
+                render(&BTreeMap::from([("docs/page.md".into(), source)])).is_err(),
+                "{setting}"
+            );
+        }
+        for setting in ["slug = 'renamed'", "path = 'renamed'"] {
+            let source = format!("+++\ntitle = 'Section'\n{setting}\n+++\nbody\n");
+            assert!(render(&BTreeMap::from([("docs/section/_index.md".into(), source)])).is_err());
+        }
+    }
     #[test]
     fn emits_only_into_rendered_output_and_rejects_collisions_before_writing() {
         let output = tempfile::tempdir().unwrap();

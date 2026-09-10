@@ -10,8 +10,11 @@ filesystem replacement.
 
 Current scope is TOML-frontmatter Markdown beneath `site/content/docs` and
 `site/content/changelog`. Exports remove frontmatter, add the title, and preserve
-body Markdown. Draft pages are excluded. Explicit slugs are rejected rather than
-silently routed incorrectly. Overview and onboarding pages lead the corpus;
+body Markdown. Draft pages are excluded. Bundled `index.md` pages use their
+directory route; explicit page slugs replace the page or bundle basename, and
+explicit paths override slugs. Non-string and unsafe routes are rejected, as
+are section path/slug fields unsupported by Zola. Overview and onboarding pages
+lead the corpus;
 extension authoring, the legacy component reference and changelog pages are
 excluded only from the compact corpus. Full output retains those pages.
 
@@ -21,10 +24,16 @@ output comparison, alternate routing/shortcode behavior, optional-link parity,
 and development-server refresh integration are not complete. Generated output
 has not been deployed. A valid local site build is not website parity.
 
-Validation: seven `site_markdown` unit tests pass, covering source preservation,
+Validation: nine `site_markdown` unit tests pass, covering source preservation,
 compact/full exclusions, ordering, duplicate routes, missing HTML and output
-collisions, dotted release routes, draft descendants and symlink parents;
-integrated `site check` also passes on the current content.
+collisions, dotted release routes, draft descendants, symlink parents, and
+bundle and explicit-slug routing. `site check` additionally builds a disposable
+five-entry site with native Zola and requires an HTML counterpart for every
+export, checking that superseded routes are absent. This fixture was initially
+verified with Zola 0.23.4. Development-server export refresh remains open.
+The updated `site check` passed with all 21 current pages and seven sections,
+as did `cargo clippy -p xtask --all-targets -- -D warnings`. Zola must be on PATH;
+the first local invocation without that prerequisite failed before rendering.
 
 At `e719b9c2`, the broader `cargo test -p xtask --all-targets -- --quiet`
 completed with 372 unit tests and 39 integration/PTY tests passing. Seven unit

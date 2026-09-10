@@ -402,6 +402,7 @@ fn site(command: Option<&str>) -> Result<()> {
         Some("check") => {
             site_assets::sbom(&repo)?;
             skill::check_generated_skills(&repo)?;
+            site_markdown::check_zola_routes()?;
             run_checked(&site, "zola", &["check"])?;
             let output = tempfile::tempdir()?;
             let public = output.path().join("public");
