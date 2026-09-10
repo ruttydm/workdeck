@@ -1556,6 +1556,36 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn note_edit_and_reply_do_not_replace_an_active_draft() {
+        let mut app = ReviewApp::new(pinned_alpha_source_review(800), ReviewOptions::default());
+        app.open_note_composer();
+        app.note_composer.as_mut().unwrap().body = "Saved root".into();
+        let root = app.save_note_composer().unwrap();
+        app.open_note_composer();
+        app.note_composer.as_mut().unwrap().body = "Unsaved text".into();
+        let id = app.note_composer.as_ref().unwrap().id.clone();
+        app.saved_note_hover = Some(root.id);
+        let scroll = app.scroll;
+        let selection = app.with_state(|state| state.selection());
+        for action in [
+            super::super::AppCommandAction::StartUserNote,
+            super::super::AppCommandAction::EditActiveNote,
+            super::super::AppCommandAction::ReplyToActiveNote,
+        ] {
+            app.apply_builtin_command_action(action);
+            assert_eq!(app.note_composer.as_ref().unwrap().id, id);
+            assert_eq!(app.note_composer.as_ref().unwrap().body, "Unsaved text");
+            assert_eq!(
+                app.status.as_deref(),
+                Some("A review note draft is already active.")
+            );
+            assert_eq!(app.with_state(|state| state.comments().len()), 1);
+            assert_eq!(app.scroll, scroll);
+            assert_eq!(app.with_state(|state| state.selection()), selection);
+        }
+    }
+
+    #[test]
     fn reply_inherits_parent_range_anchor_and_resolution() {
         let mut app = ReviewApp::new(pinned_alpha_source_review(800), ReviewOptions::default());
         app.open_note_composer();

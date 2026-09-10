@@ -2812,6 +2812,10 @@ impl ReviewApp {
     }
 
     fn open_note_composer_for_target(&mut self, target: ReviewNoteTarget) {
+        if self.note_composer.is_some() {
+            self.status = Some("A review note draft is already active.".into());
+            return;
+        }
         let id = self.allocate_user_note_id();
         self.note_composer = Some(ReviewNoteComposer {
             id,
@@ -2884,6 +2888,10 @@ impl ReviewApp {
     }
 
     fn open_active_note_edit(&mut self) {
+        if self.note_composer.is_some() {
+            self.status = Some("A review note draft is already active.".into());
+            return;
+        }
         let Some((note, target)) = self.active_note_for_composer(true) else {
             self.status = Some("no editable user note is active".into());
             return;
@@ -2910,6 +2918,10 @@ impl ReviewApp {
     }
 
     fn open_active_note_reply(&mut self) {
+        if self.note_composer.is_some() {
+            self.status = Some("A review note draft is already active.".into());
+            return;
+        }
         let Some((note, target)) = self.active_note_for_composer(false) else {
             self.status = Some("no review note is active".into());
             return;
@@ -3701,11 +3713,15 @@ impl ReviewApp {
             }
             AppCommandAction::EditActiveNote => {
                 self.open_active_note_edit();
-                self.reveal_keyboard_note_composer();
+                if self.status.is_none() {
+                    self.reveal_keyboard_note_composer();
+                }
             }
             AppCommandAction::ReplyToActiveNote => {
                 self.open_active_note_reply();
-                self.reveal_keyboard_note_composer();
+                if self.status.is_none() {
+                    self.reveal_keyboard_note_composer();
+                }
             }
             AppCommandAction::StepDiffLine(delta) => self.step_diff_line(delta),
             AppCommandAction::ScrollCodeHorizontally(delta) => {
