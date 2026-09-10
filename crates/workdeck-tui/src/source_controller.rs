@@ -1102,6 +1102,44 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn default_alpha_attention_mark_does_not_move_viewport_or_selection() {
+        let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
+        app.review_height.set(8);
+        app.step_diff_line(6);
+        let cursor = app.current_review_line_cursor();
+        let selection = app.with_state(|state| state.selection());
+        let scroll = app.scroll;
+        let result = app
+            .session_add_agent_line_highlight(&workdeck_session::HighlightToolInput {
+                target_session: Default::default(),
+                file_path: "alpha.ts".into(),
+                side: ReviewSide::New,
+                line: 1,
+                start: 13,
+                end: 18,
+                tone: None,
+                reveal: None,
+            })
+            .unwrap();
+        assert_eq!(result.hunk_index, 0);
+        assert_eq!(result.file_mark_count, 1);
+        assert_eq!(result.revealed, None);
+        assert_eq!(
+            serde_json::to_value(result.tone).unwrap(),
+            serde_json::json!("match")
+        );
+        assert_eq!(app.scroll, scroll);
+        assert_eq!(app.current_review_line_cursor(), cursor);
+        assert_eq!(app.with_state(|state| state.selection()), selection);
+        assert_eq!(
+            serde_json::to_value(app.agent_line_highlights.get("alpha").unwrap()).unwrap(),
+            serde_json::json!([
+                {"side":"new", "line":1, "start":13, "end":18, "tone":"match"}
+            ])
+        );
+    }
+
+    #[test]
     fn unchanged_alpha_reload_rekeys_attention_marks_and_clear_counts() {
         let mut review = pinned_alpha_source_review(800);
         review.files[0].set_source_capability(None);
