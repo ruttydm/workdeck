@@ -29,10 +29,9 @@ Run Workdeck in a modern Windows terminal. Use the native executable; npm and mi
 
 `--theme auto` queries the terminal. If no answer arrives, Workdeck uses the dark default. Choose `github-light-default` or another explicit theme when terminal reporting, transparency, or remote layers make detection unreliable.
 
-The upstream troubleshooting guide is still being migrated. For now, collect the Workdeck version, OS, terminal, shell, command and a minimal non-sensitive reproduction when reporting a failure.
+For a specific failure, continue with [Troubleshooting](/docs/help/troubleshooting/).
 
 Adapted from Hunk's pinned MIT documentation, Copyright Modem Labs Inc.
 Upstream OpenTUI and npm requirements were replaced with the native product
 boundary; those historical dependencies are not Workdeck installation options.
 This source interval remains unmapped pending complete migration verification.
-
