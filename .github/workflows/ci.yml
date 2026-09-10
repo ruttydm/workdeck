@@ -70,7 +70,7 @@ jobs:
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         uses: taiki-e/install-action@v2
         with:
-          tool: zola
+          tool: zola@0.23.4
 
       - name: Check Rust-driven static site
         if: matrix.target == 'x86_64-unknown-linux-gnu'

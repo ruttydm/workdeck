@@ -384,3 +384,17 @@ font and confirms both commands fail with the hash error, preserve the input and
 create neither site output nor Workdeck state. This makes asset verification a
 build prerequisite; it does not replace the still-required full site build and
 browser validation.
+
+## Zola build checkpoint
+
+`cargo xtask site check` now passes locally with Zola 0.23.4. The temporary
+macOS arm64 tool was downloaded from the official getzola/zola release and its
+archive SHA-256 matched GitHub's release digest:
+`303b8e1f3251a6250e47f811eda143316f653c22201faa66777d48ac499c0ee3`.
+The check initially exposed an overly strict repository-link assertion: current
+Tera emits a literal slash where the older check expected `&#x2F;`. Validation
+now counts both exact encodings together, retaining duplicate-link rejection.
+The regression covers each encoding, duplicates, missing links and longer URLs.
+CI's Zola installation is pinned to the tested 0.23.4; no remote CI run is claimed.
+This proves the current small native site builds and passes its implemented
+checks, not that all upstream pages, accessibility or visual parity are complete.

@@ -369,6 +369,18 @@ fn prepare_extension_example(repo: &Path, name: &str) -> Result<PathBuf> {
     Ok(staged.into_std_path_buf())
 }
 
+fn rendered_repository_link_count(html: &str, repository: &str) -> usize {
+    // Tera versions differ on escaping slashes in interpolated attributes.
+    // Count both exact encodings together so duplicate links still fail.
+    [repository.to_owned(), repository.replace('/', "&#x2F;")]
+        .iter()
+        .map(|name| {
+            html.matches(&format!("href=\"https://github.com/{name}\""))
+                .count()
+        })
+        .sum()
+}
+
 fn site(command: Option<&str>) -> Result<()> {
     let repo = repo_root()?;
     let site = repo.join("site");
@@ -409,15 +421,8 @@ fn site(command: Option<&str>) -> Result<()> {
             )?;
             extension_catalog::verify_legacy_source(&catalog, &source)?;
             for entry in catalog["entries"].as_array().unwrap() {
-                let link = format!(
-                    "href=\"https://github.com/{}\"",
-                    // Tera escapes the slash in the interpolated repository;
-                    // the literal URL prefix is not interpolated. Catalog
-                    // validation restricts every other byte to safe ASCII.
-                    entry["repo"].as_str().unwrap().replace('/', "&#x2F;")
-                );
                 ensure!(
-                    html.matches(&link).count() == 1,
+                    rendered_repository_link_count(&html, entry["repo"].as_str().unwrap()) == 1,
                     "directory repository link missing or duplicated"
                 );
             }
@@ -2695,6 +2700,34 @@ fn print_help() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn repository_link_check_accepts_both_tera_encodings_but_counts_duplicates() {
+        let plain = "<a href=\"https://github.com/owner/repo\">repo</a>";
+        let escaped = "<a href=\"https://github.com/owner&#x2F;repo\">repo</a>";
+        assert_eq!(
+            super::rendered_repository_link_count(plain, "owner/repo"),
+            1
+        );
+        assert_eq!(
+            super::rendered_repository_link_count(escaped, "owner/repo"),
+            1
+        );
+        assert_eq!(
+            super::rendered_repository_link_count(&format!("{plain}{escaped}"), "owner/repo"),
+            2
+        );
+        assert_eq!(
+            super::rendered_repository_link_count(plain, "owner/other"),
+            0
+        );
+        assert_eq!(
+            super::rendered_repository_link_count(
+                "href=\"https://github.com/owner/repo/extra\"",
+                "owner/repo"
+            ),
+            0
+        );
+    }
     #[test]
     fn upstream_discovery_preserves_merge_order_and_rejects_rewound_refs() {
         let directory = tempfile::tempdir().unwrap();
