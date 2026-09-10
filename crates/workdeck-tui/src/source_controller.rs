@@ -566,6 +566,61 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn alpha_null_source_sets_error_status() {
+        assert_alpha_source_error(false);
+    }
+
+    #[test]
+    fn alpha_rejected_source_sets_error_and_logs_file_context() {
+        const CHILD: &str = "WORKDECK_TEST_ALPHA_SOURCE_REJECTION";
+        if std::env::var_os(CHILD).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "source_controller::tests::alpha_rejected_source_sets_error_and_logs_file_context", "--nocapture"])
+                .env(CHILD, "1").output().unwrap();
+            let stderr = String::from_utf8(output.stderr).unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{stderr}",
+                String::from_utf8_lossy(&output.stdout)
+            );
+            assert!(stderr.contains("alpha.ts"), "{stderr}");
+            assert!(stderr.contains("(alpha)"), "{stderr}");
+            assert!(stderr.contains("source unavailable"), "{stderr}");
+            return;
+        }
+        assert_alpha_source_error(true);
+    }
+
+    fn assert_alpha_source_error(reject: bool) {
+        struct ErrorLoader(bool);
+        impl ReviewSourceLoader for ErrorLoader {
+            fn get_full_text(
+                &self,
+                _: &DiffFile,
+                _: ReviewSide,
+            ) -> std::result::Result<Option<String>, ReviewSourceLoadError> {
+                if self.0 {
+                    Err(ReviewSourceLoadError::Unavailable(
+                        "source unavailable".into(),
+                    ))
+                } else {
+                    Ok(None)
+                }
+            }
+        }
+        let review = pinned_alpha_source_review(800);
+        let file = review.files[0].clone();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        assert!(app.install_source_loader(&file.key, Arc::new(ErrorLoader(reject))));
+        app.toggle_source_gap_for_file(&file.key, 0).unwrap();
+        drain_one(&mut app);
+        assert_eq!(
+            app.options.source_presentation.status(&file),
+            Some(&workdeck_review::ReviewSourceStatus::Error { reason: None })
+        );
+    }
+
+    #[test]
     fn selected_alpha_gap_reads_new_side_once() {
         struct SideLoader {
             calls: Mutex<Vec<ReviewSide>>,
