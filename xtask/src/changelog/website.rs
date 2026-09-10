@@ -886,30 +886,24 @@ pub(super) fn run(
 mod tests {
     use super::*;
 
-    fn source_video_fragment(video: serde_json::Value) -> String {
+    fn source_video_page(video: serde_json::Value) -> String {
         let series = group_into_series(parse_changelog(SOURCE_SAMPLE));
         let dates = std::collections::BTreeMap::from([("0.19.0".into(), "2026-08-16".into())]);
-        let summary = to_plain_text(&resolve_summary(&series[0], None, &dates, "Hunk"));
-        render_video(
-            &serde_json::from_value(video).unwrap(),
-            &series[0].minor,
-            &summary,
-            "Hunk",
-            "https://hunk.dev",
-        )
+        let notes = serde_json::from_value(serde_json::json!({"video":video})).unwrap();
+        pages::render_page(&series[0], &notes, &dates, None, None, None).unwrap()
     }
 
     #[test]
-    fn source_video_fragment_contains_source_and_schema() {
-        let fragment = source_video_fragment(serde_json::json!({"mp4":"/v.mp4"}));
+    fn source_video_page_contains_source_and_schema() {
+        let fragment = source_video_page(serde_json::json!({"mp4":"/v.mp4"}));
         assert!(fragment.contains("<source src=\"/v.mp4\" type=\"video/mp4\" />"));
         assert!(fragment.contains("application/ld+json"));
         assert!(fragment.contains("\"@type\":\"VideoObject\""));
     }
 
     #[test]
-    fn source_video_fragment_escapes_script_closing_title() {
-        let fragment = source_video_fragment(
+    fn source_video_page_escapes_script_closing_title() {
+        let fragment = source_video_page(
             serde_json::json!({"mp4":"/v.mp4", "title":"</script><script>alert(1)</script>"}),
         );
         assert!(!fragment.contains("</script><script>alert(1)"));
@@ -917,8 +911,8 @@ mod tests {
     }
 
     #[test]
-    fn source_video_fragment_escapes_attribute_breakout_url() {
-        let fragment = source_video_fragment(serde_json::json!({"mp4":"/v.mp4\" onerror=\"x"}));
+    fn source_video_page_escapes_attribute_breakout_url() {
+        let fragment = source_video_page(serde_json::json!({"mp4":"/v.mp4\" onerror=\"x"}));
         assert!(!fragment.contains("onerror=\"x\""));
         assert!(fragment.contains("&quot;"));
     }

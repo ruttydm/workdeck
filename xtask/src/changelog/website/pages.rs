@@ -69,7 +69,7 @@ mod tests {
 }
 
 #[derive(Default, serde::Deserialize)]
-struct Notes {
+pub(super) struct Notes {
     summary: Option<String>,
     video: Option<ReleaseVideo>,
     links: Option<Vec<Link>>,
@@ -81,7 +81,7 @@ struct Link {
     href: String,
 }
 
-fn render_page(
+pub(super) fn render_page(
     series: &ReleaseSeries,
     notes: &Notes,
     dates: &BTreeMap<String, String>,
