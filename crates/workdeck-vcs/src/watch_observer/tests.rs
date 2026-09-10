@@ -418,6 +418,20 @@ fn recursive_target_ignores_excluded_metadata_churn() {
     let metadata = metadata_directory.join("index");
     fs::write(&metadata, "before").unwrap();
     let (_observer, events, _) = start_real_observer(&tree_plan(directory.path()));
+    // FSEvents can deliver creation of the temporary root after registration.
+    // Settle fixture setup before the excluded write, never after it.
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "setup events did not settle"
+        );
+        match events.recv_timeout(Duration::from_millis(250)) {
+            Ok(()) => {}
+            Err(mpsc::RecvTimeoutError::Timeout) => break,
+            Err(error) => panic!("observer disconnected during setup: {error}"),
+        }
+    }
     fs::write(metadata, "after").unwrap();
     assert_no_event(&events);
 }
