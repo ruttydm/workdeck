@@ -203,6 +203,7 @@ pub(super) fn run(repo: &Path, mut args: impl Iterator<Item = String>) -> Result
         Some("dates") => return website::run_dates(repo, args),
         Some("summaries") => return website::run_summaries(repo, args),
         Some("publication") => return website::run_publication(repo, args),
+        Some("release-notes") => return website::run_release_notes(repo, args),
         Some("upstream-history") => {}
         _ => bail!(
             "changelog requires parse <markdown-file>, series <markdown-file>, upstream-history [--check], add <id> <patch|minor|major|empty> [body], status, plan, check-plan <saved-plan.json>, or apply-plan <saved-plan.json> <new-backup-directory>"

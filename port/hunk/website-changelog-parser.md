@@ -150,3 +150,18 @@ date value types fail without stdout or input rewrites. The directory inventory
 remains exactly the temporary Git metadata and the two supplied input files.
 All six changelog CLI integration tests pass. Generated-page integration remains
 open, and no ledger mapping changed.
+
+## Release body rendering
+
+`cargo xtask changelog release-notes <markdown-file> <dates.json>` emits JSON
+containing each minor series' release-body Markdown, using Workdeck PR links.
+The renderer preserves version anchors, dated/unreleased metadata, section and
+entry ordering, PR suffixes, and the no-user-facing-changes fallback.
+
+`website-changelog-release-body-oracle.json` freezes the release-body portion
+of actual `renderSeriesPage` output from both pins: 48 main and 47 stable
+releases. Tests render with the upstream repository URL for exact comparison;
+production uses Workdeck's URL. All twelve website unit tests pass. This is not
+full-page parity: frontmatter, videos, cards, installers and adjacent navigation
+remain to be integrated. Date formatting outside the baseline date corpus and
+release-notes CLI integration still require tests. No ledger mapping changed.

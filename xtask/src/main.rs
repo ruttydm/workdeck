@@ -2574,6 +2574,7 @@ fn print_help() {
     println!("cargo xtask changelog series <markdown-file>");
     println!("cargo xtask changelog summaries <markdown-file> [notes.json]");
     println!("cargo xtask changelog publication <markdown-file> <dates.json>");
+    println!("cargo xtask changelog release-notes <markdown-file> <dates.json>");
     println!("cargo xtask changelog dates <markdown-file> <recorded-dates.json>");
     println!("cargo xtask changelog add <id> <patch|minor|major|empty> [body]");
     println!("cargo xtask changelog status");

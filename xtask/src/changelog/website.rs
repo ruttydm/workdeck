@@ -403,6 +403,102 @@ pub(super) fn run_publication(repo: &Path, mut args: impl Iterator<Item = String
     Ok(())
 }
 
+fn format_release_date(iso: &str) -> String {
+    const MONTHS: [&str; 12] = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ];
+    let mut parts = iso.split('-');
+    let year = parts.next().unwrap_or_default();
+    let month = parts.next().unwrap_or_default().parse::<usize>().ok();
+    let day = parts.next().unwrap_or_default();
+    match month
+        .and_then(|m| m.checked_sub(1))
+        .and_then(|m| MONTHS.get(m))
+    {
+        Some(month) if !year.is_empty() && !day.is_empty() => {
+            let day = day
+                .trim_matches(ecmascript_whitespace)
+                .parse::<f64>()
+                .unwrap_or(f64::NAN);
+            format!("{month} {day}, {year}")
+        }
+        _ => iso.to_owned(),
+    }
+}
+
+fn render_release_body(
+    series: &ReleaseSeries,
+    dates: &std::collections::BTreeMap<String, String>,
+    repository: &str,
+) -> String {
+    let mut lines = vec!["## Releases in this series".to_owned(), String::new()];
+    for release in &series.releases {
+        let meta = dates
+            .get(&release.version)
+            .filter(|date| !date.is_empty())
+            .map(|date| format_release_date(date))
+            .unwrap_or_else(|| "Unreleased".into());
+        lines.extend([
+            format!(
+                "<a class=\"release-separator\" id=\"v{}\"></a>",
+                release.version.replace('.', "-")
+            ),
+            String::new(),
+            format!("### {}", release.version),
+            String::new(),
+            meta,
+            String::new(),
+        ]);
+        if release.sections.is_empty() {
+            lines.extend(["No user-facing changes.".into(), String::new()]);
+            continue;
+        }
+        for section in &release.sections {
+            lines.extend([format!("#### {}", section.title), String::new()]);
+            lines.extend(section.entries.iter().map(|entry| {
+                let suffix = entry
+                    .pull_request
+                    .map(|pr| format!(" ([#{pr}]({repository}/pull/{pr}))"))
+                    .unwrap_or_default();
+                format!("- {}{suffix}", entry.description)
+            }));
+            lines.push(String::new());
+        }
+    }
+    lines.join("\n")
+}
+
+pub(super) fn run_release_notes(repo: &Path, mut args: impl Iterator<Item = String>) -> Result<()> {
+    let Some(markdown) = args.next() else {
+        bail!("changelog release-notes requires Markdown and dates JSON files");
+    };
+    let Some(dates) = args.next() else {
+        bail!("changelog release-notes requires Markdown and dates JSON files");
+    };
+    if args.next().is_some() {
+        bail!("changelog release-notes accepts exactly two files");
+    }
+    let releases = parse_changelog(&std::fs::read_to_string(repo.join(markdown))?);
+    let dates = serde_json::from_str(&std::fs::read_to_string(repo.join(dates))?)?;
+    let rendered = group_into_series(releases).iter().map(|series| serde_json::json!({
+        "minor": series.minor,
+        "markdown": render_release_body(series, &dates, "https://github.com/ruttydm/workdeck"),
+    })).collect::<Vec<_>>();
+    println!("{}", serde_json::to_string_pretty(&rendered)?);
+    Ok(())
+}
+
 fn split_highlights(text: &str) -> Highlights {
     let paragraphs = text.split("\n\n").collect::<Vec<_>>();
     let first = paragraphs[0];
@@ -495,6 +591,38 @@ pub(super) fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn all_pinned_release_bodies_match_rendered_page_oracles() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/website-changelog-release-body-oracle.json"
+        ))
+        .unwrap();
+        let results = fixture["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        for (index, result) in results.iter().enumerate() {
+            let baseline = result["baseline"].as_str().unwrap();
+            assert_eq!(
+                baseline,
+                [
+                    "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+                    "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+                ][index]
+            );
+            let output = std::process::Command::new("git")
+                .args(["show", &format!("{baseline}:CHANGELOG.md")])
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+            let releases = parse_changelog(std::str::from_utf8(&output.stdout).unwrap());
+            assert_eq!(releases.len(), [48, 47][index]);
+            let dates = serde_json::from_value(result["dates"].clone()).unwrap();
+            let actual = group_into_series(releases).iter().map(|series| serde_json::json!({
+                "minor": series.minor, "markdown": render_release_body(series, &dates, "https://github.com/modem-dev/hunk")
+            })).collect::<Vec<_>>();
+            assert_eq!(serde_json::to_value(actual).unwrap(), result["expected"]);
+        }
+    }
 
     #[test]
     fn publication_matches_explicit_pin_semantics() {
