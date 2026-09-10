@@ -731,6 +731,106 @@ pub(super) fn run(
 mod tests {
     use super::*;
 
+    // Direct translations of Hunk's parser robustness regressions: preserve
+    // legitimate changeset content and reject malformed version headings.
+    #[test]
+    fn robustness_fenced_heading_preserves_following_section() {
+        let releases = parse_changelog(
+            &[
+                "## 0.20.0",
+                "",
+                "### Minor Changes",
+                "",
+                "- [#1](https://x/pull/1) - Example output:",
+                "",
+                "```md",
+                "## Not a heading",
+                "- not a bullet",
+                "```",
+                "",
+                "### Patch Changes",
+                "",
+                "- [#2](https://x/pull/2) - Second entry.",
+                "",
+            ]
+            .join("\n"),
+        );
+        assert_eq!(releases.len(), 1);
+        assert_eq!(
+            releases[0]
+                .sections
+                .iter()
+                .map(|s| s.title.as_str())
+                .collect::<Vec<_>>(),
+            ["Minor Changes", "Patch Changes"]
+        );
+        assert_eq!(releases[0].sections[1].entries[0].pull_request, Some(2));
+    }
+
+    #[test]
+    fn robustness_fence_closes_only_matching_delimiter() {
+        let releases = parse_changelog(
+            &[
+                "## 0.20.0",
+                "",
+                "### Patch Changes",
+                "",
+                "- One:",
+                "",
+                "~~~",
+                "```",
+                "## x",
+                "~~~",
+                "",
+            ]
+            .join("\n"),
+        );
+        assert_eq!(releases[0].sections[0].entries.len(), 1);
+    }
+
+    #[test]
+    fn robustness_rejects_partial_version_heading() {
+        assert!(parse_changelog("## 1.2.3 (hotfix) <script>x</script>\n\n- a: b\n").is_empty());
+        assert_eq!(
+            parse_changelog("## 1.2.3\n\n### Fixed\n\n- Real.\n")
+                .iter()
+                .map(|r| r.version.as_str())
+                .collect::<Vec<_>>(),
+            ["1.2.3"]
+        );
+    }
+
+    #[test]
+    fn robustness_accepts_prerelease_heading() {
+        assert_eq!(
+            parse_changelog("## 0.20.0-beta.10\n\n### Fixed\n\n- Real.\n")
+                .iter()
+                .map(|r| r.version.as_str())
+                .collect::<Vec<_>>(),
+            ["0.20.0-beta.10"]
+        );
+    }
+
+    #[test]
+    fn robustness_preserves_nested_sublist() {
+        let releases = parse_changelog(
+            &[
+                "## 0.20.0",
+                "",
+                "### Minor Changes",
+                "",
+                "- Adds:",
+                "  - one",
+                "  - two",
+                "",
+            ]
+            .join("\n"),
+        );
+        let description = &releases[0].sections[0].entries[0].description;
+        assert!(description.contains("\n  - one"));
+        assert!(!description.contains("Adds: - one"));
+    }
+
     #[test]
     fn entry_recovers_pull_request_from_changesets() {
         assert_eq!(serde_json::to_value(parse_entry("[#728](https://github.com/modem-dev/hunk/pull/728) [`bb6405e`](https://github.com/modem-dev/hunk/commit/bb6405e) - Highlight ranges.")).unwrap(), serde_json::json!({"description":"Highlight ranges.","pullRequest":728}));
