@@ -35,6 +35,11 @@ const CONFIGS: &[(&str, usize, &[&str])] = &[
     ),
     (".gitignore", 562, &[".gitignore", MIGRATION_DOC]),
     (".lintstagedrc.json", 142, &["Cargo.toml", MIGRATION_DOC]),
+    (
+        "knip.json",
+        1419,
+        &["xtask/src/architecture.rs", MIGRATION_DOC],
+    ),
 ];
 
 pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {
@@ -126,6 +131,56 @@ pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {
                 ensure!(
                     repo.join("Cargo.toml").is_file(),
                     "native Cargo lint owner is missing"
+                );
+            }
+            "knip.json" => {
+                let value: serde_json::Value = serde_json::from_str(source)?;
+                let workspaces = value["workspaces"]
+                    .as_object()
+                    .ok_or_else(|| anyhow::anyhow!("Knip workspaces are not an object"))?;
+                ensure!(
+                    workspaces.keys().collect::<Vec<_>>()
+                        == [".", "packages/session-broker*", "packages/term-video"],
+                    "Knip workspace set changed"
+                );
+                ensure!(
+                    workspaces["."]["entry"]
+                        .as_array()
+                        .is_some_and(|entries| entries.len() == 11)
+                        && workspaces["."]["project"]
+                            .as_array()
+                            .is_some_and(|projects| projects.len() == 6),
+                    "Knip root entry/project scope changed"
+                );
+                ensure!(
+                    workspaces["packages/session-broker*"]["entry"]
+                        .as_array()
+                        .is_some_and(|entries| entries.len() == 1)
+                        && workspaces["packages/session-broker*"]["project"]
+                            .as_array()
+                            .is_some_and(|projects| projects.len() == 1),
+                    "Knip session package scope changed"
+                );
+                ensure!(
+                    workspaces["packages/term-video"]["entry"]
+                        .as_array()
+                        .is_some_and(|entries| entries.len() == 1)
+                        && workspaces["packages/term-video"]["project"]
+                            .as_array()
+                            .is_some_and(|projects| projects.len() == 1),
+                    "Knip terminal-video package scope changed"
+                );
+                ensure!(
+                    value["ignoreIssues"]
+                        == serde_json::json!({
+                            "src/app/review/capability.ts": ["exports"],
+                            "src/extension-api/types.ts": ["duplicates"]
+                        }),
+                    "Knip issue exceptions changed"
+                );
+                ensure!(
+                    repo.join("xtask/src/architecture.rs").is_file(),
+                    "native module-graph owner is missing"
                 );
             }
             other => ensure!(false, "unknown configuration {other}"),

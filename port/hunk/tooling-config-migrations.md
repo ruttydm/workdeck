@@ -19,6 +19,7 @@ than retaining an executable JavaScript configuration mirror.
 | `bunfig.toml` | Cargo.lock and the pinned Rust toolchain | `cargo xtask verify` dependency/toolchain checks |
 | `.gitignore` | native Rust/Zola output and artifact ignores in the root `.gitignore` | `tooling_configs::verify` pinned-policy check |
 | `.lintstagedrc.json` | Cargo formatting and Clippy gates run by CI and `cargo xtask verify` | `tooling_configs::verify` pinned-policy check |
+| `knip.json` | Rust module reachability, Cargo dependency graph, compiler dead-code checks, and architecture gates | `cargo xtask verify` architecture check |
 
 `test/cli/install-vm/.dockerignore` is intentionally handled by the native
 installer oracle and CI smoke-test plan (`xtask/src/install_oracle.rs`), not by
