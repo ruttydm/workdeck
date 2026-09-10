@@ -14,3 +14,16 @@ policy code, not a completed updater authentication path: packaging still invoke
 the declared `gh attestation verify` program, and updater integration must verify
 the exact staged bytes before replacement. Structural bundle decoding and checksum
 matches alone must never be reported as publisher authentication.
+
+`authenticate_binary` now accepts owned binary bytes, a bundle and an explicit
+release identity. It creates a private snapshot, invokes the declared `gh`
+verifier with the shared policy and deadline, checks that snapshot contents remain
+unchanged, and returns the original owned bytes only on success. This supplies
+the updater with the same payload that was presented for verification, without
+rereading an external archive or staging path afterward. Snapshot files are
+removed on success or failure; no installation target is touched.
+
+Two native tests inject verifier callbacks to check exact binary/bundle inputs,
+returned bytes, rejection of failures and snapshot mutation, and cleanup. These
+are control-flow and snapshot tests, not real Sigstore authentication evidence.
+Real signed-release verification and updater integration remain open.
