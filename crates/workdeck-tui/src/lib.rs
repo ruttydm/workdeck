@@ -7493,6 +7493,23 @@ impl ReviewApp {
                 return;
             }
         };
+        if self.options.cursor_line != CursorLineMode::Off {
+            let cursor = self
+                .current_review_geometry_rows()
+                .line_cursors
+                .into_iter()
+                .find(|cursor| {
+                    cursor.target.file_index == target.file_index
+                        && cursor.target.side == target.side
+                        && cursor.target.line == target.line
+                });
+            if let Some(cursor) = cursor {
+                self.apply_review_line_cursor(cursor);
+                self.scroll_to_selected_line();
+                self.publish_extension_selection_events();
+                return;
+            }
+        }
         let visible = self.with_state(|state| {
             state
                 .changeset()

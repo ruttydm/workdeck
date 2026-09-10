@@ -469,6 +469,25 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn extension_reveal_reaches_loaded_source_outside_original_hunk() {
+        let (mut app, sender) = setup();
+        app.toggle_source_gap();
+        sender
+            .send("first-source-line\nsecond-source-line\nnew\n".into())
+            .unwrap();
+        drain_one(&mut app);
+        let id = app.with_state(|state| state.changeset().files[0].runtime_id.clone());
+        assert!(app.has_measured_review_line(0, ReviewSide::New, 1));
+        app.reveal_extension_review_line("probe", &id, ReviewSide::New, 3);
+        app.status = None;
+        app.reveal_extension_review_line("probe", &id, ReviewSide::New, 1);
+        assert!(app.status.is_none(), "{:?}", app.status);
+        let cursor = app.current_review_line_cursor().unwrap().target;
+        assert_eq!(cursor.side, ReviewSide::New);
+        assert_eq!(cursor.line, 1);
+    }
+
+    #[test]
     fn gap_toggle_starts_a_worker_and_completion_reaches_the_live_rows() {
         let (mut app, sender) = setup();
         let original = app.with_state(|state| state.changeset().clone());
