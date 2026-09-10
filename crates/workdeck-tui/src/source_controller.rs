@@ -498,6 +498,48 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn alpha_gap_toggle_loads_exact_source_and_collapses() {
+        struct AlphaLoader(mpsc::Sender<ReviewSide>);
+        impl ReviewSourceLoader for AlphaLoader {
+            fn get_full_text(
+                &self,
+                _: &DiffFile,
+                side: ReviewSide,
+            ) -> std::result::Result<Option<String>, ReviewSourceLoadError> {
+                self.0.send(side).unwrap();
+                Ok((side == ReviewSide::New).then(|| "alpha\nbeta\ngamma\n".into()))
+            }
+        }
+        let review = pinned_alpha_source_review(800);
+        let file = review.files[0].clone();
+        let key = file.key.clone();
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                highlight: false,
+                ..Default::default()
+            },
+        );
+        let (calls_tx, calls_rx) = mpsc::channel();
+        assert!(app.install_source_loader(&key, Arc::new(AlphaLoader(calls_tx))));
+        assert!(calls_rx.try_recv().is_err());
+        app.toggle_source_gap_for_file(&key, 0).unwrap();
+        drain_one(&mut app);
+        assert!(app.expanded_gaps.contains(&(key.clone(), 0)));
+        assert_eq!(
+            calls_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+            ReviewSide::New
+        );
+        assert!(matches!(
+            app.options.source_presentation.status(&file),
+            Some(workdeck_review::ReviewSourceStatus::Loaded { text, .. })
+                if text == "alpha\nbeta\ngamma\n"
+        ));
+        app.toggle_source_gap_for_file(&key, 0).unwrap();
+        assert!(!app.expanded_gaps.contains(&(key, 0)));
+    }
+
+    #[test]
     fn gap_toggle_starts_a_worker_and_completion_reaches_the_live_rows() {
         let (mut app, sender) = setup();
         let original = app.with_state(|state| state.changeset().clone());
