@@ -13,6 +13,60 @@ fn run(directory: &Path, args: &[&str]) -> std::process::Output {
 }
 
 #[test]
+fn first_install_cli_rejects_invalid_requests_without_destination_state() {
+    let dir = tempfile::tempdir().unwrap();
+    for args in [
+        vec!["install-create"],
+        vec![
+            "install-create",
+            "archive.zip",
+            "checksums",
+            "destination",
+            "invalid-target",
+            "commit",
+            "refs/tags/v1",
+        ],
+        vec![
+            "install-create",
+            "archive.zip",
+            "checksums",
+            "destination",
+            "aarch64-apple-darwin",
+            "invalid-commit",
+            "refs/tags/v1",
+        ],
+        vec![
+            "install-create",
+            "archive.zip",
+            "checksums",
+            "destination",
+            "aarch64-apple-darwin",
+            "invalid-commit",
+            "refs/tags/v1",
+            "extra",
+        ],
+    ] {
+        let output = run(dir.path(), &args);
+        assert!(!output.status.success(), "{output:?}");
+        assert!(output.stdout.is_empty(), "{output:?}");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+    let output = run(
+        dir.path(),
+        &[
+            "install-create",
+            "archive.zip",
+            "checksums",
+            "destination",
+            "aarch64-apple-darwin",
+            "invalid-commit",
+            "refs/tags/v1",
+        ],
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("full source commit digest"));
+}
+
+#[test]
 fn staging_cli_retains_verified_files_without_installing_or_creating_repo_state() {
     let input = tempfile::tempdir().unwrap();
     let archive = input.path().join("workdeck.zip");

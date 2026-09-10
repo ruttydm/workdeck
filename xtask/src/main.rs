@@ -267,6 +267,7 @@ fn run() -> Result<()> {
         Some("install-inspect") => install::inspect(args),
         Some("install-oracle") => install_oracle::run(&repo_root()?, args),
         Some("install-stage") => install::stage(args),
+        Some("install-create") => install::create(args),
         Some("changelog") => changelog::run(&repo_root()?, args),
         Some("media") => match args.next().as_deref() {
             Some("plan") => term_video::plan_file(&repo_root()?, args),
@@ -2592,6 +2593,7 @@ fn print_help() {
     println!("cargo xtask install-plan [version] [--no-modify-path] [-f|--force]");
     println!("cargo xtask install-verify ARCHIVE CHECKSUM_FILE");
     println!("cargo xtask install-stage ARCHIVE CHECKSUM_FILE");
+    println!("cargo xtask install-create ARCHIVE CHECKSUM_FILE DESTINATION TARGET COMMIT TAG_REF");
     println!("cargo xtask install-oracle");
     println!("cargo xtask install-inspect ARCHIVE [--package]");
     println!("cargo xtask changelog upstream-history [--check]");

@@ -195,3 +195,23 @@ It injects staging and does not establish live archive-signature verification.
 This API does not update an existing installation, edit PATH, resolve/download a
 release, implement CLI orchestration or guarantee directory crash durability.
 Those remain required parts of the original goal; no ledger interval is closed.
+
+The explicit tooling entry point is now:
+
+```text
+cargo xtask install-create ARCHIVE CHECKSUM_FILE DESTINATION TARGET COMMIT TAG_REF
+```
+
+It authenticates against the fixed `ruttydm/workdeck` publisher and the supplied
+full source commit/tag reference, then invokes complete first-install publication.
+The destination root must not exist, and its parent must exist. Success emits
+JSON containing the installed root, selected target, source identity, verified
+archive-signature status and `pathModified: false`. Errors emit no success JSON.
+The command does not infer trust from archive metadata, resolve the release
+identity for the caller or silently update an existing root.
+
+Both `xtask/tests/install_cli.rs` tests pass, covering the existing staging
+command plus first-install argument, platform and identity rejection with an
+untouched directory. No live signed-release installation has been claimed or
+performed. Standalone executable/installer-script orchestration and automatic
+release resolution remain outstanding beyond this Rust tooling entry point.
