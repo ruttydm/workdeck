@@ -947,8 +947,7 @@ pub(super) mod tests {
         review
     }
 
-    #[test]
-    fn alpha_cursor_steps_one_row_and_clamps_at_stream_start() {
+    fn pinned_two_hunk_alpha_review() -> Changeset {
         let before = (1..=12)
             .map(|line| format!("export const line{line} = {line};\n"))
             .collect::<String>();
@@ -959,6 +958,12 @@ pub(super) mod tests {
         review.files[0].set_source_capability(None);
         review.refresh_review_identities();
         assert_eq!(review.files[0].hunks.len(), 2);
+        review
+    }
+
+    #[test]
+    fn alpha_cursor_steps_one_row_and_clamps_at_stream_start() {
+        let review = pinned_two_hunk_alpha_review();
         let mut app = ReviewApp::new(review, ReviewOptions::default());
         let first = app.current_review_line_cursor().unwrap();
         app.step_diff_line(1);
@@ -967,6 +972,54 @@ pub(super) mod tests {
         assert_eq!(app.current_review_line_cursor(), Some(first));
         app.step_diff_line(-1);
         assert_eq!(app.current_review_line_cursor(), Some(first));
+    }
+
+    #[test]
+    fn counted_alpha_cursor_movement_reveals_nearest_row_and_carries_hunk_selection() {
+        for layout in [crate::LayoutMode::Stack, crate::LayoutMode::Split] {
+            let mut app = ReviewApp::new(
+                pinned_two_hunk_alpha_review(),
+                ReviewOptions {
+                    layout,
+                    ..Default::default()
+                },
+            );
+            app.review_height.set(8);
+            let rows = app.current_review_geometry_rows();
+            let cursors = crate::review_line_cursors(&rows);
+            let initial = app.current_review_line_cursor().unwrap();
+            let index = cursors
+                .iter()
+                .position(|cursor| *cursor == initial)
+                .unwrap();
+            app.step_diff_line(4);
+            assert_eq!(app.current_review_line_cursor(), Some(cursors[index + 4]));
+            let viewport = usize::from(8u16.saturating_sub(app.review_reserved_rows()).max(1));
+            assert!(app.current_line_row >= app.scroll);
+            assert!(app.current_line_row < app.scroll + viewport);
+            let scroll = app.scroll;
+            app.step_diff_line(0);
+            assert_eq!(app.scroll, scroll);
+            for _ in 0..40 {
+                app.step_diff_line(1);
+            }
+            let last = app.current_review_line_cursor().unwrap();
+            assert_eq!(last, *cursors.last().unwrap());
+            assert_eq!(last.target.hunk_index, 1);
+            assert_eq!(
+                app.with_state(|state| state.selection().hunk_index),
+                Some(1)
+            );
+            assert!(app.current_line_row >= app.scroll);
+            assert!(app.current_line_row < app.scroll + viewport);
+            app.step_diff_line(-100);
+            assert_eq!(app.current_review_line_cursor(), cursors.first().copied());
+            assert_eq!(
+                app.with_state(|state| state.selection().hunk_index),
+                Some(0)
+            );
+            assert_eq!(app.scroll, app.current_line_row);
+        }
     }
 
     #[test]
