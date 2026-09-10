@@ -100,3 +100,18 @@ characters (BOM, NEL, file separator, NBSP, line separator and ideographic space
 across four input shapes on both pins: 48 comparisons. All nine website unit tests
 pass, including the complete baseline changelog fixtures. The generator remains
 partially ported and its ledger record remains unmapped.
+
+## Editorial summaries
+
+`cargo xtask changelog summaries <markdown-file> [notes.json]` emits read-only
+JSON summaries by minor series. Nonempty editorial summaries are preserved
+verbatim; otherwise it finds the newest Highlights lead paragraph and unwraps
+the source-supported Markdown constructs. Bullet-only highlights fall through
+to older releases. Missing summaries are represented as JSON null.
+
+The Rust Highlights splitter, plain-text conversion and summary selection are
+checked against executed frozen fixtures from both pins, including empty leads,
+bullet-only content, wrapped prose, BOM/NEL and editorial overrides. All ten
+website unit tests pass. This does not yet generate pages, feeds or social cards;
+CLI integration and the full overlay schema remain to be completed. No ledger
+mapping changed.

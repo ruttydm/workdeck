@@ -351,6 +351,80 @@ fn group_into_series(releases: Vec<ReleaseEntry>) -> Vec<ReleaseSeries> {
     series
 }
 
+#[derive(Debug, Serialize)]
+struct Highlights {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lead: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    body: Option<String>,
+}
+
+fn split_highlights(text: &str) -> Highlights {
+    let paragraphs = text.split("\n\n").collect::<Vec<_>>();
+    let first = paragraphs[0];
+    let bullets_first = first
+        .trim_start_matches(ecmascript_whitespace)
+        .starts_with('-');
+    let lead = (!bullets_first)
+        .then(|| first.trim_matches(ecmascript_whitespace).to_owned())
+        .filter(|s| !s.is_empty());
+    let body = paragraphs[usize::from(!bullets_first)..].join("\n\n");
+    let body = body.trim_matches(ecmascript_whitespace);
+    Highlights {
+        lead,
+        body: (!body.is_empty()).then(|| body.to_owned()),
+    }
+}
+
+fn to_plain_text(markdown: &str) -> String {
+    static LINKS: LazyLock<Regex> = LazyLock::new(|| parser_regex(r"\[([^\]]+)\]\([^)]*\)"));
+    static SPACES: LazyLock<Regex> = LazyLock::new(|| parser_regex(r"\s+"));
+    let text = LINKS
+        .replace_all(markdown, "$1")
+        .replace("**", "")
+        .replace('`', "");
+    SPACES
+        .replace_all(&text, " ")
+        .trim_matches(ecmascript_whitespace)
+        .to_owned()
+}
+
+fn series_summary(series: &ReleaseSeries, overlay: Option<&str>) -> Option<String> {
+    if let Some(summary) = overlay.filter(|s| !s.is_empty()) {
+        return Some(summary.to_owned());
+    }
+    series
+        .releases
+        .iter()
+        .filter_map(|r| r.highlights.as_deref())
+        .find_map(|text| split_highlights(text).lead)
+        .map(|lead| to_plain_text(&lead))
+}
+
+pub(super) fn run_summaries(repo: &Path, mut args: impl Iterator<Item = String>) -> Result<()> {
+    let Some(path) = args.next() else {
+        bail!("changelog summaries requires a Markdown file");
+    };
+    let notes = args.next();
+    if args.next().is_some() {
+        bail!("changelog summaries accepts a Markdown file and optional notes JSON file");
+    }
+    #[derive(serde::Deserialize)]
+    struct Notes {
+        summary: Option<String>,
+    }
+    let notes: std::collections::BTreeMap<String, Notes> = match notes {
+        Some(path) => serde_json::from_str(&std::fs::read_to_string(repo.join(path))?)?,
+        None => Default::default(),
+    };
+    let markdown = std::fs::read_to_string(repo.join(path))?;
+    let summaries = group_into_series(parse_changelog(&markdown)).iter().map(|series| {
+        serde_json::json!({"minor": series.minor, "summary": series_summary(series, notes.get(&series.minor).and_then(|n| n.summary.as_deref()))})
+    }).collect::<Vec<_>>();
+    println!("{}", serde_json::to_string_pretty(&summaries)?);
+    Ok(())
+}
+
 pub(super) fn run(
     repo: &Path,
     mut args: impl Iterator<Item = String>,
@@ -377,6 +451,42 @@ pub(super) fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn summary_helpers_match_both_pinned_oracles() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/website-changelog-summary-oracle.json"
+        ))
+        .unwrap();
+        let results = fixture["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        for result in results {
+            let cases = result["cases"].as_array().unwrap();
+            assert_eq!(cases.len(), 8);
+            for case in cases {
+                let input = case["input"].as_str().unwrap();
+                assert_eq!(
+                    serde_json::to_value(split_highlights(input)).unwrap(),
+                    case["split"]
+                );
+                assert_eq!(to_plain_text(input), case["plain"]);
+                let release = |version: &str, text: &str| ReleaseEntry {
+                    version: version.into(),
+                    prerelease: false,
+                    heading_date: None,
+                    highlights: Some(text.into()),
+                    sections: vec![],
+                };
+                let series = ReleaseSeries {
+                    minor: "1.2".into(),
+                    releases: vec![release("1.2.1", input), release("1.2.0", "Older **lead**")],
+                };
+                let actual = [None, Some(""), Some("Editorial **unchanged**")]
+                    .map(|overlay| series_summary(&series, overlay));
+                assert_eq!(serde_json::to_value(actual).unwrap(), case["summaries"]);
+            }
+        }
+    }
 
     #[test]
     fn body_whitespace_matches_both_pinned_oracles() {
