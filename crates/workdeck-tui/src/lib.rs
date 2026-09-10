@@ -2834,6 +2834,8 @@ impl ReviewApp {
             let _ = self
                 .with_state(|state| state.reveal_line(target.file_index, target.side, target.line));
             self.scroll_to_selected_line();
+        } else {
+            self.scroll_to_reveal(workdeck_review::REVIEW_VIEWPORT_ANCHOR_REVEAL);
         }
     }
 

@@ -1556,6 +1556,29 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn cursor_targeted_new_draft_clears_prior_note_reveal_without_scrolling() {
+        let mut app = ReviewApp::new(pinned_alpha_source_review(800), ReviewOptions::default());
+        app.step_diff_line(2);
+        app.scroll_to_reveal(workdeck_review::ReviewRevealRequest {
+            anchor: workdeck_review::ReviewRevealAnchor::None,
+            scroll_to_note: true,
+        });
+        let before = app.review_reveal;
+        let scroll = app.scroll;
+        let target = app.current_note_target().unwrap();
+        app.open_note_composer();
+        assert_eq!(app.note_composer.as_ref().unwrap().target, target);
+        assert_eq!(
+            app.review_reveal,
+            workdeck_review::ReviewRevealIntent {
+                scroll_to_note: false,
+                ..before
+            }
+        );
+        assert_eq!(app.scroll, scroll);
+    }
+
+    #[test]
     fn alpha_markup_validation_uses_published_layout_width() {
         let review = pinned_review_from_text(
             "alpha",

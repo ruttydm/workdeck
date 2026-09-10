@@ -89,3 +89,13 @@ Pointer opening still uses the viewport-preserving request. This does not yet
 cover every source stable-key or default new-draft reveal path.
 All 1,250 TUI library tests passed in 9.22 seconds; formatting and diff checks
 passed. No ledger disposition changed.
+
+## Cursor-enabled new draft intent
+
+The cursor-enabled new-draft path now submits the viewport-anchor request after
+opening, clearing any prior note-reveal flag without advancing reveal tokens or
+scrolling. `cursor_targeted_new_draft_clears_prior_note_reveal_without_scrolling`
+checks the target, complete resulting intent and unchanged offset after a seeded
+prior note-reveal request. The focused test passed in 0.75 seconds; formatting
+and diff checks passed. Cursor-off fallback and complete measured-cursor absence
+behavior remain separate obligations; no source mapping changes.
