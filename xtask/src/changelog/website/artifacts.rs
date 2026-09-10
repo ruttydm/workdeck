@@ -130,6 +130,28 @@ pub(crate) fn verify_pinned_editorial_inputs(repo: &Path, baseline: &str) -> Res
             "native release body differs for {minor}"
         );
     }
+
+    let source_index = String::from_utf8(crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2:website/src/content/docs/changelog/index.md",
+        ],
+    )?)?;
+    let source_index_body = reader_visible_index(&source_index)
+        .context("pinned changelog index lacks its reader-visible body")?;
+    let native_index = generated
+        .get("site/content/changelog/index.md")
+        .context("native changelog index was not generated")?;
+    let normalized_index = reader_visible_index(native_index)
+        .context("native changelog index lacks its reader-visible body")?
+        .replace("Workdeck", "Hunk")
+        .replace("workdeck.dev", "hunk.dev")
+        .replace("ruttydm/workdeck", "modem-dev/hunk");
+    ensure!(
+        normalized_index == source_index_body,
+        "native changelog index differs from pinned source"
+    );
     Ok(())
 }
 
@@ -139,6 +161,11 @@ fn release_body_section(markdown: &str) -> Option<&str> {
     let tail = &markdown[start..];
     let end = tail.find("\n\n---").unwrap_or(tail.len());
     Some(tail[..end].trim_end())
+}
+
+fn reader_visible_index(markdown: &str) -> Option<&str> {
+    let start = markdown.find("[RSS]")?;
+    Some(markdown[start..].trim_end())
 }
 
 fn replace_branding(value: serde_json::Value) -> serde_json::Value {
