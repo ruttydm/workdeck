@@ -1345,22 +1345,7 @@ fn package_release(options: PackageOptions) -> Result<()> {
 
 /// Native translation of Hunk's MIT prebuilt artifact metadata schema.
 fn prebuilt_metadata(target: &str) -> Result<Vec<u8>> {
-    let (os, cpu, binary_name) = match target {
-        "aarch64-apple-darwin" => ("darwin", "arm64", "workdeck"),
-        "x86_64-apple-darwin" => ("darwin", "x64", "workdeck"),
-        "aarch64-unknown-linux-gnu" => ("linux", "arm64", "workdeck"),
-        "x86_64-unknown-linux-gnu" => ("linux", "x64", "workdeck"),
-        "x86_64-pc-windows-msvc" => ("windows", "x64", "workdeck.exe"),
-        _ => bail!("unsupported release package target {target:?}"),
-    };
-    let mut bytes = serde_json::to_vec_pretty(&serde_json::json!({
-        "packageName": format!("workdeck-{target}"),
-        "os": os,
-        "cpu": cpu,
-        "binaryName": binary_name,
-    }))?;
-    bytes.push(b'\n');
-    Ok(bytes)
+    workdeck_cli::install::metadata::PrebuiltMetadata::for_target(target)?.encode()
 }
 
 fn release_entries<'a>(

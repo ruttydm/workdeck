@@ -38,6 +38,17 @@ fn install_from_archive(
         roots.next().is_none(),
         "authenticated archive has multiple roots"
     );
+    let triple = root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_prefix("workdeck-"))
+        .context("invalid native package wrapper")?;
+    use std::io::Read;
+    let mut metadata = Vec::new();
+    fs::File::open(root.join("metadata.json"))?
+        .take(65537)
+        .read_to_end(&mut metadata)?;
+    super::metadata::PrebuiltMetadata::decode(&metadata, triple)?;
     install_skill_tree(&root.join("skills"), target, recovery)
 }
 
@@ -196,12 +207,26 @@ mod tests {
         for entry in &entries {
             writer
                 .start_file(
-                    format!("package/{entry}"),
+                    format!("workdeck-aarch64-apple-darwin/{entry}"),
                     zip::write::SimpleFileOptions::default(),
                 )
                 .unwrap();
             writer.write_all(entry.as_bytes()).unwrap();
         }
+        writer
+            .start_file(
+                "workdeck-aarch64-apple-darwin/metadata.json",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+        writer
+            .write_all(
+                &super::super::metadata::PrebuiltMetadata::for_target("aarch64-apple-darwin")
+                    .unwrap()
+                    .encode()
+                    .unwrap(),
+            )
+            .unwrap();
         writer.finish().unwrap();
         let file = fs::File::open(&archive).unwrap();
         let hash = super::super::hash_archive_bytes(&file, file.metadata().unwrap().len()).unwrap();
@@ -214,6 +239,21 @@ mod tests {
                 super::super::staging::prepare_archive(&archive, &checksums, |_| {
                     anyhow::bail!("untrusted archive")
                 })
+            })
+            .is_err()
+        );
+        assert_eq!(fs::read_dir(destination.path()).unwrap().count(), 0);
+        assert!(
+            install_from_archive(&target, &recovery, || {
+                let staged =
+                    super::super::staging::prepare_archive(&archive, &checksums, |_| Ok(()))?;
+                fs::write(
+                    staged
+                        .path()
+                        .join("workdeck-aarch64-apple-darwin/metadata.json"),
+                    b"{}",
+                )?;
+                Ok(staged)
             })
             .is_err()
         );

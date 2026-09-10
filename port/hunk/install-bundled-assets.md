@@ -131,3 +131,13 @@ empty destination completely untouched. Both asset tests pass on macOS. The test
 uses injected attestation results, not real signing evidence. Binary, metadata,
 PATH edits and skills still need one coordinated installer workflow; this API
 alone is not full installer completion.
+
+Prebuilt metadata now has one shared Rust schema in the installer library, used
+by release packaging as well as installation. Decoding is limited to 64 KiB,
+rejects duplicate/unknown fields and requires all four fields to match the known
+native target. Authenticated skills installation validates metadata against its
+`workdeck-<target>` wrapper before destination writes. A malformed-metadata
+integration case leaves the destination empty. The shared metadata test, existing
+five-target packaging test and both asset tests pass on macOS. Metadata is still
+not committed to the installation directory, and validating an archive's own
+target is not yet a host/selected-target compatibility gate.
