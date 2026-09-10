@@ -179,6 +179,58 @@ pub fn plan(
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    fn assert_profile_executes(shell: &str) {
+        let home = tempfile::tempdir().unwrap();
+        // Shell metacharacters must remain literal data, including substitution.
+        let bin = home
+            .path()
+            .join("it's a $PATH `literal` $(exit 91) directory");
+        std::fs::create_dir(&bin).unwrap();
+        let bin = bin.to_str().unwrap();
+        let env = BTreeMap::from([("SHELL".into(), shell.into())]);
+        let planned = plan(bin, home.path(), &env, false).unwrap();
+        let ShellPathPlan::Edit { path, .. } = &planned else {
+            panic!("new profile must require an edit");
+        };
+        apply(&planned, &home.path().join("recovery.json")).unwrap();
+        let output = std::process::Command::new(shell)
+            .args([
+                "-f",
+                "-c",
+                ". \"$1\"; printf '%s' \"$PATH\"",
+                "profile-test",
+            ])
+            .arg(path)
+            .env_clear()
+            .env("HOME", home.path())
+            .env("ZDOTDIR", home.path())
+            .env("PATH", "/usr/bin:/bin")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{shell}: {output:?}");
+        assert!(output.stderr.is_empty(), "{shell}: {output:?}");
+        assert_eq!(output.stdout, format!("{bin}:/usr/bin:/bin").as_bytes());
+        assert!(matches!(
+            plan(bin, home.path(), &env, false).unwrap(),
+            ShellPathPlan::AlreadyPresent(_)
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn applied_profile_executes_in_posix_shell_without_expanding_directory_data() {
+        assert_profile_executes("/bin/sh");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn applied_profiles_execute_in_macos_bash_and_zsh() {
+        assert_profile_executes("/bin/bash");
+        assert_profile_executes("/bin/zsh");
+    }
+
     #[test]
     fn recovery_cannot_create_the_missing_profile() {
         let home = tempfile::tempdir().unwrap();

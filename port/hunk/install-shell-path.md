@@ -50,5 +50,15 @@ remain open. Late failures may leave newly created parent directories behind.
 This API does not establish complete installer parity or change ledger coverage.
 
 Verification: `cargo test -p workdeck-cli --lib install::shell_path` passes all
-seven tests on this macOS host. This is scoped native coverage, not cross-platform
+nine tests on this macOS host. This is scoped native coverage, not cross-platform
 or source-oracle evidence for the application transaction.
+
+Two additional execution tests source the applied temporary profile using real
+`/bin/sh`, `/bin/bash` and `/bin/zsh` on macOS, with a cleared environment and
+temporary HOME/ZDOTDIR. They assert the exact resulting PATH and empty stderr for
+a directory containing whitespace, a single quote, dollar expansion, backticks
+and command-substitution syntax. Those characters remain literal directory data;
+replanning recognizes the applied line. The POSIX shell test runs on Unix; the
+Bash/zsh test is macOS-only and does not silently skip a missing interpreter.
+These source a selected profile explicitly rather than simulating login startup.
+Fish execution remains unverified because fish is not installed on this host.
