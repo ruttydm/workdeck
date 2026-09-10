@@ -1556,6 +1556,32 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn saved_note_timestamps_preserve_creation_across_edits() {
+        let mut app = ReviewApp::new(pinned_alpha_source_review(800), ReviewOptions::default());
+        app.open_note_composer();
+        app.note_composer.as_mut().unwrap().body = "Original".into();
+        let original = app.save_note_composer_at(1_700_000_000_000).unwrap();
+        assert_eq!(
+            original.created_at.as_deref(),
+            Some("2023-11-14T22:13:20.000Z")
+        );
+        assert_eq!(original.updated_at, None);
+        for (time, expected) in [
+            (1_700_000_001_123, "2023-11-14T22:13:21.123Z"),
+            (1_700_000_002_000, "2023-11-14T22:13:22.000Z"),
+        ] {
+            app.saved_note_hover = Some(original.id.clone());
+            app.open_active_note_edit();
+            app.note_composer.as_mut().unwrap().body = "Edited".into();
+            let edited = app.save_note_composer_at(time).unwrap();
+            assert_eq!(edited.id, original.id);
+            assert_eq!(edited.created_at, original.created_at);
+            assert_eq!(edited.updated_at.as_deref(), Some(expected));
+            assert_eq!(app.with_state(|state| state.comments()[0].clone()), edited);
+        }
+    }
+
+    #[test]
     fn alpha_keyboard_note_actions_restore_the_note_line_target() {
         let mut review = pinned_alpha_source_review(800);
         review.files[0].set_source_capability(None);

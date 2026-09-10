@@ -3067,6 +3067,8 @@ impl ReviewApp {
     }
 
     fn save_note_composer_at(&mut self, timestamp_ms: u128) -> Option<ReviewComment> {
+        let timestamp = chrono::DateTime::from_timestamp_millis(i64::try_from(timestamp_ms).ok()?)?
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         let mut composer = self.note_composer.take()?;
         let body = composer.body.trim();
         if body.is_empty() {
@@ -3088,7 +3090,7 @@ impl ReviewApp {
         let editing = matches!(composer.kind, ReviewNoteComposerKind::Edit { .. });
         let result = self.with_state(|state| match &composer.kind {
             ReviewNoteComposerKind::Edit { target_note_id, .. } => state
-                .edit_comment_summary(target_note_id, body.to_owned())
+                .edit_comment_summary_at(target_note_id, body.to_owned(), Some(timestamp.clone()))
                 .map(|_| ()),
             ReviewNoteComposerKind::Create | ReviewNoteComposerKind::Reply { .. } => {
                 let file = state
@@ -3116,7 +3118,7 @@ impl ReviewApp {
                     },
                     source: "user".into(),
                     author: None,
-                    created_at: None,
+                    created_at: Some(timestamp.clone()),
                     file_path: Some(file.path.clone()),
                     hunk_index: Some(composer.target.hunk_index),
                     side: Some(composer.target.side),

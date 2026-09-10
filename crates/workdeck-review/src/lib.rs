@@ -571,13 +571,29 @@ impl ReviewState {
         id: &str,
         summary: String,
     ) -> Result<ReviewComment, ReviewError> {
+        self.edit_comment_summary_at(id, summary, None)
+    }
+
+    pub fn edit_comment_summary_at(
+        &mut self,
+        id: &str,
+        summary: String,
+        updated_at: Option<String>,
+    ) -> Result<ReviewComment, ReviewError> {
         let comment = self
             .comments
             .iter_mut()
             .find(|comment| comment.id == id)
             .ok_or_else(|| ReviewError::UnknownComment(id.to_owned()))?;
-        if comment.summary != summary {
+        if comment.summary != summary
+            || updated_at
+                .as_ref()
+                .is_some_and(|value| comment.updated_at.as_ref() != Some(value))
+        {
             comment.summary = summary;
+            if updated_at.is_some() {
+                comment.updated_at = updated_at;
+            }
             self.state_revision = self.state_revision.saturating_add(1);
         }
         Ok(comment.clone())
