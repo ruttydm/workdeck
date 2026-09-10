@@ -379,6 +379,42 @@ fn bundled_skill_paths_support_hunk_namesake_aliases_under_workdeck_branding() {
 }
 
 #[test]
+fn relocated_binary_resolves_packaged_skills_without_user_state() {
+    let installation = tempdir().unwrap();
+    let config = tempdir().unwrap();
+    let cwd = tempdir().unwrap();
+    let executable = installation.path().join("bin").join(if cfg!(windows) {
+        "workdeck.exe"
+    } else {
+        "workdeck"
+    });
+    fs::create_dir_all(executable.parent().unwrap()).unwrap();
+    fs::copy(workdeck().get_program(), &executable).unwrap();
+    let skill = installation
+        .path()
+        .join("share/workdeck/skills/workdeck-review/SKILL.md");
+    fs::create_dir_all(skill.parent().unwrap()).unwrap();
+    fs::write(&skill, b"# Packaged skill sentinel\n").unwrap();
+    let output = Command::new(&executable)
+        .current_dir(cwd.path())
+        .env("HOME", config.path())
+        .env("XDG_CONFIG_HOME", config.path())
+        .args(["skill", "path", " Review "])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stderr.is_empty(), "{output:?}");
+    let returned = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(
+        fs::canonicalize(returned.trim()).unwrap(),
+        fs::canonicalize(&skill).unwrap()
+    );
+    assert_eq!(fs::read(&skill).unwrap(), b"# Packaged skill sentinel\n");
+    assert_eq!(fs::read_dir(config.path()).unwrap().count(), 0);
+    assert_eq!(fs::read_dir(cwd.path()).unwrap().count(), 0);
+}
+
+#[test]
 fn session_overviews_and_empty_list_are_headless_and_read_only() {
     workdeck()
         .args(["session"])

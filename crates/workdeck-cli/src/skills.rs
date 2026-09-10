@@ -1,37 +1,24 @@
 //! Read-only ancestor lookup derived from Hunk's MIT-licensed core/run/paths.ts.
 //! Copyright (c) Modem Labs Inc. See THIRD_PARTY_NOTICES.
-use anyhow::{Result, bail};
-use std::path::{Path, PathBuf};
+use anyhow::{Result, anyhow};
+use std::path::PathBuf;
+use workdeck_core::{
+    PathResolutionError, resolve_bundled_skill_name, resolve_bundled_skill_path_from,
+};
 
 pub fn canonical_name(value: &str) -> Result<&'static str> {
-    match value.trim().to_lowercase().as_str() {
-        "review" | "workdeck-review" => Ok("workdeck-review"),
-        "extensions" | "workdeck-extensions" => Ok("workdeck-extensions"),
-        "release" | "workdeck-release" => Ok("workdeck-release"),
-        "launch-video" | "workdeck-launch-video" => Ok("workdeck-launch-video"),
-        _ => bail!("unknown bundled skill {value:?}"),
-    }
+    resolve_bundled_skill_name(value).ok_or_else(|| anyhow!("unknown bundled skill {value:?}"))
 }
 
 /// Search native package and source ancestors without creating user or repo state.
 /// npm layouts are intentionally absent from the native Workdeck distribution.
 pub fn find_path(name: &str, roots: &[PathBuf]) -> Result<Option<PathBuf>> {
     let name = canonical_name(name)?;
-    for root in roots {
-        let absolute = std::path::absolute(root)?;
-        let start = if absolute.is_file() {
-            absolute.parent().unwrap_or(Path::new(""))
-        } else {
-            absolute.as_path()
-        };
-        for ancestor in start.ancestors() {
-            let candidate = ancestor.join("skills").join(name).join("SKILL.md");
-            if candidate.is_file() {
-                return Ok(Some(candidate));
-            }
-        }
+    match resolve_bundled_skill_path_from(name, roots) {
+        Ok(path) => Ok(Some(path)),
+        Err(PathResolutionError::MissingBundledSkill(_)) => Ok(None),
+        Err(error) => Err(error.into()),
     }
-    Ok(None)
 }
 
 #[cfg(test)]

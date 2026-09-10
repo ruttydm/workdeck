@@ -36,3 +36,13 @@ creation. The CLI regression checks alias equality and that packaged/source look
 leaves a temporary user config directory empty. These mappings remain partial;
 the source paths module contains additional configuration and canonicalization
 behavior not established by this resolver.
+
+The CLI adapter now delegates to the existing `workdeck-core` name and ancestor
+resolver rather than duplicating it. This also preserves the core's native
+`workdeck/skills` and `share/workdeck/skills` layout candidates. A relocated-binary
+integration test copies the executable outside the source checkout, runs it from
+an unrelated empty directory, and checks that it returns the installation's
+`share/workdeck/skills/workdeck-review/SKILL.md` sentinel unchanged. Both the
+temporary user configuration and working directory remain empty. This test and
+the two CLI-adapter unit tests pass on macOS; it does not establish native Windows
+or Linux execution evidence.
