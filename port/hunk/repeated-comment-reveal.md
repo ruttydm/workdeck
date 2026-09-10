@@ -19,3 +19,9 @@ complete runtime-hook port. The source anchor is
 
 After the fix all 1,230 TUI library tests passed (9.66 seconds), with formatting
 and diff checks passing.
+
+The regression test also covers the single-comment path: after scrolling away,
+adding with reveal disabled keeps scroll at zero; another addition with reveal
+enabled returns to the expected hunk position while retaining hunk selection.
+The extended focused test passed (0.74 seconds), with formatting and diff checks
+passing. This adds no source-ledger mapping.

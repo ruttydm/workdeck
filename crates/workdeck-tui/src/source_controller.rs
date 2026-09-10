@@ -1993,7 +1993,27 @@ pub(super) mod tests {
         let expected = app.scroll;
         assert!(expected > 0);
         app.scroll = 0;
-        app.session_add_live_comment_batch(&[target], "second", true)
+        app.session_add_live_comment_batch(&[target.clone()], "second", true)
+            .unwrap();
+        assert_eq!(app.scroll, expected);
+        assert_eq!(
+            app.with_state(|state| state.selection().hunk_index),
+            Some(1)
+        );
+        let input = workdeck_session::CommentToolInput {
+            target_session: Default::default(),
+            target,
+            reveal: Some(false),
+        };
+        app.scroll = 0;
+        app.session_add_live_comment(&input, "single-no-reveal", false)
+            .unwrap();
+        assert_eq!(app.scroll, 0);
+        let input = workdeck_session::CommentToolInput {
+            reveal: Some(true),
+            ..input
+        };
+        app.session_add_live_comment(&input, "single-reveal", true)
             .unwrap();
         assert_eq!(app.scroll, expected);
         assert_eq!(
