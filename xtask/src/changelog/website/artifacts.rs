@@ -118,10 +118,31 @@ pub(in crate::changelog) fn run_artifacts(
                 stale.join("\n")
             );
         }
+        let missing = missing_card_images(repo, &output)?;
+        if !missing.is_empty() {
+            bail!(
+                "Missing {} social card image(s):\n{}",
+                missing.len(),
+                missing.join("\n")
+            );
+        }
         return Ok(());
     }
     println!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
+}
+
+fn missing_card_images(repo: &Path, artifacts: &BTreeMap<String, String>) -> Result<Vec<String>> {
+    #[derive(serde::Deserialize)]
+    struct Card {
+        slug: String,
+    }
+    let cards: Vec<Card> = serde_json::from_str(&artifacts["site/data/releases/cards.json"])?;
+    Ok(cards
+        .into_iter()
+        .map(|card| format!("site/static/changelog/og/{}.png", card.slug))
+        .filter(|path| !repo.join(path).exists())
+        .collect())
 }
 
 fn stale_paths(repo: &Path, artifacts: &BTreeMap<String, String>) -> Result<Vec<String>> {

@@ -16,8 +16,8 @@ Tests verify the collapsed-output guard leaves all original bytes intact, the
 half-orphan boundary, missing artifact reporting without directory creation,
 unchanged output, changed-byte reporting and preserved stale files.
 
-This implements only the read-only check branch. Missing social-card image
-checking, source-exact path/report ordering, complete CLI edge-case coverage, atomic writing,
+This implements only the read-only check branch. Source-exact path/report ordering,
+complete CLI edge-case coverage, atomic writing,
 backups and actual orphan deletion remain open. No source interval is mapped and
 no existing generated file is removed by this work. Hunk MIT attribution remains
 in the artifact module and notices.
@@ -26,4 +26,16 @@ The real CLI test checks missing-output failure without creating the site
 directory, silent success after the test installs matching artifacts, and stale
 file reporting with the stale bytes preserved. Both checker unit tests and all
 18 changelog CLI tests pass. Strict xtask Clippy, formatting and whitespace checks
-pass. Missing-image checks remain outside this command's current coverage.
+pass.
+
+## Missing-card presence checks
+
+After artifact bytes match, the checker now reads the generated card list and
+reports absent images in card order. It fails on stderr without stdout and never
+creates image directories. Like the source's `existsSync`, this is a presence
+check, not PNG decoding or visual validation. The CLI regression test verifies
+both expected missing paths, no directory creation, and successful checking once
+test-only presence fixtures exist. Real image rendering and validation remain open.
+
+The updated CLI regression, strict xtask Clippy, formatting and whitespace checks
+pass. No source-ledger interval is marked complete by this continuation.

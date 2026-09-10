@@ -45,6 +45,23 @@ fn artifact_check_cli_reports_stale_then_accepts_matching_output() {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, content).unwrap();
     }
+    let missing_images = run(repo.path(), &args);
+    assert!(!missing_images.status.success());
+    assert!(missing_images.stdout.is_empty());
+    let error = String::from_utf8(missing_images.stderr).unwrap();
+    assert!(error.contains("Missing 2 social card image(s)"));
+    assert!(error.contains("site/static/changelog/og/index.png"));
+    assert!(error.contains("site/static/changelog/og/1.0.png"));
+    assert!(!repo.path().join("site/static/changelog/og").exists());
+    // The source checks presence, not PNG validity. These test bytes are not shipped assets.
+    std::fs::create_dir_all(repo.path().join("site/static/changelog/og")).unwrap();
+    for name in ["index.png", "1.0.png"] {
+        std::fs::write(
+            repo.path().join("site/static/changelog/og").join(name),
+            "presence fixture",
+        )
+        .unwrap();
+    }
     let current = run(repo.path(), &args);
     assert!(
         current.status.success(),
