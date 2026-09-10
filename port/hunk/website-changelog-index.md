@@ -22,8 +22,8 @@ migrated rather than compared byte-for-byte. A separate source SAMPLE test check
 the five original index-test behaviors and the Zola path metadata.
 
 This is partial generator implementation. Social-card head integration, actual
-Zola template rendering, complete CLI failure/read-only integration testing,
-artifact orchestration and the complete source test ledger mapping remain open.
+Zola template rendering, artifact orchestration and the complete source test
+ledger mapping remain open.
 No ledger record is marked mapped by this work. Attribution remains with Modem
 Labs Inc. under MIT, as recorded in the Rust source and `THIRD_PARTY_NOTICES`.
 
@@ -31,3 +31,17 @@ Validation: both index unit tests pass, including four complete main body
 comparisons and the two explicit stable divergences. Strict xtask Clippy,
 workspace formatting and diff whitespace checks pass. No full workspace or
 website rendering gate is claimed by these focused checks.
+
+## CLI integration continuation
+
+The temporary-repository CLI test compares all four main fixture bodies through
+the real executable, validates the Zola title/path metadata, and verifies that
+omitting notes removes the editorial override. Missing/extra arguments, missing
+files, malformed date JSON, non-string dates and invalid notes shapes must fail
+with no stdout. Inputs remain unchanged and the directory inventory contains
+only the Git directory and the three input files: no Workdeck state or generated
+site files are created. These are additional native workflow checks, not new
+source-ledger mappings.
+
+All 14 changelog CLI integration tests pass after this addition. Strict xtask
+Clippy also passes.

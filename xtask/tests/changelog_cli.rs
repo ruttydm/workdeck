@@ -11,6 +11,146 @@ fn run(repo: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
+fn index_cli_matches_pinned_body_without_writing_state() {
+    let repo = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../port/hunk/website-changelog-index-oracle.json"
+    ))
+    .unwrap();
+    for case in fixture["results"][0]["cases"].as_array().unwrap() {
+        let inputs = [
+            ("history.md", case["input"].as_str().unwrap().to_owned()),
+            ("dates.json", case["dates"].to_string()),
+            ("notes.json", case["notes"].to_string()),
+        ];
+        for (path, contents) in &inputs {
+            std::fs::write(repo.path().join(path), contents).unwrap();
+        }
+        let output = run(
+            repo.path(),
+            &[
+                "changelog",
+                "index",
+                "history.md",
+                "dates.json",
+                "notes.json",
+            ],
+        );
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stderr.is_empty());
+        let page = String::from_utf8(output.stdout).unwrap();
+        let expected = case["expected"]
+            .as_str()
+            .unwrap()
+            .replace("Hunk", "Workdeck")
+            .replace("https://hunk.dev", "https://workdeck.dev")
+            .replace(
+                "https://github.com/modem-dev/hunk",
+                "https://github.com/ruttydm/workdeck",
+            );
+        assert_eq!(
+            &page[page.find("[RSS]").unwrap()..],
+            &expected[expected.find("[RSS]").unwrap()..]
+        );
+        let metadata = page
+            .split("+++")
+            .nth(1)
+            .unwrap()
+            .parse::<toml_edit::DocumentMut>()
+            .unwrap();
+        assert_eq!(metadata["title"].as_str(), Some("Changelog"));
+        assert_eq!(metadata["path"].as_str(), Some("changelog/"));
+        for (path, contents) in &inputs {
+            assert_eq!(
+                std::fs::read_to_string(repo.path().join(path)).unwrap(),
+                *contents
+            );
+        }
+        let without_notes = run(
+            repo.path(),
+            &["changelog", "index", "history.md", "dates.json"],
+        );
+        assert!(without_notes.status.success());
+        assert!(without_notes.stderr.is_empty());
+        assert!(
+            !String::from_utf8(without_notes.stdout)
+                .unwrap()
+                .contains("An editorial summary.")
+        );
+    }
+    for args in [
+        vec!["changelog", "index"],
+        vec!["changelog", "index", "history.md"],
+        vec!["changelog", "index", "missing.md", "dates.json"],
+        vec!["changelog", "index", "history.md", "missing.json"],
+        vec![
+            "changelog",
+            "index",
+            "history.md",
+            "dates.json",
+            "missing.json",
+        ],
+        vec![
+            "changelog",
+            "index",
+            "history.md",
+            "dates.json",
+            "notes.json",
+            "extra",
+        ],
+    ] {
+        let output = run(repo.path(), &args);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+    }
+    for (path, invalid) in [
+        ("dates.json", "{broken"),
+        ("dates.json", r#"{"1.1.0":42}"#),
+        ("notes.json", r#"{"1.1":{"summary":42}}"#),
+        ("notes.json", "[]"),
+    ] {
+        std::fs::write(repo.path().join("dates.json"), "{}").unwrap();
+        std::fs::write(repo.path().join(path), invalid).unwrap();
+        let output = run(
+            repo.path(),
+            &[
+                "changelog",
+                "index",
+                "history.md",
+                "dates.json",
+                "notes.json",
+            ],
+        );
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+        assert_eq!(
+            std::fs::read_to_string(repo.path().join(path)).unwrap(),
+            invalid
+        );
+    }
+    let mut entries = std::fs::read_dir(repo.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect::<Vec<_>>();
+    entries.sort();
+    assert_eq!(entries, [".git", "dates.json", "history.md", "notes.json"]);
+}
+
+#[test]
 fn feed_cli_preserves_oracle_output_and_does_not_write_state() {
     let repo = tempfile::tempdir().unwrap();
     assert!(
