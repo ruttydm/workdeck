@@ -334,6 +334,41 @@ fn validate_source_reachability(
         .collect())
 }
 
+fn production_mentions_session(source: &str) -> Result<bool> {
+    use syn::visit::Visit;
+
+    struct SessionReference(bool);
+    impl<'ast> Visit<'ast> for SessionReference {
+        fn visit_item_mod(&mut self, module: &'ast syn::ItemMod) {
+            // Only an explicit test-only gate is exempt. In particular,
+            // cfg(any(test, feature = "runtime")) remains production-reachable.
+            if module.attrs.iter().any(|attribute| {
+                attribute.path().is_ident("cfg")
+                    && matches!(&attribute.meta, Meta::List(list) if list.tokens.to_string() == "test")
+            }) {
+                return;
+            }
+            syn::visit::visit_item_mod(self, module);
+        }
+
+        fn visit_ident(&mut self, ident: &'ast syn::Ident) {
+            self.0 |= ident == "workdeck_session";
+        }
+
+        fn visit_macro(&mut self, invocation: &'ast syn::Macro) {
+            // Macro expansion is not available here: conservatively retain
+            // references inside token bodies rather than silently overlooking them.
+            self.0 |= invocation.tokens.to_string().contains("workdeck_session");
+            syn::visit::visit_macro(self, invocation);
+        }
+    }
+
+    let parsed = syn::parse_file(source).context("parse Rust source for session boundary")?;
+    let mut references = SessionReference(false);
+    references.visit_file(&parsed);
+    Ok(references.0)
+}
+
 fn validate_source_import_boundaries(repo: &Path) -> Result<Vec<ArchitectureViolation>> {
     let mut violations = Vec::new();
     let tui_root = repo.join("crates/workdeck-tui/src");
@@ -351,7 +386,7 @@ fn validate_source_import_boundaries(repo: &Path) -> Result<Vec<ArchitectureViol
     for path in tui_files {
         let source = fs::read_to_string(&path)?;
         let relative = path.strip_prefix(repo).unwrap_or(&path).to_path_buf();
-        if source.contains("workdeck_session") && !allowed_session_adapters.contains(&relative) {
+        if production_mentions_session(&source)? && !allowed_session_adapters.contains(&relative) {
             violations.push(ArchitectureViolation {
                 rule: "ui-couples-to-session-via-adapters",
                 subject: relative.display().to_string(),
@@ -596,6 +631,29 @@ fn validate_shrink_only_baseline(violations: &[ArchitectureViolation]) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_boundary_excludes_only_explicit_test_modules() {
+        for source in [
+            "#[cfg(test)] mod tests { use workdeck_session::Session; }",
+            "mod live { #[cfg(test)] mod tests { fn check() { workdeck_session::check(); } } }",
+            "// workdeck_session is not an import\nfn live() {}",
+            "const DOC: &str = \"workdeck_session\";",
+        ] {
+            assert!(!production_mentions_session(source).unwrap(), "{source}");
+        }
+        for source in [
+            "use workdeck_session::Session;",
+            "mod live { fn run() { workdeck_session::run(); } }",
+            "#[cfg(not(test))] mod live { use workdeck_session::Session; }",
+            "#[cfg(any(test, feature = \"runtime\"))] mod live { use workdeck_session::Session; }",
+            "macro_rules! generate { () => { workdeck_session::run() }; }",
+            "#[cfg(test)] mod tests {} fn live() { workdeck_session::run(); }",
+        ] {
+            assert!(production_mentions_session(source).unwrap(), "{source}");
+        }
+        assert!(production_mentions_session("mod {").is_err());
+    }
 
     fn shape(name: &str, dependencies: &[&str], binaries: &[&str]) -> PackageShape {
         PackageShape {
