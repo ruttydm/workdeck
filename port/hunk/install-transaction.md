@@ -43,3 +43,16 @@ coordinates callers of this helper: unrelated writers, hostile directory changes
 and Windows reparse-point substitution remain outside the guarantee. The lock
 file is intentional persistent installation state, not repository state created
 by a read-only command.
+
+## Integration-boundary verification
+
+At `1b44844b`, strict Clippy passed for all targets of both `workdeck-cli` and
+xtask. `cargo xtask architecture check` passed with 12 production crates, one
+shipped executable and zero dependency or source-reachability violations. This
+verifies the installer ownership move and current code structure, not completed
+updater behavior or platform release qualification. The latest CLI library test
+run passed all 273 tests.
+Strict `cargo xtask port audit` still fails: 1,257 baseline files, 1,459 intervals,
+280 unmapped records and 92 queued upstream commits on the current preserved
+refs. No new upstream fetch was performed for this verification; this is not the
+required final zero-delta release gate.
