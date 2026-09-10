@@ -1163,6 +1163,36 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn alpha_session_navigation_without_cursor_rows_reports_hunk_fallback() {
+        let mut app = ReviewApp::new(
+            pinned_two_hunk_alpha_review(),
+            ReviewOptions {
+                cursor_line: crate::CursorLineMode::Off,
+                ..Default::default()
+            },
+        );
+        let result = app
+            .session_navigate_to_location(&workdeck_session::NavigateToHunkToolInput {
+                target_session: Default::default(),
+                file_path: Some("alpha.ts".into()),
+                hunk_index: None,
+                side: Some(ReviewSide::New),
+                line: Some(12),
+                comment_direction: None,
+            })
+            .unwrap();
+        assert_eq!(result.hunk_index, 1);
+        assert_eq!(
+            result.revealed,
+            Some(workdeck_session::RevealedTarget::Hunk)
+        );
+        assert_eq!(
+            app.with_state(|state| state.selection().hunk_index),
+            Some(1)
+        );
+    }
+
+    #[test]
     fn extension_line_reveal_reads_current_rows_after_reload() {
         let before = (1..=30)
             .map(|line| format!("export const line{line} = {line};\n"))
