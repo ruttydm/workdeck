@@ -6,13 +6,15 @@
     {% block metadata %}<meta name="description" content="{{ config.description }}">{% endblock metadata %}
     <title>{% block title %}{{ config.title }}{% endblock title %}</title>
     <link rel="stylesheet" href="/fonts/jetbrains-mono.css">
+    <link rel="stylesheet" href="/brand.css">
     <link rel="stylesheet" href="/main.css">
   </head>
   <body>
-    <header><a href="/" aria-label="Workdeck home">workdeck</a>
-      <nav aria-label="Main navigation"><a href="/extensions/">Extension migration</a></nav>
+    <header><div class="brand-header-inner" data-context="marketing"><a class="brand-logo" href="/" aria-label="Workdeck home">workdeck</a>
+      <div class="brand-header-actions"><nav class="brand-nav" aria-label="Main navigation"><a href="/extensions/">Extension migration</a></nav></div>
+      </div>
     </header>
     <main>{% block content %}{% endblock content %}</main>
-    <footer>MIT licensed. Hunk-derived portions retain their notices.</footer>
+    <footer class="brand-footer" data-context="marketing">MIT licensed. Hunk-derived portions retain their notices.</footer>
   </body>
 </html>

@@ -90,6 +90,30 @@ pub(super) fn run(repo: &Path, args: impl Iterator<Item = String>) -> Result<()>
 mod tests {
     use super::*;
     #[test]
+    fn shared_brand_styles_preserve_pinned_main_after_explicit_migration() {
+        let repo = crate::repo_root().unwrap();
+        let actual = fs::read_to_string(repo.join("site/static/brand.css")).unwrap();
+        let commit = "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2";
+        let source = std::process::Command::new("git")
+            .current_dir(&repo)
+            .args(["show", &format!("{commit}:website/src/styles/brand.css")])
+            .output()
+            .unwrap();
+        assert!(source.status.success());
+        let expected = format!(
+            "/* Derived from Hunk brand.css, MIT. Copyright Modem Labs Inc. */\n{}",
+            String::from_utf8(source.stdout)
+                .unwrap()
+                .replace(
+                    "@import \"@fontsource-variable/jetbrains-mono/index.css\";\n",
+                    ""
+                )
+                .replace("--hunk-", "--workdeck-")
+                .replace("brand-modem", "brand-attribution")
+        );
+        assert_eq!(actual, expected, "{commit}");
+    }
+    #[test]
     fn changed_font_or_missing_license_cannot_generate_sbom() {
         let repo = crate::repo_root().unwrap();
         let temp = tempfile::tempdir().unwrap();

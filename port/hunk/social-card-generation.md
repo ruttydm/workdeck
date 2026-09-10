@@ -398,3 +398,22 @@ The regression covers each encoding, duplicates, missing links and longer URLs.
 CI's Zola installation is pinned to the tested 0.23.4; no remote CI run is claimed.
 This proves the current small native site builds and passes its implemented
 checks, not that all upstream pages, accessibility or visual parity are complete.
+
+## Shared brand stylesheet migration
+
+`site/static/brand.css` now retains the complete pinned-main stylesheet, with
+only the package font import removed (the local six-subset stylesheet supplies
+it), `--hunk-` tokens renamed to `--workdeck-`, `brand-modem` renamed to
+`brand-attribution`, and an MIT attribution header added. A Rust test verifies
+the entire resulting text against `git show` and those explicit transformations.
+The native template loads it and uses its shared header/footer classes; existing
+page styles now consume its colors and font tokens instead of unrelated colors.
+`cargo xtask site check` passes with this integration.
+
+An attempted comparison against stable exposed a genuine version difference:
+stable lacks main's star-control styling and responsive star-label/count rules.
+The migration retains main's complete rules as required, rather than removing
+them to match an older tree. This text check is against main, not a claim that the
+two source stylesheets are identical. Complete header controls, theme switching,
+all responsive page layouts and screenshot parity remain unfinished; the brand
+source interval is still unmapped.

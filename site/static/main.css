@@ -1,22 +1,23 @@
 /* Font stack derived from Hunk brand.css, MIT, Copyright Modem Labs Inc.
    The retained font has its own SIL OFL 1.1 license in fonts/. */
-:root { color-scheme: dark; font-family: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; background: #0d1117; color: #c9d1d9; }
+:root { color-scheme: light; font-family: var(--workdeck-font); background: var(--workdeck-bg); color: var(--workdeck-body); }
+:root[data-theme="dark"] { color-scheme: dark; }
 pre, code, kbd, samp { font-family: inherit; }
 body { max-width: 72rem; margin: 0 auto; padding: 1.5rem; line-height: 1.55; }
-header, footer { padding: 1rem 0; color: #8b949e; }
-a { color: #79c0ff; }
+header, footer { padding: 1rem 0; color: var(--workdeck-muted); }
+a { color: var(--workdeck-accent); }
 main { display: grid; gap: 3rem; padding: 5rem 0; }
 .hero { max-width: 58rem; }
-.eyebrow { color: #d2a8ff; text-transform: uppercase; letter-spacing: .08em; }
-h1 { color: #f0f6fc; font-size: clamp(2.4rem, 7vw, 5.5rem); line-height: .98; margin: 1rem 0; }
-h2 { color: #f0f6fc; }
-pre { overflow-x: auto; padding: 1.25rem; border: 1px solid #30363d; background: #161b22; }
+.eyebrow { color: var(--workdeck-accent); text-transform: uppercase; letter-spacing: .08em; }
+h1 { color: var(--workdeck-ink); font-size: clamp(2.4rem, 7vw, 5.5rem); line-height: .98; margin: 1rem 0; }
+h2 { color: var(--workdeck-ink); }
+pre { overflow-x: auto; padding: 1.25rem; border: 1px solid var(--workdeck-rule); background: var(--workdeck-paper); }
 section:not(.hero) { max-width: 48rem; }
 section.extension-browser { max-width: none; }
 .extension-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 1.5rem; }
-.extension-filters { display: flex; flex-wrap: wrap; gap: .75rem; margin-bottom: 1.5rem; border: 1px solid #30363d; }
+.extension-filters { display: flex; flex-wrap: wrap; gap: .75rem; margin-bottom: 1.5rem; border: 1px solid var(--workdeck-rule); }
 .extension-filters label { padding: .4rem; cursor: pointer; }
-.extension-filters label:has(input:focus-visible) { outline: 2px solid #79c0ff; outline-offset: 2px; }
+.extension-filters label:has(input:focus-visible) { outline: 2px solid var(--workdeck-accent); outline-offset: 2px; }
 .extension-browser:has(input[value="Command"]:checked) .extension-card:not([data-categories*="|Command|"]),
 .extension-browser:has(input[value="Pane"]:checked) .extension-card:not([data-categories*="|Pane|"]),
 .extension-browser:has(input[value="Changeset transform"]:checked) .extension-card:not([data-categories*="|Changeset transform|"]),
@@ -25,7 +26,7 @@ section.extension-browser { max-width: none; }
 .extension-browser:has(input[value="Theme"]:checked) .extension-card:not([data-categories*="|Theme|"]),
 .extension-browser:has(input[value="VCS backend"]:checked) .extension-card:not([data-categories*="|VCS backend|"]),
 .extension-browser:has(input[value="File view"]:checked) .extension-card:not([data-categories*="|File view|"]) { display: none; }
-.extension-card { min-width: 0; padding: 1.25rem; border: 1px solid #30363d; border-radius: .5rem; overflow-wrap: anywhere; }
+.extension-card { min-width: 0; padding: 1.25rem; border: 1px solid var(--workdeck-rule); border-radius: .5rem; overflow-wrap: anywhere; }
 .extension-card h2 { margin-top: 0; }
 nav { margin-top: .75rem; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } }

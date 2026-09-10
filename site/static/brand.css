@@ -1,0 +1,256 @@
+/* Derived from Hunk brand.css, MIT. Copyright Modem Labs Inc. */
+
+:root {
+  --workdeck-font:
+    "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo,
+    Consolas, "Liberation Mono", monospace;
+  --workdeck-bg: #f4f1ea;
+  --workdeck-paper: #fffdf8;
+  --workdeck-paper-hover: #fff;
+  --workdeck-panel: #e9e4d8;
+  --workdeck-ink: #16140f;
+  --workdeck-body: #3a352b;
+  --workdeck-muted: #6b6557;
+  --workdeck-rule: #dcd6c8;
+  --workdeck-accent: #1f7a35;
+  --workdeck-accent-soft: #bfe9c6;
+  --workdeck-accent-ink: #0d3a18;
+  --workdeck-strong-border: #16140f;
+  --workdeck-shadow: #16140f;
+  --workdeck-button-ink: #fffdf8;
+}
+
+:root[data-theme="dark"] {
+  --workdeck-bg: #0c0e10;
+  --workdeck-paper: #14181b;
+  --workdeck-paper-hover: #1b1f24;
+  --workdeck-panel: #1b1f24;
+  --workdeck-ink: #f2f4f6;
+  --workdeck-body: #c3c9cf;
+  --workdeck-muted: #9aa4af;
+  --workdeck-rule: #262d34;
+  --workdeck-accent: #5dd06a;
+  --workdeck-accent-soft: #2c6b34;
+  --workdeck-accent-ink: #b9f2c0;
+  --workdeck-strong-border: #3a444e;
+  --workdeck-shadow: #050607;
+  --workdeck-button-ink: #0c0e10;
+}
+
+.brand-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 960px;
+  min-width: 0;
+  height: 100%;
+  margin-inline: auto;
+  padding-inline: 36px;
+  color: var(--workdeck-ink);
+  font-family: var(--workdeck-font);
+}
+
+/* Documentation navigation tracks the centered docs shell, not the full browser width. */
+.brand-header-inner[data-context="docs"] {
+  max-width: var(--workdeck-shell-max, none);
+}
+
+.brand-logo {
+  flex: none;
+  color: var(--workdeck-ink);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+
+.brand-header-actions,
+.brand-nav,
+.brand-tools {
+  display: flex;
+  align-items: center;
+}
+
+.brand-header-actions {
+  min-width: 0;
+  gap: 22px;
+}
+
+.brand-nav {
+  gap: 22px;
+  font-size: 13.5px;
+  /* Wrapping would double the header height and leave a link dangling under the others; narrow
+     viewports drop secondary links instead (see the breakpoints below). */
+  flex-wrap: nowrap;
+}
+
+.brand-nav a {
+  white-space: nowrap;
+}
+
+.brand-nav a {
+  color: var(--workdeck-ink);
+  text-decoration: none;
+}
+
+.brand-nav a:hover,
+.brand-nav a[aria-current="page"] {
+  color: var(--workdeck-accent);
+}
+
+.brand-nav .brand-star {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--workdeck-rule);
+  border-radius: 7px;
+  background: var(--workdeck-paper);
+  color: var(--workdeck-ink);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.brand-nav .brand-star:hover {
+  border-color: var(--workdeck-ink);
+  color: var(--workdeck-accent);
+}
+
+.brand-star svg {
+  flex: none;
+}
+
+.brand-star-count {
+  padding-left: 7px;
+  border-left: 1px solid var(--workdeck-rule);
+  color: var(--workdeck-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.brand-tools {
+  min-width: 0;
+  gap: 14px;
+}
+
+.brand-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 960px;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-inline: auto;
+  padding: 26px 36px 52px;
+  border-top: 1.5px solid var(--workdeck-strong-border);
+  color: var(--workdeck-muted);
+  font-family: var(--workdeck-font);
+  font-size: 12.5px;
+}
+
+.brand-footer[data-context="docs"] {
+  margin-top: 3rem;
+  padding: 24px 0 0;
+}
+
+.brand-footer-links,
+.brand-attribution {
+  display: flex;
+  align-items: center;
+}
+
+.brand-footer-links {
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.brand-footer a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.brand-footer a:hover {
+  color: var(--workdeck-accent);
+}
+
+.brand-attribution {
+  gap: 10px;
+}
+
+.brand-attribution img {
+  display: block;
+  width: auto;
+  height: 16px;
+  opacity: 0.82;
+}
+
+:root[data-theme="dark"] .brand-attribution img {
+  filter: invert(1);
+}
+
+@media (max-width: 49.999rem) {
+  .brand-header-inner[data-context="docs"] {
+    padding-inline: 20px 72px;
+  }
+
+  .brand-header-inner[data-context="docs"] .brand-nav {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .brand-header-inner {
+    padding-inline: 20px;
+  }
+
+  .brand-header-inner[data-context="docs"] {
+    padding-inline-end: 72px;
+  }
+
+  .brand-footer {
+    padding-inline: 20px;
+  }
+
+  .brand-footer[data-context="docs"] {
+    padding-inline: 0;
+  }
+
+  .brand-nav {
+    gap: 15px;
+    font-size: 12.5px;
+  }
+}
+
+/*
+ * The marketing header keeps its links inline at every width, so each breakpoint drops the least
+ * essential one still present. Docs, Changelog, and the GitHub star control survive everywhere. Docs pages hide the
+ * whole nav below 50rem in favour of Starlight's menu, so these only affect marketing.
+ */
+/* Extensions is the longest label and has its own entry points from the docs and
+   the landing page, so it is the first to go when the header runs out of room. */
+@media (max-width: 560px) {
+  .brand-header-inner[data-context="marketing"] .brand-extensions {
+    display: none;
+  }
+}
+
+@media (max-width: 430px) {
+  .brand-header-inner[data-context="marketing"] .brand-discord,
+  .brand-header-inner[data-context="marketing"] .brand-star-label {
+    display: none;
+  }
+
+  .brand-header-inner[data-context="marketing"] .brand-star-count {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+
+@media (max-width: 344px) {
+  /* The hero's copy-command button and the #install section both sit on this page already. */
+  .brand-header-inner[data-context="marketing"] .brand-install {
+    display: none;
+  }
+}
