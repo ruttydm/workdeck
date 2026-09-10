@@ -30,6 +30,11 @@ repeat rejection before a second backup is created.
 The two application tests and all 23 changelog CLI tests pass; strict xtask
 all-target Clippy passes. The concurrent-editor regression verifies that rollback
 reports the conflict and retains both the edited target and original recovery bytes.
+Additional adversarial-path coverage brings the application suite to four passing
+tests: a symlinked site parent cannot redirect writes outside the repository,
+stale original bytes cause rejection before backup creation, and a backup inside
+the repository is refused without modifying targets. These tests run on macOS;
+they do not establish Windows reparse-point behavior or race-free path traversal.
 
 ## Read-only planning and historical checkpoints
 

@@ -182,6 +182,53 @@ pub(super) fn apply(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    #[test]
+    fn redirected_artifact_parents_are_rejected_before_backup_or_writes() {
+        let root = tempfile::tempdir().unwrap();
+        let repo = root.path().join("repo");
+        let outside = root.path().join("outside");
+        fs::create_dir(&repo).unwrap();
+        fs::create_dir_all(outside.join("content/changelog")).unwrap();
+        let name = "site/content/changelog/index.md".to_string();
+        fs::write(outside.join("content/changelog/index.md"), b"original").unwrap();
+        std::os::unix::fs::symlink(&outside, repo.join("site")).unwrap();
+        let plan = ArtifactPlan {
+            schema: 1,
+            edits: BTreeMap::from([(name.clone(), Some("replacement".into()))]),
+            originals: BTreeMap::from([(name, Some(b"original".to_vec()))]),
+        };
+        let backup = root.path().join("backup");
+        assert!(apply(&repo, &plan, &backup, |_| panic!("must not write")).is_err());
+        assert!(!backup.exists());
+        assert_eq!(
+            fs::read(outside.join("content/changelog/index.md")).unwrap(),
+            b"original"
+        );
+    }
+
+    #[test]
+    fn stale_originals_and_internal_backups_fail_without_mutation() {
+        let root = tempfile::tempdir().unwrap();
+        let repo = root.path().join("repo");
+        fs::create_dir_all(repo.join("site/content/changelog")).unwrap();
+        let name = "site/content/changelog/index.md".to_string();
+        let path = repo.join(&name);
+        fs::write(&path, b"concurrent").unwrap();
+        let mut plan = ArtifactPlan {
+            schema: 1,
+            edits: BTreeMap::from([(name.clone(), Some("replacement".into()))]),
+            originals: BTreeMap::from([(name.clone(), Some(b"old".to_vec()))]),
+        };
+        let external = root.path().join("external-backup");
+        assert!(apply(&repo, &plan, &external, |_| panic!("must not write")).is_err());
+        assert!(!external.exists());
+        plan.originals.insert(name, Some(b"concurrent".to_vec()));
+        let internal = repo.join("backup");
+        assert!(apply(&repo, &plan, &internal, |_| panic!("must not write")).is_err());
+        assert!(!internal.exists());
+        assert_eq!(fs::read(path).unwrap(), b"concurrent");
+    }
     #[test]
     fn rollback_preserves_a_concurrent_editor_change() {
         let root = tempfile::tempdir().unwrap();
