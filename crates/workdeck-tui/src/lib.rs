@@ -19711,6 +19711,36 @@ mod tests {
     }
 
     #[test]
+    fn extension_non_side_and_unknown_panes_do_not_reveal_sidebar() {
+        for placement in [PanePlacement::Top, PanePlacement::Bottom] {
+            let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+            let mut pane = bundled_files_pane().clone();
+            pane.id = "inspector".into();
+            pane.placement = placement;
+            let registered = RegisteredExtensionPane::new("probe", pane);
+            app.extension_pane_runtime.lock().unwrap().session_panes =
+                build_session_panes(&[registered]);
+            for id in ["inspector", "missing"] {
+                for toggle in [false, true] {
+                    app.extension_pane_runtime.lock().unwrap().open.clear();
+                    app.options.sidebar_visibility = SidebarVisibility::Auto;
+                    let action = if toggle {
+                        ExtensionHostAction::TogglePane { id: id.into() }
+                    } else {
+                        ExtensionHostAction::OpenPane { id: id.into() }
+                    };
+                    app.apply_extension_actions(0, "probe", vec![action]);
+                    assert_eq!(app.options.sidebar_visibility, SidebarVisibility::Auto);
+                    if id == "missing" {
+                        assert!(app.extension_pane_runtime.lock().unwrap().open.is_empty());
+                        assert!(app.status.as_deref().unwrap().contains("unknown pane"));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn live_pane_failure_quarantines_one_identity_and_restores_a_replaced_files_slot() {
         let mut pane = bundled_files_pane().clone();
         pane.id = "replacement".into();
