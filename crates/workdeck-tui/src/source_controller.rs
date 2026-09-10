@@ -1973,6 +1973,36 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn invalid_alpha_comment_batch_is_atomic() {
+        let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
+        let target = |path: &str, summary: &str| workdeck_session::CommentTargetInput {
+            file_path: path.into(),
+            hunk_index: Some(0),
+            side: None,
+            line: None,
+            summary: summary.into(),
+            rationale: None,
+            markup: None,
+            author: None,
+        };
+        let selection = app.with_state(|state| state.selection());
+        let error = app
+            .session_add_live_comment_batch(
+                &[
+                    target("alpha.ts", "Valid note"),
+                    target("missing.ts", "Invalid note"),
+                ],
+                "request-2",
+                true,
+            )
+            .unwrap_err();
+        assert_eq!(error, "No diff file matches missing.ts.");
+        assert!(app.with_state(|state| state.comments().is_empty()));
+        assert!(app.session_live_comment_summaries().is_empty());
+        assert_eq!(app.with_state(|state| state.selection()), selection);
+    }
+
+    #[test]
     fn live_beta_comment_updates_annotated_navigation_without_reload() {
         let mut review = pinned_review_from_text(
             "alpha",
