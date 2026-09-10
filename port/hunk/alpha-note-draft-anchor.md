@@ -26,3 +26,23 @@ does not yet cover those assertions or rendered mouse-hit routing. Bytes
 All 1,234 native TUI library tests subsequently passed in 9.71 seconds. Formatting,
 diff checks and strict workspace/all-target Clippy passed; the latter required
 fixing two unnecessary single-item-slice clones in an earlier batch-reveal test.
+
+## Keyboard and pointer cursor distinction
+
+Pinned `startUserNoteEdit` and `startUserNoteReply` explicitly apply the draft's
+line cursor unless `preserveViewport` is set (hook lines 1341–1394). Native
+keyboard/catalog edit and reply actions previously called the same preserving
+open methods as mouse actions without restoring the note's line.
+
+`alpha_keyboard_note_actions_restore_the_note_line_target` exposed that gap:
+after moving two lines beyond a saved root, keyboard Edit left new-side line 7
+selected rather than the root's line 5. Both keyboard actions now resolve the
+draft's exact target in the measured row plan and apply that cursor. Pointer
+actions retain their preserving route. The test covers Edit and Reply, with a
+real Escape cancellation between them.
+
+This fixes cursor targeting only. Complete default note reveal placement and
+the source reveal-request/stable-key assertions remain open; no source interval
+is newly mapped by this change.
+All 1,236 TUI library tests passed in 8.77 seconds after the cursor fix, including
+the separate pointer-preservation test. Formatting and diff checks passed.

@@ -2983,6 +2983,20 @@ impl ReviewApp {
         })
     }
 
+    fn restore_note_composer_line_cursor(&mut self) {
+        let Some(target) = self.note_composer.as_ref().map(|composer| composer.target) else {
+            return;
+        };
+        let cursor = self
+            .current_review_geometry_rows()
+            .line_cursors
+            .into_iter()
+            .find(|cursor| cursor.target == target);
+        if let Some(cursor) = cursor {
+            self.apply_review_line_cursor(cursor);
+        }
+    }
+
     fn publish_note_composer_edited(&mut self, composer: ReviewNoteComposer) {
         if let Some(note) =
             self.extension_note_from_composer(&composer, composer.body.clone(), true)
@@ -3619,9 +3633,11 @@ impl ReviewApp {
             }
             AppCommandAction::EditActiveNote => {
                 self.open_active_note_edit();
+                self.restore_note_composer_line_cursor();
             }
             AppCommandAction::ReplyToActiveNote => {
                 self.open_active_note_reply();
+                self.restore_note_composer_line_cursor();
             }
             AppCommandAction::StepDiffLine(delta) => self.step_diff_line(delta),
             AppCommandAction::ScrollCodeHorizontally(delta) => {

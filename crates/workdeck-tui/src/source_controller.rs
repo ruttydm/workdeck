@@ -1556,6 +1556,33 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn alpha_keyboard_note_actions_restore_the_note_line_target() {
+        let mut review = pinned_alpha_source_review(800);
+        review.files[0].set_source_capability(None);
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        app.open_note_composer();
+        let target = app.note_composer.as_ref().unwrap().target;
+        app.note_composer.as_mut().unwrap().body = "Root note".into();
+        let root = app.save_note_composer().unwrap();
+        for action in [
+            super::super::AppCommandAction::EditActiveNote,
+            super::super::AppCommandAction::ReplyToActiveNote,
+        ] {
+            app.step_diff_line(2);
+            assert_ne!(app.current_review_line_cursor().unwrap().target, target);
+            app.saved_note_hover = Some(root.id.clone());
+            app.apply_builtin_command_action(action);
+            assert_eq!(app.note_composer.as_ref().unwrap().target, target);
+            assert_eq!(app.current_review_line_cursor().unwrap().target, target);
+            app.handle_key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Esc,
+                crossterm::event::KeyModifiers::NONE,
+            ));
+        }
+    }
+
+    #[test]
     fn alpha_mouse_targeted_note_drafts_preserve_cursor_and_scroll() {
         let mut review = pinned_alpha_source_review(800);
         review.files[0].set_source_capability(None);
