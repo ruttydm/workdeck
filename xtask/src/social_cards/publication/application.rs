@@ -207,6 +207,38 @@ pub(in crate::social_cards) fn apply(
 mod tests {
     use super::*;
     #[test]
+    fn cleanup_preserves_new_entries_and_rolls_back_prior_deletions() {
+        let outer = tempfile::tempdir().unwrap();
+        let repo = outer.path().join("repo");
+        let directory = "site/static/changelog/og";
+        fs::create_dir_all(repo.join(directory)).unwrap();
+        let old = format!("{directory}/old.png");
+        let newcomer = repo.join(directory).join("new.png");
+        fs::write(repo.join(&old), b"original").unwrap();
+        let plan = Plan {
+            remove_directories: [directory.into()].into_iter().collect(),
+            originals: BTreeMap::from([(old.clone(), Some(b"original".to_vec()))]),
+            replacements: BTreeMap::from([(old.clone(), None)]),
+        };
+        let backup = outer.path().join("backup");
+        let error = apply(&repo, &plan, &backup, |step| {
+            if step == 1 {
+                fs::write(&newcomer, b"concurrent editor")?;
+            }
+            Ok(())
+        })
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("remove empty publication directory")
+        );
+        assert_eq!(fs::read(repo.join(old)).unwrap(), b"original");
+        assert_eq!(fs::read(newcomer).unwrap(), b"concurrent editor");
+        assert!(backup.join("recovery.json").is_file());
+    }
+
+    #[test]
     fn binary_application_recovers_each_partial_write() {
         for failure in 0..=5 {
             let outer = tempfile::tempdir().unwrap();
@@ -215,6 +247,12 @@ mod tests {
             let empty = "site/static/changelog/og/empty";
             let nested = "site/static/changelog/og/empty/nested";
             fs::create_dir_all(repo.join(nested)).unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(repo.join(empty), fs::Permissions::from_mode(0o750)).unwrap();
+                fs::set_permissions(repo.join(nested), fs::Permissions::from_mode(0o700)).unwrap();
+            }
             let a = "site/static/changelog/og/a.png".to_string();
             let b = "site/static/changelog/og/b.png".to_string();
             let c = "site/static/extensions/og.png".to_string();
@@ -243,6 +281,22 @@ mod tests {
             assert_eq!(result.is_ok(), failure == 0);
             assert_eq!(repo.join(empty).exists(), failure != 0);
             assert_eq!(repo.join(nested).exists(), failure != 0);
+            #[cfg(unix)]
+            if failure != 0 {
+                use std::os::unix::fs::PermissionsExt;
+                assert_eq!(
+                    fs::metadata(repo.join(empty)).unwrap().permissions().mode() & 0o777,
+                    0o750
+                );
+                assert_eq!(
+                    fs::metadata(repo.join(nested))
+                        .unwrap()
+                        .permissions()
+                        .mode()
+                        & 0o777,
+                    0o700
+                );
+            }
             let expected = if failure == 0 {
                 &plan.replacements
             } else {

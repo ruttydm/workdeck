@@ -229,3 +229,10 @@ Nine unit tests pass with failure injection after all five operations (three
 file writes/deletions and two nested directory removals). This supersedes the
 earlier empty-directory limitation; concurrent filesystem races and crash-atomic
 directory replacement remain unresolved.
+
+Two focused publication-application tests pass with additional adversarial
+coverage: inserting an unexpected image immediately before directory removal
+fails cleanup, preserves that image and restores the earlier deleted image.
+The five-step rollback matrix additionally verifies restoration of Unix 0750
+and 0700 permissions on nested directories. This covers the injected event
+sequence, not arbitrary concurrent filesystem interleavings.
