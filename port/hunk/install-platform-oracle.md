@@ -21,6 +21,11 @@ The explicitly invoked replay test
 passes against both preserved refs. It is ignored in ordinary tests because it
 executes the source shell oracle; native fixture comparisons remain ordinary tests.
 
+Capture now verifies that each named pin resolves to its expected full commit
+before reading source, then reads `install.sh` by that immutable commit ID.
+A temporary-repository test proves a changed pin is rejected before source
+loading. Both the changed-pin test and explicit full fixture replay pass.
+
 `platform_detection_matches_both_pinned_shell_oracles` passes all 20 cases.
 Successful OS/architecture tokens match byte-for-byte. Error cases compare only
 the unsupported-system/architecture category; Workdeck's native diagnostics and

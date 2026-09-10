@@ -21,10 +21,20 @@ pub(super) fn run(repo: &Path, mut args: impl Iterator<Item = String>) -> Result
 
 fn capture(repo: &Path) -> Result<Vec<serde_json::Value>> {
     let mut cases = Vec::new();
-    for pin in ["hunk-port/main-2c00f435", "hunk-port/stable-v0.20.1"] {
+    for (pin, commit) in [
+        (
+            "hunk-port/main-2c00f435",
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+        ),
+        (
+            "hunk-port/stable-v0.20.1",
+            "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+        ),
+    ] {
+        require_pin(repo, pin, commit)?;
         let source = Command::new("git")
             .current_dir(repo)
-            .args(["show", &format!("{pin}:install.sh")])
+            .args(["show", &format!("{commit}:install.sh")])
             .output()?;
         ensure!(
             source.status.success(),
@@ -69,9 +79,62 @@ fn capture(repo: &Path) -> Result<Vec<serde_json::Value>> {
     Ok(cases)
 }
 
+fn require_pin(repo: &Path, pin: &str, expected: &str) -> Result<()> {
+    let resolved = Command::new("git")
+        .current_dir(repo)
+        .args(["rev-parse", "--verify", &format!("{pin}^{{commit}}")])
+        .output()?;
+    ensure!(
+        resolved.status.success() && String::from_utf8(resolved.stdout)?.trim() == expected,
+        "installer oracle pin is missing or changed: {pin}"
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn changed_pin_is_rejected_before_reading_source() {
+        let directory = tempfile::tempdir().unwrap();
+        for args in [
+            vec!["init", "--quiet"],
+            vec![
+                "-c",
+                "user.name=Oracle",
+                "-c",
+                "user.email=oracle@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--quiet",
+                "--allow-empty",
+                "-m",
+                "fixture",
+            ],
+            vec!["tag", "hunk-port/main-2c00f435"],
+        ] {
+            assert!(
+                Command::new("git")
+                    .current_dir(directory.path())
+                    .args(args)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        }
+        assert!(
+            require_pin(
+                directory.path(),
+                "hunk-port/main-2c00f435",
+                "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2"
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("missing or changed")
+        );
+    }
 
     #[test]
     #[ignore = "executes pinned shell oracle; run explicitly during capture verification"]
