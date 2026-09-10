@@ -67,3 +67,12 @@ promise returned an error string that was ignored. Missing, null, false and text
 responses now fail capture rather than producing a success report. All 15
 compositor tests pass, including explicit readiness-response validation. This
 checks protocol handling, not a live browser font-failure scenario.
+
+Successful capture now saves the same report as `capture.json` beside the staged
+PNGs before retaining the directory or printing success. The manifest uses
+exclusive creation, a trailing newline and a file sync; an existing manifest is
+never overwritten. If saving fails, the still-owned temporary directory is
+cleaned up instead of reporting a retained capture. Four social-card unit tests
+pass, including exact saved bytes and collision preservation. File sync alone
+does not establish directory-entry crash durability, and the manifest is not
+signed provenance or authorization to publish its listed paths.

@@ -41,8 +41,21 @@ pub(super) fn run_capture(
         "images": targets.iter().enumerate().map(|(i,t)| serde_json::json!({"stagedFile":format!("{i:04}.png"), "target":t})).collect::<Vec<_>>()
     });
     let encoded = serde_json::to_string_pretty(&report)?;
+    save_capture_manifest(staged.path(), &encoded)?;
     let _retained_staging_directory = staged.keep();
     println!("{encoded}");
+    Ok(())
+}
+
+fn save_capture_manifest(staging: &std::path::Path, encoded: &str) -> Result<()> {
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(staging.join("capture.json"))?;
+    file.write_all(encoded.as_bytes())?;
+    file.write_all(b"\n")?;
+    file.sync_all()?;
     Ok(())
 }
 
@@ -214,6 +227,22 @@ pub(super) fn run(repo: &std::path::Path, mut args: impl Iterator<Item = String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn capture_manifest_is_durable_exact_and_never_overwritten() {
+        let staging = tempfile::tempdir().unwrap();
+        let encoded = r#"{"rendered":true,"published":false,"images":[]}"#;
+        save_capture_manifest(staging.path(), encoded).unwrap();
+        let expected = format!("{encoded}\n");
+        assert_eq!(
+            std::fs::read_to_string(staging.path().join("capture.json")).unwrap(),
+            expected
+        );
+        assert!(save_capture_manifest(staging.path(), "different").is_err());
+        assert_eq!(
+            std::fs::read_to_string(staging.path().join("capture.json")).unwrap(),
+            expected
+        );
+    }
     #[test]
     fn html_preserves_pinned_geometry_escaping_and_utf16_title_threshold() {
         let mut target = select(vec![], &[]).unwrap().remove(0);
