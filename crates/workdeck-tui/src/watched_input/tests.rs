@@ -207,7 +207,8 @@ fn native_direct_file_driver_refreshes_the_loaded_diff_after_an_atomic_save() {
     });
     assert_eq!(outcome.refresh_attempts, 1);
     assert_eq!(outcome.refreshes, 1);
-    assert!(outcome.reload_pending);
+    // Native readiness may detect the change before an event hint is delivered.
+    // Pending notifications are checked separately with deterministic callbacks.
     assert!(outcome.errors.is_empty());
 }
 
@@ -337,7 +338,7 @@ fn linked_worktree_refresh(detached: bool) {
     });
     assert_eq!(outcome.refresh_attempts, 1);
     assert_eq!(outcome.refreshes, 1);
-    assert!(outcome.reload_pending);
+    // A readiness signature check can refresh without an event-pending hint.
     assert!(outcome.errors.is_empty());
 }
 
@@ -430,6 +431,44 @@ fn disabled_or_unplanned_inputs_create_no_event_source() {
     );
     assert_eq!(unplanned.source_count.load(Ordering::Relaxed), 0);
     assert_eq!(unplanned.signature_count.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn delayed_readiness_refreshes_changed_input_without_pending_event() {
+    let now = Instant::now();
+    let runtime = FakeRuntime::hybrid();
+    let runtime_trait: Arc<dyn WatchedInputRuntime> = runtime.clone();
+    let mut driver = WatchedInputDriver::start(
+        true,
+        input(),
+        runtime_trait,
+        None,
+        now,
+        native_watch_config(),
+    )
+    .unwrap()
+    .unwrap();
+    let initial = driver.poll(
+        now + Duration::from_millis(50),
+        &mut || -> Result<(), &'static str> {
+            panic!("not ready and unchanged input must not refresh");
+        },
+    );
+    assert_eq!(initial.refresh_attempts, 0);
+    assert!(!initial.reload_pending);
+    runtime.set_signature("signature:1");
+    (runtime.callback().on_ready.as_ref().unwrap())();
+    let mut refreshes = 0;
+    let outcome = driver.poll(now + Duration::from_millis(60), &mut || {
+        refreshes += 1;
+        Ok::<(), &'static str>(())
+    });
+    assert_eq!(refreshes, 1);
+    assert_eq!(outcome.refresh_attempts, 1);
+    assert_eq!(outcome.refreshes, 1);
+    assert!(!outcome.reload_pending);
+    assert!(outcome.errors.is_empty());
+    assert_eq!(driver.state().applied_signature, "signature:1");
 }
 
 #[test]
