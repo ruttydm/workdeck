@@ -115,3 +115,26 @@ CLI acceptance fixtures have been upgraded from the earlier synthetic bytes to
 real encoded PNGs. A matching digest for malformed image bytes is rejected by
 the decoder. Six unit tests and both CLI tests pass; this proves structural image
 validation, not visual parity with either upstream baseline.
+
+## Direct pinned HTML oracle
+
+The explicitly ignored `html_matches_both_pinned_source_renderers` test passed
+against main `2c00f4358b89cfc0a6b04459ffc538ba601aa3c2` and stable
+`4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd`. It reads the original renderer
+through `git show`, executes it with Bun only in a disposable temporary
+directory, and compares the complete HTML string with the Rust renderer.
+The six comparisons cover ordinary titles and both sides of the 12-UTF-16-unit
+title-size boundary, with escaping, chips, tagline and latest badge enabled.
+Only the visible product mark and the Rust CSS attribution comment are
+normalized; whitespace, CSS and geometry are compared exactly.
+
+Run this optional source-oracle check with:
+
+```sh
+cargo test -p xtask html_matches_both_pinned_source_renderers -- --ignored
+```
+
+This is a live source-function comparison, not committed frozen oracle output,
+a browser screenshot comparison, or proof of complete generator parity. Bun is
+not used by the Rust renderer or shipped product. The source interval remains
+unmapped while publication and remaining generator behavior are incomplete.

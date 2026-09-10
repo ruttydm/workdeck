@@ -296,6 +296,64 @@ pub(super) fn run(repo: &std::path::Path, mut args: impl Iterator<Item = String>
 mod tests {
     use super::*;
     #[test]
+    #[ignore = "executes isolated pinned TypeScript render functions through Bun as an oracle"]
+    fn html_matches_both_pinned_source_renderers() {
+        let repo = crate::repo_root().unwrap();
+        for commit in [
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+            "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+        ] {
+            let source = std::process::Command::new("git")
+                .current_dir(&repo)
+                .args(["show", &format!("{commit}:website/scripts/generate-og.ts")])
+                .output()
+                .unwrap();
+            assert!(source.status.success());
+            let source = String::from_utf8(source.stdout).unwrap();
+            let start = source.find("function escapeHtml(").unwrap();
+            let end = source.find("\nconst requested =").unwrap();
+            let renderer = &source[start..end];
+            let constants = source
+                .lines()
+                .filter(|line| {
+                    line.starts_with("const WIDTH =") || line.starts_with("const HEIGHT =")
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            for title in ["0.20", "😀😀😀😀😀😀", "😀😀😀😀😀😀x"] {
+                let mut target = select(vec![], &[]).unwrap().remove(0);
+                target.card.title = title.into();
+                target.card.tagline = Some("<&\"' λ".into());
+                target.card.chips = Some(vec!["one & two".into(), "<three>".into()]);
+                target.card.latest = true;
+                let temp = tempfile::tempdir().unwrap();
+                let script = temp.path().join("oracle.ts");
+                std::fs::write(&script, format!("{constants}\n{renderer}\nconsole.log(JSON.stringify(renderCardHtml({}, 'data:font/woff2;base64,Zm9udA==')));", serde_json::to_string(&target).unwrap())).unwrap();
+                let output = std::process::Command::new("bun")
+                    .arg(&script)
+                    .current_dir(temp.path())
+                    .output()
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                assert!(output.stderr.is_empty());
+                let expected: String = serde_json::from_slice(&output.stdout).unwrap();
+                let expected = expected.replace(
+                    "<div class=\"mark\">hunk</div>",
+                    "<div class=\"mark\">workdeck</div>",
+                );
+                let actual = render_html(&target, b"font").replace(
+                    "/* Derived from Hunk generate-og.ts, MIT. Copyright Modem Labs Inc. */\n",
+                    "",
+                );
+                assert_eq!(actual, expected, "{commit} {title}");
+            }
+        }
+    }
+    #[test]
     fn saved_capture_check_rejects_image_target_and_scope_changes() {
         let staging = tempfile::tempdir().unwrap();
         let targets = select(vec![], &[]).unwrap();
