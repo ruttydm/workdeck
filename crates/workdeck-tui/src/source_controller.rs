@@ -1975,7 +1975,15 @@ pub(super) mod tests {
     #[test]
     fn reload_recovers_alpha_cursor_when_selected_hunk_is_retired() {
         let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
+        assert_eq!(
+            app.with_state(|state| state.selected_file().unwrap().hunks.len()),
+            2
+        );
         app.select_extension_review_hunk("test", "alpha", 1);
+        assert_eq!(
+            app.with_state(|state| state.selection().hunk_index),
+            Some(1)
+        );
         assert_eq!(
             app.current_review_line_cursor().unwrap().target.hunk_index,
             1
@@ -1989,6 +1997,14 @@ pub(super) mod tests {
         review.refresh_review_identities();
         assert_eq!(review.files[0].hunks.len(), 1);
         app.reload(review);
+        assert_eq!(
+            app.with_state(|state| state.selected_file().unwrap().hunks.len()),
+            1
+        );
+        assert_eq!(
+            app.with_state(|state| state.selection().hunk_index),
+            Some(0)
+        );
         let cursor = app.current_review_line_cursor().unwrap().target;
         assert_eq!(cursor.hunk_index, 0);
         app.with_state(|state| {

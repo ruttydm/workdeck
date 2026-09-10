@@ -2077,7 +2077,21 @@ impl ReviewApp {
                         _ => None,
                     }
                 });
+                let previous_hunk = state.selection().hunk_index;
                 state.reload_with_selected_source(changeset, text);
+                // The review shell clamps a retired hunk to the remaining
+                // stream; a synthesized cursor alone must not hide a missing
+                // stored hunk selection. Explicit file-only selections stay so.
+                if state.selection().hunk_index.is_none()
+                    && let Some(previous_hunk) = previous_hunk
+                    && let Some(last_hunk) = state
+                        .selected_file()
+                        .and_then(|file| file.hunks.len().checked_sub(1))
+                {
+                    state
+                        .select_hunk(state.selection().file_index, previous_hunk.min(last_hunk))
+                        .expect("clamped hunk belongs to the selected file");
+                }
             });
             self.agent_line_highlights = carried_agent_line_highlights;
             self.status = Some("review reloaded".into());
