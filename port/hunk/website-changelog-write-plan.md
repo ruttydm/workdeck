@@ -19,4 +19,16 @@ The native test checks exact binary original bytes, orphan removals, missing-fil
 edits, exclusion of unchanged files, repeated-plan identity and no output writes.
 
 The plan test and all 20 existing changelog CLI tests pass. Strict xtask Clippy,
-formatting and whitespace checks pass. Dedicated plan CLI coverage remains open.
+formatting and whitespace checks pass.
+
+## CLI plan coverage
+
+The real CLI test starts with no generated files and verifies six creations with
+null originals and no site directory created. A repeated invocation returns
+identical bytes. After the test installs those files, the next plan has no edits.
+Changing latest.json to invalid UTF-8 produces one replacement with the exact
+original byte array; the command leaves those bytes untouched and creates no
+Workdeck state. Applying the plan remains unimplemented.
+
+All 21 changelog CLI tests pass. Strict xtask Clippy, formatting and whitespace
+checks pass. No new source-ledger mapping is claimed.

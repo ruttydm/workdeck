@@ -11,6 +11,69 @@ fn run(repo: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
+fn artifact_plan_cli_records_creation_and_changes_without_writes() {
+    let repo = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    std::fs::write(repo.path().join("history.md"), "## 1.0.0\n").unwrap();
+    std::fs::write(repo.path().join("dates.json"), "{}").unwrap();
+    let args = ["changelog", "artifacts-plan", "history.md", "dates.json"];
+    let output = run(repo.path(), &args);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    let plan: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(plan["schema"], 1);
+    assert_eq!(plan["edits"].as_object().unwrap().len(), 6);
+    assert!(
+        plan["originals"]
+            .as_object()
+            .unwrap()
+            .values()
+            .all(serde_json::Value::is_null)
+    );
+    assert!(!repo.path().join("site").exists());
+    let again = run(repo.path(), &args);
+    assert!(again.status.success());
+    assert_eq!(again.stdout, output.stdout);
+    for (path, content) in plan["edits"].as_object().unwrap() {
+        let path = repo.path().join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, content.as_str().unwrap()).unwrap();
+    }
+    let current = run(repo.path(), &args);
+    assert!(current.status.success());
+    let current: serde_json::Value = serde_json::from_slice(&current.stdout).unwrap();
+    assert_eq!(current["edits"], serde_json::json!({}));
+    assert_eq!(current["originals"], serde_json::json!({}));
+    let target = "site/data/releases/latest.json";
+    std::fs::write(repo.path().join(target), [255, 0, 13, 10]).unwrap();
+    let changed = run(repo.path(), &args);
+    assert!(changed.status.success());
+    let changed: serde_json::Value = serde_json::from_slice(&changed.stdout).unwrap();
+    assert_eq!(changed["edits"].as_object().unwrap().len(), 1);
+    assert_eq!(changed["edits"][target], "null\n");
+    assert_eq!(
+        changed["originals"][target],
+        serde_json::json!([255, 0, 13, 10])
+    );
+    assert_eq!(
+        std::fs::read(repo.path().join(target)).unwrap(),
+        [255, 0, 13, 10]
+    );
+    assert!(!repo.path().join(".agents").exists());
+}
+
+#[test]
 fn artifact_check_cli_rejects_invalid_inputs_without_creating_state() {
     let repo = tempfile::tempdir().unwrap();
     assert!(
