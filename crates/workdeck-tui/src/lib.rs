@@ -3082,6 +3082,7 @@ impl ReviewApp {
         let timestamp = chrono::DateTime::from_timestamp_millis(i64::try_from(timestamp_ms).ok()?)?
             .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         let mut composer = self.note_composer.take()?;
+        let draft_id = composer.id.clone();
         let body = composer.body.trim();
         if body.is_empty() {
             if matches!(composer.kind, ReviewNoteComposerKind::Edit { .. }) {
@@ -3137,9 +3138,30 @@ impl ReviewApp {
         let extension_note = self.extension_note_from_composer(&composer, body.to_owned(), false);
         let editing = matches!(composer.kind, ReviewNoteComposerKind::Edit { .. });
         let result = self.with_state(|state| match &composer.kind {
-            ReviewNoteComposerKind::Edit { target_note_id, .. } => state
-                .edit_comment_summary_at(target_note_id, body.to_owned(), Some(timestamp.clone()))
-                .map(|_| ()),
+            ReviewNoteComposerKind::Edit { target_note_id, .. } => {
+                let mut candidate = state
+                    .comments()
+                    .iter()
+                    .find(|note| note.id == *target_note_id)
+                    .ok_or_else(|| {
+                        workdeck_review::ReviewError::UnknownComment(target_note_id.clone())
+                    })?
+                    .clone();
+                candidate.summary = body.to_owned();
+                candidate.updated_at = Some(timestamp.clone());
+                if !workdeck_review::review_note_within_size_limit(&candidate.semantic_note()) {
+                    return Err(workdeck_review::ReviewError::InvalidCommentTarget(
+                        "The review note exceeds the shared note size limit.".into(),
+                    ));
+                }
+                state
+                    .edit_comment_summary_at(
+                        target_note_id,
+                        body.to_owned(),
+                        Some(timestamp.clone()),
+                    )
+                    .map(|_| ())
+            }
             ReviewNoteComposerKind::Create | ReviewNoteComposerKind::Reply { .. } => {
                 let file = state
                     .changeset()
@@ -3196,6 +3218,11 @@ impl ReviewApp {
                     comment.anchor = parent.anchor.clone();
                     comment.resolution = parent.resolution;
                 }
+                if !workdeck_review::review_note_within_size_limit(&comment.semantic_note()) {
+                    return Err(workdeck_review::ReviewError::InvalidCommentTarget(
+                        "The review note exceeds the shared note size limit.".into(),
+                    ));
+                }
                 state.add_comment(comment)
             }
         });
@@ -3231,6 +3258,7 @@ impl ReviewApp {
             }
             Err(error) => {
                 self.status = Some(format!("failed to save review note: {error}"));
+                composer.id = draft_id;
                 self.note_composer = Some(composer);
                 None
             }

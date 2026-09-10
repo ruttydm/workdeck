@@ -1556,6 +1556,33 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn oversized_note_saves_preserve_drafts_without_mutation() {
+        let mut app = ReviewApp::new(pinned_alpha_source_review(800), ReviewOptions::default());
+        app.open_note_composer();
+        app.note_composer.as_mut().unwrap().body =
+            "🧪".repeat(workdeck_review::MAX_REVIEW_NOTE_BYTES / 4);
+        let revision = app.with_state(|state| state.state_revision());
+        assert!(app.save_note_composer().is_none());
+        assert!(app.note_composer.is_some());
+        assert!(app.with_state(|state| state.comments().is_empty()));
+        assert_eq!(app.with_state(|state| state.state_revision()), revision);
+        app.note_composer.as_mut().unwrap().body = "Valid".into();
+        let original = app.save_note_composer().unwrap();
+        app.saved_note_hover = Some(original.id.clone());
+        app.open_active_note_edit();
+        app.note_composer.as_mut().unwrap().body =
+            "x".repeat(workdeck_review::MAX_REVIEW_NOTE_BYTES);
+        let revision = app.with_state(|state| state.state_revision());
+        assert!(app.save_note_composer().is_none());
+        assert!(app.note_composer.is_some());
+        assert_eq!(
+            app.with_state(|state| state.comments()[0].clone()),
+            original
+        );
+        assert_eq!(app.with_state(|state| state.state_revision()), revision);
+    }
+
+    #[test]
     fn note_edit_and_reply_do_not_replace_an_active_draft() {
         let mut app = ReviewApp::new(pinned_alpha_source_review(800), ReviewOptions::default());
         app.open_note_composer();

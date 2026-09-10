@@ -142,6 +142,39 @@ pub struct ReviewComment {
     pub editable: bool,
 }
 
+impl ReviewComment {
+    pub fn semantic_note(&self) -> workdeck_core::SemanticReviewNote {
+        workdeck_core::SemanticReviewNote {
+            id: self.id.clone(),
+            parent_id: self.parent_id.clone(),
+            source: classify_review_note_source(&self.source),
+            original_source: Some(self.source.clone()),
+            file_key: self.anchor.file_key.clone(),
+            anchor: workdeck_core::SemanticReviewRangeAnchor {
+                old_range: self.anchor.old_range.map(|range| [range.start, range.end]),
+                new_range: self.anchor.new_range.map(|range| [range.start, range.end]),
+                preferred: self
+                    .anchor
+                    .preferred_side
+                    .zip(self.anchor.preferred_line)
+                    .map(|(side, line)| workdeck_core::SemanticReviewLineAddress { side, line }),
+                intersecting_hunk_indices: self.anchor.intersecting_hunk_indices.clone(),
+                owner_hunk_index: self.anchor.owner_hunk_index,
+            },
+            summary: self.summary.clone(),
+            rationale: self.rationale.clone(),
+            markup: self.markup.clone(),
+            title: self.title.clone(),
+            author: self.author.clone(),
+            created_at: self.created_at.clone(),
+            updated_at: self.updated_at.clone(),
+            editable: self.editable,
+            tags: self.tags.clone(),
+            confidence: self.confidence,
+        }
+    }
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ReviewError {
     #[error("file index {0} is outside the review")]
