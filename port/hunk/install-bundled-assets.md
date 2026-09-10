@@ -215,3 +215,17 @@ command plus first-install argument, platform and identity rejection with an
 untouched directory. No live signed-release installation has been claimed or
 performed. Standalone executable/installer-script orchestration and automatic
 release resolution remain outstanding beyond this Rust tooling entry point.
+
+`install::install_release` now composes version parsing, native target selection,
+independent GitHub tag-to-commit resolution, bounded HTTPS downloads, complete
+archive authentication and first-install publication. It validates the version,
+platform/architecture and destination before invoking the network path. An
+existing destination is rejected, not updated. Downloaded temporary artifacts
+remain owned through publication and are removed when the operation returns.
+
+The first-install tests pass for version normalization and selected-target
+propagation, pre-network existing-root/invalid-version rejection, and complete
+publication behavior. Network/public-signature success remains untested against
+a real release. This composition accepts a caller-selected platform/architecture;
+automatic host/Rosetta selection, latest-version resolution, PATH changes and
+standalone CLI integration are still outstanding.

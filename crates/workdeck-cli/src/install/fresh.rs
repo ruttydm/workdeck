@@ -2,6 +2,62 @@
 use anyhow::{Context, Result, ensure};
 use std::{fs, io::Read, path::Path};
 
+/// Resolve a release independently, download its native archive and publish a
+/// new installation. Does not modify PATH or replace an existing installation.
+pub fn install_release(
+    version: &str,
+    platform: crate::update::UpdatePlatform,
+    architecture: &str,
+    destination: &Path,
+) -> Result<()> {
+    install_release_with(
+        version,
+        platform,
+        architecture,
+        destination,
+        |version, target, destination| {
+            let identity = super::resolve_release_identity(version)?;
+            let download = super::download_release(&identity.version, platform, architecture)?;
+            create_authenticated_installation(
+                &download.archive(),
+                &download.checksums(),
+                destination,
+                target,
+                super::ReleaseIdentity {
+                    repository: "ruttydm/workdeck",
+                    commit: &identity.commit,
+                    tag_ref: &identity.tag_ref,
+                },
+            )
+        },
+    )
+}
+
+fn install_release_with(
+    version: &str,
+    platform: crate::update::UpdatePlatform,
+    architecture: &str,
+    destination: &Path,
+    execute: impl FnOnce(&str, &str, &Path) -> Result<()>,
+) -> Result<()> {
+    let version = crate::update::parse_update_version(version)?;
+    let (target, _) = crate::update::direct_target(platform, architecture)?;
+    let name = destination
+        .file_name()
+        .context("installation root requires a name")?;
+    let parent = destination
+        .parent()
+        .context("installation root requires a parent")?
+        .canonicalize()?;
+    let destination = parent.join(name);
+    match fs::symlink_metadata(&destination) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+        Ok(_) => anyhow::bail!("installation root already exists"),
+    }
+    execute(&version, target, &destination)
+}
+
 /// Create a new native installation root. Its parent must exist. Existing roots
 /// are never replaced; shell PATH edits are deliberately a separate operation.
 pub fn create_authenticated_installation(
@@ -84,6 +140,50 @@ fn publish(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn release_install_preflight_precedes_network_and_keeps_selected_target() {
+        use crate::update::UpdatePlatform;
+        let dir = tempfile::tempdir().unwrap();
+        let destination = dir.path().join("install");
+        let mut called = false;
+        install_release_with(
+            "v1.2.3",
+            UpdatePlatform::Macos,
+            "arm64",
+            &destination,
+            |version, target, root| {
+                called = true;
+                assert_eq!(version, "1.2.3");
+                assert_eq!(target, "aarch64-apple-darwin");
+                assert_eq!(root.file_name().unwrap(), "install");
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(called);
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+        fs::create_dir(&destination).unwrap();
+        assert!(
+            install_release_with(
+                "1.2.3",
+                UpdatePlatform::Macos,
+                "arm64",
+                &destination,
+                |_, _, _| panic!("existing root must fail before network")
+            )
+            .is_err()
+        );
+        assert!(
+            install_release_with(
+                "invalid",
+                UpdatePlatform::Macos,
+                "arm64",
+                &dir.path().join("new"),
+                |_, _, _| panic!("invalid version must fail before network")
+            )
+            .is_err()
+        );
+    }
     fn staged() -> Result<tempfile::TempDir> {
         let stage = tempfile::tempdir()?;
         let metadata =
