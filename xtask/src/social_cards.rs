@@ -369,6 +369,71 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires explicit WORKDECK_ORACLE_DRIVER, WORKDECK_ORACLE_BROWSER and WORKDECK_ORACLE_FONT paths"]
+    fn browser_pixels_match_all_frozen_baseline_html() {
+        use base64::Engine;
+        let driver = std::env::var_os("WORKDECK_ORACLE_DRIVER").expect("driver path");
+        let browser = std::env::var_os("WORKDECK_ORACLE_BROWSER").expect("browser path");
+        let font =
+            std::fs::read(std::env::var_os("WORKDECK_ORACLE_FONT").expect("font path")).unwrap();
+        let fixtures: Vec<HtmlOracle> = serde_json::from_slice(
+            &std::fs::read(
+                crate::repo_root()
+                    .unwrap()
+                    .join("port/hunk/fixtures/social-card-html.json"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(fixtures.len(), 108);
+        let font_uri = format!(
+            "data:font/woff2;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(&font)
+        );
+        let mut documents = Vec::new();
+        for fixture in &fixtures {
+            documents.push(
+                fixture
+                    .html
+                    .replace(
+                        "<div class=\"mark\">hunk</div>",
+                        "<div class=\"mark\">workdeck</div>",
+                    )
+                    .replace("data:font/woff2;base64,Zm9udA==", &font_uri),
+            );
+            documents.push(render_html(&fixture.target, &font));
+        }
+        let capture = crate::term_video::capture_card_documents(
+            std::path::Path::new(&driver),
+            std::path::Path::new(&browser),
+            &documents,
+        )
+        .unwrap();
+        let pixels = |index| {
+            let bytes = std::fs::read(capture.path().join(format!("{index:04}.png"))).unwrap();
+            let mut reader = png::Decoder::new(std::io::Cursor::new(bytes))
+                .read_info()
+                .unwrap();
+            let mut buffer = vec![0; reader.output_buffer_size().unwrap()];
+            let info = reader.next_frame(&mut buffer).unwrap();
+            buffer.truncate(info.buffer_size());
+            (
+                info.width,
+                info.height,
+                info.color_type,
+                info.bit_depth,
+                buffer,
+            )
+        };
+        for pair in 0..fixtures.len() {
+            assert!(
+                pixels(pair * 2) == pixels(pair * 2 + 1),
+                "browser pixel pair {pair}"
+            );
+        }
+    }
+
+    #[test]
     fn frozen_html_oracles_match_rust_without_upstream_runtime() {
         let fixtures: Vec<HtmlOracle> = serde_json::from_slice(
             &std::fs::read(

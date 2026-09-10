@@ -286,3 +286,30 @@ produced the visually inspected `port/hunk/fixtures/social-card-extensions-nativ
 MIT card layout (Copyright Modem Labs Inc.) with Workdeck branding. No site file
 was published. This proves one native browser smoke path, not dual-baseline pixel
 parity, cross-platform rendering, or complete generator behavior.
+
+## Dual-baseline HTML pixel comparison
+
+The explicitly ignored `browser_pixels_match_all_frozen_baseline_html` test now
+passes for all 108 frozen HTML cases: 54 from each pinned baseline. It renders
+each upstream HTML result and its Rust counterpart through the same native
+WebDriver session, then compares decoded dimensions, pixel format and every
+pixel byte. All 216 screenshots matched pairwise on the host described above
+(29.03 seconds for the test). The only upstream HTML substitutions are the
+permitted product mark and the real verified font data URI replacing the
+synthetic font input used during HTML-oracle capture. No geometry, whitespace,
+text or pixel differences are normalized away.
+
+Reproduction requires explicit tool/asset paths:
+
+```sh
+WORKDECK_ORACLE_DRIVER=/absolute/path/to/chromedriver \
+WORKDECK_ORACLE_BROWSER=/absolute/path/to/chrome \
+WORKDECK_ORACLE_FONT=/absolute/path/to/jetbrains-mono-latin-wght-normal.woff2 \
+cargo test -p xtask browser_pixels_match_all_frozen_baseline_html --bin xtask -- --ignored
+```
+
+Temporary screenshots are cleaned up by the test. It needs no Bun at replay
+time. This verifies rendered equivalence for the frozen HTML corpus using one
+browser transport, not the original Playwright lifecycle, cross-platform font
+rasterization, every possible card input, or complete generator parity. The
+source ledger interval remains unmapped.
