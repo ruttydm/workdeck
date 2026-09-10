@@ -1,5 +1,6 @@
 //! Native Markdown exports for the migrated website. Hunk MIT astro.config.mjs
-//! supplies the overview-first ordering and compact-corpus exclusion policy.
+//! supplies the overview-first ordering and compact-corpus exclusion policy;
+//! `website/src/content.config.ts` supplies the docs collection contract.
 use anyhow::{Context, Result, ensure};
 use std::{
     collections::BTreeMap,
@@ -412,6 +413,30 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains("duplicate")
+        );
+    }
+
+    #[test]
+    fn native_docs_collection_requires_valid_frontmatter_and_a_single_line_title() {
+        for source in [
+            "body without frontmatter\n",
+            "+++\nsummary = 'missing title'\n+++\nbody\n",
+            "+++\ntitle = 'first'\ntitle = 'second'\n+++\nbody\n",
+            "+++\ntitle = 'line\nbreak'\n+++\nbody\n",
+        ] {
+            let sources = BTreeMap::from([("docs/page.md".into(), source.into())]);
+            assert!(
+                render(&sources).is_err(),
+                "accepted invalid docs source: {source:?}"
+            );
+        }
+        let sources = BTreeMap::from([(
+            "docs/page.md".into(),
+            "+++\ntitle = 'Valid page'\n+++\nbody\n".into(),
+        )]);
+        assert_eq!(
+            render(&sources).unwrap()["docs/page.md"],
+            "# Valid page\n\nbody\n"
         );
     }
 
