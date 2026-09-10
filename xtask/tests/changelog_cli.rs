@@ -11,6 +11,101 @@ fn run(repo: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
+fn index_card_cli_counts_publication_without_writes() {
+    let repo = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    let markdown = (0..6).map(|i| format!("## 1.{i}.0\n")).collect::<String>();
+    let input = repo.path().join("history.md");
+    let dates_path = repo.path().join("dates.json");
+    std::fs::write(&input, &markdown).unwrap();
+    for count in [0, 6] {
+        let dates: serde_json::Map<String, serde_json::Value> = (0..count)
+            .map(|i| {
+                (
+                    format!("1.{i}.0"),
+                    serde_json::json!(format!("2026-0{}-01", i + 1)),
+                )
+            })
+            .collect();
+        let bytes = serde_json::to_string(&dates).unwrap();
+        std::fs::write(&dates_path, &bytes).unwrap();
+        let output = run(
+            repo.path(),
+            &["changelog", "index-card", "history.md", "dates.json"],
+        );
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stderr.is_empty());
+        let card: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(card["title"], "Changelog");
+        assert_eq!(
+            card["tagline"],
+            "Every Workdeck release, grouped by minor series."
+        );
+        if count == 0 {
+            assert_eq!(card["meta"], "0 release series");
+            assert!(card.get("chips").is_none());
+        } else {
+            assert_eq!(card["meta"], "6 release series · January 2026 – June 2026");
+            assert_eq!(
+                card["chips"],
+                serde_json::json!(["1.5", "1.4", "1.3", "1.2", "1.1", "…"])
+            );
+        }
+        assert_eq!(std::fs::read_to_string(&dates_path).unwrap(), bytes);
+    }
+    for args in [
+        vec!["changelog", "index-card"],
+        vec!["changelog", "index-card", "history.md"],
+        vec!["changelog", "index-card", "missing.md", "dates.json"],
+        vec!["changelog", "index-card", "history.md", "missing.json"],
+        vec![
+            "changelog",
+            "index-card",
+            "history.md",
+            "dates.json",
+            "extra",
+        ],
+    ] {
+        let output = run(repo.path(), &args);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+    }
+    for invalid in ["{broken", r#"{"1.0.0":42}"#] {
+        std::fs::write(&dates_path, invalid).unwrap();
+        let output = run(
+            repo.path(),
+            &["changelog", "index-card", "history.md", "dates.json"],
+        );
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+        assert_eq!(std::fs::read_to_string(&dates_path).unwrap(), invalid);
+    }
+    assert_eq!(std::fs::read_to_string(&input).unwrap(), markdown);
+    let mut entries = std::fs::read_dir(repo.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect::<Vec<_>>();
+    entries.sort();
+    assert_eq!(
+        entries,
+        [".git", "dates.json", "history.md"].map(std::ffi::OsString::from)
+    );
+}
+
+#[test]
 fn pages_cli_composes_overlays_and_never_writes_site_files() {
     let repo = tempfile::tempdir().unwrap();
     assert!(

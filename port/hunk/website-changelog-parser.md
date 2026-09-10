@@ -236,6 +236,16 @@ comparing complete card objects. The oracle test passes. Prerelease-specific
 index cases, CLI integration, images and final website wiring remain open; no
 ledger mapping changed.
 
+## Index-card CLI integration
+
+The index-card command now has a temporary-repository regression for empty
+publication and six published series: exact counts/month spans, descending chips,
+overflow ellipsis, and Workdeck tagline. Missing/extra arguments, missing files,
+malformed JSON and invalid date types fail without stdout. Inputs and directory
+contents are checked for unintended writes. All twelve changelog CLI tests pass.
+This does not close card-image or website integration gates; no ledger mapping
+changed.
+
 ## Prerelease card verification
 
 Six new executed main-pin fixtures cover beta-only and mixed stable/beta series
