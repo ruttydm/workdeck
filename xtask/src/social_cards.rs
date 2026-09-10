@@ -321,35 +321,47 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join("\n");
             for title in ["0.20", "😀😀😀😀😀😀", "😀😀😀😀😀😀x"] {
-                let mut target = select(vec![], &[]).unwrap().remove(0);
-                target.card.title = title.into();
-                target.card.tagline = Some("<&\"' λ".into());
-                target.card.chips = Some(vec!["one & two".into(), "<three>".into()]);
-                target.card.latest = true;
-                let temp = tempfile::tempdir().unwrap();
-                let script = temp.path().join("oracle.ts");
-                std::fs::write(&script, format!("{constants}\n{renderer}\nconsole.log(JSON.stringify(renderCardHtml({}, 'data:font/woff2;base64,Zm9udA==')));", serde_json::to_string(&target).unwrap())).unwrap();
-                let output = std::process::Command::new("bun")
-                    .arg(&script)
-                    .current_dir(temp.path())
-                    .output()
-                    .unwrap();
-                assert!(
-                    output.status.success(),
-                    "{}",
-                    String::from_utf8_lossy(&output.stderr)
-                );
-                assert!(output.stderr.is_empty());
-                let expected: String = serde_json::from_slice(&output.stdout).unwrap();
-                let expected = expected.replace(
-                    "<div class=\"mark\">hunk</div>",
-                    "<div class=\"mark\">workdeck</div>",
-                );
-                let actual = render_html(&target, b"font").replace(
-                    "/* Derived from Hunk generate-og.ts, MIT. Copyright Modem Labs Inc. */\n",
-                    "",
-                );
-                assert_eq!(actual, expected, "{commit} {title}");
+                for variant in 0..18 {
+                    let mut target = select(vec![], &[]).unwrap().remove(0);
+                    target.card.title = title.into();
+                    target.card.tagline = match variant % 3 {
+                        0 => None,
+                        1 => Some(String::new()),
+                        _ => Some("<&\"' λ".into()),
+                    };
+                    target.card.chips = match (variant / 3) % 3 {
+                        0 => None,
+                        1 => Some(vec![]),
+                        _ => Some(vec!["one & two".into(), "<three>".into()]),
+                    };
+                    target.card.latest = variant >= 9;
+                    target.card.meta = "<&\"' meta λ".into();
+                    target.footer = "<&\"' footer λ".into();
+                    let temp = tempfile::tempdir().unwrap();
+                    let script = temp.path().join("oracle.ts");
+                    std::fs::write(&script, format!("{constants}\n{renderer}\nconsole.log(JSON.stringify(renderCardHtml({}, 'data:font/woff2;base64,Zm9udA==')));", serde_json::to_string(&target).unwrap())).unwrap();
+                    let output = std::process::Command::new("bun")
+                        .arg(&script)
+                        .current_dir(temp.path())
+                        .output()
+                        .unwrap();
+                    assert!(
+                        output.status.success(),
+                        "{}",
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                    assert!(output.stderr.is_empty());
+                    let expected: String = serde_json::from_slice(&output.stdout).unwrap();
+                    let expected = expected.replace(
+                        "<div class=\"mark\">hunk</div>",
+                        "<div class=\"mark\">workdeck</div>",
+                    );
+                    let actual = render_html(&target, b"font").replace(
+                        "/* Derived from Hunk generate-og.ts, MIT. Copyright Modem Labs Inc. */\n",
+                        "",
+                    );
+                    assert_eq!(actual, expected, "{commit} {title} variant {variant}");
+                }
             }
         }
     }

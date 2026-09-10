@@ -123,8 +123,10 @@ against main `2c00f4358b89cfc0a6b04459ffc538ba601aa3c2` and stable
 `4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd`. It reads the original renderer
 through `git show`, executes it with Bun only in a disposable temporary
 directory, and compares the complete HTML string with the Rust renderer.
-The six comparisons cover ordinary titles and both sides of the 12-UTF-16-unit
-title-size boundary, with escaping, chips, tagline and latest badge enabled.
+The expanded 108 comparisons pass for ordinary titles and both sides of the
+12-UTF-16-unit title-size boundary, crossed with absent, empty and populated
+taglines and chip lists, and both latest-badge states. Metadata and footer
+escaping are also compared directly against the pinned source.
 Only the visible product mark and the Rust CSS attribution comment are
 normalized; whitespace, CSS and geometry are compared exactly.
 
