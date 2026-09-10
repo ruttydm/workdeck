@@ -454,6 +454,118 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn latest_gap_receives_cursor_when_one_source_load_reveals_two_gaps() {
+        struct RecordingLoader {
+            calls: mpsc::Sender<ReviewSide>,
+            source: Loader,
+        }
+        impl ReviewSourceLoader for RecordingLoader {
+            fn get_full_text(
+                &self,
+                file: &DiffFile,
+                side: ReviewSide,
+            ) -> std::result::Result<Option<String>, ReviewSourceLoadError> {
+                self.calls.send(side).unwrap();
+                self.source.get_full_text(file, side)
+            }
+        }
+        let before = (1..=50)
+            .map(|line| format!("line {line}\n"))
+            .collect::<String>();
+        let after = before
+            .replace("line 10\n", "line 10 changed\n")
+            .replace("line 40\n", "line 40 changed\n");
+        let mut file = workdeck_diff::diff_from_file_snapshots(
+            workdeck_diff::FileSnapshot {
+                cache_key: "alpha:before",
+                contents: &before,
+                name: "alpha.ts",
+            },
+            workdeck_diff::FileSnapshot {
+                cache_key: "alpha:after",
+                contents: &after,
+                name: "alpha.ts",
+            },
+            workdeck_diff::FileComparisonOptions { context_radius: 3 },
+        )
+        .unwrap();
+        file.runtime_id = "alpha".into();
+        file.language = Some("typescript".into());
+        file.patch.clear();
+        for source in file
+            .sources
+            .old
+            .iter_mut()
+            .chain(file.sources.new.iter_mut())
+        {
+            source.origin = workdeck_core::SourceOrigin::DiffMetadata;
+            source.attested = false;
+        }
+        file.set_sources(file.sources.clone());
+        file.set_source_capability(Some(workdeck_core::SourceCapabilityIdentity {
+            cache_key: None,
+        }));
+        let mut review = workdeck_core::Changeset {
+            id: "two-gaps".into(),
+            source_label: "repo".into(),
+            title: "repo working tree".into(),
+            summary: None,
+            agent_summary: None,
+            source: workdeck_core::ChangesetSource::WorkingTree { staged: false },
+            files: vec![file],
+        };
+        review.refresh_review_identities();
+        assert_eq!(review.files[0].hunks.len(), 2);
+        let key = review.files[0].key.clone();
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                highlight: false,
+                ..Default::default()
+            },
+        );
+        let (source_tx, source_rx) = mpsc::channel();
+        let (calls_tx, calls_rx) = mpsc::channel();
+        assert!(app.install_source_loader(
+            &key,
+            Arc::new(RecordingLoader {
+                calls: calls_tx,
+                source: Loader(Mutex::new(source_rx)),
+            })
+        ));
+        app.toggle_source_gap_for_file(&key, 0);
+        app.toggle_source_gap_for_file(&key, 1);
+        assert_eq!(
+            calls_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+            ReviewSide::New
+        );
+        app.with_state(|state| {
+            assert!(matches!(
+                app.options
+                    .source_presentation
+                    .status(&state.changeset().files[0]),
+                Some(workdeck_review::ReviewSourceStatus::Loading)
+            ))
+        });
+        source_tx.send(after).unwrap();
+        drain_one(&mut app);
+        assert!(app.expanded_gaps.contains(&(key.clone(), 0)));
+        assert!(app.expanded_gaps.contains(&(key.clone(), 1)));
+        let gap = app.with_state(|state| {
+            workdeck_review::review_gap_geometry_for_file(&state.changeset().files[0])
+                .leading_gap(1)
+                .unwrap()
+        });
+        let cursor = app.current_review_line_cursor().unwrap().target;
+        assert_eq!(cursor.file_index, 0);
+        assert_eq!(cursor.hunk_index, 1);
+        assert_eq!(cursor.side, ReviewSide::New);
+        assert_eq!(cursor.line, gap.new_range.start);
+        assert!(gap.new_range.start <= cursor.line && cursor.line <= gap.new_range.end);
+        assert!(calls_rx.try_recv().is_err());
+    }
+
+    #[test]
     fn attested_loaded_selection_survives_reload_but_not_source_retirement() {
         let (mut app, sender) = setup();
         app.toggle_source_gap();

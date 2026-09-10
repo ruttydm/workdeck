@@ -1,5 +1,18 @@
 # Hunk semantic-port ledger
 
+## Shared source-load cursor ownership
+
+The two-gap asynchronous source-load regression is translated at bytes
+38,639–40,137 of `useTerminalReview.test.tsx`. The test preserves the full source
+fixture and checks loading state, one observed new-side request, both expanded
+gaps, and final cursor ownership in the most recently expanded gap. Both pinned
+source runs and all 1,181 native TUI library tests pass. See
+[test scope and evidence](two-gap-source-load.md).
+
+Only this 1,498-byte test interval is mapped. Splitting its unfinished neighbors
+increases the unmapped interval count while increasing covered source bytes;
+record-count percentages are not a product-completion measure.
+
 ## Gap-command source capability
 
 Selected and renderer-addressed gap commands now use the renderer's source
