@@ -2,6 +2,34 @@
 use anyhow::{Context, Result, ensure};
 use std::{fs, io::Read, path::Path};
 
+pub fn install_requested_on_host(version: Option<&str>, destination: &Path) -> Result<String> {
+    if let Some(version) = version {
+        crate::update::parse_update_version(version)?;
+    }
+    let destination = new_destination(destination)?;
+    let version = select_version(version, || {
+        crate::update::fetch_channel_versions(
+            workdeck_core::WorkdeckInstallSource::Direct,
+            &crate::update::ReleaseLookup::default(),
+        )
+        .latest
+        .context("could not resolve the newest Workdeck release from GitHub")
+    })?;
+    install_release_on_host(&version, &destination)?;
+    Ok(version)
+}
+
+fn select_version(
+    requested: Option<&str>,
+    latest: impl FnOnce() -> Result<String>,
+) -> Result<String> {
+    let version = match requested {
+        Some(version) => version.to_owned(),
+        None => latest()?,
+    };
+    Ok(crate::update::parse_update_version(&version)?)
+}
+
 /// Install the requested release for this host, including Rosetta correction.
 pub fn install_release_on_host(version: &str, destination: &Path) -> Result<()> {
     let (os, arch) = super::current_platform()?;
@@ -54,6 +82,11 @@ fn install_release_with(
 ) -> Result<()> {
     let version = crate::update::parse_update_version(version)?;
     let (target, _) = crate::update::direct_target(platform, architecture)?;
+    let destination = new_destination(destination)?;
+    execute(&version, target, &destination)
+}
+
+fn new_destination(destination: &Path) -> Result<std::path::PathBuf> {
     let destination = std::path::absolute(destination)?;
     let name = destination
         .file_name()
@@ -68,7 +101,7 @@ fn install_release_with(
         Err(error) => return Err(error.into()),
         Ok(_) => anyhow::bail!("installation root already exists"),
     }
-    execute(&version, target, &destination)
+    Ok(destination)
 }
 
 /// Create a new native installation root. Its parent must exist. Existing roots
@@ -154,6 +187,20 @@ fn publish(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn omitted_version_resolves_latest_but_explicit_version_never_fetches() {
+        assert_eq!(
+            select_version(Some("v1.2.3"), || panic!("must not fetch")).unwrap(),
+            "1.2.3"
+        );
+        assert!(select_version(Some("invalid"), || panic!("must not fetch")).is_err());
+        assert_eq!(
+            select_version(None, || Ok("v2.3.4".into())).unwrap(),
+            "2.3.4"
+        );
+        assert!(select_version(None, || anyhow::bail!("unavailable")).is_err());
+        assert!(select_version(None, || Ok("malformed".into())).is_err());
+    }
     #[test]
     fn release_install_preflight_precedes_network_and_keeps_selected_target() {
         use crate::update::UpdatePlatform;

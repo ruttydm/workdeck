@@ -12,7 +12,10 @@ pub use assets::{install_authenticated_skills, install_skill_tree};
 mod authenticated;
 mod download;
 mod fresh;
-pub use fresh::{create_authenticated_installation, install_release, install_release_on_host};
+pub use fresh::{
+    create_authenticated_installation, install_release, install_release_on_host,
+    install_requested_on_host,
+};
 pub mod metadata;
 mod release_identity;
 pub mod shell_path;

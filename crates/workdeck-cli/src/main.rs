@@ -221,10 +221,10 @@ enum Command {
         #[command(subcommand)]
         command: Option<SkillCommand>,
     },
-    #[command(about = "Install an exact signed release into a new directory; leave PATH unchanged")]
+    #[command(about = "Install a signed release into a new directory; leave PATH unchanged")]
     Install {
         #[arg(value_name = "VERSION")]
-        version: String,
+        version: Option<String>,
         #[arg(long, value_name = "DIRECTORY")]
         destination: Option<PathBuf>,
     },
@@ -8029,7 +8029,13 @@ fn handle_global_command(cwd: &Path, command: Command) -> Result<()> {
                 },
                 Ok,
             )?;
-            workdeck_cli::install::install_release_on_host(&version, &destination)?;
+            let version = version.or_else(|| {
+                std::env::var("WORKDECK_VERSION")
+                    .ok()
+                    .filter(|value| !value.is_empty())
+            });
+            let version =
+                workdeck_cli::install::install_requested_on_host(version.as_deref(), &destination)?;
             println!(
                 "Installed Workdeck {version} to {}. PATH was not modified.",
                 destination.display()

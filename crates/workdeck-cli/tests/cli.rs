@@ -431,6 +431,33 @@ fn first_install_command_is_headless_and_rejects_invalid_versions_without_state(
 }
 
 #[test]
+fn install_version_precedence_and_latest_preflight_do_not_touch_existing_roots() {
+    let home = tempdir().unwrap();
+    fs::create_dir(home.path().join(".workdeck")).unwrap();
+    workdeck()
+        .current_dir(home.path())
+        .env("HOME", home.path())
+        .env_remove("WORKDECK_VERSION")
+        .arg("install")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("installation root already exists"));
+    workdeck()
+        .current_dir(home.path())
+        .env("HOME", home.path())
+        .env("WORKDECK_VERSION", "invalid")
+        .args(["install", "1.2.3"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("installation root already exists"));
+    assert_eq!(fs::read_dir(home.path()).unwrap().count(), 1);
+    assert_eq!(
+        fs::read_dir(home.path().join(".workdeck")).unwrap().count(),
+        0
+    );
+}
+
+#[test]
 fn relocated_binary_resolves_packaged_skills_without_user_state() {
     let installation = tempdir().unwrap();
     let config = tempdir().unwrap();

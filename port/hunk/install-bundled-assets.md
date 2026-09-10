@@ -245,10 +245,12 @@ but this host run does not prove execution under Rosetta itself or on other OSes
 
 ## Standalone command
 
-`workdeck install VERSION [--destination DIRECTORY]` exposes the host-selected,
+`workdeck install [VERSION] [--destination DIRECTORY]` exposes the host-selected,
 signed-release first-install flow in the sole shipped executable. It is a global
-headless command: no repository configuration is required. The exact version is
-mandatory; the destination defaults to `$HOME/.workdeck`, falling back to
+headless command: no repository configuration is required. Version selection uses
+the positional argument, then nonempty `WORKDECK_VERSION`, then the bounded GitHub
+latest-release lookup shared with the updater. The resulting tag is independently
+resolved to a commit before archive authentication. The destination defaults to `$HOME/.workdeck`, falling back to
 `$USERPROFILE/.workdeck` when HOME is empty or absent. An explicit destination
 overrides that selection. The parent directory must already exist. It leaves
 PATH untouched and refuses existing roots. The `install` name is reserved from
@@ -256,7 +258,7 @@ extension CLI registration and recognized by builtin argument routing.
 
 CLI coverage checks help and invalid-version rejection outside Git without
 creating state, and rejects an existing destination before network access. This
-does not prove installation from a live signed release. Latest-version selection,
+does not prove installation from a live signed release. Automatic update-in-place,
 conflict discovery, PATH flags and update-in-place semantics
 from the original installer remain to be integrated; this explicit first-install
 command is not a declaration of full installer parity.
