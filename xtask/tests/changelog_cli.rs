@@ -11,6 +11,84 @@ fn run(repo: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
+fn artifact_apply_cli_regenerates_plan_and_retains_original_bytes() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(&repo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    std::fs::write(
+        repo.join("history.md"),
+        "## 1.0.0\n\n### Patch Changes\n\n- Fix.\n",
+    )
+    .unwrap();
+    std::fs::write(repo.join("dates.json"), "{}").unwrap();
+    std::fs::create_dir_all(repo.join("site/content/changelog")).unwrap();
+    std::fs::write(
+        repo.join("site/content/changelog/index.md"),
+        b"original index",
+    )
+    .unwrap();
+    let generated = run(
+        &repo,
+        &["changelog", "artifacts-plan", "history.md", "dates.json"],
+    );
+    assert!(generated.status.success(), "{:?}", generated);
+    std::fs::write(repo.join("plan.json"), &generated.stdout).unwrap();
+    let plan: serde_json::Value = serde_json::from_slice(&generated.stdout).unwrap();
+    let backup = root.path().join("backup");
+    let applied = run(
+        &repo,
+        &[
+            "changelog",
+            "artifacts-apply",
+            "plan.json",
+            backup.to_str().unwrap(),
+            "history.md",
+            "dates.json",
+        ],
+    );
+    assert!(applied.status.success(), "{:?}", applied);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&applied.stdout).unwrap()["applied"],
+        true
+    );
+    let recovery: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(backup.join("recovery.json")).unwrap()).unwrap();
+    assert_eq!(recovery, plan);
+    for (name, text) in plan["edits"].as_object().unwrap() {
+        assert_eq!(
+            std::fs::read_to_string(repo.join(name)).unwrap(),
+            text.as_str().unwrap()
+        );
+    }
+    let second = root.path().join("second-backup");
+    let stale = run(
+        &repo,
+        &[
+            "changelog",
+            "artifacts-apply",
+            "plan.json",
+            second.to_str().unwrap(),
+            "history.md",
+            "dates.json",
+        ],
+    );
+    assert!(!stale.status.success());
+    assert!(!second.exists());
+    assert_eq!(
+        std::fs::read(repo.join("plan.json")).unwrap(),
+        generated.stdout
+    );
+}
+
+#[test]
 fn artifact_saved_plan_check_rejects_stale_and_modified_plans() {
     let repo = tempfile::tempdir().unwrap();
     assert!(

@@ -99,16 +99,10 @@ fn require_contents(path: &Path, expected: Option<&[u8]>) -> Result<()> {
     }
 }
 
-fn apply(
-    repo: &Path,
-    saved: &serde_json::Value,
-    backup: &Path,
-    mut after_write: impl FnMut(usize) -> Result<()>,
-) -> Result<()> {
-    let repo = repo.canonicalize()?;
+pub(in crate::changelog) fn repository_release_lock(repo: &Path) -> Result<fs::File> {
     let lock_path = std::process::Command::new("git")
         .args(["rev-parse", "--git-path", "workdeck-release.lock"])
-        .current_dir(&repo)
+        .current_dir(repo)
         .output()?;
     ensure!(
         lock_path.status.success(),
@@ -120,7 +114,17 @@ fn apply(
     } else {
         repo.join(lock_path)
     };
-    let _lock = release_lock(&lock_path)?;
+    release_lock(&lock_path)
+}
+
+fn apply(
+    repo: &Path,
+    saved: &serde_json::Value,
+    backup: &Path,
+    mut after_write: impl FnMut(usize) -> Result<()>,
+) -> Result<()> {
+    let repo = repo.canonicalize()?;
+    let _lock = repository_release_lock(&repo)?;
     ensure!(
         *saved == build_plan(&repo)?,
         "saved release plan is stale or modified"

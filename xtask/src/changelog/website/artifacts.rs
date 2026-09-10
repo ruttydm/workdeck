@@ -3,6 +3,7 @@
 use super::*;
 use anyhow::Context;
 use std::collections::BTreeMap;
+mod application;
 
 fn generate(
     markdown: &str,
@@ -92,10 +93,18 @@ pub(in crate::changelog) fn run_artifacts(
     mut args: impl Iterator<Item = String>,
     mode: &str,
 ) -> Result<()> {
-    let saved_path = if mode == "plan-check" {
+    let saved_path = if matches!(mode, "plan-check" | "apply") {
         Some(
             args.next()
                 .context("artifacts-plan-check requires a saved plan path")?,
+        )
+    } else {
+        None
+    };
+    let backup = if mode == "apply" {
+        Some(
+            args.next()
+                .context("artifacts-apply requires a new external backup directory")?,
         )
     } else {
         None
@@ -112,6 +121,12 @@ pub(in crate::changelog) fn run_artifacts(
             "changelog artifacts accepts Markdown, recorded dates JSON and optional notes JSON files"
         );
     }
+    // Coordinate with native release preparation before reading generation inputs.
+    let _lock = if mode == "apply" {
+        Some(crate::changelog::fragments::repository_release_lock(repo)?)
+    } else {
+        None
+    };
     let markdown = std::fs::read_to_string(repo.join(markdown))?;
     let recorded = serde_json::from_str(&std::fs::read_to_string(repo.join(recorded))?)?;
     let notes = match notes {
@@ -124,9 +139,16 @@ pub(in crate::changelog) fn run_artifacts(
         saved.validate()?;
         let current = write_plan(repo, &output)?;
         anyhow::ensure!(
-            serde_json::to_value(saved)? == current,
+            serde_json::to_value(&saved)? == current,
             "saved artifact plan is stale or modified"
         );
+        if let Some(backup) = backup {
+            application::apply(repo, &saved, &repo.join(backup), |_| Ok(()))?;
+            println!(
+                "{}",
+                serde_json::json!({"applied":true,"artifacts":saved.edits.len()})
+            );
+        }
         return Ok(());
     }
     if mode == "plan" {

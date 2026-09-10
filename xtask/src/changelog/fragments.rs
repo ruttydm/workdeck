@@ -5,6 +5,7 @@ use std::path::Path;
 
 mod application;
 pub(super) use application::apply_plan;
+pub(in crate::changelog) use application::repository_release_lock;
 
 fn validate_id(id: &str) -> Result<()> {
     ensure!(

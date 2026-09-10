@@ -1,4 +1,37 @@
-# Read-only artifact write plan
+# Changelog artifact planning and application
+
+## Recoverable application
+
+`cargo xtask changelog artifacts-apply <saved-plan.json> <new-external-backup-directory> <markdown-file> <recorded-dates.json> [notes.json]`
+acquires the shared Git-local release lock, regenerates the current artifact plan
+and requires it to equal the saved plan before applying. Only the already
+validated generated output paths can change. Originals are checked again before
+each mutation; parent symlinks and nonregular targets are rejected. Creation
+uses no-clobber publication, replacement uses same-directory temporary files,
+and orphan deletion is limited to validated numeric release pages.
+
+The backup parent must exist outside the repository, and the backup directory
+must be new. Before output writes, `recovery.json` records the complete plan,
+including original bytes or absence; `permissions.json` records original
+readonly flags and Unix modes where available. Existing file permissions are
+preserved. A handled failure rolls back completed writes in reverse order,
+preserving and reporting any intervening content changes. Backups remain on
+success or failure. Newly created parent directories may remain after rollback.
+
+Application is not crash-atomic across files, does not isolate unrelated editors,
+and does not close check-to-replacement filesystem races. After interruption,
+review current bytes against the saved plan before manually restoring originals
+and permissions. Windows reparse-point behavior is not validated. No social-card
+image generation, Zola build, site publication or full source mapping is claimed.
+
+Tests cover creation/replacement/removal, injected failure after each write and
+rollback, actual CLI generation/application, retained recovery bytes, and stale
+repeat rejection before a second backup is created.
+The two application tests and all 23 changelog CLI tests pass; strict xtask
+all-target Clippy passes. The concurrent-editor regression verifies that rollback
+reports the conflict and retains both the edited target and original recovery bytes.
+
+## Read-only planning and historical checkpoints
 
 `cargo xtask changelog artifacts-plan <markdown-file> <recorded-dates.json> [notes.json]`
 returns a schema-1 JSON plan without writing output. It reuses artifact generation
@@ -9,10 +42,8 @@ and the collapsed-output guard. Only changed, missing or orphaned outputs appear
 for an absent file. Unchanged files are excluded. Existing changed targets must
 be regular non-symlink files. The plan is deterministic on unchanged inputs.
 
-This is preparation for an apply transaction, not an implemented writer. Apply
-must regenerate and compare the plan, validate destination parents, acquire a
-lock, back up originals/permissions, atomically replace files, and support rollback
-before any write command is enabled. Source Hunk writes are not mapped complete.
+Planning itself does not write outputs; explicit application is described above.
+Source Hunk writes are not mapped complete.
 No image validity or missing-image gate is implied by generating this plan.
 
 The native test checks exact binary original bytes, orphan removals, missing-file
@@ -28,7 +59,7 @@ null originals and no site directory created. A repeated invocation returns
 identical bytes. After the test installs those files, the next plan has no edits.
 Changing latest.json to invalid UTF-8 produces one replacement with the exact
 original byte array; the command leaves those bytes untouched and creates no
-Workdeck state. Applying the plan remains unimplemented.
+Workdeck state. Application was not implemented at that historical checkpoint.
 
 All 21 changelog CLI tests pass. Strict xtask Clippy, formatting and whitespace
 checks pass. No new source-ledger mapping is claimed.
@@ -42,7 +73,7 @@ deliberate preservation boundary for the future writer, not source-equivalence
 evidence for arbitrary orphan filenames. The checker still reports such orphans.
 
 Typed-plan validation, byte-preserving plan construction and plan CLI tests pass.
-Strict xtask Clippy, formatting and whitespace checks pass. Apply remains open.
+Strict xtask Clippy, formatting and whitespace checks passed at that checkpoint.
 
 ## Saved-plan checking
 
