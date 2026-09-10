@@ -76,3 +76,12 @@ cleaned up instead of reporting a retained capture. Four social-card unit tests
 pass, including exact saved bytes and collision preservation. File sync alone
 does not establish directory-entry crash durability, and the manifest is not
 signed provenance or authorization to publish its listed paths.
+
+Capture reports now identify schema 1 and record each staged image's exact byte
+length and SHA-256 alongside its indexed filename and target. Report generation
+rejects missing or nonregular staged entries before retaining the directory.
+The test uses synthetic bytes to verify ordered destination mapping and that
+changed content produces a changed digest; PNG decoding is tested separately
+at capture time. All five social-card unit tests pass. These hashes support
+future publication validation but do not authenticate the manifest or prevent
+an actor from modifying both the manifest and image.

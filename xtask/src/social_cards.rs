@@ -35,16 +35,37 @@ pub(super) fn run_capture(
         &repo.join(chromium),
         &documents,
     )?;
-    let report = serde_json::json!({
-        "stagingDirectory": staged.path(), "rendered":true, "published":false,
-        "replaceChangelogDirectory":requested.is_empty(),
-        "images": targets.iter().enumerate().map(|(i,t)| serde_json::json!({"stagedFile":format!("{i:04}.png"), "target":t})).collect::<Vec<_>>()
-    });
+    let report = capture_report(staged.path(), &targets, requested.is_empty())?;
     let encoded = serde_json::to_string_pretty(&report)?;
     save_capture_manifest(staged.path(), &encoded)?;
     let _retained_staging_directory = staged.keep();
     println!("{encoded}");
     Ok(())
+}
+
+fn capture_report(
+    staging: &std::path::Path,
+    targets: &[Target],
+    full: bool,
+) -> Result<serde_json::Value> {
+    use sha2::{Digest, Sha256};
+    let mut images = Vec::new();
+    for (index, target) in targets.iter().enumerate() {
+        let file = format!("{index:04}.png");
+        let path = staging.join(&file);
+        let metadata = std::fs::symlink_metadata(&path)?;
+        ensure!(
+            metadata.is_file() && !metadata.file_type().is_symlink(),
+            "staged social card must be a regular file"
+        );
+        let bytes = std::fs::read(&path)?;
+        images.push(serde_json::json!({"stagedFile":file,"target":target,
+            "bytes":bytes.len(),"sha256":format!("{:x}", Sha256::digest(&bytes))}));
+    }
+    Ok(
+        serde_json::json!({"schema":1,"stagingDirectory":staging,"rendered":true,
+        "published":false,"replaceChangelogDirectory":full,"images":images}),
+    )
 }
 
 fn save_capture_manifest(staging: &std::path::Path, encoded: &str) -> Result<()> {
@@ -227,6 +248,31 @@ pub(super) fn run(repo: &std::path::Path, mut args: impl Iterator<Item = String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn capture_report_binds_each_ordered_target_to_actual_image_bytes() {
+        use sha2::{Digest, Sha256};
+        let staging = tempfile::tempdir().unwrap();
+        let targets = select(vec![], &[]).unwrap();
+        assert!(capture_report(staging.path(), &targets, true).is_err());
+        std::fs::write(staging.path().join("0000.png"), b"image bytes").unwrap();
+        let report = capture_report(staging.path(), &targets, false).unwrap();
+        assert_eq!(report["schema"], 1);
+        assert_eq!(report["images"][0]["bytes"], 11);
+        assert_eq!(
+            report["images"][0]["sha256"],
+            format!("{:x}", Sha256::digest(b"image bytes"))
+        );
+        assert_eq!(
+            report["images"][0]["target"]["output_file"],
+            "site/static/extensions/og.png"
+        );
+        std::fs::write(staging.path().join("0000.png"), b"changed bytes").unwrap();
+        let changed = capture_report(staging.path(), &targets, false).unwrap();
+        assert_ne!(
+            report["images"][0]["sha256"],
+            changed["images"][0]["sha256"]
+        );
+    }
     #[test]
     fn capture_manifest_is_durable_exact_and_never_overwritten() {
         let staging = tempfile::tempdir().unwrap();
