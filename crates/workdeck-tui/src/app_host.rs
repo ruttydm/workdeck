@@ -609,6 +609,67 @@ mod tests {
     #[derive(Default)]
     struct MockHost(Mutex<MockHostState>);
 
+    // Translated from Hunk AppHost.interactions.test.tsx waitForSnapshot
+    // (2c00f435, MIT, Modem Labs Inc.; see THIRD_PARTY_NOTICES).
+    // The caller supplies the native frame/publication pump. Return the last
+    // observation on exhaustion, even if absent or not yet matching.
+    fn wait_for_snapshot<T>(
+        mut get_snapshot: impl FnMut() -> Option<T>,
+        mut predicate: impl FnMut(&T) -> bool,
+        mut advance_frame: impl FnMut(),
+        attempts: usize,
+    ) -> Option<T> {
+        let mut snapshot = get_snapshot();
+        for _ in 0..attempts {
+            if snapshot.as_ref().is_some_and(&mut predicate) {
+                return snapshot;
+            }
+            advance_frame();
+            snapshot = get_snapshot();
+        }
+        snapshot
+    }
+
+    #[test]
+    fn snapshot_wait_preserves_initial_match_absence_and_exhaustion_semantics() {
+        use std::cell::Cell;
+        for (initial, target, attempts, expected, advances) in [
+            (Some(4), 4, 8, Some(4), 0),
+            (None, 2, 8, Some(2), 2),
+            (Some(0), 9, 2, Some(2), 2),
+            (None, 9, 0, None, 0),
+            (Some(4), 4, 0, Some(4), 0),
+        ] {
+            let value = Cell::new(initial);
+            let ticks = Cell::new(0);
+            let result = wait_for_snapshot(
+                || value.get(),
+                |snapshot| *snapshot == target,
+                || {
+                    ticks.set(ticks.get() + 1);
+                    value.set(Some(value.get().unwrap_or(0) + 1));
+                },
+                attempts,
+            );
+            assert_eq!(result, expected);
+            assert_eq!(ticks.get(), advances);
+        }
+        let mut predicates = 0;
+        assert_eq!(
+            wait_for_snapshot::<usize>(
+                || None,
+                |_| {
+                    predicates += 1;
+                    true
+                },
+                || {},
+                8
+            ),
+            None
+        );
+        assert_eq!(predicates, 0);
+    }
+
     impl WorkdeckSessionBridgeHost for MockHost {
         fn set_bridge(&self, bridge: Option<Arc<WorkdeckSessionAppBridge>>) {
             let mut state = self.0.lock().unwrap();
@@ -1340,9 +1401,24 @@ mod tests {
         ] {
             app.handle_key(KeyEvent::new(key, KeyModifiers::NONE));
             let frame = rendered_review_frame(&mut terminal, &app);
-            controller.publish_snapshot(&app).unwrap();
-            let snapshots = host.0.lock().unwrap();
-            let state = &snapshots.snapshots.last().unwrap().state;
+            let state = wait_for_snapshot(
+                || {
+                    host.0
+                        .lock()
+                        .unwrap()
+                        .snapshots
+                        .last()
+                        .map(|snapshot| snapshot.state.clone())
+                },
+                |state| state.selected_file_id.as_deref() == Some(expected),
+                || {
+                    std::thread::sleep(Duration::from_millis(30));
+                    rendered_review_frame(&mut terminal, &app);
+                    controller.publish_snapshot(&app).unwrap();
+                },
+                24,
+            )
+            .expect("file navigation must publish a session snapshot");
             assert_eq!(state.selected_file_id.as_deref(), Some(expected));
             assert_eq!(state.selected_hunk_index, 0);
             assert!(frame.contains(&format!("{expected}.ts")), "{frame}");

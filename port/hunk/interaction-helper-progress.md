@@ -39,6 +39,22 @@ tests ordering, trimming, and missing-header behavior.
 After these translations, `cargo test -p workdeck-tui --lib` passed all
 1,261 tests with zero failures and zero ignored tests on macOS arm64.
 
-The source interval at bytes `[15678,17425)` also owns the
-snapshot-waiting helper. It remains unmapped; this partial translation must
-not be used to claim completion of that interval or the whole source file.
+The final helper, `wait_for_snapshot` in `app_host.rs`, reads before pumping,
+checks only present snapshots, advances and re-reads up to the requested
+attempt count, and returns the final observation even when absent or
+nonmatching. Its native AppHost caller retains the source's 30 ms delay before
+rendering and publishing. It uses the same explicit 24-attempt limit as the
+source file-navigation test; focused cases also exercise the source default
+of eight attempts and the zero-attempt boundary.
+
+`snapshot_wait_preserves_initial_match_absence_and_exhaustion_semantics`
+checks these boundaries, including skipping the predicate for absent snapshots.
+`file_shortcuts_publish_selection_and_filter_focus_retains_selected_file`
+uses the helper against actual `AppHostController::publish_snapshot` output,
+verifying next/previous selected file IDs and hunk indices. All 21 AppHost
+tests passed after this translation.
+
+The complete 1,747-byte interval `[15678,17425)` (lines 509–578) now maps all
+four helper functions, comments, and separators to these native tests and
+source-attribution comments. The ledger marks only this interval translated;
+other helper intervals and the whole-file completion remain outstanding.
