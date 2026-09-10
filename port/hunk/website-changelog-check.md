@@ -64,3 +64,12 @@ formatting and whitespace checks pass.
 The original two-test [cleanup safety group](changelog-cleanup-tests.md) is now
 translated using the pinned full-tree inputs and disposable native outputs. Its
 799-byte interval is mapped; write/delete behavior remains unimplemented.
+
+The checker CLI also has explicit missing/extra argument, missing-file, malformed
+JSON, invalid date type, invalid notes shape and invalid video-field tests. Every
+failure must emit no stdout, preserve input bytes and leave the repository with
+only its Git directory and three inputs. No generated directories or Workdeck
+state are created on these error paths.
+
+All 20 changelog CLI tests pass, with strict xtask Clippy, formatting and
+whitespace checks also passing. No new ledger mapping accompanies these tests.

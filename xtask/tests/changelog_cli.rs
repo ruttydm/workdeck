@@ -11,6 +11,84 @@ fn run(repo: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
+fn artifact_check_cli_rejects_invalid_inputs_without_creating_state() {
+    let repo = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    std::fs::write(repo.path().join("history.md"), "## 1.0.0\n").unwrap();
+    std::fs::write(repo.path().join("dates.json"), "{}").unwrap();
+    std::fs::write(repo.path().join("notes.json"), "{}").unwrap();
+    for args in [
+        vec!["changelog", "artifacts-check"],
+        vec!["changelog", "artifacts-check", "history.md"],
+        vec!["changelog", "artifacts-check", "missing.md", "dates.json"],
+        vec!["changelog", "artifacts-check", "history.md", "missing.json"],
+        vec![
+            "changelog",
+            "artifacts-check",
+            "history.md",
+            "dates.json",
+            "missing.json",
+        ],
+        vec![
+            "changelog",
+            "artifacts-check",
+            "history.md",
+            "dates.json",
+            "notes.json",
+            "extra",
+        ],
+    ] {
+        let output = run(repo.path(), &args);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+    }
+    for (path, invalid) in [
+        ("dates.json", "{broken"),
+        ("dates.json", r#"{"1.0.0":42}"#),
+        ("notes.json", "[]"),
+        ("notes.json", r#"{"1.0":{"video":{"mp4":false}}}"#),
+    ] {
+        std::fs::write(repo.path().join("dates.json"), "{}").unwrap();
+        std::fs::write(repo.path().join(path), invalid).unwrap();
+        let output = run(
+            repo.path(),
+            &[
+                "changelog",
+                "artifacts-check",
+                "history.md",
+                "dates.json",
+                "notes.json",
+            ],
+        );
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+        assert_eq!(
+            std::fs::read_to_string(repo.path().join(path)).unwrap(),
+            invalid
+        );
+    }
+    let mut entries = std::fs::read_dir(repo.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect::<Vec<_>>();
+    entries.sort();
+    assert_eq!(entries, [".git", "dates.json", "history.md", "notes.json"]);
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("history.md")).unwrap(),
+        "## 1.0.0\n"
+    );
+}
+
+#[test]
 fn artifact_check_cli_rejects_collapsed_generation_before_image_checks() {
     let repo = tempfile::tempdir().unwrap();
     assert!(
