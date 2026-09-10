@@ -141,6 +141,28 @@ impl ReviewApp {
         let Some(file) = file else {
             return false;
         };
+        // A fresh host reader does not invalidate completed text for the same
+        // content identity. VCS bindings have their own authority checks and
+        // deliberately do not use this retention path.
+        let retain_loaded = self.source_loaders.get(file_key).is_some_and(|binding| {
+            binding.vcs_runtime_identity.is_none()
+                && binding.identity.is_some()
+                && binding.identity == file.source_identity
+        }) && matches!(
+            self.options.source_presentation.status(file),
+            Some(workdeck_review::ReviewSourceStatus::Loaded { .. })
+        );
+        if retain_loaded {
+            self.source_loaders.insert(
+                file.key.clone(),
+                SourceLoaderBinding {
+                    identity: file.source_identity.clone(),
+                    vcs_runtime_identity: None,
+                    loader,
+                },
+            );
+            return true;
+        }
         self.bind_source_loader(file, loader, None);
         true
     }
@@ -959,6 +981,26 @@ pub(super) mod tests {
             second_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
             ReviewSide::New
         );
+    }
+
+    #[test]
+    fn unchanged_alpha_reload_with_fresh_reader_preserves_loaded_gap() {
+        let initial = pinned_alpha_source_review(800);
+        let file = initial.files[0].clone();
+        let mut app = ReviewApp::new(initial, ReviewOptions::default());
+        let (first_tx, first_rx) = mpsc::channel();
+        assert!(app.install_source_loader(&file.key, Arc::new(Loader(Mutex::new(first_rx)))));
+        app.toggle_source_gap_for_file(&file.key, 0).unwrap();
+        first_tx.send("first\n".into()).unwrap();
+        drain_one(&mut app);
+        app.reload(pinned_alpha_source_review(800));
+        let (_next_tx, next_rx) = mpsc::channel();
+        assert!(app.install_source_loader(&file.key, Arc::new(Loader(Mutex::new(next_rx)))));
+        assert!(matches!(
+            app.options.source_presentation.status(&file),
+            Some(workdeck_review::ReviewSourceStatus::Loaded { text }) if text == "first\n"
+        ));
+        assert!(app.expanded_gaps.contains(&(file.key, 0)));
     }
 
     #[test]
