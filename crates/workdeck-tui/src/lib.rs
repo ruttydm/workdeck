@@ -2831,9 +2831,7 @@ impl ReviewApp {
         self.reconcile_active_file_view_mode();
         self.status = None;
         if self.options.cursor_line == CursorLineMode::Off {
-            let _ = self
-                .with_state(|state| state.reveal_line(target.file_index, target.side, target.line));
-            self.scroll_to_selected_line();
+            self.reveal_keyboard_note_composer();
         } else {
             self.scroll_to_reveal(workdeck_review::REVIEW_VIEWPORT_ANCHOR_REVEAL);
         }

@@ -1556,6 +1556,38 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn cursor_off_new_draft_requests_composer_reveal() {
+        let mut app = ReviewApp::new(
+            pinned_alpha_source_review(800),
+            ReviewOptions {
+                cursor_line: super::super::CursorLineMode::Off,
+                ..ReviewOptions::default()
+            },
+        );
+        app.review_width.set(80);
+        app.review_height.set(4);
+        let before = app.review_reveal;
+        app.open_note_composer();
+        let draft = app.note_composer.as_ref().unwrap();
+        let rows = app.current_review_geometry_rows();
+        let (top, height) = rows.note_bounds[&draft.id];
+        let viewport = usize::from(
+            app.review_height
+                .get()
+                .saturating_sub(app.review_reserved_rows())
+                .max(1),
+        );
+        assert!(top + height > viewport);
+        assert_eq!(
+            app.scroll,
+            (top + height - viewport).min(rows.lines.len().saturating_sub(viewport))
+        );
+        assert_eq!(app.review_reveal.hunk_token, before.hunk_token + 1);
+        assert_eq!(app.review_reveal.file_top_token, before.file_top_token);
+        assert!(app.review_reveal.scroll_to_note);
+    }
+
+    #[test]
     fn cursor_targeted_new_draft_clears_prior_note_reveal_without_scrolling() {
         let mut app = ReviewApp::new(pinned_alpha_source_review(800), ReviewOptions::default());
         app.step_diff_line(2);

@@ -99,3 +99,15 @@ checks the target, complete resulting intent and unchanged offset after a seeded
 prior note-reveal request. The focused test passed in 0.75 seconds; formatting
 and diff checks passed. Cursor-off fallback and complete measured-cursor absence
 behavior remain separate obligations; no source mapping changes.
+
+## Cursor-off fallback composer reveal
+
+Cursor-off draft opening now uses the composer reveal path rather than only
+scrolling to the selected code line. It emits the default draft hunk intent and
+uses the draft's measured bounds for minimal visibility scrolling.
+`cursor_off_new_draft_requests_composer_reveal` checks a four-row viewport,
+required scroll, unchanged file token, incremented hunk token and note-reveal flag.
+Explicit pointer preservation with cursor mode off and the full missing-cursor
+matrix remain unproven; no source interval is mapped by this change.
+All 1,252 TUI library tests passed in 8.81 seconds; formatting and diff checks
+passed.
