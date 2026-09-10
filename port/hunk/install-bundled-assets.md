@@ -56,3 +56,24 @@ an unrelated empty directory, and checks that it returns the installation's
 temporary user configuration and working directory remain empty. This test and
 the two CLI-adapter unit tests pass on macOS; it does not establish native Windows
 or Linux execution evidence.
+
+## Archive authentication before asset installation
+
+The release workflow attests complete archives after packaging, separately from
+the embedded binary attestation. `install::prepare_authenticated_archive` now
+uses that published archive attestation through the declared `gh` verifier,
+enforcing the repository, release workflow, full source commit, tag ref, GitHub
+OIDC issuer and predicate policy with a 120-second deadline. Missing or rejected
+attestations fail rather than falling back to checksum-only trust.
+
+Verification operates on a private archive snapshot after checksum validation
+and before extraction. The open snapshot and its named path are rehashed after
+verification; changed content is rejected. The temporary authentication directory
+is removed on success or error. Existing checksum-only staging remains explicitly
+separate and is not evidence of publisher authentication.
+
+Both staging tests pass on macOS, including injected verifier success, rejection,
+snapshot modification and cleanup. The injected callbacks test orchestration,
+not real signatures or GitHub availability. This new API is not yet wired into
+the complete asset installation transaction; the existing updater continues to
+authenticate its binary separately. No signed release was fetched or published.

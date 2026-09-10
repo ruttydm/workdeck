@@ -18,7 +18,7 @@ pub use download::{DownloadedRelease, download_release};
 pub use release_identity::{ResolvedRelease, resolve_release_identity};
 mod staging;
 mod transaction;
-pub use staging::{prepare_verified_archive, stage};
+pub use staging::{prepare_authenticated_archive, prepare_verified_archive, stage};
 pub use transaction::{create_binary, replace_binary_with_backup};
 
 fn archive_entry_path(name: &str) -> Result<String> {

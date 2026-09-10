@@ -6,6 +6,37 @@ use std::io::{Read, Seek, Write};
 /// The caller must authenticate the checksum manifest separately. Dropping the
 /// returned handle removes the staged files; no executable is installed.
 pub fn prepare_verified_archive(archive: &Path, checksums: &Path) -> Result<tempfile::TempDir> {
+    prepare_archive(archive, checksums, |_| Ok(()))
+}
+
+/// Authenticate the complete archive, including assets, using GitHub's published
+/// archive attestation. Release identity must be resolved independently.
+pub fn prepare_authenticated_archive(
+    archive: &Path,
+    checksums: &Path,
+    identity: ReleaseIdentity<'_>,
+) -> Result<tempfile::TempDir> {
+    let policy =
+        attestation::verification_args(identity.repository, identity.commit, identity.tag_ref)?;
+    prepare_archive(archive, checksums, |snapshot| {
+        use std::process::{Command, Stdio};
+        let mut verifier = Command::new("gh")
+            .args(["attestation", "verify"])
+            .arg(snapshot)
+            .args(&policy)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .env("GH_PROMPT_DISABLED", "1")
+            .spawn()?;
+        attestation::wait_verifier(&mut verifier, std::time::Duration::from_secs(120))
+    })
+}
+
+fn prepare_archive(
+    archive: &Path,
+    checksums: &Path,
+    authenticate: impl FnOnce(&Path) -> Result<()>,
+) -> Result<tempfile::TempDir> {
     let name = archive
         .file_name()
         .and_then(|name| name.to_str())
@@ -17,7 +48,15 @@ pub fn prepare_verified_archive(archive: &Path, checksums: &Path) -> Result<temp
     let metadata = source.metadata()?;
     validate_archive_input(&metadata)?;
     let size = metadata.len();
-    let mut snapshot = tempfile::tempfile()?;
+    let private = tempfile::Builder::new()
+        .prefix("workdeck-archive-auth-")
+        .tempdir()?;
+    let snapshot_path = private.path().join(name);
+    let mut snapshot = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(&snapshot_path)?;
     let copied = std::io::copy(&mut source.take(size + 1), &mut snapshot)?;
     anyhow::ensure!(copied == size, "Archive size changed during staging");
     snapshot.rewind()?;
@@ -25,6 +64,18 @@ pub fn prepare_verified_archive(archive: &Path, checksums: &Path) -> Result<temp
     anyhow::ensure!(
         actual == expected,
         "Checksum verification failed for {name}"
+    );
+    snapshot.sync_all()?;
+    authenticate(&snapshot_path)?;
+    snapshot.rewind()?;
+    anyhow::ensure!(
+        hash_archive_bytes(&mut snapshot, size)? == expected,
+        "archive snapshot changed during authentication"
+    );
+    let reopened = open_archive_input(&snapshot_path)?;
+    anyhow::ensure!(
+        reopened.metadata()?.len() == size && hash_archive_bytes(&reopened, size)? == expected,
+        "archive snapshot path changed during authentication"
     );
     snapshot.rewind()?;
     let zip = archive
@@ -153,6 +204,32 @@ mod tests {
             std::fs::write(&checksums, format!("{hash} workdeck.tar.gz\n")).unwrap();
             let result = prepare_verified_archive(&archive, &checksums);
             if variant == "valid" {
+                let mut observed = None;
+                let rejected = prepare_archive(&archive, &checksums, |snapshot| {
+                    observed = Some(snapshot.to_owned());
+                    assert_eq!(std::fs::read(snapshot)?, bytes);
+                    anyhow::bail!("publisher rejected")
+                });
+                assert!(
+                    rejected
+                        .unwrap_err()
+                        .to_string()
+                        .contains("publisher rejected")
+                );
+                assert!(!observed.unwrap().exists());
+                assert!(
+                    prepare_archive(&archive, &checksums, |snapshot| {
+                        std::fs::write(snapshot, b"modified")?;
+                        Ok(())
+                    })
+                    .is_err()
+                );
+                let authenticated = prepare_archive(&archive, &checksums, |snapshot| {
+                    assert_eq!(std::fs::read(snapshot)?, bytes);
+                    Ok(())
+                })
+                .unwrap();
+                assert!(authenticated.path().join("package/LICENSE").is_file());
                 let staged = result.unwrap();
                 for name in ["workdeck", "LICENSE"] {
                     let path = staged.path().join("package").join(name);
