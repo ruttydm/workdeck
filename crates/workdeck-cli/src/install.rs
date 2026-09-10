@@ -12,7 +12,7 @@ pub use assets::{install_authenticated_skills, install_skill_tree};
 mod authenticated;
 mod download;
 mod fresh;
-pub use fresh::{create_authenticated_installation, install_release};
+pub use fresh::{create_authenticated_installation, install_release, install_release_on_host};
 pub mod metadata;
 mod release_identity;
 pub mod shell_path;
@@ -665,6 +665,29 @@ fn platform(os: &str, arch: &str, translated: bool) -> Result<(&'static str, &'s
     Ok((os, arch))
 }
 
+fn current_platform() -> Result<(&'static str, &'static str)> {
+    #[cfg(target_os = "macos")]
+    let translated = {
+        let mut value: libc::c_int = 0;
+        let mut length = std::mem::size_of_val(&value);
+        // SAFETY: the output pointer references a live c_int, length describes
+        // its capacity, the name is NUL-terminated and no value is being written.
+        let status = unsafe {
+            libc::sysctlbyname(
+                c"sysctl.proc_translated".as_ptr(),
+                (&mut value as *mut libc::c_int).cast(),
+                &mut length,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        status == 0 && length == std::mem::size_of_val(&value) && value == 1
+    };
+    #[cfg(not(target_os = "macos"))]
+    let translated = false;
+    platform(std::env::consts::OS, std::env::consts::ARCH, translated)
+}
+
 pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
     let env = [
         "WORKDECK_VERSION",
@@ -680,16 +703,7 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
         );
         return Ok(());
     };
-    let translated = cfg!(target_os = "macos")
-        && std::process::Command::new("sysctl")
-            .args(["-n", "sysctl.proc_translated"])
-            .output()
-            .ok()
-            .is_some_and(|output| {
-                output.status.success()
-                    && output.stdout.strip_suffix(b"\n").unwrap_or(&output.stdout) == b"1"
-            });
-    let (os, arch) = platform(std::env::consts::OS, std::env::consts::ARCH, translated)?;
+    let (os, arch) = current_platform()?;
     let home = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .filter(|value| !value.is_empty())

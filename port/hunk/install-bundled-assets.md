@@ -229,3 +229,16 @@ publication behavior. Network/public-signature success remains untested against
 a real release. This composition accepts a caller-selected platform/architecture;
 automatic host/Rosetta selection, latest-version resolution, PATH changes and
 standalone CLI integration are still outstanding.
+
+`install::install_release_on_host` now supplies automatic platform/architecture
+selection to that flow. Installer preflight and first installation share the
+source-tested platform mapping. macOS obtains `sysctl.proc_translated` through
+the native `sysctlbyname` interface, eliminating the previous external command;
+missing/failed probes fall back to untranslated behavior as in the source.
+Rosetta-translated x86_64 maps to arm64 on Darwin only. Unsupported host platforms
+remain errors rather than being treated as Linux.
+
+The 58 installer tests pass after sharing this detector. The first-install test
+also exercises host selection with an invalid version, confirming no destination
+writes. The existing dual-pin platform oracle covers translation-flag mapping,
+but this host run does not prove execution under Rosetta itself or on other OSes.

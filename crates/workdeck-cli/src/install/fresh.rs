@@ -2,6 +2,18 @@
 use anyhow::{Context, Result, ensure};
 use std::{fs, io::Read, path::Path};
 
+/// Install the requested release for this host, including Rosetta correction.
+pub fn install_release_on_host(version: &str, destination: &Path) -> Result<()> {
+    let (os, arch) = super::current_platform()?;
+    let platform = match os {
+        "darwin" => crate::update::UpdatePlatform::Macos,
+        "linux" => crate::update::UpdatePlatform::Linux,
+        "windows" => crate::update::UpdatePlatform::Windows,
+        _ => anyhow::bail!("unsupported native platform"),
+    };
+    install_release(version, platform, arch, destination)
+}
+
 /// Resolve a release independently, download its native archive and publish a
 /// new installation. Does not modify PATH or replace an existing installation.
 pub fn install_release(
@@ -145,6 +157,8 @@ mod tests {
         use crate::update::UpdatePlatform;
         let dir = tempfile::tempdir().unwrap();
         let destination = dir.path().join("install");
+        assert!(install_release_on_host("invalid", &destination).is_err());
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
         let mut called = false;
         install_release_with(
             "v1.2.3",
