@@ -11,6 +11,83 @@ fn run(repo: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
+fn release_notes_cli_renders_workdeck_links_without_writes() {
+    let repo = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    let markdown =
+        "## 1.2.0\n### Fixed\n- [#42](https://example.invalid/pr) Native **fix**.\n## 1.2.1\n";
+    let dates = r#"{"1.2.0":"2026-08-16"}"#;
+    let input = repo.path().join("history.md");
+    let dates_path = repo.path().join("dates.json");
+    std::fs::write(&input, markdown).unwrap();
+    std::fs::write(&dates_path, dates).unwrap();
+    let output = run(
+        repo.path(),
+        &["changelog", "release-notes", "history.md", "dates.json"],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap(),
+        serde_json::json!([{
+            "minor": "1.2",
+            "markdown": "## Releases in this series\n\n<a class=\"release-separator\" id=\"v1-2-1\"></a>\n\n### 1.2.1\n\nUnreleased\n\nNo user-facing changes.\n\n<a class=\"release-separator\" id=\"v1-2-0\"></a>\n\n### 1.2.0\n\nAugust 16, 2026\n\n#### Fixed\n\n- Native **fix**. ([#42](https://github.com/ruttydm/workdeck/pull/42))\n"
+        }])
+    );
+    for args in [
+        vec!["changelog", "release-notes"],
+        vec!["changelog", "release-notes", "history.md"],
+        vec!["changelog", "release-notes", "missing.md", "dates.json"],
+        vec!["changelog", "release-notes", "history.md", "missing.json"],
+        vec![
+            "changelog",
+            "release-notes",
+            "history.md",
+            "dates.json",
+            "extra",
+        ],
+    ] {
+        let output = run(repo.path(), &args);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+    }
+    assert_eq!(std::fs::read_to_string(&dates_path).unwrap(), dates);
+    for invalid in ["{broken", r#"{"1.2.0":42}"#] {
+        std::fs::write(&dates_path, invalid).unwrap();
+        let output = run(
+            repo.path(),
+            &["changelog", "release-notes", "history.md", "dates.json"],
+        );
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+        assert_eq!(std::fs::read_to_string(&dates_path).unwrap(), invalid);
+    }
+    assert_eq!(std::fs::read_to_string(&input).unwrap(), markdown);
+    let mut entries = std::fs::read_dir(repo.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect::<Vec<_>>();
+    entries.sort();
+    assert_eq!(
+        entries,
+        [".git", "dates.json", "history.md"].map(std::ffi::OsString::from)
+    );
+}
+
+#[test]
 fn publication_cli_never_promotes_unpublished_or_prerelease_versions() {
     let repo = tempfile::tempdir().unwrap();
     assert!(

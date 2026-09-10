@@ -176,3 +176,13 @@ formatter. All thirteen website tests pass, including the 95 release bodies.
 These vectors are not exhaustive numeric-conversion proof; extreme radix values
 and broader malformed-input differential testing remain open. No ledger mapping
 changed.
+
+## Release-notes CLI integration
+
+The command now has an exact-output temporary-repository test for Workdeck PR
+links, descending patch releases, version anchors, unreleased/no-change text,
+dated entries, and preserved inline Markdown. Missing files/arguments, extra
+arguments, malformed JSON and invalid date types fail without stdout. Input
+bytes and the root directory inventory are checked after success and failures.
+All seven changelog CLI integration tests pass. This does not establish full-page
+or website parity, and no ledger mapping changed.
