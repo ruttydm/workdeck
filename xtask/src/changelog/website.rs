@@ -732,6 +732,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn entry_recovers_pull_request_from_changesets() {
+        assert_eq!(serde_json::to_value(parse_entry("[#728](https://github.com/modem-dev/hunk/pull/728) [`bb6405e`](https://github.com/modem-dev/hunk/commit/bb6405e) - Highlight ranges.")).unwrap(), serde_json::json!({"description":"Highlight ranges.","pullRequest":728}));
+    }
+
+    #[test]
+    fn entry_handles_commit_link_without_pull_request() {
+        assert_eq!(
+            serde_json::to_value(parse_entry(
+                "[`f1bc9bf`](https://github.com/modem-dev/hunk/commit/f1bc9bf) - Move keys."
+            ))
+            .unwrap(),
+            serde_json::json!({"description":"Move keys."})
+        );
+    }
+
+    #[test]
+    fn entry_strips_legacy_bare_sha() {
+        assert_eq!(
+            serde_json::to_value(parse_entry("59fcdbb: Require an explicit click.")).unwrap(),
+            serde_json::json!({"description":"Require an explicit click."})
+        );
+    }
+
+    #[test]
+    fn entry_keeps_plain_prose() {
+        assert_eq!(
+            serde_json::to_value(parse_entry("Fixed Windows launches.")).unwrap(),
+            serde_json::json!({"description":"Fixed Windows launches."})
+        );
+    }
+
+    #[test]
     fn large_radix_dates_match_both_pinned_oracles() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
             "../../../port/hunk/website-changelog-radix-date-oracle.json"
