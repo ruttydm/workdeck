@@ -1,5 +1,25 @@
 # Native release-channel and version policy
 
+## Dependency-policy checkpoint (`bf8b7cf7`)
+
+On the macOS development host, `cargo deny check` exits successfully with
+`advisories ok, bans ok, licenses ok, sources ok`. The checked policy lists all
+five native release targets and enables all features. It retains three explicit
+advisory exceptions (`RUSTSEC-2025-0141`, `RUSTSEC-2024-0320`,
+`RUSTSEC-2024-0436`), so this result is policy compliance, not a claim of an
+exception-free advisory scan. Duplicate crate versions remain warnings. The
+unused `MPL-2.0` and `Unicode-DFS-2016` allowances also produce warnings; the
+policy was not weakened or changed to obtain the passing result.
+
+Release packaging obtains its license inventory from locked, offline Cargo
+metadata and serializes package name, version, license, repository and source
+in deterministic order. This mechanism was inspected at this checkpoint; no
+signed archive was generated or verified by the dependency-policy command.
+Native installation, full third-party artifact contents, signature/provenance
+verification and semantic-port parity remain separate release gates.
+
+## Release input policy
+
 These Rust tools validate release inputs and emit metadata. They do not fetch a latest version,
 create a Git tag, commit changes, upload assets, or publish packages or releases.
 
