@@ -13,6 +13,7 @@ qualification. Passing individual tests does not establish complete Hunk parity.
 - [Keybindings, layout and display](/docs/configure/)
 - [Git integration workflows](/docs/workflows/)
 - [Compatibility and troubleshooting](/docs/help/)
+- [Agent-assisted review guidance](/docs/agents/)
 - [Legacy extension migration inventory](/extensions/)
 
 The repository's `port/hunk/ledger.jsonl` and strict `cargo xtask port audit`
