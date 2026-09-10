@@ -1088,10 +1088,8 @@ mod tests {
         }
     }
 
-    fn assert_scroll_selection_publication(input: ScrollSelectionInput) {
-        use crate::tests::{numbered_exports, rendered_review_frame};
-        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
-        use ratatui::{Terminal, backend::TestBackend};
+    fn pinned_mouse_scroll_bootstrap() -> workdeck_core::AppBootstrap {
+        use crate::tests::numbered_exports;
         let first = numbered_exports(1, 12, 0, true);
         let second = numbered_exports(13, 50, 0, true);
         let mut second_after = second.clone();
@@ -1158,7 +1156,88 @@ mod tests {
             })).unwrap());
         }
         review.refresh_review_identities();
-        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        let mut bootstrap = workdeck_core::AppBootstrap::new(
+            workdeck_core::CliInput::Vcs(workdeck_core::VcsDiffCommandInput {
+                range: None,
+                range_endpoints: None,
+                staged: false,
+                pathspecs: Vec::new(),
+                options: workdeck_core::CommonOptions {
+                    mode: Some(workdeck_core::InputLayoutMode::Split),
+                    pager: Some(false),
+                    ..Default::default()
+                },
+            }),
+            workdeck_core::ReloadContext {
+                cwd: "repo".into(),
+                repo_root: None,
+                initial_watch_signature: None,
+                vcs_catalog: None,
+            },
+            review,
+        );
+        bootstrap.initial_theme = Some("github-dark-default".into());
+        bootstrap
+    }
+
+    #[test]
+    fn mouse_scroll_bootstrap_matches_both_pinned_source_fixtures() {
+        let bootstrap = pinned_mouse_scroll_bootstrap();
+        assert_mouse_scroll_fixture(&bootstrap.changeset);
+        let workdeck_core::CliInput::Vcs(input) = &bootstrap.input else {
+            panic!("expected VCS input")
+        };
+        assert!(
+            input.range.is_none() && input.range_endpoints.is_none() && input.pathspecs.is_empty()
+        );
+        assert_eq!(
+            input.options,
+            workdeck_core::CommonOptions {
+                mode: Some(workdeck_core::InputLayoutMode::Split),
+                pager: Some(false),
+                ..Default::default()
+            }
+        );
+        assert!(bootstrap.reload_context.repo_root.is_none());
+        assert!(
+            bootstrap.changeset.summary.is_none() && bootstrap.changeset.agent_summary.is_none()
+        );
+        assert_eq!(
+            bootstrap.initial_mode,
+            workdeck_core::InputLayoutMode::Split
+        );
+        let actual = serde_json::json!({
+            "reloadContext":{"cwd":bootstrap.reload_context.cwd},
+            "input":{"kind":"vcs","staged":input.staged,"options":{"mode":"split","pager":input.options.pager}},
+            "changeset":{"id":bootstrap.changeset.id,"sourceLabel":bootstrap.changeset.source_label,"title":bootstrap.changeset.title},
+            "initialMode":"split","initialShowMenuBar":bootstrap.initial_show_menu_bar,"initialTheme":bootstrap.initial_theme
+        });
+        let oracle: Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/interaction-mouse-scroll-bootstrap.json"
+        ))
+        .unwrap();
+        for run in oracle["runs"].as_array().unwrap() {
+            assert_eq!(actual, run["bootstrap"], "{}", run["pin"]);
+        }
+    }
+
+    fn assert_scroll_selection_publication(input: ScrollSelectionInput) {
+        use crate::tests::rendered_review_frame;
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+        use ratatui::{Terminal, backend::TestBackend};
+        let bootstrap = pinned_mouse_scroll_bootstrap();
+        let mut app = ReviewApp::new(
+            bootstrap.changeset,
+            ReviewOptions {
+                layout: crate::LayoutMode::Split,
+                theme: crate::theme::resolve_theme(bootstrap.initial_theme.as_deref(), None, &[]),
+                agent_notes: bootstrap.initial_show_agent_notes,
+                show_menu_bar: bootstrap.initial_show_menu_bar,
+                command_cwd: Some(bootstrap.reload_context.cwd),
+                review_input: Some(bootstrap.input),
+                ..Default::default()
+            },
+        );
         let host = Arc::new(MockHost::default());
         let mut controller = AppHostController::attach_to_host(
             Some(host.clone() as Arc<dyn WorkdeckSessionBridgeHost>),

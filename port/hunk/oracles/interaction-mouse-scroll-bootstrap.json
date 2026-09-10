@@ -1,0 +1,57 @@
+{
+  "source": "src/ui/AppHost.interactions.test.tsx",
+  "helper": "createMouseScrollSelectionBootstrap",
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "capture": "Execute exact helper using real pinned diff/bootstrap helpers. Files are separately captured in interaction-mouse-scroll-files.json; JSON omits undefined properties.",
+  "runs": [
+    {
+      "pin": "main",
+      "bootstrap": {
+        "reloadContext": {
+          "cwd": "repo"
+        },
+        "input": {
+          "kind": "vcs",
+          "staged": false,
+          "options": {
+            "mode": "split",
+            "pager": false
+          }
+        },
+        "changeset": {
+          "id": "changeset:mouse-scroll-selection",
+          "sourceLabel": "repo",
+          "title": "repo working tree"
+        },
+        "initialMode": "split",
+        "initialShowMenuBar": true,
+        "initialTheme": "github-dark-default"
+      }
+    },
+    {
+      "pin": "stable",
+      "bootstrap": {
+        "reloadContext": {
+          "cwd": "repo"
+        },
+        "input": {
+          "kind": "vcs",
+          "staged": false,
+          "options": {
+            "mode": "split",
+            "pager": false
+          }
+        },
+        "changeset": {
+          "id": "changeset:mouse-scroll-selection",
+          "sourceLabel": "repo",
+          "title": "repo working tree"
+        },
+        "initialMode": "split",
+        "initialShowMenuBar": true,
+        "initialTheme": "github-dark-default"
+      }
+    }
+  ]
+}

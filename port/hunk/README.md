@@ -1,5 +1,19 @@
 # Hunk semantic-port ledger
 
+## Mouse-scroll bootstrap helper
+
+The full 1,051-byte `createMouseScrollSelectionBootstrap` interval is translated
+with frozen file and bootstrap projections from both pins, plus native wheel,
+page-key, and down-arrow snapshot-publication tests. The constructor retains
+complete embedded source metadata without granting fetch access, and its
+consumers explicitly apply the pinned launch settings. See
+[scope and evidence](wheel-selection.md).
+
+Strict audit still fails: 1,257 baseline files, 1,399 ledger records, 439
+translated-test records, and 270 unmapped intervals. The cached upstream queue
+contains 11 commits; no fresh upstream fetch is claimed. This helper mapping
+does not establish full UI, source-capability, or release parity.
+
 ## Collapsed-top fixture and embedded source metadata
 
 The complete fixture helper at bytes 12,668–13,394 now retains both full source

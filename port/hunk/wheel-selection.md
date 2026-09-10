@@ -1,5 +1,23 @@
 # Wheel-driven review selection
 
+## Complete mouse-scroll bootstrap helper
+
+The helper at baseline bytes 11,617–12,668 (lines 368–401) now has an explicit
+native `AppBootstrap` constructor, consumed by all three scroll-publication
+tests. In addition to the complete file projection below, a dedicated test
+compares [bootstrap metadata from both pins](oracles/interaction-mouse-scroll-bootstrap.json):
+unstaged VCS input, split mode, pager disabled, reload cwd, changeset identity,
+title, source label, menu visibility, and theme. Optional input overrides remain
+unset; no range, pathspec, repository root, or summary is invented.
+
+All 20 AppHost tests pass, including that comparison and the wheel, page-key,
+and down-arrow consumers. This maps only the 1,051-byte helper interval; no
+neighboring helper, full AppHost implementation, or release gate is implied.
+The full TUI library rerun passed 1,179 tests with zero failures, ignored tests,
+or filtered tests in 25.95 seconds. Formatting and diff checks passed. Strict
+audit reports 270 unmapped intervals and 11 cached upstream commits and exits
+with failure; its incomplete-work gate was not bypassed.
+
 ## Full-metadata fixture follow-up
 
 The wheel, page-key, and down-arrow snapshot-publication tests now retain the
@@ -12,7 +30,8 @@ Each native interaction compares its file projection against frozen data from
 both pins in [the mouse-scroll file oracle](oracles/interaction-mouse-scroll-files.json).
 The comparison covers source text, change counts, hunk ranges, IDs, language,
 annotations, partial status, patch field, and fetcher absence. It does not compare
-internal parser caches or claim the whole bootstrap helper is mapped.
+internal parser caches. This earlier file-only step did not map the whole
+bootstrap helper; the explicit constructor and comparison above complete it.
 
 The three original interaction tests were rerun on both pins: each run passed
 three tests with seven assertions and no failures. Main emitted the existing
