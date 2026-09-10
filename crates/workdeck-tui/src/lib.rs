@@ -2785,10 +2785,20 @@ impl ReviewApp {
         self.open_note_composer_for_target(target);
     }
 
+    fn allocate_user_note_id(&mut self) -> String {
+        loop {
+            self.note_sequence = self.note_sequence.wrapping_add(1);
+            let id = format!("user-note-{}", self.note_sequence);
+            if self.with_state(|state| state.comments().iter().all(|note| note.id != id)) {
+                return id;
+            }
+        }
+    }
+
     fn open_note_composer_for_target(&mut self, target: ReviewNoteTarget) {
-        self.note_sequence = self.note_sequence.saturating_add(1);
+        let id = self.allocate_user_note_id();
         self.note_composer = Some(ReviewNoteComposer {
-            id: format!("user-note-{}", self.note_sequence),
+            id,
             kind: ReviewNoteComposerKind::Create,
             focused: true,
             thread: None,
@@ -2888,7 +2898,7 @@ impl ReviewApp {
             self.status = Some("no review note is active".into());
             return;
         };
-        self.note_sequence = self.note_sequence.saturating_add(1);
+        let id = self.allocate_user_note_id();
         let thread = self.with_state(|state| {
             let parent = saved_comment_thread(&note, state.comments());
             let mut ancestors = parent.ancestor_has_next_sibling;
@@ -2896,7 +2906,7 @@ impl ReviewApp {
                 ancestors.push(parent.has_next_sibling.unwrap_or(false));
             }
             VisibleAgentNoteThread {
-                note_id: format!("user-note-{}", self.note_sequence),
+                note_id: id.clone(),
                 parent_id: Some(note.id.clone()),
                 depth: parent.depth + 1,
                 has_next_sibling: Some(false),
@@ -2904,7 +2914,7 @@ impl ReviewApp {
             }
         });
         self.note_composer = Some(ReviewNoteComposer {
-            id: format!("user-note-{}", self.note_sequence),
+            id,
             kind: ReviewNoteComposerKind::Reply { parent_id: note.id },
             focused: true,
             thread: Some(thread),

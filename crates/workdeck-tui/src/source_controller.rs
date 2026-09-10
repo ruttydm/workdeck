@@ -1157,6 +1157,27 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn new_draft_does_not_collide_with_existing_user_note_id() {
+        let mut original = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
+        original.open_note_composer();
+        original.note_composer.as_mut().unwrap().body = "Existing note".into();
+        original.save_note_composer();
+        let saved = original.with_state(|state| state.comments()[0].clone());
+        let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
+        app.with_state(|state| state.add_comment(saved.clone()))
+            .unwrap();
+        app.open_note_composer();
+        assert_ne!(app.note_composer.as_ref().unwrap().id, saved.id);
+        app.note_composer.as_mut().unwrap().body = "New note".into();
+        app.save_note_composer();
+        app.with_state(|state| {
+            assert_eq!(state.comments().len(), 2);
+            assert_eq!(state.comments()[0], saved);
+            assert_eq!(state.comments()[1].summary, "New note");
+        });
+    }
+
+    #[test]
     fn default_alpha_attention_mark_does_not_move_viewport_or_selection() {
         let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
         app.review_height.set(8);
