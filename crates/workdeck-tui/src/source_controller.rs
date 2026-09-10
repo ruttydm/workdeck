@@ -892,6 +892,76 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn changed_alpha_reload_retires_source_and_loads_replacement_text() {
+        struct TextLoader {
+            text: &'static str,
+            calls: mpsc::Sender<ReviewSide>,
+        }
+        impl ReviewSourceLoader for TextLoader {
+            fn get_full_text(
+                &self,
+                _: &DiffFile,
+                side: ReviewSide,
+            ) -> std::result::Result<Option<String>, ReviewSourceLoadError> {
+                self.calls.send(side).unwrap();
+                Ok((side == ReviewSide::New).then(|| self.text.into()))
+            }
+        }
+        let initial = pinned_alpha_source_review(800);
+        let original_file = initial.files[0].clone();
+        let mut app = ReviewApp::new(initial, ReviewOptions::default());
+        let (first_tx, first_rx) = mpsc::channel();
+        app.install_source_loader(
+            &original_file.key,
+            Arc::new(TextLoader {
+                text: "first\n",
+                calls: first_tx,
+            }),
+        );
+        app.toggle_source_gap_for_file(&original_file.key, 0)
+            .unwrap();
+        drain_one(&mut app);
+        assert!(matches!(
+            app.options.source_presentation.status(&original_file),
+            Some(workdeck_review::ReviewSourceStatus::Loaded { text }) if text == "first\n"
+        ));
+        assert!(app.expanded_gaps.contains(&(original_file.key.clone(), 0)));
+        assert_eq!(
+            first_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+            ReviewSide::New
+        );
+        let replacement = pinned_alpha_source_review(900);
+        let replacement_file = replacement.files[0].clone();
+        app.reload(replacement);
+        let (second_tx, second_rx) = mpsc::channel();
+        app.install_source_loader(
+            &replacement_file.key,
+            Arc::new(TextLoader {
+                text: "second\n",
+                calls: second_tx,
+            }),
+        );
+        assert!(
+            app.options
+                .source_presentation
+                .status(&replacement_file)
+                .is_none()
+        );
+        assert!(app.expanded_gaps.is_empty());
+        app.toggle_source_gap_for_file(&replacement_file.key, 0)
+            .unwrap();
+        drain_one(&mut app);
+        assert!(matches!(
+            app.options.source_presentation.status(&replacement_file),
+            Some(workdeck_review::ReviewSourceStatus::Loaded { text }) if text == "second\n"
+        ));
+        assert_eq!(
+            second_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+            ReviewSide::New
+        );
+    }
+
+    #[test]
     fn identical_soft_reload_preserves_unattested_loaded_source_and_cursor() {
         let (mut app, sender) = setup_with_cache_key(None);
         app.toggle_source_gap();
