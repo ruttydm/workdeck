@@ -1556,6 +1556,65 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn alpha_markup_validation_uses_published_layout_width() {
+        let review = pinned_review_from_text(
+            "alpha",
+            "alpha.ts",
+            "export const alpha = 1;\n",
+            "export const alpha = 2;\n",
+        );
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                review_input: Some(workdeck_core::CliInput::Patch(
+                    workdeck_core::PatchCommandInput {
+                        file: None,
+                        text: Some(String::new()),
+                        options: workdeck_core::CommonOptions {
+                            experimental: Some(true),
+                            ..Default::default()
+                        },
+                    },
+                )),
+                ..ReviewOptions::default()
+            },
+        );
+        app.review_width.set(120);
+        app.review_geometry_published.set(true);
+        let input = workdeck_session::CommentToolInput {
+            target_session: Default::default(),
+            reveal: Some(false),
+            target: workdeck_session::CommentTargetInput {
+                file_path: "alpha.ts".into(),
+                hunk_index: None,
+                side: Some(workdeck_core::ReviewSide::New),
+                line: Some(1),
+                summary: "Wide note".into(),
+                rationale: None,
+                markup: Some("<box border>ok</box>".into()),
+                author: None,
+            },
+        };
+        app.with_state(|state| state.set_layout(workdeck_review::LayoutMode::Stack));
+        let wide = app
+            .session_add_live_comment(&input, "comment-wide", false)
+            .unwrap();
+        assert_eq!(wide.markup_width, Some(112));
+        let input = workdeck_session::CommentToolInput {
+            target: workdeck_session::CommentTargetInput {
+                summary: "Docked note".into(),
+                ..input.target
+            },
+            ..input
+        };
+        app.with_state(|state| state.set_layout(workdeck_review::LayoutMode::Split));
+        let docked = app
+            .session_add_live_comment(&input, "comment-docked", false)
+            .unwrap();
+        assert!(docked.markup_width.unwrap() < 70);
+    }
+
+    #[test]
     fn alpha_degraded_markup_returns_agent_render_notes() {
         let review = pinned_review_from_text(
             "alpha",
