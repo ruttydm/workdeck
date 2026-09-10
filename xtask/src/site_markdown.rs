@@ -256,4 +256,46 @@ mod tests {
                 .contains("duplicate")
         );
     }
+
+    #[test]
+    fn skips_drafts_and_rejects_unsafe_route_overrides() {
+        let draft = "+++\ntitle = 'Unpublished'\ndraft = true\n+++\nprivate draft body\n";
+        let output = render(&BTreeMap::from([("docs/draft.md".into(), draft.into())])).unwrap();
+        assert!(!output.contains_key("docs/draft.md"));
+        assert!(
+            output
+                .values()
+                .all(|value| !value.contains("private draft body"))
+        );
+        for route in [
+            "../escape",
+            "docs/../escape",
+            "docs//empty",
+            "docs/a?query",
+            "docs/a\\b",
+        ] {
+            let source = format!("+++\ntitle = 'Page'\npath = '{route}'\n+++\nbody\n");
+            assert!(
+                render(&BTreeMap::from([("docs/page.md".into(), source)])).is_err(),
+                "{route}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinked_export_parent_without_writing_outside_output() {
+        let output = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::create_dir(outside.path().join("page")).unwrap();
+        fs::write(outside.path().join("page/index.html"), "rendered").unwrap();
+        std::os::unix::fs::symlink(outside.path(), output.path().join("docs")).unwrap();
+        let exports = BTreeMap::from([("docs/page.md".into(), "export".into())]);
+        assert!(emit_plan(&exports, output.path()).is_err());
+        assert!(!outside.path().join("page.md").exists());
+        assert_eq!(
+            fs::read_to_string(outside.path().join("page/index.html")).unwrap(),
+            "rendered"
+        );
+    }
 }
