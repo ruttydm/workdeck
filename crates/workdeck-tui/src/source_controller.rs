@@ -904,21 +904,25 @@ pub(super) mod tests {
     }
 
     fn pinned_alpha_review_from_text(before: &str, after: &str) -> Changeset {
+        pinned_review_from_text("alpha", "alpha.ts", before, after)
+    }
+
+    fn pinned_review_from_text(id: &str, path: &str, before: &str, after: &str) -> Changeset {
         let mut file = workdeck_diff::diff_from_file_snapshots(
             workdeck_diff::FileSnapshot {
-                cache_key: "alpha:before",
+                cache_key: &format!("{id}:before"),
                 contents: before,
-                name: "alpha.ts",
+                name: path,
             },
             workdeck_diff::FileSnapshot {
-                cache_key: "alpha:after",
+                cache_key: &format!("{id}:after"),
                 contents: after,
-                name: "alpha.ts",
+                name: path,
             },
             workdeck_diff::FileComparisonOptions { context_radius: 3 },
         )
         .unwrap();
-        file.runtime_id = "alpha".into();
+        file.runtime_id = id.into();
         file.language = Some("typescript".into());
         file.patch.clear();
         for source in file
@@ -1159,6 +1163,56 @@ pub(super) mod tests {
         replacement.files[0].set_source_capability(None);
         replacement.refresh_review_identities();
         app.reload(replacement);
+        assert!(app.agent_line_highlights.is_empty());
+    }
+
+    #[test]
+    fn attention_mark_clear_counts_preserve_other_files() {
+        let mut review = pinned_two_hunk_alpha_review();
+        let before = (1..=30)
+            .map(|line| format!("export const line{line} = {line};\n"))
+            .collect::<String>();
+        let after = before
+            .replace("line1 = 1;", "line1 = 100;")
+            .replace("line15 = 15;", "line15 = 1500;")
+            .replace("line30 = 30;", "line30 = 3000;");
+        let mut beta = pinned_review_from_text("beta", "beta.ts", &before, &after)
+            .files
+            .remove(0);
+        beta.set_source_capability(None);
+        assert_eq!(beta.hunks.len(), 3);
+        review.files.push(beta);
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        for (path, line) in [("alpha.ts", 1), ("alpha.ts", 12), ("beta.ts", 1)] {
+            app.session_add_agent_line_highlight(&workdeck_session::HighlightToolInput {
+                target_session: Default::default(),
+                file_path: path.into(),
+                side: ReviewSide::New,
+                line,
+                start: 0,
+                end: 4,
+                tone: None,
+                reveal: None,
+            })
+            .unwrap();
+        }
+        let beta_marks = app.agent_line_highlights.get("beta").unwrap().to_vec();
+        let cleared = app
+            .session_clear_agent_line_highlights(Some("alpha.ts"))
+            .unwrap();
+        assert_eq!(cleared.removed_count, 2);
+        assert_eq!(cleared.remaining_count, 1);
+        assert_eq!(cleared.file_path.as_deref(), Some("alpha.ts"));
+        assert!(app.agent_line_highlights.get("alpha").is_none());
+        assert_eq!(
+            app.agent_line_highlights.get("beta"),
+            Some(beta_marks.as_slice())
+        );
+        let cleared = app.session_clear_agent_line_highlights(None).unwrap();
+        assert_eq!(cleared.removed_count, 1);
+        assert_eq!(cleared.remaining_count, 0);
+        assert_eq!(cleared.file_path, None);
         assert!(app.agent_line_highlights.is_empty());
     }
 
