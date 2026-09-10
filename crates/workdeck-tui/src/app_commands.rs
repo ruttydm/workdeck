@@ -494,6 +494,49 @@ mod tests {
     }
 
     #[test]
+    fn note_and_gap_dispatch_follow_catalog_effects_not_command_identity() {
+        let commands = commands();
+        let vectors = [
+            (
+                AppCommandReviewEffect::StartDraft,
+                AppCommandAction::StartUserNote,
+            ),
+            (
+                AppCommandReviewEffect::ToggleNoteVisibility,
+                AppCommandAction::ToggleAgentNotes,
+            ),
+            (
+                AppCommandReviewEffect::ToggleSelectedGap,
+                AppCommandAction::ToggleGapForSelectedHunk,
+            ),
+        ];
+        for (id, (declared_effect, _)) in [
+            "workdeck.review.startNote",
+            "workdeck.view.toggleAgentNotes",
+            "workdeck.review.toggleHunkGap",
+        ]
+        .into_iter()
+        .zip(vectors.iter())
+        {
+            let original = find_app_command_by_id(&commands, id).unwrap();
+            assert_eq!(original.entry.review, Some(*declared_effect));
+            for (effect, expected) in &vectors {
+                let mut command = original.clone();
+                let mut entry = *command.entry;
+                entry.review = Some(*effect);
+                // The dispatch table owns static catalog references. These
+                // nine test-only entries let us deliberately vary declarations.
+                command.entry = Box::leak(Box::new(entry));
+                assert_eq!(
+                    command_action(&command, &ExtensionKeyEvent::default(), 1),
+                    expected.clone(),
+                    "{id} must follow {effect:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn every_scroll_alias_dispatches_the_exact_unit_and_direction() {
         let commands = commands();
         let vectors = [

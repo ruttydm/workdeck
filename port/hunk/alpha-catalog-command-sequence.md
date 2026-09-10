@@ -23,8 +23,21 @@ one test and eighteen assertions per pin.
 
 This is supplemental evidence, not a ledger mapping. Native draft cancellation
 in this test uses direct state cleanup, and the source's absent measured-line
-setup and catalog declaration assertions are not reproduced here. The source
+setup is not reproduced here. The source
 test and runtime hook remain unmapped; those obligations are not waived.
 
 After the gap-policy fix, all 1,218 TUI library tests passed (10.78 seconds).
 Formatting and diff checks passed. No ledger disposition changed.
+
+## Catalog authority regression test
+
+`app_commands::tests::note_and_gap_dispatch_follow_catalog_effects_not_command_identity`
+checks the three shipped review-effect declarations from the source case.
+It then substitutes each of the three effects for each of the three command
+IDs (nine combinations), verifying dispatch follows the declaration rather
+than the ID. This guards the architectural requirement beyond checking the
+current default outcomes. The focused test passed, along with formatting and
+diff checks. Remaining measured-line and cancellation obligations still prevent
+mapping the full source test; no ledger disposition changed.
+
+All 1,219 TUI library tests passed after this addition (8.60 seconds).
