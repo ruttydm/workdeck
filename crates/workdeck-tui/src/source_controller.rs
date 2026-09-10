@@ -1556,6 +1556,32 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn reply_save_rejects_removed_parent_and_retains_draft() {
+        let mut app = ReviewApp::new(pinned_alpha_source_review(800), ReviewOptions::default());
+        app.open_note_composer();
+        app.note_composer.as_mut().unwrap().body = "Parent".into();
+        let parent = app.save_note_composer().unwrap();
+        app.saved_note_hover = Some(parent.id.clone());
+        app.open_active_note_reply();
+        app.note_composer.as_mut().unwrap().body = "Reply".into();
+        let draft_id = app.note_composer.as_ref().unwrap().id.clone();
+        app.session_remove_live_comment(&parent.id).unwrap();
+        let revision = app.with_state(|state| state.state_revision());
+        assert!(app.save_note_composer().is_none());
+        assert_eq!(app.note_composer.as_ref().unwrap().body, "Reply");
+        assert_eq!(app.note_composer.as_ref().unwrap().id, draft_id);
+        assert_eq!(
+            app.status,
+            Some(format!(
+                "Review note {} is no longer available as a reply parent.",
+                parent.id
+            ))
+        );
+        assert!(app.with_state(|state| state.comments().is_empty()));
+        assert_eq!(app.with_state(|state| state.state_revision()), revision);
+    }
+
+    #[test]
     fn blank_note_edit_retains_draft_and_original_note() {
         let mut app = ReviewApp::new(pinned_alpha_source_review(800), ReviewOptions::default());
         app.open_note_composer();

@@ -3083,6 +3083,19 @@ impl ReviewApp {
             self.status = Some("empty review note discarded".into());
             return None;
         }
+        if let ReviewNoteComposerKind::Reply { parent_id } = &composer.kind
+            && !self.with_state(|state| {
+                state.comments().iter().any(|note| {
+                    note.id == *parent_id && note.resolution != ReviewNoteResolution::Orphaned
+                })
+            })
+        {
+            self.status = Some(format!(
+                "Review note {parent_id} is no longer available as a reply parent."
+            ));
+            self.note_composer = Some(composer);
+            return None;
+        }
         if !matches!(composer.kind, ReviewNoteComposerKind::Edit { .. }) {
             loop {
                 self.saved_note_sequence = self.saved_note_sequence.wrapping_add(1);
@@ -3184,6 +3197,7 @@ impl ReviewApp {
             }
             Err(error) => {
                 self.status = Some(format!("failed to save review note: {error}"));
+                self.note_composer = Some(composer);
                 None
             }
         }
