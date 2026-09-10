@@ -2043,6 +2043,14 @@ pub(super) mod tests {
         app.note_composer.as_mut().unwrap().body = "Root note".into();
         let root = app.save_note_composer().unwrap();
         app.step_diff_line(2);
+        app.scroll_to_reveal(workdeck_review::ReviewRevealRequest {
+            anchor: workdeck_review::ReviewRevealAnchor::None,
+            scroll_to_note: true,
+        });
+        let expected_reveal = workdeck_review::ReviewRevealIntent {
+            scroll_to_note: false,
+            ..app.review_reveal
+        };
         let cursor = app.current_review_line_cursor().map(|cursor| cursor.target);
         assert!(cursor.is_some());
         let scroll = app.scroll;
@@ -2051,6 +2059,7 @@ pub(super) mod tests {
         app.saved_note_hover = Some(root.id.clone());
         app.open_active_note_edit();
         assert!(app.note_composer.is_some());
+        assert_eq!(app.review_reveal, expected_reveal);
         assert_eq!(
             app.current_review_line_cursor().map(|cursor| cursor.target),
             cursor
@@ -2064,8 +2073,13 @@ pub(super) mod tests {
         ));
         assert!(app.note_composer.is_none());
         app.saved_note_hover = Some(root.id);
+        app.scroll_to_reveal(workdeck_review::ReviewRevealRequest {
+            anchor: workdeck_review::ReviewRevealAnchor::None,
+            scroll_to_note: true,
+        });
         app.open_active_note_reply();
         assert!(app.note_composer.is_some());
+        assert_eq!(app.review_reveal, expected_reveal);
         assert_eq!(
             app.current_review_line_cursor().map(|cursor| cursor.target),
             cursor

@@ -63,3 +63,17 @@ reveal-request and prior viewport-anchor reconciliation remain unproven; no
 additional ledger interval is mapped.
 All 1,236 TUI library tests passed in 8.70 seconds after this change; formatting
 and diff checks passed.
+
+## Viewport-preserving reveal intent
+
+After reveal intents were integrated into scrolling, successful viewport-preserving
+Edit and Reply openings now submit the core viewport-anchor request. It clears
+`scroll_to_note` without incrementing file/hunk reveal tokens or moving scroll.
+The pointer-preservation test seeds a prior note-reveal flag before each opening
+and asserts the complete resulting intent, alongside unchanged cursor target,
+selection and scroll. Rejected opens do not submit a reveal request.
+
+Stable-key identity and the complete keyboard/default draft reveal protocol
+remain separate obligations. This extension does not yet map the source interval.
+All 1,250 TUI library tests passed in 9.23 seconds; formatting and diff checks
+passed.

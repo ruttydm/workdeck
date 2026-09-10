@@ -2898,6 +2898,7 @@ impl ReviewApp {
             self.status = Some("no editable user note is active".into());
             return;
         };
+        self.scroll_to_reveal(workdeck_review::REVIEW_VIEWPORT_ANCHOR_REVEAL);
         self.note_sequence = self.note_sequence.saturating_add(1);
         let thread = self.with_state(|state| saved_comment_thread(&note, state.comments()));
         let body = note.summary;
@@ -2928,6 +2929,7 @@ impl ReviewApp {
             self.status = Some("no review note is active".into());
             return;
         };
+        self.scroll_to_reveal(workdeck_review::REVIEW_VIEWPORT_ANCHOR_REVEAL);
         let id = self.allocate_user_note_id();
         let thread = self.with_state(|state| {
             let parent = saved_comment_thread(&note, state.comments());
