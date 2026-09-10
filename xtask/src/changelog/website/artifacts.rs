@@ -158,7 +158,61 @@ fn write_plan(repo: &Path, artifacts: &BTreeMap<String, String>) -> Result<serde
         edits.insert(path.clone(), artifacts.get(&path).cloned());
         originals.insert(path, original);
     }
-    Ok(serde_json::json!({"schema":1,"edits":edits,"originals":originals}))
+    let plan = ArtifactPlan {
+        schema: 1,
+        edits,
+        originals,
+    };
+    plan.validate()?;
+    Ok(serde_json::to_value(plan)?)
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ArtifactPlan {
+    schema: u32,
+    edits: BTreeMap<String, Option<String>>,
+    originals: BTreeMap<String, Option<Vec<u8>>>,
+}
+
+impl ArtifactPlan {
+    fn validate(&self) -> Result<()> {
+        anyhow::ensure!(self.schema == 1, "unsupported artifact plan schema");
+        anyhow::ensure!(
+            self.edits.keys().eq(self.originals.keys()),
+            "artifact originals must match edit paths"
+        );
+        let minor = regex::Regex::new(r"^[0-9]+\.[0-9]+\.md$")?;
+        for (path, replacement) in &self.edits {
+            let series = path
+                .strip_prefix("site/content/changelog/")
+                .is_some_and(|name| minor.is_match(name));
+            let fixed = matches!(
+                path.as_str(),
+                "site/content/changelog/index.md"
+                    | "site/static/changelog/rss.xml"
+                    | "site/data/releases/dates.json"
+                    | "site/data/releases/latest.json"
+                    | "site/data/releases/cards.json"
+            );
+            anyhow::ensure!(
+                series || fixed,
+                "artifact plan target is outside generated release outputs: {path}"
+            );
+            let original = &self.originals[path];
+            if replacement.is_none() {
+                anyhow::ensure!(
+                    series && original.is_some(),
+                    "only an existing generated series page may be removed: {path}"
+                );
+            }
+            anyhow::ensure!(
+                replacement.as_ref().map(|s| s.as_bytes()) != original.as_deref(),
+                "artifact plan contains unchanged target: {path}"
+            );
+        }
+        Ok(())
+    }
 }
 
 fn missing_card_images(repo: &Path, artifacts: &BTreeMap<String, String>) -> Result<Vec<String>> {
@@ -218,12 +272,46 @@ mod tests {
     const SAMPLE: &str = include_str!("../../../../port/hunk/website-changelog-test-sample.md");
 
     #[test]
+    fn artifact_plan_validation_rejects_unscoped_and_inconsistent_edits() {
+        for path in [
+            "../outside",
+            "/tmp/outside",
+            "site/content/changelog/../../outside",
+            "site/content/changelog/notes.md",
+            "site/data/releases/other.json",
+        ] {
+            let plan = ArtifactPlan {
+                schema: 1,
+                edits: BTreeMap::from([(path.into(), Some("new".into()))]),
+                originals: BTreeMap::from([(path.into(), None)]),
+            };
+            assert!(plan.validate().is_err(), "{path}");
+        }
+        let path = "site/content/changelog/1.0.md".to_owned();
+        let mut plan = ArtifactPlan {
+            schema: 1,
+            edits: BTreeMap::from([(path.clone(), None)]),
+            originals: BTreeMap::from([(path.clone(), Some(vec![255]))]),
+        };
+        plan.validate().unwrap();
+        plan.originals.insert(path.clone(), None);
+        assert!(plan.validate().is_err());
+        plan.edits.insert(path.clone(), Some("same".into()));
+        plan.originals.insert(path.clone(), Some(b"same".to_vec()));
+        assert!(plan.validate().is_err());
+        plan.originals.clear();
+        assert!(plan.validate().is_err());
+        let invalid = serde_json::json!({"schema":1,"edits":{},"originals":{},"unknown":true});
+        assert!(serde_json::from_value::<ArtifactPlan>(invalid).is_err());
+    }
+
+    #[test]
     fn artifact_write_plan_records_exact_originals_and_orphans_without_writes() {
         let repo = tempfile::tempdir().unwrap();
         let directory = repo.path().join("site/content/changelog");
         std::fs::create_dir_all(&directory).unwrap();
         std::fs::write(directory.join("index.md"), "same").unwrap();
-        std::fs::write(directory.join("old.md"), [0xff, 0, 1]).unwrap();
+        std::fs::write(directory.join("1.0.md"), [0xff, 0, 1]).unwrap();
         let artifacts = BTreeMap::from([
             ("site/content/changelog/index.md".into(), "same".into()),
             ("site/data/releases/latest.json".into(), "null\n".into()),
@@ -231,16 +319,16 @@ mod tests {
         let plan = write_plan(repo.path(), &artifacts).unwrap();
         assert_eq!(plan["schema"], 1);
         assert_eq!(plan["edits"].as_object().unwrap().len(), 2);
-        assert!(plan["edits"]["site/content/changelog/old.md"].is_null());
+        assert!(plan["edits"]["site/content/changelog/1.0.md"].is_null());
         assert_eq!(
-            plan["originals"]["site/content/changelog/old.md"],
+            plan["originals"]["site/content/changelog/1.0.md"],
             serde_json::json!([255, 0, 1])
         );
         assert!(plan["originals"]["site/data/releases/latest.json"].is_null());
         assert_eq!(plan["edits"]["site/data/releases/latest.json"], "null\n");
         assert!(!repo.path().join("site/data").exists());
         assert_eq!(
-            std::fs::read(directory.join("old.md")).unwrap(),
+            std::fs::read(directory.join("1.0.md")).unwrap(),
             [255, 0, 1]
         );
         assert_eq!(write_plan(repo.path(), &artifacts).unwrap(), plan);

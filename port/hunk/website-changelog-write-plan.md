@@ -32,3 +32,14 @@ Workdeck state. Applying the plan remains unimplemented.
 
 All 21 changelog CLI tests pass. Strict xtask Clippy, formatting and whitespace
 checks pass. No new source-ledger mapping is claimed.
+
+Plans now use a typed schema that rejects unknown fields, unsupported versions,
+mismatched edit/original key sets and unchanged edits. Destinations are limited to
+the five fixed generated outputs and numeric minor-series Markdown paths. Only
+an existing numeric series page can be proposed for removal. Unexpected Markdown
+names cause planning to fail rather than proposing their deletion; this is a
+deliberate preservation boundary for the future writer, not source-equivalence
+evidence for arbitrary orphan filenames. The checker still reports such orphans.
+
+Typed-plan validation, byte-preserving plan construction and plan CLI tests pass.
+Strict xtask Clippy, formatting and whitespace checks pass. Apply remains open.
