@@ -1,5 +1,8 @@
 # Website changelog parser continuation
 
+The partial native index-page renderer and pinned publication comparisons are
+documented in [website-changelog-index.md](website-changelog-index.md).
+
 The partial native RSS command and its frozen-output verification are documented
 in [website-changelog-feed.md](website-changelog-feed.md). Generator coverage
 remains incomplete; this continuation does not change ledger mappings.
