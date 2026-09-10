@@ -44,3 +44,16 @@ leaves the old binary untouched with no destination lock or backup. Injected
 success installs the verified payload and preserves exact original backup bytes.
 This exercises real staging and file replacement, but the verifier is a test
 callback: it is not evidence of a real signed release passing authentication.
+
+## Independent release identity lookup
+
+`resolve_release_identity` now resolves the exact requested version's tag through
+the fixed Workdeck GitHub Git API. It accepts lightweight commit refs and peels
+at most eight annotated tags, verifying each returned object identity. Wrong refs,
+invalid SHA-1 object digests, non-commit endpoints and cycles fail. Requests require
+HTTPS, disallow redirects, cap each JSON response at 1 MiB and share a 30-second
+deadline. The resulting commit and tag are independent of package metadata and
+can constrain attestation verification. Lookup alone is not authentication.
+
+Two injected-response tests cover lightweight/annotated tags and rejection cases.
+Live GitHub API behavior and complete updater orchestration remain unverified.
