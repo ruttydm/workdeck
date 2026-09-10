@@ -1138,6 +1138,31 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn changed_alpha_reload_retires_attention_marks() {
+        let mut review = pinned_alpha_source_review(800);
+        review.files[0].set_source_capability(None);
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        app.session_add_agent_line_highlight(&workdeck_session::HighlightToolInput {
+            target_session: Default::default(),
+            file_path: "alpha.ts".into(),
+            side: ReviewSide::New,
+            line: 8,
+            start: 0,
+            end: 6,
+            tone: None,
+            reveal: None,
+        })
+        .unwrap();
+        assert_eq!(app.agent_line_highlights.get("alpha").unwrap().len(), 1);
+        let mut replacement = pinned_alpha_source_review(900);
+        replacement.files[0].set_source_capability(None);
+        replacement.refresh_review_identities();
+        app.reload(replacement);
+        assert!(app.agent_line_highlights.is_empty());
+    }
+
+    #[test]
     fn extension_line_reveal_reads_current_rows_after_reload() {
         let before = (1..=30)
             .map(|line| format!("export const line{line} = {line};\n"))
