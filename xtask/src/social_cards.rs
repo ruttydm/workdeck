@@ -12,6 +12,49 @@ fn escape_html(value: &str) -> String {
         .replace('"', "&quot;")
 }
 
+pub(super) fn run_check(
+    repo: &std::path::Path,
+    mut args: impl Iterator<Item = String>,
+) -> Result<()> {
+    use anyhow::Context;
+    let staging = args
+        .next()
+        .context("social-cards-check requires staging directory and cards.json")?;
+    let cards = args.next().context("cards.json required")?;
+    let requested: Vec<_> = args.collect();
+    let targets = select(
+        serde_json::from_slice(&std::fs::read(repo.join(cards))?)?,
+        &requested,
+    )?;
+    check_capture(&repo.join(staging), &targets, requested.is_empty())?;
+    println!(
+        "{}",
+        serde_json::json!({"valid":true,"published":false,"images":targets.len()})
+    );
+    Ok(())
+}
+
+fn check_capture(staging: &std::path::Path, targets: &[Target], full: bool) -> Result<()> {
+    let metadata = std::fs::symlink_metadata(staging)?;
+    ensure!(
+        metadata.is_dir() && !metadata.file_type().is_symlink(),
+        "capture staging must be a real directory"
+    );
+    let manifest = staging.join("capture.json");
+    let metadata = std::fs::symlink_metadata(&manifest)?;
+    ensure!(
+        metadata.is_file() && !metadata.file_type().is_symlink(),
+        "capture manifest must be a regular file"
+    );
+    let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(manifest)?)?;
+    let current = capture_report(&staging.canonicalize()?, targets, full)?;
+    ensure!(
+        saved == current,
+        "capture manifest is stale, modified or belongs to another staging directory"
+    );
+    Ok(())
+}
+
 pub(super) fn run_capture(
     repo: &std::path::Path,
     mut args: impl Iterator<Item = String>,
@@ -49,6 +92,7 @@ fn capture_report(
     full: bool,
 ) -> Result<serde_json::Value> {
     use sha2::{Digest, Sha256};
+    let staging = staging.canonicalize()?;
     let mut images = Vec::new();
     for (index, target) in targets.iter().enumerate() {
         let file = format!("{index:04}.png");
@@ -248,6 +292,24 @@ pub(super) fn run(repo: &std::path::Path, mut args: impl Iterator<Item = String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn saved_capture_check_rejects_image_target_and_scope_changes() {
+        let staging = tempfile::tempdir().unwrap();
+        let targets = select(vec![], &[]).unwrap();
+        let image = staging.path().join("0000.png");
+        std::fs::write(&image, b"fixture bytes").unwrap();
+        let report = capture_report(staging.path(), &targets, true).unwrap();
+        save_capture_manifest(staging.path(), &serde_json::to_string(&report).unwrap()).unwrap();
+        check_capture(staging.path(), &targets, true).unwrap();
+        assert!(check_capture(staging.path(), &targets, false).is_err());
+        std::fs::write(&image, b"modified").unwrap();
+        assert!(check_capture(staging.path(), &targets, true).is_err());
+        std::fs::write(&image, b"fixture bytes").unwrap();
+        let mut changed = select(vec![], &[]).unwrap();
+        changed[0].card.title = "Changed title".into();
+        assert!(check_capture(staging.path(), &changed, true).is_err());
+        check_capture(staging.path(), &targets, true).unwrap();
+    }
     #[test]
     fn capture_report_binds_each_ordered_target_to_actual_image_bytes() {
         use sha2::{Digest, Sha256};

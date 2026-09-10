@@ -85,3 +85,19 @@ changed content produces a changed digest; PNG decoding is tested separately
 at capture time. All five social-card unit tests pass. These hashes support
 future publication validation but do not authenticate the manifest or prevent
 an actor from modifying both the manifest and image.
+
+## Saved capture validation
+
+`cargo xtask social-cards-check <staging-directory> <cards.json> [slug ...]`
+reselects targets from the current card input, rehashes the indexed staged files
+and compares the complete regenerated report with `capture.json`. Changed image
+bytes, card metadata, destination mappings, full/targeted scope or staging root
+fail validation. Reports record the canonical staging path to handle filesystem
+aliases consistently. Final-component symlinks for the directory, manifest and
+images are rejected. Success returns JSON with `valid: true, published: false`.
+
+The six unit tests include unchanged acceptance and image/target/scope drift
+rejection. This read-only check is not a reservation against later changes, does
+not authenticate a jointly modified manifest/image pair and does not decode PNGs
+again or prove visual fidelity. Publication must validate its actual inputs at
+write time; that integration remains incomplete.
