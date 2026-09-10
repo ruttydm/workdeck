@@ -11,6 +11,58 @@ fn run(repo: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
+fn website_parser_cli_is_read_only_and_rejects_extra_arguments() {
+    let repo = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    let input = "## 1.2.3\n### Fixed\n- Native parser.\n";
+    let path = repo.path().join("history.md");
+    std::fs::write(&path, input).unwrap();
+    let output = run(repo.path(), &["changelog", "parse", "history.md"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap(),
+        serde_json::json!([
+            {"version":"1.2.3","prerelease":false,"sections":[{"title":"Fixed","entries":[{"description":"Native parser."}]}]}
+        ])
+    );
+    for args in [
+        vec!["changelog", "parse"],
+        vec!["changelog", "parse", "history.md", "extra"],
+        vec!["changelog", "parse", "missing.md"],
+    ] {
+        let output = run(repo.path(), &args);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+    }
+    assert_eq!(std::fs::read_to_string(path).unwrap(), input);
+    let mut entries = std::fs::read_dir(repo.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect::<Vec<_>>();
+    entries.sort();
+    assert_eq!(
+        entries,
+        [
+            std::ffi::OsString::from(".git"),
+            std::ffi::OsString::from("history.md")
+        ]
+    );
+}
+
+#[test]
 fn native_fragment_cli_round_trip_and_read_only_status() {
     let repo = tempfile::tempdir().unwrap();
     assert!(

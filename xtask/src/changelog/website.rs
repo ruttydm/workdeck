@@ -249,6 +249,40 @@ mod tests {
     use super::*;
 
     #[test]
+    fn complete_pinned_changelogs_match_frozen_source_oracles() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/website-changelog-parse-oracle.json"
+        ))
+        .unwrap();
+        let cases = fixture["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 2);
+        for (case, (baseline, count)) in cases.iter().zip([
+            ("2c00f4358b89cfc0a6b04459ffc538ba601aa3c2", 48),
+            ("4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd", 47),
+        ]) {
+            assert_eq!(case["baseline"], baseline);
+            assert_eq!(case["inputPath"], "CHANGELOG.md");
+            let source = std::process::Command::new("git")
+                .current_dir(repo)
+                .args(["show", &format!("{baseline}:CHANGELOG.md")])
+                .output()
+                .unwrap();
+            assert!(
+                source.status.success(),
+                "missing pinned changelog {baseline}"
+            );
+            let releases = parse_changelog(std::str::from_utf8(&source.stdout).unwrap());
+            assert_eq!(releases.len(), count);
+            assert_eq!(
+                serde_json::to_value(releases).unwrap(),
+                case["expected"],
+                "{baseline}"
+            );
+        }
+    }
+
+    #[test]
     fn fenced_headings_preserve_later_sections_and_matching_delimiters() {
         let releases = parse_changelog(
             "## 0.20.0\n\n### Minor Changes\n\n- [#1](https://x/pull/1) - Example output:\n\n```md\n## Not a heading\n- not a bullet\n```\n\n### Patch Changes\n\n- [#2](https://x/pull/2) - Second entry.\n",
