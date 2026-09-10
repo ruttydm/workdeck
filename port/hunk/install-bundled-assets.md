@@ -263,6 +263,18 @@ conflict discovery, PATH flags and update-in-place semantics
 from the original installer remain to be integrated; this explicit first-install
 command is not a declaration of full installer parity.
 
+The standalone command now gates release lookup on existing native conflict
+observations from PATH and inactive Mise installation directories. Executable
+conflicts require `-f`/`--force` or `WORKDECK_ALLOW_CONFLICTING_INSTALLS=1`;
+unknown access remains an error even with force. Force permits coexistence only,
+not replacement of the destination or deletion of another installation. The
+gate lists observed conflicting paths. Its test verifies refusal, explicit
+override and unchanged candidate bytes/no destination creation.
+
+Legacy nvm discovery and complete source manager/version/removal diagnostics are
+still missing. Lower-level archive/tooling installation APIs remain explicit
+operations and do not implicitly run process-environment conflict discovery.
+
 All 48 CLI integration tests passed before adding the default-root selection.
 The updated installer CLI regression also passes: invalid versions create no
 default root, and an existing default `.workdeck` is rejected before networking

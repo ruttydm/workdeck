@@ -466,6 +466,52 @@ fn conflict_decision(
     }
 }
 
+fn check_install_conflicts(
+    root: &Path,
+    entries: &[PathBuf],
+    home: Option<&Path>,
+    allow: bool,
+) -> Result<()> {
+    let executable = if cfg!(windows) {
+        "workdeck.exe"
+    } else {
+        "workdeck"
+    };
+    let target = root.join("bin").join(executable);
+    let inactive = home
+        .map(|home| inactive_mise_candidates(home, executable))
+        .transpose()?
+        .unwrap_or_default();
+    let observations = observe_candidates(
+        &target,
+        entries,
+        executable,
+        entries
+            .iter()
+            .map(|entry| entry.join(executable))
+            .chain(inactive),
+    );
+    match conflict_decision(&observations, allow) {
+        ConflictDecision::NoObservedExecutableConflicts | ConflictDecision::ExplicitlyAllowed => {
+            Ok(())
+        }
+        ConflictDecision::UnresolvedAccess => bail!(
+            "could not determine access to a competing Workdeck installation; no files were changed"
+        ),
+        ConflictDecision::RequiresForce => {
+            let paths = observations
+                .iter()
+                .filter(|item| item.executable_access == Some(true))
+                .map(|item| item.diagnostic_path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            bail!(
+                "competing Workdeck installations: {paths}. Remove them or explicitly use --force to keep them; no existing installation will be overwritten"
+            )
+        }
+    }
+}
+
 fn executable_access(path: &Path) -> Option<bool> {
     #[cfg(unix)]
     {
@@ -751,6 +797,35 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn install_conflict_gate_requires_explicit_force_without_mutating_candidates() {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = if cfg!(windows) {
+            "workdeck.exe"
+        } else {
+            "workdeck"
+        };
+        let candidate = dir.path().join(executable);
+        std::fs::write(&candidate, b"competing binary").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&candidate, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let target = dir.path().join("new-install");
+        let entries = [dir.path().to_owned()];
+        assert!(
+            check_install_conflicts(&target, &entries, None, false)
+                .unwrap_err()
+                .to_string()
+                .contains("--force")
+        );
+        check_install_conflicts(&target, &entries, None, true).unwrap();
+        assert_eq!(std::fs::read(candidate).unwrap(), b"competing binary");
+        assert!(!target.exists());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
 
     #[test]
     fn platform_detection_matches_both_pinned_shell_oracles() {

@@ -2,11 +2,22 @@
 use anyhow::{Context, Result, ensure};
 use std::{fs, io::Read, path::Path};
 
-pub fn install_requested_on_host(version: Option<&str>, destination: &Path) -> Result<String> {
+pub fn install_requested_on_host(
+    version: Option<&str>,
+    destination: &Path,
+    allow_conflicts: bool,
+) -> Result<String> {
     if let Some(version) = version {
         crate::update::parse_update_version(version)?;
     }
     let destination = new_destination(destination)?;
+    let entries =
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).collect::<Vec<_>>();
+    let home = std::env::var_os("HOME")
+        .filter(|value| !value.is_empty())
+        .or_else(|| std::env::var_os("USERPROFILE").filter(|value| !value.is_empty()))
+        .map(std::path::PathBuf::from);
+    super::check_install_conflicts(&destination, &entries, home.as_deref(), allow_conflicts)?;
     let version = select_version(version, || {
         crate::update::fetch_channel_versions(
             workdeck_core::WorkdeckInstallSource::Direct,

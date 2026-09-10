@@ -227,6 +227,12 @@ enum Command {
         version: Option<String>,
         #[arg(long, value_name = "DIRECTORY")]
         destination: Option<PathBuf>,
+        #[arg(
+            short = 'f',
+            long,
+            help = "Allow competing installations; never overwrite the destination"
+        )]
+        force: bool,
     },
     #[command(about = "Update Workdeck through the channel that installed it")]
     Update {
@@ -8016,6 +8022,7 @@ fn handle_global_command(cwd: &Path, command: Command) -> Result<()> {
         Command::Install {
             version,
             destination,
+            force,
         } => {
             let destination = destination.map_or_else(
                 || {
@@ -8034,8 +8041,11 @@ fn handle_global_command(cwd: &Path, command: Command) -> Result<()> {
                     .ok()
                     .filter(|value| !value.is_empty())
             });
-            let version =
-                workdeck_cli::install::install_requested_on_host(version.as_deref(), &destination)?;
+            let version = workdeck_cli::install::install_requested_on_host(
+                version.as_deref(),
+                &destination,
+                force || std::env::var("WORKDECK_ALLOW_CONFLICTING_INSTALLS").as_deref() == Ok("1"),
+            )?;
             println!(
                 "Installed Workdeck {version} to {}. PATH was not modified.",
                 destination.display()
