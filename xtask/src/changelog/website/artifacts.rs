@@ -87,7 +87,58 @@ pub(crate) fn verify_pinned_editorial_inputs(repo: &Path, baseline: &str) -> Res
             source["slug"].as_str().unwrap_or("unknown")
         );
     }
+
+    // Every published series page in the pinned Astro tree is generated from
+    // the same CHANGELOG.md release model.  Compare the complete release-body
+    // section, including anchors, headings, dates, entries, and pull-request
+    // links, after the intentional product/remote substitution.  The native
+    // page adds Zola front matter and Workdeck-owned install guidance around
+    // this section; those surrounding fields are validated by the native page
+    // tests and are deliberately not copied from the Astro source.
+    let generated_pages = generated
+        .iter()
+        .filter_map(|(path, page)| {
+            path.strip_prefix("site/content/changelog/")
+                .and_then(|name| name.strip_suffix(".md"))
+                .filter(|minor| *minor != "index")
+                .map(|minor| (minor.to_owned(), page))
+        })
+        .collect::<BTreeMap<_, _>>();
+    ensure!(
+        generated_pages.len() == cards.len().saturating_sub(1),
+        "native release page count differs from pinned cards"
+    );
+    for (minor, page) in generated_pages {
+        let source_path = format!("website/src/content/docs/changelog/{minor}.md");
+        let source = String::from_utf8(crate::git_stdout_bytes(
+            repo,
+            [
+                "show",
+                &format!("2c00f4358b89cfc0a6b04459ffc538ba601aa3c2:{source_path}"),
+            ],
+        )?)?;
+        let source_body = release_body_section(&source)
+            .with_context(|| format!("pinned changelog page lacks release body: {source_path}"))?;
+        let native_body = release_body_section(page)
+            .with_context(|| format!("native generated page lacks release body: {minor}"))?;
+        let normalized = native_body
+            .replace("Workdeck", "Hunk")
+            .replace("workdeck.dev", "hunk.dev")
+            .replace("ruttydm/workdeck", "modem-dev/hunk");
+        ensure!(
+            normalized == source_body,
+            "native release body differs for {minor}"
+        );
+    }
     Ok(())
+}
+
+fn release_body_section(markdown: &str) -> Option<&str> {
+    let marker = "## Releases in this series";
+    let start = markdown.find(marker)?;
+    let tail = &markdown[start..];
+    let end = tail.find("\n\n---").unwrap_or(tail.len());
+    Some(tail[..end].trim_end())
 }
 
 fn replace_branding(value: serde_json::Value) -> serde_json::Value {
