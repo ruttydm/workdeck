@@ -1039,6 +1039,51 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn hunk_navigation_carries_alpha_cursor_to_selected_hunk() {
+        let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
+        assert_eq!(
+            app.current_review_line_cursor().unwrap().target.hunk_index,
+            0
+        );
+        app.move_selection(crate::ReviewSelectionScope::Hunk, 1);
+        assert_eq!(
+            app.with_state(|state| state.selection().hunk_index),
+            Some(1)
+        );
+        assert_eq!(
+            app.current_review_line_cursor().unwrap().target.hunk_index,
+            1
+        );
+    }
+
+    #[test]
+    fn reload_recovers_alpha_cursor_when_selected_hunk_is_retired() {
+        let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
+        app.select_extension_review_hunk("test", "alpha", 1);
+        assert_eq!(
+            app.current_review_line_cursor().unwrap().target.hunk_index,
+            1
+        );
+        let before = (1..=12)
+            .map(|line| format!("export const line{line} = {line};\n"))
+            .collect::<String>();
+        let after = before.replace("line1 = 1;", "line1 = 100;");
+        let mut review = pinned_alpha_review_from_text(&before, &after);
+        review.files[0].set_source_capability(None);
+        review.refresh_review_identities();
+        assert_eq!(review.files[0].hunks.len(), 1);
+        app.reload(review);
+        let cursor = app.current_review_line_cursor().unwrap().target;
+        assert_eq!(cursor.hunk_index, 0);
+        app.with_state(|state| {
+            assert_eq!(
+                state.changeset().files[cursor.file_index].runtime_id,
+                "alpha"
+            );
+        });
+    }
+
+    #[test]
     fn pointer_note_start_moves_alpha_cursor_and_selection_to_note_line() {
         for cursor_line in [crate::CursorLineMode::Row, crate::CursorLineMode::Off] {
             for line in [12, 9] {
