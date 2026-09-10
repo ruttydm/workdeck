@@ -1098,6 +1098,46 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn unchanged_alpha_reload_rekeys_attention_marks_and_clear_counts() {
+        let mut review = pinned_alpha_source_review(800);
+        review.files[0].set_source_capability(None);
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(review.clone(), ReviewOptions::default());
+        app.session_add_agent_line_highlight(&workdeck_session::HighlightToolInput {
+            target_session: Default::default(),
+            file_path: "alpha.ts".into(),
+            side: ReviewSide::New,
+            line: 8,
+            start: 0,
+            end: 6,
+            tone: None,
+            reveal: None,
+        })
+        .unwrap();
+        let original = app.agent_line_highlights.get("alpha").unwrap().to_vec();
+        assert_eq!(original.len(), 1);
+        assert_eq!(
+            serde_json::to_value(&original).unwrap(),
+            serde_json::json!([
+                {"side":"new", "line":8, "start":0, "end":6, "tone":"match"}
+            ])
+        );
+        review.files[0].runtime_id = "alpha-reloaded".into();
+        review.refresh_review_identities();
+        app.reload(review);
+        assert!(app.agent_line_highlights.get("alpha").is_none());
+        assert_eq!(
+            app.agent_line_highlights.get("alpha-reloaded"),
+            Some(original.as_slice())
+        );
+        let cleared = app.session_clear_agent_line_highlights(None).unwrap();
+        assert_eq!(cleared.removed_count, 1);
+        assert_eq!(cleared.remaining_count, 0);
+        assert_eq!(cleared.file_path, None);
+        assert!(app.agent_line_highlights.is_empty());
+    }
+
+    #[test]
     fn extension_line_reveal_reads_current_rows_after_reload() {
         let before = (1..=30)
             .map(|line| format!("export const line{line} = {line};\n"))
