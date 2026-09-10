@@ -883,6 +883,43 @@ pub(super) fn run(
 mod tests {
     use super::*;
 
+    fn source_video_fragment(video: serde_json::Value) -> String {
+        let series = group_into_series(parse_changelog(SOURCE_SAMPLE));
+        let dates = std::collections::BTreeMap::from([("0.19.0".into(), "2026-08-16".into())]);
+        let summary = to_plain_text(&resolve_summary(&series[0], None, &dates, "Hunk"));
+        render_video(
+            &serde_json::from_value(video).unwrap(),
+            &series[0].minor,
+            &summary,
+            "Hunk",
+            "https://hunk.dev",
+        )
+    }
+
+    #[test]
+    fn source_video_fragment_contains_source_and_schema() {
+        let fragment = source_video_fragment(serde_json::json!({"mp4":"/v.mp4"}));
+        assert!(fragment.contains("<source src=\"/v.mp4\" type=\"video/mp4\" />"));
+        assert!(fragment.contains("application/ld+json"));
+        assert!(fragment.contains("\"@type\":\"VideoObject\""));
+    }
+
+    #[test]
+    fn source_video_fragment_escapes_script_closing_title() {
+        let fragment = source_video_fragment(
+            serde_json::json!({"mp4":"/v.mp4", "title":"</script><script>alert(1)</script>"}),
+        );
+        assert!(!fragment.contains("</script><script>alert(1)"));
+        assert!(fragment.contains("\\u003c/script"));
+    }
+
+    #[test]
+    fn source_video_fragment_escapes_attribute_breakout_url() {
+        let fragment = source_video_fragment(serde_json::json!({"mp4":"/v.mp4\" onerror=\"x"}));
+        assert!(!fragment.contains("onerror=\"x\""));
+        assert!(fragment.contains("&quot;"));
+    }
+
     #[test]
     fn video_fragments_match_both_pinned_page_oracles() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(

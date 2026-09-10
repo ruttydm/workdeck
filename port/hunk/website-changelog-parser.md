@@ -249,6 +249,18 @@ files, malformed JSON and invalid fields fail without stdout. Inputs and the
 directory inventory remain unchanged by the command. Full-page integration
 remains open; no ledger mapping changed.
 
+## Original video assertions at fragment scope
+
+Three native tests prefixed `source_video_fragment_` retain all seven assertions
+from the source video-embedding group, using the original SAMPLE-derived series,
+date map, video URLs and malicious-title inputs. Both pinned source groups passed
+three tests and seven assertions; all three native fragment tests passed.
+
+These are deliberately supplemental, not mapped source tests yet: the original
+tests call the complete page renderer, while the native tests currently call
+the fragment renderer with the resolved page summary. Full-page composition must
+be implemented and tested before the source block receives a ledger disposition.
+
 ## Verification refresh after original-test translations
 
 At `2408adfb`, strict `cargo clippy -p xtask --all-targets -- -D warnings`
