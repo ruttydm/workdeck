@@ -1973,6 +1973,47 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn alpha_sidecar_annotation_is_exposed_as_noneditable_ai_note() {
+        let mut review = pinned_review_from_text(
+            "alpha",
+            "alpha.ts",
+            "export const alpha = 1;\n",
+            "export const alpha = 2;\n",
+        );
+        review.files[0].set_source_capability(None);
+        review.files[0].agent = Some(
+            serde_json::from_value(serde_json::json!({
+                "path": "alpha.ts",
+                "annotations": [{
+                    "id": "ai:1", "source": "ai",
+                    "summary": "Prefer a named constant.",
+                    "rationale": "It documents the changed value.",
+                    "new_range": {"start": 1, "end": 1},
+                    "author": "assistant"
+                }]
+            }))
+            .unwrap(),
+        );
+        review.refresh_review_identities();
+        let app = ReviewApp::new(review, ReviewOptions::default());
+        app.review_width.set(80);
+        app.review_height.set(4);
+        let notes = app.session_review_note_summaries();
+        assert_eq!(notes.len(), 1);
+        let note = &notes[0];
+        assert_eq!(note.note_id, "ai:1");
+        assert_eq!(serde_json::to_value(note.source).unwrap(), "ai");
+        assert_eq!(note.file_path, "alpha.ts");
+        assert_eq!(note.new_range, Some([1, 1]));
+        assert_eq!(
+            note.body,
+            "Prefer a named constant.\n\nIt documents the changed value."
+        );
+        assert_eq!(note.author.as_deref(), Some("assistant"));
+        assert!(!note.editable);
+    }
+
+    #[test]
     fn batch_first_reveal_repositions_an_already_selected_hunk() {
         let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
         app.review_height.set(4);
