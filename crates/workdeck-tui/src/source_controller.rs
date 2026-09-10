@@ -1973,6 +1973,45 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn alpha_user_note_save_projection_and_removal() {
+        let mut review = pinned_review_from_text(
+            "alpha",
+            "alpha.ts",
+            "export const alpha = 1;\n",
+            "export const alpha = 2;\n",
+        );
+        review.files[0].set_source_capability(None);
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        app.review_width.set(80);
+        app.review_height.set(4);
+        app.open_note_composer();
+        app.note_composer.as_mut().unwrap().body = "Please add a regression test.".into();
+        app.save_note_composer();
+        let id = app.with_state(|state| {
+            assert_eq!(state.comments().len(), 1);
+            state.comments()[0].id.clone()
+        });
+        let notes = app.session_review_note_summaries();
+        assert_eq!(notes.len(), 1);
+        let note = &notes[0];
+        assert_eq!(note.note_id, id);
+        assert_eq!(serde_json::to_value(note.source).unwrap(), "user");
+        assert_eq!(note.file_path, "alpha.ts");
+        assert_eq!(note.hunk_index, Some(0));
+        assert_eq!(note.new_range, Some([1, 1]));
+        assert_eq!(note.body, "Please add a regression test.");
+        assert!(note.editable);
+        let removed = app.session_remove_live_comment(&id).unwrap();
+        assert_eq!(removed.comment_id, id);
+        assert!(removed.removed);
+        assert_eq!(removed.remaining_comment_count, 0);
+        assert_eq!(serde_json::to_value(removed.source).unwrap(), "user");
+        assert!(app.with_state(|state| state.comments().is_empty()));
+        assert!(app.session_review_note_summaries().is_empty());
+    }
+
+    #[test]
     fn alpha_sidecar_annotation_is_exposed_as_noneditable_ai_note() {
         let mut review = pinned_review_from_text(
             "alpha",
