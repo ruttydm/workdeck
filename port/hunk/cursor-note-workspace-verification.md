@@ -29,3 +29,22 @@ passed on the same macOS arm64 host using Rust 1.95.0, incremental compilation
 disabled and two build jobs. It completed in 83 seconds. The worktree was clean
 before the check. This refresh covers Clippy only; it does not update the earlier
 full-workspace-test, optimized-build or smoke-test evidence to this newer commit.
+
+## Reload and command-routing Clippy refresh
+
+At clean source commit `5278f5bd6644a1e4d05f71622acf50c70cd96311`,
+`cargo clippy --workspace --all-targets -- -D warnings` passed on Darwin arm64
+with rustc 1.95.0 (`59807616e`), Cargo 1.95.0, `CARGO_INCREMENTAL=0` and
+`CARGO_BUILD_JOBS=2`. It completed in 1 minute 22 seconds. This covers the
+recent host-reader retention, forward-gap selection, catalog-driven action
+dispatch, stored-hunk reload clamping and supplementary regression tests.
+
+A concurrent strict `target/debug/xtask port audit` exited 1 after validating
+ledger structure and evidence: 1,257 files, 1,427 records, 461 translated-test
+records, 276 unmapped records and 92 pending upstream commits. No fetch was
+performed during this refresh. The earlier 11-commit count above is historical.
+
+This refresh establishes Clippy only. It does not refresh the full workspace
+test, optimized-build or smoke-test results, nor establish source parity,
+benchmark compliance, other-platform native CI or release-artifact compliance.
+No source-ledger disposition changed; the full goal remains incomplete.
