@@ -758,10 +758,7 @@ impl ReviewApp {
                 });
             }
         }
-        self.navigate(|state| {
-            let before = state.selection();
-            state.select_hunk(file_index, hunk_index).is_ok() && state.selection() != before
-        });
+        self.navigate(|state| state.select_hunk(file_index, hunk_index).is_ok());
         let selected_hunk = selected_hunk(&file, hunk_index);
         Ok(NavigatedSelectionResult {
             file_id: file.runtime_id,
@@ -855,10 +852,7 @@ impl ReviewApp {
                 self.publish_extension_selection_events();
                 Some(RevealedTarget::Line)
             } else {
-                self.navigate(|state| {
-                    let before = state.selection();
-                    state.select_hunk(file_index, hunk_index).is_ok() && state.selection() != before
-                });
+                self.navigate(|state| state.select_hunk(file_index, hunk_index).is_ok());
                 Some(RevealedTarget::Hunk)
             }
         } else {
@@ -1797,5 +1791,26 @@ mod tests {
         assert_eq!(navigation.revealed, Some(RevealedTarget::Hunk));
         assert_eq!(navigation.side, Some(ReviewSide::New));
         assert_eq!(navigation.line, Some(1));
+        app.review_height.set(1);
+        app.scroll_to_selection();
+        let expected_scroll = app.scroll;
+        app.scroll = app.current_review_geometry_rows().lines.len() - 1;
+        assert_ne!(app.scroll, expected_scroll);
+        let selection = app.with_state(|state| state.selection());
+        let repeated = app
+            .session_add_agent_line_highlight(&HighlightToolInput {
+                target_session: SessionSelector::default(),
+                file_path: "before.rs".into(),
+                side: ReviewSide::New,
+                line: 1,
+                start: 0,
+                end: 3,
+                tone: None,
+                reveal: Some(true),
+            })
+            .unwrap();
+        assert_eq!(repeated.revealed, Some(RevealedTarget::Hunk));
+        assert_eq!(app.with_state(|state| state.selection()), selection);
+        assert_eq!(app.scroll, expected_scroll);
     }
 }
