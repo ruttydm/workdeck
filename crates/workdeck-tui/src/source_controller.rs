@@ -1255,6 +1255,44 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn cross_file_beta_line_reveal_resolves_before_another_frame() {
+        let mut review =
+            pinned_alpha_review_from_text("export const alpha = 1;\n", "export const alpha = 2;\n");
+        review.files[0].set_source_capability(None);
+        let before = (1..=30)
+            .map(|line| format!("export const line{line} = {line};\n"))
+            .collect::<String>();
+        let after = before
+            .replace("line1 = 1;", "line1 = 100;")
+            .replace("line15 = 15;", "line15 = 1500;")
+            .replace("line30 = 30;", "line30 = 3000;");
+        let mut beta = pinned_review_from_text("beta", "beta.ts", &before, &after)
+            .files
+            .remove(0);
+        beta.set_source_capability(None);
+        review.files.push(beta);
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        app.review_height.set(12);
+        assert_eq!(
+            app.current_review_line_cursor().unwrap().target.file_index,
+            0
+        );
+        app.reveal_extension_review_line("probe", "beta", ReviewSide::New, 30);
+        let cursor = app.current_review_line_cursor().unwrap();
+        assert_eq!(cursor.target.file_index, 1);
+        assert_eq!(cursor.target.hunk_index, 2);
+        assert_eq!(cursor.target.side, ReviewSide::New);
+        assert_eq!(cursor.target.line, 30);
+        let selected = app.with_state(|state| state.selection());
+        assert_eq!(selected.file_index, 1);
+        assert_eq!(selected.hunk_index, Some(2));
+        let viewport = usize::from(12u16.saturating_sub(app.review_reserved_rows()).max(1));
+        assert!(cursor.row >= app.scroll && cursor.row < app.scroll + viewport);
+        assert!(app.status.is_none());
+    }
+
+    #[test]
     fn alpha_session_navigation_without_cursor_rows_reports_hunk_fallback() {
         let mut app = ReviewApp::new(
             pinned_two_hunk_alpha_review(),
