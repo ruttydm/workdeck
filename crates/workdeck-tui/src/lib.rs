@@ -8731,8 +8731,10 @@ impl ReviewApp {
                         AgentInlineNoteAction::Edit => self.open_active_note_edit(),
                         AgentInlineNoteAction::Reply => self.open_active_note_reply(),
                         AgentInlineNoteAction::Delete => {
-                            if let Some((comment, _)) = self.active_note_for_composer(true) {
-                                self.with_state(|state| state.remove_comment(&comment.id));
+                            if let Some((comment, _)) = self.active_note_for_composer(true)
+                                && let Err(error) = self.session_remove_live_comment(&comment.id)
+                            {
+                                self.status = Some(error);
                             }
                             self.saved_note_hover = None;
                         }

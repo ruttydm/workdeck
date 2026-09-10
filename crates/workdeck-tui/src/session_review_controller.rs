@@ -569,6 +569,18 @@ impl ReviewApp {
         &mut self,
         comment_id: &str,
     ) -> Result<RemovedCommentResult, String> {
+        let has_replies = self.with_state(|state| {
+            state.comments().iter().any(|note| note.id == comment_id)
+                && state
+                    .comments()
+                    .iter()
+                    .any(|note| note.parent_id.as_deref() == Some(comment_id))
+        });
+        if has_replies {
+            return Err(format!(
+                "Review note {comment_id} cannot be removed while it has replies."
+            ));
+        }
         let removed = self
             .with_state(|state| state.remove_comment(comment_id))
             .ok_or_else(|| {

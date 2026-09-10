@@ -1556,6 +1556,69 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn alpha_saved_notes_edit_in_place_and_form_nested_reply_chains() {
+        let mut review = pinned_alpha_source_review(800);
+        review.files[0].set_source_capability(None);
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        app.open_note_composer();
+        app.note_composer.as_mut().unwrap().body = "Root note".into();
+        let root = app.save_note_composer().unwrap();
+
+        app.saved_note_hover = Some(root.id.clone());
+        app.open_active_note_edit();
+        app.note_composer.as_mut().unwrap().body = "Edited root note".into();
+        let edited = app.save_note_composer().unwrap();
+        assert_eq!(edited.id, root.id);
+        assert_eq!(edited.summary, "Edited root note");
+
+        app.saved_note_hover = Some(root.id.clone());
+        app.open_active_note_reply();
+        app.note_composer.as_mut().unwrap().body = "Child reply".into();
+        let child = app.save_note_composer().unwrap();
+
+        app.saved_note_hover = Some(child.id.clone());
+        app.open_active_note_reply();
+        app.note_composer.as_mut().unwrap().body = "Grandchild reply".into();
+        let grandchild = app.save_note_composer().unwrap();
+
+        let notes = app.session_review_note_summaries();
+        assert_eq!(
+            notes
+                .iter()
+                .map(|note| (note.body.as_str(), note.parent_id.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("Edited root note", None),
+                ("Child reply", Some(root.id.as_str())),
+                ("Grandchild reply", Some(child.id.as_str())),
+            ]
+        );
+        assert_eq!(
+            notes
+                .iter()
+                .map(|note| &note.note_id)
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            3
+        );
+        assert_eq!(grandchild.parent_id.as_deref(), Some(child.id.as_str()));
+        let revision = app.with_state(|state| state.state_revision());
+        let error = app.session_remove_live_comment(&root.id).unwrap_err();
+        assert!(
+            error.contains("cannot be removed while it has replies"),
+            "{error}"
+        );
+        assert_eq!(app.session_review_note_summaries(), notes);
+        assert_eq!(app.with_state(|state| state.state_revision()), revision);
+        assert!(app.session_remove_live_comment(&child.id).is_err());
+        app.session_remove_live_comment(&grandchild.id).unwrap();
+        app.session_remove_live_comment(&child.id).unwrap();
+        app.session_remove_live_comment(&root.id).unwrap();
+        assert!(app.session_review_note_summaries().is_empty());
+    }
+
+    #[test]
     fn duplicate_alpha_draft_save_persists_once_and_next_draft_has_unique_id() {
         let mut review = pinned_alpha_source_review(800);
         review.files[0].set_source_capability(None);
