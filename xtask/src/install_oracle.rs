@@ -96,6 +96,77 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "executes pinned shell startup-file selection in temporary directories"]
+    fn bash_startup_selection_matches_both_pins_for_files_directories_and_absence() {
+        use std::collections::BTreeMap;
+        use workdeck_cli::install::shell_path::{ShellPathPlan, plan};
+        let repo = crate::repo_root().unwrap();
+        for (pin, commit) in [
+            (
+                "hunk-port/main-2c00f435",
+                "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+            ),
+            (
+                "hunk-port/stable-v0.20.1",
+                "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+            ),
+        ] {
+            require_pin(&repo, pin, commit).unwrap();
+            let source = Command::new("git")
+                .current_dir(&repo)
+                .args(["show", &format!("{commit}:install.sh")])
+                .output()
+                .unwrap();
+            assert!(source.status.success());
+            let source = String::from_utf8(source.stdout).unwrap();
+            let script = format!(
+                "{}\nfirst_existing \"$@\"",
+                helper(&source, "first_existing").unwrap()
+            );
+            for case in 0..27 {
+                let home = tempfile::tempdir().unwrap();
+                let paths =
+                    [".bashrc", ".bash_profile", ".profile"].map(|name| home.path().join(name));
+                let mut states = case;
+                for path in &paths {
+                    match states % 3 {
+                        1 => std::fs::write(path, b"# existing\n").unwrap(),
+                        2 => std::fs::create_dir(path).unwrap(),
+                        _ => {}
+                    }
+                    states /= 3;
+                }
+                let output = Command::new("/bin/sh")
+                    .env_clear()
+                    .args(["-c", &script, "oracle"])
+                    .args(&paths)
+                    .output()
+                    .unwrap();
+                assert!(output.status.success());
+                assert!(output.stderr.is_empty());
+                let selected = String::from_utf8(output.stdout).unwrap();
+                let selected = Path::new(selected.trim_end_matches('\n'));
+                let planned = plan(
+                    "/app/bin",
+                    home.path(),
+                    &BTreeMap::from([("SHELL".into(), "/bin/bash".into())]),
+                    false,
+                );
+                if selected.is_dir() {
+                    // Source selection falls back to .bashrc even if it is a directory;
+                    // Rust must fail reading that destination, not silently select another.
+                    assert!(planned.is_err(), "{pin} case {case}");
+                } else {
+                    let ShellPathPlan::Edit { path, .. } = planned.unwrap() else {
+                        panic!("expected edit")
+                    };
+                    assert_eq!(path, selected, "{pin} case {case}");
+                }
+            }
+        }
+    }
+
+    #[test]
     #[ignore = "executes both pinned shell installers' PATH helpers in temporary directories"]
     fn native_path_bytes_match_both_pinned_installers() {
         use std::collections::BTreeMap;

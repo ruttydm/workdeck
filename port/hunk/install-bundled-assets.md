@@ -1,5 +1,19 @@
 # Bundled installer assets
 
+## Bash startup-file selection oracle
+
+The explicit installer oracle suite now includes all 27 combinations of absent,
+regular-file and directory states for `.bashrc`, `.bash_profile`, and `.profile`
+against each pinned baseline (54 cases). It executes the exact `first_existing`
+source helper and compares the selected path with Rust planning. When no regular
+file exists and the fallback `.bashrc` is itself a directory, Rust reports the
+read failure rather than selecting a lower-priority file. This checks selection
+and Rust failure handling, not full source installation failure output.
+
+All three `install_oracle::tests` explicit ignored tests pass on the macOS host.
+Temporary fixtures are the only modified startup files. The full installer
+ledger interval remains unmapped.
+
 ## Explicit installer oracle replay
 
 `cargo test -p xtask install_oracle::tests -- --ignored` passes both installer
