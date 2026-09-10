@@ -7480,9 +7480,17 @@ impl ReviewApp {
                 return;
             }
         };
-        if self
-            .with_state(|state| state.reveal_line(target.file_index, target.side, target.line))
-            .is_err()
+        let visible = self.with_state(|state| {
+            state
+                .changeset()
+                .files
+                .get(target.file_index)
+                .is_some_and(|file| diff_file_matches_filter(file, &self.filter))
+        });
+        if !visible
+            || self
+                .with_state(|state| state.reveal_line(target.file_index, target.side, target.line))
+                .is_err()
         {
             self.status = Some(
                 extension_reveal_line_missing_warning(

@@ -1094,6 +1094,26 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn extension_line_reveal_cannot_select_a_filter_hidden_file() {
+        let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
+        app.filter = "beta".into();
+        let selection = app.with_state(|state| state.selection());
+        let scroll = app.scroll;
+        assert!(app.current_review_line_cursor().is_none());
+        app.reveal_extension_review_line("probe", "alpha", ReviewSide::New, 12);
+        assert_eq!(app.with_state(|state| state.selection()), selection);
+        assert_eq!(app.scroll, scroll);
+        assert!(app.current_review_line_cursor().is_none());
+        assert!(app.status.is_some());
+        app.filter.clear();
+        app.reveal_extension_review_line("probe", "alpha", ReviewSide::New, 12);
+        let cursor = app.current_review_line_cursor().unwrap().target;
+        assert_eq!(cursor.hunk_index, 1);
+        assert_eq!(cursor.side, ReviewSide::New);
+        assert_eq!(cursor.line, 12);
+    }
+
+    #[test]
     fn filter_hides_alpha_cursor_and_clearing_restores_it() {
         let mut review =
             pinned_alpha_review_from_text("export const alpha = 1;\n", "export const alpha = 2;\n");
