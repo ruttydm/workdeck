@@ -1556,6 +1556,46 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn alpha_normal_session_rejects_single_and_batch_markup_atomically() {
+        let mut app = ReviewApp::new(pinned_alpha_source_review(800), ReviewOptions::default());
+        let target = workdeck_session::CommentTargetInput {
+            file_path: "alpha.ts".into(),
+            hunk_index: None,
+            side: Some(workdeck_core::ReviewSide::New),
+            line: Some(8),
+            summary: "Plain fallback".into(),
+            rationale: None,
+            markup: Some("<badge>hidden</badge>".into()),
+            author: None,
+        };
+        let revision = app.with_state(|state| state.state_revision());
+        let input = workdeck_session::CommentToolInput {
+            target_session: Default::default(),
+            target: target.clone(),
+            reveal: None,
+        };
+        assert!(
+            app.session_add_live_comment(&input, "comment-disabled", true)
+                .unwrap_err()
+                .contains("Relaunch Workdeck with --experimental")
+        );
+        let batch_target = workdeck_session::CommentTargetInput {
+            hunk_index: Some(0),
+            side: None,
+            line: None,
+            ..target
+        };
+        assert!(
+            app.session_add_live_comment_batch(&[batch_target], "batch-disabled", true)
+                .unwrap_err()
+                .contains("Relaunch Workdeck with --experimental")
+        );
+        assert!(app.with_state(|state| state.comments().is_empty()));
+        assert!(app.session_live_comment_summaries().is_empty());
+        assert_eq!(app.with_state(|state| state.state_revision()), revision);
+    }
+
+    #[test]
     fn note_save_rejects_missing_hunk_without_consuming_draft() {
         let mut app = ReviewApp::new(pinned_alpha_source_review(800), ReviewOptions::default());
         app.open_note_composer();
