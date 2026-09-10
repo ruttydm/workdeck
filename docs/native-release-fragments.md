@@ -1,5 +1,51 @@
 # Native release-note fragments
 
+## Contributor workflow and package discovery
+
+This guide adapts the pinned upstream `.changeset/README.md` to Workdeck's
+native release tooling. Workdeck ships one executable, `workdeck`, owned by the
+Cargo package `workdeck-cli`; it does not prepare or publish npm packages.
+The upstream guide is MIT-licensed, copyright Modem Labs Inc.; attribution is
+retained in [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES).
+Cargo workspace membership and locked Cargo metadata replace the upstream
+root-package discovery convention. Do not add a JavaScript workspace manifest
+or a `"."` package entry to make release tooling discover the product. If the
+CLI package moves, update the Cargo workspace and release-tool discovery tests
+together before preparing a release.
+
+The sequence is: author a fragment for each user-visible change, inspect pending
+fragments, generate and review a release plan, validate the saved plan, then
+explicitly apply it with an external recovery directory. Applying a plan consumes
+pending fragments and updates the proposed version/history files, but does not
+commit, tag or publish. The commands and transaction limits below are authoritative
+for the current implementation. Keep `CHANGELOG.md` generated rather than editing
+it to bypass fragment validation.
+
+## Homebrew checks after an authorized publication
+
+After a separately authorized tag/artifact publication, verify the actual
+Workdeck formula's ownership and update policy before requesting a version bump.
+The upstream guide's Homebrew/core Autobump enrollment is historical upstream
+state, not evidence that Workdeck is enrolled or even available in that tap.
+Do not send a manual simple-bump PR when the owning tap uses an automated update
+process: wait for its version PR and verify that it merges. Ask the maintainers
+about a stalled update; use a manual bump only when their policy permits it.
+
+In the native installer test environment, install the released formula using its
+verified fully qualified name, confirm the resolved executable belongs to that
+installation, and check `workdeck --version` against the intended release.
+Exercise the Homebrew update path as well as fresh installation, retaining the
+formula revision, command results and version evidence. A successful GitHub
+artifact publication alone does not prove Homebrew availability. Do not substitute
+the upstream formula or assume a formula name from Workdeck branding.
+
+This is a required post-publication procedure, not a claim of a completed live
+Homebrew installation or authorization to publish, open a PR or modify the host's
+package installation. Native platform installation evidence and the complete
+release gates remain necessary; see [native release policy](native-release-policy.md).
+
+## Authoring and preparing fragments
+
 User-visible changes should carry a fragment rather than hand-editing the
 generated release history. Author a fragment with Rust tooling:
 
