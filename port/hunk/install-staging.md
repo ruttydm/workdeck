@@ -27,5 +27,17 @@ preservation, executable and content modes with setuid/setgid removed, rejection
 of links and missing licenses even with a matching checksum, cleanup when the
 staging handle is dropped, and unchanged input archives. All 27 installer unit
 tests pass. Existing archive-inspection tests cover malformed tar/ZIP and path
-hazards. Real CLI staging, cross-platform execution and installer integration
-remain additional validation work.
+hazards. The real CLI test now checks retained staging files, the integrity-only
+JSON report, empty stdout on checksum/argument failures, unchanged archive bytes
+and no repository-state creation. It removes the exact staging directory it
+created after validating its location and contents. Cross-platform execution and
+installer integration remain additional validation work.
+
+## Local regression verification
+
+After the staging CLI test was added, `cargo test -p xtask --all-targets` passed
+394 tests with one existing ignored oracle-capture test: 362 unit tests, 22
+changelog CLI tests, seven extension-catalog CLI tests, one installer CLI test,
+one workspace-command CLI test and one terminal theme-probe test. Strict xtask
+Clippy also passed. This is xtask-local evidence, not full workspace or native
+release-matrix qualification.
