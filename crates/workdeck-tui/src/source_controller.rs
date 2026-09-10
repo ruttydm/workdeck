@@ -2016,7 +2016,17 @@ pub(super) mod tests {
         let summaries = app.session_live_comment_summaries();
         assert_eq!(summaries.len(), 1);
         assert_eq!(summaries[0].summary, "Check beta rename");
+        assert!(!app.options.agent_notes);
+        app.filter = "alpha".into();
+        let selection = app.with_state(|state| state.selection());
+        let scroll = app.scroll;
         app.move_selection(ReviewSelectionScope::AnnotatedHunk, 1);
+        assert_eq!(app.with_state(|state| state.selection()), selection);
+        assert_eq!(app.scroll, scroll);
+        assert_eq!(app.session_live_comment_summaries().len(), 1);
+        app.filter.clear();
+        app.move_selection(ReviewSelectionScope::AnnotatedHunk, 1);
+        assert!(!app.options.agent_notes);
         app.with_state(|state| {
             assert_eq!(state.selected_file().unwrap().path, "beta.ts");
             assert_eq!(state.selection().hunk_index, Some(0));

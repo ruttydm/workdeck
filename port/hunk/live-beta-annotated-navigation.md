@@ -23,3 +23,12 @@ cover those assertions, so the full source case and runtime hook remain unmapped
 
 After the fix all 1,227 TUI library tests passed (8.90 seconds), with formatting
 and diff checks passing. No ledger disposition changed.
+
+## Filtering and visibility boundaries
+
+The same test now filters the stream to alpha after adding beta's live comment.
+Annotated navigation must preserve selection and scroll while retaining the
+comment. After clearing the filter, navigation reaches beta, but agent-note
+display stays off. This distinguishes navigation membership from both file
+filtering and note rendering visibility. The focused test passed (0.74 seconds),
+with formatting and diff checks passing. No additional source interval is mapped.
