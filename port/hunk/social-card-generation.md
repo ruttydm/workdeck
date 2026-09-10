@@ -417,3 +417,14 @@ them to match an older tree. This text check is against main, not a claim that t
 two source stylesheets are identical. Complete header controls, theme switching,
 all responsive page layouts and screenshot parity remain unfinished; the brand
 source interval is still unmapped.
+
+The native shell now includes the header's Install, Extensions and GitHub-star
+controls, retaining the source star SVG and responsive class names. Install
+points to the real homepage install anchor; Extensions carries `aria-current`
+on its page; repository URLs come from Workdeck configuration. Footer GitHub and
+MIT links use the same configured repository. No upstream Discord ownership,
+star count, npm distribution or unbuilt Docs/Changelog route is invented.
+Those remaining header/footer capabilities are not waived and their source
+records remain unmapped. Site validation checks the built header controls,
+active-page attribute and home install target; broader interaction and viewport
+testing remain necessary.

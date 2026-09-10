@@ -404,6 +404,20 @@ fn site(command: Option<&str>) -> Result<()> {
                 ],
             )?;
             let html = fs::read_to_string(public.join("extensions/index.html"))?;
+            ensure!(
+                html.contains("href=\"/#install\"")
+                    && html.contains("aria-label=\"Star Workdeck on GitHub\""),
+                "brand header controls missing"
+            );
+            ensure!(
+                html.contains("href=\"/extensions/\" aria-current=\"page\""),
+                "extension navigation lacks current-page state"
+            );
+            let home = fs::read_to_string(public.join("index.html"))?;
+            ensure!(
+                home.contains("id=\"install\""),
+                "header install target missing"
+            );
             let catalog: serde_json::Value = serde_json::from_str(&fs::read_to_string(
                 site.join("data/legacy-extensions.json"),
             )?)?;
