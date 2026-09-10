@@ -618,7 +618,7 @@ impl FrameRenderer for WebDriverRenderer {
             Some(&json!({ "url": stage_url })),
         )?;
         let paint = format!("/session/{}/execute/async", self.session_id);
-        webdriver_request(
+        let painted = webdriver_request(
             self.port,
             "POST",
             &paint,
@@ -627,6 +627,7 @@ impl FrameRenderer for WebDriverRenderer {
                 "args": []
             })),
         )?;
+        require_paint_ready(&painted)?;
         let screenshot = format!("/session/{}/screenshot", self.session_id);
         let response = webdriver_request(self.port, "GET", &screenshot, None)?;
         let encoded = response
@@ -639,6 +640,15 @@ impl FrameRenderer for WebDriverRenderer {
         fs::write(output, png)
             .with_context(|| format!("write composited frame {}", output.display()))
     }
+}
+
+fn require_paint_ready(response: &Value) -> Result<()> {
+    ensure!(
+        response.get("value") == Some(&Value::Bool(true)),
+        "browser did not confirm font readiness and paint completion: {}",
+        response.get("value").unwrap_or(&Value::Null)
+    );
+    Ok(())
 }
 
 impl Drop for WebDriverRenderer {
@@ -957,6 +967,20 @@ mod tests {
         let mut writer = encoder.write_header().unwrap();
         let pixels = color.repeat((width * height) as usize);
         writer.write_image_data(&pixels).unwrap();
+    }
+
+    #[test]
+    fn capture_requires_explicit_font_and_paint_success() {
+        require_paint_ready(&json!({"value":true})).unwrap();
+        for response in [
+            json!({}),
+            json!({"value":null}),
+            json!({"value":false}),
+            json!({"value":"true"}),
+            json!({"value":"font loading failed"}),
+        ] {
+            assert!(require_paint_ready(&response).is_err(), "{response}");
+        }
     }
 
     #[test]

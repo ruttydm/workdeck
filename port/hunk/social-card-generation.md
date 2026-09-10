@@ -60,3 +60,10 @@ capture was executed. These missing binaries do not block further port work.
 Strict xtask all-target Clippy subsequently passed. The CLI regression verifies
 that an unavailable explicit driver fails without a success report or site
 directory creation, while preserving the card and font inputs.
+
+The shared browser renderer now requires the font-and-paint callback to return
+the boolean `true` before requesting a screenshot. Previously, a rejected font
+promise returned an error string that was ignored. Missing, null, false and text
+responses now fail capture rather than producing a success report. All 15
+compositor tests pass, including explicit readiness-response validation. This
+checks protocol handling, not a live browser font-failure scenario.
