@@ -77,3 +77,19 @@ snapshot modification and cleanup. The injected callbacks test orchestration,
 not real signatures or GitHub availability. This new API is not yet wired into
 the complete asset installation transaction; the existing updater continues to
 authenticate its binary separately. No signed release was fetched or published.
+
+## Integration checkpoint at `04ffe9bd`
+
+- Strict `cargo clippy -p workdeck-cli -p xtask --all-targets -- -D warnings`
+  passes with incremental compilation disabled and two build jobs.
+- `cargo xtask architecture check` passes: 12 production crates, one shipped
+  executable, zero dependency or source-reachability violations.
+- Strict `cargo xtask port audit` fails: 1,257 baseline files, 1,459 intervals,
+  280 unmapped records and 92 cached upstream delta commits. Five stable-only
+  commits are tracked; this count does not prove their implementation complete.
+
+No upstream fetch was performed at this checkpoint. These checks validate the
+current installer additions' compilation and ownership boundaries, not whole-
+product parity, performance, native platform coverage or signed release delivery.
+The next installer integration remains the authenticated asset-tree transaction
+with recovery coordinated with binary installation.
