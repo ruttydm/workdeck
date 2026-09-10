@@ -454,6 +454,83 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn failed_source_loads_render_reason_retry_and_cache_the_recovery() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct RecoveringLoader {
+            failure: u8,
+            calls: AtomicUsize,
+        }
+        impl ReviewSourceLoader for RecoveringLoader {
+            fn get_full_text(
+                &self,
+                _: &DiffFile,
+                side: ReviewSide,
+            ) -> std::result::Result<Option<String>, ReviewSourceLoadError> {
+                assert_eq!(side, ReviewSide::New);
+                if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                    return match self.failure {
+                        0 => Ok(None),
+                        1 => Err(ReviewSourceLoadError::Unavailable(
+                            "source unavailable".into(),
+                        )),
+                        _ => Err(ReviewSourceLoadError::TooLarge),
+                    };
+                }
+                Ok(Some("recovered-first\nrecovered-second\nnew\n".into()))
+            }
+        }
+        for failure in 0..3 {
+            let (mut app, _unused_sender) = setup();
+            let key = app.with_state(|state| state.changeset().files[0].key.clone());
+            let loader = Arc::new(RecoveringLoader {
+                failure,
+                calls: AtomicUsize::new(0),
+            });
+            assert!(app.install_source_loader(&key, loader.clone()));
+            let selection = app.with_state(|state| state.selection());
+            app.toggle_source_gap();
+            drain_one(&mut app);
+            let expected_reason =
+                (failure == 2).then_some(workdeck_review::ReviewSourceErrorReason::TooLarge);
+            app.with_state(|state| {
+                assert_eq!(
+                    app.options
+                        .source_presentation
+                        .status(&state.changeset().files[0]),
+                    Some(&workdeck_review::ReviewSourceStatus::Error {
+                        reason: expected_reason
+                    })
+                )
+            });
+            let label = if failure == 2 {
+                "Source too large to expand 2 unchanged lines"
+            } else {
+                "Could not load 2 unchanged lines"
+            };
+            assert!(rows(&app).contains(label), "{}", rows(&app));
+            assert_eq!(app.with_state(|state| state.selection()), selection);
+            assert_eq!(loader.calls.load(Ordering::SeqCst), 1);
+
+            // Hunk starts the loader after either toggle direction, so collapsing
+            // an errored gap retries while cancelling its pending cursor reveal.
+            app.toggle_source_gap();
+            assert!(app.expanded_gaps.is_empty());
+            assert!(app.pending_source_reveal.is_none());
+            drain_one(&mut app);
+            assert_eq!(loader.calls.load(Ordering::SeqCst), 2);
+            assert!(!rows(&app).contains("recovered-first"));
+            assert_eq!(app.with_state(|state| state.selection()), selection);
+            app.toggle_source_gap();
+            assert!(rows(&app).contains("recovered-first"));
+            assert_eq!(app.with_state(|state| state.selection().line), Some(1));
+            app.toggle_source_gap();
+            app.toggle_source_gap();
+            assert_eq!(loader.calls.load(Ordering::SeqCst), 2);
+            assert!(rows(&app).contains("recovered-second"));
+        }
+    }
+
+    #[test]
     fn latest_gap_receives_cursor_when_one_source_load_reveals_two_gaps() {
         struct RecordingLoader {
             calls: mpsc::Sender<ReviewSide>,

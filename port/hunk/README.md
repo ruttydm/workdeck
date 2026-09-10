@@ -1,5 +1,13 @@
 # Hunk semantic-port ledger
 
+## Live source-error recovery
+
+Additional controller-level tests cover missing, rejected, and oversized source
+loads, retry while collapsed, selection preservation, and cached recovery on
+reopen. All 1,182 TUI library tests pass. See
+[the source comparison and precise coverage limits](source-failure-recovery.md).
+This is additional lifecycle evidence, not a new ledger mapping.
+
 ## Broad verification after source-capability fixes
 
 The full local `cargo xtask verify` rerun passes after isolating the Darwin
