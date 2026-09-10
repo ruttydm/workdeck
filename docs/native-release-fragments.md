@@ -143,6 +143,15 @@ command, not editors or other tools; do not edit release inputs during apply.
 Automatic crash recovery and isolation against unrelated concurrent writers
 remain incomplete. No commit, tag, push or publication is performed.
 
+On Unix, release lock opening refuses final-component symlinks, uses nonblocking
+opening and verifies that the opened object is a regular file. New lock files
+are private (mode `0600`, subject to the process umask). The lock file remains
+after closing so competing applications coordinate on the same file rather than
+an unlinked replacement. Tests verify contention, reacquisition and preservation
+of a symlink's unrelated target, alongside the existing transaction rollback
+tests. This does not establish Windows reparse-point handling or parent-directory
+race isolation. All four release-application tests pass on the macOS host.
+
 The integration test applies the proposed manifest/lockfile pair only inside
 its disposable fixture, runs locked/offline Cargo checking, and confirms that
 Cargo reports the proposed version without rewriting either file. Production

@@ -38,6 +38,26 @@ struct Original {
     permissions: fs::Permissions,
 }
 
+fn release_lock(path: &Path) -> Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.create(true).truncate(false).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let lock = options.open(path).context("open release lock")?;
+    ensure!(
+        lock.metadata()?.is_file(),
+        "release lock must be a regular file"
+    );
+    lock.try_lock()
+        .context("another release application holds the lock")?;
+    Ok(lock)
+}
+
 fn require_safe_target(repo: &Path, name: &str) -> Result<()> {
     let relative = Path::new(name);
     ensure!(
@@ -100,13 +120,7 @@ fn apply(
     } else {
         repo.join(lock_path)
     };
-    let lock = fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(lock_path)?;
-    lock.try_lock()
-        .context("another release application holds the lock")?;
+    let _lock = release_lock(&lock_path)?;
     ensure!(
         *saved == build_plan(&repo)?,
         "saved release plan is stale or modified"
@@ -244,6 +258,27 @@ fn apply(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn release_lock_is_private_persistent_and_rejects_symlinks() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("unrelated");
+        fs::write(&target, b"preserve").unwrap();
+        let redirected = root.path().join("redirected.lock");
+        symlink(&target, &redirected).unwrap();
+        assert!(release_lock(&redirected).is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"preserve");
+        assert!(release_lock(root.path()).is_err());
+        let path = root.path().join("release.lock");
+        let lock = release_lock(&path).unwrap();
+        assert_eq!(lock.metadata().unwrap().permissions().mode() & 0o777, 0o600);
+        assert!(release_lock(&path).is_err());
+        drop(lock);
+        assert!(path.is_file());
+        release_lock(&path).unwrap();
+    }
 
     #[test]
     fn release_target_paths_reject_traversal_and_non_directory_parents() {
