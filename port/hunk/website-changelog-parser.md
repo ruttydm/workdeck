@@ -225,6 +225,17 @@ by the command and the directory inventory contains no new repository state.
 All eight changelog CLI tests pass. Complete page rendering remains open, and
 no ledger mapping changed.
 
+## Index social-card data
+
+`cargo xtask changelog index-card <markdown-file> <dates.json>` emits the
+history-wide card data without writes. It counts published series, derives the
+chronological month span, displays at most five series chips, and adds an ellipsis
+only when published series were actually omitted. Empty publication omits chips.
+Ten executed two-pin fixtures cover 0, 1, 5, 6 and 8 published stable series,
+comparing complete card objects. The oracle test passes. Prerelease-specific
+index cases, CLI integration, images and final website wiring remain open; no
+ledger mapping changed.
+
 ## Prerelease card verification
 
 Six new executed main-pin fixtures cover beta-only and mixed stable/beta series

@@ -777,6 +777,80 @@ fn series_card(
     card.into()
 }
 
+fn month_and_year(iso: &str) -> String {
+    let mut parts = iso.split('-');
+    let year = parts.next().unwrap_or_default();
+    let month = date_number(parts.next().unwrap_or_default());
+    if !year.is_empty() && (1.0..=12.0).contains(&month) && month.fract() == 0.0 {
+        let date = format_release_date(&format!("{year}-{}-1", month as usize));
+        date.replacen(" 1,", "", 1)
+    } else {
+        iso.to_owned()
+    }
+}
+
+fn index_card(
+    series: &[ReleaseSeries],
+    dates: &std::collections::BTreeMap<String, String>,
+    product: &str,
+) -> serde_json::Value {
+    let published = series
+        .iter()
+        .filter(|s| s.releases.iter().any(|r| is_published(r, dates)))
+        .collect::<Vec<_>>();
+    let mut all_dates = published
+        .iter()
+        .flat_map(|s| {
+            s.releases
+                .iter()
+                .filter(|r| is_published(r, dates))
+                .map(|r| dates[&r.version].as_str())
+        })
+        .collect::<Vec<_>>();
+    all_dates.sort();
+    let span = all_dates
+        .first()
+        .zip(all_dates.last())
+        .filter(|(a, b)| !a.is_empty() && !b.is_empty())
+        .map(|(a, b)| format!(" · {} – {}", month_and_year(a), month_and_year(b)))
+        .unwrap_or_default();
+    let meta = format!("{} release series{span}", published.len());
+    let mut card = serde_json::json!({"slug":"index","title":"Changelog","tagline":format!("Every {product} release, grouped by minor series."),"meta":meta,"alt":format!("{product} changelog — {meta}")});
+    let mut chips = published
+        .iter()
+        .take(5)
+        .map(|s| s.minor.as_str())
+        .collect::<Vec<_>>();
+    if published.len() > chips.len() {
+        chips.push("…");
+    }
+    if !chips.is_empty() {
+        card["chips"] = serde_json::json!(chips);
+    }
+    card
+}
+
+pub(super) fn run_index_card(repo: &Path, mut args: impl Iterator<Item = String>) -> Result<()> {
+    let Some(markdown) = args.next() else {
+        bail!("changelog index-card requires Markdown and dates JSON files");
+    };
+    let Some(dates) = args.next() else {
+        bail!("changelog index-card requires Markdown and dates JSON files");
+    };
+    if args.next().is_some() {
+        bail!("changelog index-card accepts exactly two files");
+    }
+    let series = group_into_series(parse_changelog(&std::fs::read_to_string(
+        repo.join(markdown),
+    )?));
+    let dates = serde_json::from_str(&std::fs::read_to_string(repo.join(dates))?)?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&index_card(&series, &dates, "Workdeck"))?
+    );
+    Ok(())
+}
+
 fn yaml_string(value: &str) -> String {
     if value.contains('"') && !value.contains('\'') {
         format!("'{value}'")
@@ -942,6 +1016,25 @@ pub(super) fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn index_card_counts_and_chips_match_both_pinned_oracles() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/website-changelog-index-card-oracle.json"
+        ))
+        .unwrap();
+        let results = fixture["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        for result in results {
+            let cases = result["cases"].as_array().unwrap();
+            assert_eq!(cases.len(), 5);
+            for case in cases {
+                let series = group_into_series(parse_changelog(case["input"].as_str().unwrap()));
+                let dates = serde_json::from_value(case["dates"].clone()).unwrap();
+                assert_eq!(index_card(&series, &dates, "Hunk"), case["expected"]);
+            }
+        }
+    }
 
     #[test]
     fn prerelease_series_cards_match_main_oracle() {
