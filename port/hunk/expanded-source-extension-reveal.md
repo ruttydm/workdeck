@@ -18,3 +18,10 @@ not a new frozen source oracle. Full hook and protocol mappings remain open.
 
 All 1,208 TUI library tests passed (9.49 seconds), including the regression,
 with formatting and diff checks passing. No ledger disposition changed.
+
+The regression also now collapses the loaded gap, then attempts to reveal its
+formerly visible line. It verifies a missing-target warning, unchanged selection
+and scroll, and no reopened gap. This ensures cached source availability is not
+mistaken for current row visibility. The extended focused test passed (0.73
+seconds), along with formatting and diff checks. No further runtime change or
+source mapping was needed for this transition.

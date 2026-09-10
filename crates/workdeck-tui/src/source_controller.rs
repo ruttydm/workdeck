@@ -485,6 +485,16 @@ pub(super) mod tests {
         let cursor = app.current_review_line_cursor().unwrap().target;
         assert_eq!(cursor.side, ReviewSide::New);
         assert_eq!(cursor.line, 1);
+        app.reveal_extension_review_line("probe", &id, ReviewSide::New, 3);
+        app.toggle_source_gap();
+        assert!(!app.has_measured_review_line(0, ReviewSide::New, 1));
+        let selection = app.with_state(|state| state.selection());
+        let scroll = app.scroll;
+        app.reveal_extension_review_line("probe", &id, ReviewSide::New, 1);
+        assert!(app.status.is_some());
+        assert_eq!(app.with_state(|state| state.selection()), selection);
+        assert_eq!(app.scroll, scroll);
+        assert!(app.expanded_gaps.is_empty());
     }
 
     #[test]
