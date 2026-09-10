@@ -61,3 +61,18 @@ jobs and disabled incremental compilation.
 This covers the intervening annotated navigation, repeated reveal, save-time IDs,
 save-result contract and reply-deletion guard changes. It is not an updated
 full-workspace-test, release-build, benchmark or cross-platform result.
+
+## Composer failure-path Clippy refresh
+
+At clean source commit `d86dcb77c24976702074f3516d1797250d33d7a4`, strict
+workspace/all-target Clippy passed in 1 minute 23 seconds, with two build jobs and
+incremental compilation disabled. This covers keyboard composer reveal, saved
+timestamps, retained blank edits, and missing/orphaned/cross-file reply-parent
+validation. The cached `target/debug/xtask` executable was absent at the start;
+the direct audit invocation therefore failed to launch, not on ledger validation.
+
+`cargo xtask port audit` then rebuilt the executable (1 minute 14 seconds) and
+ran without `--allow-incomplete`. It exited 1 at the incomplete-coverage gate:
+1,257 files, 1,434 interval records, 467 translated-test records, 277 unmapped
+records and 92 pending upstream commits. No fetch was performed. The recent
+runtime fixes do not establish full coverage or eliminate the release blockers.
