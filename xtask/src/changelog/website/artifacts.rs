@@ -89,6 +89,7 @@ fn generate(
 pub(in crate::changelog) fn run_artifacts(
     repo: &Path,
     mut args: impl Iterator<Item = String>,
+    check: bool,
 ) -> Result<()> {
     let Some(markdown) = args.next() else {
         bail!("changelog artifacts requires Markdown and recorded dates JSON files");
@@ -109,8 +110,55 @@ pub(in crate::changelog) fn run_artifacts(
         None => serde_json::json!({}),
     };
     let output = generate(&markdown, &recorded, notes, |v| tag_date(repo, v))?;
+    if check {
+        let stale = stale_paths(repo, &output)?;
+        if !stale.is_empty() {
+            bail!(
+                "Generated changelog artifacts are stale:\n{}",
+                stale.join("\n")
+            );
+        }
+        return Ok(());
+    }
     println!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
+}
+
+fn stale_paths(repo: &Path, artifacts: &BTreeMap<String, String>) -> Result<Vec<String>> {
+    let directory = repo.join("site/content/changelog");
+    let mut pages = Vec::new();
+    match std::fs::read_dir(&directory) {
+        Ok(entries) => {
+            for entry in entries {
+                let entry = entry?;
+                let name = entry.file_name();
+                if name.to_string_lossy().ends_with(".md") {
+                    pages.push(format!("site/content/changelog/{}", name.to_string_lossy()));
+                }
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    pages.sort();
+    let mut stale: Vec<_> = pages
+        .iter()
+        .filter(|p| !artifacts.contains_key(*p))
+        .cloned()
+        .collect();
+    if pages.len() > 1 && stale.len() > pages.len() / 2 {
+        bail!(
+            "Refusing to remove {} of {} generated changelog pages. This usually means CHANGELOG.md failed to parse rather than that releases were removed.",
+            stale.len(),
+            pages.len()
+        );
+    }
+    for (path, content) in artifacts {
+        if std::fs::read(repo.join(path)).ok().as_deref() != Some(content.as_bytes()) {
+            stale.push(path.clone());
+        }
+    }
+    Ok(stale)
 }
 
 #[cfg(test)]
@@ -118,6 +166,63 @@ mod tests {
     use super::*;
 
     const SAMPLE: &str = include_str!("../../../../port/hunk/website-changelog-test-sample.md");
+
+    #[test]
+    fn artifact_check_refuses_collapsed_output_without_deleting_pages() {
+        let repo = tempfile::tempdir().unwrap();
+        let directory = repo.path().join("site/content/changelog");
+        std::fs::create_dir_all(&directory).unwrap();
+        for name in ["index.md", "1.0.md", "1.1.md"] {
+            std::fs::write(directory.join(name), "original").unwrap();
+        }
+        let error = stale_paths(repo.path(), &BTreeMap::new()).unwrap_err();
+        assert!(error.to_string().contains("Refusing to remove 3 of 3"));
+        for name in ["index.md", "1.0.md", "1.1.md"] {
+            assert_eq!(
+                std::fs::read_to_string(directory.join(name)).unwrap(),
+                "original"
+            );
+        }
+    }
+
+    #[test]
+    fn artifact_check_reports_missing_changed_and_orphaned_paths_without_writes() {
+        let repo = tempfile::tempdir().unwrap();
+        let directory = repo.path().join("site/content/changelog");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("index.md"), "same").unwrap();
+        std::fs::write(directory.join("old.md"), "old").unwrap();
+        let artifacts = BTreeMap::from([
+            ("site/content/changelog/index.md".into(), "same".into()),
+            ("site/data/releases/latest.json".into(), "null\n".into()),
+        ]);
+        assert_eq!(
+            stale_paths(repo.path(), &artifacts).unwrap(),
+            [
+                "site/content/changelog/old.md",
+                "site/data/releases/latest.json"
+            ]
+        );
+        assert!(!repo.path().join("site/data").exists());
+        assert_eq!(
+            std::fs::read_to_string(directory.join("old.md")).unwrap(),
+            "old"
+        );
+        let artifacts = BTreeMap::from([
+            ("site/content/changelog/index.md".into(), "same".into()),
+            ("site/content/changelog/old.md".into(), "old".into()),
+        ]);
+        assert!(stale_paths(repo.path(), &artifacts).unwrap().is_empty());
+        std::fs::write(directory.join("index.md"), "changed").unwrap();
+        assert_eq!(
+            stale_paths(repo.path(), &artifacts).unwrap(),
+            ["site/content/changelog/index.md"]
+        );
+        assert_eq!(
+            std::fs::read_to_string(directory.join("index.md")).unwrap(),
+            "changed"
+        );
+    }
 
     fn source_beta_artifacts() -> BTreeMap<String, String> {
         generate(

@@ -11,6 +11,64 @@ fn run(repo: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
+fn artifact_check_cli_reports_stale_then_accepts_matching_output() {
+    let repo = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    std::fs::write(repo.path().join("history.md"), "## 1.0.0\n").unwrap();
+    std::fs::write(repo.path().join("dates.json"), "{}").unwrap();
+    let args = ["changelog", "artifacts-check", "history.md", "dates.json"];
+    let missing = run(repo.path(), &args);
+    assert!(!missing.status.success());
+    assert!(missing.stdout.is_empty());
+    assert!(
+        String::from_utf8(missing.stderr)
+            .unwrap()
+            .contains("artifacts are stale")
+    );
+    assert!(!repo.path().join("site").exists());
+    let generated = run(
+        repo.path(),
+        &["changelog", "artifacts", "history.md", "dates.json"],
+    );
+    assert!(generated.status.success());
+    let artifacts: std::collections::BTreeMap<String, String> =
+        serde_json::from_slice(&generated.stdout).unwrap();
+    for (path, content) in &artifacts {
+        let path = repo.path().join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, content).unwrap();
+    }
+    let current = run(repo.path(), &args);
+    assert!(
+        current.status.success(),
+        "{}",
+        String::from_utf8_lossy(&current.stderr)
+    );
+    assert!(current.stdout.is_empty());
+    assert!(current.stderr.is_empty());
+    std::fs::write(repo.path().join("site/data/releases/latest.json"), "stale").unwrap();
+    let stale = run(repo.path(), &args);
+    assert!(!stale.status.success());
+    assert!(stale.stdout.is_empty());
+    assert!(
+        String::from_utf8(stale.stderr)
+            .unwrap()
+            .contains("site/data/releases/latest.json")
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("site/data/releases/latest.json")).unwrap(),
+        "stale"
+    );
+}
+
+#[test]
 fn artifacts_cli_returns_connected_outputs_without_writes() {
     let repo = tempfile::tempdir().unwrap();
     assert!(

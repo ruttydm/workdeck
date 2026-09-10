@@ -1,5 +1,8 @@
 # Native changelog artifact composition
 
+The read-only [artifact checker](website-changelog-check.md) now reports stale
+outputs and guards against a collapsed generation result. Writing remains open.
+
 `cargo xtask changelog artifacts <markdown-file> <recorded-dates.json> [notes.json]`
 returns a JSON object mapping repository-relative destination paths to generated
 UTF-8 file contents. The command does not write those destinations or remove
