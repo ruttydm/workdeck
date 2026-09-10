@@ -214,3 +214,13 @@ date spans, prereleases, written highlights and editorial overrides. All fourtee
 website unit tests pass. This remains partial generator work: resolved-summary
 CLI integration and complete page rendering are not yet verified. No ledger
 mapping changed.
+
+## Resolved-summary CLI integration
+
+An executable temporary-repository test now checks Workdeck-branded singular and
+plural factual summaries, ordered date spans including a published prerelease,
+and verbatim editorial overrides. Missing and extra inputs, missing files and
+malformed/invalid date JSON fail without stdout. Supplied files remain unchanged
+by the command and the directory inventory contains no new repository state.
+All eight changelog CLI tests pass. Complete page rendering remains open, and
+no ledger mapping changed.

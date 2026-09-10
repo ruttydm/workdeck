@@ -11,6 +11,134 @@ fn run(repo: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
+fn resolved_summaries_cli_renders_fallback_and_preserves_inputs() {
+    let repo = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    let markdown = "## 1.2.0\n## 1.2.1-rc.1\n## 2.0.0\n";
+    let dates = r#"{"1.2.0":"2026-07-01","1.2.1-rc.1":"2026-08-01"}"#;
+    let notes = r#"{"1.2":{"summary":"Editorial **unchanged**"}}"#;
+    for (name, content) in [
+        ("history.md", markdown),
+        ("dates.json", dates),
+        ("notes.json", notes),
+    ] {
+        std::fs::write(repo.path().join(name), content).unwrap();
+    }
+    for (extra, summary) in [
+        (
+            false,
+            "Release notes for Workdeck 1.2: 2 releases, July 1, 2026 – August 1, 2026.",
+        ),
+        (true, "Editorial **unchanged**"),
+    ] {
+        let mut args = vec![
+            "changelog",
+            "resolved-summaries",
+            "history.md",
+            "dates.json",
+        ];
+        if extra {
+            args.push("notes.json");
+        }
+        let output = run(repo.path(), &args);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stderr.is_empty());
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap(),
+            serde_json::json!([
+                {"minor":"2.0", "summary":"Release notes for Workdeck 2.0: 1 release."},
+                {"minor":"1.2", "summary":summary}
+            ])
+        );
+    }
+    for args in [
+        vec!["changelog", "resolved-summaries"],
+        vec!["changelog", "resolved-summaries", "history.md"],
+        vec![
+            "changelog",
+            "resolved-summaries",
+            "missing.md",
+            "dates.json",
+        ],
+        vec![
+            "changelog",
+            "resolved-summaries",
+            "history.md",
+            "missing.json",
+        ],
+        vec![
+            "changelog",
+            "resolved-summaries",
+            "history.md",
+            "dates.json",
+            "missing.json",
+        ],
+        vec![
+            "changelog",
+            "resolved-summaries",
+            "history.md",
+            "dates.json",
+            "notes.json",
+            "extra",
+        ],
+    ] {
+        let output = run(repo.path(), &args);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+    }
+    for (name, content) in [
+        ("history.md", markdown),
+        ("dates.json", dates),
+        ("notes.json", notes),
+    ] {
+        assert_eq!(
+            std::fs::read_to_string(repo.path().join(name)).unwrap(),
+            content
+        );
+    }
+    for invalid in ["{broken", r#"{"1.2.0":42}"#] {
+        std::fs::write(repo.path().join("dates.json"), invalid).unwrap();
+        let output = run(
+            repo.path(),
+            &[
+                "changelog",
+                "resolved-summaries",
+                "history.md",
+                "dates.json",
+            ],
+        );
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+        assert_eq!(
+            std::fs::read_to_string(repo.path().join("dates.json")).unwrap(),
+            invalid
+        );
+    }
+    let mut entries = std::fs::read_dir(repo.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect::<Vec<_>>();
+    entries.sort();
+    assert_eq!(
+        entries,
+        [".git", "dates.json", "history.md", "notes.json"].map(std::ffi::OsString::from)
+    );
+}
+
+#[test]
 fn release_notes_cli_renders_workdeck_links_without_writes() {
     let repo = tempfile::tempdir().unwrap();
     assert!(
