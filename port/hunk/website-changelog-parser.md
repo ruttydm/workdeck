@@ -186,3 +186,16 @@ arguments, malformed JSON and invalid date types fail without stdout. Input
 bytes and the root directory inventory are checked after success and failures.
 All seven changelog CLI integration tests pass. This does not establish full-page
 or website parity, and no ledger mapping changed.
+
+## Tooling gate refresh after release-body integration
+
+At `ab271a84`, `CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo test -p xtask
+--all-targets` passed: 258 unit tests, one existing ignored oracle-capture test,
+seven changelog CLI tests, seven extension-catalog CLI tests, one workspace-test
+CLI test, and one terminal-theme PTY test. This verifies the xtask package only,
+not a refreshed full-workspace or cross-platform release gate.
+
+The strict `cargo xtask port audit` exited 1: 1,257 baseline files, 1,440 records,
+277 unmapped records and 92 pending upstream commits. Upstream was not fetched
+for this refresh. The baseline generator remains unmapped; its passing partial
+tests do not establish full-file implementation or release readiness.
