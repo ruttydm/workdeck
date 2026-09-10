@@ -78,6 +78,21 @@ remain separate obligations. This extension does not yet map the source interval
 All 1,250 TUI library tests passed in 9.23 seconds; formatting and diff checks
 passed.
 
+## Pointer-targeted new drafts with cursor off
+
+The target-specific opener used by pointer routing now always requests viewport
+preservation. Keyboard fallback invokes composer reveal explicitly after a
+successful open when cursor mode is off. This separates invocation intent from
+cursor presentation mode instead of making every cursor-off opening scroll.
+
+`pointer_targeted_new_draft_preserves_viewport_with_cursor_off` verifies retained
+scroll, requested target and unchanged reveal tokens for a target-specific open
+at 80 by four. The separate cursor-off keyboard test continues to require a
+composer reveal. This test exercises the pointer opener, not a captured mouse
+event/frame oracle; the source interval remains unmapped.
+All 1,253 TUI library tests passed in 9.59 seconds; formatting and diff checks
+passed.
+
 ## Keyboard draft intent
 
 Successful keyboard Edit/Reply now applies the core `REVIEW_DRAFT_START_REVEAL`

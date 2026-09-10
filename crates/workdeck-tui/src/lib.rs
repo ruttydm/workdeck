@@ -2801,6 +2801,9 @@ impl ReviewApp {
             return;
         };
         self.open_note_composer_for_target(target);
+        if self.status.is_none() && self.options.cursor_line == CursorLineMode::Off {
+            self.reveal_keyboard_note_composer();
+        }
     }
 
     fn allocate_user_note_id(&mut self) -> String {
@@ -2830,11 +2833,7 @@ impl ReviewApp {
         });
         self.reconcile_active_file_view_mode();
         self.status = None;
-        if self.options.cursor_line == CursorLineMode::Off {
-            self.reveal_keyboard_note_composer();
-        } else {
-            self.scroll_to_reveal(workdeck_review::REVIEW_VIEWPORT_ANCHOR_REVEAL);
-        }
+        self.scroll_to_reveal(workdeck_review::REVIEW_VIEWPORT_ANCHOR_REVEAL);
     }
 
     fn active_note_for_composer(

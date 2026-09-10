@@ -1556,6 +1556,32 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn pointer_targeted_new_draft_preserves_viewport_with_cursor_off() {
+        let mut app = ReviewApp::new(
+            pinned_alpha_source_review(800),
+            ReviewOptions {
+                cursor_line: super::super::CursorLineMode::Off,
+                ..ReviewOptions::default()
+            },
+        );
+        app.review_width.set(80);
+        app.review_height.set(4);
+        let target = app.current_note_target().unwrap();
+        let scroll = app.scroll;
+        let before = app.review_reveal;
+        app.open_note_composer_for_target(target);
+        assert_eq!(app.note_composer.as_ref().unwrap().target, target);
+        assert_eq!(app.scroll, scroll);
+        assert_eq!(
+            app.review_reveal,
+            workdeck_review::ReviewRevealIntent {
+                scroll_to_note: false,
+                ..before
+            }
+        );
+    }
+
+    #[test]
     fn cursor_off_new_draft_requests_composer_reveal() {
         let mut app = ReviewApp::new(
             pinned_alpha_source_review(800),
