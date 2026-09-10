@@ -150,17 +150,36 @@ mod tests {
                         let script = format!(
                             "set -eu\n{helpers}\nbin_dir=$1\nquoted=\"'$(squote \"$bin_dir\")'\"\nif [ \"$3\" = fish ]; then line=\"fish_add_path $quoted\"; else line=\"export PATH=$quoted:\\\"\\$PATH\\\"\"; fi\nadd_path_line \"$2\" \"$line\""
                         );
-                        let output = Command::new("/bin/sh")
+                        let mut command = Command::new("/bin/sh");
+                        command
                             .env_clear()
                             .env("PATH", "/usr/bin:/bin")
                             .args(["-c", &script, "oracle", bin])
                             .arg(&path)
-                            .arg(shell)
-                            .output()
-                            .unwrap();
+                            .arg(shell);
+                        let output = command.output().unwrap();
                         assert!(output.status.success(), "{pin} {shell}: {output:?}");
                         assert!(output.stderr.is_empty(), "{pin} {shell}: {output:?}");
+                        assert_eq!(
+                            output.stdout,
+                            format!("Added {bin} to PATH in {}.\n", path.display()).as_bytes(),
+                            "{pin} {shell} initial output"
+                        );
                         let bytes = std::fs::read(&path).unwrap();
+                        let repeated = command.output().unwrap();
+                        assert!(repeated.status.success(), "{pin} {shell}: {repeated:?}");
+                        assert!(repeated.stderr.is_empty(), "{pin} {shell}: {repeated:?}");
+                        assert_eq!(
+                            repeated.stdout,
+                            format!("{} already puts {bin} on PATH.\n", path.display()).as_bytes(),
+                            "{pin} {shell} repeated output"
+                        );
+                        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+                        assert_eq!(
+                            plan(bin, home.path(), &env, false).unwrap(),
+                            ShellPathPlan::AlreadyPresent(path.clone()),
+                            "{pin} {shell} {bin:?} repeat must not append"
+                        );
                         // Normalize only the literal branding comment, preserving arbitrary bytes.
                         let marker = b"# Added by the Hunk installer (https://hunk.dev)";
                         let offset = bytes

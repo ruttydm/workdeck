@@ -1,5 +1,22 @@
 # Bundled installer assets
 
+## Explicit installer oracle replay
+
+`cargo test -p xtask install_oracle::tests -- --ignored` passes both installer
+oracle tests on the macOS host. The platform capture reproduces the frozen
+20-case fixture from both immutable baselines. The PATH differential now checks
+90 combinations twice each: both pins, sh/zsh/fish output syntax, five paths
+including quotes, shell metacharacters and newline, and absent/text/non-UTF-8
+original profiles. It checks exact source stdout, empty stderr, success exit,
+unchanged bytes on the second invocation, and Rust's `AlreadyPresent` outcome.
+Initial generated-byte comparison normalizes only the branding comment.
+
+The source helper is run through `/bin/sh`; these cases generate fish and zsh
+syntax but are not a claim that fish itself executed the profile. All writes are
+inside temporary directories. The PATH cases remain live differential evidence,
+not a newly frozen PATH fixture or complete installer CLI parity. No source
+ledger interval is marked complete by this result.
+
 ## Absent executable candidates on non-Unix hosts
 
 Candidate inspection now checks filesystem metadata before asking the platform
