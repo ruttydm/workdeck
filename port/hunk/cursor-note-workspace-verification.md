@@ -48,3 +48,16 @@ This refresh establishes Clippy only. It does not refresh the full workspace
 test, optimized-build or smoke-test results, nor establish source parity,
 benchmark compliance, other-platform native CI or release-artifact compliance.
 No source-ledger disposition changed; the full goal remains incomplete.
+
+## Saved-note contract Clippy refresh
+
+On the worktree based on `fd2b1f24`, including the supplemental alpha draft-anchor
+test and two `std::slice::from_ref` corrections in the repeated-comment-reveal
+test, strict workspace/all-target Clippy passed in 15.86 seconds. The first run
+had rejected the two cloned single-item slices; they were fixed without warning
+suppression. This refresh uses the same Rust 1.95.0 macOS arm64 host, two build
+jobs and disabled incremental compilation.
+
+This covers the intervening annotated navigation, repeated reveal, save-time IDs,
+save-result contract and reply-deletion guard changes. It is not an updated
+full-workspace-test, release-build, benchmark or cross-platform result.

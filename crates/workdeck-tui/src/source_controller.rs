@@ -1556,6 +1556,49 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn alpha_mouse_targeted_note_drafts_preserve_cursor_and_scroll() {
+        let mut review = pinned_alpha_source_review(800);
+        review.files[0].set_source_capability(None);
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        app.review_width.set(80);
+        app.review_height.set(8);
+        app.open_note_composer();
+        app.note_composer.as_mut().unwrap().body = "Root note".into();
+        let root = app.save_note_composer().unwrap();
+        app.step_diff_line(2);
+        let cursor = app.current_review_line_cursor().map(|cursor| cursor.target);
+        assert!(cursor.is_some());
+        let scroll = app.scroll;
+        let selection = app.with_state(|state| state.selection());
+
+        app.saved_note_hover = Some(root.id.clone());
+        app.open_active_note_edit();
+        assert!(app.note_composer.is_some());
+        assert_eq!(
+            app.current_review_line_cursor().map(|cursor| cursor.target),
+            cursor
+        );
+        assert_eq!(app.scroll, scroll);
+        assert_eq!(app.with_state(|state| state.selection()), selection);
+
+        app.handle_key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Esc,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        assert!(app.note_composer.is_none());
+        app.saved_note_hover = Some(root.id);
+        app.open_active_note_reply();
+        assert!(app.note_composer.is_some());
+        assert_eq!(
+            app.current_review_line_cursor().map(|cursor| cursor.target),
+            cursor
+        );
+        assert_eq!(app.scroll, scroll);
+        assert_eq!(app.with_state(|state| state.selection()), selection);
+    }
+
+    #[test]
     fn alpha_saved_notes_edit_in_place_and_form_nested_reply_chains() {
         let mut review = pinned_alpha_source_review(800);
         review.files[0].set_source_capability(None);
@@ -2138,13 +2181,13 @@ pub(super) mod tests {
             markup: None,
             author: None,
         };
-        app.session_add_live_comment_batch(&[target.clone()], "first", false)
+        app.session_add_live_comment_batch(std::slice::from_ref(&target), "first", false)
             .unwrap();
         app.scroll_to_selection();
         let expected = app.scroll;
         assert!(expected > 0);
         app.scroll = 0;
-        app.session_add_live_comment_batch(&[target.clone()], "second", true)
+        app.session_add_live_comment_batch(std::slice::from_ref(&target), "second", true)
             .unwrap();
         assert_eq!(app.scroll, expected);
         assert_eq!(
