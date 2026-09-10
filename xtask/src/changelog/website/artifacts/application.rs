@@ -82,10 +82,18 @@ pub(super) fn apply(
             contents(&path)? == plan.originals[name],
             "artifact changed since planning: {name}"
         );
-        permissions.insert(
-            name.clone(),
-            fs::metadata(path).ok().map(|m| m.permissions()),
-        );
+        let mode = if plan.originals[name].is_some() {
+            let metadata = fs::symlink_metadata(&path)
+                .with_context(|| format!("read original artifact permissions: {name}"))?;
+            ensure!(
+                metadata.is_file() && !metadata.file_type().is_symlink(),
+                "artifact changed while reading permissions: {name}"
+            );
+            Some(metadata.permissions())
+        } else {
+            None
+        };
+        permissions.insert(name.clone(), mode);
     }
     fs::create_dir(&backup).context("artifact backup must not already exist")?;
     write(
@@ -182,6 +190,49 @@ pub(super) fn apply(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    #[test]
+    fn original_permissions_survive_application_and_rollback_and_are_recorded() {
+        use std::os::unix::fs::PermissionsExt;
+        for fail in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let repo = root.path().join("repo");
+            let name = "site/content/changelog/index.md".to_string();
+            fs::create_dir_all(repo.join("site/content/changelog")).unwrap();
+            let path = repo.join(&name);
+            fs::write(&path, b"old").unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+            let plan = ArtifactPlan {
+                schema: 1,
+                edits: BTreeMap::from([(name.clone(), Some("new".into()))]),
+                originals: BTreeMap::from([(name.clone(), Some(b"old".to_vec()))]),
+            };
+            let backup = root.path().join("backup");
+            let result = apply(&repo, &plan, &backup, |_| {
+                ensure!(!fail, "injected failure");
+                Ok(())
+            });
+            assert_eq!(result.is_err(), fail);
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o640
+            );
+            assert_eq!(fs::read(&path).unwrap(), if fail { b"old" } else { b"new" });
+            let modes: serde_json::Value =
+                serde_json::from_slice(&fs::read(backup.join("permissions.json")).unwrap())
+                    .unwrap();
+            assert_eq!(modes[&name]["unixMode"].as_u64().unwrap() & 0o777, 0o640);
+            assert_eq!(modes[&name]["readonly"], false);
+            assert_eq!(
+                fs::metadata(backup.join("recovery.json"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o077,
+                0
+            );
+        }
+    }
     #[cfg(unix)]
     #[test]
     fn redirected_artifact_parents_are_rejected_before_backup_or_writes() {

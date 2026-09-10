@@ -40,6 +40,13 @@ confirms application fails before creating a backup or new data directory and
 without replacing the original index. After releasing that lock, the same plan
 applies successfully. Top-level tooling help advertises the full application
 argument order. All 23 changelog CLI tests pass with these assertions.
+Unix permission coverage verifies mode `0640` survives both successful replacement
+and rollback, is recorded in `permissions.json`, and the byte recovery file has
+no group/other permission bits. Original-permission metadata errors now fail
+before backup creation instead of silently defaulting the replacement mode.
+The five application tests pass on macOS; ACLs and extended attributes are not
+captured by this permission record, and check-to-write races remain outside its
+guarantees.
 
 ## Read-only planning and historical checkpoints
 
