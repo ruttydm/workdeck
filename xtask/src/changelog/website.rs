@@ -731,6 +731,69 @@ pub(super) fn run(
 mod tests {
     use super::*;
 
+    // Legacy compare-link reference tables belong to no release. Do not fold
+    // them into the oldest release's prose, but retain fenced syntax examples.
+    #[test]
+    fn references_stay_out_of_last_entry() {
+        let input = [
+            "## 0.1.0",
+            "",
+            "### Fixed",
+            "",
+            "- Stabilized diff repainting.",
+            "",
+            "[Unreleased]: https://github.com/modem-dev/hunk/compare/v0.15.3...HEAD",
+            "[0.1.0]: https://github.com/modem-dev/hunk/tree/v0.1.0",
+            "",
+        ]
+        .join("\n");
+        let releases = parse_changelog(&input);
+        assert_eq!(
+            serde_json::to_value(&releases[0].sections[0].entries).unwrap(),
+            serde_json::json!([{"description":"Stabilized diff repainting."}])
+        );
+    }
+
+    #[test]
+    fn references_stay_out_of_highlights() {
+        let input = [
+            "## 0.1.0",
+            "",
+            "### Highlights",
+            "",
+            "A lead.",
+            "",
+            "[0.1.0]: https://x/tree/v0.1.0",
+            "",
+        ]
+        .join("\n");
+        let releases = parse_changelog(&input);
+        assert_eq!(releases[0].highlights.as_deref(), Some("A lead."));
+    }
+
+    #[test]
+    fn references_remain_inside_fenced_content() {
+        let input = [
+            "## 0.1.0",
+            "",
+            "### Fixed",
+            "",
+            "- Document the reference syntax:",
+            "",
+            "```md",
+            "[label]: https://example.com",
+            "```",
+            "",
+        ]
+        .join("\n");
+        let releases = parse_changelog(&input);
+        assert!(
+            releases[0].sections[0].entries[0]
+                .description
+                .contains("[label]: https://example.com")
+        );
+    }
+
     // Direct translations of Hunk's parser robustness regressions: preserve
     // legitimate changeset content and reject malformed version headings.
     #[test]
