@@ -63,7 +63,7 @@ Press `c` on the selected hunk or use a visible add-note affordance with the mou
 
 Every shortcut above is a named command you can move to different keys with a `[keybindings]` table in your user config. See [Keybindings](/docs/configure/keybindings/).
 
-Terminal mouse protocols vary; see the repository's terminal compatibility documentation (the website guide is still being migrated) if clicks or selection do not behave as expected.
+Terminal mouse protocols vary; see [terminal compatibility](/docs/help/compatibility/) if clicks or selection do not behave as expected.
 
 Adapted from the pinned Hunk MIT documentation, Copyright Modem Labs Inc.
 The linked configuration and compatibility guides are still being migrated;
