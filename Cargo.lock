@@ -3407,6 +3407,7 @@ dependencies = [
  "cargo_metadata",
  "chrono",
  "crossterm",
+ "ctrlc",
  "flate2",
  "libc",
  "png",

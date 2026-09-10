@@ -17,6 +17,7 @@ libc = "0.2"
 cargo_metadata = "0.19"
 chrono = "0.4"
 crossterm = { version = "0.28", features = ["use-dev-tty"] }
+ctrlc = { version = "3.4", features = ["termination"] }
 flate2 = "1.1"
 png = "0.18"
 portable-pty = "0.9"

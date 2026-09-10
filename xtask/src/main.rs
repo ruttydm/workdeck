@@ -30,6 +30,7 @@ mod release_status;
 mod review_conformance;
 mod site_assets;
 mod site_markdown;
+mod site_preview;
 mod skill;
 mod social_cards;
 mod term_video;
@@ -393,6 +394,7 @@ fn site(command: Option<&str>) -> Result<()> {
             );
             Ok(())
         }
+        Some("preview-check") => site_preview::check(&repo),
         Some("build") => {
             site_assets::sbom(&repo)?;
             skill::check_generated_skills(&repo)?;
@@ -403,6 +405,7 @@ fn site(command: Option<&str>) -> Result<()> {
             site_assets::sbom(&repo)?;
             skill::check_generated_skills(&repo)?;
             site_markdown::check_zola_routes()?;
+            site_preview::check(&repo)?;
             run_checked(&site, "zola", &["check"])?;
             let output = tempfile::tempdir()?;
             let public = output.path().join("public");
@@ -500,9 +503,9 @@ fn site(command: Option<&str>) -> Result<()> {
         Some("serve") => {
             site_assets::sbom(&repo)?;
             skill::check_generated_skills(&repo)?;
-            run_checked(&site, "zola", &["serve"])
+            site_preview::serve(&repo)
         }
-        _ => bail!("site requires build, check, or serve"),
+        _ => bail!("site requires build, check, serve, exports-plan, or preview-check"),
     }
 }
 
@@ -2680,7 +2683,7 @@ fn print_help() {
     println!(
         "cargo xtask extension stage-example <cli-tools|pane-layout|vim-navigation|review-snapshot-export|review-note-navigator|rendered-markdown|jsx-file-view|inline-edit|review-triage|github-pr|file-view-gallery|native-vcs|startup-lifecycle>"
     );
-    println!("cargo xtask site <build|check|serve>");
+    println!("cargo xtask site <build|check|serve|exports-plan|preview-check>");
     println!("cargo xtask install-plan [version] [--no-modify-path] [-f|--force]");
     println!("cargo xtask install-verify ARCHIVE CHECKSUM_FILE");
     println!("cargo xtask install-stage ARCHIVE CHECKSUM_FILE");
