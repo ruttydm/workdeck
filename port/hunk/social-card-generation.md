@@ -180,7 +180,16 @@ site files only; it does not upload or release them.
 
 Nine social-card unit tests pass, including binary replacement, deletion and
 creation, successful application, and injected failure after each of the three
-writes with exact original-byte recovery. CLI end-to-end application tests are
-still needed. Filesystem races, directory-entry crash durability, empty-directory
+writes with exact original-byte recovery. Filesystem races, directory-entry
+crash durability, empty-directory
 cleanup and changes to the full-set inventory during application remain open;
 the implementation is not a crash-atomic publication transaction or full parity.
+
+All three social-card CLI integration tests now pass. The publication case
+generates a real encoded PNG and capture manifest in temporary directories,
+obtains the plan through the actual CLI, publishes exact image bytes, checks the
+recovery plan, and verifies unrelated changelog images remain untouched during a
+targeted run. Reusing the stale plan fails before creating another backup;
+regenerating an unchanged plan succeeds with zero edits and no second backup.
+The original capture and card input remain intact and no `.agents` state is
+created. This is local filesystem/CLI evidence, not live browser evidence.
