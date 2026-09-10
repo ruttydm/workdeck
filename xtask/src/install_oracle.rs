@@ -96,6 +96,90 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "executes both pinned shell installers' PATH helpers in temporary directories"]
+    fn native_path_bytes_match_both_pinned_installers() {
+        use std::collections::BTreeMap;
+        use workdeck_cli::install::shell_path::{ShellPathPlan, plan};
+
+        let repo = crate::repo_root().unwrap();
+        for (pin, commit) in [
+            (
+                "hunk-port/main-2c00f435",
+                "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+            ),
+            (
+                "hunk-port/stable-v0.20.1",
+                "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+            ),
+        ] {
+            require_pin(&repo, pin, commit).unwrap();
+            let source = Command::new("git")
+                .current_dir(&repo)
+                .args(["show", &format!("{commit}:install.sh")])
+                .output()
+                .unwrap();
+            assert!(source.status.success());
+            let source = String::from_utf8(source.stdout).unwrap();
+            let helpers = ["info", "squote", "add_path_line"]
+                .map(|name| helper(&source, name).unwrap())
+                .join("\n");
+            for shell in ["sh", "zsh", "fish"] {
+                for bin in [
+                    "/app/bin",
+                    "/app/it's bin",
+                    "/app/$PATH `literal`",
+                    "/app/$(exit 91)",
+                    "/app/line\nbreak",
+                ] {
+                    for original in [None, Some(b"# original\n".to_vec()), Some(vec![255, 10])] {
+                        let home = tempfile::tempdir().unwrap();
+                        let env = BTreeMap::from([("SHELL".into(), shell.into())]);
+                        let ShellPathPlan::Edit { path, .. } =
+                            plan(bin, home.path(), &env, false).unwrap()
+                        else {
+                            panic!("missing profile")
+                        };
+                        if let Some(bytes) = &original {
+                            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                            std::fs::write(&path, bytes).unwrap();
+                        }
+                        let planned = plan(bin, home.path(), &env, false).unwrap();
+                        let ShellPathPlan::Edit { replacement, .. } = planned else {
+                            panic!("new line")
+                        };
+                        let script = format!(
+                            "set -eu\n{helpers}\nbin_dir=$1\nquoted=\"'$(squote \"$bin_dir\")'\"\nif [ \"$3\" = fish ]; then line=\"fish_add_path $quoted\"; else line=\"export PATH=$quoted:\\\"\\$PATH\\\"\"; fi\nadd_path_line \"$2\" \"$line\""
+                        );
+                        let output = Command::new("/bin/sh")
+                            .env_clear()
+                            .env("PATH", "/usr/bin:/bin")
+                            .args(["-c", &script, "oracle", bin])
+                            .arg(&path)
+                            .arg(shell)
+                            .output()
+                            .unwrap();
+                        assert!(output.status.success(), "{pin} {shell}: {output:?}");
+                        assert!(output.stderr.is_empty(), "{pin} {shell}: {output:?}");
+                        let bytes = std::fs::read(&path).unwrap();
+                        // Normalize only the literal branding comment, preserving arbitrary bytes.
+                        let marker = b"# Added by the Hunk installer (https://hunk.dev)";
+                        let offset = bytes
+                            .windows(marker.len())
+                            .position(|part| part == marker)
+                            .unwrap();
+                        let mut normalized = bytes[..offset].to_vec();
+                        normalized.extend_from_slice(
+                            b"# Added by the Workdeck installer (https://workdeck.dev)",
+                        );
+                        normalized.extend_from_slice(&bytes[offset + marker.len()..]);
+                        assert_eq!(normalized, replacement, "{pin} {shell} {bin:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn changed_pin_is_rejected_before_reading_source() {
         let directory = tempfile::tempdir().unwrap();
         for args in [

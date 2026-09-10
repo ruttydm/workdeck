@@ -62,3 +62,24 @@ replanning recognizes the applied line. The POSIX shell test runs on Unix; the
 Bash/zsh test is macOS-only and does not silently skip a missing interpreter.
 These source a selected profile explicitly rather than simulating login startup.
 Fish execution remains unverified because fish is not installed on this host.
+
+## Pinned-source differential helper test
+
+`cargo test -p xtask native_path_bytes_match_both_pinned_installers -- --ignored`
+explicitly runs the original `info`, `squote` and `add_path_line` functions from
+each verified immutable installer pin. Source is read through `git show`; the
+installer's `main` function is never executed. All file writes are confined to
+disposable profile directories.
+
+The 90-case matrix combines both pins, sh/zsh/fish line forms, five directory
+strings (ordinary, quoted, dollar/backtick, command-substitution and embedded
+newline), and absent/text/non-UTF-8 original profiles. It compares exact output
+file bytes against the Rust plan, normalizing only the installer branding
+comment. It also requires source success and empty stderr. This exercises fish
+line generation through the original POSIX installer, not a fish interpreter.
+It is a live differential test rather than a frozen fixture and does not prove
+CLI diagnostic, startup selection or full installer parity.
+
+The explicit differential test passed on this macOS host: all 90 comparisons
+completed successfully (one Rust test, 1.36 seconds). Installer ledger coverage
+remains unchanged.
