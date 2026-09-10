@@ -11,6 +11,92 @@ fn xml(value: &str) -> String {
         .replace('"', "&quot;")
 }
 
+// The source appends T00:00:00Z before constructing Date. Keep its ISO grammar,
+// calendar overflow and TimeClip range rather than chrono's narrower year range.
+fn feed_date(value: &str) -> String {
+    fn parse(value: &str) -> Option<String> {
+        let signed = value.starts_with(['+', '-']);
+        let width = if signed { 7 } else { 4 };
+        let year_text = value.get(..width)?;
+        let digits = if signed { &year_text[1..] } else { year_text };
+        if !digits.bytes().all(|b| b.is_ascii_digit()) || year_text == "-000000" {
+            return None;
+        }
+        let mut year: i64 = year_text.parse().ok()?;
+        let rest = value.get(width..)?;
+        let (mut month, mut day) = match rest.len() {
+            0 => (1usize, 1i64),
+            3 | 6 => {
+                let bytes = rest.as_bytes();
+                if bytes[0] != b'-' || !bytes[1..3].iter().all(u8::is_ascii_digit) {
+                    return None;
+                }
+                let month = rest[1..3].parse().ok()?;
+                let day = if rest.len() == 6 {
+                    if bytes[3] != b'-' || !bytes[4..6].iter().all(u8::is_ascii_digit) {
+                        return None;
+                    }
+                    rest[4..6].parse().ok()?
+                } else {
+                    1
+                };
+                (month, day)
+            }
+            _ => return None,
+        };
+        if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+            return None;
+        }
+        let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+        let lengths = [
+            31,
+            if leap { 29 } else { 28 },
+            31,
+            30,
+            31,
+            30,
+            31,
+            31,
+            30,
+            31,
+            30,
+            31,
+        ];
+        let previous = year - 1;
+        let leap_days =
+            previous.div_euclid(4) - previous.div_euclid(100) + previous.div_euclid(400);
+        let epoch_days =
+            365 * (year - 1970) + leap_days - 477 + lengths[..month - 1].iter().sum::<i64>() + day
+                - 1;
+        if epoch_days.abs() > 100_000_000 {
+            return None;
+        }
+        if day > lengths[month - 1] {
+            day -= lengths[month - 1];
+            month += 1;
+            if month == 13 {
+                month = 1;
+                year += 1;
+            }
+        }
+        let weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        let months = [
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        ];
+        let year = if year < 0 {
+            format!("-{:04}", -year)
+        } else {
+            format!("{year:04}")
+        };
+        Some(format!(
+            "{}, {day:02} {} {year} 00:00:00 GMT",
+            weekdays[(epoch_days + 4).rem_euclid(7) as usize],
+            months[month - 1]
+        ))
+    }
+    parse(value).unwrap_or_else(|| "Invalid Date".into())
+}
+
 fn render(
     series: &[ReleaseSeries],
     notes: &BTreeMap<String, String>,
@@ -92,9 +178,7 @@ fn render(
         ),
     ];
     for entry in entries {
-        let date = chrono::NaiveDate::parse_from_str(&entry.date, "%Y-%m-%d")
-            .map(|d| d.format("%a, %d %b %Y 00:00:00 GMT").to_string())
-            .unwrap_or_else(|_| "Invalid Date".into());
+        let date = feed_date(&entry.date);
         lines.extend([
             "    <item>".into(),
             format!("      <title>{}</title>", xml(&entry.title)),
@@ -149,6 +233,32 @@ pub(in crate::changelog) fn run_feed(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn feed_dates_match_both_pinned_calendar_and_timeclip_oracles() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../port/hunk/website-changelog-feed-date-oracle.json"
+        ))
+        .unwrap();
+        let results = fixture["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        for result in results {
+            let cases = result["cases"].as_array().unwrap();
+            assert_eq!(cases.len(), 38);
+            for case in cases {
+                let date = case["date"].as_str().unwrap();
+                assert_eq!(feed_date(date), case["expected"], "{date:?}");
+                let feed = source_feed("## 1.2.0\n", &[("1.2.0", date)], None);
+                assert!(
+                    feed.contains(&format!(
+                        "<pubDate>{}</pubDate>",
+                        case["expected"].as_str().unwrap()
+                    )),
+                    "{date:?}"
+                );
+            }
+        }
+    }
 
     const SAMPLE: &str = include_str!("../../../../port/hunk/website-changelog-test-sample.md");
 

@@ -18,9 +18,8 @@ outputs with only product and origin substitutions, and checks missing arguments
 missing files, invalid JSON shapes, unchanged inputs, and absent repository state.
 
 This does not complete `scripts/generate-changelog.ts`: no runtime ledger interval
-is marked mapped by this work. JavaScript date parsing of malformed or overflowing
-calendar dates, site pipeline integration and release publication verification
-remain open. The source is MIT-licensed by
+is marked mapped by this work. Complete input-domain parity, site pipeline
+integration and release publication verification remain open. The source is MIT-licensed by
 Modem Labs Inc.; see `THIRD_PARTY_NOTICES` and the source-level attribution.
 
 ## Initial implementation verification (`0c5dba98`)
@@ -41,3 +40,24 @@ Modem Labs Inc.; see `THIRD_PARTY_NOTICES` and the source-level attribution.
 - Strict native `xtask port audit`: failed as expected with 1,257 baseline files,
   1,452 intervals, 280 unmapped intervals and 92 queued upstream commits. The
   upstream count reflects the existing fetched refs, not a new remote fetch.
+
+## Calendar normalization continuation
+
+The original Chrono-based feed date formatter differed from both source pins:
+February 30 normalizes into March in Hunk, year-only and year-month ISO inputs
+default missing fields, and signed years extend beyond Chrono's supported range.
+The replacement uses an ASCII ISO parser and proleptic Gregorian day arithmetic,
+including the source's inclusive 100,000,000-day epoch limit. Day values 1–31
+normalize across short months; zero and values above 31 remain invalid. Negative
+zero years, surrounding whitespace, embedded timestamps and malformed Unicode
+inputs are rejected, matching the captured source behavior.
+
+`website-changelog-feed-date-oracle.json` records 38 date cases from each pinned
+generator under Bun 1.3.14. The Rust test compares all 76 values both directly and
+through production RSS output. Cases include century leap rules, year zero,
+signed years, both range boundaries and adjacent invalid days. This fixes observed
+date mismatches; it is not a blanket mapping of the runtime generator.
+
+Validation: `cargo test -p xtask feed` passes nine unit tests and the feed CLI
+integration test. Strict xtask Clippy, workspace formatting and diff whitespace
+checks pass. The ledger is unchanged by this correction.
