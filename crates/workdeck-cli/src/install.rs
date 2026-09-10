@@ -10,6 +10,7 @@ pub mod attestation;
 mod authenticated;
 mod download;
 mod release_identity;
+pub mod shell_path;
 pub use authenticated::{ReleaseIdentity, install_authenticated_archive};
 pub use download::{DownloadedRelease, download_release};
 pub use release_identity::{ResolvedRelease, resolve_release_identity};
