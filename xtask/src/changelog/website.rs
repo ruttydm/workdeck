@@ -403,6 +403,45 @@ pub(super) fn run_publication(repo: &Path, mut args: impl Iterator<Item = String
     Ok(())
 }
 
+fn radix_date_number(digits: &str, radix: u32) -> f64 {
+    if digits.is_empty() {
+        return f64::NAN;
+    }
+    let mut significant_bits = 0_u32;
+    let mut mantissa = 0_u64;
+    let mut round = false;
+    let mut sticky = false;
+    for c in digits.chars() {
+        let Some(digit) = c.to_digit(radix) else {
+            return f64::NAN;
+        };
+        for shift in (0..radix.trailing_zeros()).rev() {
+            let bit = (digit >> shift) & 1;
+            if significant_bits == 0 && bit == 0 {
+                continue;
+            }
+            significant_bits = (significant_bits + 1).min(1025);
+            match significant_bits {
+                1..=53 => mantissa = (mantissa << 1) | u64::from(bit),
+                54 => round = bit != 0,
+                _ => sticky |= bit != 0,
+            }
+        }
+    }
+    if significant_bits <= 53 {
+        return mantissa as f64;
+    }
+    if significant_bits > 1024 {
+        return f64::INFINITY;
+    }
+    // Round once, ties to even. Per-digit floating-point accumulation can
+    // discard a low bit before later digits establish which way to round.
+    if round && (sticky || mantissa & 1 != 0) {
+        mantissa += 1;
+    }
+    (mantissa as f64) * 2_f64.powi(significant_bits as i32 - 53)
+}
+
 fn date_number(text: &str) -> f64 {
     let text = text.trim_matches(ecmascript_whitespace);
     if text.is_empty() {
@@ -417,16 +456,7 @@ fn date_number(text: &str) -> f64 {
         ("0O", 8),
     ] {
         if let Some(digits) = text.strip_prefix(prefix) {
-            if digits.is_empty() {
-                return f64::NAN;
-            }
-            return digits
-                .chars()
-                .try_fold(0.0, |value, c| {
-                    c.to_digit(radix)
-                        .map(|digit| value * f64::from(radix) + f64::from(digit))
-                })
-                .unwrap_or(f64::NAN);
+            return radix_date_number(digits, radix);
         }
     }
     static DECIMAL: LazyLock<Regex> = LazyLock::new(|| {
@@ -702,6 +732,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn large_radix_dates_match_both_pinned_oracles() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/website-changelog-radix-date-oracle.json"
+        ))
+        .unwrap();
+        let results = fixture["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        for result in results {
+            let cases = result["cases"].as_array().unwrap();
+            assert_eq!(cases.len(), 8);
+            for case in cases {
+                assert_eq!(
+                    format_release_date(case["input"].as_str().unwrap()),
+                    case["expected"],
+                    "{}",
+                    case["input"]
+                );
+            }
+        }
+    }
+
+    #[test]
     fn resolved_summaries_match_both_pins_with_explicit_publication_rules() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
             "../../../port/hunk/website-changelog-resolved-summary-oracle.json"
@@ -714,9 +766,10 @@ mod tests {
             let cases = result["cases"].as_array().unwrap();
             assert_eq!(cases.len(), 16);
             for case in cases {
-                let mut series = group_into_series(parse_changelog(case["input"].as_str().unwrap()))
-                    .pop()
-                    .unwrap();
+                let mut series =
+                    group_into_series(parse_changelog(case["input"].as_str().unwrap()))
+                        .pop()
+                        .unwrap();
                 let mut dates: std::collections::BTreeMap<String, String> =
                     serde_json::from_value(case["dates"].clone()).unwrap();
                 // Stable's generator filters prereleases before grouping, and its

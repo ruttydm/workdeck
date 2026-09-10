@@ -224,3 +224,14 @@ malformed/invalid date JSON fail without stdout. Supplied files remain unchanged
 by the command and the directory inventory contains no new repository state.
 All eight changelog CLI tests pass. Complete page rendering remains open, and
 no ledger mapping changed.
+
+## Large radix date rounding
+
+A further executed two-pin fixture exposed a real per-digit accumulation error:
+the binary integer ending in `11` above the 53-bit precision boundary rounded
+down in Rust while both pins rounded up. The radix conversion now retains 53
+significant bits, a rounding bit and a sticky remainder, then rounds once to even.
+It continues validating digits beyond floating-point overflow. Sixteen frozen
+comparisons cover binary, octal, hexadecimal, tie cases and overflow. All fifteen
+website unit tests pass, including the previously failing case and all historical
+release bodies. This is partial generator verification, not a ledger completion.
