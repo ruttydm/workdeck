@@ -119,6 +119,81 @@ mod tests {
 
     const SAMPLE: &str = include_str!("../../../../port/hunk/website-changelog-test-sample.md");
 
+    fn source_beta_artifacts() -> BTreeMap<String, String> {
+        generate(
+            SAMPLE,
+            &BTreeMap::from([
+                ("0.19.0".into(), "2026-08-16".into()),
+                ("0.19.0-beta.0".into(), "2026-08-10".into()),
+            ]),
+            serde_json::json!({}),
+            |_| None,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn source_beta_renders_date_and_exact_anchor() {
+        let artifacts = source_beta_artifacts();
+        let page = &artifacts["site/content/changelog/0.19.md"];
+        assert!(page.contains("### 0.19.0-beta.0"));
+        assert!(page.contains("id=\"v0-19-0-beta-0\""));
+        assert!(page.contains("August 10, 2026"));
+    }
+
+    #[test]
+    fn source_beta_counts_in_series_dateline() {
+        assert!(source_beta_artifacts()["site/content/changelog/0.19.md"].contains("2 releases"));
+    }
+
+    #[test]
+    fn source_beta_retains_dates_and_legacy_heading() {
+        let artifacts = source_beta_artifacts();
+        let dates: serde_json::Value =
+            serde_json::from_str(&artifacts["site/data/releases/dates.json"]).unwrap();
+        assert_eq!(
+            dates,
+            serde_json::json!({"0.19.0":"2026-08-16","0.19.0-beta.0":"2026-08-10","0.15.3":"2026-06-13"})
+        );
+    }
+
+    #[test]
+    fn source_beta_only_series_is_neither_latest_nor_stable_installable() {
+        let artifacts = generate(
+            "# Changelog\n\n## 0.20.0-beta.0\n\n### Patch Changes\n\n- 1234567: Early.\n",
+            &BTreeMap::from([("0.20.0-beta.0".into(), "2026-09-01".into())]),
+            serde_json::json!({}),
+            |_| None,
+        )
+        .unwrap();
+        let page = &artifacts["site/content/changelog/0.20.md"];
+        let index = &artifacts["site/content/changelog/index.md"];
+        assert!(page.contains("Prerelease · September 1, 2026 · 1 release"));
+        assert!(page.contains("### 0.20.0-beta.0"));
+        assert!(!page.contains("cargo install"));
+        assert!(!page.contains("workdeck update"));
+        assert!(index.contains("Prerelease · September 1, 2026"));
+        assert!(!index.contains("Latest"));
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&artifacts["site/data/releases/latest.json"])
+                .unwrap(),
+            serde_json::Value::Null
+        );
+        assert!(!page.contains("npm i -g"));
+    }
+
+    #[test]
+    fn source_beta_undated_release_has_no_page() {
+        let artifacts = generate(
+            "# Changelog\n\n## 0.20.0-beta.0\n\n### Patch Changes\n\n- 1234567: Early.\n",
+            &BTreeMap::new(),
+            serde_json::json!({}),
+            |_| None,
+        )
+        .unwrap();
+        assert!(!artifacts.keys().any(|p| p.ends_with("0.20.md")));
+    }
+
     fn sample_dates(current: bool) -> BTreeMap<String, String> {
         let mut dates = BTreeMap::from([
             ("0.18.0".into(), "2026-08-08".into()),

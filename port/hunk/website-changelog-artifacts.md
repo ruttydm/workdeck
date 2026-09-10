@@ -63,3 +63,8 @@ diff whitespace checks pass; the ledger is unchanged.
 The subsequent [artifact and pre-tag source-test translation](changelog-artifact-tests.md)
 maps seven original tests, preserving their inputs and all 16 expectations.
 Only their exact 3,485-byte test interval is mapped; runtime coverage remains open.
+
+The five original [prerelease artifact tests](changelog-beta-artifact-tests.md)
+are also translated, covering dates, anchors, counts, beta-only publication and
+exclusion of undated beta pages. Their separate 2,468-byte interval is mapped;
+the adjacent orphan-cleanup tests remain open.
