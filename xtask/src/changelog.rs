@@ -8,6 +8,10 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+pub(crate) fn publication_lock(repo: &std::path::Path) -> anyhow::Result<std::fs::File> {
+    fragments::repository_release_lock(repo)
+}
+
 const DATA: &str = "port/hunk/release-fragments.json";
 const DOCUMENT: &str = "docs/upstream-release-fragments.md";
 const BASELINE: &str = "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2";
@@ -340,7 +344,4 @@ mod tests {
                 .contains("exact pinned fragment paths")
         );
     }
-}
-pub(crate) fn publication_lock(repo: &std::path::Path) -> anyhow::Result<std::fs::File> {
-    fragments::repository_release_lock(repo)
 }

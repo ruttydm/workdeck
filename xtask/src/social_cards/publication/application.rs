@@ -23,54 +23,6 @@ fn write(path: &Path, bytes: &[u8], mode: Option<fs::Permissions>, absent: bool)
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn binary_application_recovers_each_partial_write() {
-        for failure in 0..=3 {
-            let outer = tempfile::tempdir().unwrap();
-            let repo = outer.path().join("repo");
-            fs::create_dir_all(repo.join("site/static/changelog/og")).unwrap();
-            let a = "site/static/changelog/og/a.png".to_string();
-            let b = "site/static/changelog/og/b.png".to_string();
-            let c = "site/static/extensions/og.png".to_string();
-            fs::write(repo.join(&a), [0, 255, 1]).unwrap();
-            fs::write(repo.join(&b), b"stale").unwrap();
-            let plan = Plan {
-                originals: BTreeMap::from([
-                    (a.clone(), Some(vec![0, 255, 1])),
-                    (b.clone(), Some(b"stale".to_vec())),
-                    (c.clone(), None),
-                ]),
-                replacements: BTreeMap::from([
-                    (a, Some(vec![255, 0, 9])),
-                    (b, None),
-                    (c, Some(vec![0, 255])),
-                ]),
-            };
-            let backup = outer.path().join("backup");
-            let result = apply(&repo, &plan, &backup, |step| {
-                ensure!(step != failure, "injected failure");
-                Ok(())
-            });
-            assert_eq!(result.is_ok(), failure == 0);
-            let expected = if failure == 0 {
-                &plan.replacements
-            } else {
-                &plan.originals
-            };
-            for (name, bytes) in expected {
-                assert_eq!(read_regular(&repo.join(name)).unwrap(), *bytes);
-            }
-            let saved: Plan =
-                serde_json::from_slice(&fs::read(backup.join("recovery.json")).unwrap()).unwrap();
-            assert_eq!(saved, plan);
-            assert!(backup.join("permissions.json").is_file());
-        }
-    }
-}
-
 pub(in crate::social_cards) fn apply(
     repo: &Path,
     plan: &Plan,
@@ -204,4 +156,52 @@ pub(in crate::social_cards) fn apply(
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn binary_application_recovers_each_partial_write() {
+        for failure in 0..=3 {
+            let outer = tempfile::tempdir().unwrap();
+            let repo = outer.path().join("repo");
+            fs::create_dir_all(repo.join("site/static/changelog/og")).unwrap();
+            let a = "site/static/changelog/og/a.png".to_string();
+            let b = "site/static/changelog/og/b.png".to_string();
+            let c = "site/static/extensions/og.png".to_string();
+            fs::write(repo.join(&a), [0, 255, 1]).unwrap();
+            fs::write(repo.join(&b), b"stale").unwrap();
+            let plan = Plan {
+                originals: BTreeMap::from([
+                    (a.clone(), Some(vec![0, 255, 1])),
+                    (b.clone(), Some(b"stale".to_vec())),
+                    (c.clone(), None),
+                ]),
+                replacements: BTreeMap::from([
+                    (a, Some(vec![255, 0, 9])),
+                    (b, None),
+                    (c, Some(vec![0, 255])),
+                ]),
+            };
+            let backup = outer.path().join("backup");
+            let result = apply(&repo, &plan, &backup, |step| {
+                ensure!(step != failure, "injected failure");
+                Ok(())
+            });
+            assert_eq!(result.is_ok(), failure == 0);
+            let expected = if failure == 0 {
+                &plan.replacements
+            } else {
+                &plan.originals
+            };
+            for (name, bytes) in expected {
+                assert_eq!(read_regular(&repo.join(name)).unwrap(), *bytes);
+            }
+            let saved: Plan =
+                serde_json::from_slice(&fs::read(backup.join("recovery.json")).unwrap()).unwrap();
+            assert_eq!(saved, plan);
+            assert!(backup.join("permissions.json").is_file());
+        }
+    }
 }
