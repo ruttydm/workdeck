@@ -20,3 +20,12 @@ No upstream fetch was performed by this verification. The successful workspace
 gate does not establish complete source coverage, full oracle parity, native
 other-platform CI, performance parity, or release artifact/signature compliance.
 The full semantic-rebase goal remains incomplete.
+
+## Subsequent strict Clippy refresh
+
+At `62b71f62`, after the subsequent session reveal fixes, watcher-test correction
+and attention-mark translations, `cargo clippy --workspace --all-targets -- -D warnings`
+passed on the same macOS arm64 host using Rust 1.95.0, incremental compilation
+disabled and two build jobs. It completed in 83 seconds. The worktree was clean
+before the check. This refresh covers Clippy only; it does not update the earlier
+full-workspace-test, optimized-build or smoke-test evidence to this newer commit.
