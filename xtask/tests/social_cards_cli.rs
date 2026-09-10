@@ -40,4 +40,28 @@ fn card_planning_is_read_only_and_distinguishes_full_and_targeted_runs() {
     assert_eq!(fs::read(repo.path().join("cards.json")).unwrap(), input);
     assert!(!repo.path().join("site").exists());
     assert!(!repo.path().join(".agents").exists());
+    fs::write(repo.path().join("font.woff2"), b"fixture font bytes").unwrap();
+    let html = Command::new(env!("CARGO_BIN_EXE_xtask"))
+        .current_dir(repo.path())
+        .args([
+            "social-cards-html",
+            "cards.json",
+            "font.woff2",
+            "extensions",
+        ])
+        .output()
+        .unwrap();
+    assert!(html.status.success(), "{html:?}");
+    let pages: serde_json::Value = serde_json::from_slice(&html.stdout).unwrap();
+    assert_eq!(pages.as_object().unwrap().len(), 1);
+    let document = pages["site/static/extensions/og.png"].as_str().unwrap();
+    assert!(document.contains("<!doctype html>"));
+    assert!(document.contains("width: 1200px"));
+    assert!(document.contains("workdeck.dev/extensions"));
+    assert!(!document.contains("<script"));
+    assert!(!repo.path().join("site").exists());
+    assert_eq!(
+        fs::read(repo.path().join("font.woff2")).unwrap(),
+        b"fixture font bytes"
+    );
 }

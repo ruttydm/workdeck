@@ -4,6 +4,85 @@ use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
+fn escape_html(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn render_html(target: &Target, font: &[u8]) -> String {
+    use base64::Engine;
+    let card = &target.card;
+    // JavaScript counts UTF-16 code units, not Unicode scalar values.
+    let title_size = if card.title.encode_utf16().count() > 12 {
+        "82"
+    } else {
+        "104"
+    };
+    let font = format!(
+        "data:font/woff2;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(font)
+    );
+    let style = include_str!("social_cards.css")
+        .replace("${WIDTH}", "1200")
+        .replace("${HEIGHT}", "630")
+        .replace("${titleSize}", title_size)
+        .replace("${fontDataUri}", &font);
+    let latest = if card.latest {
+        "<span class=\"pill\">Latest</span>"
+    } else {
+        ""
+    };
+    let tagline = card
+        .tagline
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .map(|s| format!("<div class=\"tagline\">{}</div>", escape_html(s)))
+        .unwrap_or_default();
+    let chips = card
+        .chips
+        .as_ref()
+        .filter(|v| !v.is_empty())
+        .map(|values| {
+            let chips = values
+                .iter()
+                .map(|s| format!("<span class=\"chip\">{}</span>", escape_html(s)))
+                .collect::<String>();
+            format!("<div class=\"chips\">{chips}</div>")
+        })
+        .unwrap_or_default();
+    format!(
+        "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\" />\n<style>\n{style}</style>\n</head>\n<body>\n  <div class=\"mark\">workdeck</div>\n  <div class=\"mid\">\n    <div class=\"vrow\">\n      <span class=\"title\">{}</span>\n      {latest}\n    </div>\n    {tagline}\n    {chips}\n  </div>\n  <div class=\"foot\"><span>{}</span><span>{}</span></div>\n</body>\n</html>",
+        escape_html(&card.title),
+        escape_html(&card.meta),
+        escape_html(&target.footer)
+    )
+}
+
+pub(super) fn run_html(
+    repo: &std::path::Path,
+    mut args: impl Iterator<Item = String>,
+) -> Result<()> {
+    use anyhow::Context;
+    let cards = args
+        .next()
+        .context("social-cards-html requires cards.json and a WOFF2 font path")?;
+    let font = args
+        .next()
+        .context("social-cards-html requires a WOFF2 font path")?;
+    let cards = serde_json::from_slice(&std::fs::read(repo.join(cards))?)?;
+    let targets = select(cards, &args.collect::<Vec<_>>())?;
+    let font = std::fs::read(repo.join(font))?;
+    let documents: std::collections::BTreeMap<_, _> = targets
+        .iter()
+        .map(|target| (target.output_file.clone(), render_html(target, &font)))
+        .collect();
+    println!("{}", serde_json::to_string_pretty(&documents)?);
+    Ok(())
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub(super) struct Card {
     pub slug: String,
@@ -101,6 +180,40 @@ pub(super) fn run(repo: &std::path::Path, mut args: impl Iterator<Item = String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn html_preserves_pinned_geometry_escaping_and_utf16_title_threshold() {
+        let mut target = select(vec![], &[]).unwrap().remove(0);
+        target.card.title = "😀".repeat(6);
+        target.card.tagline = Some("<&\"'".into());
+        target.card.chips = Some(vec!["<script>".into()]);
+        target.card.latest = true;
+        target.card.meta = "&metadata".into();
+        target.footer = "<footer>".into();
+        let html = render_html(&target, b"font");
+        for expected in [
+            "width: 1200px",
+            "height: 630px",
+            "font-size: 104px",
+            "data:font/woff2;base64,Zm9udA==",
+            "&lt;&amp;&quot;'",
+            "&lt;script&gt;",
+            "&amp;metadata",
+            "&lt;footer&gt;",
+            "class=\"pill\">Latest",
+        ] {
+            assert!(html.contains(expected), "{expected}");
+        }
+        assert!(!html.contains("${"));
+        target.card.title.push('x');
+        target.card.latest = false;
+        target.card.tagline = Some(String::new());
+        target.card.chips = Some(vec![]);
+        let html = render_html(&target, b"font");
+        assert!(html.contains("font-size: 82px"));
+        for absent in ["class=\"pill\"", "class=\"tagline\"", "class=\"chips\""] {
+            assert!(!html.contains(absent));
+        }
+    }
     fn card(slug: &str) -> Card {
         Card {
             slug: slug.into(),

@@ -1,0 +1,58 @@
+/* Derived from Hunk generate-og.ts, MIT. Copyright Modem Labs Inc. */
+  @font-face {
+    font-family: "JetBrains Mono";
+    src: url("${fontDataUri}") format("woff2-variations");
+    font-weight: 100 800;
+    font-display: block;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: ${WIDTH}px;
+    height: ${HEIGHT}px;
+    background: #f4f1ea;
+    color: #16140f;
+    font-family: "JetBrains Mono", monospace;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 64px;
+  }
+  .mark { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
+  .mid { display: flex; flex-direction: column; gap: 22px; }
+  .vrow { display: flex; align-items: center; gap: 20px; }
+  .title {
+    font-size: ${titleSize}px;
+    font-weight: 500;
+    letter-spacing: -0.045em;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .pill {
+    background: #bfe9c6;
+    color: #0d3a18;
+    font-size: 18px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 7px 15px;
+    border-radius: 999px;
+  }
+  .tagline { font-size: 31px; line-height: 1.4; color: #3a352b; max-width: 900px; }
+  .chips { display: flex; gap: 10px; }
+  .chip {
+    border: 1px solid #dcd6c8;
+    background: #fffdf8;
+    color: #3a352b;
+    font-size: 18px;
+    padding: 6px 14px;
+    border-radius: 6px;
+  }
+  .foot {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 20px;
+    color: #6b6557;
+    border-top: 1px solid #dcd6c8;
+    padding-top: 24px;
+  }
