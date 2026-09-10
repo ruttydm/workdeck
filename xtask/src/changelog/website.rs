@@ -731,6 +731,148 @@ pub(super) fn run(
 mod tests {
     use super::*;
 
+    const SOURCE_SAMPLE: &str = include_str!("../../../port/hunk/website-changelog-test-sample.md");
+
+    #[test]
+    fn source_sample_parses_every_release_newest_first() {
+        assert_eq!(
+            parse_changelog(SOURCE_SAMPLE)
+                .iter()
+                .map(|r| r.version.as_str())
+                .collect::<Vec<_>>(),
+            ["0.19.0", "0.19.0-beta.0", "0.18.0", "0.15.3"]
+        );
+    }
+
+    #[test]
+    fn source_sample_marks_prereleases() {
+        let releases = parse_changelog(SOURCE_SAMPLE);
+        assert!(
+            releases
+                .iter()
+                .find(|r| r.version == "0.19.0-beta.0")
+                .unwrap()
+                .prerelease
+        );
+        assert!(
+            !releases
+                .iter()
+                .find(|r| r.version == "0.19.0")
+                .unwrap()
+                .prerelease
+        );
+    }
+
+    #[test]
+    fn source_sample_captures_legacy_heading_date() {
+        let releases = parse_changelog(SOURCE_SAMPLE);
+        assert_eq!(
+            releases
+                .iter()
+                .find(|r| r.version == "0.15.3")
+                .unwrap()
+                .heading_date
+                .as_deref(),
+            Some("2026-06-13")
+        );
+    }
+
+    #[test]
+    fn source_sample_lifts_highlights_out_of_sections() {
+        let releases = parse_changelog(SOURCE_SAMPLE);
+        let release = releases.iter().find(|r| r.version == "0.19.0").unwrap();
+        assert!(
+            release
+                .highlights
+                .as_ref()
+                .unwrap()
+                .contains("expands the extension platform")
+        );
+        assert_eq!(
+            release
+                .sections
+                .iter()
+                .map(|s| s.title.as_str())
+                .collect::<Vec<_>>(),
+            ["Minor Changes"]
+        );
+    }
+
+    #[test]
+    fn source_sample_drops_empty_legacy_sections() {
+        let releases = parse_changelog(SOURCE_SAMPLE);
+        let release = releases.iter().find(|r| r.version == "0.15.3").unwrap();
+        assert_eq!(
+            release
+                .sections
+                .iter()
+                .map(|s| s.title.as_str())
+                .collect::<Vec<_>>(),
+            ["Added", "Fixed"]
+        );
+    }
+
+    #[test]
+    fn source_sample_groups_series_newest_first() {
+        let series = group_into_series(parse_changelog(SOURCE_SAMPLE));
+        assert_eq!(
+            series.iter().map(|s| s.minor.as_str()).collect::<Vec<_>>(),
+            ["0.19", "0.18", "0.15"]
+        );
+        assert_eq!(
+            series[0]
+                .releases
+                .iter()
+                .map(|r| r.version.as_str())
+                .collect::<Vec<_>>(),
+            ["0.19.0", "0.19.0-beta.0"]
+        );
+    }
+
+    #[test]
+    fn source_sample_highlights_separates_lead_and_bullets() {
+        assert_eq!(
+            serde_json::to_value(split_highlights("A lead sentence.\n\n- **One.** Detail."))
+                .unwrap(),
+            serde_json::json!({"lead":"A lead sentence.", "body":"- **One.** Detail."})
+        );
+    }
+
+    #[test]
+    fn source_sample_highlights_bullet_only_has_no_lead() {
+        assert_eq!(
+            serde_json::to_value(split_highlights("- **One.** Detail.")).unwrap(),
+            serde_json::json!({"body":"- **One.** Detail."})
+        );
+    }
+
+    #[test]
+    fn source_sample_highlights_lead_becomes_summary() {
+        let series = group_into_series(parse_changelog(SOURCE_SAMPLE));
+        assert_eq!(
+            series_summary(&series[0], None).as_deref(),
+            Some("Hunk 0.19.0 expands the extension platform.")
+        );
+    }
+
+    #[test]
+    fn source_sample_highlights_editorial_summary_wins() {
+        let series = group_into_series(parse_changelog(SOURCE_SAMPLE));
+        assert_eq!(
+            series_summary(&series[0], Some("Overlay wins.")).as_deref(),
+            Some("Overlay wins.")
+        );
+    }
+
+    #[test]
+    fn source_sample_highlights_absent_means_no_summary() {
+        let series = group_into_series(parse_changelog(SOURCE_SAMPLE));
+        assert_eq!(
+            series_summary(series.iter().find(|s| s.minor == "0.15").unwrap(), None),
+            None
+        );
+    }
+
     #[test]
     fn published_policy_preserves_dated_prereleases_without_stable_promotion() {
         let dated = ReleaseEntry {
