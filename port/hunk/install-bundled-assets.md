@@ -1,5 +1,15 @@
 # Bundled installer assets
 
+## Latest regression checkpoint (`9e19a586`)
+
+Strict Clippy passes for `workdeck-cli` and `xtask` with `--all-targets -- -D
+warnings`. All 49 tests in `workdeck-cli/tests/cli.rs` and both tests in
+`xtask/tests/install_cli.rs` pass on macOS. These cover the current standalone
+installer routing alongside existing issue, agent, reference, import/export,
+session, extension, update and read-only CLI regressions. They are not a complete
+workspace, native-platform matrix, benchmark or signed-release verification.
+No source ledger records were changed during this checkpoint.
+
 Release packaging now includes the four current Workdeck skill sources under
 `skills/<name>/SKILL.md` inside the platform archive wrapper:
 
