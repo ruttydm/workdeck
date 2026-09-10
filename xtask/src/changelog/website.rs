@@ -10,6 +10,7 @@ use std::sync::LazyLock;
 
 mod feed;
 mod index;
+mod json;
 mod latest;
 mod pages;
 pub(super) use feed::run_feed;

@@ -18,7 +18,7 @@ comparisons cover no publication, beta-only publication, stable fallback, a newe
 beta alongside stable, empty/raw taglines and a truncated editorial summary.
 
 This command implements an artifact component, not the complete site pipeline.
-Full artifact output orchestration, source-format JSON layout, social-card head
+Full artifact output orchestration and social-card head
 integration and Zola rendering remain open. No ledger
 mapping changes. MIT attribution is retained in the Rust module and
 `THIRD_PARTY_NOTICES`.
@@ -38,3 +38,6 @@ contains only Git and the three inputs, with no generated site or Workdeck state
 
 All 15 changelog CLI tests pass. Strict xtask Clippy, formatting and diff whitespace
 checks pass. No additional source interval is claimed complete by these checks.
+
+The command subsequently adopted the native [generated JSON formatter](website-changelog-json.md)
+for source-compatible artifact layout. The metadata schema and selection are unchanged.

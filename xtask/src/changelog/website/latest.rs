@@ -69,7 +69,7 @@ pub(in crate::changelog) fn run_latest(
     let dates = serde_json::from_value(serde_json::Value::Object(dates))?;
     println!(
         "{}",
-        serde_json::to_string_pretty(&latest(releases, &dates, &notes, "Workdeck"))?
+        json::format(&latest(releases, &dates, &notes, "Workdeck"))
     );
     Ok(())
 }
