@@ -245,3 +245,17 @@ The regression covers additions before application (no backup or writes) and
 during application (rollback with the new file preserved). Eleven social-card
 unit tests pass. These checks do not provide isolation against changes after the
 final check, ABA edits, or parent replacement between filesystem operations.
+
+## Live-capture prerequisite inspection
+
+The host has `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`;
+its `--version` reports `Google Chrome 152.0.7977.83`. No `chromedriver` or
+JetBrains Mono WOFF2 was found in the checked project, `/Applications`,
+Homebrew executable directory, Selenium cache, or user cache locations.
+This is a scoped filesystem inspection, not proof that neither exists elsewhere.
+The pinned website declares `@fontsource-variable/jetbrains-mono` with range
+`^5.2.8`; the exact resolved asset still needs acquisition and licensing evidence.
+Before a real capture, provide a compatible declared ChromeDriver binary and
+the verified font asset to `social-cards-capture`. No live browser capture or
+font-fidelity result is claimed by this checkpoint. Existing Chrome was queried
+for its version only; no user browser profile was opened or modified.
