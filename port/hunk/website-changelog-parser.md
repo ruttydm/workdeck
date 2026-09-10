@@ -225,6 +225,21 @@ by the command and the directory inventory contains no new repository state.
 All eight changelog CLI tests pass. Complete page rendering remains open, and
 no ledger mapping changed.
 
+## Verification refresh after original-test translations
+
+At `2408adfb`, strict `cargo clippy -p xtask --all-targets -- -D warnings`
+and `cargo fmt --all -- --check` passed. The full xtask test run passed 297 unit
+tests (one existing oracle-capture test ignored), eight changelog CLI tests,
+seven extension-catalog CLI tests, one workspace-command test and one theme PTY
+test. The unit test run took 36.60 seconds; these are verification timings, not
+same-host Hunk performance evidence.
+
+The latest strict ledger audit still reports 1,257 baseline files, 1,450 intervals,
+280 unmapped intervals and 92 pending upstream commits. Complete source test
+blocks were mapped individually; no unfinished source file was marked complete.
+This refresh does not establish full-workspace, website, benchmark or release
+parity.
+
 ## Large radix date rounding
 
 A further executed two-pin fixture exposed a real per-digit accumulation error:
