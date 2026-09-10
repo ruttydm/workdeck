@@ -520,6 +520,23 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn alpha_gap_without_reader_does_not_expand_or_load() {
+        let mut review = pinned_alpha_source_review(800);
+        review.files[0].set_source_capability(None);
+        review.refresh_review_identities();
+        let file = review.files[0].clone();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        let selection = app.with_state(|state| state.selection());
+        app.toggle_source_gap_for_file(&file.key, 0).unwrap();
+        assert!(app.expanded_gaps.is_empty());
+        assert!(app.options.source_presentation.status(&file).is_none());
+        assert!(app.source_loaders.is_empty());
+        assert!(app.pending_source_reveal.is_none());
+        assert_eq!(app.poll_source_requests(), 0);
+        assert_eq!(app.with_state(|state| state.selection()), selection);
+    }
+
+    #[test]
     fn alpha_gap_toggle_loads_exact_source_and_collapses() {
         struct AlphaLoader(mpsc::Sender<ReviewSide>);
         impl ReviewSourceLoader for AlphaLoader {
