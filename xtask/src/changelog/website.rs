@@ -98,6 +98,12 @@ fn compare_versions(a: &str, b: &str) -> Ordering {
     }
 }
 
+fn ecmascript_whitespace(c: char) -> bool {
+    matches!(c, '\u{0009}'..='\u{000d}' | '\u{0020}' | '\u{00a0}' | '\u{1680}'
+        | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}'
+        | '\u{205f}' | '\u{3000}' | '\u{feff}')
+}
+
 fn update_fence(line: &str, fence: &mut Option<char>) {
     let trimmed = line.trim_start();
     let delimiter = if trimmed.starts_with("```") {
@@ -185,7 +191,8 @@ fn parse_changelog(markdown: &str) -> Vec<ReleaseEntry> {
     let mut releases = Vec::new();
     for block in split_headings(markdown, "## ") {
         let (heading, body) = block.split_once('\n').unwrap_or((&block, ""));
-        let heading = heading.trim();
+        // JavaScript trim includes BOM but excludes NEL, unlike Rust's trim.
+        let heading = heading.trim_matches(ecmascript_whitespace);
         let legacy = LEGACY.captures(heading);
         let version = legacy
             .as_ref()
@@ -359,6 +366,26 @@ pub(super) fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn heading_whitespace_matches_both_pinned_oracles() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/website-changelog-whitespace-oracle.json"
+        ))
+        .unwrap();
+        let results = fixture["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        for result in results {
+            let cases = result["cases"].as_array().unwrap();
+            assert_eq!(cases.len(), 2);
+            for case in cases {
+                assert_eq!(
+                    serde_json::to_value(parse_changelog(case["input"].as_str().unwrap())).unwrap(),
+                    case["expected"]
+                );
+            }
+        }
+    }
 
     #[test]
     fn date_maps_and_lookup_calls_match_frozen_pins() {

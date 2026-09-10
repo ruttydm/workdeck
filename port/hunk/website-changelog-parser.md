@@ -81,3 +81,12 @@ It checks the distinct publication dates, unresolved versions, heading dates,
 recorded overrides, stale-entry omission, and unchanged inputs. A missing date
 file is not created; malformed JSON produces an error and no output or rewrite.
 This remains partial generator evidence, not a new ledger mapping.
+
+## Heading whitespace parity
+
+Both pinned runtimes accept BOM-trimmed version headings and reject NEL-wrapped
+versions. Rust's default trim did the opposite. Version-heading trimming now uses
+the ECMAScript whitespace set. The executed two-pin results are frozen in
+`website-changelog-whitespace-oracle.json`; all eight website unit tests pass.
+This is a heading-specific correction; other parser whitespace operations and
+the remaining page generator still require parity work. No ledger mapping changed.
