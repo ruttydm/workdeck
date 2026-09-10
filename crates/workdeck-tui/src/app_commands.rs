@@ -216,7 +216,6 @@ fn command_action(command: &AppCommand, key: &ExtensionKeyEvent, count: usize) -
         "workdeck.app.openAgentSkill" => AppCommandAction::OpenAgentSkill,
         "workdeck.app.toggleFocusArea" => AppCommandAction::ToggleFocusArea,
         "workdeck.review.focusFilter" => AppCommandAction::FocusFilter,
-        "workdeck.review.startNote" => AppCommandAction::StartUserNote,
         "workdeck.review.editActiveNote" => AppCommandAction::EditActiveNote,
         "workdeck.review.replyToActiveNote" => AppCommandAction::ReplyToActiveNote,
         "workdeck.review.pageDown" => AppCommandAction::ScrollDiff {
@@ -280,15 +279,20 @@ fn command_action(command: &AppCommand, key: &ExtensionKeyEvent, count: usize) -
         "workdeck.view.toggleFilesPane" => AppCommandAction::ToggleFilesPane,
         "workdeck.app.refresh" => AppCommandAction::RefreshCurrentInput,
         "workdeck.view.openThemeSelector" => AppCommandAction::OpenThemeSelector,
-        "workdeck.view.toggleAgentNotes" => AppCommandAction::ToggleAgentNotes,
         "workdeck.view.toggleLineNumbers" => AppCommandAction::ToggleLineNumbers,
         "workdeck.view.toggleLineWrap" => AppCommandAction::ToggleLineWrap,
         "workdeck.view.toggleMenuBar" => AppCommandAction::ToggleMenuBar,
         "workdeck.view.toggleHunkHeaders" => AppCommandAction::ToggleHunkHeaders,
         "workdeck.view.toggleCopyDecorations" => AppCommandAction::ToggleCopyDecorations,
-        "workdeck.review.toggleHunkGap" => AppCommandAction::ToggleGapForSelectedHunk,
         "workdeck.review.editSelectedFile" => AppCommandAction::EditSelectedFile,
         _ => match command.entry.review {
+            Some(AppCommandReviewEffect::StartDraft) => AppCommandAction::StartUserNote,
+            Some(AppCommandReviewEffect::ToggleNoteVisibility) => {
+                AppCommandAction::ToggleAgentNotes
+            }
+            Some(AppCommandReviewEffect::ToggleSelectedGap) => {
+                AppCommandAction::ToggleGapForSelectedHunk
+            }
             Some(AppCommandReviewEffect::MoveSelection { scope, direction }) => {
                 AppCommandAction::MoveSelection {
                     scope,

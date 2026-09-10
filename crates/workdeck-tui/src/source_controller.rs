@@ -520,6 +520,49 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn alpha_catalog_commands_toggle_notes_start_draft_and_expand_next_gap() {
+        let mut review = pinned_two_hunk_alpha_review();
+        review.files[0].set_source_capability(Some(workdeck_core::SourceCapabilityIdentity {
+            cache_key: None,
+        }));
+        review.refresh_review_identities();
+        let key = review.files[0].key.clone();
+        let source = (1..=12)
+            .map(|line| format!("export const line{line} = {line};\n"))
+            .collect::<String>()
+            .replace("line1 = 1;", "line1 = 100;")
+            .replace("line12 = 12;", "line12 = 1200;");
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                agent_notes: false,
+                ..Default::default()
+            },
+        );
+        let (sender, receiver) = mpsc::channel();
+        assert!(app.install_source_loader(&key, Arc::new(Loader(Mutex::new(receiver)))));
+        assert!(app.execute_extension_review_command("workdeck.view.toggleAgentNotes", 1));
+        assert!(app.options.agent_notes);
+        assert!(app.execute_extension_review_command("workdeck.view.toggleAgentNotes", 1));
+        assert!(!app.options.agent_notes);
+        assert_eq!(
+            app.with_state(|state| state.selection().hunk_index),
+            Some(0)
+        );
+        assert!(app.execute_extension_review_command("workdeck.review.startNote", 1));
+        let target = app.note_composer.as_ref().unwrap().target;
+        assert_eq!(target.file_index, 0);
+        assert_eq!(target.hunk_index, 0);
+        assert_eq!(target.side, ReviewSide::New);
+        assert_eq!(target.line, 1);
+        app.note_composer = None;
+        assert!(app.execute_extension_review_command("workdeck.review.toggleHunkGap", 1));
+        sender.send(source).unwrap();
+        drain_one(&mut app);
+        assert_eq!(app.expanded_gaps, BTreeSet::from([(key, 1)]));
+    }
+
+    #[test]
     fn alpha_gap_reports_too_large_source_status() {
         struct TooLargeLoader;
         impl ReviewSourceLoader for TooLargeLoader {

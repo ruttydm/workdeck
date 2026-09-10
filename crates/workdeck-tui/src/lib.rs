@@ -8322,13 +8322,9 @@ impl ReviewApp {
             let file = state.selected_file()?;
             let source = review_gap_source_for_file(file);
             let hunk_index = selection.hunk_index.unwrap_or(0);
-            let (gap_slot, address) = review_leading_gap(&source, hunk_index)
-                .map(|gap| (hunk_index, gap))
-                .or_else(|| {
-                    review_trailing_gap(&source)
-                        .filter(|gap| gap.hunk_index == hunk_index)
-                        .map(|gap| (file.hunks.len(), gap))
-                })?;
+            let (gap_slot, address) = (hunk_index..file.hunks.len())
+                .find_map(|index| review_leading_gap(&source, index).map(|gap| (index, gap)))
+                .or_else(|| review_trailing_gap(&source).map(|gap| (file.hunks.len(), gap)))?;
             Some((
                 (file.key.clone(), gap_slot),
                 selection.file_index,
