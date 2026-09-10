@@ -18,6 +18,27 @@ pub fn install_authenticated_archive(
     backup: &Path,
     identity: ReleaseIdentity<'_>,
 ) -> Result<()> {
+    authenticated_install(archive, checksums, target, Some(backup), identity)
+}
+
+/// Create a previously absent binary from an authenticated archive. The parent
+/// directory must already exist; accompanying assets are not installed here.
+pub fn create_authenticated_archive(
+    archive: &Path,
+    checksums: &Path,
+    target: &Path,
+    identity: ReleaseIdentity<'_>,
+) -> Result<()> {
+    authenticated_install(archive, checksums, target, None, identity)
+}
+
+fn authenticated_install(
+    archive: &Path,
+    checksums: &Path,
+    target: &Path,
+    backup: Option<&Path>,
+    identity: ReleaseIdentity<'_>,
+) -> Result<()> {
     // Validate identity before reading or staging the archive.
     attestation::verification_args(identity.repository, identity.commit, identity.tag_ref)?;
     install_with(
@@ -42,7 +63,7 @@ fn install_with(
     archive: &Path,
     checksums: &Path,
     target: &Path,
-    backup: &Path,
+    backup: Option<&Path>,
     authenticate: impl FnOnce(Vec<u8>, &[u8], &str) -> Result<Vec<u8>>,
 ) -> Result<()> {
     let name = target
@@ -68,7 +89,10 @@ fn install_with(
         "attestation bundle exceeds 1 MiB"
     );
     let authenticated = authenticate(binary, &bundle, name)?;
-    replace_binary_with_backup(target, &authenticated, backup)
+    match backup {
+        Some(backup) => replace_binary_with_backup(target, &authenticated, backup),
+        None => create_binary(target, &authenticated),
+    }
 }
 
 #[cfg(test)]
@@ -109,7 +133,7 @@ mod tests {
             &archive,
             &checksums,
             &target,
-            &backup,
+            Some(&backup),
             |binary, bundle, name| {
                 assert_eq!(binary, b"workdeck");
                 assert_eq!(bundle, b"provenance.sigstore.json");
@@ -126,11 +150,36 @@ mod tests {
         assert_eq!(std::fs::read(&target).unwrap(), b"old binary");
         assert!(!backup.exists());
         assert!(!dir.path().join(".workdeck-install.lock").exists());
-        install_with(&archive, &checksums, &target, &backup, |binary, _, _| {
+        install_with(
+            &archive,
+            &checksums,
+            &target,
+            Some(&backup),
+            |binary, _, _| Ok(binary),
+        )
+        .unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"workdeck");
+        assert_eq!(std::fs::read(&backup).unwrap(), b"old binary");
+        let fresh = tempfile::tempdir().unwrap();
+        let target = fresh.path().join("workdeck");
+        assert!(
+            install_with(&archive, &checksums, &target, None, |_, _, _| {
+                anyhow::bail!("rejected publisher identity")
+            })
+            .is_err()
+        );
+        assert_eq!(std::fs::read_dir(fresh.path()).unwrap().count(), 0);
+        install_with(&archive, &checksums, &target, None, |binary, _, _| {
             Ok(binary)
         })
         .unwrap();
         assert_eq!(std::fs::read(&target).unwrap(), b"workdeck");
-        assert_eq!(std::fs::read(&backup).unwrap(), b"old binary");
+        assert!(
+            install_with(&archive, &checksums, &target, None, |binary, _, _| Ok(
+                binary
+            ))
+            .is_err()
+        );
+        assert_eq!(std::fs::read(&target).unwrap(), b"workdeck");
     }
 }

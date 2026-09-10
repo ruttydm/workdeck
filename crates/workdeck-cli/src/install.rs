@@ -11,13 +11,15 @@ mod authenticated;
 mod download;
 mod release_identity;
 pub mod shell_path;
-pub use authenticated::{ReleaseIdentity, install_authenticated_archive};
+pub use authenticated::{
+    ReleaseIdentity, create_authenticated_archive, install_authenticated_archive,
+};
 pub use download::{DownloadedRelease, download_release};
 pub use release_identity::{ResolvedRelease, resolve_release_identity};
 mod staging;
 mod transaction;
 pub use staging::{prepare_verified_archive, stage};
-pub use transaction::replace_binary_with_backup;
+pub use transaction::{create_binary, replace_binary_with_backup};
 
 fn archive_entry_path(name: &str) -> Result<String> {
     let name = name.strip_suffix('/').unwrap_or(name);

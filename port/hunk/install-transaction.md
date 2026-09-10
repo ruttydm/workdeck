@@ -70,3 +70,24 @@ failed in the existing `onig_sys` dependency before checking the CLI: this host
 lacks `x86_64-w64-mingw32-gcc`. Therefore the new Windows branch is not yet
 cross-checked or runtime-verified. The required Windows MSVC native CI gate also
 remains independent and open; no platform qualification is claimed.
+# First-time binary creation
+
+`install::create_binary` adds a non-overwriting transaction for an absent
+`workdeck`/`workdeck.exe` in an existing parent directory. It validates the payload,
+rejects any preexisting final entry (including dangling symlinks), acquires the
+same persistent advisory installation lock as replacement, synchronizes a
+same-directory temporary file and publishes it with `persist_noclobber`. Unix
+executables receive mode 0755. A competing file created before publication is
+preserved; temporary files are cleaned up and the lock file remains.
+
+`install::create_authenticated_archive` connects this operation to the same
+private checksum-verified staging and publisher-authentication path as updates.
+Authentication failure precedes destination writes. Tests inject verifier results
+to check orchestration; they are not evidence of live signature verification.
+
+`cargo test -p workdeck-cli --lib install::` passes 52 scoped tests on macOS,
+including first-install success, preexisting/racing targets, dangling symlinks,
+and authentication failure leaving the first-install destination directory empty.
+Parent creation, accompanying skill/metadata installation, complete installer CLI
+integration, directory crash durability and native cross-platform validation
+remain open. No source ledger interval is marked complete by this work.

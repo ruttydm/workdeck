@@ -1,4 +1,4 @@
-//! Atomic replacement of an existing binary with a retained original backup.
+//! Non-overwriting binary creation and replacement with a retained original backup.
 use anyhow::{Context, Result, ensure};
 use std::fs;
 use std::io::{Read, Write};
@@ -12,6 +12,53 @@ use std::path::Path;
 /// retained even when replacement fails after backup creation.
 pub fn replace_binary_with_backup(target: &Path, payload: &[u8], backup: &Path) -> Result<()> {
     replace(target, payload, backup, || Ok(()))
+}
+
+/// Create a binary from already authenticated bytes in an existing directory.
+/// Never replaces an existing entry, including dangling symlinks. Accompanying
+/// assets, parent creation and parent-directory race coordination belong to the caller.
+pub fn create_binary(target: &Path, payload: &[u8]) -> Result<()> {
+    create(target, payload, || Ok(()))
+}
+
+fn create(target: &Path, payload: &[u8], before_commit: impl FnOnce() -> Result<()>) -> Result<()> {
+    ensure!(
+        !payload.is_empty() && payload.len() <= 2 * 1024 * 1024 * 1024,
+        "invalid installation binary size"
+    );
+    let name = target
+        .file_name()
+        .context("binary target requires a filename")?;
+    ensure!(
+        name == "workdeck" || name == "workdeck.exe",
+        "unexpected binary target name"
+    );
+    let parent = target
+        .parent()
+        .context("binary target requires a parent")?
+        .canonicalize()?;
+    let target = parent.join(name);
+    match fs::symlink_metadata(&target) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+        Ok(_) => anyhow::bail!("installation target already exists"),
+    }
+    let _lock = lock_directory(&parent)?;
+    let mut temporary = tempfile::NamedTempFile::new_in(&parent)?;
+    temporary.write_all(payload)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        temporary
+            .as_file()
+            .set_permissions(fs::Permissions::from_mode(0o755))?;
+    }
+    temporary.as_file().sync_all()?;
+    before_commit()?;
+    temporary
+        .persist_noclobber(&target)
+        .context("binary creation failed; target was not overwritten")?;
+    Ok(())
 }
 
 fn regular(path: &Path) -> Result<fs::Metadata> {
@@ -179,6 +226,53 @@ fn replace(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn first_install_never_overwrites_an_existing_or_racing_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("workdeck");
+        create_binary(&target, b"first binary").unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"first binary");
+        assert!(create_binary(&target, b"second binary").is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"first binary");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+                0o755
+            );
+        }
+        let other = tempfile::tempdir().unwrap();
+        let target = other.path().join("workdeck");
+        assert!(
+            create(&target, b"ours", || {
+                fs::write(&target, b"concurrent installation")?;
+                Ok(())
+            })
+            .is_err()
+        );
+        assert_eq!(fs::read(&target).unwrap(), b"concurrent installation");
+        assert_eq!(fs::read_dir(other.path()).unwrap().count(), 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn first_install_rejects_dangling_symlinks_without_creating_their_targets() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("workdeck");
+        let referent = dir.path().join("missing");
+        std::os::unix::fs::symlink(&referent, &target).unwrap();
+        assert!(create_binary(&target, b"binary").is_err());
+        assert!(!referent.exists());
+        assert!(
+            fs::symlink_metadata(&target)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
 
     #[test]
     fn binary_reads_reject_growth_truncation_and_oversized_declarations() {
