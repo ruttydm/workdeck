@@ -300,6 +300,10 @@ pub(super) mod tests {
     }
 
     fn setup() -> (ReviewApp, mpsc::Sender<String>) {
+        setup_with_cache_key(Some("one"))
+    }
+
+    fn setup_with_cache_key(cache_key: Option<&str>) -> (ReviewApp, mpsc::Sender<String>) {
         let mut changeset = workdeck_diff::changeset_from_patch(
             "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -3 +3 @@\n-old\n+new\n",
             "lazy",
@@ -309,7 +313,7 @@ pub(super) mod tests {
             None,
         );
         changeset.files[0].set_source_capability(Some(workdeck_core::SourceCapabilityIdentity {
-            cache_key: Some("one".into()),
+            cache_key: cache_key.map(str::to_owned),
         }));
         let key = changeset.files[0].key.clone();
         let mut app = ReviewApp::new(
@@ -753,6 +757,63 @@ pub(super) mod tests {
         }));
         app.reload(replacement);
         assert_ne!(app.with_state(|state| state.selection().line), Some(1));
+        assert!(!rows(&app).contains("retained-one"));
+    }
+
+    #[test]
+    fn identical_soft_reload_preserves_unattested_loaded_source_and_cursor() {
+        let (mut app, sender) = setup_with_cache_key(None);
+        app.toggle_source_gap();
+        sender
+            .send("retained-one\nretained-two\nnew\n".into())
+            .unwrap();
+        drain_one(&mut app);
+        let review = app.with_state(|state| state.changeset().clone());
+        assert!(!review.files[0].source_attested);
+        let selection = app.with_state(|state| state.selection());
+        let cursor = app.current_review_line_cursor();
+        let expanded = app.expanded_gaps.clone();
+        let before = rows(&app);
+        app.reload(review.clone());
+        assert!(
+            matches!(app.options.source_presentation.status(&review.files[0]),
+            Some(workdeck_review::ReviewSourceStatus::Loaded { text }) if text == "retained-one\nretained-two\nnew\n")
+        );
+        assert_eq!(app.source_loaders.len(), 1);
+        assert_eq!(app.expanded_gaps, expanded);
+        assert_eq!(app.with_state(|state| state.selection()), selection);
+        assert_eq!(app.current_review_line_cursor(), cursor);
+        assert_eq!(rows(&app), before);
+
+        // Real content replacement still retires unattested text and expansion.
+        let mut changed = review.clone();
+        changed.files[0].hunks[0].lines[1].content = "changed".into();
+        changed.refresh_review_identities();
+        assert_ne!(
+            changed.files[0].source_identity,
+            review.files[0].source_identity
+        );
+        app.reload(changed.clone());
+        assert!(app.source_loaders.is_empty());
+        assert!(app.expanded_gaps.is_empty());
+        assert!(
+            app.options
+                .source_presentation
+                .status(&changed.files[0])
+                .is_none()
+        );
+        assert!(!rows(&app).contains("retained-one"));
+        let (next_sender, next_receiver) = mpsc::channel();
+        assert!(app.install_source_loader(
+            &changed.files[0].key,
+            Arc::new(Loader(Mutex::new(next_receiver)))
+        ));
+        app.toggle_source_gap();
+        next_sender
+            .send("fresh-one\nfresh-two\nchanged\n".into())
+            .unwrap();
+        drain_one(&mut app);
+        assert!(rows(&app).contains("fresh-one"));
         assert!(!rows(&app).contains("retained-one"));
     }
 

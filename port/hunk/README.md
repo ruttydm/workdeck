@@ -1,5 +1,14 @@
 # Hunk semantic-port ledger
 
+## Identical reloads retain source state
+
+An identical soft reload no longer retires an unversioned reader and its loaded
+text before the unchanged-document check. Actual changeset replacements and
+full resets retain their retirement behavior. The regression first reproduced
+the lost-text bug, then passed along with all 1,184 TUI library tests. See
+[the fix and coverage limits](identical-reload-source-retention.md).
+No ledger interval is newly mapped by this runtime correction.
+
 ## Addressed gaps reject nonexistent context
 
 The addressed-gap handler now returns a typed `GapNotFound` error when a

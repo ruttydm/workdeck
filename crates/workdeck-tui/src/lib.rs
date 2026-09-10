@@ -1973,7 +1973,7 @@ impl ReviewApp {
             self.source_loaders.clear();
             self.options.source_capabilities = None;
             self.options.source_presentation = ReviewSourcePresentation::default();
-        } else {
+        } else if self.with_state(|state| state.changeset() != &changeset) {
             self.reconcile_source_loaders(&changeset);
         }
         self.cancel_copy_selection();
