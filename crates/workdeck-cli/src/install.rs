@@ -502,14 +502,29 @@ fn check_install_conflicts(
             let paths = observations
                 .iter()
                 .filter(|item| item.executable_access == Some(true))
-                .map(|item| item.diagnostic_path.display().to_string())
+                .map(|item| conflict_description(item, &target))
                 .collect::<Vec<_>>()
-                .join(", ");
+                .join("\n  ");
             bail!(
                 "competing Workdeck installations: {paths}. Remove them or explicitly use --force to keep them; no existing installation will be overwritten"
             )
         }
     }
+}
+
+fn conflict_description(observation: &PathFileObservation, target: &Path) -> String {
+    let shadowing = match observation.shadowing {
+        Shadowing::NotOnPath => "not on the current PATH".to_owned(),
+        Shadowing::ShadowsTarget => format!("shadows {}", target.display()),
+        Shadowing::ShadowedByTarget => format!("is shadowed by {}", target.display()),
+    };
+    format!(
+        "{} (inferred owner: {}; {shadowing})",
+        observation.diagnostic_path.display(),
+        observation
+            .manager_hint
+            .unwrap_or("another package manager")
+    )
 }
 
 fn executable_access(path: &Path) -> Option<bool> {
@@ -549,6 +564,20 @@ fn manager_hint(path: &Path) -> Option<&'static str> {
         return None;
     }
     let adjacent = |first, second| segments.windows(2).any(|parts| parts == [first, second]);
+    if segments
+        .windows(3)
+        .any(|parts| parts == [".nvm", "versions", "node"])
+        || segments.contains(&"node_modules")
+        || segments.contains(&".npm")
+    {
+        return Some("legacy npm");
+    }
+    if adjacent(".bun", "bin") {
+        return Some("legacy Bun");
+    }
+    if segments.contains(&"pnpm") {
+        return Some("legacy pnpm");
+    }
     if adjacent(".cargo", "bin") {
         return Some("Cargo");
     }
@@ -815,6 +844,41 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn conflict_details_report_inferred_owner_and_all_path_order_states() {
+        let mut observation = PathFileObservation {
+            path: PathBuf::from("/candidate/workdeck"),
+            identity: PathBuf::from("/candidate/workdeck"),
+            aliases: Vec::new(),
+            shadowing: Shadowing::NotOnPath,
+            manager_hint: Some("Cargo"),
+            diagnostic_path: PathBuf::from("/candidate/workdeck"),
+            executable_access: Some(true),
+        };
+        let target = Path::new("/destination/bin/workdeck");
+        assert!(
+            conflict_description(&observation, target)
+                .contains("inferred owner: Cargo; not on the current PATH")
+        );
+        observation.shadowing = Shadowing::ShadowsTarget;
+        assert!(
+            conflict_description(&observation, target)
+                .contains("shadows /destination/bin/workdeck")
+        );
+        observation.shadowing = Shadowing::ShadowedByTarget;
+        assert!(
+            conflict_description(&observation, target)
+                .contains("is shadowed by /destination/bin/workdeck")
+        );
+        for (path, owner) in [
+            ("/user/.nvm/versions/node/v22/bin/workdeck", "legacy npm"),
+            ("/user/.bun/bin/workdeck", "legacy Bun"),
+            ("/user/pnpm/workdeck", "legacy pnpm"),
+        ] {
+            assert_eq!(manager_hint(Path::new(path)), Some(owner));
+        }
+    }
 
     #[test]
     fn inactive_nvm_installations_are_discovered_before_mise_without_execution() {

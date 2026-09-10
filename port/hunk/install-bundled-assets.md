@@ -283,6 +283,16 @@ Both preflight and the standalone conflict gate share the combined scan. A nativ
 test passes for absent roots, sorted inactive versions, nvm-before-Mise ordering,
 force decisions with empty PATH and unchanged candidate bytes.
 
+Conflict diagnostics now include the manager-shaped diagnostic alias, explicitly
+labeled inferred ownership, and all three source PATH-order states: shadows the
+target, is shadowed by the target, or is not on the current PATH. Legacy npm/Bun/
+pnpm layout hints are recognized without executing those runtimes. nvm ownership
+requires the `.nvm/versions/node` segment sequence. Unknown ownership stays
+`another package manager`; no package ownership or version is fabricated.
+All 62 installer tests passed before the final nvm matcher tightening, and the
+focused conflict-description test passes afterward. Running-version probes and
+complete package-specific removal diagnostics remain outstanding.
+
 All 48 CLI integration tests passed before adding the default-root selection.
 The updated installer CLI regression also passes: invalid versions create no
 default root, and an existing default `.workdeck` is rejected before networking
