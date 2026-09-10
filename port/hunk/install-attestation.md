@@ -27,3 +27,20 @@ Two native tests inject verifier callbacks to check exact binary/bundle inputs,
 returned bytes, rejection of failures and snapshot mutation, and cleanup. These
 are control-flow and snapshot tests, not real Sigstore authentication evidence.
 Real signed-release verification and updater integration remain open.
+
+## Composed local archive operation
+
+`install_authenticated_archive` now composes checksum-verified staging, bounded
+binary/bundle reads, attestation of owned snapshot bytes, and backup-preserving
+native binary replacement. Its caller supplies trusted repository/commit/tag
+identity separately from archive metadata. The staged package must include
+`provenance.sigstore.json`. Authentication completes before the target-side lock,
+backup or replacement is created. Accompanying package assets are not installed
+by this operation; release downloading and the public updater connection remain
+open, as do the replacement primitive's documented concurrency/platform limits.
+
+A temporary ZIP integration test verifies that an injected authentication failure
+leaves the old binary untouched with no destination lock or backup. Injected
+success installs the verified payload and preserves exact original backup bytes.
+This exercises real staging and file replacement, but the verifier is a test
+callback: it is not evidence of a real signed release passing authentication.

@@ -41,7 +41,7 @@ fn bounded_bytes(reader: impl Read, expected: u64) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn read_binary(path: &Path) -> Result<(fs::Metadata, Vec<u8>)> {
+pub(super) fn read_binary(path: &Path) -> Result<(fs::Metadata, Vec<u8>)> {
     regular(path)?;
     let mut options = fs::OpenOptions::new();
     options.read(true);
