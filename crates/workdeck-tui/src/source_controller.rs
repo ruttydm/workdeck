@@ -1161,8 +1161,13 @@ pub(super) mod tests {
         let human = app.with_state(|state| {
             assert_eq!(state.comments().len(), 1);
             assert_eq!(state.comments()[0].summary, "Human cleanup note.");
+            assert_eq!(state.comments()[0].file_path.as_deref(), Some("alpha.ts"));
             state.comments()[0].clone()
         });
+        let summaries = app.session_review_note_summaries();
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].file_path, "alpha.ts");
+        assert_eq!(serde_json::to_value(summaries[0].source).unwrap(), "user");
         app.session_add_live_comment(&comment("Default clear agent note"), "comment-2", false)
             .unwrap();
         let cleared = app.session_clear_live_comments(None, None).unwrap();

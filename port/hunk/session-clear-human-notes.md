@@ -20,6 +20,25 @@ the pinned Git blobs (`ed9cf33eed4e4a77a2ba4abf5d9f14b12df00635` and
 
 The native focused test passed (0.76 seconds), as did all 1,211 TUI library
 tests (8.72 seconds), formatting and diff checks. This evidence covers the
-controller mutation sequence, not terminal
-frames, session transport, or the complete note subsystem. Ledger dispositions
-remain unchanged pending interval-level mapping review.
+controller mutation sequence, not terminal frames, session transport, or the
+complete note subsystem.
+
+## Interval mapping review
+
+The translated-test record covers exactly baseline bytes `[34240, 37312)`,
+lines 1047–1140: the complete `session clear can include human user notes` test
+and its following blank line. The source two-hunk alpha fixture matches the
+native fixture's twelve lines and changes at lines 1 and 12. Native assertions
+also check the surviving note's alpha path and user source, covering the source
+`userNotesByFileId.alpha` checks rather than merely counting arbitrary comments.
+The native owned app replaces React's asynchronous flush/destroy test scaffolding;
+the case has no frame assertions. All mutation outcomes and source assertions
+are represented. Surrounding source tests and the runtime hook remain unmapped.
+
+The strengthened focused test passed (0.77 seconds), with formatting and diff
+checks passing. Strict `cargo xtask port audit` validated the ledger structure,
+blob coverage and evidence paths before failing its incompleteness gate:
+1,257 files, 1,417 records, 451 translated-test records, 276 unmapped records,
+and 92 pending upstream commits. Splitting the containing unmapped interval
+increases its count by one while mapping 3,072 previously unmapped bytes.
+This is not a passing strict audit or a product parity claim.
