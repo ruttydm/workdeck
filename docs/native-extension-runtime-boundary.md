@@ -10,7 +10,7 @@ extension is one compiled executable selected by `workdeck-extension.toml`. The 
 manifest and its working directory to canonical identities, selects exactly the relative executable
 named by the manifest (with only the platform executable suffix as a fallback), and starts it as a
 subprocess. JavaScript and TypeScript files, `package.json`, `node_modules`, and source-language
-imports are not consulted during discovery or process startup.
+imports are not consulted during discovery or process startup, and are never executed by Workdeck.
 
 The subprocess links the `workdeck-extension-api` Rust crate at compile time and negotiates API v1
 at runtime. Provider-neutral values cross newline-delimited JSON-RPC as owned Serde data, so there

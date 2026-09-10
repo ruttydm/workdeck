@@ -12,6 +12,18 @@ const FIXTURES: [&str; 2] = [
     "port/hunk/oracles/highlighter-registration-reorder.json",
     "port/hunk/oracles/highlighter-registration-removal.json",
 ];
+const COMPILED_FIXTURES: [(&str, usize, &str); 2] = [
+    (
+        "test/cli/fixtures/compiled-highlight-worker-control.ts",
+        1333,
+        "crates/workdeck-tui/src/highlighted_diff_runtime.rs",
+    ),
+    (
+        "test/cli/fixtures/compiled-opentui-positive-control.ts",
+        97,
+        "docs/native-extension-runtime-boundary.md",
+    ),
+];
 
 fn validate(value: &Value, mut blob: impl FnMut(&str, &str) -> Result<String>) -> Result<()> {
     for field in ["runtime", "capture"] {
@@ -67,6 +79,58 @@ pub(super) fn verify(repo: &Path, baseline: &str) -> Result<()> {
             )
         })
         .with_context(|| format!("invalid oracle provenance: {path}"))?;
+    }
+    verify_compiled_fixtures(repo)?;
+    Ok(())
+}
+
+fn verify_compiled_fixtures(repo: &Path) -> Result<()> {
+    for (path, expected_bytes, destination) in COMPILED_FIXTURES {
+        let source = crate::git_stdout_bytes(repo, ["show", &format!("{}:{path}", PINS[0])])?;
+        ensure!(
+            source.len() == expected_bytes,
+            "pinned compiled fixture {path} changed size"
+        );
+        let text = std::str::from_utf8(&source)?;
+        match path {
+            "test/cli/fixtures/compiled-highlight-worker-control.ts" => {
+                for marker in [
+                    "supportsHighlightWorkerOffload",
+                    "worker.postMessage({ version: 0, id: 1 })",
+                    "response.version !== 3",
+                    "compiled highlight worker ready",
+                ] {
+                    ensure!(
+                        text.contains(marker),
+                        "compiled worker fixture lost {marker}"
+                    );
+                }
+                let native = std::fs::read_to_string(repo.join(destination))?;
+                for marker in [
+                    "prefetch_highlighted_diff_shared",
+                    "highlight_with_syntax_theme_live",
+                    "inline_is_default_and_worker_offload_requires_explicit_request",
+                ] {
+                    ensure!(
+                        native.contains(marker),
+                        "native worker replacement lost {marker}"
+                    );
+                }
+            }
+            "test/cli/fixtures/compiled-opentui-positive-control.ts" => {
+                ensure!(
+                    text == "import { RGBA } from \"@opentui/core\";\n\nprocess.stdout.write(RGBA.fromHex(\"#ffffff\").toString());\n",
+                    "OpenTUI positive-control fixture changed"
+                );
+                let native = std::fs::read_to_string(repo.join(destination))?;
+                ensure!(
+                    native.contains("JavaScript and TypeScript files")
+                        && native.contains("never executed"),
+                    "OpenTUI positive-control replacement boundary is undocumented"
+                );
+            }
+            other => ensure!(false, "unknown compiled fixture {other}"),
+        }
     }
     Ok(())
 }
@@ -130,5 +194,11 @@ mod tests {
                 assert!(validate(&changed, resolve).is_err());
             }
         }
+    }
+
+    #[test]
+    fn compiled_cli_fixtures_have_native_worker_or_boundary_replacements() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        verify_compiled_fixtures(repo).unwrap();
     }
 }
