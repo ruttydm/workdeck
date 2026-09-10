@@ -2789,6 +2789,118 @@ mod tests {
     }
 
     #[test]
+    fn disabling_all_highlighters_retires_cached_and_pending_results_before_reenable() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let release_rx = Mutex::new(release_rx);
+        let first_slow = AtomicBool::new(true);
+        let runtime = FakeLineHighlightRuntime::new(move |_, file, _| {
+            if file.runtime_id == "slow" && first_slow.swap(false, Ordering::SeqCst) {
+                started_tx.send(()).unwrap();
+                release_rx
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(10))
+                    .unwrap();
+                return Ok(one_mark("warning"));
+            }
+            Ok(json!([{ "side": "new", "line": 1, "range": [0, 2], "tone": "match" }]))
+        });
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("toggleable")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [
+            test_file("quick", "quick-content"),
+            test_file("slow", "slow-content"),
+        ];
+        let mut controller = LineHighlightPreparationController::default();
+        controller.reconcile(&extensions, &registrations, &epochs, &files);
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            &files,
+            |controller| controller.resolved().get("quick").is_some(),
+        );
+        assert!(controller.resolved().get("slow").is_none());
+        let pending = controller.pending.values().cloned().collect::<Vec<_>>();
+        assert_eq!(pending.len(), 1);
+
+        controller.reconcile(&extensions, &[], &epochs, &files);
+        assert!(controller.resolved().is_empty());
+        assert!(controller.cache.is_empty());
+        assert!(controller.merged.is_empty());
+        assert!(controller.deadlines.is_empty());
+        assert!(controller.attempt_deadlines.is_empty());
+        assert_eq!(controller.pending_count(), 0);
+        assert!(pending[0].is_cancelled());
+
+        release_tx.send(()).unwrap();
+        // Observe actual worker completion, then put it back in the publication
+        // queue. Re-enabling the same registration must reject this retired result.
+        let completion = controller
+            .receiver
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        assert!(completion.cancelled_before_completion);
+        controller.sender.send(completion).unwrap();
+        reconcile_until(
+            &mut controller,
+            &extensions,
+            &registrations,
+            &epochs,
+            &files,
+            |controller| controller.resolved().len() == 2 && controller.pending_count() == 0,
+        );
+        for file in &files {
+            assert_eq!(
+                controller.resolved().get(&file.runtime_id).unwrap()[0].end,
+                2
+            );
+            assert_eq!(
+                runtime
+                    .calls()
+                    .iter()
+                    .filter(|(_, id)| id == &file.runtime_id)
+                    .count(),
+                2
+            );
+        }
+        assert!(runtime.warnings().is_empty());
+    }
+
+    #[test]
+    fn disabling_highlighters_retains_registration_scoped_warning_history() {
+        let runtime = FakeLineHighlightRuntime::new(|_, _, _| {
+            Err(LineHighlightRuntimeError::Failed(
+                "deliberate failure".into(),
+            ))
+        });
+        let extensions = runtime_list(&runtime);
+        let registrations = [registration("failing")];
+        let epochs = workdeck_extension_host::LineHighlightEpochState::default();
+        let files = [test_file("file", "content")];
+        let mut controller = LineHighlightPreparationController::default();
+        for count in 1..=2 {
+            reconcile_until(
+                &mut controller,
+                &extensions,
+                &registrations,
+                &epochs,
+                &files,
+                |controller| controller.pending_count() == 0,
+            );
+            assert_eq!(runtime.calls().len(), count);
+            assert_eq!(runtime.warnings().len(), 1);
+            controller.reconcile(&extensions, &[], &epochs, &files);
+            assert!(controller.cache.is_empty());
+            assert_eq!(controller.reported_issues.len(), 1);
+        }
+    }
+
+    #[test]
     fn preparation_runs_four_files_but_orders_highlighters_within_each_file() {
         let (started_tx, started_rx) = mpsc::channel();
         let (release_tx, release_rx) = mpsc::channel();

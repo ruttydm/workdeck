@@ -1,6 +1,15 @@
 {
   "id": "2c00f4358b89:src/ui/highlights/useLineHighlights.ts:0-16054",
   "reason": "Full cache lifecycle parity is not established; prior mapping reopened. These paths are progress references, not a completed mapping.",
+  "allRegistrationsDisabledRegression": {
+    "tests": [
+      "line_highlights::tests::disabling_all_highlighters_retires_cached_and_pending_results_before_reenable",
+      "line_highlights::tests::disabling_highlighters_retains_registration_scoped_warning_history"
+    ],
+    "behavior": "An empty registration list clears marks and cached derivations, cancels queued work, and retires deadlines. Re-enabling the same registration reruns both completed and previously blocked files without accepting the retired completion. Warning deduplication remains scoped to the original registration across absence.",
+    "evidenceType": "Native executable lifecycle tests informed by the pinned hook; not a new dual-baseline runtime oracle.",
+    "validation": "All 1259 workdeck-tui library tests passed with zero ignored; workdeck-tui all-targets Clippy with denied warnings passed."
+  },
   "postDeferredProjectionValidation": {
     "commit": "0fb2296a",
     "command": "CARGO_INCREMENTAL=0 cargo test -p workdeck-examples --test line_highlighter",

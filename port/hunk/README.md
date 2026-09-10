@@ -1,5 +1,20 @@
 # Hunk semantic-port ledger
 
+## Disabling and re-enabling line highlighters
+
+Two native lifecycle tests now cover the pinned hook's empty-registration path.
+One combines a published quick-file result with a blocked worker, disables every
+registration, and verifies immediate mark/cache/deadline retirement and request
+cancellation. It observes the worker's actual completion before re-enabling the
+same registration and verifies that both files rerun without accepting the stale
+result. The other verifies that registration-scoped warning history survives
+temporary absence. Existing runtime behavior passed without an implementation
+change. All 1,259 TUI library tests and scoped all-targets Clippy passed.
+
+This is supplemental native evidence, not a dual-pin oracle capture. The complete
+`useLineHighlights.ts` interval remains unmapped; see
+[work-in-progress contracts](highlighter-work-in-progress.json).
+
 ## Stale source rejection is observable without state restoration
 
 The adjacent stale-rejection regression is translated with controlled failure
