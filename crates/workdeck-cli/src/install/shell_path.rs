@@ -31,7 +31,9 @@ pub fn plan(
     let (path, line) = if let Some(path) = github {
         (PathBuf::from(path), bin.to_owned())
     } else {
-        let shell = configured("SHELL").map_or("sh", |s| s.rsplit('/').next().unwrap_or("sh"));
+        let shell = configured("SHELL").map_or("sh", |s| {
+            s.trim_end_matches('/').rsplit('/').next().unwrap_or("sh")
+        });
         let path = match shell {
             "zsh" => configured("ZDOTDIR")
                 .map_or_else(|| home.to_path_buf(), PathBuf::from)
@@ -129,6 +131,68 @@ mod tests {
             }
         }
         assert_eq!(std::fs::read_dir(home.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn zdotdir_and_bash_precedence_follow_source_without_creating_directories() {
+        let home = tempfile::tempdir().unwrap();
+        let redirected = home.path().join("other-zsh");
+        let env = BTreeMap::from([
+            ("SHELL".into(), "/bin/zsh".into()),
+            ("ZDOTDIR".into(), redirected.to_string_lossy().into_owned()),
+        ]);
+        let ShellPathPlan::Edit { path, .. } = plan("/app/bin", home.path(), &env, false).unwrap()
+        else {
+            panic!("expected edit")
+        };
+        assert_eq!(path, redirected.join(".zshrc"));
+        assert!(!redirected.exists());
+        let env = BTreeMap::from([("SHELL".into(), "/bin/bash///".into())]);
+        for (created, selected) in [
+            (None, ".bashrc"),
+            (Some(".profile"), ".profile"),
+            (Some(".bash_profile"), ".bash_profile"),
+            (Some(".bashrc"), ".bashrc"),
+        ] {
+            if let Some(created) = created {
+                std::fs::write(home.path().join(created), b"original").unwrap();
+            }
+            let ShellPathPlan::Edit { path, .. } =
+                plan("/app/bin", home.path(), &env, false).unwrap()
+            else {
+                panic!("expected edit")
+            };
+            assert_eq!(path, home.path().join(selected));
+        }
+    }
+
+    #[test]
+    fn github_path_keeps_duplicate_appends_and_empty_environment_falls_back() {
+        let home = tempfile::tempdir().unwrap();
+        let github = home.path().join("github-path");
+        std::fs::write(&github, b"/app/bin\n").unwrap();
+        let mut env =
+            BTreeMap::from([("GITHUB_PATH".into(), github.to_string_lossy().into_owned())]);
+        let ShellPathPlan::Edit {
+            replacement,
+            original,
+            ..
+        } = plan("/app/bin", home.path(), &env, false).unwrap()
+        else {
+            panic!("expected append")
+        };
+        assert_eq!(original, Some(b"/app/bin\n".to_vec()));
+        assert_eq!(replacement, b"/app/bin\n/app/bin\n");
+        assert_eq!(std::fs::read(&github).unwrap(), b"/app/bin\n");
+        env.insert("GITHUB_PATH".into(), String::new());
+        env.insert("SHELL".into(), "/bin/zsh".into());
+        env.insert("ZDOTDIR".into(), String::new());
+        let ShellPathPlan::Edit { path, .. } = plan("/app/bin", home.path(), &env, false).unwrap()
+        else {
+            panic!("expected profile")
+        };
+        assert_eq!(path, home.path().join(".zshrc"));
+        assert!(!path.exists());
     }
 
     #[test]

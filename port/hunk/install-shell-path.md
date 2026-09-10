@@ -17,3 +17,10 @@ Two native tests pass across shell selection, quoting, binary original content,
 GitHub Actions, no-modify precedence and substring idempotence. Transactional
 profile application, backups, end-to-end shell startup execution and full source
 diagnostic parity remain open. No installer interval is mapped complete.
+
+Expanded tests cover redirected and empty `ZDOTDIR`, Bash's complete startup-file
+precedence, missing-profile defaults and duplicate GitHub Actions appends. Shell
+selection now strips trailing slashes before selecting the basename, matching
+the pinned `basename "$SHELL"` behavior; `/bin/bash///` selects Bash rather than
+falling through to `.profile`. Four native PATH-planner tests pass without writing
+the proposed edits or creating the redirected zsh directory.
