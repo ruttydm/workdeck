@@ -1131,6 +1131,61 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn session_clear_alpha_human_notes_requires_explicit_opt_in() {
+        let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
+        let comment = |summary: &str| workdeck_session::CommentToolInput {
+            target_session: Default::default(),
+            target: workdeck_session::CommentTargetInput {
+                file_path: "alpha.ts".into(),
+                hunk_index: Some(0),
+                side: None,
+                line: None,
+                summary: summary.into(),
+                rationale: None,
+                markup: None,
+                author: None,
+            },
+            reveal: None,
+        };
+        app.session_add_live_comment(&comment("Agent cleanup note"), "comment-1", false)
+            .unwrap();
+        app.open_note_composer();
+        app.note_composer.as_mut().unwrap().body = "Human cleanup note.".into();
+        app.save_note_composer();
+        let removed = app.session_remove_live_comment("comment-1").unwrap();
+        assert_eq!(removed.comment_id, "comment-1");
+        assert!(removed.removed);
+        assert_eq!(removed.remaining_comment_count, 1);
+        assert_eq!(serde_json::to_value(removed.source).unwrap(), "agent");
+        assert!(app.session_live_comment_summaries().is_empty());
+        let human = app.with_state(|state| {
+            assert_eq!(state.comments().len(), 1);
+            assert_eq!(state.comments()[0].summary, "Human cleanup note.");
+            state.comments()[0].clone()
+        });
+        app.session_add_live_comment(&comment("Default clear agent note"), "comment-2", false)
+            .unwrap();
+        let cleared = app.session_clear_live_comments(None, None).unwrap();
+        assert_eq!(cleared.removed_count, 1);
+        assert_eq!(cleared.remaining_comment_count, 1);
+        assert_eq!(cleared.removed_live_comment_count, Some(1));
+        assert_eq!(cleared.removed_user_note_count, Some(0));
+        assert_eq!(cleared.remaining_user_note_count, Some(1));
+        assert!(app.session_live_comment_summaries().is_empty());
+        app.with_state(|state| assert_eq!(state.comments(), &[human]));
+        app.session_add_live_comment(&comment("Inclusive clear agent note"), "comment-3", false)
+            .unwrap();
+        let cleared = app.session_clear_live_comments(None, Some(true)).unwrap();
+        assert_eq!(cleared.removed_count, 2);
+        assert_eq!(cleared.remaining_comment_count, 0);
+        assert_eq!(cleared.removed_live_comment_count, Some(1));
+        assert_eq!(cleared.removed_user_note_count, Some(1));
+        assert!(app.session_live_comment_summaries().is_empty());
+        assert!(app.with_state(|state| state.comments().is_empty()));
+        assert!(app.session_review_note_summaries().is_empty());
+    }
+
+    #[test]
     fn duplicate_alpha_draft_save_persists_once_and_next_draft_has_unique_id() {
         let mut review = pinned_alpha_source_review(800);
         review.files[0].set_source_capability(None);
