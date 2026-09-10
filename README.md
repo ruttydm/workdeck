@@ -92,6 +92,13 @@ terminal-background selection, and legacy syntax-scope migration.
 See [Contributing](CONTRIBUTING.md) for bug reports, proposals, development,
 extension boundaries, and review evidence.
 
+On a fresh checkout, fetch the preserved upstream evidence before running tests
+that verify complete source artifacts. This updates local refs, not upstream:
+
+```sh
+cargo xtask port fetch
+```
+
 ```sh
 cargo fmt --all --check
 cargo test --locked --workspace --all-targets

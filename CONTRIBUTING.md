@@ -83,7 +83,7 @@ cargo build --locked -p workdeck-cli --bin workdeck
 cargo run --locked -p workdeck-cli --bin workdeck -- diff
 ```
 
-Nix users can run `nix develop` to enter the development shell.
+Nix users can run `nix develop` or use [direnv](https://direnv.net/) to enter the development shell.
 
 ## Show UI changes
 

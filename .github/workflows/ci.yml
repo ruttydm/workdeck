@@ -60,11 +60,12 @@ jobs:
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: cargo fmt --all --check
 
+      - name: Fetch pinned upstream evidence for native tests
+        run: cargo xtask port fetch
+
       - name: Validate Hunk ledger structure
         if: matrix.target == 'x86_64-unknown-linux-gnu'
-        run: |
-          cargo xtask port fetch
-          cargo xtask port audit --allow-incomplete
+        run: cargo xtask port audit --allow-incomplete
 
       - name: Install Zola
         if: matrix.target == 'x86_64-unknown-linux-gnu'

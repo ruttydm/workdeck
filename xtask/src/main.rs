@@ -17,6 +17,7 @@ mod benchmark;
 mod changelog;
 mod ci_changes;
 mod ci_host;
+mod contributor_guide;
 mod extension_catalog;
 mod install;
 mod install_oracle;

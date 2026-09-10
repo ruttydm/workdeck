@@ -3,7 +3,8 @@ use anyhow::{Context, Result, ensure};
 use std::{fs, path::Path};
 
 const BASELINE: &str = "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2";
-const FILES: [&str; 3] = [
+const FILES: [&str; 4] = [
+    "CONTRIBUTING.md",
     ".github/ISSUE_TEMPLATE/bug.yml",
     ".github/ISSUE_TEMPLATE/contribution.yml",
     ".github/dependabot.yml",
@@ -64,13 +65,16 @@ fn retain_update_policy(source: &str) -> Result<String> {
 }
 
 pub(crate) fn run(repo: &Path, generate: bool) -> Result<()> {
-    ensure!(
-        repo.join("CONTRIBUTING.md").is_file(),
-        "contribution guide is missing"
-    );
     for relative in FILES {
-        let source = crate::git_stdout(repo, ["show", &format!("{BASELINE}:{relative}")])?;
-        let expected = if relative == ".github/dependabot.yml" {
+        let source = String::from_utf8(crate::git_stdout_bytes(
+            repo,
+            ["show", &format!("{BASELINE}:{relative}")],
+        )?)?;
+        let expected = if relative == "CONTRIBUTING.md" {
+            let guide = crate::contributor_guide::render(&source)?;
+            crate::contributor_guide::check_links(repo, &guide)?;
+            guide
+        } else if relative == ".github/dependabot.yml" {
             retain_update_policy(&source)?
         } else {
             adapt(&source)?
@@ -111,6 +115,33 @@ pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checked_in_artifacts_match_raw_blobs_including_final_newlines() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        for (relative, expected_bytes) in FILES.into_iter().zip([8682, 1152, 978, 256]) {
+            let bytes =
+                crate::git_stdout_bytes(repo, ["show", &format!("{BASELINE}:{relative}")]).unwrap();
+            assert_eq!(bytes.len(), expected_bytes, "{relative}");
+            assert!(bytes.ends_with(b"\n"), "source final newline: {relative}");
+            let source = String::from_utf8(bytes).unwrap();
+            let expected = match relative {
+                "CONTRIBUTING.md" => crate::contributor_guide::render(&source).unwrap(),
+                ".github/dependabot.yml" => retain_update_policy(&source).unwrap(),
+                _ => adapt(&source).unwrap(),
+            };
+            let actual = fs::read(repo.join(relative)).unwrap();
+            assert!(
+                actual.ends_with(b"\n"),
+                "generated final newline: {relative}"
+            );
+            assert_eq!(
+                actual,
+                expected.as_bytes(),
+                "whole raw artifact: {relative}"
+            );
+        }
+    }
 
     #[test]
     fn dependency_policy_preserves_all_bytes_and_rejects_semantic_drift() {

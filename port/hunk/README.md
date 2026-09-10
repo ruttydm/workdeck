@@ -6,9 +6,11 @@ The complete bug and contribution-proposal templates are generated from their
 pinned source blobs with explicit Workdeck substitutions and MIT notices. The
 GitHub Actions dependency-update policy is retained without semantic changes.
 `cargo xtask repository-forms check` compares their complete bytes and is invoked
-by strict audit and workspace verification. The three whole-file mappings cover
-2,386 source bytes; the contributor guide and upstream contact configuration
-remain unmapped. See [mapping and verification](repository-forms.md).
+by strict audit and workspace verification. The contributor guide is also fully
+reproduced through counted native adaptations and local-link checks. Four
+whole-file mappings cover 11,068 source bytes; the upstream contact configuration
+remains unmapped. Raw blob reads now preserve final newlines that the earlier
+trimmed-text helper lost. See [mapping and verification](repository-forms.md).
 
 ## Highlighter oracle metadata is enforced
 
