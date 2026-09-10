@@ -520,6 +520,63 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn alpha_gap_reports_too_large_source_status() {
+        struct TooLargeLoader;
+        impl ReviewSourceLoader for TooLargeLoader {
+            fn get_full_text(
+                &self,
+                _: &DiffFile,
+                _: ReviewSide,
+            ) -> std::result::Result<Option<String>, ReviewSourceLoadError> {
+                Err(ReviewSourceLoadError::TooLarge)
+            }
+        }
+        let review = pinned_alpha_source_review(800);
+        let file = review.files[0].clone();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        assert!(app.install_source_loader(&file.key, Arc::new(TooLargeLoader)));
+        app.toggle_source_gap_for_file(&file.key, 0).unwrap();
+        drain_one(&mut app);
+        assert_eq!(
+            app.options.source_presentation.status(&file),
+            Some(&workdeck_review::ReviewSourceStatus::Error {
+                reason: Some(workdeck_review::ReviewSourceErrorReason::TooLarge),
+            })
+        );
+    }
+
+    #[test]
+    fn alpha_gap_reopening_reuses_first_read() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct CountingLoader(AtomicUsize);
+        impl ReviewSourceLoader for CountingLoader {
+            fn get_full_text(
+                &self,
+                _: &DiffFile,
+                side: ReviewSide,
+            ) -> std::result::Result<Option<String>, ReviewSourceLoadError> {
+                let count = self.0.fetch_add(1, Ordering::SeqCst) + 1;
+                Ok((side == ReviewSide::New).then(|| format!("read-{count}\n")))
+            }
+        }
+        let review = pinned_alpha_source_review(800);
+        let file = review.files[0].clone();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        let loader = Arc::new(CountingLoader(AtomicUsize::new(0)));
+        assert!(app.install_source_loader(&file.key, loader.clone()));
+        app.toggle_source_gap_for_file(&file.key, 0).unwrap();
+        drain_one(&mut app);
+        let first_calls = loader.0.load(Ordering::SeqCst);
+        app.toggle_source_gap_for_file(&file.key, 0).unwrap();
+        app.toggle_source_gap_for_file(&file.key, 0).unwrap();
+        assert!(matches!(
+            app.options.source_presentation.status(&file),
+            Some(workdeck_review::ReviewSourceStatus::Loaded { text }) if text == "read-1\n"
+        ));
+        assert_eq!(loader.0.load(Ordering::SeqCst), first_calls);
+    }
+
+    #[test]
     fn alpha_gap_without_reader_does_not_expand_or_load() {
         let mut review = pinned_alpha_source_review(800);
         review.files[0].set_source_capability(None);
