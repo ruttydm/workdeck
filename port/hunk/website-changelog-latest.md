@@ -19,10 +19,22 @@ beta alongside stable, empty/raw taglines and a truncated editorial summary.
 
 This command implements an artifact component, not the complete site pipeline.
 Full artifact output orchestration, source-format JSON layout, social-card head
-integration, CLI integration tests and Zola rendering remain open. No ledger
+integration and Zola rendering remain open. No ledger
 mapping changes. MIT attribution is retained in the Rust module and
 `THIRD_PARTY_NOTICES`.
 
 Validation: all twelve frozen artifact comparisons pass. Strict xtask Clippy,
 workspace formatting and diff whitespace checks pass. These focused results do
 not establish the full artifact-generation or release gates.
+
+## CLI integration
+
+The native temporary-repository test exercises all six main artifact fixtures
+through the real CLI with Workdeck branding, then checks that omitting notes
+returns the exact captured fallback summary. It checks missing/extra arguments,
+missing inputs, malformed JSON and invalid date/tagline types. Successful reads
+preserve all input bytes; errors emit no stdout. The final directory inventory
+contains only Git and the three inputs, with no generated site or Workdeck state.
+
+All 15 changelog CLI tests pass. Strict xtask Clippy, formatting and diff whitespace
+checks pass. No additional source interval is claimed complete by these checks.

@@ -11,6 +11,136 @@ fn run(repo: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
+fn latest_cli_matches_artifacts_and_preserves_inputs() {
+    let repo = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../port/hunk/website-changelog-latest-oracle.json"
+    ))
+    .unwrap();
+    for case in fixture["results"][0]["cases"].as_array().unwrap() {
+        let inputs = [
+            ("history.md", case["input"].as_str().unwrap().to_owned()),
+            ("dates.json", case["dates"].to_string()),
+            ("notes.json", case["notes"].to_string()),
+        ];
+        for (path, contents) in &inputs {
+            std::fs::write(repo.path().join(path), contents).unwrap();
+        }
+        let output = run(
+            repo.path(),
+            &[
+                "changelog",
+                "latest",
+                "history.md",
+                "dates.json",
+                "notes.json",
+            ],
+        );
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stderr.is_empty());
+        let mut expected = case["expected"].clone();
+        if let Some(summary) = expected.get_mut("summary") {
+            *summary = summary.as_str().unwrap().replace("Hunk", "Workdeck").into();
+        }
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap(),
+            expected
+        );
+        for (path, contents) in &inputs {
+            assert_eq!(
+                std::fs::read_to_string(repo.path().join(path)).unwrap(),
+                *contents
+            );
+        }
+    }
+    let output = run(
+        repo.path(),
+        &["changelog", "latest", "history.md", "dates.json"],
+    );
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let latest: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(latest["version"], "1.1.0");
+    assert_eq!(
+        latest["summary"],
+        fixture["results"][0]["cases"][2]["expected"]["summary"]
+            .as_str()
+            .unwrap()
+            .replace("Hunk", "Workdeck")
+    );
+    for args in [
+        vec!["changelog", "latest"],
+        vec!["changelog", "latest", "history.md"],
+        vec!["changelog", "latest", "missing.md", "dates.json"],
+        vec!["changelog", "latest", "history.md", "missing.json"],
+        vec![
+            "changelog",
+            "latest",
+            "history.md",
+            "dates.json",
+            "missing.json",
+        ],
+        vec![
+            "changelog",
+            "latest",
+            "history.md",
+            "dates.json",
+            "notes.json",
+            "extra",
+        ],
+    ] {
+        let output = run(repo.path(), &args);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+    }
+    for (path, invalid) in [
+        ("dates.json", "{broken"),
+        ("dates.json", r#"{"1.1.0":42}"#),
+        ("notes.json", r#"{"1.1":{"tagline":42}}"#),
+        ("notes.json", "[]"),
+    ] {
+        std::fs::write(repo.path().join("dates.json"), "{}").unwrap();
+        std::fs::write(repo.path().join(path), invalid).unwrap();
+        let output = run(
+            repo.path(),
+            &[
+                "changelog",
+                "latest",
+                "history.md",
+                "dates.json",
+                "notes.json",
+            ],
+        );
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+        assert_eq!(
+            std::fs::read_to_string(repo.path().join(path)).unwrap(),
+            invalid
+        );
+    }
+    let mut entries = std::fs::read_dir(repo.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect::<Vec<_>>();
+    entries.sort();
+    assert_eq!(entries, [".git", "dates.json", "history.md", "notes.json"]);
+}
+
+#[test]
 fn index_cli_matches_pinned_body_without_writing_state() {
     let repo = tempfile::tempdir().unwrap();
     assert!(
