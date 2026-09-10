@@ -5,6 +5,70 @@ use std::time::Instant;
 
 use serde_json::json;
 
+#[test]
+fn native_release_http_preserves_status_headers_and_rejects_invalid_or_large_bodies() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+    for (status, body, valid) in [
+        (200, br#"{"tag_name":"v1.0.0"}"#.to_vec(), true),
+        (503, b"unavailable".to_vec(), true),
+        (200, vec![0xff], false),
+        (200, vec![b'x'; 1024 * 1024 + 1], false),
+    ] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let expected_body = body.clone();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            socket
+                .set_write_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = BufReader::new(socket.try_clone().unwrap());
+            let mut headers = String::new();
+            loop {
+                let mut line = String::new();
+                assert!(reader.read_line(&mut line).unwrap() > 0);
+                if line == "\r\n" {
+                    break;
+                }
+                headers.push_str(&line);
+            }
+            assert!(headers.starts_with("GET /release HTTP/1.1"));
+            assert!(
+                headers
+                    .to_ascii_lowercase()
+                    .contains("x-workdeck-test: native")
+            );
+            write!(
+                socket,
+                "HTTP/1.1 {status} Response\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            )
+            .unwrap();
+            let _ = socket.write_all(&body);
+        });
+        let result = NativeReleaseFetcher.fetch(
+            &ReleaseRequest {
+                url: format!("http://{address}/release"),
+                headers: BTreeMap::from([("X-Workdeck-Test".into(), "native".into())]),
+                timeout: Duration::from_secs(5),
+            },
+            &AtomicBool::new(false),
+        );
+        server.join().unwrap();
+        if valid {
+            let response = result.unwrap();
+            assert_eq!(response.status, status);
+            assert_eq!(response.body.as_bytes(), expected_body);
+        } else {
+            assert!(result.is_err());
+        }
+    }
+}
+
 fn env(entries: &[(&str, &str)]) -> BTreeMap<String, String> {
     entries
         .iter()

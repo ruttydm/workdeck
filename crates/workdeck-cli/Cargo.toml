@@ -15,6 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0"
+ureq = { version = "3.4", default-features = false, features = ["rustls"] }
 flate2 = "1.1"
 rustix = { version = "1.1", features = ["fs"] }
 sha2 = "0.10"

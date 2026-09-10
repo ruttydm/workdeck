@@ -264,7 +264,7 @@ pub struct ReleaseLookup {
 impl Default for ReleaseLookup {
     fn default() -> Self {
         Self {
-            fetcher: Arc::new(CommandReleaseFetcher),
+            fetcher: Arc::new(NativeReleaseFetcher),
             timeout: DEFAULT_RELEASE_FETCH_TIMEOUT,
         }
     }
@@ -372,9 +372,9 @@ pub fn fetch_channel_versions(
     }
 }
 
-struct CommandReleaseFetcher;
+struct NativeReleaseFetcher;
 
-impl ReleaseFetcher for CommandReleaseFetcher {
+impl ReleaseFetcher for NativeReleaseFetcher {
     fn fetch(
         &self,
         request: &ReleaseRequest,
@@ -383,44 +383,35 @@ impl ReleaseFetcher for CommandReleaseFetcher {
         if cancelled.load(Ordering::Acquire) {
             return Err("release lookup cancelled".into());
         }
-        let output = if cfg!(windows) {
-            let mut command = Command::new("powershell.exe");
-            let headers = request
-                .headers
-                .iter()
-                .map(|(key, value)| format!("'{key}'='{value}'"))
-                .collect::<Vec<_>>()
-                .join(";");
-            let script = format!(
-                "$h=@{{{headers}}}; (Invoke-WebRequest -UseBasicParsing -TimeoutSec {} -Headers $h -Uri '{}').Content",
-                request.timeout.as_secs().max(1),
-                request.url.replace('\'', "''")
-            );
-            command
-                .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-                .output()
-        } else {
-            let mut command = Command::new("curl");
-            command.args([
-                "--fail",
-                "--silent",
-                "--show-error",
-                "--location",
-                "--max-time",
-                &request.timeout.as_secs().max(1).to_string(),
-            ]);
-            for (key, value) in &request.headers {
-                command.args(["--header", &format!("{key}: {value}")]);
-            }
-            command.arg(&request.url).output()
+        if request.timeout.is_zero() {
+            return Err("release lookup deadline exceeded".into());
         }
-        .map_err(|error| error.to_string())?;
-        if !output.status.success() {
-            return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_global(Some(request.timeout))
+            .http_status_as_error(false)
+            .max_redirects(10)
+            .build()
+            .into();
+        let mut outgoing = agent
+            .get(&request.url)
+            .header("User-Agent", "workdeck-update");
+        for (key, value) in &request.headers {
+            outgoing = outgoing.header(key, value);
+        }
+        let mut response = outgoing.call().map_err(|error| error.to_string())?;
+        let status = response.status().as_u16();
+        let bytes = response
+            .body_mut()
+            .with_config()
+            .limit(1024 * 1024)
+            .read_to_vec()
+            .map_err(|error| error.to_string())?;
+        if cancelled.load(Ordering::Acquire) {
+            return Err("release lookup cancelled".into());
         }
         Ok(ReleaseResponse {
-            status: 200,
-            body: String::from_utf8(output.stdout).map_err(|error| error.to_string())?,
+            status,
+            body: String::from_utf8(bytes).map_err(|error| error.to_string())?,
         })
     }
 }
