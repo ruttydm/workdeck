@@ -26,6 +26,18 @@ fn error(code: Option<&str>, message: &str) -> WatchSourceError {
 }
 
 #[test]
+fn readiness_check_can_refresh_without_an_event_pending_notification() {
+    let now = Instant::now();
+    let mut controller = controller(now);
+    let ready = controller.on_source_ready(now);
+    assert!(ready.check_signature);
+    assert!(!ready.reload_pending);
+    let changed = controller.finish_signature(now, Ok("changed".into()));
+    assert!(changed.refresh);
+    assert!(!changed.reload_pending);
+}
+
+#[test]
 fn debounces_a_hint_without_a_recurring_timer() {
     let now = Instant::now();
     let mut controller = controller(now);
