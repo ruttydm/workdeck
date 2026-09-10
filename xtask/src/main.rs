@@ -461,7 +461,10 @@ fn site(command: Option<&str>) -> Result<()> {
             );
             Ok(())
         }
-        Some("serve") => run_checked(&site, "zola", &["serve"]),
+        Some("serve") => {
+            site_assets::sbom(&repo)?;
+            run_checked(&site, "zola", &["serve"])
+        }
         _ => bail!("site requires build, check, or serve"),
     }
 }

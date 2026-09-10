@@ -428,3 +428,9 @@ Those remaining header/footer capabilities are not waived and their source
 records remain unmapped. Site validation checks the built header controls,
 active-page attribute and home install target; broader interaction and viewport
 testing remain necessary.
+
+`site serve` now shares the build/check asset gate. The CLI regression passes
+for all three commands with a changed font, before any site server or build
+starts. Six site-asset unit tests pass, including duplicate inventory paths and
+a symlinked static-directory parent; the latter preserves the external file.
+These path checks are not a sandbox against concurrent parent replacement.

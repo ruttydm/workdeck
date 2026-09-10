@@ -23,7 +23,7 @@ fn site_commands_reject_changed_assets_before_starting_zola() {
         .path()
         .join("site/static/fonts/jetbrains-mono-latin-wght-normal.woff2");
     fs::write(&font, b"changed asset").unwrap();
-    for subcommand in ["build", "check"] {
+    for subcommand in ["build", "check", "serve"] {
         let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
             .current_dir(repo.path())
             .args(["site", subcommand])

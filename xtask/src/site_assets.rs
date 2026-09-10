@@ -90,6 +90,49 @@ pub(super) fn run(repo: &Path, args: impl Iterator<Item = String>) -> Result<()>
 mod tests {
     use super::*;
     #[test]
+    fn duplicate_asset_paths_are_rejected() {
+        let repo = tempfile::tempdir().unwrap();
+        fs::create_dir_all(repo.path().join("site/data")).unwrap();
+        fs::create_dir_all(repo.path().join("site/static")).unwrap();
+        fs::write(repo.path().join("site/static/asset"), b"asset").unwrap();
+        let file = serde_json::json!({"path":"site/static/asset", "sha256":format!("{:x}", Sha256::digest(b"asset"))});
+        let inventory = serde_json::json!([{"name":"fixture", "version":"1", "license":"MIT", "source":"https://example.invalid/asset", "archiveIntegrity":"fixture", "files":[file.clone(), file]}]);
+        fs::write(
+            repo.path().join("site/data/third-party-assets.json"),
+            serde_json::to_vec(&inventory).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            sbom(repo.path())
+                .unwrap_err()
+                .to_string()
+                .contains("duplicate website asset path")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_asset_parents_are_rejected_without_following_them() {
+        let repo = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::create_dir_all(repo.path().join("site/data")).unwrap();
+        fs::write(outside.path().join("asset"), b"outside").unwrap();
+        std::os::unix::fs::symlink(outside.path(), repo.path().join("site/static")).unwrap();
+        let inventory = serde_json::json!([{"name":"fixture", "version":"1", "license":"MIT", "source":"https://example.invalid/asset", "archiveIntegrity":"fixture", "files":[{"path":"site/static/asset", "sha256":format!("{:x}",Sha256::digest(b"outside"))}]}]);
+        fs::write(
+            repo.path().join("site/data/third-party-assets.json"),
+            serde_json::to_vec(&inventory).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            sbom(repo.path())
+                .unwrap_err()
+                .to_string()
+                .contains("symlink")
+        );
+        assert_eq!(fs::read(outside.path().join("asset")).unwrap(), b"outside");
+    }
+    #[test]
     fn shared_brand_styles_preserve_pinned_main_after_explicit_migration() {
         let repo = crate::repo_root().unwrap();
         let actual = fs::read_to_string(repo.join("site/static/brand.css")).unwrap();
