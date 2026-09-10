@@ -29,6 +29,7 @@ mod release_notes;
 mod release_status;
 mod review_conformance;
 mod site_assets;
+mod site_markdown;
 mod skill;
 mod social_cards;
 mod term_video;
@@ -385,10 +386,18 @@ fn site(command: Option<&str>) -> Result<()> {
     let repo = repo_root()?;
     let site = repo.join("site");
     match command {
+        Some("exports-plan") => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&site_markdown::plan(&repo)?)?
+            );
+            Ok(())
+        }
         Some("build") => {
             site_assets::sbom(&repo)?;
             skill::check_generated_skills(&repo)?;
-            run_checked(&site, "zola", &["build"])
+            run_checked(&site, "zola", &["build"])?;
+            site_markdown::emit(&repo, &site.join("public"))
         }
         Some("check") => {
             site_assets::sbom(&repo)?;
@@ -405,6 +414,7 @@ fn site(command: Option<&str>) -> Result<()> {
                     public.to_str().context("site output path is not UTF-8")?,
                 ],
             )?;
+            site_markdown::emit(&repo, &public)?;
             let html = fs::read_to_string(public.join("extensions/index.html"))?;
             ensure!(
                 html.contains("href=\"/#install\"")
