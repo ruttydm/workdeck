@@ -1,5 +1,20 @@
 # Bundled installer assets
 
+## GitHub Actions PATH append oracle
+
+The explicit oracle suite executes the exact `GITHUB_PATH` append statement
+extracted from both pinned installers. Thirty cases cover five literal bin paths
+and three original-file states (absent, text without a trailing newline, non-UTF-8),
+each invoked twice. Rust planning and actual recoverable application reproduce
+the source bytes after both writes, including duplicate appends and the lack of
+an inserted separator before existing unterminated text. Source statement stdout
+and stderr are empty and exit status is successful. The configured fish shell
+does not cause a profile to be created when `GITHUB_PATH` takes precedence.
+
+All four explicit installer oracle tests pass. This statement-level differential
+does not claim full installer output, GitHub-hosted workflow execution or a frozen
+Actions fixture; the source interval remains unmapped.
+
 ## Bash startup-file selection oracle
 
 The explicit installer oracle suite now includes all 27 combinations of absent,

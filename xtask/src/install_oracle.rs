@@ -96,6 +96,87 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "executes pinned GitHub Actions PATH append in temporary directories"]
+    fn github_path_append_matches_both_pins_including_repeated_invocations() {
+        use std::collections::BTreeMap;
+        use workdeck_cli::install::shell_path::{apply, plan};
+        let repo = crate::repo_root().unwrap();
+        for (pin, commit) in [
+            (
+                "hunk-port/main-2c00f435",
+                "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+            ),
+            (
+                "hunk-port/stable-v0.20.1",
+                "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+            ),
+        ] {
+            require_pin(&repo, pin, commit).unwrap();
+            let source = Command::new("git")
+                .current_dir(&repo)
+                .args(["show", &format!("{commit}:install.sh")])
+                .output()
+                .unwrap();
+            assert!(source.status.success());
+            let source = String::from_utf8(source.stdout).unwrap();
+            let append = source
+                .lines()
+                .find(|line| line.contains("printf '%s\\n' \"$bin_dir\" >>\"$GITHUB_PATH\""))
+                .expect("pinned Actions append statement");
+            let script = format!("set -eu\nbin_dir=$1\nGITHUB_PATH=$2\n{append}");
+            for bin in [
+                "/app/bin",
+                "/app/it's bin",
+                "/app/$PATH `literal`",
+                "/app/$(exit 91)",
+                "/app/line\nbreak",
+            ] {
+                for original in [None, Some(b"prior entry".to_vec()), Some(vec![255, 10])] {
+                    let home = tempfile::tempdir().unwrap();
+                    let source_path = home.path().join("source-path");
+                    let rust_path = home.path().join("rust-path");
+                    if let Some(bytes) = &original {
+                        std::fs::write(&source_path, bytes).unwrap();
+                        std::fs::write(&rust_path, bytes).unwrap();
+                    }
+                    let environment = BTreeMap::from([
+                        (
+                            "GITHUB_PATH".into(),
+                            rust_path.to_string_lossy().into_owned(),
+                        ),
+                        ("SHELL".into(), "fish".into()),
+                    ]);
+                    for invocation in 0..2 {
+                        let output = Command::new("/bin/sh")
+                            .env_clear()
+                            .args(["-c", &script, "oracle", bin])
+                            .arg(&source_path)
+                            .output()
+                            .unwrap();
+                        assert!(output.status.success());
+                        assert!(output.stdout.is_empty());
+                        assert!(output.stderr.is_empty());
+                        let planned = plan(bin, home.path(), &environment, false).unwrap();
+                        assert!(
+                            apply(
+                                &planned,
+                                &home.path().join(format!("recovery-{invocation}.json"))
+                            )
+                            .unwrap()
+                        );
+                        assert_eq!(
+                            std::fs::read(&source_path).unwrap(),
+                            std::fs::read(&rust_path).unwrap(),
+                            "{pin} {bin:?} run {invocation}"
+                        );
+                    }
+                    assert!(!home.path().join(".config").exists());
+                }
+            }
+        }
+    }
+
+    #[test]
     #[ignore = "executes pinned shell startup-file selection in temporary directories"]
     fn bash_startup_selection_matches_both_pins_for_files_directories_and_absence() {
         use std::collections::BTreeMap;
