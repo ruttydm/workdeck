@@ -1,5 +1,20 @@
 # Website changelog parser continuation
 
+## Verification after artifact checks and typed write plans
+
+On the unchanged `fb881ee8` implementation tree, `cargo test -p xtask --all-targets`
+passed 389 tests: 359 unit, 21 changelog CLI, seven catalog CLI, one workspace
+command and one real-PTY test. One existing oracle-capture test remains ignored.
+The unit suite completed in 38.32 seconds; this is test duration, not a parity
+benchmark. Strict xtask Clippy, workspace formatting and diff whitespace checks
+also passed.
+
+Strict port audit remains failing: 1,257 baseline files, 1,459 intervals,
+280 unmapped intervals and 92 pending commits on the existing upstream refs.
+These tests do not satisfy the full-workspace, native multi-platform, website
+rendering, signed release or same-host Hunk performance gates. Artifact write
+plans are implemented; application, backups and recovery are not yet connected.
+
 The renderers are now connected through a read-only
 [artifact composition command](website-changelog-artifacts.md). Writing and
 full artifact differential verification remain open.
