@@ -386,7 +386,8 @@ fn first_install_command_is_headless_and_rejects_invalid_versions_without_state(
         .args(["install", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("--destination"));
+        .stdout(predicate::str::contains("--destination"))
+        .stdout(predicate::str::contains("--no-modify-path"));
     let output = workdeck()
         .current_dir(dir.path())
         .args(["install", "invalid", "--destination", "new-install"])

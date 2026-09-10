@@ -6,7 +6,8 @@ pub fn install_requested_on_host(
     version: Option<&str>,
     destination: &Path,
     allow_conflicts: bool,
-) -> Result<String> {
+    no_modify_path: bool,
+) -> Result<(String, bool)> {
     if let Some(version) = version {
         crate::update::parse_update_version(version)?;
     }
@@ -18,6 +19,25 @@ pub fn install_requested_on_host(
         .or_else(|| std::env::var_os("USERPROFILE").filter(|value| !value.is_empty()))
         .map(std::path::PathBuf::from);
     super::check_install_conflicts(&destination, &entries, home.as_deref(), allow_conflicts)?;
+    let environment = ["SHELL", "ZDOTDIR", "GITHUB_PATH"]
+        .into_iter()
+        .filter_map(|key| std::env::var(key).ok().map(|value| (key.to_owned(), value)))
+        .collect();
+    // Windows registry PATH updates require their own native transaction.
+    let skip_path = no_modify_path || cfg!(windows);
+    let path_home = if skip_path {
+        Path::new("")
+    } else {
+        home.as_deref()
+            .context("no home directory is available for PATH configuration")?
+    };
+    let bin = destination.join("bin");
+    let plan = super::shell_path::plan(
+        bin.to_str().context("installation bin path is not UTF-8")?,
+        path_home,
+        &environment,
+        skip_path,
+    )?;
     let version = select_version(version, || {
         crate::update::fetch_channel_versions(
             workdeck_core::WorkdeckInstallSource::Direct,
@@ -26,8 +46,24 @@ pub fn install_requested_on_host(
         .latest
         .context("could not resolve the newest Workdeck release from GitHub")
     })?;
-    install_release_on_host(&version, &destination)?;
-    Ok(version)
+    let modified = install_then_configure(&destination, &plan, || {
+        install_release_on_host(&version, &destination)
+    })?;
+    Ok((version, modified))
+}
+
+fn install_then_configure(
+    destination: &Path,
+    plan: &super::shell_path::ShellPathPlan,
+    install: impl FnOnce() -> Result<()>,
+) -> Result<bool> {
+    install()?;
+    super::shell_path::apply(plan, &destination.join("path-recovery.json")).with_context(|| {
+        format!(
+            "Workdeck was installed at {}, but PATH configuration failed; installation retained",
+            destination.display()
+        )
+    })
 }
 
 fn select_version(
@@ -198,6 +234,66 @@ fn publish(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn skipped_path_configuration_installs_without_recovery_artifacts() {
+        let home = tempfile::tempdir().unwrap();
+        let destination = home.path().join("install");
+        assert!(
+            !install_then_configure(
+                &destination,
+                &super::super::shell_path::ShellPathPlan::Skipped,
+                || {
+                    fs::create_dir(&destination)?;
+                    Ok(())
+                },
+            )
+            .unwrap()
+        );
+        assert_eq!(fs::read_dir(home.path()).unwrap().count(), 1);
+        assert_eq!(fs::read_dir(&destination).unwrap().count(), 0);
+    }
+    #[test]
+    fn path_configuration_follows_installation_and_reports_partial_failure() {
+        let home = tempfile::tempdir().unwrap();
+        let destination = home.path().join("install");
+        let plan =
+            super::super::shell_path::plan("/app/bin", home.path(), &Default::default(), false)
+                .unwrap();
+        assert!(
+            install_then_configure(&destination, &plan, || anyhow::bail!("installation failed"))
+                .is_err()
+        );
+        assert_eq!(fs::read_dir(home.path()).unwrap().count(), 0);
+        assert!(
+            install_then_configure(&destination, &plan, || {
+                fs::create_dir(&destination)?;
+                Ok(())
+            })
+            .unwrap()
+        );
+        assert!(destination.join("path-recovery.json").is_file());
+        assert!(
+            fs::read_to_string(home.path().join(".profile"))
+                .unwrap()
+                .contains("/app/bin")
+        );
+        let changed_plan =
+            super::super::shell_path::plan("/other/bin", home.path(), &Default::default(), false)
+                .unwrap();
+        let second = home.path().join("second");
+        let error = install_then_configure(&second, &changed_plan, || {
+            fs::create_dir(&second)?;
+            fs::write(home.path().join(".profile"), b"external edit")?;
+            Ok(())
+        })
+        .unwrap_err();
+        assert!(error.to_string().contains("installation retained"));
+        assert!(second.is_dir());
+        assert_eq!(
+            fs::read(home.path().join(".profile")).unwrap(),
+            b"external edit"
+        );
+    }
     #[test]
     fn omitted_version_resolves_latest_but_explicit_version_never_fetches() {
         assert_eq!(

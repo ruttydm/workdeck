@@ -221,7 +221,7 @@ enum Command {
         #[command(subcommand)]
         command: Option<SkillCommand>,
     },
-    #[command(about = "Install a signed release into a new directory; leave PATH unchanged")]
+    #[command(about = "Install a signed release into a new directory")]
     Install {
         #[arg(value_name = "VERSION")]
         version: Option<String>,
@@ -233,6 +233,8 @@ enum Command {
             help = "Allow competing installations; never overwrite the destination"
         )]
         force: bool,
+        #[arg(long, help = "Leave shell PATH configuration unchanged")]
+        no_modify_path: bool,
     },
     #[command(about = "Update Workdeck through the channel that installed it")]
     Update {
@@ -8023,6 +8025,7 @@ fn handle_global_command(cwd: &Path, command: Command) -> Result<()> {
             version,
             destination,
             force,
+            no_modify_path,
         } => {
             let destination = destination.map_or_else(
                 || {
@@ -8041,14 +8044,20 @@ fn handle_global_command(cwd: &Path, command: Command) -> Result<()> {
                     .ok()
                     .filter(|value| !value.is_empty())
             });
-            let version = workdeck_cli::install::install_requested_on_host(
+            let (version, path_modified) = workdeck_cli::install::install_requested_on_host(
                 version.as_deref(),
                 &destination,
                 force || std::env::var("WORKDECK_ALLOW_CONFLICTING_INSTALLS").as_deref() == Ok("1"),
+                no_modify_path || std::env::var("WORKDECK_NO_MODIFY_PATH").as_deref() == Ok("1"),
             )?;
             println!(
-                "Installed Workdeck {version} to {}. PATH was not modified.",
-                destination.display()
+                "Installed Workdeck {version} to {}. {}",
+                destination.display(),
+                if path_modified {
+                    "PATH configuration updated; restart your shell to use it."
+                } else {
+                    "PATH configuration was not modified."
+                }
             );
             Ok(())
         }

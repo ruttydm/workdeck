@@ -1,5 +1,26 @@
 # Bundled installer assets
 
+## Standalone PATH integration
+
+On Unix, standalone installation now plans PATH configuration before release
+lookup, then applies it only after authenticated installation succeeds. It uses
+the existing shell selection, quoting, byte preservation and GitHub Actions PATH
+behavior. `--no-modify-path` and `WORKDECK_NO_MODIFY_PATH=1` skip edits. Windows
+continues to leave PATH unchanged pending its native registry transaction.
+
+Successful profile changes keep `path-recovery.json` inside the new installation
+root. A profile failure after publication reports that installation succeeded but
+PATH configuration failed and retains the installation; it does not claim a
+fully rolled-back operation. Tests use temporary profiles and injected install
+results to verify no edits on install failure, backup on success and preservation
+of a concurrent profile change. Real user startup files were not modified.
+
+Validation: all five `install::fresh` unit tests pass, including skipped PATH
+configuration producing no recovery artifact. Workspace formatting passes.
+Strict CLI all-target Clippy passed before the additional opt-out/help assertions.
+This is partial installer implementation; the full `install.sh` ledger interval
+remains unmapped.
+
 ## Latest regression checkpoint (`9e19a586`)
 
 Strict Clippy passes for `workdeck-cli` and `xtask` with `--all-targets -- -D
@@ -262,8 +283,8 @@ the positional argument, then nonempty `WORKDECK_VERSION`, then the bounded GitH
 latest-release lookup shared with the updater. The resulting tag is independently
 resolved to a commit before archive authentication. The destination defaults to `$HOME/.workdeck`, falling back to
 `$USERPROFILE/.workdeck` when HOME is empty or absent. An explicit destination
-overrides that selection. The parent directory must already exist. It leaves
-PATH untouched and refuses existing roots. The `install` name is reserved from
+overrides that selection. The parent directory must already exist. It refuses
+existing roots and supports the PATH integration described above. The `install` name is reserved from
 extension CLI registration and recognized by builtin argument routing.
 
 CLI coverage checks help and invalid-version rejection outside Git without
