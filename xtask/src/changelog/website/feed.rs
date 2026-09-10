@@ -149,6 +149,121 @@ pub(in crate::changelog) fn run_feed(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const SAMPLE: &str = include_str!("../../../../port/hunk/website-changelog-test-sample.md");
+
+    fn source_feed(markdown: &str, dates: &[(&str, &str)], summary: Option<&str>) -> String {
+        let series = group_into_series(parse_changelog(markdown));
+        let dates = dates
+            .iter()
+            .map(|(k, v)| ((*k).into(), (*v).into()))
+            .collect();
+        let notes = summary
+            .map(|s| BTreeMap::from([("0.19".into(), s.into())]))
+            .unwrap_or_default();
+        render(&series, &notes, &dates, "Hunk", "https://hunk.dev")
+    }
+
+    #[test]
+    fn source_feed_emits_one_dated_item_per_published_series() {
+        let feed = source_feed(
+            SAMPLE,
+            &[("0.19.0", "2026-08-16"), ("0.18.0", "2026-08-08")],
+            None,
+        );
+        assert_eq!(feed.matches("<item>").count(), 2);
+        assert!(feed.contains("<link>https://hunk.dev/changelog/0.19/</link>"));
+        assert!(feed.contains("Sun, 16 Aug 2026 00:00:00 GMT"));
+    }
+
+    #[test]
+    fn source_feed_publishes_anchored_dated_prerelease() {
+        let feed = source_feed(SAMPLE, &[("0.19.0-beta.0", "2026-08-10")], None);
+        assert!(feed.contains("<title>Hunk 0.19.0-beta.0 (Prerelease)</title>"));
+        assert!(feed.contains("https://hunk.dev/changelog/0.19/#v0-19-0-beta-0"));
+        assert!(feed.contains("Mon, 10 Aug 2026 00:00:00 GMT"));
+    }
+
+    #[test]
+    fn source_feed_stable_promotion_has_distinct_guid() {
+        let feed = source_feed(
+            SAMPLE,
+            &[("0.19.0", "2026-08-16"), ("0.19.0-beta.0", "2026-08-10")],
+            None,
+        );
+        assert!(feed.contains(
+            "<guid isPermaLink=\"true\">https://hunk.dev/changelog/0.19/#v0-19-0</guid>"
+        ));
+        assert!(feed.contains(
+            "<guid isPermaLink=\"true\">https://hunk.dev/changelog/0.19/#v0-19-0-beta-0</guid>"
+        ));
+    }
+
+    #[test]
+    fn source_feed_older_beta_does_not_reannounce_current_patch() {
+        let feed = source_feed(
+            "## 0.19.2\n\n- Current.\n\n## 0.19.0\n\n- First stable.\n\n## 0.19.0-beta.0\n\n- Old beta.\n",
+            &[
+                ("0.19.2", "2026-08-18"),
+                ("0.19.0", "2026-08-16"),
+                ("0.19.0-beta.0", "2026-08-15"),
+            ],
+            None,
+        );
+        assert!(
+            feed.contains("<guid isPermaLink=\"true\">https://hunk.dev/changelog/0.19/</guid>")
+        );
+        assert!(!feed.contains("#v0-19-2</guid>"));
+    }
+
+    #[test]
+    fn source_feed_patch_beta_promotion_gets_versioned_guid() {
+        let feed = source_feed(
+            "## 0.19.1\n\n- Stable.\n\n## 0.19.1-beta.0\n\n- Beta.\n\n## 0.19.0\n\n- Previous.\n",
+            &[
+                ("0.19.1", "2026-08-18"),
+                ("0.19.1-beta.0", "2026-08-17"),
+                ("0.19.0", "2026-08-16"),
+            ],
+            None,
+        );
+        assert!(feed.contains(
+            "<guid isPermaLink=\"true\">https://hunk.dev/changelog/0.19/#v0-19-1</guid>"
+        ));
+        assert!(feed.contains(
+            "<guid isPermaLink=\"true\">https://hunk.dev/changelog/0.19/#v0-19-1-beta-0</guid>"
+        ));
+    }
+
+    #[test]
+    fn source_feed_same_day_series_follow_semantic_version_order() {
+        let feed = source_feed(
+            SAMPLE,
+            &[
+                ("0.19.0", "2026-08-16"),
+                ("0.18.0", "2026-08-16"),
+                ("0.15.3", "2026-08-16"),
+            ],
+            None,
+        );
+        let pattern = regex::Regex::new(r"<title>Hunk (0\.[^<]+)</title>").unwrap();
+        let titles: Vec<_> = pattern
+            .captures_iter(&feed)
+            .map(|c| c[1].to_owned())
+            .collect();
+        assert_eq!(titles, ["0.19", "0.18", "0.15"]);
+    }
+
+    #[test]
+    fn source_feed_escapes_xml_in_summaries() {
+        let feed = source_feed(
+            SAMPLE,
+            &[("0.19.0", "2026-08-16")],
+            Some("Fixes <script> & \"quotes\"."),
+        );
+        assert!(feed.contains("Fixes &lt;script&gt; &amp; &quot;quotes&quot;."));
+    }
+
     #[test]
     fn feed_matches_pinned_promotion_order_and_xml_oracles() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
