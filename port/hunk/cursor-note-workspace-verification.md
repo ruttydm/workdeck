@@ -91,3 +91,26 @@ strict source audit still fails with 277 unmapped interval records and 92 cached
 pending upstream commits, as recorded in `live-beta-annotated-navigation.md`.
 It does not refresh full workspace tests, benchmarks, cross-platform native CI,
 upstream fetch state or release-artifact verification.
+
+## Full workspace refresh after startup and scanner fixes
+
+At clean implementation commit `0fc5deeb40a762406851701007db0c90e8ea7e39`,
+`cargo test --workspace --all-targets` completed with exit status zero on the
+local macOS arm64 host, using two build jobs and disabled incremental compilation.
+This run includes the watcher setup-event correction, build-generated syntax set,
+and production/test-aware session-boundary scanner.
+
+The run passed 98 terminal pager tests, 127 diff tests, all 18 review-triage tests,
+1,255 TUI tests and 242 VCS tests. Tooling passed 245 tests with its existing
+oracle-capture test explicitly ignored, followed by passing changelog/catalog CLI,
+test-command and theme-probe PTY integration suites. The build phase took 13.19
+seconds; suite timings are not benchmark parity measurements.
+
+`cargo deny check` also exited zero: advisories, bans, licenses and sources passed
+under the current repository policy. Duplicate-version and unused-license-allowance
+warnings remain; this is not a claim of a warning-free dependency graph.
+
+This refresh does not establish full Hunk parity. The latest strict ledger audit
+still reports 277 unmapped records and 92 cached pending upstream commits. No
+upstream fetch, optimized benchmark, cross-platform native CI or release-signature
+verification was performed by these checks.
