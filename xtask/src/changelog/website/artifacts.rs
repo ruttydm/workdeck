@@ -152,6 +152,25 @@ pub(crate) fn verify_pinned_editorial_inputs(repo: &Path, baseline: &str) -> Res
         normalized_index == source_index_body,
         "native changelog index differs from pinned source"
     );
+
+    let source_feed = String::from_utf8(crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2:website/public/changelog/rss.xml",
+        ],
+    )?)?;
+    let native_feed = generated
+        .get("site/static/changelog/rss.xml")
+        .context("native changelog feed was not generated")?;
+    let normalized_feed = native_feed
+        .replace("Workdeck", "Hunk")
+        .replace("workdeck.dev", "hunk.dev")
+        .replace("ruttydm/workdeck", "modem-dev/hunk");
+    ensure!(
+        normalized_feed == source_feed,
+        "native changelog feed differs from pinned source"
+    );
     Ok(())
 }
 
