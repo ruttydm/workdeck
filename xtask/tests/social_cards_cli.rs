@@ -1,6 +1,70 @@
 use std::{fs, process::Command};
 
 #[test]
+fn saved_capture_cli_validates_hashes_without_changing_inputs() {
+    use sha2::{Digest, Sha256};
+    let repo = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    fs::write(repo.path().join("cards.json"), b"[]").unwrap();
+    let plan = Command::new(env!("CARGO_BIN_EXE_xtask"))
+        .current_dir(repo.path())
+        .args(["social-cards-plan", "cards.json", "extensions"])
+        .output()
+        .unwrap();
+    assert!(plan.status.success());
+    let plan: serde_json::Value = serde_json::from_slice(&plan.stdout).unwrap();
+    let staging = tempfile::tempdir().unwrap();
+    let bytes = b"synthetic image bytes";
+    fs::write(staging.path().join("0000.png"), bytes).unwrap();
+    let manifest = serde_json::json!({"schema":1,"stagingDirectory":staging.path().canonicalize().unwrap(),
+        "rendered":true,"published":false,"replaceChangelogDirectory":false,
+        "images":[{"stagedFile":"0000.png","target":plan["targets"][0],"bytes":bytes.len(),"sha256":format!("{:x}",Sha256::digest(bytes))}]});
+    let encoded = serde_json::to_vec_pretty(&manifest).unwrap();
+    fs::write(staging.path().join("capture.json"), &encoded).unwrap();
+    let check = || {
+        Command::new(env!("CARGO_BIN_EXE_xtask"))
+            .current_dir(repo.path())
+            .args([
+                "social-cards-check",
+                staging.path().to_str().unwrap(),
+                "cards.json",
+                "extensions",
+            ])
+            .output()
+            .unwrap()
+    };
+    let valid = check();
+    assert!(valid.status.success(), "{valid:?}");
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&valid.stdout).unwrap(),
+        serde_json::json!({"valid":true,"published":false,"images":1})
+    );
+    fs::write(staging.path().join("0000.png"), b"changed").unwrap();
+    let invalid = check();
+    assert!(!invalid.status.success());
+    assert!(invalid.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("stale, modified"));
+    assert_eq!(
+        fs::read(staging.path().join("0000.png")).unwrap(),
+        b"changed"
+    );
+    assert_eq!(
+        fs::read(staging.path().join("capture.json")).unwrap(),
+        encoded
+    );
+    assert_eq!(fs::read(repo.path().join("cards.json")).unwrap(), b"[]");
+    assert!(!repo.path().join("site").exists());
+    assert!(!repo.path().join(".agents").exists());
+}
+
+#[test]
 fn card_planning_is_read_only_and_distinguishes_full_and_targeted_runs() {
     let repo = tempfile::tempdir().unwrap();
     assert!(

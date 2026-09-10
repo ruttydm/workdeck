@@ -101,3 +101,10 @@ rejection. This read-only check is not a reservation against later changes, does
 not authenticate a jointly modified manifest/image pair and does not decode PNGs
 again or prove visual fidelity. Publication must validate its actual inputs at
 write time; that integration remains incomplete.
+
+Both social-card CLI integration tests pass. The saved-capture case derives its
+target through the actual planner, builds a manifest over synthetic bytes,
+accepts the matching capture and rejects a changed image. It verifies unchanged
+manifest/card input bytes, preservation of the changed image, empty failure
+stdout, and no site or Workdeck state creation. Synthetic bytes deliberately
+exercise manifest/hash validation only, not PNG validity or browser capture.
