@@ -136,7 +136,18 @@ Run this optional source-oracle check with:
 cargo test -p xtask html_matches_both_pinned_source_renderers -- --ignored
 ```
 
-This is a live source-function comparison, not committed frozen oracle output,
-a browser screenshot comparison, or proof of complete generator parity. Bun is
+This is a live source-function comparison, not a browser screenshot comparison
+or proof of complete generator parity. Bun is
 not used by the Rust renderer or shipped product. The source interval remains
 unmapped while publication and remaining generator behavior are incomplete.
+
+The 108 raw upstream HTML results and their explicit inputs are now frozen in
+`port/hunk/fixtures/social-card-html.json`. Each case carries its source commit;
+the original Hunk mark is retained in the fixture and normalized only at replay.
+These MIT-derived HTML/CSS outputs retain Modem Labs attribution through this
+document and `THIRD_PARTY_NOTICES`. No TypeScript implementation is retained.
+The ordinary `frozen_html_oracles_match_rust_without_upstream_runtime` test
+replays them using Rust alone. To deliberately regenerate from the two pinned
+sources, run the ignored oracle with `WORKDECK_CAPTURE_SOCIAL_HTML_ORACLE=1`.
+Capture is written only after every live comparison passes. The frozen corpus
+covers HTML rendering only, not browser cells, font fidelity or publication.

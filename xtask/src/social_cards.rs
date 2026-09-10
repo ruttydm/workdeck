@@ -210,7 +210,7 @@ pub(super) struct Card {
     pub alt: String,
 }
 
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub(super) struct Target {
     pub card: Card,
     pub footer: String,
@@ -295,10 +295,43 @@ pub(super) fn run(repo: &std::path::Path, mut args: impl Iterator<Item = String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[derive(Serialize, Deserialize)]
+    struct HtmlOracle {
+        commit: String,
+        target: Target,
+        html: String,
+    }
+
+    #[test]
+    fn frozen_html_oracles_match_rust_without_upstream_runtime() {
+        let fixtures: Vec<HtmlOracle> = serde_json::from_slice(
+            &std::fs::read(
+                crate::repo_root()
+                    .unwrap()
+                    .join("port/hunk/fixtures/social-card-html.json"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(fixtures.len(), 108);
+        for fixture in fixtures {
+            let expected = fixture.html.replace(
+                "<div class=\"mark\">hunk</div>",
+                "<div class=\"mark\">workdeck</div>",
+            );
+            let actual = render_html(&fixture.target, b"font").replace(
+                "/* Derived from Hunk generate-og.ts, MIT. Copyright Modem Labs Inc. */\n",
+                "",
+            );
+            assert_eq!(actual, expected, "{} {:?}", fixture.commit, fixture.target);
+        }
+    }
+
     #[test]
     #[ignore = "executes isolated pinned TypeScript render functions through Bun as an oracle"]
     fn html_matches_both_pinned_source_renderers() {
         let repo = crate::repo_root().unwrap();
+        let mut fixtures = Vec::new();
         for commit in [
             "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
             "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
@@ -352,6 +385,7 @@ mod tests {
                     );
                     assert!(output.stderr.is_empty());
                     let expected: String = serde_json::from_slice(&output.stdout).unwrap();
+                    let original_html = expected.clone();
                     let expected = expected.replace(
                         "<div class=\"mark\">hunk</div>",
                         "<div class=\"mark\">workdeck</div>",
@@ -361,8 +395,20 @@ mod tests {
                         "",
                     );
                     assert_eq!(actual, expected, "{commit} {title} variant {variant}");
+                    fixtures.push(HtmlOracle {
+                        commit: commit.into(),
+                        target,
+                        html: original_html,
+                    });
                 }
             }
+        }
+        if std::env::var_os("WORKDECK_CAPTURE_SOCIAL_HTML_ORACLE").is_some() {
+            let path = repo.join("port/hunk/fixtures/social-card-html.json");
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            let mut encoded = serde_json::to_string_pretty(&fixtures).unwrap();
+            encoded.push('\n');
+            std::fs::write(path, encoded).unwrap();
         }
     }
     #[test]
