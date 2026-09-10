@@ -4,8 +4,35 @@
   <p class="eyebrow">Rust · Ratatui · one executable</p>
   <h1>Review first. Keep the whole workbench.</h1>
   <p>Workdeck combines a continuous Hunk-style review canvas with files, Git, issues, agents, projects, cycles, labels, events, search, and structured automation.</p>
-  <pre id="install"><code>cargo install --git https://github.com/ruttydm/workdeck --package workdeck-cli --locked
+  <section id="install" class="install-picker" aria-label="Install Workdeck">
+    <h2>Install Workdeck</h2>
+    <nav class="install-tabs" aria-label="Install method">
+      <a href="#install-cargo">Cargo</a>
+      <a href="#install-homebrew">Homebrew</a>
+      <a href="#install-nix">Nix</a>
+      <a href="#install-source">Source checkout</a>
+    </nav>
+    <div id="install-cargo" class="install-panel">
+      <h3>Cargo</h3>
+      <pre><code>cargo install --git https://github.com/ruttydm/workdeck --package workdeck-cli --locked
 workdeck</code></pre>
+    </div>
+    <div id="install-homebrew" class="install-panel">
+      <h3>Homebrew</h3>
+      <pre><code>brew tap ruttydm/workdeck https://github.com/ruttydm/workdeck
+brew install --HEAD ruttydm/workdeck/workdeck</code></pre>
+    </div>
+    <div id="install-nix" class="install-panel">
+      <h3>Nix</h3>
+      <pre><code>nix run github:ruttydm/workdeck -- --help</code></pre>
+    </div>
+    <div id="install-source" class="install-panel">
+      <h3>Source checkout</h3>
+      <pre><code>cargo install --path crates/workdeck-cli --locked
+workdeck</code></pre>
+    </div>
+    <p class="install-note">Release-channel installers and updates are verified separately; see the <a href="/docs/start/install/">installation guide</a>.</p>
+  </section>
 </section>
 <section>
   <h2>No JavaScript runtime</h2>
@@ -14,5 +41,29 @@ workdeck</code></pre>
 <section>
   <h2>Auditable semantic port</h2>
   <p>Every pinned Hunk blob is tracked in a byte-exact ledger until its Rust implementation, translated tests, content, asset, or generated replacement is verified.</p>
+</section>
+<section class="feature-links" aria-labelledby="feature-links-title">
+  <p class="eyebrow">Native review workbench</p>
+  <h2 id="feature-links-title">The whole review, in one stream.</h2>
+  <div class="feature-grid">
+    <a href="/docs/workflows/working-trees-and-commits/"><strong>Every file, top to bottom.</strong><span>Sidebar navigation and continuous diff rows keep the changeset in context.</span></a>
+    <a href="/docs/agents/comments-and-annotations/"><strong>Notes beside the code.</strong><span>Agent and reviewer annotations follow their owning hunk.</span></a>
+    <a href="/docs/start/keyboard-and-mouse/"><strong>Keyboard or mouse.</strong><span>Navigate, select, scroll, and add notes through the same semantic actions.</span></a>
+    <a href="/docs/configure/layout-and-display/"><strong>Split, stack, or auto.</strong><span>Responsive layouts, wrapping, line numbers, and gap controls adapt to the terminal.</span></a>
+    <a href="/docs/configure/themes/"><strong>Syntax and themes.</strong><span>Rust-native highlighting and configurable palettes preserve readable diffs.</span></a>
+    <a href="/docs/extend/extensions/"><strong>Native extensions.</strong><span>Trusted Rust subprocesses add panes, commands, transforms, and VCS adapters.</span></a>
+  </div>
+</section>
+<section class="feature-links" aria-labelledby="more-features-title">
+  <p class="eyebrow">And the rest</p>
+  <h2 id="more-features-title">A workbench that stays with the repository.</h2>
+  <div class="more-features">
+    <a href="/docs/workflows/watch-mode/"><strong>Watch mode</strong><span>reloads as the tree changes</span></a>
+    <a href="/docs/agents/live-session-control/"><strong>Live sessions</strong><span>agents steer a running review</span></a>
+    <a href="/docs/workflows/jujutsu-and-sapling/"><strong>Jujutsu &amp; Sapling</strong><span>first-class, like Git</span></a>
+    <a href="/docs/workflows/git-pager-and-difftool/"><strong>Pager &amp; difftool</strong><span>pipe any patch in</span></a>
+    <a href="/docs/start/install/"><strong>Cross-platform</strong><span>macOS, Linux, Windows</span></a>
+    <a href="/docs/configure/themes/"><strong>Your own themes</strong><span>roll a palette in config</span></a>
+  </div>
 </section>
 {% endblock content %}

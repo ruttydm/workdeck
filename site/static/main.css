@@ -13,6 +13,18 @@ header, footer { padding: 1rem 0; color: var(--workdeck-muted); }
 a { color: var(--workdeck-accent); }
 main { display: grid; gap: 3rem; padding: 5rem 0; }
 .hero { max-width: 58rem; }
+.install-picker { max-width: 58rem; }
+.install-picker h2 { margin-bottom: .75rem; }
+.install-tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
+.install-tabs a, .more-features a { border: 1px solid var(--workdeck-rule); padding: .55rem .8rem; text-decoration: none; }
+.install-tabs a:hover, .install-tabs a:focus-visible, .more-features a:hover, .more-features a:focus-visible { border-color: var(--workdeck-accent); }
+.install-panel { margin: 1rem 0; }
+.install-panel h3 { color: var(--workdeck-muted); font-size: 1rem; margin-bottom: .25rem; }
+.install-note { color: var(--workdeck-muted); font-size: .9rem; }
+.feature-links { max-width: 64rem; }
+.feature-grid, .more-features { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 1rem; }
+.feature-grid a, .more-features a { display: grid; gap: .4rem; border: 1px solid var(--workdeck-rule); padding: 1rem; text-decoration: none; }
+.feature-grid span, .more-features span { color: var(--workdeck-muted); font-size: .9rem; }
 .eyebrow { color: var(--workdeck-accent); text-transform: uppercase; letter-spacing: .08em; }
 h1 { color: var(--workdeck-ink); font-size: clamp(2.4rem, 7vw, 5.5rem); line-height: .98; margin: 1rem 0; }
 h2 { color: var(--workdeck-ink); }

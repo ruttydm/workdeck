@@ -40,3 +40,11 @@ The shared Astro shell is represented by the native base/docs templates:
 
 The generated docs smoke check asserts these controls and rejects application
 JavaScript. Native Zola Markdown exports provide the advertised `.md` routes.
+
+The source marketing install and feature lists are represented in the native
+index template as static, accessible panels and links. `InstallTabs.astro`
+therefore exposes Cargo, Homebrew, Nix, and source checkout commands without a
+client-side tab/copy runtime; `MoreFeatures.astro` becomes the responsive
+Workdeck feature grid. npm, Bun, and Hunk-specific install commands are not
+carried into the shipped product. The landing-page check verifies every native
+panel and rejects application scripts.

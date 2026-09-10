@@ -518,8 +518,13 @@ fn site(command: Option<&str>) -> Result<()> {
                 "installation documentation or active Docs navigation missing"
             );
             ensure!(
-                home.contains("id=\"install\""),
-                "header install target missing"
+                home.contains("id=\"install\"")
+                    && home.contains("class=\"install-tabs\"")
+                    && home.contains("cargo install --git")
+                    && home.contains("class=\"feature-grid\"")
+                    && home.contains("class=\"more-features\"")
+                    && !home.contains("<script"),
+                "native landing install/features or no-JavaScript boundary missing"
             );
             let catalog: serde_json::Value = serde_json::from_str(&fs::read_to_string(
                 site.join("data/legacy-extensions.json"),
