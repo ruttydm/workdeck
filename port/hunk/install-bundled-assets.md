@@ -20,7 +20,19 @@ not a signed release or platform installer smoke test.
 
 Remaining integration: the native authenticated installer currently commits only
 the executable. It must install the accompanying asset tree with appropriate
-authentication and recovery, and `workdeck skill path` still materializes embedded
-content under user configuration instead of resolving an installed archive tree.
+authentication and recovery. `workdeck skill path` now prefers an existing skill
+under the executable directory or its ancestors, so source and unpacked native
+archive layouts resolve without writing user configuration. If no skill exists,
+the prior embedded-content fallback still materializes it under user configuration.
 Source-compatible metadata, asset-update rollback and full installer orchestration
 remain open. This change does not map the baseline installer interval complete.
+
+The resolver translates the native-layout ancestor search from Hunk's
+`src/core/run/paths.ts` and normalizes names by trimming whitespace and lowercasing.
+It retains Workdeck's additional release and launch-video skills. npm-specific
+layout candidates are not introduced into the native product. Unit coverage checks
+binary and missing-directory roots, aliases, invalid names and no directory
+creation. The CLI regression checks alias equality and that packaged/source lookup
+leaves a temporary user config directory empty. These mappings remain partial;
+the source paths module contains additional configuration and canonicalization
+behavior not established by this resolver.

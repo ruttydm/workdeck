@@ -368,6 +368,10 @@ fn bundled_skill_paths_support_hunk_namesake_aliases_under_workdeck_branding() {
             .ends_with("workdeck-extensions/SKILL.md")
     );
     assert!(std::path::Path::new(extensions_path.trim()).is_file());
+    let normalized = run(Some(" Review "));
+    assert!(normalized.status.success());
+    assert_eq!(normalized.stdout, review.stdout);
+    assert_eq!(std::fs::read_dir(config.path()).unwrap().count(), 0);
 
     let unknown = run(Some("unknown"));
     assert!(!unknown.status.success());

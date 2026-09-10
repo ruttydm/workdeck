@@ -6,6 +6,7 @@ pub mod install;
 pub mod pager;
 pub mod payload;
 pub mod search;
+pub mod skills;
 pub mod store;
 pub mod syntax;
 pub mod tui;

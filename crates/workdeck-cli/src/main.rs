@@ -8208,6 +8208,20 @@ fn handle_skill_command(command: Option<SkillCommand>) -> Result<()> {
         return Ok(());
     };
     let SkillCommand::Path { name, json } = command;
+    let name = workdeck_cli::skills::canonical_name(&name)?.to_owned();
+    if let Some(destination) = workdeck_cli::skills::find_path(&name, &[std::env::current_exe()?])?
+    {
+        if json {
+            json_success(
+                "skill_path",
+                Some("path"),
+                json!({ "name": name, "path": destination }),
+            )?;
+        } else {
+            println!("{}", destination.display());
+        }
+        return Ok(());
+    }
     let source = match name.as_str() {
         "workdeck-review" | "review" => include_str!("../../../skills/workdeck-review/SKILL.md"),
         "workdeck-extensions" | "extensions" => {
