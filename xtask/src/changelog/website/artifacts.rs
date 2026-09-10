@@ -1,9 +1,114 @@
 //! Native artifact composition from MIT-licensed Hunk generate-changelog.ts.
 //! Copyright (c) Modem Labs Inc. See THIRD_PARTY_NOTICES.
 use super::*;
-use anyhow::Context;
+use anyhow::{Context, Result, ensure};
 use std::collections::BTreeMap;
 mod application;
+
+const PINNED_BASELINE: &str = "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2";
+
+/// Validate the editorial JSON inputs that used to be consumed by the Astro
+/// site.  Generation remains native; the source objects are read through Git
+/// and compared to the native card projection after the intentional Workdeck
+/// branding substitution.
+pub(crate) fn verify_pinned_editorial_inputs(repo: &Path, baseline: &str) -> Result<()> {
+    if baseline != PINNED_BASELINE {
+        return Ok(());
+    }
+    let cards_bytes = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2:website/releases/cards.json",
+        ],
+    )?;
+    let notes_bytes = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2:website/releases/notes.json",
+        ],
+    )?;
+    ensure!(
+        cards_bytes.len() == 7198,
+        "pinned release cards changed size"
+    );
+    ensure!(
+        notes_bytes.len() == 4261,
+        "pinned release notes changed size"
+    );
+    let source_cards: serde_json::Value = serde_json::from_slice(&cards_bytes)?;
+    let source_notes: serde_json::Value = serde_json::from_slice(&notes_bytes)?;
+    let cards = source_cards
+        .as_array()
+        .context("pinned release cards are not an array")?;
+    ensure!(cards.len() == 22, "pinned release card count changed");
+    ensure!(
+        cards.first().and_then(|card| card["slug"].as_str()) == Some("index")
+            && cards.last().and_then(|card| card["slug"].as_str()) == Some("0.1"),
+        "pinned release card ordering changed"
+    );
+    ensure!(
+        source_notes
+            .as_object()
+            .is_some_and(|notes| notes.len() == 11),
+        "pinned release note series count changed"
+    );
+
+    let markdown = String::from_utf8(crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2:CHANGELOG.md",
+        ],
+    )?)?;
+    let dates: BTreeMap<String, String> = serde_json::from_slice(&crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2:website/releases/dates.json",
+        ],
+    )?)?;
+    let generated = generate(&markdown, &dates, source_notes.clone(), |_| None)?;
+    let generated_cards: serde_json::Value =
+        serde_json::from_str(&generated["site/data/releases/cards.json"])?;
+    let generated_cards = generated_cards
+        .as_array()
+        .context("native release cards are not an array")?;
+    ensure!(
+        generated_cards.len() == cards.len(),
+        "native release card count differs from pinned input"
+    );
+    for (source, native) in cards.iter().zip(generated_cards) {
+        let normalized = replace_branding(native.clone());
+        ensure!(
+            normalized == *source,
+            "native release card differs for {}",
+            source["slug"].as_str().unwrap_or("unknown")
+        );
+    }
+    Ok(())
+}
+
+fn replace_branding(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::String(text) => serde_json::Value::String(
+            text.replace("Workdeck", "Hunk")
+                .replace("workdeck.dev", "hunk.dev")
+                .replace("ruttydm/workdeck", "modem-dev/hunk"),
+        ),
+        serde_json::Value::Array(values) => {
+            serde_json::Value::Array(values.into_iter().map(replace_branding).collect())
+        }
+        serde_json::Value::Object(values) => serde_json::Value::Object(
+            values
+                .into_iter()
+                .map(|(key, value)| (key, replace_branding(value)))
+                .collect(),
+        ),
+        other => other,
+    }
+}
 
 fn generate(
     markdown: &str,

@@ -12,6 +12,13 @@ pub(crate) fn publication_lock(repo: &std::path::Path) -> anyhow::Result<std::fs
     fragments::repository_release_lock(repo)
 }
 
+pub(crate) fn verify_pinned_website_inputs(
+    repo: &std::path::Path,
+    baseline: &str,
+) -> anyhow::Result<()> {
+    website::verify_pinned_editorial_inputs(repo, baseline)
+}
+
 const DATA: &str = "port/hunk/release-fragments.json";
 const DOCUMENT: &str = "docs/upstream-release-fragments.md";
 const BASELINE: &str = "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2";

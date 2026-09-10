@@ -1757,6 +1757,7 @@ fn verify() -> Result<()> {
     let baseline = resolve_commit(&repo, DEFAULT_BASELINE)?;
     tooling_configs::verify(&repo, &baseline)?;
     changeset_config::verify(&repo, &baseline)?;
+    changelog::verify_pinned_website_inputs(&repo, &baseline)?;
     changelog::run(
         &repo,
         ["upstream-history".into(), "--check".into()].into_iter(),
@@ -2062,6 +2063,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     repository_forms::verify(&repo, &baseline)?;
     tooling_configs::verify(&repo, &baseline)?;
     changeset_config::verify(&repo, &baseline)?;
+    changelog::verify_pinned_website_inputs(&repo, &baseline)?;
     benchmark::verify_historical_for_baseline(&repo, &baseline)?;
     let entries = read_tree(&repo, &baseline)?;
     let expected = entries

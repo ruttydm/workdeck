@@ -35,6 +35,13 @@ full artifact differential fixtures and real Zola
 rendering remain open. No source interval or release gate is marked complete.
 Hunk MIT attribution is retained in the composition module and notices.
 
+The pinned `website/releases/cards.json` (7,198 bytes) and `notes.json` (4,261
+bytes) are verified directly from the baseline Git objects. Native generation
+must produce the same 22 card objects after the explicit Hunk-to-Workdeck
+branding substitution, while all 11 editorial note series remain typed inputs.
+This check is wired into both `cargo xtask verify` and strict port audit; the
+source JSON files are not copied into the final tree.
+
 Validation: the artifact-composition unit test and all 16 existing changelog CLI
 tests pass. Strict xtask Clippy, formatting and diff whitespace checks pass.
 
