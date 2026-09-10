@@ -35,6 +35,8 @@ The shared Astro shell is represented by the native base/docs templates:
 - `DocsMarkdownContent.astro` wraps changelog routes in `data-changelog`;
 - `DocsMobileMenuFooter.astro` becomes keyboard- and screen-reader-visible
   community links in the docs shell.
+- `DocsSidebar.astro` becomes the responsive native docs aside with the same
+  section destinations and an explicit Workdeck ownership marker.
 
 The generated docs smoke check asserts these controls and rejects application
 JavaScript. Native Zola Markdown exports provide the advertised `.md` routes.

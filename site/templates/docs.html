@@ -6,15 +6,18 @@
     <script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"{{ config.base_url }}/"},{"@type":"ListItem","position":2,"name":"Docs","item":"{{ config.base_url }}/docs/"}{% if page is defined %},{"@type":"ListItem","position":3,"name":{{ page.title | json_encode | safe }},"item":"{{ config.base_url }}{{ current_path | default(value="/docs/") }}"}{% endif %}]}</script>
 {% endblock metadata %}
 {% block content %}
-<nav class="docs-navigation" aria-label="Documentation sections">
-  <a href="/docs/">Overview</a>
-  <a href="/docs/start/">Getting started</a>
-  <a href="/docs/configure/">Configuration</a>
-  <a href="/docs/workflows/">Workflows</a>
-  <a href="/docs/agents/">Agent review</a>
-  <a href="/docs/extend/">Extensions</a>
-  <a href="/docs/help/">Help</a>
-</nav>
+<aside class="docs-sidebar" aria-label="Documentation navigation">
+  <nav class="docs-navigation" aria-label="Documentation sections">
+    <a href="/docs/">Overview</a>
+    <a href="/docs/start/">Getting started</a>
+    <a href="/docs/configure/">Configuration</a>
+    <a href="/docs/workflows/">Workflows</a>
+    <a href="/docs/agents/">Agent review</a>
+    <a href="/docs/extend/">Extensions</a>
+    <a href="/docs/help/">Help</a>
+  </nav>
+  <div class="docs-sidebar-brand" aria-label="Workdeck native documentation">Built by Workdeck</div>
+</aside>
 <div class="mobile-preferences" aria-label="Community links">
   <a href="{{ config.extra.repository }}/discussions">Community</a>
   <a href="{{ config.extra.repository }}">GitHub</a>

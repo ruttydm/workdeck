@@ -504,6 +504,10 @@ fn site(command: Option<&str>) -> Result<()> {
                     "documentation section navigation missing in {route}"
                 );
                 ensure!(
+                    section_html.contains("class=\"docs-sidebar-brand\""),
+                    "documentation sidebar ownership marker missing in {route}"
+                );
+                ensure!(
                     install_docs.contains(&format!("href=\"/{route}/\"")),
                     "documentation navigation target missing: {route}"
                 );

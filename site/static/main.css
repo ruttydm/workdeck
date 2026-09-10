@@ -5,6 +5,8 @@
 pre, code, kbd, samp { font-family: inherit; }
 .documentation img { max-width: 100%; height: auto; }
 .docs-navigation { display: flex; flex-wrap: wrap; gap: .75rem 1.5rem; }
+.docs-sidebar { display: grid; gap: 1rem; border-bottom: 1px solid var(--workdeck-rule); padding-bottom: 1rem; }
+.docs-sidebar-brand { color: var(--workdeck-muted); font-size: .875rem; }
 .mobile-preferences { display: flex; flex-wrap: wrap; gap: .75rem 1.5rem; color: var(--workdeck-muted); font-size: .875rem; }
 body { max-width: 72rem; margin: 0 auto; padding: 1.5rem; line-height: 1.55; }
 header, footer { padding: 1rem 0; color: var(--workdeck-muted); }
