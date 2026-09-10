@@ -618,6 +618,54 @@ fn series_summary(series: &ReleaseSeries, overlay: Option<&str>) -> Option<Strin
         .map(|lead| to_plain_text(&lead))
 }
 
+fn yaml_string(value: &str) -> String {
+    if value.contains('"') && !value.contains('\'') {
+        format!("'{value}'")
+    } else {
+        format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+    }
+}
+
+// Generated files encode JavaScript strings as UTF-8. If slicing bisects a
+// surrogate pair, the source writer emits the replacement character too.
+fn truncate_description(text: &str, limit: usize) -> String {
+    let units = text.encode_utf16().collect::<Vec<_>>();
+    if units.len() <= limit {
+        return text.to_owned();
+    }
+    let clipped = &units[..limit];
+    let end = clipped
+        .iter()
+        .rposition(|c| *c == u16::from(b' '))
+        .filter(|pos| *pos > 0)
+        .unwrap_or(clipped.len());
+    let body = String::from_utf16_lossy(&clipped[..end]);
+    format!(
+        "{}…",
+        body.trim_end_matches(|c| matches!(c, ',' | ';' | ':' | '.') || ecmascript_whitespace(c))
+    )
+}
+
+pub(super) fn run_metadata(repo: &Path, mut args: impl Iterator<Item = String>) -> Result<()> {
+    let Some(markdown) = args.next() else {
+        bail!("changelog metadata requires Markdown and dates JSON files");
+    };
+    let Some(dates) = args.next() else {
+        bail!("changelog metadata requires Markdown and dates JSON files");
+    };
+    if args.next().is_some() {
+        bail!("changelog metadata accepts exactly two files");
+    }
+    let releases = parse_changelog(&std::fs::read_to_string(repo.join(markdown))?);
+    let dates = serde_json::from_str(&std::fs::read_to_string(repo.join(dates))?)?;
+    let metadata = group_into_series(releases).iter().map(|series| {
+        let description = truncate_description(&to_plain_text(&resolve_summary(series, None, &dates, "Workdeck")), 155);
+        serde_json::json!({"minor": series.minor, "description": description, "yamlDescription": yaml_string(&description)})
+    }).collect::<Vec<_>>();
+    println!("{}", serde_json::to_string_pretty(&metadata)?);
+    Ok(())
+}
+
 fn series_span(
     series: &ReleaseSeries,
     dates: &std::collections::BTreeMap<String, String>,
@@ -735,6 +783,28 @@ pub(super) fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn description_encoding_matches_both_pinned_oracles() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/website-changelog-description-oracle.json"
+        ))
+        .unwrap();
+        let results = fixture["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        for result in results {
+            let cases = result["cases"].as_array().unwrap();
+            assert_eq!(cases.len(), 50);
+            for case in cases {
+                let input = case["input"].as_str().unwrap();
+                assert_eq!(yaml_string(input), case["yaml"]);
+                assert_eq!(
+                    truncate_description(input, case["limit"].as_u64().unwrap() as usize),
+                    case["truncatedUtf8"]
+                );
+            }
+        }
+    }
 
     #[test]
     fn source_versions_order_releases_newest_first() {

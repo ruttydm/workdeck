@@ -240,6 +240,22 @@ blocks were mapped individually; no unfinished source file was marked complete.
 This refresh does not establish full-workspace, website, benchmark or release
 parity.
 
+## Description metadata generation
+
+`cargo xtask changelog metadata <markdown-file> <dates.json>` emits per-series
+plain-text descriptions and YAML-quoted description scalars. It uses the factual
+summary fallback and the source's 155-UTF-16-unit, word-boundary truncation rule.
+Editorial overlay integration and complete frontmatter/page generation remain
+open; this command does not write files.
+
+The frozen description fixture executes both pins for ten strings at five limits,
+covering punctuation, quotes, backslashes, leading whitespace, BOM/NEL and astral
+characters. Comparison is at UTF-8 output: an unpaired surrogate created by slicing
+becomes a replacement character when encoded, as in the source runtime. BOM is
+explicitly preserved by the capture decoder; the first capture's default decoder
+incorrectly stripped it and was corrected before committing. The corrected oracle
+test and strict xtask Clippy pass. No ledger mapping changed.
+
 ## Large radix date rounding
 
 A further executed two-pin fixture exposed a real per-digit accumulation error:

@@ -1,0 +1,615 @@
+{
+  "generator": "Pinned Hunk text helpers and UTF-8 encoding (BOM preserved) under Bun 1.3.14",
+  "results": [
+    {
+      "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "cases": [
+        {
+          "input": "plain text",
+          "limit": 0,
+          "yaml": "\"plain text\"",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": "plain text",
+          "limit": 1,
+          "yaml": "\"plain text\"",
+          "truncatedUtf8": "p…"
+        },
+        {
+          "input": "plain text",
+          "limit": 3,
+          "yaml": "\"plain text\"",
+          "truncatedUtf8": "pla…"
+        },
+        {
+          "input": "plain text",
+          "limit": 12,
+          "yaml": "\"plain text\"",
+          "truncatedUtf8": "plain text"
+        },
+        {
+          "input": "plain text",
+          "limit": 155,
+          "yaml": "\"plain text\"",
+          "truncatedUtf8": "plain text"
+        },
+        {
+          "input": "vcs = \"jj\" support",
+          "limit": 0,
+          "yaml": "'vcs = \"jj\" support'",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": "vcs = \"jj\" support",
+          "limit": 1,
+          "yaml": "'vcs = \"jj\" support'",
+          "truncatedUtf8": "v…"
+        },
+        {
+          "input": "vcs = \"jj\" support",
+          "limit": 3,
+          "yaml": "'vcs = \"jj\" support'",
+          "truncatedUtf8": "vcs…"
+        },
+        {
+          "input": "vcs = \"jj\" support",
+          "limit": 12,
+          "yaml": "'vcs = \"jj\" support'",
+          "truncatedUtf8": "vcs = \"jj\"…"
+        },
+        {
+          "input": "vcs = \"jj\" support",
+          "limit": 155,
+          "yaml": "'vcs = \"jj\" support'",
+          "truncatedUtf8": "vcs = \"jj\" support"
+        },
+        {
+          "input": "Hunk's \"jj\" support",
+          "limit": 0,
+          "yaml": "\"Hunk's \\\"jj\\\" support\"",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": "Hunk's \"jj\" support",
+          "limit": 1,
+          "yaml": "\"Hunk's \\\"jj\\\" support\"",
+          "truncatedUtf8": "H…"
+        },
+        {
+          "input": "Hunk's \"jj\" support",
+          "limit": 3,
+          "yaml": "\"Hunk's \\\"jj\\\" support\"",
+          "truncatedUtf8": "Hun…"
+        },
+        {
+          "input": "Hunk's \"jj\" support",
+          "limit": 12,
+          "yaml": "\"Hunk's \\\"jj\\\" support\"",
+          "truncatedUtf8": "Hunk's \"jj\"…"
+        },
+        {
+          "input": "Hunk's \"jj\" support",
+          "limit": 155,
+          "yaml": "\"Hunk's \\\"jj\\\" support\"",
+          "truncatedUtf8": "Hunk's \"jj\" support"
+        },
+        {
+          "input": "back\\slash",
+          "limit": 0,
+          "yaml": "\"back\\\\slash\"",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": "back\\slash",
+          "limit": 1,
+          "yaml": "\"back\\\\slash\"",
+          "truncatedUtf8": "b…"
+        },
+        {
+          "input": "back\\slash",
+          "limit": 3,
+          "yaml": "\"back\\\\slash\"",
+          "truncatedUtf8": "bac…"
+        },
+        {
+          "input": "back\\slash",
+          "limit": 12,
+          "yaml": "\"back\\\\slash\"",
+          "truncatedUtf8": "back\\slash"
+        },
+        {
+          "input": "back\\slash",
+          "limit": 155,
+          "yaml": "\"back\\\\slash\"",
+          "truncatedUtf8": "back\\slash"
+        },
+        {
+          "input": "one two three four",
+          "limit": 0,
+          "yaml": "\"one two three four\"",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": "one two three four",
+          "limit": 1,
+          "yaml": "\"one two three four\"",
+          "truncatedUtf8": "o…"
+        },
+        {
+          "input": "one two three four",
+          "limit": 3,
+          "yaml": "\"one two three four\"",
+          "truncatedUtf8": "one…"
+        },
+        {
+          "input": "one two three four",
+          "limit": 12,
+          "yaml": "\"one two three four\"",
+          "truncatedUtf8": "one two…"
+        },
+        {
+          "input": "one two three four",
+          "limit": 155,
+          "yaml": "\"one two three four\"",
+          "truncatedUtf8": "one two three four"
+        },
+        {
+          "input": "short",
+          "limit": 0,
+          "yaml": "\"short\"",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": "short",
+          "limit": 1,
+          "yaml": "\"short\"",
+          "truncatedUtf8": "s…"
+        },
+        {
+          "input": "short",
+          "limit": 3,
+          "yaml": "\"short\"",
+          "truncatedUtf8": "sho…"
+        },
+        {
+          "input": "short",
+          "limit": 12,
+          "yaml": "\"short\"",
+          "truncatedUtf8": "short"
+        },
+        {
+          "input": "short",
+          "limit": 155,
+          "yaml": "\"short\"",
+          "truncatedUtf8": "short"
+        },
+        {
+          "input": "😀😀😀",
+          "limit": 0,
+          "yaml": "\"😀😀😀\"",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": "😀😀😀",
+          "limit": 1,
+          "yaml": "\"😀😀😀\"",
+          "truncatedUtf8": "�…"
+        },
+        {
+          "input": "😀😀😀",
+          "limit": 3,
+          "yaml": "\"😀😀😀\"",
+          "truncatedUtf8": "😀�…"
+        },
+        {
+          "input": "😀😀😀",
+          "limit": 12,
+          "yaml": "\"😀😀😀\"",
+          "truncatedUtf8": "😀😀😀"
+        },
+        {
+          "input": "😀😀😀",
+          "limit": 155,
+          "yaml": "\"😀😀😀\"",
+          "truncatedUtf8": "😀😀😀"
+        },
+        {
+          "input": "word,;:. tail",
+          "limit": 0,
+          "yaml": "\"word,;:. tail\"",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": "word,;:. tail",
+          "limit": 1,
+          "yaml": "\"word,;:. tail\"",
+          "truncatedUtf8": "w…"
+        },
+        {
+          "input": "word,;:. tail",
+          "limit": 3,
+          "yaml": "\"word,;:. tail\"",
+          "truncatedUtf8": "wor…"
+        },
+        {
+          "input": "word,;:. tail",
+          "limit": 12,
+          "yaml": "\"word,;:. tail\"",
+          "truncatedUtf8": "word…"
+        },
+        {
+          "input": "word,;:. tail",
+          "limit": 155,
+          "yaml": "\"word,;:. tail\"",
+          "truncatedUtf8": "word,;:. tail"
+        },
+        {
+          "input": "﻿trim",
+          "limit": 0,
+          "yaml": "\"﻿trim\"",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": "﻿trim",
+          "limit": 1,
+          "yaml": "\"﻿trim\"",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": "﻿trim",
+          "limit": 3,
+          "yaml": "\"﻿trim\"",
+          "truncatedUtf8": "﻿tr…"
+        },
+        {
+          "input": "﻿trim",
+          "limit": 12,
+          "yaml": "\"﻿trim\"",
+          "truncatedUtf8": "﻿trim"
+        },
+        {
+          "input": "﻿trim",
+          "limit": 155,
+          "yaml": "\"﻿trim\"",
+          "truncatedUtf8": "﻿trim"
+        },
+        {
+          "input": " leading space then more",
+          "limit": 0,
+          "yaml": "\" leading space then more\"",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": " leading space then more",
+          "limit": 1,
+          "yaml": "\" leading space then more\"",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": " leading space then more",
+          "limit": 3,
+          "yaml": "\" leading space then more\"",
+          "truncatedUtf8": " le…"
+        },
+        {
+          "input": " leading space then more",
+          "limit": 12,
+          "yaml": "\" leading space then more\"",
+          "truncatedUtf8": " leading…"
+        },
+        {
+          "input": " leading space then more",
+          "limit": 155,
+          "yaml": "\" leading space then more\"",
+          "truncatedUtf8": " leading space then more"
+        }
+      ]
+    },
+    {
+      "baseline": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "cases": [
+        {
+          "input": "plain text",
+          "limit": 0,
+          "yaml": "\"plain text\"",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": "plain text",
+          "limit": 1,
+          "yaml": "\"plain text\"",
+          "truncatedUtf8": "p…"
+        },
+        {
+          "input": "plain text",
+          "limit": 3,
+          "yaml": "\"plain text\"",
+          "truncatedUtf8": "pla…"
+        },
+        {
+          "input": "plain text",
+          "limit": 12,
+          "yaml": "\"plain text\"",
+          "truncatedUtf8": "plain text"
+        },
+        {
+          "input": "plain text",
+          "limit": 155,
+          "yaml": "\"plain text\"",
+          "truncatedUtf8": "plain text"
+        },
+        {
+          "input": "vcs = \"jj\" support",
+          "limit": 0,
+          "yaml": "'vcs = \"jj\" support'",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": "vcs = \"jj\" support",
+          "limit": 1,
+          "yaml": "'vcs = \"jj\" support'",
+          "truncatedUtf8": "v…"
+        },
+        {
+          "input": "vcs = \"jj\" support",
+          "limit": 3,
+          "yaml": "'vcs = \"jj\" support'",
+          "truncatedUtf8": "vcs…"
+        },
+        {
+          "input": "vcs = \"jj\" support",
+          "limit": 12,
+          "yaml": "'vcs = \"jj\" support'",
+          "truncatedUtf8": "vcs = \"jj\"…"
+        },
+        {
+          "input": "vcs = \"jj\" support",
+          "limit": 155,
+          "yaml": "'vcs = \"jj\" support'",
+          "truncatedUtf8": "vcs = \"jj\" support"
+        },
+        {
+          "input": "Hunk's \"jj\" support",
+          "limit": 0,
+          "yaml": "\"Hunk's \\\"jj\\\" support\"",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": "Hunk's \"jj\" support",
+          "limit": 1,
+          "yaml": "\"Hunk's \\\"jj\\\" support\"",
+          "truncatedUtf8": "H…"
+        },
+        {
+          "input": "Hunk's \"jj\" support",
+          "limit": 3,
+          "yaml": "\"Hunk's \\\"jj\\\" support\"",
+          "truncatedUtf8": "Hun…"
+        },
+        {
+          "input": "Hunk's \"jj\" support",
+          "limit": 12,
+          "yaml": "\"Hunk's \\\"jj\\\" support\"",
+          "truncatedUtf8": "Hunk's \"jj\"…"
+        },
+        {
+          "input": "Hunk's \"jj\" support",
+          "limit": 155,
+          "yaml": "\"Hunk's \\\"jj\\\" support\"",
+          "truncatedUtf8": "Hunk's \"jj\" support"
+        },
+        {
+          "input": "back\\slash",
+          "limit": 0,
+          "yaml": "\"back\\\\slash\"",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": "back\\slash",
+          "limit": 1,
+          "yaml": "\"back\\\\slash\"",
+          "truncatedUtf8": "b…"
+        },
+        {
+          "input": "back\\slash",
+          "limit": 3,
+          "yaml": "\"back\\\\slash\"",
+          "truncatedUtf8": "bac…"
+        },
+        {
+          "input": "back\\slash",
+          "limit": 12,
+          "yaml": "\"back\\\\slash\"",
+          "truncatedUtf8": "back\\slash"
+        },
+        {
+          "input": "back\\slash",
+          "limit": 155,
+          "yaml": "\"back\\\\slash\"",
+          "truncatedUtf8": "back\\slash"
+        },
+        {
+          "input": "one two three four",
+          "limit": 0,
+          "yaml": "\"one two three four\"",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": "one two three four",
+          "limit": 1,
+          "yaml": "\"one two three four\"",
+          "truncatedUtf8": "o…"
+        },
+        {
+          "input": "one two three four",
+          "limit": 3,
+          "yaml": "\"one two three four\"",
+          "truncatedUtf8": "one…"
+        },
+        {
+          "input": "one two three four",
+          "limit": 12,
+          "yaml": "\"one two three four\"",
+          "truncatedUtf8": "one two…"
+        },
+        {
+          "input": "one two three four",
+          "limit": 155,
+          "yaml": "\"one two three four\"",
+          "truncatedUtf8": "one two three four"
+        },
+        {
+          "input": "short",
+          "limit": 0,
+          "yaml": "\"short\"",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": "short",
+          "limit": 1,
+          "yaml": "\"short\"",
+          "truncatedUtf8": "s…"
+        },
+        {
+          "input": "short",
+          "limit": 3,
+          "yaml": "\"short\"",
+          "truncatedUtf8": "sho…"
+        },
+        {
+          "input": "short",
+          "limit": 12,
+          "yaml": "\"short\"",
+          "truncatedUtf8": "short"
+        },
+        {
+          "input": "short",
+          "limit": 155,
+          "yaml": "\"short\"",
+          "truncatedUtf8": "short"
+        },
+        {
+          "input": "😀😀😀",
+          "limit": 0,
+          "yaml": "\"😀😀😀\"",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": "😀😀😀",
+          "limit": 1,
+          "yaml": "\"😀😀😀\"",
+          "truncatedUtf8": "�…"
+        },
+        {
+          "input": "😀😀😀",
+          "limit": 3,
+          "yaml": "\"😀😀😀\"",
+          "truncatedUtf8": "😀�…"
+        },
+        {
+          "input": "😀😀😀",
+          "limit": 12,
+          "yaml": "\"😀😀😀\"",
+          "truncatedUtf8": "😀😀😀"
+        },
+        {
+          "input": "😀😀😀",
+          "limit": 155,
+          "yaml": "\"😀😀😀\"",
+          "truncatedUtf8": "😀😀😀"
+        },
+        {
+          "input": "word,;:. tail",
+          "limit": 0,
+          "yaml": "\"word,;:. tail\"",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": "word,;:. tail",
+          "limit": 1,
+          "yaml": "\"word,;:. tail\"",
+          "truncatedUtf8": "w…"
+        },
+        {
+          "input": "word,;:. tail",
+          "limit": 3,
+          "yaml": "\"word,;:. tail\"",
+          "truncatedUtf8": "wor…"
+        },
+        {
+          "input": "word,;:. tail",
+          "limit": 12,
+          "yaml": "\"word,;:. tail\"",
+          "truncatedUtf8": "word…"
+        },
+        {
+          "input": "word,;:. tail",
+          "limit": 155,
+          "yaml": "\"word,;:. tail\"",
+          "truncatedUtf8": "word,;:. tail"
+        },
+        {
+          "input": "﻿trim",
+          "limit": 0,
+          "yaml": "\"﻿trim\"",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": "﻿trim",
+          "limit": 1,
+          "yaml": "\"﻿trim\"",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": "﻿trim",
+          "limit": 3,
+          "yaml": "\"﻿trim\"",
+          "truncatedUtf8": "﻿tr…"
+        },
+        {
+          "input": "﻿trim",
+          "limit": 12,
+          "yaml": "\"﻿trim\"",
+          "truncatedUtf8": "﻿trim"
+        },
+        {
+          "input": "﻿trim",
+          "limit": 155,
+          "yaml": "\"﻿trim\"",
+          "truncatedUtf8": "﻿trim"
+        },
+        {
+          "input": " leading space then more",
+          "limit": 0,
+          "yaml": "\" leading space then more\"",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": " leading space then more",
+          "limit": 1,
+          "yaml": "\" leading space then more\"",
+          "truncatedUtf8": "…"
+        },
+        {
+          "input": " leading space then more",
+          "limit": 3,
+          "yaml": "\" leading space then more\"",
+          "truncatedUtf8": " le…"
+        },
+        {
+          "input": " leading space then more",
+          "limit": 12,
+          "yaml": "\" leading space then more\"",
+          "truncatedUtf8": " leading…"
+        },
+        {
+          "input": " leading space then more",
+          "limit": 155,
+          "yaml": "\" leading space then more\"",
+          "truncatedUtf8": " leading space then more"
+        }
+      ]
+    }
+  ]
+}
