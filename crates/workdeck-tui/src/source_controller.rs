@@ -2836,6 +2836,56 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn alpha_file_navigation_round_trip_clamps_header_alignment() {
+        let mut review = pinned_two_hunk_alpha_review();
+        for id in ["beta", "gamma"] {
+            let next = pinned_review_from_text(
+                id,
+                &format!("{id}.ts"),
+                &format!("export const {id} = 1;\n"),
+                &format!("export const {id} = 2;\n"),
+            );
+            review.files.extend(next.files);
+        }
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        app.review_width.set(80);
+        app.review_height.set(4);
+        app.with_state(|state| state.select_hunk(0, 1)).unwrap();
+        for (delta, index, changed) in [
+            (1, 1, true),
+            (1, 2, true),
+            (1, 2, false),
+            (-1, 1, true),
+            (-1, 0, true),
+            (-1, 0, false),
+        ] {
+            let revision = app.with_state(|state| state.state_revision());
+            let previous_scroll = app.scroll;
+            app.move_selection(ReviewSelectionScope::File, delta);
+            app.with_state(|state| {
+                assert_eq!(state.selection().file_index, index);
+                assert_eq!(state.selection().hunk_index, Some(0));
+                assert_eq!(state.state_revision(), revision + u64::from(changed));
+            });
+            let rows = app.current_review_geometry_rows();
+            let viewport = usize::from(
+                app.review_height
+                    .get()
+                    .saturating_sub(app.review_reserved_rows())
+                    .max(1),
+            );
+            assert_eq!(
+                app.scroll,
+                rows.file_body_tops[&index].min(rows.lines.len().saturating_sub(viewport))
+            );
+            if !changed {
+                assert_eq!(app.scroll, previous_scroll);
+            }
+        }
+    }
+
+    #[test]
     fn counted_alpha_file_navigation_commits_only_final_selection() {
         let mut review = pinned_alpha_source_review(800);
         review.files[0].set_source_capability(None);
