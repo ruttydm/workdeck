@@ -1396,6 +1396,19 @@ fn release_entries<'a>(
             0o644,
         ));
     }
+    for name in [
+        "workdeck-review",
+        "workdeck-extensions",
+        "workdeck-release",
+        "workdeck-launch-video",
+    ] {
+        let source = format!("skills/{name}/SKILL.md");
+        entries.push((
+            format!("{root}/{source}"),
+            fs::read(repo.join(&source)).with_context(|| format!("read {source}"))?,
+            0o644,
+        ));
+    }
     entries.sort_by(|left, right| left.0.cmp(&right.0));
     Ok(entries)
 }
@@ -2946,12 +2959,24 @@ mod tests {
 
     #[test]
     fn release_entries_retain_every_complete_syntax_notice() {
+        use crate::{write_tar_archive, write_zip_archive};
+        use std::{collections::BTreeMap, fs::File, io::Read};
         let scratch = tempfile::tempdir().unwrap();
         let root = scratch.path();
         fs::create_dir_all(root.join("third_party/themes")).unwrap();
         fs::create_dir_all(root.join("third_party/grammars")).unwrap();
         fs::write(root.join("LICENSE"), b"license").unwrap();
         fs::write(root.join("THIRD_PARTY_NOTICES"), b"notices").unwrap();
+        for name in [
+            "workdeck-review",
+            "workdeck-extensions",
+            "workdeck-release",
+            "workdeck-launch-video",
+        ] {
+            let path = root.join("skills").join(name);
+            fs::create_dir_all(&path).unwrap();
+            fs::write(path.join("SKILL.md"), name).unwrap();
+        }
         let binary = root.join("workdeck");
         fs::write(&binary, b"binary").unwrap();
         for notice in [
@@ -2977,6 +3002,44 @@ mod tests {
             b"sbom",
         )
         .unwrap();
+        for name in [
+            "workdeck-review",
+            "workdeck-extensions",
+            "workdeck-release",
+            "workdeck-launch-video",
+        ] {
+            let entry = entries
+                .iter()
+                .find(|entry| entry.0 == format!("workdeck-test/skills/{name}/SKILL.md"))
+                .unwrap();
+            assert_eq!(entry.1, name.as_bytes());
+            assert_eq!(entry.2, 0o644);
+        }
+        let zip_path = root.join("release.zip");
+        let tar_path = root.join("release.tar.gz");
+        write_zip_archive(&zip_path, &entries).unwrap();
+        write_tar_archive(&tar_path, &entries).unwrap();
+        let mut zip = zip::ZipArchive::new(File::open(zip_path).unwrap()).unwrap();
+        assert_eq!(zip.len(), entries.len());
+        for (name, expected, _) in &entries {
+            let mut bytes = Vec::new();
+            zip.by_name(name).unwrap().read_to_end(&mut bytes).unwrap();
+            assert_eq!(&bytes, expected, "ZIP payload {name}");
+        }
+        let mut tar =
+            tar::Archive::new(flate2::read::GzDecoder::new(File::open(tar_path).unwrap()));
+        let mut actual = BTreeMap::new();
+        for entry in tar.entries().unwrap() {
+            let mut entry = entry.unwrap();
+            let name = entry.path().unwrap().to_string_lossy().into_owned();
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes).unwrap();
+            assert!(actual.insert(name, bytes).is_none());
+        }
+        assert_eq!(actual.len(), entries.len());
+        for (name, expected, _) in &entries {
+            assert_eq!(actual.get(name), Some(expected), "tar payload {name}");
+        }
         let names = entries
             .into_iter()
             .map(|(name, _, _)| name)
