@@ -44,6 +44,27 @@ pub(in crate::social_cards) fn apply(
     );
     let backup = parent.join(backup.file_name().context("backup filename missing")?);
     let mut modes = BTreeMap::new();
+    for name in &plan.remove_directories {
+        ensure!(
+            Path::new(name)
+                .components()
+                .all(|c| matches!(c, Component::Normal(_)))
+                && (name == super::CHANGELOG
+                    || name.starts_with(&format!("{}/", super::CHANGELOG))),
+            "invalid publication directory"
+        );
+        check_parents(&repo, name)?;
+        let metadata = fs::symlink_metadata(repo.join(name))?;
+        ensure!(
+            metadata.is_dir() && !metadata.file_type().is_symlink(),
+            "publication directory changed"
+        );
+        ensure!(
+            !plan.replacements.keys().any(|file| file == name),
+            "publication file/directory collision"
+        );
+        modes.insert(name.clone(), Some(metadata.permissions()));
+    }
     for name in plan.replacements.keys() {
         ensure!(
             Path::new(name)
@@ -95,6 +116,7 @@ pub(in crate::social_cards) fn apply(
         true,
     )?;
     let mut written = Vec::new();
+    let mut removed_directories = Vec::new();
     let result = (|| -> Result<()> {
         for (name, replacement) in &plan.replacements {
             check_parents(&repo, name)?;
@@ -117,6 +139,13 @@ pub(in crate::social_cards) fn apply(
             written.push(name);
             after_write(written.len())?;
         }
+        for name in plan.remove_directories.iter().rev() {
+            check_parents(&repo, name)?;
+            fs::remove_dir(repo.join(name))
+                .with_context(|| format!("remove empty publication directory: {name}"))?;
+            removed_directories.push(name);
+            after_write(written.len() + removed_directories.len())?;
+        }
         for (name, bytes) in &plan.replacements {
             check_parents(&repo, name)?;
             ensure!(
@@ -128,6 +157,22 @@ pub(in crate::social_cards) fn apply(
     })();
     if let Err(error) = result {
         let mut conflicts = Vec::new();
+        for name in removed_directories.into_iter().rev() {
+            let restore = (|| -> Result<()> {
+                check_parents(&repo, name)?;
+                fs::create_dir(repo.join(name))?;
+                fs::set_permissions(
+                    repo.join(name),
+                    modes[name]
+                        .clone()
+                        .context("directory permissions missing")?,
+                )?;
+                Ok(())
+            })();
+            if let Err(error) = restore {
+                conflicts.push(format!("{name}: {error}"));
+            }
+        }
         for name in written.into_iter().rev() {
             let restore = (|| -> Result<()> {
                 check_parents(&repo, name)?;
@@ -163,16 +208,22 @@ mod tests {
     use super::*;
     #[test]
     fn binary_application_recovers_each_partial_write() {
-        for failure in 0..=3 {
+        for failure in 0..=5 {
             let outer = tempfile::tempdir().unwrap();
             let repo = outer.path().join("repo");
             fs::create_dir_all(repo.join("site/static/changelog/og")).unwrap();
+            let empty = "site/static/changelog/og/empty";
+            let nested = "site/static/changelog/og/empty/nested";
+            fs::create_dir_all(repo.join(nested)).unwrap();
             let a = "site/static/changelog/og/a.png".to_string();
             let b = "site/static/changelog/og/b.png".to_string();
             let c = "site/static/extensions/og.png".to_string();
             fs::write(repo.join(&a), [0, 255, 1]).unwrap();
             fs::write(repo.join(&b), b"stale").unwrap();
             let plan = Plan {
+                remove_directories: [empty.to_string(), nested.to_string()]
+                    .into_iter()
+                    .collect(),
                 originals: BTreeMap::from([
                     (a.clone(), Some(vec![0, 255, 1])),
                     (b.clone(), Some(b"stale".to_vec())),
@@ -190,6 +241,8 @@ mod tests {
                 Ok(())
             });
             assert_eq!(result.is_ok(), failure == 0);
+            assert_eq!(repo.join(empty).exists(), failure != 0);
+            assert_eq!(repo.join(nested).exists(), failure != 0);
             let expected = if failure == 0 {
                 &plan.replacements
             } else {

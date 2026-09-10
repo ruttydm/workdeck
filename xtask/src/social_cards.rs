@@ -25,12 +25,13 @@ pub(super) fn run_publish(
     )?;
     let current = publication::plan(repo, &repo.join(staging), &targets, requested.is_empty())?;
     ensure!(saved == current, "publication plan is stale or modified");
-    if !current.replacements.is_empty() {
+    let changed = !current.replacements.is_empty() || !current.remove_directories.is_empty();
+    if changed {
         publication::apply(repo, &current, &repo.join(backup), |_| Ok(()))?;
     }
     println!(
         "{}",
-        serde_json::json!({"applied": !current.replacements.is_empty(), "files": current.replacements.len()})
+        serde_json::json!({"applied": changed, "files": current.replacements.len()})
     );
     Ok(())
 }

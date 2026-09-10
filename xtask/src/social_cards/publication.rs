@@ -3,13 +3,18 @@
 use super::{Target, check_capture};
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+};
 
 const CHANGELOG: &str = "site/static/changelog/og";
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Plan {
+    pub remove_directories: BTreeSet<String>,
     pub originals: BTreeMap<String, Option<Vec<u8>>>,
     pub replacements: BTreeMap<String, Option<Vec<u8>>>,
 }
@@ -53,6 +58,7 @@ fn inventory(
     repo: &Path,
     relative: &str,
     files: &mut BTreeMap<String, Option<Vec<u8>>>,
+    directories: &mut BTreeSet<String>,
 ) -> Result<()> {
     let path = repo.join(relative);
     let metadata = match fs::symlink_metadata(&path) {
@@ -64,6 +70,7 @@ fn inventory(
         metadata.is_dir() && !metadata.file_type().is_symlink(),
         "publication set must be a real directory"
     );
+    directories.insert(relative.to_owned());
     for entry in fs::read_dir(path)? {
         let entry = entry?;
         let name = entry
@@ -73,7 +80,7 @@ fn inventory(
         let child = format!("{relative}/{name}");
         let kind = entry.file_type()?;
         if kind.is_dir() {
-            inventory(repo, &child, files)?;
+            inventory(repo, &child, files, directories)?;
         } else {
             files.insert(child.clone(), read_regular(&repo.join(child))?);
         }
@@ -85,9 +92,10 @@ pub(super) fn plan(repo: &Path, staging: &Path, targets: &[Target], full: bool) 
     let images = check_capture(staging, targets, full)?;
     let mut originals = BTreeMap::new();
     let mut replacements = BTreeMap::new();
+    let mut remove_directories = BTreeSet::new();
     if full {
         check_parents(repo, &format!("{CHANGELOG}/card.png"))?;
-        inventory(repo, CHANGELOG, &mut originals)?;
+        inventory(repo, CHANGELOG, &mut originals, &mut remove_directories)?;
         replacements.extend(originals.keys().map(|name| (name.clone(), None)));
     }
     for (target, bytes) in targets.iter().zip(images) {
@@ -102,7 +110,13 @@ pub(super) fn plan(repo: &Path, staging: &Path, targets: &[Target], full: bool) 
     }
     replacements.retain(|name, bytes| originals[name] != *bytes);
     originals.retain(|name, _| replacements.contains_key(name));
+    remove_directories.retain(|dir| {
+        !targets
+            .iter()
+            .any(|target| target.output_file.starts_with(&format!("{dir}/")))
+    });
     Ok(Plan {
+        remove_directories,
         originals,
         replacements,
     })

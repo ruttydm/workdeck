@@ -219,3 +219,13 @@ After releasing the lock, targeted publication succeeds. A subsequent full run
 removes the stale changelog image, retains the unchanged standalone card and
 records the removed image's exact original bytes in recovery data. Empty
 directory removal and inventory changes during application are still open.
+
+Full publication plans now also record directories that no selected card needs.
+Application removes these deepest-first using nonrecursive `remove_dir`, so an
+unexpected new entry causes failure instead of being swept. Recovery records
+their permissions, and rollback recreates successfully removed directories
+parent-first before restoring files. Empty-directory-only plans count as changes.
+Nine unit tests pass with failure injection after all five operations (three
+file writes/deletions and two nested directory removals). This supersedes the
+earlier empty-directory limitation; concurrent filesystem races and crash-atomic
+directory replacement remain unresolved.

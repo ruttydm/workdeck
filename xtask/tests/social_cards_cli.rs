@@ -156,6 +156,7 @@ fn publication_cli_applies_checks_staleness_and_preserves_targeted_images() {
         serde_json::json!({"applied":true,"files":1})
     );
     assert!(!stale.exists());
+    assert!(!repo.path().join("site/static/changelog/og").exists());
     assert_eq!(
         fs::read(repo.path().join("site/static/extensions/og.png")).unwrap(),
         bytes
