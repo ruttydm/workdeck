@@ -12,6 +12,7 @@ mod compose;
 mod launch;
 
 pub use capture::capture_file;
+pub(crate) use compose::capture_card_documents;
 pub use compose::compose_file;
 pub use launch::launch_file;
 

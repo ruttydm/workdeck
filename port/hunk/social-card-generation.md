@@ -13,8 +13,7 @@ and fails with known slugs when none match. These rules follow the pinned MIT
 `website/scripts/generate-og.ts`, with Workdeck branding and paths. Unsafe slugs
 are rejected before they can become staging or publication paths.
 
-The plan JSON explicitly reports `rendered: false`. Chromium/WebDriver capture,
-staged image publication, stale-image removal,
+The plan JSON explicitly reports `rendered: false`. Staged image publication, stale-image removal,
 frozen browser oracles and visual verification remain incomplete. This planner
 does not authorize deleting an existing image directory. The complete source
 interval remains unmapped; two model tests and a read-only CLI test cover only
@@ -37,3 +36,27 @@ Three model/HTML tests cover selection, path validation, escaping, conditional
 markup and the title threshold. The CLI test uses synthetic font bytes to verify
 embedding and read-only output, not valid font decoding or rendered geometry.
 No browser screenshot, actual-font validation or visual parity is claimed yet.
+
+## Native capture to staging
+
+`cargo xtask social-cards-capture <cards.json> <font.woff2> <webdriver> <chromium> [slug ...]`
+uses explicit external browser/driver paths and the existing Rust WebDriver
+renderer. It selects cards before launching the browser, captures a 1200×630
+viewport after font readiness and two paint frames, decodes every PNG and checks
+its dimensions. Temporary HTML files are removed after successful capture. A
+failed capture or invalid image drops the entire temporary staging directory.
+
+Only after every capture and browser close succeeds does the command retain the
+staging directory and print its path plus indexed PNG-to-target mappings, with
+`rendered: true` and `published: false`. The caller owns that retained directory.
+It does not replace existing images or remove orphaned public images. There is
+no claim that staging alone verifies visual parity or font fidelity.
+
+The injected-renderer test verifies successful PNG staging, wrong-width rejection
+and cleanup of a partially completed batch. `cargo check -p xtask` passed with a
+must-use warning that was subsequently fixed. Neither `chromedriver` nor
+`chromium` was found on the host PATH during this checkpoint; no native browser
+capture was executed. These missing binaries do not block further port work.
+Strict xtask all-target Clippy subsequently passed. The CLI regression verifies
+that an unavailable explicit driver fails without a success report or site
+directory creation, while preserving the card and font inputs.

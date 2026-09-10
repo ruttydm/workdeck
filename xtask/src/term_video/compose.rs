@@ -9,7 +9,7 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use base64::Engine;
 use serde_json::{Value, json};
 
@@ -214,6 +214,51 @@ fn find_caption_font(root_dir: &Path) -> Result<PathBuf> {
 
 trait FrameRenderer {
     fn screenshot(&mut self, stage_url: &str, output: &Path) -> Result<()>;
+}
+
+pub(crate) fn capture_card_documents(
+    driver: &Path,
+    chromium: &Path,
+    documents: &[String],
+) -> Result<tempfile::TempDir> {
+    ensure!(!documents.is_empty(), "no social-card documents to capture");
+    let viewport = Viewport {
+        width: 1200,
+        height: 630,
+    };
+    let mut renderer = WebDriverRenderer::launch(driver, Some(chromium), viewport)?;
+    let staged = stage_card_documents(documents, &mut renderer)?;
+    renderer.close()?;
+    Ok(staged)
+}
+
+fn stage_card_documents(
+    documents: &[String],
+    renderer: &mut impl FrameRenderer,
+) -> Result<tempfile::TempDir> {
+    let staged = tempfile::Builder::new()
+        .prefix("workdeck-social-cards-")
+        .tempdir()?;
+    for (index, html) in documents.iter().enumerate() {
+        let document = staged.path().join(format!("{index:04}.html"));
+        let image = staged.path().join(format!("{index:04}.png"));
+        fs::write(&document, html)?;
+        renderer.screenshot(&file_url(&document)?, &image)?;
+        let mut reader = png::Decoder::new(BufReader::new(File::open(&image)?)).read_info()?;
+        ensure!(
+            reader.info().width == 1200 && reader.info().height == 630,
+            "social-card screenshot must be 1200x630"
+        );
+        let mut pixels = vec![
+            0;
+            reader
+                .output_buffer_size()
+                .context("social-card PNG too large")?
+        ];
+        reader.next_frame(&mut pixels)?;
+        fs::remove_file(document)?;
+    }
+    Ok(staged)
 }
 
 fn compose_storyboard(
@@ -912,6 +957,52 @@ mod tests {
         let mut writer = encoder.write_header().unwrap();
         let pixels = color.repeat((width * height) as usize);
         writer.write_image_data(&pixels).unwrap();
+    }
+
+    #[test]
+    fn social_card_staging_validates_geometry_and_cleans_partial_capture() {
+        struct Renderer {
+            outputs: Vec<PathBuf>,
+            wrong_size: bool,
+            fail_second: bool,
+        }
+        impl FrameRenderer for Renderer {
+            fn screenshot(&mut self, url: &str, output: &Path) -> Result<()> {
+                assert!(url.starts_with("file://"));
+                self.outputs.push(output.to_owned());
+                if self.fail_second && self.outputs.len() == 2 {
+                    bail!("injected capture failure");
+                }
+                write_png(
+                    output,
+                    if self.wrong_size { 1199 } else { 1200 },
+                    630,
+                    [10, 20, 30],
+                );
+                Ok(())
+            }
+        }
+        let documents = vec!["<html>one</html>".into(), "<html>two</html>".into()];
+        for (wrong_size, fail_second) in [(false, false), (true, false), (false, true)] {
+            let mut renderer = Renderer {
+                outputs: vec![],
+                wrong_size,
+                fail_second,
+            };
+            let result = stage_card_documents(&documents, &mut renderer);
+            if wrong_size || fail_second {
+                assert!(result.is_err());
+                for path in renderer.outputs {
+                    assert!(!path.parent().unwrap().exists());
+                }
+            } else {
+                let staged = result.unwrap();
+                assert_eq!(fs::read_dir(staged.path()).unwrap().count(), 2);
+                assert!(staged.path().join("0000.png").is_file());
+                assert!(staged.path().join("0001.png").is_file());
+                assert!(!staged.path().join("0000.html").exists());
+            }
+        }
     }
 
     #[test]

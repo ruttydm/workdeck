@@ -12,6 +12,40 @@ fn escape_html(value: &str) -> String {
         .replace('"', "&quot;")
 }
 
+pub(super) fn run_capture(
+    repo: &std::path::Path,
+    mut args: impl Iterator<Item = String>,
+) -> Result<()> {
+    use anyhow::Context;
+    let cards = args
+        .next()
+        .context("social-cards-capture requires cards, font, WebDriver and Chromium paths")?;
+    let font = args.next().context("font path required")?;
+    let driver = args.next().context("WebDriver path required")?;
+    let chromium = args.next().context("Chromium path required")?;
+    let requested: Vec<_> = args.collect();
+    let targets = select(
+        serde_json::from_slice(&std::fs::read(repo.join(cards))?)?,
+        &requested,
+    )?;
+    let font = std::fs::read(repo.join(font))?;
+    let documents: Vec<_> = targets.iter().map(|t| render_html(t, &font)).collect();
+    let staged = crate::term_video::capture_card_documents(
+        &repo.join(driver),
+        &repo.join(chromium),
+        &documents,
+    )?;
+    let report = serde_json::json!({
+        "stagingDirectory": staged.path(), "rendered":true, "published":false,
+        "replaceChangelogDirectory":requested.is_empty(),
+        "images": targets.iter().enumerate().map(|(i,t)| serde_json::json!({"stagedFile":format!("{i:04}.png"), "target":t})).collect::<Vec<_>>()
+    });
+    let encoded = serde_json::to_string_pretty(&report)?;
+    let _retained_staging_directory = staged.keep();
+    println!("{encoded}");
+    Ok(())
+}
+
 fn render_html(target: &Target, font: &[u8]) -> String {
     use base64::Engine;
     let card = &target.card;

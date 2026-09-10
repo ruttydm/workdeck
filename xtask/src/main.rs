@@ -272,6 +272,7 @@ fn run() -> Result<()> {
         Some("changelog") => changelog::run(&repo_root()?, args),
         Some("social-cards-plan") => social_cards::run(&repo_root()?, args),
         Some("social-cards-html") => social_cards::run_html(&repo_root()?, args),
+        Some("social-cards-capture") => social_cards::run_capture(&repo_root()?, args),
         Some("media") => match args.next().as_deref() {
             Some("plan") => term_video::plan_file(&repo_root()?, args),
             Some("compose") => term_video::compose_file(&repo_root()?, args),
@@ -2545,6 +2546,9 @@ fn relative_to(repo: &Path, path: &Path) -> String {
 
 fn print_help() {
     println!("cargo xtask social-cards-plan <cards.json> [slug ...]");
+    println!(
+        "cargo xtask social-cards-capture <cards.json> <font.woff2> <webdriver> <chromium> [slug ...]"
+    );
     println!("cargo xtask social-cards-html <cards.json> <font.woff2> [slug ...]");
     println!("cargo xtask benchmark aggregate SOURCE METRIC SAMPLES_JSON");
     println!("cargo xtask benchmark parse-metrics < METRIC_OUTPUT");

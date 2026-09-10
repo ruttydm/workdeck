@@ -64,4 +64,20 @@ fn card_planning_is_read_only_and_distinguishes_full_and_targeted_runs() {
         fs::read(repo.path().join("font.woff2")).unwrap(),
         b"fixture font bytes"
     );
+    let failed_capture = Command::new(env!("CARGO_BIN_EXE_xtask"))
+        .current_dir(repo.path())
+        .args([
+            "social-cards-capture",
+            "cards.json",
+            "font.woff2",
+            "missing-driver",
+            "missing-browser",
+            "extensions",
+        ])
+        .output()
+        .unwrap();
+    assert!(!failed_capture.status.success());
+    assert!(failed_capture.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&failed_capture.stderr).contains("launch WebDriver"));
+    assert!(!repo.path().join("site").exists());
 }
