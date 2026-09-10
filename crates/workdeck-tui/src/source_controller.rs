@@ -1131,6 +1131,32 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn duplicate_alpha_draft_save_persists_once_and_next_draft_has_unique_id() {
+        let mut review = pinned_alpha_source_review(800);
+        review.files[0].set_source_capability(None);
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        app.open_note_composer();
+        app.note_composer.as_mut().unwrap().body = "Save me once.".into();
+        app.save_note_composer();
+        app.save_note_composer();
+        let first = app.with_state(|state| {
+            assert_eq!(state.comments().len(), 1);
+            assert_eq!(state.comments()[0].summary, "Save me once.");
+            state.comments()[0].id.clone()
+        });
+        assert!(app.note_composer.is_none());
+        app.open_note_composer();
+        app.note_composer.as_mut().unwrap().body = "Save me too.".into();
+        app.save_note_composer();
+        app.with_state(|state| {
+            assert_eq!(state.comments().len(), 2);
+            assert_eq!(state.comments()[1].summary, "Save me too.");
+            assert_ne!(state.comments()[1].id, first);
+        });
+    }
+
+    #[test]
     fn default_alpha_attention_mark_does_not_move_viewport_or_selection() {
         let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
         app.review_height.set(8);
