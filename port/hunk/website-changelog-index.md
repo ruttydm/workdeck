@@ -22,9 +22,10 @@ migrated rather than compared byte-for-byte. A separate source SAMPLE test check
 the five original index-test behaviors and the Zola path metadata.
 
 This is partial generator implementation. Social-card head integration, actual
-Zola template rendering, artifact orchestration and the complete source test
-ledger mapping remain open.
-No ledger record is marked mapped by this work. Attribution remains with Modem
+Zola template rendering and artifact orchestration remain open.
+The initial implementation mapped no ledger record. The subsequent
+[index-test translation](changelog-index-tests.md) maps only the complete original
+index test block, preserving all nine source assertions. Attribution remains with Modem
 Labs Inc. under MIT, as recorded in the Rust source and `THIRD_PARTY_NOTICES`.
 
 Validation: both index unit tests pass, including four complete main body
