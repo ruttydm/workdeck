@@ -15,6 +15,7 @@ use std::process::{Command, Output};
 mod architecture;
 mod benchmark;
 mod changelog;
+mod changeset_config;
 mod ci_changes;
 mod ci_host;
 mod contributor_guide;
@@ -1728,6 +1729,7 @@ fn verify() -> Result<()> {
     repository_forms::run(&repo, false)?;
     let baseline = resolve_commit(&repo, DEFAULT_BASELINE)?;
     tooling_configs::verify(&repo, &baseline)?;
+    changeset_config::verify(&repo, &baseline)?;
     changelog::run(
         &repo,
         ["upstream-history".into(), "--check".into()].into_iter(),
@@ -2032,6 +2034,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     port_oracles::verify(&repo, &baseline)?;
     repository_forms::verify(&repo, &baseline)?;
     tooling_configs::verify(&repo, &baseline)?;
+    changeset_config::verify(&repo, &baseline)?;
     benchmark::verify_historical_for_baseline(&repo, &baseline)?;
     let entries = read_tree(&repo, &baseline)?;
     let expected = entries
