@@ -730,6 +730,8 @@ mod tests {
 
     #[test]
     fn broker_mutations_run_on_the_owner_thread_and_answer_after_commit() {
+        // Construct the review before starting the bridge's request deadline.
+        let mut app = app();
         let host = Arc::new(MockHost::default());
         let mut controller = AppHostController::attach_to_host(
             Some(host.clone() as Arc<dyn WorkdeckSessionBridgeHost>),
@@ -759,7 +761,6 @@ mod tests {
             ))
         });
         barrier.wait();
-        let mut app = app();
         assert_eq!(process_until_pending(&mut controller, &mut app), 1);
         let WorkdeckSessionCommandResult::AppliedComment(result) = worker.join().unwrap().unwrap()
         else {
@@ -772,6 +773,7 @@ mod tests {
 
     #[test]
     fn handler_failures_cross_the_queue_without_mutating_the_review() {
+        let mut app = app();
         let host = Arc::new(MockHost::default());
         let mut controller = AppHostController::attach_to_host(
             Some(host.clone() as Arc<dyn WorkdeckSessionBridgeHost>),
@@ -787,7 +789,6 @@ mod tests {
                 }),
             ))
         });
-        let mut app = app();
         assert_eq!(process_until_pending(&mut controller, &mut app), 1);
         assert_eq!(
             worker.join().unwrap().unwrap_err(),
@@ -1049,8 +1050,46 @@ mod tests {
         Arrow,
     }
 
+    fn assert_mouse_scroll_fixture(review: &workdeck_core::Changeset) {
+        let presentation = crate::source_presentation::ReviewSourcePresentation::default();
+        let files = review
+            .files
+            .iter()
+            .map(|file| {
+                assert!(file.source_identity.is_none());
+                assert!(!file.source_attested);
+                let agent = file.agent.as_ref().unwrap();
+                serde_json::json!({
+                    "id":file.runtime_id, "path":file.path, "language":file.language,
+                    "patch":file.patch, "partial":file.flags.partial,
+                    "sourceFetcherPresent":presentation.available(file),
+                    "before":file.sources.old.as_ref().unwrap().content,
+                    "after":file.sources.new.as_ref().unwrap().content,
+                    "stats":{"additions":file.stats.additions,"deletions":file.stats.deletions},
+                    "agent":{"path":agent.path,"summary":agent.summary,
+                        "annotations":agent.annotations.iter().map(|note| {
+                            let range = note.new_range.as_ref().unwrap();
+                            serde_json::json!({"newRange":[range.start,range.end],
+                                "summary":note.summary,"rationale":note.rationale})
+                        }).collect::<Vec<_>>()},
+                    "hunks":file.hunks.iter().map(|hunk| serde_json::json!({
+                        "oldStart":hunk.old_start,"oldCount":hunk.old_count,
+                        "newStart":hunk.new_start,"newCount":hunk.new_count
+                    })).collect::<Vec<_>>()
+                })
+            })
+            .collect::<Vec<_>>();
+        let oracle: Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/interaction-mouse-scroll-files.json"
+        ))
+        .unwrap();
+        for run in oracle["runs"].as_array().unwrap() {
+            assert_eq!(serde_json::json!(files), run["files"], "{}", run["pin"]);
+        }
+    }
+
     fn assert_scroll_selection_publication(input: ScrollSelectionInput) {
-        use crate::tests::{navigation_changeset, numbered_exports, rendered_review_frame};
+        use crate::tests::{numbered_exports, rendered_review_frame};
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
         use ratatui::{Terminal, backend::TestBackend};
         let first = numbered_exports(1, 12, 0, true);
@@ -1062,14 +1101,56 @@ mod tests {
                 &format!("line{line} = {};", line * 100),
             );
         }
-        let mut review = navigation_changeset(vec![
+        let files = [
             (
-                "first.ts".into(),
+                "first",
+                "first.ts",
                 first.clone(),
                 first.replace("line01 = 1;", "line01 = 101;"),
             ),
-            ("second.ts".into(), second, second_after),
-        ]);
+            ("second", "second.ts", second, second_after),
+        ]
+        .into_iter()
+        .map(|(id, path, before, after)| {
+            let mut file = workdeck_diff::diff_from_file_snapshots(
+                workdeck_diff::FileSnapshot {
+                    cache_key: &format!("{id}:before"),
+                    contents: &before,
+                    name: path,
+                },
+                workdeck_diff::FileSnapshot {
+                    cache_key: &format!("{id}:after"),
+                    contents: &after,
+                    name: path,
+                },
+                workdeck_diff::FileComparisonOptions { context_radius: 3 },
+            )
+            .unwrap();
+            file.runtime_id = id.into();
+            file.language = Some("typescript".into());
+            file.patch.clear();
+            for source in file
+                .sources
+                .old
+                .iter_mut()
+                .chain(file.sources.new.iter_mut())
+            {
+                source.origin = workdeck_core::SourceOrigin::DiffMetadata;
+                source.attested = false;
+            }
+            file.set_sources(file.sources.clone());
+            file
+        })
+        .collect();
+        let mut review = workdeck_core::Changeset {
+            id: "changeset:mouse-scroll-selection".into(),
+            source_label: "repo".into(),
+            title: "repo working tree".into(),
+            summary: None,
+            agent_summary: None,
+            source: workdeck_core::ChangesetSource::WorkingTree { staged: false },
+            files,
+        };
         for file in &mut review.files {
             file.agent = Some(serde_json::from_value(serde_json::json!({
                 "path":file.path, "summary":format!("{} note", file.path),
@@ -1084,6 +1165,7 @@ mod tests {
             Duration::from_secs(2),
         );
         let mut terminal = Terminal::new(TestBackend::new(220, 12)).unwrap();
+        app.with_state(|state| assert_mouse_scroll_fixture(state.changeset()));
         rendered_review_frame(&mut terminal, &app);
         controller.publish_snapshot(&app).unwrap();
         let selected = || {
