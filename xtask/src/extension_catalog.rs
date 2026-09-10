@@ -1,8 +1,9 @@
 //! Partial MIT port of Hunk website/src/data/extensions.ts (Modem Labs Inc.).
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::io::Read;
+use std::path::Path;
 
 mod loading;
 
@@ -72,6 +73,32 @@ pub fn validate_legacy_catalog(catalog: &Value) -> Result<()> {
         anyhow::ensure!(!categories.is_empty(), "catalog categories missing");
     }
     Ok(())
+}
+
+/// Verify the complete pinned website catalog through the native projection.
+/// The TypeScript module is read as data from Git and its literal is decoded
+/// by the restrictive parser below; it is never executed.
+pub(crate) fn verify_pinned_source(repo: &Path, baseline: &str) -> Result<()> {
+    if baseline != "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2" {
+        return Ok(());
+    }
+    let catalog: Value = serde_json::from_slice(
+        &std::fs::read(repo.join("site/data/legacy-extensions.json"))
+            .context("read native legacy extension catalog")?,
+    )?;
+    let source_bytes = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2:website/src/data/extensions.ts",
+        ],
+    )?;
+    ensure!(
+        source_bytes.len() == 13_852,
+        "pinned extension catalog source changed size"
+    );
+    let source = String::from_utf8(source_bytes)?;
+    verify_legacy_source(&catalog, &source)
 }
 
 // Decode only the pinned declarative catalog literal, never execute source.

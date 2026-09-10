@@ -1757,6 +1757,7 @@ fn verify() -> Result<()> {
     let baseline = resolve_commit(&repo, DEFAULT_BASELINE)?;
     tooling_configs::verify(&repo, &baseline)?;
     changeset_config::verify(&repo, &baseline)?;
+    extension_catalog::verify_pinned_source(&repo, &baseline)?;
     skill::verify_pinned_web_review_skill(&repo, &baseline)?;
     changelog::verify_pinned_website_inputs(&repo, &baseline)?;
     changelog::run(
@@ -2064,6 +2065,8 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     repository_forms::verify(&repo, &baseline)?;
     tooling_configs::verify(&repo, &baseline)?;
     changeset_config::verify(&repo, &baseline)?;
+    extension_catalog::verify_pinned_source(&repo, &baseline)?;
+    skill::verify_pinned_web_review_skill(&repo, &baseline)?;
     changelog::verify_pinned_website_inputs(&repo, &baseline)?;
     benchmark::verify_historical_for_baseline(&repo, &baseline)?;
     let entries = read_tree(&repo, &baseline)?;
