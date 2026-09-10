@@ -97,7 +97,7 @@ fn feed_date(value: &str) -> String {
     parse(value).unwrap_or_else(|| "Invalid Date".into())
 }
 
-fn render(
+pub(super) fn render(
     series: &[ReleaseSeries],
     notes: &BTreeMap<String, String>,
     dates: &BTreeMap<String, String>,

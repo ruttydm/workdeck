@@ -1,5 +1,9 @@
 # Website changelog parser continuation
 
+The renderers are now connected through a read-only
+[artifact composition command](website-changelog-artifacts.md). Writing and
+full artifact differential verification remain open.
+
 Release-card metadata now crosses the generator/template boundary; see
 [website-release-template.md](website-release-template.md) for implementation
 and the still-unverified real Zola rendering gate.

@@ -3,7 +3,7 @@
 use super::*;
 use std::collections::BTreeMap;
 
-fn render(
+pub(super) fn render(
     series: &[ReleaseSeries],
     notes: &BTreeMap<String, Note>,
     dates: &BTreeMap<String, String>,
@@ -86,7 +86,7 @@ fn render(
 }
 
 #[derive(serde::Deserialize)]
-struct Note {
+pub(super) struct Note {
     summary: Option<String>,
 }
 

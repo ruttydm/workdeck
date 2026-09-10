@@ -8,6 +8,7 @@ use std::cmp::Ordering;
 use std::path::Path;
 use std::sync::LazyLock;
 
+mod artifacts;
 mod feed;
 mod index;
 mod json;
@@ -22,6 +23,7 @@ fn release_card_metadata(metadata: &mut toml_edit::DocumentMut, card: &serde_jso
     ));
     metadata["extra"]["social_image_alt"] = toml_edit::value(card["alt"].as_str().unwrap());
 }
+pub(super) use artifacts::run_artifacts;
 pub(super) use feed::run_feed;
 pub(super) use index::run_index;
 pub(super) use latest::run_latest;

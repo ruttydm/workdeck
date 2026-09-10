@@ -4,12 +4,12 @@ use super::*;
 use std::collections::BTreeMap;
 
 #[derive(Default, serde::Deserialize)]
-struct Note {
+pub(super) struct Note {
     summary: Option<String>,
     tagline: Option<String>,
 }
 
-fn latest(
+pub(super) fn latest(
     releases: Vec<ReleaseEntry>,
     dates: &BTreeMap<String, String>,
     notes: &BTreeMap<String, Note>,
