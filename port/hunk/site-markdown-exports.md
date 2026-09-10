@@ -21,6 +21,13 @@ output comparison, alternate routing/shortcode behavior, optional-link parity,
 and development-server refresh integration are not complete. Generated output
 has not been deployed. A valid local site build is not website parity.
 
-Validation: three `site_markdown` unit tests pass, covering source preservation,
+Validation: seven `site_markdown` unit tests pass, covering source preservation,
 compact/full exclusions, ordering, duplicate routes, missing HTML and output
-collisions; integrated `site check` also passes on the current content.
+collisions, dotted release routes, draft descendants and symlink parents;
+integrated `site check` also passes on the current content.
+
+At `e719b9c2`, the broader `cargo test -p xtask --all-targets -- --quiet`
+completed with 372 unit tests and 39 integration/PTY tests passing. Seven unit
+tests and one integration test were ignored; their oracle/environment gates
+remain separate. Normal `site build` also generated the expected files beneath
+`site/public`, which is ignored build output and is not committed or deployed.

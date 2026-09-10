@@ -1,4 +1,5 @@
 /target/
+/site/public/
 /dist/
 /artifacts/
 /test-results/
