@@ -26,3 +26,20 @@ Strict audit validated ledger structure and evidence before rejecting incomplete
 coverage: 1,257 files, 1,427 records, 461 translated-test records, 276 unmapped
 records and 92 pending upstream commits. Mapping 946 interior bytes splits one
 remaining interval into two; the interval count is not a completion percentage.
+
+## File-only and empty-hunk boundaries
+
+`source_controller::tests::reload_hunk_clamp_preserves_existing_file_only_selection`
+starts with a retained alpha file without hunks, selects that file, and reloads
+an alpha file with hunks. Its hunk, side and line selections remain absent.
+`source_controller::tests::reload_hunk_clamp_handles_file_without_hunks` starts
+on hunk 1, reloads the retained file without hunks, and checks all hunk/line
+selection fields and the measured cursor are absent.
+
+The first draft of the file-only test incorrectly used `select_file` on a
+nonempty diff: that API intentionally selects its first hunk. The corrected
+fixture establishes a real file-only selection without changing that API.
+Both focused tests passed (0.75 seconds), with formatting and diff checks.
+These supplementary boundary tests add no source-ledger coverage.
+
+All 1,224 TUI library tests passed with the boundary tests (9.18 seconds).

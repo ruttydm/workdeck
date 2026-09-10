@@ -1973,6 +1973,41 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn reload_hunk_clamp_preserves_existing_file_only_selection() {
+        let mut initial = pinned_two_hunk_alpha_review();
+        initial.files[0].hunks.clear();
+        initial.refresh_review_identities();
+        let mut app = ReviewApp::new(initial, ReviewOptions::default());
+        app.with_state(|state| state.select_file(0)).unwrap();
+        assert_eq!(app.with_state(|state| state.selection().hunk_index), None);
+        let replacement = pinned_alpha_source_review(900);
+        app.reload(replacement);
+        app.with_state(|state| {
+            assert_eq!(state.selected_file().unwrap().runtime_id, "alpha");
+            assert_eq!(state.selection().hunk_index, None);
+            assert_eq!(state.selection().side, None);
+            assert_eq!(state.selection().line, None);
+        });
+    }
+
+    #[test]
+    fn reload_hunk_clamp_handles_file_without_hunks() {
+        let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
+        app.select_extension_review_hunk("test", "alpha", 1);
+        let mut replacement = pinned_two_hunk_alpha_review();
+        replacement.files[0].hunks.clear();
+        replacement.refresh_review_identities();
+        app.reload(replacement);
+        app.with_state(|state| {
+            assert!(state.selected_file().unwrap().hunks.is_empty());
+            assert_eq!(state.selection().hunk_index, None);
+            assert_eq!(state.selection().side, None);
+            assert_eq!(state.selection().line, None);
+        });
+        assert!(app.current_review_line_cursor().is_none());
+    }
+
+    #[test]
     fn reload_recovers_alpha_cursor_when_selected_hunk_is_retired() {
         let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
         assert_eq!(
