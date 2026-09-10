@@ -377,3 +377,10 @@ there is still no package import or JavaScript runtime. The website asset
 inventory now covers six fonts, the supplied license and the relocated CSS.
 This supersedes the earlier missing-subset limitation but does not establish
 full website layout, browser-page or cross-platform typography parity.
+
+Both `cargo xtask site build` and `cargo xtask site check` now verify the retained
+asset inventory before invoking Zola. The CLI regression supplies a modified
+font and confirms both commands fail with the hash error, preserve the input and
+create neither site output nor Workdeck state. This makes asset verification a
+build prerequisite; it does not replace the still-required full site build and
+browser validation.

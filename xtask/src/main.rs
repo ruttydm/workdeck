@@ -373,8 +373,12 @@ fn site(command: Option<&str>) -> Result<()> {
     let repo = repo_root()?;
     let site = repo.join("site");
     match command {
-        Some("build") => run_checked(&site, "zola", &["build"]),
+        Some("build") => {
+            site_assets::sbom(&repo)?;
+            run_checked(&site, "zola", &["build"])
+        }
         Some("check") => {
+            site_assets::sbom(&repo)?;
             run_checked(&site, "zola", &["check"])?;
             let output = tempfile::tempdir()?;
             let public = output.path().join("public");
