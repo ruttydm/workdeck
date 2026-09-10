@@ -1556,6 +1556,74 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn alpha_degraded_markup_returns_agent_render_notes() {
+        let review = pinned_review_from_text(
+            "alpha",
+            "alpha.ts",
+            "export const alpha = 1;\n",
+            "export const alpha = 2;\n",
+        );
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                review_input: Some(workdeck_core::CliInput::Patch(
+                    workdeck_core::PatchCommandInput {
+                        file: None,
+                        text: Some(String::new()),
+                        options: workdeck_core::CommonOptions {
+                            experimental: Some(true),
+                            ..Default::default()
+                        },
+                    },
+                )),
+                ..ReviewOptions::default()
+            },
+        );
+        for (id, summary, markup, degraded) in [
+            (
+                "comment-degraded",
+                "Degraded markup",
+                "<sparkline>1 2 3</sparkline>",
+                true,
+            ),
+            (
+                "comment-clean",
+                "Clean markup",
+                "<box border>ok</box>",
+                false,
+            ),
+        ] {
+            let input = workdeck_session::CommentToolInput {
+                target_session: Default::default(),
+                reveal: Some(false),
+                target: workdeck_session::CommentTargetInput {
+                    file_path: "alpha.ts".into(),
+                    hunk_index: None,
+                    side: Some(workdeck_core::ReviewSide::New),
+                    line: Some(1),
+                    summary: summary.into(),
+                    rationale: None,
+                    markup: Some(markup.into()),
+                    author: None,
+                },
+            };
+            let result = app.session_add_live_comment(&input, id, false).unwrap();
+            if degraded {
+                assert!(
+                    result
+                        .markup_notes
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .any(|note| note.contains("unknown tag"))
+                );
+            } else {
+                assert_eq!(result.markup_notes, None);
+            }
+        }
+    }
+
+    #[test]
     fn alpha_normal_session_rejects_single_and_batch_markup_atomically() {
         let mut app = ReviewApp::new(pinned_alpha_source_review(800), ReviewOptions::default());
         let target = workdeck_session::CommentTargetInput {
