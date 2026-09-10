@@ -359,6 +359,50 @@ struct Highlights {
     body: Option<String>,
 }
 
+fn is_published(
+    release: &ReleaseEntry,
+    dates: &std::collections::BTreeMap<String, String>,
+) -> bool {
+    dates.contains_key(&release.version)
+}
+
+fn is_stable_published(
+    release: &ReleaseEntry,
+    dates: &std::collections::BTreeMap<String, String>,
+) -> bool {
+    !release.prerelease && is_published(release, dates)
+}
+
+fn publication_state(
+    releases: &[ReleaseEntry],
+    dates: &std::collections::BTreeMap<String, String>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "published": releases.iter().filter(|r| is_published(r, dates)).map(|r| &r.version).collect::<Vec<_>>(),
+        "stable": releases.iter().filter(|r| is_stable_published(r, dates)).map(|r| &r.version).collect::<Vec<_>>(),
+        "latestStable": releases.iter().find(|r| is_stable_published(r, dates)).map(|r| &r.version),
+    })
+}
+
+pub(super) fn run_publication(repo: &Path, mut args: impl Iterator<Item = String>) -> Result<()> {
+    let Some(markdown) = args.next() else {
+        bail!("changelog publication requires Markdown and dates JSON files");
+    };
+    let Some(dates) = args.next() else {
+        bail!("changelog publication requires Markdown and dates JSON files");
+    };
+    if args.next().is_some() {
+        bail!("changelog publication accepts exactly two files");
+    }
+    let releases = parse_changelog(&std::fs::read_to_string(repo.join(markdown))?);
+    let dates = serde_json::from_str(&std::fs::read_to_string(repo.join(dates))?)?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&publication_state(&releases, &dates))?
+    );
+    Ok(())
+}
+
 fn split_highlights(text: &str) -> Highlights {
     let paragraphs = text.split("\n\n").collect::<Vec<_>>();
     let first = paragraphs[0];
@@ -451,6 +495,42 @@ pub(super) fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn publication_matches_explicit_pin_semantics() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/website-changelog-publication-oracle.json"
+        ))
+        .unwrap();
+        let releases = parse_changelog(fixture["input"].as_str().unwrap());
+        let results = fixture["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        for (index, result) in results.iter().enumerate() {
+            assert_eq!(result["includesPrereleases"], index == 0);
+            let cases = result["cases"].as_array().unwrap();
+            assert_eq!(cases.len(), 4);
+            for case in cases {
+                let dates = serde_json::from_value(case["dates"].clone()).unwrap();
+                let state = publication_state(&releases, &dates);
+                if index == 0 {
+                    assert_eq!(state["published"], case["published"]);
+                    assert_eq!(state["stable"], case["stable"]);
+                } else {
+                    assert_eq!(state["stable"], case["published"]);
+                    assert!(case.get("stable").is_none());
+                }
+                assert_eq!(
+                    state["latestStable"],
+                    state["stable"]
+                        .as_array()
+                        .unwrap()
+                        .first()
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null)
+                );
+            }
+        }
+    }
 
     #[test]
     fn summary_helpers_match_both_pinned_oracles() {

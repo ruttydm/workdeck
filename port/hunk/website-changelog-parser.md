@@ -126,3 +126,15 @@ non-string summaries fail without stdout or rewriting inputs. Directory contents
 are checked to ensure no repository state or generated files appear. All five
 changelog CLI integration tests pass. This does not close page generation or the
 remaining full overlay schema work.
+
+## Publication selection
+
+`cargo xtask changelog publication <markdown-file> <dates.json>` reports published
+versions, published stable versions, and the latest stable version without writes.
+It follows main's distinct publication and stable-publication predicates. The
+stable pin has no `isStablePublished` export: its `isPublished` already excludes
+prereleases. Frozen executed fixtures record that difference explicitly, testing
+no dates, prerelease-only dates, mixed publication, empty recorded dates and stale
+date keys. Empty strings count as present in these source predicates (not date
+resolution). Eleven website unit tests pass; CLI and generated-page integration
+remain open. No ledger mapping changed.
