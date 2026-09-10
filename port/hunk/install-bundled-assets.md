@@ -1,5 +1,23 @@
 # Bundled installer assets
 
+## Workspace verification checkpoint (`e71b3ffc`)
+
+On the macOS arm64 development host, `CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2
+cargo xtask verify` passed after the standalone PATH and conflict diagnostic
+changes. This exercised formatting, locked workspace all-target tests, strict
+locked workspace all-target Clippy, the optimized sole-product binary build,
+and the verifier's large-repository smoke checks. Theme/notices, skills,
+architecture and generated upstream release history checks also passed. The
+tooling unit suite reported 337 passed and three explicitly ignored oracle tests;
+this run does not claim execution of those ignored tests.
+
+The separate strict `cargo xtask port audit` still exits 1: 1,257 baseline files,
+1,459 intervals, 280 unmapped intervals, five tracked stable-only commits and
+92 cached upstream-delta commits. No upstream fetch was performed for this
+checkpoint. These results do not prove complete source parity, same-host Hunk
+benchmark parity, signed release installation, website acceptance or the native
+cross-platform release matrix. No ledger dispositions were changed.
+
 ## Competing-install removal guidance
 
 Conflict errors now pair inferred ownership and PATH precedence with removal
