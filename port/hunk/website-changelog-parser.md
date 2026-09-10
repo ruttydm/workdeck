@@ -240,6 +240,15 @@ The source `is:inline` attribute is retained in this intermediate fragment;
 final Zola page integration remains open, as do video CLI integration tests.
 This is partial generator work and no ledger mapping changed.
 
+## Video command integration
+
+The video CLI test exercises quote/ampersand/less-than escaping in source URLs,
+script-closing text and U+2028 in titles, round-tripped JSON-LD values, Workdeck
+poster origins and the default Workdeck title. Missing/extra arguments, missing
+files, malformed JSON and invalid fields fail without stdout. Inputs and the
+directory inventory remain unchanged by the command. Full-page integration
+remains open; no ledger mapping changed.
+
 ## Verification refresh after original-test translations
 
 At `2408adfb`, strict `cargo clippy -p xtask --all-targets -- -D warnings`

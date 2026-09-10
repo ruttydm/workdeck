@@ -11,6 +11,87 @@ fn run(repo: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
+fn video_cli_escapes_markup_and_preserves_input() {
+    let repo = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    let path = repo.path().join("video.json");
+    let input = serde_json::json!({"minor":"1.2", "summary":"Summary.", "video":{"mp4":"/v?x=\"&y=<", "poster":"/poster.png", "title":"</script><script>bad</script>\u{2028}"}}).to_string();
+    std::fs::write(&path, &input).unwrap();
+    let output = run(repo.path(), &["changelog", "video", "video.json"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    let html = String::from_utf8(output.stdout).unwrap();
+    assert!(html.contains("src=\"/v?x=&quot;&amp;y=&lt;\""));
+    assert!(!html.contains("<script>bad"));
+    assert_eq!(html.matches("</script>").count(), 1);
+    let body = html
+        .split("is:inline>")
+        .nth(1)
+        .unwrap()
+        .split("</script>")
+        .next()
+        .unwrap();
+    assert!(!body.contains('\u{2028}'));
+    let schema: serde_json::Value = serde_json::from_str(body).unwrap();
+    assert_eq!(schema["name"], "</script><script>bad</script>\u{2028}");
+    assert_eq!(schema["thumbnailUrl"], "https://workdeck.dev/poster.png");
+    assert_eq!(schema["contentUrl"], "/v?x=\"&y=<");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), input);
+    let minimal = r#"{"minor":"1.2","summary":"Summary.","video":{"mp4":"/v.mp4"}}"#;
+    std::fs::write(&path, minimal).unwrap();
+    let output = run(repo.path(), &["changelog", "video", "video.json"]);
+    assert!(output.status.success());
+    assert!(
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .contains("What's new in Workdeck 1.2")
+    );
+    for args in [
+        vec!["changelog", "video"],
+        vec!["changelog", "video", "missing.json"],
+        vec!["changelog", "video", "video.json", "extra"],
+    ] {
+        let output = run(repo.path(), &args);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+    }
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), minimal);
+    for invalid in [
+        "{broken",
+        "{}",
+        r#"{"minor":"1.2","summary":"x","video":{"mp4":42}}"#,
+    ] {
+        std::fs::write(&path, invalid).unwrap();
+        let output = run(repo.path(), &["changelog", "video", "video.json"]);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), invalid);
+    }
+    let mut entries = std::fs::read_dir(repo.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect::<Vec<_>>();
+    entries.sort();
+    assert_eq!(
+        entries,
+        [".git", "video.json"].map(std::ffi::OsString::from)
+    );
+}
+
+#[test]
 fn metadata_cli_quotes_and_truncates_without_writes() {
     let repo = tempfile::tempdir().unwrap();
     assert!(
