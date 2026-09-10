@@ -33,6 +33,8 @@ const CONFIGS: &[(&str, usize, &[&str])] = &[
         92,
         &["Cargo.lock", "rust-toolchain.toml", MIGRATION_DOC],
     ),
+    (".gitignore", 562, &[".gitignore", MIGRATION_DOC]),
+    (".lintstagedrc.json", 142, &["Cargo.toml", MIGRATION_DOC]),
 ];
 
 pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {
@@ -90,6 +92,42 @@ pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {
                     == "[install]\n# Only install packages published at least 7 days ago.\nminimumReleaseAge = 604800\n",
                 "Bun install policy changed"
             ),
+            ".gitignore" => {
+                for marker in [
+                    "node_modules",
+                    ".hunk/latest.json",
+                    ".hunk/config.toml",
+                    ".astro/",
+                    ".pagefind/",
+                ] {
+                    ensure!(source.contains(marker), "Hunk ignore policy lost {marker}");
+                }
+                let native = std::fs::read_to_string(repo.join(".gitignore"))?;
+                for marker in ["/target/", "/site/public/", "/artifacts/"] {
+                    ensure!(
+                        native.contains(marker),
+                        "native ignore policy lost {marker}"
+                    );
+                }
+            }
+            ".lintstagedrc.json" => {
+                let value: serde_json::Value = serde_json::from_str(source)?;
+                ensure!(
+                    value
+                        == serde_json::json!({
+                            "*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}": [
+                                "oxfmt --write",
+                                "oxlint --fix --deny-warnings"
+                            ],
+                            "*.{json,jsonc,md,yml,yaml}": "oxfmt --write"
+                        }),
+                    "lint-staged policy changed"
+                );
+                ensure!(
+                    repo.join("Cargo.toml").is_file(),
+                    "native Cargo lint owner is missing"
+                );
+            }
             other => ensure!(false, "unknown configuration {other}"),
         }
         ensure!(

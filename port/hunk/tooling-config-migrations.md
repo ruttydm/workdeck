@@ -17,6 +17,8 @@ than retaining an executable JavaScript configuration mirror.
 | `website/src/content.config.ts` | Rust frontmatter/title validation in `xtask/src/site_markdown.rs` | `native_docs_collection_requires_valid_frontmatter_and_a_single_line_title` |
 | `website/.gitignore` | root `.gitignore` plus validated disposable Zola staging | `cargo xtask site check` |
 | `bunfig.toml` | Cargo.lock and the pinned Rust toolchain | `cargo xtask verify` dependency/toolchain checks |
+| `.gitignore` | native Rust/Zola output and artifact ignores in the root `.gitignore` | `tooling_configs::verify` pinned-policy check |
+| `.lintstagedrc.json` | Cargo formatting and Clippy gates run by CI and `cargo xtask verify` | `tooling_configs::verify` pinned-policy check |
 
 `test/cli/install-vm/.dockerignore` is intentionally handled by the native
 installer oracle and CI smoke-test plan (`xtask/src/install_oracle.rs`), not by
