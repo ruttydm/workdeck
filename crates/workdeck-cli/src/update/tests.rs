@@ -688,7 +688,15 @@ fn direct_update_selects_platform_archive_and_checksum() {
     harness.run(update_input()).unwrap();
     let invocation = &harness.invocations.lock().unwrap()[0];
     let environment = invocation.env.as_ref().unwrap();
-    assert!(environment["WORKDECK_DIRECT_ARCHIVE_URL"].ends_with("/workdeck-macos-arm64.tar.gz"));
+    assert!(
+        environment["WORKDECK_DIRECT_ARCHIVE_URL"]
+            .ends_with("/workdeck-aarch64-apple-darwin.tar.gz")
+    );
+    assert_eq!(
+        environment["WORKDECK_DIRECT_BINARY"],
+        "workdeck-aarch64-apple-darwin/workdeck"
+    );
+    assert!(invocation.command[2].contains("\"$WORKDECK_DIRECT_BINARY\""));
     assert!(environment["WORKDECK_DIRECT_CHECKSUM_URL"].ends_with(".sha256"));
     assert!(invocation.command[2].contains("sha256sum"));
     assert!(invocation.command[2].contains("mv -f"));
@@ -709,8 +717,13 @@ fn direct_windows_update_defers_replacement_until_workdeck_exits() {
     assert!(script.contains("Move-Item -Force"));
     assert!(
         invocation.env.as_ref().unwrap()["WORKDECK_DIRECT_ARCHIVE_URL"]
-            .ends_with("/workdeck-windows-x64.zip")
+            .ends_with("/workdeck-x86_64-pc-windows-msvc.zip")
     );
+    assert_eq!(
+        invocation.env.as_ref().unwrap()["WORKDECK_DIRECT_BINARY"],
+        "workdeck-x86_64-pc-windows-msvc/workdeck.exe"
+    );
+    assert!(script.contains("Join-Path $tmp $env:WORKDECK_DIRECT_BINARY"));
 }
 
 #[test]

@@ -678,11 +678,11 @@ fn direct_target(
     architecture: &str,
 ) -> Result<(&'static str, &'static str), UpdateError> {
     match (platform, architecture) {
-        (UpdatePlatform::Macos, "aarch64" | "arm64") => Ok(("macos-arm64", "tar.gz")),
-        (UpdatePlatform::Macos, "x86_64" | "x64") => Ok(("macos-x64", "tar.gz")),
-        (UpdatePlatform::Linux, "aarch64" | "arm64") => Ok(("linux-arm64", "tar.gz")),
-        (UpdatePlatform::Linux, "x86_64" | "x64") => Ok(("linux-x64", "tar.gz")),
-        (UpdatePlatform::Windows, "x86_64" | "x64") => Ok(("windows-x64", "zip")),
+        (UpdatePlatform::Macos, "aarch64" | "arm64") => Ok(("aarch64-apple-darwin", "tar.gz")),
+        (UpdatePlatform::Macos, "x86_64" | "x64") => Ok(("x86_64-apple-darwin", "tar.gz")),
+        (UpdatePlatform::Linux, "aarch64" | "arm64") => Ok(("aarch64-unknown-linux-gnu", "tar.gz")),
+        (UpdatePlatform::Linux, "x86_64" | "x64") => Ok(("x86_64-unknown-linux-gnu", "tar.gz")),
+        (UpdatePlatform::Windows, "x86_64" | "x64") => Ok(("x86_64-pc-windows-msvc", "zip")),
         _ => Err(UpdateError::new(
             format!("No direct Workdeck release exists for {architecture}."),
             ["Use Cargo, Homebrew, Nix, or a platform install script instead."],
@@ -706,6 +706,15 @@ fn direct_update_invocation(
         format!("https://github.com/ruttydm/workdeck/releases/download/v{target_version}/{archive}.sha256"),
     );
     env.insert("WORKDECK_DIRECT_ARCHIVE".into(), archive);
+    let executable = if context.platform == UpdatePlatform::Windows {
+        "workdeck.exe"
+    } else {
+        "workdeck"
+    };
+    env.insert(
+        "WORKDECK_DIRECT_BINARY".into(),
+        format!("workdeck-{target}/{executable}"),
+    );
     env.insert(
         "WORKDECK_EXECUTABLE".into(),
         context.executable_path.clone(),
@@ -725,7 +734,7 @@ fn direct_update_invocation(
                 "cd \"$tmp\"",
                 "if command -v sha256sum >/dev/null 2>&1; then sha256sum -c \"$WORKDECK_DIRECT_ARCHIVE.sha256\"; else shasum -a 256 -c \"$WORKDECK_DIRECT_ARCHIVE.sha256\"; fi",
                 "tar -xzf \"$WORKDECK_DIRECT_ARCHIVE\"",
-                "install -m 0755 workdeck \"$stage\"",
+                "install -m 0755 \"$WORKDECK_DIRECT_BINARY\" \"$stage\"",
                 "mv -f \"$stage\" \"$WORKDECK_EXECUTABLE\"",
             ]
             .join("; "),
@@ -737,7 +746,7 @@ fn direct_update_invocation(
             "-ExecutionPolicy".into(),
             "Bypass".into(),
             "-Command".into(),
-            r#"$ErrorActionPreference='Stop'; $tmp=Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid()); New-Item -ItemType Directory $tmp | Out-Null; try { $archive=Join-Path $tmp $env:WORKDECK_DIRECT_ARCHIVE; Invoke-WebRequest -UseBasicParsing $env:WORKDECK_DIRECT_ARCHIVE_URL -OutFile $archive; Invoke-WebRequest -UseBasicParsing $env:WORKDECK_DIRECT_CHECKSUM_URL -OutFile "$archive.sha256"; $expected=((Get-Content "$archive.sha256") -split '\s+')[0].ToLowerInvariant(); $actual=(Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant(); if ($actual -ne $expected) { throw 'Workdeck archive checksum mismatch.' }; Expand-Archive -Force $archive $tmp; $replacement="$($env:WORKDECK_EXECUTABLE).new"; Copy-Item -Force (Join-Path $tmp 'workdeck.exe') $replacement; $quotedReplacement=$replacement.Replace("'","''"); $quotedTarget=$env:WORKDECK_EXECUTABLE.Replace("'","''"); $follow="Wait-Process -Id $($env:WORKDECK_PARENT_PID) -ErrorAction SilentlyContinue; Move-Item -Force '$quotedReplacement' '$quotedTarget'"; Start-Process -WindowStyle Hidden powershell.exe -ArgumentList @('-NoProfile','-NonInteractive','-Command',$follow) } finally { Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $tmp }"#.into(),
+            r#"$ErrorActionPreference='Stop'; $tmp=Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid()); New-Item -ItemType Directory $tmp | Out-Null; try { $archive=Join-Path $tmp $env:WORKDECK_DIRECT_ARCHIVE; Invoke-WebRequest -UseBasicParsing $env:WORKDECK_DIRECT_ARCHIVE_URL -OutFile $archive; Invoke-WebRequest -UseBasicParsing $env:WORKDECK_DIRECT_CHECKSUM_URL -OutFile "$archive.sha256"; $expected=((Get-Content "$archive.sha256") -split '\s+')[0].ToLowerInvariant(); $actual=(Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant(); if ($actual -ne $expected) { throw 'Workdeck archive checksum mismatch.' }; Expand-Archive -Force $archive $tmp; $replacement="$($env:WORKDECK_EXECUTABLE).new"; Copy-Item -Force (Join-Path $tmp $env:WORKDECK_DIRECT_BINARY) $replacement; $quotedReplacement=$replacement.Replace("'","''"); $quotedTarget=$env:WORKDECK_EXECUTABLE.Replace("'","''"); $follow="Wait-Process -Id $($env:WORKDECK_PARENT_PID) -ErrorAction SilentlyContinue; Move-Item -Force '$quotedReplacement' '$quotedTarget'"; Start-Process -WindowStyle Hidden powershell.exe -ArgumentList @('-NoProfile','-NonInteractive','-Command',$follow) } finally { Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $tmp }"#.into(),
         ],
     };
     Ok(UpdateInvocation {
