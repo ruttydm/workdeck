@@ -583,9 +583,68 @@ fn series_summary(series: &ReleaseSeries, overlay: Option<&str>) -> Option<Strin
         .map(|lead| to_plain_text(&lead))
 }
 
-pub(super) fn run_summaries(repo: &Path, mut args: impl Iterator<Item = String>) -> Result<()> {
+fn series_span(
+    series: &ReleaseSeries,
+    dates: &std::collections::BTreeMap<String, String>,
+) -> Option<String> {
+    let published = series
+        .releases
+        .iter()
+        .filter(|r| is_published(r, dates))
+        .map(|r| dates[&r.version].as_str())
+        .collect::<Vec<_>>();
+    let newest = *published.first()?;
+    let oldest = *published.last()?;
+    if newest.is_empty() || oldest.is_empty() {
+        return None;
+    }
+    Some(if newest == oldest {
+        format_release_date(newest)
+    } else {
+        format!(
+            "{} – {}",
+            format_release_date(oldest),
+            format_release_date(newest)
+        )
+    })
+}
+
+fn resolve_summary(
+    series: &ReleaseSeries,
+    overlay: Option<&str>,
+    dates: &std::collections::BTreeMap<String, String>,
+    product: &str,
+) -> String {
+    series_summary(series, overlay).unwrap_or_else(|| {
+        let count = series.releases.len();
+        let plural = if count == 1 { "" } else { "s" };
+        let span = series_span(series, dates)
+            .map(|span| format!(", {span}"))
+            .unwrap_or_default();
+        format!(
+            "Release notes for {product} {}: {count} release{plural}{span}.",
+            series.minor
+        )
+    })
+}
+
+pub(super) fn run_summaries(
+    repo: &Path,
+    mut args: impl Iterator<Item = String>,
+    resolved: bool,
+) -> Result<()> {
     let Some(path) = args.next() else {
         bail!("changelog summaries requires a Markdown file");
+    };
+    let dates = if resolved {
+        let Some(path) = args.next() else {
+            bail!("changelog resolved-summaries requires a dates JSON file");
+        };
+        Some(serde_json::from_str::<
+            std::collections::BTreeMap<String, String>,
+        >(&std::fs::read_to_string(repo.join(path))?)?)
+    } else {
+        None
     };
     let notes = args.next();
     if args.next().is_some() {
@@ -600,9 +659,17 @@ pub(super) fn run_summaries(repo: &Path, mut args: impl Iterator<Item = String>)
         None => Default::default(),
     };
     let markdown = std::fs::read_to_string(repo.join(path))?;
-    let summaries = group_into_series(parse_changelog(&markdown)).iter().map(|series| {
-        serde_json::json!({"minor": series.minor, "summary": series_summary(series, notes.get(&series.minor).and_then(|n| n.summary.as_deref()))})
-    }).collect::<Vec<_>>();
+    let summaries = group_into_series(parse_changelog(&markdown))
+        .iter()
+        .map(|series| {
+            let overlay = notes.get(&series.minor).and_then(|n| n.summary.as_deref());
+            let summary = match &dates {
+                Some(dates) => Some(resolve_summary(series, overlay, dates, "Workdeck")),
+                None => series_summary(series, overlay),
+            };
+            serde_json::json!({"minor": series.minor, "summary": summary})
+        })
+        .collect::<Vec<_>>();
     println!("{}", serde_json::to_string_pretty(&summaries)?);
     Ok(())
 }
@@ -633,6 +700,46 @@ pub(super) fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolved_summaries_match_both_pins_with_explicit_publication_rules() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/website-changelog-resolved-summary-oracle.json"
+        ))
+        .unwrap();
+        let results = fixture["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        for (index, result) in results.iter().enumerate() {
+            assert_eq!(result["includesPrereleases"], index == 0);
+            let cases = result["cases"].as_array().unwrap();
+            assert_eq!(cases.len(), 16);
+            for case in cases {
+                let mut series = group_into_series(parse_changelog(case["input"].as_str().unwrap()))
+                    .pop()
+                    .unwrap();
+                let mut dates: std::collections::BTreeMap<String, String> =
+                    serde_json::from_value(case["dates"].clone()).unwrap();
+                // Stable's generator filters prereleases before grouping, and its
+                // factual helper excludes them from both counts and date spans.
+                if index == 1 {
+                    for release in &series.releases {
+                        if release.prerelease {
+                            dates.remove(&release.version);
+                        }
+                    }
+                    series.releases.retain(|release| !release.prerelease);
+                }
+                assert_eq!(
+                    resolve_summary(&series, None, &dates, "Hunk"),
+                    case["expected"]
+                );
+                assert_eq!(
+                    resolve_summary(&series, Some("Editorial **unchanged**"), &dates, "Hunk"),
+                    case["overlay"]
+                );
+            }
+        }
+    }
 
     #[test]
     fn date_format_matches_both_pinned_oracles() {

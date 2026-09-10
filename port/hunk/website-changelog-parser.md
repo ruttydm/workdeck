@@ -199,3 +199,18 @@ The strict `cargo xtask port audit` exited 1: 1,257 baseline files, 1,440 record
 277 unmapped records and 92 pending upstream commits. Upstream was not fetched
 for this refresh. The baseline generator remains unmapped; its passing partial
 tests do not establish full-file implementation or release readiness.
+
+## Factual summary fallback
+
+`cargo xtask changelog resolved-summaries <markdown-file> <dates.json> [notes.json]`
+adds the factual fallback used by release-page descriptions. Existing `summaries`
+behavior is unchanged. Main counts all releases and includes published prereleases
+in date spans; stable counts stable releases and excludes prereleases from spans.
+Both pins' executed summary fixtures retain those differences. Stable comparisons
+explicitly filter prereleases as its generator does; production follows main.
+
+The 32 fixture cases exercise single/multiple releases, missing and empty dates,
+date spans, prereleases, written highlights and editorial overrides. All fourteen
+website unit tests pass. This remains partial generator work: resolved-summary
+CLI integration and complete page rendering are not yet verified. No ledger
+mapping changed.
