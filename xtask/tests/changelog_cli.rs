@@ -11,6 +11,89 @@ fn run(repo: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
+fn summaries_cli_preserves_inputs_and_checks_overlays() {
+    let repo = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    let markdown = "## 1.2.0\n### Highlights\nOlder **lead** with [link](url).\n\n- old\n## 2.0.0\n### Fixed\n- no summary\n## 1.2.1\n### Highlights\n- newest bullet only\n";
+    let path = repo.path().join("history.md");
+    std::fs::write(&path, markdown).unwrap();
+    let check = |args: &[&str], expected: serde_json::Value| {
+        let output = run(repo.path(), args);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stderr.is_empty());
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap(),
+            expected
+        );
+    };
+    check(
+        &["changelog", "summaries", "history.md"],
+        serde_json::json!([
+            {"minor":"2.0","summary":null}, {"minor":"1.2","summary":"Older lead with link."}
+        ]),
+    );
+    let notes = r#"{"2.0":{"summary":"Editorial **unchanged**"},"1.2":{"summary":""},"9.9":{"summary":"unused"}}"#;
+    let notes_path = repo.path().join("notes.json");
+    std::fs::write(&notes_path, notes).unwrap();
+    check(
+        &["changelog", "summaries", "history.md", "notes.json"],
+        serde_json::json!([
+            {"minor":"2.0","summary":"Editorial **unchanged**"}, {"minor":"1.2","summary":"Older lead with link."}
+        ]),
+    );
+    assert_eq!(std::fs::read_to_string(&notes_path).unwrap(), notes);
+    for args in [
+        vec!["changelog", "summaries"],
+        vec!["changelog", "summaries", "missing.md"],
+        vec!["changelog", "summaries", "history.md", "missing.json"],
+        vec![
+            "changelog",
+            "summaries",
+            "history.md",
+            "notes.json",
+            "extra",
+        ],
+    ] {
+        let output = run(repo.path(), &args);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+    }
+    for invalid in ["{broken", r#"{"1.2":{"summary":42}}"#, "[]"] {
+        std::fs::write(&notes_path, invalid).unwrap();
+        let output = run(
+            repo.path(),
+            &["changelog", "summaries", "history.md", "notes.json"],
+        );
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+        assert_eq!(std::fs::read_to_string(&notes_path).unwrap(), invalid);
+    }
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), markdown);
+    let mut entries = std::fs::read_dir(repo.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect::<Vec<_>>();
+    entries.sort();
+    assert_eq!(
+        entries,
+        [".git", "history.md", "notes.json"].map(std::ffi::OsString::from)
+    );
+}
+
+#[test]
 fn dates_cli_uses_real_tag_dates_and_preserves_recorded_inputs() {
     let repo = tempfile::tempdir().unwrap();
     let git = |args: &[&str], date: &str| {

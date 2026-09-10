@@ -115,3 +115,14 @@ bullet-only content, wrapped prose, BOM/NEL and editorial overrides. All ten
 website unit tests pass. This does not yet generate pages, feeds or social cards;
 CLI integration and the full overlay schema remain to be completed. No ledger
 mapping changed.
+
+## Summary command integration
+
+The summaries CLI now has an executable temporary-repository regression for
+descending series order, bullet-only fallback to older prose, null summaries,
+verbatim editorial overrides, empty overrides and irrelevant overlay keys.
+It also checks missing arguments/files, extra arguments, malformed JSON and
+non-string summaries fail without stdout or rewriting inputs. Directory contents
+are checked to ensure no repository state or generated files appear. All five
+changelog CLI integration tests pass. This does not close page generation or the
+remaining full overlay schema work.
