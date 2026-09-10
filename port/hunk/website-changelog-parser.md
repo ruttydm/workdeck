@@ -225,6 +225,21 @@ by the command and the directory inventory contains no new repository state.
 All eight changelog CLI tests pass. Complete page rendering remains open, and
 no ledger mapping changed.
 
+## Release video fragments
+
+`cargo xtask changelog video <input.json>` renders a static video fragment from
+`{minor, summary, video}`. The video model supports mp4, webm, poster, duration
+and title. Workdeck branding and `https://workdeck.dev` match the existing site
+configuration. JSON-LD is inert structured data, not application JavaScript.
+
+Eight frozen fragments extracted from actual pinned `renderSeriesPage` output
+cover required-only fields, all optional fields, empty optional strings, quoted
+and markup-bearing URLs, script-closing titles and U+2028. Exact comparison uses
+upstream branding/origin; production uses Workdeck. The oracle test passes.
+The source `is:inline` attribute is retained in this intermediate fragment;
+final Zola page integration remains open, as do video CLI integration tests.
+This is partial generator work and no ledger mapping changed.
+
 ## Verification refresh after original-test translations
 
 At `2408adfb`, strict `cargo clippy -p xtask --all-targets -- -D warnings`

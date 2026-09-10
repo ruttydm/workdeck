@@ -618,6 +618,105 @@ fn series_summary(series: &ReleaseSeries, overlay: Option<&str>) -> Option<Strin
         .map(|lead| to_plain_text(&lead))
 }
 
+#[derive(serde::Deserialize)]
+struct ReleaseVideo {
+    mp4: String,
+    webm: Option<String>,
+    poster: Option<String>,
+    duration: Option<String>,
+    title: Option<String>,
+}
+
+fn html_attribute(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+}
+
+fn render_video(
+    video: &ReleaseVideo,
+    minor: &str,
+    summary: &str,
+    product: &str,
+    origin: &str,
+) -> String {
+    let mut schema = serde_json::Map::new();
+    schema.insert("@context".into(), "https://schema.org".into());
+    schema.insert("@type".into(), "VideoObject".into());
+    schema.insert(
+        "name".into(),
+        video
+            .title
+            .clone()
+            .unwrap_or_else(|| format!("What's new in {product} {minor}"))
+            .into(),
+    );
+    schema.insert("description".into(), summary.into());
+    schema.insert("contentUrl".into(), video.mp4.clone().into());
+    if let Some(poster) = video.poster.as_deref().filter(|s| !s.is_empty()) {
+        schema.insert("thumbnailUrl".into(), format!("{origin}{poster}").into());
+    }
+    if let Some(duration) = video.duration.as_deref().filter(|s| !s.is_empty()) {
+        schema.insert("duration".into(), duration.into());
+    }
+    let poster = video
+        .poster
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(|s| format!(" poster=\"{}\"", html_attribute(s)))
+        .unwrap_or_default();
+    let mut lines = vec![format!(
+        "<video class=\"changelog-video\" controls preload=\"none\"{poster}>"
+    )];
+    if let Some(webm) = video.webm.as_deref().filter(|s| !s.is_empty()) {
+        lines.push(format!(
+            "    <source src=\"{}\" type=\"video/webm\" />",
+            html_attribute(webm)
+        ));
+    }
+    lines.push(format!(
+        "    <source src=\"{}\" type=\"video/mp4\" />",
+        html_attribute(&video.mp4)
+    ));
+    lines.extend(["  </video>".into(), String::new()]);
+    let json = serde_json::to_string(&schema)
+        .unwrap()
+        .replace('<', "\\u003c")
+        .replace('\u{2028}', "\\u2028");
+    lines.push(format!(
+        "<script type=\"application/ld+json\" is:inline>{json}</script>"
+    ));
+    lines.join("\n")
+}
+
+pub(super) fn run_video(repo: &Path, mut args: impl Iterator<Item = String>) -> Result<()> {
+    let Some(path) = args.next() else {
+        bail!("changelog video requires a JSON input file");
+    };
+    if args.next().is_some() {
+        bail!("changelog video accepts exactly one JSON input file");
+    }
+    #[derive(serde::Deserialize)]
+    struct Input {
+        minor: String,
+        summary: String,
+        video: ReleaseVideo,
+    }
+    let input: Input = serde_json::from_str(&std::fs::read_to_string(repo.join(path))?)?;
+    println!(
+        "{}",
+        render_video(
+            &input.video,
+            &input.minor,
+            &input.summary,
+            "Workdeck",
+            "https://workdeck.dev"
+        )
+    );
+    Ok(())
+}
+
 fn yaml_string(value: &str) -> String {
     if value.contains('"') && !value.contains('\'') {
         format!("'{value}'")
@@ -783,6 +882,33 @@ pub(super) fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn video_fragments_match_both_pinned_page_oracles() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/website-changelog-video-oracle.json"
+        ))
+        .unwrap();
+        let results = fixture["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        for result in results {
+            let cases = result["cases"].as_array().unwrap();
+            assert_eq!(cases.len(), 4);
+            for case in cases {
+                let video = serde_json::from_value(case["video"].clone()).unwrap();
+                assert_eq!(
+                    render_video(
+                        &video,
+                        case["minor"].as_str().unwrap(),
+                        case["summary"].as_str().unwrap(),
+                        "Hunk",
+                        "https://hunk.dev"
+                    ),
+                    case["expected"]
+                );
+            }
+        }
+    }
 
     #[test]
     fn source_text_reduces_markdown_to_plain_text() {
