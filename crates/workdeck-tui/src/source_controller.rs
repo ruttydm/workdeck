@@ -1516,7 +1516,7 @@ pub(super) mod tests {
             .unwrap();
         app.open_note_composer();
         app.note_composer.as_mut().unwrap().body = "Human cleanup note.".into();
-        app.save_note_composer();
+        let _ = app.save_note_composer();
         let removed = app.session_remove_live_comment("comment-1").unwrap();
         assert_eq!(removed.comment_id, "comment-1");
         assert!(removed.removed);
@@ -1563,18 +1563,21 @@ pub(super) mod tests {
         let mut app = ReviewApp::new(review, ReviewOptions::default());
         app.open_note_composer();
         app.note_composer.as_mut().unwrap().body = "Save me once.".into();
-        app.save_note_composer_at(1_700_000_000_000);
-        app.save_note_composer_at(1_700_000_000_000);
+        let saved = app.save_note_composer_at(1_700_000_000_000).unwrap();
+        assert_eq!(saved.id, "user:1700000000000-1");
+        assert!(app.save_note_composer_at(1_700_000_000_000).is_none());
         let first = app.with_state(|state| {
             assert_eq!(state.comments().len(), 1);
             assert_eq!(state.comments()[0].summary, "Save me once.");
+            assert_eq!(state.comments()[0], saved);
             state.comments()[0].id.clone()
         });
         assert_eq!(first, "user:1700000000000-1");
         assert!(app.note_composer.is_none());
         app.open_note_composer();
         app.note_composer.as_mut().unwrap().body = "Save me too.".into();
-        app.save_note_composer_at(1_700_000_000_000);
+        let follow_up = app.save_note_composer_at(1_700_000_000_000).unwrap();
+        assert_eq!(follow_up.id, "user:1700000000000-2");
         app.with_state(|state| {
             assert_eq!(state.comments().len(), 2);
             assert_eq!(state.comments()[1].summary, "Save me too.");
@@ -1588,7 +1591,7 @@ pub(super) mod tests {
         let mut original = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
         original.open_note_composer();
         original.note_composer.as_mut().unwrap().body = "Existing note".into();
-        original.save_note_composer_at(1_700_000_000_000);
+        let _ = original.save_note_composer_at(1_700_000_000_000);
         let saved = original.with_state(|state| state.comments()[0].clone());
         let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
         app.with_state(|state| state.add_comment(saved.clone()))
@@ -1596,7 +1599,7 @@ pub(super) mod tests {
         app.open_note_composer();
         assert_ne!(app.note_composer.as_ref().unwrap().id, saved.id);
         app.note_composer.as_mut().unwrap().body = "New note".into();
-        app.save_note_composer_at(1_700_000_000_000);
+        let _ = app.save_note_composer_at(1_700_000_000_000);
         app.with_state(|state| {
             assert_eq!(state.comments().len(), 2);
             assert_eq!(state.comments()[0], saved);
@@ -1990,10 +1993,12 @@ pub(super) mod tests {
         app.review_height.set(4);
         app.open_note_composer();
         app.note_composer.as_mut().unwrap().body = "Please add a regression test.".into();
-        app.save_note_composer();
+        let saved = app.save_note_composer().unwrap();
+        assert!(saved.id.starts_with("user:"));
         let id = app.with_state(|state| {
             assert_eq!(state.comments().len(), 1);
-            state.comments()[0].id.clone()
+            assert_eq!(state.comments()[0], saved);
+            saved.id.clone()
         });
         let notes = app.session_review_note_summaries();
         assert_eq!(notes.len(), 1);

@@ -34,6 +34,21 @@ Verification: the focused duplicate-save test passed, then all 1,232 TUI library
 tests passed (8.62 seconds), including the fixed-clock persisted-ID collision
 case. `cargo fmt --all -- --check` and `git diff --check` passed.
 
-Save return-value compatibility is still open: the native composer method is
-void. This source case remains unmapped; exact identifiers do not establish the
-remaining callback-result assertions or complete lifecycle parity.
+## Save-result compatibility
+
+The composer now returns `Option<ReviewComment>`: a successful save returns the
+persisted note, and a repeated save with no draft returns `None`. The fixed-clock
+test checks both returned IDs, exact equality of the first result with stored
+state, and the absent duplicate result. UI callers explicitly discard the result.
+Edit saves resolve the existing target ID rather than the internal draft ID.
+
+Both source pins passed the duplicate-save and user-note lifecycle cases together
+(two tests, 28 assertions per pin). All 1,232 native TUI library tests passed in
+8.67 seconds. The complete duplicate-save source-test interval is now mapped;
+this does not map the remaining note lifecycle tests or the runtime hook.
+
+Strict audit still fails on incomplete coverage: 1,257 baseline files, 1,433
+interval records, 466 translated-test records, 277 unmapped records and 92 pending
+upstream commits. Splitting this interval preserves one unmapped middle interval;
+the unchanged unmapped-record count does not mean no source bytes were covered.
+Formatting and diff checks passed. No full-port completion is claimed.

@@ -2697,7 +2697,7 @@ impl ReviewApp {
             return false;
         }
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
-            self.save_note_composer();
+            let _ = self.save_note_composer();
             return true;
         }
         if key.code == KeyCode::Esc {
@@ -3021,23 +3021,21 @@ impl ReviewApp {
             })
     }
 
-    fn save_note_composer(&mut self) {
+    fn save_note_composer(&mut self) -> Option<ReviewComment> {
         let timestamp_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis();
-        self.save_note_composer_at(timestamp_ms);
+        self.save_note_composer_at(timestamp_ms)
     }
 
-    fn save_note_composer_at(&mut self, timestamp_ms: u128) {
-        let Some(mut composer) = self.note_composer.take() else {
-            return;
-        };
+    fn save_note_composer_at(&mut self, timestamp_ms: u128) -> Option<ReviewComment> {
+        let mut composer = self.note_composer.take()?;
         let body = composer.body.trim();
         if body.is_empty() {
             self.note_composer_bounds.set(None);
             self.status = Some("empty review note discarded".into());
-            return;
+            return None;
         }
         if !matches!(composer.kind, ReviewNoteComposerKind::Edit { .. }) {
             loop {
@@ -3126,8 +3124,22 @@ impl ReviewApp {
                 }
                 let events = self.update_extension_review_events(Instant::now());
                 self.publish_extension_lifecycle_events(events);
+                let saved_id = match &composer.kind {
+                    ReviewNoteComposerKind::Edit { target_note_id, .. } => target_note_id,
+                    _ => &composer.id,
+                };
+                self.with_state(|state| {
+                    state
+                        .comments()
+                        .iter()
+                        .find(|note| &note.id == saved_id)
+                        .cloned()
+                })
             }
-            Err(error) => self.status = Some(format!("failed to save review note: {error}")),
+            Err(error) => {
+                self.status = Some(format!("failed to save review note: {error}"));
+                None
+            }
         }
     }
 
@@ -8688,7 +8700,9 @@ impl ReviewApp {
                     .find(|(bounds, _)| rect_contains(*bounds, event.column, event.row))
                     .map(|(_, action)| *action);
                 match action {
-                    Some(AgentInlineNoteAction::Save) => self.save_note_composer(),
+                    Some(AgentInlineNoteAction::Save) => {
+                        let _ = self.save_note_composer();
+                    }
                     Some(AgentInlineNoteAction::Cancel) => {
                         self.handle_note_composer_key(&KeyEvent::new(
                             KeyCode::Esc,
@@ -19120,7 +19134,7 @@ mod tests {
             modifiers: KeyModifiers::NONE,
         });
         assert!(app.saved_note_hover.is_none());
-        app.save_note_composer();
+        let _ = app.save_note_composer();
         let frame = rendered_review_frame(&mut terminal, &app);
         assert!(frame.contains("original body"), "{frame}");
         assert!(!frame.contains("r reply e edit"), "{frame}");
@@ -19152,7 +19166,7 @@ mod tests {
         let composer = app.note_composer.as_mut().unwrap();
         composer.body = "edited body".into();
         composer.cursor = composer.body.chars().count();
-        app.save_note_composer();
+        let _ = app.save_note_composer();
         let comments = app.with_state(|state| state.comments().to_vec());
         assert_eq!(comments.len(), 1);
         assert_eq!(comments[0].id, "user:stable-1");
@@ -19179,7 +19193,7 @@ mod tests {
         let composer = app.note_composer.as_mut().unwrap();
         composer.body = "reply body".into();
         composer.cursor = composer.body.chars().count();
-        app.save_note_composer();
+        let _ = app.save_note_composer();
         let comments = app.with_state(|state| state.comments().to_vec());
         assert_eq!(comments.len(), 2);
         assert_eq!(comments[1].parent_id.as_deref(), Some("user:stable-1"));

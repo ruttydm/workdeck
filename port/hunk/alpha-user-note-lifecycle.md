@@ -14,8 +14,13 @@ passed under disposable Bun 1.3.14 on main
 per pin. The native focused test passed (0.82 seconds), with formatting and diff
 checks passing.
 
-This is not a complete source-test mapping. Source IDs start with `user:` and
-save returns the saved note; native TUI IDs currently start with `user-note-`
-and `save_note_composer` returns no value. The native test retrieves its ID from
-state, which does not prove callback-result compatibility. These remain explicit
-port obligations. No runtime or ledger disposition changed.
+The initial supplemental test left save-result and identifier compatibility
+open. These assertions are now implemented: `save_note_composer` returns the
+saved `ReviewComment`, and the test obtains its ID from that return value,
+checks the `user:` prefix, and verifies exact equality with the persisted note.
+Removal and session-summary assertions remain unchanged.
+
+Both pinned source versions were rerun together with the duplicate-save case:
+two tests and 28 assertions passed per pin. All 1,232 native TUI library tests
+passed in 8.67 seconds. The complete source-test interval for this lifecycle
+case is now mapped; the surrounding edit/reply tests and runtime hook are not.
