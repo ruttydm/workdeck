@@ -2,7 +2,10 @@
 use super::*;
 use std::io::{Read, Seek, Write};
 
-fn prepare(archive: &Path, checksums: &Path) -> Result<tempfile::TempDir> {
+/// Verify a local archive and return an owned staging directory.
+/// The caller must authenticate the checksum manifest separately. Dropping the
+/// returned handle removes the staged files; no executable is installed.
+pub fn prepare_verified_archive(archive: &Path, checksums: &Path) -> Result<tempfile::TempDir> {
     let name = archive
         .file_name()
         .and_then(|name| name.to_str())
@@ -77,7 +80,7 @@ fn prepare(archive: &Path, checksums: &Path) -> Result<tempfile::TempDir> {
     Ok(staged)
 }
 
-pub(crate) fn stage(mut args: impl Iterator<Item = String>) -> Result<()> {
+pub fn stage(mut args: impl Iterator<Item = String>) -> Result<()> {
     let archive = args
         .next()
         .ok_or_else(|| anyhow::anyhow!("install-stage requires ARCHIVE CHECKSUM_FILE"))?;
@@ -88,7 +91,7 @@ pub(crate) fn stage(mut args: impl Iterator<Item = String>) -> Result<()> {
         args.next().is_none(),
         "install-stage accepts exactly ARCHIVE CHECKSUM_FILE"
     );
-    let staged = prepare(Path::new(&archive), Path::new(&checksums))?;
+    let staged = prepare_verified_archive(Path::new(&archive), Path::new(&checksums))?;
     let report = serde_json::to_string(&serde_json::json!({
         "stagingDirectory": staged.path(), "checksumVerified": true,
         "signatureVerified": false, "installed": false
@@ -142,9 +145,13 @@ mod tests {
             }
             tar.into_inner().unwrap().finish().unwrap();
             let bytes = std::fs::read(&archive).unwrap();
-            let hash = crate::sha256_file(&archive).unwrap();
+            let hash = hash_archive_bytes(
+                std::fs::File::open(&archive).unwrap(),
+                std::fs::metadata(&archive).unwrap().len(),
+            )
+            .unwrap();
             std::fs::write(&checksums, format!("{hash} workdeck.tar.gz\n")).unwrap();
-            let result = prepare(&archive, &checksums);
+            let result = prepare_verified_archive(&archive, &checksums);
             if variant == "valid" {
                 let staged = result.unwrap();
                 for name in ["workdeck", "LICENSE"] {
@@ -202,10 +209,14 @@ mod tests {
             zip.write_all(name.as_bytes()).unwrap();
         }
         zip.finish().unwrap();
-        let hash = crate::sha256_file(&archive).unwrap();
+        let hash = hash_archive_bytes(
+            std::fs::File::open(&archive).unwrap(),
+            std::fs::metadata(&archive).unwrap().len(),
+        )
+        .unwrap();
         let checksums = input.path().join("SHA256SUMS");
         std::fs::write(&checksums, format!("{hash} workdeck.zip\n")).unwrap();
-        let staged = prepare(&archive, &checksums).unwrap();
+        let staged = prepare_verified_archive(&archive, &checksums).unwrap();
         assert_eq!(
             std::fs::read(staged.path().join("package/workdeck")).unwrap(),
             b"workdeck"
@@ -229,7 +240,7 @@ mod tests {
             );
         }
         std::fs::write(&checksums, format!("{} workdeck.zip\n", "0".repeat(64))).unwrap();
-        assert!(prepare(&archive, &checksums).is_err());
+        assert!(prepare_verified_archive(&archive, &checksums).is_err());
         assert_eq!(std::fs::read_dir(input.path()).unwrap().count(), 2);
     }
 }

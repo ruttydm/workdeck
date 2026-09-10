@@ -15,6 +15,12 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0"
+flate2 = "1.1"
+rustix = { version = "1.1", features = ["fs"] }
+sha2 = "0.10"
+tar = "0.4"
+tempfile = "3.13"
+zip = { version = "2.4", default-features = false, features = ["deflate"] }
 arboard = "3.6"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.5", features = ["derive"] }

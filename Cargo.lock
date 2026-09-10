@@ -3138,6 +3138,7 @@ dependencies = [
  "clap",
  "crossterm",
  "ctrlc",
+ "flate2",
  "fuzzy-matcher",
  "git2",
  "ignore",
@@ -3146,12 +3147,14 @@ dependencies = [
  "predicates",
  "qwertty-term-vt",
  "ratatui",
+ "rustix 1.1.4",
  "semver",
  "serde",
  "serde_json",
  "sha2",
  "signal-hook",
  "syntect",
+ "tar",
  "tempfile",
  "thiserror 2.0.20",
  "toml",
@@ -3170,6 +3173,7 @@ dependencies = [
  "workdeck-store",
  "workdeck-tui",
  "workdeck-vcs",
+ "zip",
 ]
 
 [[package]]
@@ -3425,6 +3429,7 @@ dependencies = [
  "ureq",
  "url",
  "windows-sys 0.61.2",
+ "workdeck-cli",
  "workdeck-core",
  "workdeck-diff",
  "workdeck-review",

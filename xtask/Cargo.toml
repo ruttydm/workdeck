@@ -11,6 +11,7 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_
 
 [dependencies]
 anyhow = "1.0"
+workdeck-cli = { path = "../crates/workdeck-cli" }
 base64 = "0.22"
 libc = "0.2"
 cargo_metadata = "0.19"

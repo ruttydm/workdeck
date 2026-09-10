@@ -1,5 +1,16 @@
 # Native verified archive staging
 
+The implementation now belongs to `workdeck-cli::install`; xtask delegates its
+installer commands to that library. `prepare_verified_archive` returns an owned
+temporary-directory handle without printing or installing, for integration with
+the native updater. All 27 installer unit tests moved with the implementation
+and pass in `workdeck-cli`; they are no longer xtask unit tests. Existing xtask
+suite counts below describe the earlier verification run, before this move.
+The dependency graph still ships only the `workdeck` product executable.
+After relocation, all 27 library installer tests and the real xtask staging CLI
+test pass; formatting and whitespace checks pass. The old xtask implementation
+is replaced by four re-exports, with no duplicate installer implementation.
+
 `cargo xtask install-stage ARCHIVE CHECKSUM_FILE` verifies and extracts a local
 release package into a newly allocated temporary directory, returning its path
 in JSON. Success retains that directory for the next installation step; callers
