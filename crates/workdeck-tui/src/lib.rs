@@ -2844,7 +2844,7 @@ impl ReviewApp {
                 .comments()
                 .iter()
                 .filter(|comment| {
-                    comment.resolution == ReviewNoteResolution::Active
+                    comment.resolution != ReviewNoteResolution::Orphaned
                         && comment.anchor.file_key == file.key
                         && (comment.anchor.owner_hunk_index == Some(selected_hunk)
                             || comment
@@ -3144,7 +3144,7 @@ impl ReviewApp {
                         line: composer.target.line,
                     },
                 );
-                let comment = ReviewComment {
+                let mut comment = ReviewComment {
                     id: composer.id.clone(),
                     parent_id: match &composer.kind {
                         ReviewNoteComposerKind::Reply { parent_id } => Some(parent_id.clone()),
@@ -3178,6 +3178,12 @@ impl ReviewApp {
                     },
                     editable: true,
                 };
+                if let ReviewNoteComposerKind::Reply { parent_id } = &composer.kind
+                    && let Some(parent) = state.comments().iter().find(|note| note.id == *parent_id)
+                {
+                    comment.anchor = parent.anchor.clone();
+                    comment.resolution = parent.resolution;
+                }
                 state.add_comment(comment)
             }
         });

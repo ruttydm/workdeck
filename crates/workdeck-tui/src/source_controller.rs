@@ -1556,6 +1556,26 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn reply_inherits_parent_range_anchor_and_resolution() {
+        let mut app = ReviewApp::new(pinned_alpha_source_review(800), ReviewOptions::default());
+        app.open_note_composer();
+        app.note_composer.as_mut().unwrap().body = "Range parent".into();
+        let mut parent = app.save_note_composer().unwrap();
+        app.with_state(|state| state.remove_comment(&parent.id));
+        parent.anchor.new_range = Some(workdeck_core::LineRange { start: 5, end: 7 });
+        parent.resolution = workdeck_review::ReviewNoteResolution::Stale;
+        app.with_state(|state| state.add_comment(parent.clone()))
+            .unwrap();
+        app.saved_note_hover = Some(parent.id.clone());
+        app.open_active_note_reply();
+        app.note_composer.as_mut().unwrap().body = "Reply".into();
+        let reply = app.save_note_composer().unwrap();
+        assert_eq!(reply.parent_id.as_deref(), Some(parent.id.as_str()));
+        assert_eq!(reply.anchor, parent.anchor);
+        assert_eq!(reply.resolution, parent.resolution);
+    }
+
+    #[test]
     fn reply_save_rejects_parent_from_a_different_file() {
         let mut review = pinned_alpha_source_review(800);
         let beta = pinned_review_from_text("beta", "beta.ts", "before\n", "after\n");
