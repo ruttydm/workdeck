@@ -1,5 +1,5 @@
-//! Incremental MIT translation of Hunk install.sh. Preflight and private staging;
-//! no replacement of installed executables.
+//! Incremental MIT translation of Hunk install.sh. Preflight, private staging,
+//! and a binary-replacement primitive; updater integration remains incomplete.
 
 use anyhow::{Result, bail};
 use serde::Serialize;
@@ -7,7 +7,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 mod staging;
+mod transaction;
 pub use staging::{prepare_verified_archive, stage};
+pub use transaction::replace_binary_with_backup;
 
 fn archive_entry_path(name: &str) -> Result<String> {
     let name = name.strip_suffix('/').unwrap_or(name);
