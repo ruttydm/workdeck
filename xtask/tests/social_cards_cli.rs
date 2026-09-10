@@ -58,6 +58,27 @@ fn publication_cli_applies_checks_staleness_and_preserves_targeted_images() {
     assert!(plan.status.success(), "{plan:?}");
     fs::write(repo.path().join("plan.json"), &plan.stdout).unwrap();
     let backup = backups.path().join("first");
+    let lock = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(repo.path().join(".git/workdeck-release.lock"))
+        .unwrap();
+    lock.try_lock().unwrap();
+    let blocked = run(&[
+        "social-cards-publish",
+        "plan.json",
+        backup.to_str().unwrap(),
+        stage,
+        "cards.json",
+        "extensions",
+    ]);
+    assert!(!blocked.status.success());
+    assert!(blocked.stdout.is_empty());
+    assert!(!backup.exists());
+    assert!(!repo.path().join("site/static/extensions/og.png").exists());
+    assert_eq!(fs::read(&stale).unwrap(), b"untouched");
+    drop(lock);
     let publish = run(&[
         "social-cards-publish",
         "plan.json",
@@ -112,6 +133,43 @@ fn publication_cli_applies_checks_staleness_and_preserves_targeted_images() {
     );
     assert!(!second_backup.exists());
     assert_eq!(fs::read(staging.path().join("0000.png")).unwrap(), bytes);
+    let mut full_manifest = manifest;
+    full_manifest["replaceChangelogDirectory"] = true.into();
+    fs::write(
+        staging.path().join("capture.json"),
+        serde_json::to_vec(&full_manifest).unwrap(),
+    )
+    .unwrap();
+    let full_plan = run(&["social-cards-publication-plan", stage, "cards.json"]);
+    assert!(full_plan.status.success(), "{full_plan:?}");
+    fs::write(repo.path().join("plan.json"), &full_plan.stdout).unwrap();
+    let full = run(&[
+        "social-cards-publish",
+        "plan.json",
+        second_backup.to_str().unwrap(),
+        stage,
+        "cards.json",
+    ]);
+    assert!(full.status.success(), "{full:?}");
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&full.stdout).unwrap(),
+        serde_json::json!({"applied":true,"files":1})
+    );
+    assert!(!stale.exists());
+    assert_eq!(
+        fs::read(repo.path().join("site/static/extensions/og.png")).unwrap(),
+        bytes
+    );
+    let recovery: serde_json::Value =
+        serde_json::from_slice(&fs::read(second_backup.join("recovery.json")).unwrap()).unwrap();
+    assert_eq!(
+        recovery["originals"]["site/static/changelog/og/stale.png"],
+        serde_json::json!(b"untouched".to_vec())
+    );
+    assert_eq!(
+        recovery["replacements"]["site/static/changelog/og/stale.png"],
+        serde_json::Value::Null
+    );
     assert_eq!(fs::read(repo.path().join("cards.json")).unwrap(), b"[]");
     assert!(!repo.path().join(".agents").exists());
 }

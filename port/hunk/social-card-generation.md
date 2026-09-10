@@ -211,3 +211,11 @@ The strict `cargo xtask port audit` still exits 1 with 1,257 baseline files,
 commits. No upstream fetch was performed for this checkpoint. Neither result
 establishes full workspace verification, native-platform parity or release
 readiness; no ledger dispositions were changed.
+
+The three CLI tests also pass with cross-process lock contention and full-run
+cleanup assertions. Holding `.git/workdeck-release.lock` in the test process
+prevents the publication child from creating either the backup or destination.
+After releasing the lock, targeted publication succeeds. A subsequent full run
+removes the stale changelog image, retains the unchanged standalone card and
+records the removed image's exact original bytes in recovery data. Empty
+directory removal and inventory changes during application are still open.
