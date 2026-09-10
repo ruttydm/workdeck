@@ -51,3 +51,18 @@ input from both pins: 21 main groups and 20 stable groups. The Rust regression
 checks exact group membership/order, unchanged complete release values, and empty
 input. All five parser/grouping tests passed in 0.07 seconds. Both read-only
 commands are listed in xtask help. No ledger interval is newly mapped.
+
+## Release-date resolution
+
+`cargo xtask changelog dates <markdown-file> <recorded-dates.json>` now emits a
+resolved date map without writing inputs. It preserves recorded values, prefers
+legacy heading dates over Git lookup, and omits unresolved versions and stale
+recorded versions no longer present in the changelog. Lookup tries annotated
+tagger dates and then tagged commit dates. Missing date files mean an empty map;
+malformed JSON and other read errors fail rather than silently clearing history.
+
+The native regression checks lookup invocation boundaries, recorded and heading
+precedence, unresolved and stale entries, key ordering, and tag-date string
+selection. All six parser/grouping/date tests passed in 0.06 seconds. Real Git-tag
+fixtures, date-command integration checks and frozen date oracles remain to be
+added before claiming complete date-resolution parity. No ledger mapping changed.

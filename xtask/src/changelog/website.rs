@@ -235,6 +235,79 @@ struct ReleaseSeries {
     releases: Vec<ReleaseEntry>,
 }
 
+fn resolve_tag_date(tagger: &str, commit: &str) -> Option<String> {
+    static DATE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$").unwrap());
+    [tagger, commit]
+        .into_iter()
+        .map(str::trim)
+        .find(|date| DATE.is_match(date))
+        .map(str::to_owned)
+}
+
+fn tag_date(repo: &Path, version: &str) -> Option<String> {
+    let read = |args: &[&str]| {
+        let output = std::process::Command::new("git")
+            .current_dir(repo)
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .ok()?;
+        output
+            .status
+            .success()
+            .then(|| String::from_utf8(output.stdout).ok())
+            .flatten()
+    };
+    let tagger = read(&[
+        "for-each-ref",
+        "--format=%(taggerdate:short)",
+        &format!("refs/tags/v{version}"),
+    ])?;
+    let commit = read(&["log", "-1", "--format=%as", &format!("v{version}")])?;
+    resolve_tag_date(&tagger, &commit)
+}
+
+fn resolve_dates(
+    releases: &[ReleaseEntry],
+    recorded: &std::collections::BTreeMap<String, String>,
+    mut lookup: impl FnMut(&str) -> Option<String>,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut dates = std::collections::BTreeMap::new();
+    for release in releases {
+        let date = recorded
+            .get(&release.version)
+            .cloned()
+            .or_else(|| release.heading_date.clone())
+            .or_else(|| lookup(&release.version));
+        if let Some(date) = date.filter(|date| !date.is_empty()) {
+            dates.insert(release.version.clone(), date);
+        }
+    }
+    let mut dates = dates.into_iter().collect::<Vec<_>>();
+    dates.sort_by(|(a, _), (b, _)| compare_versions(a, b));
+    dates
+        .into_iter()
+        .map(|(version, date)| (version, serde_json::Value::String(date)))
+        .collect()
+}
+
+pub(super) fn run_dates(repo: &Path, args: impl Iterator<Item = String>) -> Result<()> {
+    let args = args.collect::<Vec<_>>();
+    let [markdown_path, recorded_path] = args.as_slice() else {
+        bail!("changelog dates requires <markdown-file> <recorded-dates.json>");
+    };
+    let recorded = match std::fs::read(repo.join(recorded_path)) {
+        Ok(bytes) => serde_json::from_slice::<std::collections::BTreeMap<String, String>>(&bytes)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Default::default(),
+        Err(error) => return Err(error.into()),
+    };
+    let releases = parse_changelog(&std::fs::read_to_string(repo.join(markdown_path))?);
+    let dates = resolve_dates(&releases, &recorded, |version| tag_date(repo, version));
+    println!("{}", serde_json::to_string_pretty(&dates)?);
+    Ok(())
+}
+
 fn group_into_series(releases: Vec<ReleaseEntry>) -> Vec<ReleaseSeries> {
     let mut groups = std::collections::BTreeMap::<String, Vec<ReleaseEntry>>::new();
     for release in releases {
@@ -286,6 +359,38 @@ pub(super) fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dates_preserve_recorded_values_prefer_headings_and_sort_without_stale_entries() {
+        let releases =
+            parse_changelog("## 0.19.0\n## 0.18.0\n## [0.15.3] - 2026-06-13\n## 0.14.0\n");
+        let recorded = std::collections::BTreeMap::from([
+            ("0.19.0".into(), "2020-01-01".into()),
+            ("0.99.0".into(), "2026-01-01".into()),
+        ]);
+        let mut looked_up = Vec::new();
+        let dates = resolve_dates(&releases, &recorded, |version| {
+            looked_up.push(version.to_owned());
+            (version == "0.18.0").then(|| "2026-08-08".into())
+        });
+        assert_eq!(looked_up, ["0.18.0", "0.14.0"]);
+        assert_eq!(
+            dates.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["0.19.0", "0.18.0", "0.15.3"]
+        );
+        assert_eq!(dates["0.19.0"], "2020-01-01");
+        assert_eq!(dates["0.18.0"], "2026-08-08");
+        assert_eq!(dates["0.15.3"], "2026-06-13");
+        assert_eq!(
+            resolve_tag_date("2026-08-29\n", "2026-08-28\n").as_deref(),
+            Some("2026-08-29")
+        );
+        assert_eq!(
+            resolve_tag_date("\n", "2026-08-28\n").as_deref(),
+            Some("2026-08-28")
+        );
+        assert!(resolve_tag_date("not-a-date", "").is_none());
+    }
 
     #[test]
     fn reverse_ordered_release_groups_match_both_pinned_oracles() {

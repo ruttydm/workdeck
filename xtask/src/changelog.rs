@@ -200,6 +200,7 @@ pub(super) fn run(repo: &Path, mut args: impl Iterator<Item = String>) -> Result
         Some("apply-plan") => return fragments::apply_plan(repo, args),
         Some("parse") => return website::run(repo, args, false),
         Some("series") => return website::run(repo, args, true),
+        Some("dates") => return website::run_dates(repo, args),
         Some("upstream-history") => {}
         _ => bail!(
             "changelog requires parse <markdown-file>, series <markdown-file>, upstream-history [--check], add <id> <patch|minor|major|empty> [body], status, plan, check-plan <saved-plan.json>, or apply-plan <saved-plan.json> <new-backup-directory>"
