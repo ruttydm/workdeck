@@ -408,6 +408,26 @@ fn first_install_command_is_headless_and_rejects_invalid_versions_without_state(
         fs::read_dir(dir.path().join("existing")).unwrap().count(),
         0
     );
+    let home = tempdir().unwrap();
+    workdeck()
+        .current_dir(dir.path())
+        .env("HOME", home.path())
+        .args(["install", "invalid"])
+        .assert()
+        .failure();
+    assert_eq!(fs::read_dir(home.path()).unwrap().count(), 0);
+    fs::create_dir(home.path().join(".workdeck")).unwrap();
+    workdeck()
+        .current_dir(dir.path())
+        .env("HOME", home.path())
+        .args(["install", "1.2.3"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("installation root already exists"));
+    assert_eq!(
+        fs::read_dir(home.path().join(".workdeck")).unwrap().count(),
+        0
+    );
 }
 
 #[test]

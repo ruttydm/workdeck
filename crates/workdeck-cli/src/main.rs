@@ -226,7 +226,7 @@ enum Command {
         #[arg(value_name = "VERSION")]
         version: String,
         #[arg(long, value_name = "DIRECTORY")]
-        destination: PathBuf,
+        destination: Option<PathBuf>,
     },
     #[command(about = "Update Workdeck through the channel that installed it")]
     Update {
@@ -8017,6 +8017,18 @@ fn handle_global_command(cwd: &Path, command: Command) -> Result<()> {
             version,
             destination,
         } => {
+            let destination = destination.map_or_else(
+                || {
+                    let home = std::env::var_os("HOME")
+                        .filter(|value| !value.is_empty())
+                        .or_else(|| {
+                            std::env::var_os("USERPROFILE").filter(|value| !value.is_empty())
+                        })
+                        .context("no home directory is available; supply --destination")?;
+                    Ok::<_, anyhow::Error>(PathBuf::from(home).join(".workdeck"))
+                },
+                Ok,
+            )?;
             workdeck_cli::install::install_release_on_host(&version, &destination)?;
             println!(
                 "Installed Workdeck {version} to {}. PATH was not modified.",
