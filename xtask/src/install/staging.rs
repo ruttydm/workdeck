@@ -103,6 +103,85 @@ mod tests {
     use super::*;
 
     #[test]
+    fn tar_staging_preserves_payloads_discards_special_modes_and_checks_structure() {
+        let input = tempfile::tempdir().unwrap();
+        let archive = input.path().join("workdeck.tar.gz");
+        let checksums = input.path().join("SHA256SUMS");
+        for variant in ["valid", "missing-license", "symlink"] {
+            let encoder = flate2::write::GzEncoder::new(
+                std::fs::File::create(&archive).unwrap(),
+                flate2::Compression::default(),
+            );
+            let mut tar = tar::Builder::new(encoder);
+            for name in [
+                "workdeck",
+                "LICENSE",
+                "THIRD_PARTY_NOTICES",
+                "licenses.json",
+                "sbom.cdx.json",
+                "provenance.json",
+            ] {
+                if variant == "missing-license" && name == "LICENSE" {
+                    continue;
+                }
+                let payload = format!("{name}\0binary\n");
+                let mut header = tar::Header::new_gnu();
+                header.set_size(payload.len() as u64);
+                header.set_mode(0o6777);
+                header.set_cksum();
+                tar.append_data(&mut header, format!("package/{name}"), payload.as_bytes())
+                    .unwrap();
+            }
+            if variant == "symlink" {
+                let mut header = tar::Header::new_gnu();
+                header.set_entry_type(tar::EntryType::Symlink);
+                header.set_size(0);
+                header.set_mode(0o777);
+                tar.append_link(&mut header, "package/link", "../../outside")
+                    .unwrap();
+            }
+            tar.into_inner().unwrap().finish().unwrap();
+            let bytes = std::fs::read(&archive).unwrap();
+            let hash = crate::sha256_file(&archive).unwrap();
+            std::fs::write(&checksums, format!("{hash} workdeck.tar.gz\n")).unwrap();
+            let result = prepare(&archive, &checksums);
+            if variant == "valid" {
+                let staged = result.unwrap();
+                for name in ["workdeck", "LICENSE"] {
+                    let path = staged.path().join("package").join(name);
+                    assert_eq!(
+                        std::fs::read(&path).unwrap(),
+                        format!("{name}\0binary\n").as_bytes()
+                    );
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        assert_eq!(
+                            std::fs::metadata(path).unwrap().permissions().mode() & 0o7777,
+                            if name == "workdeck" { 0o755 } else { 0o644 }
+                        );
+                    }
+                }
+                let path = staged.path().to_owned();
+                drop(staged);
+                assert!(!path.exists());
+            } else {
+                let error = result.unwrap_err().to_string();
+                assert!(
+                    error.contains(if variant == "symlink" {
+                        "links and special files"
+                    } else {
+                        "missing required regular file"
+                    }),
+                    "{error}"
+                );
+            }
+            assert_eq!(std::fs::read(&archive).unwrap(), bytes);
+            assert_eq!(std::fs::read_dir(input.path()).unwrap().count(), 2);
+        }
+    }
+
+    #[test]
     fn staging_extracts_verified_package_and_rejects_bad_checksum() {
         let input = tempfile::tempdir().unwrap();
         let archive = input.path().join("workdeck.zip");

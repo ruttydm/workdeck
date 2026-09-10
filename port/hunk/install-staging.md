@@ -22,6 +22,10 @@ No source-ledger interval is marked complete for this incremental implementation
 
 The ZIP staging regression verifies extracted executable bytes, six required
 package members, executable permissions on Unix, checksum rejection and unchanged
-input-directory contents. Existing archive-inspection tests cover malformed
-tar/ZIP and path hazards; end-to-end tar staging and installer integration remain
-additional validation work.
+input-directory contents. The gzip-tar staging regression verifies binary payload
+preservation, executable and content modes with setuid/setgid removed, rejection
+of links and missing licenses even with a matching checksum, cleanup when the
+staging handle is dropped, and unchanged input archives. All 27 installer unit
+tests pass. Existing archive-inspection tests cover malformed tar/ZIP and path
+hazards. Real CLI staging, cross-platform execution and installer integration
+remain additional validation work.
