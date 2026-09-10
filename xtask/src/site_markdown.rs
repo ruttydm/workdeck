@@ -138,7 +138,7 @@ fn render(sources: &BTreeMap<String, String>) -> Result<BTreeMap<String, String>
                     && part != ".."
                     && part
                         .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || b"-_".contains(&byte))),
+                        .all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte))),
             "unsafe Markdown export route"
         );
         pages.push((
@@ -177,6 +177,7 @@ fn render(sources: &BTreeMap<String, String>) -> Result<BTreeMap<String, String>
         full.push_str(&section);
         if !route.starts_with("docs/extend/")
             && route != "docs/reference/opentui-components"
+            && route != "changelog"
             && !route.starts_with("changelog/")
         {
             small.push_str(&section);
@@ -255,6 +256,21 @@ mod tests {
                 .to_string()
                 .contains("duplicate")
         );
+    }
+
+    #[test]
+    fn release_routes_accept_series_dots_and_exclude_the_landing_page_from_small() {
+        let sources = BTreeMap::from([
+            ("changelog/index.md".into(), "+++\ntitle = 'Changelog'\npath = 'changelog/'\n+++\nrelease index body\n".into()),
+            ("changelog/0.20.md".into(), "+++\ntitle = 'Workdeck 0.20'\npath = 'changelog/0.20/'\n+++\nrelease series body\n".into()),
+        ]);
+        let output = render(&sources).unwrap();
+        assert!(output.contains_key("changelog.md"));
+        assert!(output.contains_key("changelog/0.20.md"));
+        for body in ["release index body", "release series body"] {
+            assert!(output["llms-full.txt"].contains(body));
+            assert!(!output["llms-small.txt"].contains(body));
+        }
     }
 
     #[test]
