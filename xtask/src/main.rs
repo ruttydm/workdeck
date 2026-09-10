@@ -29,6 +29,7 @@ mod release_notes;
 mod release_status;
 mod review_conformance;
 mod skill;
+mod social_cards;
 mod term_video;
 mod theme_probe;
 mod upstream_refs;
@@ -269,6 +270,7 @@ fn run() -> Result<()> {
         Some("install-stage") => install::stage(args),
         Some("install-create") => install::create(args),
         Some("changelog") => changelog::run(&repo_root()?, args),
+        Some("social-cards-plan") => social_cards::run(&repo_root()?, args),
         Some("media") => match args.next().as_deref() {
             Some("plan") => term_video::plan_file(&repo_root()?, args),
             Some("compose") => term_video::compose_file(&repo_root()?, args),
@@ -2541,6 +2543,7 @@ fn relative_to(repo: &Path, path: &Path) -> String {
 }
 
 fn print_help() {
+    println!("cargo xtask social-cards-plan <cards.json> [slug ...]");
     println!("cargo xtask benchmark aggregate SOURCE METRIC SAMPLES_JSON");
     println!("cargo xtask benchmark parse-metrics < METRIC_OUTPUT");
     println!("cargo xtask benchmark run --script WORKLOAD [--samples N] [--out PATH]");
