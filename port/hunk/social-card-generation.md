@@ -98,8 +98,8 @@ images are rejected. Success returns JSON with `valid: true, published: false`.
 
 The six unit tests include unchanged acceptance and image/target/scope drift
 rejection. This read-only check is not a reservation against later changes, does
-not authenticate a jointly modified manifest/image pair and does not decode PNGs
-again or prove visual fidelity. Publication must validate its actual inputs at
+not authenticate a jointly modified manifest/image pair or prove visual fidelity.
+Publication must validate its actual inputs at
 write time; that integration remains incomplete.
 
 Both social-card CLI integration tests pass. The saved-capture case derives its
@@ -108,3 +108,10 @@ accepts the matching capture and rejects a changed image. It verifies unchanged
 manifest/card input bytes, preservation of the changed image, empty failure
 stdout, and no site or Workdeck state creation. Synthetic bytes deliberately
 exercise manifest/hash validation only, not PNG validity or browser capture.
+
+The checker now additionally uses the capture renderer's shared PNG decoder to
+require decodable 1200×630 pixels after manifest/hash comparison. Its unit and
+CLI acceptance fixtures have been upgraded from the earlier synthetic bytes to
+real encoded PNGs. A matching digest for malformed image bytes is rejected by
+the decoder. Six unit tests and both CLI tests pass; this proves structural image
+validation, not visual parity with either upstream baseline.

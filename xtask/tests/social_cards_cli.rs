@@ -21,8 +21,18 @@ fn saved_capture_cli_validates_hashes_without_changing_inputs() {
     assert!(plan.status.success());
     let plan: serde_json::Value = serde_json::from_slice(&plan.stdout).unwrap();
     let staging = tempfile::tempdir().unwrap();
-    let bytes = b"synthetic image bytes";
-    fs::write(staging.path().join("0000.png"), bytes).unwrap();
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut bytes, 1200, 630);
+        encoder.set_color(png::ColorType::Rgb);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder
+            .write_header()
+            .unwrap()
+            .write_image_data(&vec![0; 1200 * 630 * 3])
+            .unwrap();
+    }
+    fs::write(staging.path().join("0000.png"), &bytes).unwrap();
     let manifest = serde_json::json!({"schema":1,"stagingDirectory":staging.path().canonicalize().unwrap(),
         "rendered":true,"published":false,"replaceChangelogDirectory":false,
         "images":[{"stagedFile":"0000.png","target":plan["targets"][0],"bytes":bytes.len(),"sha256":format!("{:x}",Sha256::digest(bytes))}]});

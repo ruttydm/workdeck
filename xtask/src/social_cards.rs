@@ -52,6 +52,9 @@ fn check_capture(staging: &std::path::Path, targets: &[Target], full: bool) -> R
         saved == current,
         "capture manifest is stale, modified or belongs to another staging directory"
     );
+    for index in 0..targets.len() {
+        crate::term_video::validate_card_png(&staging.join(format!("{index:04}.png")))?;
+    }
     Ok(())
 }
 
@@ -297,18 +300,37 @@ mod tests {
         let staging = tempfile::tempdir().unwrap();
         let targets = select(vec![], &[]).unwrap();
         let image = staging.path().join("0000.png");
-        std::fs::write(&image, b"fixture bytes").unwrap();
+        let mut bytes = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut bytes, 1200, 630);
+            encoder.set_color(png::ColorType::Rgb);
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder
+                .write_header()
+                .unwrap()
+                .write_image_data(&vec![0; 1200 * 630 * 3])
+                .unwrap();
+        }
+        std::fs::write(&image, &bytes).unwrap();
         let report = capture_report(staging.path(), &targets, true).unwrap();
         save_capture_manifest(staging.path(), &serde_json::to_string(&report).unwrap()).unwrap();
         check_capture(staging.path(), &targets, true).unwrap();
         assert!(check_capture(staging.path(), &targets, false).is_err());
         std::fs::write(&image, b"modified").unwrap();
         assert!(check_capture(staging.path(), &targets, true).is_err());
-        std::fs::write(&image, b"fixture bytes").unwrap();
+        std::fs::write(&image, &bytes).unwrap();
         let mut changed = select(vec![], &[]).unwrap();
         changed[0].card.title = "Changed title".into();
         assert!(check_capture(staging.path(), &changed, true).is_err());
         check_capture(staging.path(), &targets, true).unwrap();
+        std::fs::write(&image, b"not a PNG").unwrap();
+        let malformed = capture_report(staging.path(), &targets, true).unwrap();
+        std::fs::write(
+            staging.path().join("capture.json"),
+            serde_json::to_vec(&malformed).unwrap(),
+        )
+        .unwrap();
+        assert!(check_capture(staging.path(), &targets, true).is_err());
     }
     #[test]
     fn capture_report_binds_each_ordered_target_to_actual_image_bytes() {

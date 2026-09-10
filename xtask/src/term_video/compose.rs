@@ -244,21 +244,26 @@ fn stage_card_documents(
         let image = staged.path().join(format!("{index:04}.png"));
         fs::write(&document, html)?;
         renderer.screenshot(&file_url(&document)?, &image)?;
-        let mut reader = png::Decoder::new(BufReader::new(File::open(&image)?)).read_info()?;
-        ensure!(
-            reader.info().width == 1200 && reader.info().height == 630,
-            "social-card screenshot must be 1200x630"
-        );
-        let mut pixels = vec![
-            0;
-            reader
-                .output_buffer_size()
-                .context("social-card PNG too large")?
-        ];
-        reader.next_frame(&mut pixels)?;
+        validate_card_png(&image)?;
         fs::remove_file(document)?;
     }
     Ok(staged)
+}
+
+pub(crate) fn validate_card_png(path: &Path) -> Result<()> {
+    let mut reader = png::Decoder::new(BufReader::new(File::open(path)?)).read_info()?;
+    ensure!(
+        reader.info().width == 1200 && reader.info().height == 630,
+        "social-card screenshot must be 1200x630"
+    );
+    let mut pixels = vec![
+        0;
+        reader
+            .output_buffer_size()
+            .context("social-card PNG too large")?
+    ];
+    reader.next_frame(&mut pixels)?;
+    Ok(())
 }
 
 fn compose_storyboard(
