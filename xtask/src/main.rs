@@ -28,6 +28,7 @@ mod release_channel;
 mod release_notes;
 mod release_status;
 mod review_conformance;
+mod site_assets;
 mod skill;
 mod social_cards;
 mod term_video;
@@ -271,6 +272,7 @@ fn run() -> Result<()> {
         Some("install-create") => install::create(args),
         Some("changelog") => changelog::run(&repo_root()?, args),
         Some("social-cards-plan") => social_cards::run(&repo_root()?, args),
+        Some("site-assets-sbom") => site_assets::run(&repo_root()?, args),
         Some("social-cards-generate") => social_cards::run_generate(&repo_root()?, args),
         Some("social-cards-publish") => social_cards::run_publish(&repo_root()?, args),
         Some("social-cards-publication-plan") => {
@@ -2552,6 +2554,7 @@ fn relative_to(repo: &Path, path: &Path) -> String {
 
 fn print_help() {
     println!("cargo xtask social-cards-plan <cards.json> [slug ...]");
+    println!("cargo xtask site-assets-sbom");
     println!(
         "cargo xtask social-cards-generate <cards.json> <font.woff2> <webdriver> <chromium> <new-external-backup> [slug ...]"
     );

@@ -348,3 +348,12 @@ argument to native generation; no temporary package archive is needed thereafter
 This adds a third-party asset, not a TypeScript source mirror or runtime
 dependency. Website typography integration and distribution-wide asset SBOM
 coverage remain separate work.
+
+`site/data/third-party-assets.json` now records the retained font's resolved
+version, archive URL/integrity, OFL identifier and exact font/license hashes.
+`cargo xtask site-assets-sbom` validates those files and prints a website-only
+CycloneDX 1.5 file inventory without writing outputs. Missing, changed, duplicate
+or symlinked asset paths fail validation. The binary Cargo-dependency SBOM is
+intentionally unchanged: this font is not embedded in the shipped executable.
+This is an inventory for the retained font assets, not a complete website/source
+SBOM or proof of integration with every release archive.
