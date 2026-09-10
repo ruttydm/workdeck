@@ -3175,6 +3175,12 @@ impl ReviewApp {
                     .ok_or(workdeck_review::ReviewError::FileOutOfRange(
                         composer.target.file_index,
                     ))?;
+                if file.hunks.get(composer.target.hunk_index).is_none() {
+                    return Err(workdeck_review::ReviewError::HunkOutOfRange {
+                        file: composer.target.file_index,
+                        hunk: composer.target.hunk_index,
+                    });
+                }
                 let anchor = review_line_anchor(
                     &file.hunks,
                     ReviewLineTarget {

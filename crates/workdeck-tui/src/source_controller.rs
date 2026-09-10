@@ -1556,6 +1556,23 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn note_save_rejects_missing_hunk_without_consuming_draft() {
+        let mut app = ReviewApp::new(pinned_alpha_source_review(800), ReviewOptions::default());
+        app.open_note_composer();
+        let draft = app.note_composer.as_mut().unwrap();
+        draft.body = "Unsaved note".into();
+        draft.target.hunk_index = 99;
+        let id = draft.id.clone();
+        let revision = app.with_state(|state| state.state_revision());
+        assert!(app.save_note_composer().is_none());
+        assert_eq!(app.note_composer.as_ref().unwrap().id, id);
+        assert_eq!(app.note_composer.as_ref().unwrap().body, "Unsaved note");
+        assert!(app.with_state(|state| state.comments().is_empty()));
+        assert_eq!(app.with_state(|state| state.state_revision()), revision);
+        assert!(app.status.as_deref().unwrap().contains("hunk index 99"));
+    }
+
+    #[test]
     fn note_save_rechecks_editability_without_consuming_draft() {
         let mut app = ReviewApp::new(pinned_alpha_source_review(800), ReviewOptions::default());
         app.open_note_composer();
