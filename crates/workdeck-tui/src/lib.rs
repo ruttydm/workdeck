@@ -3165,7 +3165,7 @@ impl ReviewApp {
                         }
                     },
                     source: "user".into(),
-                    author: None,
+                    author: Some("user".into()),
                     created_at: Some(timestamp.clone()),
                     file_path: Some(file.path.clone()),
                     hunk_index: Some(composer.target.hunk_index),
@@ -3175,7 +3175,7 @@ impl ReviewApp {
                     rationale: None,
                     markup: None,
                     title: None,
-                    tags: vec!["user".into()],
+                    tags: Vec::new(),
                     confidence: None,
                     updated_at: None,
                     resolution: ReviewNoteResolution::Active,

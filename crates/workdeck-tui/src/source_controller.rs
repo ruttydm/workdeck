@@ -1697,6 +1697,8 @@ pub(super) mod tests {
         app.open_note_composer();
         app.note_composer.as_mut().unwrap().body = "Original".into();
         let original = app.save_note_composer_at(1_700_000_000_000).unwrap();
+        assert_eq!(original.author.as_deref(), Some("user"));
+        assert!(original.tags.is_empty());
         assert_eq!(
             original.created_at.as_deref(),
             Some("2023-11-14T22:13:20.000Z")
@@ -1712,6 +1714,8 @@ pub(super) mod tests {
             let edited = app.save_note_composer_at(time).unwrap();
             assert_eq!(edited.id, original.id);
             assert_eq!(edited.created_at, original.created_at);
+            assert_eq!(edited.author, original.author);
+            assert_eq!(edited.tags, original.tags);
             assert_eq!(edited.updated_at.as_deref(), Some(expected));
             assert_eq!(app.with_state(|state| state.comments()[0].clone()), edited);
         }

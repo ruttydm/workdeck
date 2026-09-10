@@ -21,3 +21,13 @@ a source ledger mapping or claim complete note lifecycle parity.
 
 Verification: all 1,237 TUI library tests passed in 9.58 seconds, and all 178
 review library tests passed in 0.02 seconds. Formatting and diff checks passed.
+
+## Author and tag defaults
+
+Pinned main `core/review/intents.ts` creates notes with `author: "user"` and no
+tags. Native newly saved notes now match those defaults instead of omitting the
+author and inventing a `user` tag. Existing persisted metadata is not rewritten.
+The fixed-clock save/edit regression now also checks author and empty tags on
+creation and unchanged author/tags across both edits. No ledger mapping changes.
+All 1,242 TUI library tests passed in 8.80 seconds with these defaults; formatting
+and diff checks passed.
