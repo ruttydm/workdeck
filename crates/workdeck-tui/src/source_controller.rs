@@ -1114,6 +1114,29 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn cursor_off_line_reveal_uses_containing_hunk_placement() {
+        let options = ReviewOptions {
+            cursor_line: crate::CursorLineMode::Off,
+            ..Default::default()
+        };
+        let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), options.clone());
+        let mut expected = ReviewApp::new(pinned_two_hunk_alpha_review(), options);
+        app.review_height.set(8);
+        expected.review_height.set(8);
+        expected.select_extension_review_hunk("probe", "alpha", 1);
+        app.reveal_extension_review_line("probe", "alpha", ReviewSide::New, 12);
+        assert_eq!(
+            app.with_state(|state| state.selection().hunk_index),
+            Some(1)
+        );
+        assert_eq!(app.scroll, expected.scroll);
+        assert_eq!(
+            app.with_state(|state| state.selection()),
+            expected.with_state(|state| state.selection())
+        );
+    }
+
+    #[test]
     fn filter_hides_alpha_cursor_and_clearing_restores_it() {
         let mut review =
             pinned_alpha_review_from_text("export const alpha = 1;\n", "export const alpha = 2;\n");

@@ -7503,7 +7503,20 @@ impl ReviewApp {
             );
             return;
         }
-        self.scroll_to_selected_line();
+        if self.options.cursor_line == CursorLineMode::Off {
+            self.with_state(|state| {
+                let hunk_index = state
+                    .selection()
+                    .hunk_index
+                    .expect("revealed line belongs to a hunk");
+                state
+                    .select_hunk(target.file_index, hunk_index)
+                    .expect("revealed hunk remains in the document");
+            });
+            self.scroll_to_selection();
+        } else {
+            self.scroll_to_selected_line();
+        }
         self.publish_extension_selection_events();
     }
 
