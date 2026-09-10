@@ -1973,6 +1973,36 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn batch_first_reveal_repositions_an_already_selected_hunk() {
+        let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
+        app.review_height.set(4);
+        app.with_state(|state| state.select_hunk(0, 1)).unwrap();
+        let target = workdeck_session::CommentTargetInput {
+            file_path: "alpha.ts".into(),
+            hunk_index: Some(1),
+            side: None,
+            line: None,
+            summary: "Reveal selected hunk".into(),
+            rationale: None,
+            markup: None,
+            author: None,
+        };
+        app.session_add_live_comment_batch(&[target.clone()], "first", false)
+            .unwrap();
+        app.scroll_to_selection();
+        let expected = app.scroll;
+        assert!(expected > 0);
+        app.scroll = 0;
+        app.session_add_live_comment_batch(&[target], "second", true)
+            .unwrap();
+        assert_eq!(app.scroll, expected);
+        assert_eq!(
+            app.with_state(|state| state.selection().hunk_index),
+            Some(1)
+        );
+    }
+
+    #[test]
     fn alpha_comment_batch_preserves_order_and_reveals_first_hunk() {
         let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
         let target = |hunk_index, summary: &str| workdeck_session::CommentTargetInput {

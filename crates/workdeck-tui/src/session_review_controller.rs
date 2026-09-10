@@ -511,10 +511,7 @@ impl ReviewApp {
             .map_err(|error| error.to_string())?;
         if reveal {
             let hunk_index = usize::try_from(result.hunk_index).unwrap_or(usize::MAX);
-            self.navigate(|state| {
-                let before = state.selection();
-                state.select_hunk(file_index, hunk_index).is_ok() && state.selection() != before
-            });
+            self.navigate(|state| state.select_hunk(file_index, hunk_index).is_ok());
         }
         self.publish_session_note_mutation();
         Ok(result)
@@ -558,10 +555,7 @@ impl ReviewApp {
         if reveal_first && let Some((_, result, file_index)) = prepared.first() {
             let hunk_index = usize::try_from(result.hunk_index).unwrap_or(usize::MAX);
             let file_index = *file_index;
-            self.navigate(|state| {
-                let before = state.selection();
-                state.select_hunk(file_index, hunk_index).is_ok() && state.selection() != before
-            });
+            self.navigate(|state| state.select_hunk(file_index, hunk_index).is_ok());
         }
         if !prepared.is_empty() {
             self.publish_session_note_mutation();
