@@ -10,8 +10,16 @@ mirror is committed.
 
 Cases cover Darwin x86_64 with/without Rosetta, translated amd64, Darwin aarch64,
 Linux x86_64/amd64/arm64/aarch64, unsupported riscv64 and unsupported FreeBSD.
-Each record contains the pin, supplied platform facts, exit code and combined
-process output. This is not a separate stdout/stderr oracle.
+Each record contains the pin, supplied platform facts, exit code, separate stdout
+and stderr, and their concatenation retained as `output` for the original native
+comparison. `cargo xtask install-oracle` now reproduces this capture using Rust
+orchestration and prints JSON without writing repository files. It accepts no
+arguments and only executes the pinned helper functions with fixed inputs.
+
+The explicitly invoked replay test
+`cargo test -p xtask frozen_installer_platform_capture_is_reproducible -- --ignored`
+passes against both preserved refs. It is ignored in ordinary tests because it
+executes the source shell oracle; native fixture comparisons remain ordinary tests.
 
 `platform_detection_matches_both_pinned_shell_oracles` passes all 20 cases.
 Successful OS/architecture tokens match byte-for-byte. Error cases compare only

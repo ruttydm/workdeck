@@ -19,6 +19,7 @@ mod ci_changes;
 mod ci_host;
 mod extension_catalog;
 mod install;
+mod install_oracle;
 mod nix;
 mod port_history;
 mod port_oracles;
@@ -264,6 +265,7 @@ fn run() -> Result<()> {
         Some("install-plan") => install::run(args),
         Some("install-verify") => install::verify(args),
         Some("install-inspect") => install::inspect(args),
+        Some("install-oracle") => install_oracle::run(&repo_root()?, args),
         Some("install-stage") => install::stage(args),
         Some("changelog") => changelog::run(&repo_root()?, args),
         Some("media") => match args.next().as_deref() {
@@ -2570,6 +2572,7 @@ fn print_help() {
     println!("cargo xtask install-plan [version] [--no-modify-path] [-f|--force]");
     println!("cargo xtask install-verify ARCHIVE CHECKSUM_FILE");
     println!("cargo xtask install-stage ARCHIVE CHECKSUM_FILE");
+    println!("cargo xtask install-oracle");
     println!("cargo xtask install-inspect ARCHIVE [--package]");
     println!("cargo xtask changelog upstream-history [--check]");
     println!("cargo xtask changelog parse <markdown-file>");
