@@ -89,6 +89,9 @@ terminal-background selection, and legacy syntax-scope migration.
 
 ## Validate
 
+See [Contributing](CONTRIBUTING.md) for bug reports, proposals, development,
+extension boundaries, and review evidence.
+
 ```sh
 cargo fmt --all --check
 cargo test --locked --workspace --all-targets

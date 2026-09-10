@@ -1,5 +1,14 @@
 # Hunk semantic-port ledger
 
+## Native repository issue forms
+
+The complete bug and contribution-proposal templates are generated from their
+pinned source blobs with explicit Workdeck substitutions and MIT notices.
+`cargo xtask repository-forms check` compares their complete bytes and is invoked
+by strict audit and workspace verification. The two whole-file mappings cover
+2,130 source bytes; the contributor guide and upstream contact configuration
+remain unmapped. See [mapping and verification](repository-forms.md).
+
 ## Highlighter oracle metadata is enforced
 
 The shared-trace provenance gate now rejects missing or blank runtime/capture

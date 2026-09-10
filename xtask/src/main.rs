@@ -27,6 +27,7 @@ mod provenance;
 mod release_channel;
 mod release_notes;
 mod release_status;
+mod repository_forms;
 mod review_conformance;
 mod site_assets;
 mod site_markdown;
@@ -275,6 +276,20 @@ fn run() -> Result<()> {
         Some("changelog") => changelog::run(&repo_root()?, args),
         Some("social-cards-plan") => social_cards::run(&repo_root()?, args),
         Some("site-assets-sbom") => site_assets::run(&repo_root()?, args),
+        Some("repository-forms") => {
+            let operation = args
+                .next()
+                .context("repository-forms requires check or generate")?;
+            ensure!(
+                args.next().is_none(),
+                "unexpected repository-forms argument"
+            );
+            ensure!(
+                matches!(operation.as_str(), "check" | "generate"),
+                "repository-forms requires check or generate"
+            );
+            repository_forms::run(&repo_root()?, operation == "generate")
+        }
         Some("social-cards-generate") => social_cards::run_generate(&repo_root()?, args),
         Some("social-cards-publish") => social_cards::run_publish(&repo_root()?, args),
         Some("social-cards-publication-plan") => {
@@ -1684,6 +1699,7 @@ fn verify() -> Result<()> {
     verify_vendored_themes()?;
     skill::check(&repo)?;
     architecture::check(&repo)?;
+    repository_forms::run(&repo, false)?;
     changelog::run(
         &repo,
         ["upstream-history".into(), "--check".into()].into_iter(),
@@ -1986,6 +2002,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
         .transpose()?;
     let baseline = requested_baseline.unwrap_or_else(|| records[0].baseline.clone());
     port_oracles::verify(&repo, &baseline)?;
+    repository_forms::verify(&repo, &baseline)?;
     benchmark::verify_historical_for_baseline(&repo, &baseline)?;
     let entries = read_tree(&repo, &baseline)?;
     let expected = entries
@@ -2684,6 +2701,7 @@ fn print_help() {
         "cargo xtask extension stage-example <cli-tools|pane-layout|vim-navigation|review-snapshot-export|review-note-navigator|rendered-markdown|jsx-file-view|inline-edit|review-triage|github-pr|file-view-gallery|native-vcs|startup-lifecycle>"
     );
     println!("cargo xtask site <build|check|serve|exports-plan|preview-check>");
+    println!("cargo xtask repository-forms <check|generate>");
     println!("cargo xtask install-plan [version] [--no-modify-path] [-f|--force]");
     println!("cargo xtask install-verify ARCHIVE CHECKSUM_FILE");
     println!("cargo xtask install-stage ARCHIVE CHECKSUM_FILE");
