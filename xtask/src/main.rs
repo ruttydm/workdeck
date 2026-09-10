@@ -451,6 +451,11 @@ fn site(command: Option<&str>) -> Result<()> {
                 "Workdeck favicon link missing"
             );
             ensure!(
+                html.contains("<html lang=\"en\" data-theme=\"light\">")
+                    && !html.contains("<script"),
+                "native light theme declaration or no-JavaScript site boundary missing"
+            );
+            ensure!(
                 public.join("favicon.svg").is_file(),
                 "Workdeck favicon asset missing"
             );

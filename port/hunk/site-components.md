@@ -18,3 +18,8 @@ The pinned `website/public/robots.txt` is adapted at `site/static/robots.txt`:
 all crawler allowances and Markdown-feed guidance remain, while the Workdeck
 domain and sitemap replace Hunk's domain. The same site check verifies the
 emitted policy and rejects a stale `hunk.dev` reference.
+
+`website/src/components/docs/LightThemeProvider.astro` is represented by the
+static `data-theme="light"` declaration on the native Zola `<html>` element and
+the existing light-first CSS. The site check asserts the declaration and the
+no-application-JavaScript boundary.
