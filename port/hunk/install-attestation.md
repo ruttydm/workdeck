@@ -76,3 +76,19 @@ runner test uses an invalid version to prove failure precedes network or file
 writes and does not execute a fallback command. No live update was run. Live
 signed-release verification, cross-platform qualification, asset installation,
 crash recovery and the documented filesystem race limits remain release gates.
+
+## Live release availability
+
+During follow-up verification of `666a6ffe`, the read-only command
+`gh release list --repo ruttydm/workdeck --limit 5 --json tagName,isDraft,isPrerelease`
+returned `[]`. No release was created or published. A real Workdeck signed-release
+update cannot be demonstrated against that currently empty release listing;
+local failure/snapshot tests are not a substitute. This does not block other
+port work or authorize publishing a release merely to satisfy the test.
+
+The subsequent `cargo test -p workdeck-cli --all-targets` run completed successfully
+on the unchanged `666a6ffe` implementation. It includes 282 library tests, 46 CLI
+integration tests, 12 Git integration tests, 27 review-conformance tests, nine
+terminal-lifecycle tests and 98 terminal-pager tests. These native macOS results
+cover the current command/TUI regression suite, not full Hunk source parity or
+the unexecuted platform release matrix.
