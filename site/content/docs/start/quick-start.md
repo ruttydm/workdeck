@@ -29,9 +29,13 @@ In the review canvas, the default bindings are:
 4. `q` exits the reviewer.
 
 Selecting a file in the sidebar navigates to that file in the stream. Keyboard
-modes and user configuration can change bindings. A native screenshot for this
-page is still pending; the retained upstream reference image is not presented
-as a screenshot of Workdeck.
+modes and user configuration can change bindings.
+
+![Workdeck's native stacked review with highlighted additions and deletions in a Rust file](/docs/images/review-stream-native.png)
+
+This image is a captured Workdeck PTY frame from a disposable demo repository,
+not the retained upstream reference image. It illustrates the native stack layout;
+it does not establish complete renderer parity.
 
 ## Review a commit
 

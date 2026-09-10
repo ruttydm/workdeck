@@ -623,7 +623,7 @@ fn wait(pattern: &str, timeout_ms: u64) -> CaptureAction {
 fn keyboard_probe() -> CaptureAction {
     CaptureAction::Probe {
         key: "?".into(),
-        pattern: "Workdeck help".into(),
+        pattern: "Controls help".into(),
         dismiss_key: "escape".into(),
         attempts: 5,
         timeout_ms: 2_000,
