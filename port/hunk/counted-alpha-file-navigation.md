@@ -28,3 +28,12 @@ end-of-stream request must preserve that scroll. This covers native file-top
 placement, not a captured Hunk terminal frame or its alignment-request counter.
 The focused test passed (0.89 seconds), with formatting and diff checks passing.
 No ledger disposition changed.
+
+## Production reveal tokens
+
+The scroll-request boundary now applies and consumes the core reveal-intent
+model. The counted test checks that one three-file move produces file-top token
+1, and a clamped repeat keeps it at 1. The former counter gap is closed; the
+complete counted source case is now mapped. Both source pins passed this and
+the round-trip case together (two tests, 34 assertions per pin); all 1,250 TUI
+library tests passed in 9.13 seconds after integration.

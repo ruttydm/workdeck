@@ -2852,19 +2852,28 @@ pub(super) mod tests {
         app.review_width.set(80);
         app.review_height.set(4);
         app.with_state(|state| state.select_hunk(0, 1)).unwrap();
-        for (delta, index, changed) in [
-            (1, 1, true),
-            (1, 2, true),
-            (1, 2, false),
-            (-1, 1, true),
-            (-1, 0, true),
-            (-1, 0, false),
+        assert_eq!(
+            app.with_state(|state| state.selection().hunk_index),
+            Some(1)
+        );
+        for (delta, index, changed, token) in [
+            (1, 1, true, 1),
+            (1, 2, true, 2),
+            (1, 2, false, 2),
+            (-1, 1, true, 3),
+            (-1, 0, true, 4),
+            (-1, 0, false, 4),
         ] {
             let revision = app.with_state(|state| state.state_revision());
             let previous_scroll = app.scroll;
             app.move_selection(ReviewSelectionScope::File, delta);
+            assert_eq!(app.review_reveal.file_top_token, token);
             app.with_state(|state| {
                 assert_eq!(state.selection().file_index, index);
+                assert_eq!(
+                    state.selected_file().unwrap().path,
+                    ["alpha.ts", "beta.ts", "gamma.ts"][index]
+                );
                 assert_eq!(state.selection().hunk_index, Some(0));
                 assert_eq!(state.state_revision(), revision + u64::from(changed));
             });
@@ -2905,6 +2914,7 @@ pub(super) mod tests {
         app.review_height.set(4);
         let revision = app.with_state(|state| state.state_revision());
         app.move_selection(ReviewSelectionScope::File, 3);
+        assert_eq!(app.review_reveal.file_top_token, 1);
         app.with_state(|state| {
             assert_eq!(state.selected_file().unwrap().path, "delta.ts");
             assert_eq!(state.selection().hunk_index, Some(0));
@@ -2924,6 +2934,7 @@ pub(super) mod tests {
         let scroll = app.scroll;
         app.move_selection(ReviewSelectionScope::File, 3);
         assert_eq!(app.with_state(|state| state.state_revision()), revision + 1);
+        assert_eq!(app.review_reveal.file_top_token, 1);
         assert_eq!(app.scroll, scroll);
     }
 

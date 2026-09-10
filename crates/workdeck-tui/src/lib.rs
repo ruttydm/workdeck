@@ -1198,6 +1198,7 @@ pub struct ReviewApp {
     saved_note_actions: Mutex<Vec<(Rect, AgentInlineNoteAction)>>,
     note_sequence: u64,
     saved_note_sequence: u64,
+    review_reveal: workdeck_review::ReviewRevealIntent,
     filter: String,
     filter_cursor: usize,
     filter_scroll: Cell<usize>,
@@ -1497,6 +1498,7 @@ impl ReviewApp {
             saved_note_actions: Mutex::new(Vec::new()),
             note_sequence: 0,
             saved_note_sequence: 0,
+            review_reveal: workdeck_review::ReviewRevealIntent::default(),
             filter: String::new(),
             filter_cursor: 0,
             filter_scroll: Cell::new(0),
@@ -8341,6 +8343,18 @@ impl ReviewApp {
     }
 
     fn scroll_to_reveal(&mut self, reveal: ReviewRevealRequest) {
+        let previous = self.review_reveal;
+        self.review_reveal = workdeck_review::apply_review_reveal_request(previous, reveal);
+        let reveal = ReviewRevealRequest {
+            anchor: if self.review_reveal.file_top_token != previous.file_top_token {
+                ReviewRevealAnchor::FileTop
+            } else if self.review_reveal.hunk_token != previous.hunk_token {
+                ReviewRevealAnchor::Hunk
+            } else {
+                ReviewRevealAnchor::None
+            },
+            scroll_to_note: self.review_reveal.scroll_to_note,
+        };
         if reveal.anchor == ReviewRevealAnchor::None {
             return;
         }
