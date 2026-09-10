@@ -1037,6 +1037,35 @@ mod tests {
     use super::*;
 
     #[test]
+    fn pinned_release_dates_are_valid_input_for_native_changelog_commands() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let bytes = crate::git_stdout_bytes(
+            repo,
+            [
+                "show",
+                "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2:website/releases/dates.json",
+            ],
+        )
+        .unwrap();
+        assert_eq!(bytes.len(), 1248);
+        let dates: std::collections::BTreeMap<String, String> =
+            serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(dates.len(), 48);
+        assert_eq!(dates["0.20.1"], "2026-08-29");
+        assert_eq!(dates["0.1.0"], "2026-03-20");
+        assert!(dates.values().all(|date| {
+            let bytes = date.as_bytes();
+            bytes.len() == 10
+                && bytes[4] == b'-'
+                && bytes[7] == b'-'
+                && bytes
+                    .iter()
+                    .enumerate()
+                    .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit())
+        }));
+    }
+
+    #[test]
     fn index_card_counts_and_chips_match_both_pinned_oracles() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
             "../../../port/hunk/website-changelog-index-card-oracle.json"

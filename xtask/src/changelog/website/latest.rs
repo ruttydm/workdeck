@@ -99,4 +99,43 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn pinned_latest_release_metadata_is_accounted_by_native_generator() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let bytes = crate::git_stdout_bytes(
+            repo,
+            [
+                "show",
+                "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2:website/releases/latest.json",
+            ],
+        )
+        .unwrap();
+        assert_eq!(bytes.len(), 137);
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["version"].as_str(), Some("0.20.1"));
+        assert_eq!(value["minor"].as_str(), Some("0.20"));
+        assert_eq!(value["date"].as_str(), Some("2026-08-29"));
+        assert!(
+            value["summary"]
+                .as_str()
+                .is_some_and(|summary| !summary.is_empty())
+        );
+        assert!(
+            latest(
+                vec![ReleaseEntry {
+                    version: "0.20.1".into(),
+                    prerelease: false,
+                    heading_date: None,
+                    highlights: None,
+                    sections: vec![],
+                }],
+                &BTreeMap::from([("0.20.1".into(), "2026-08-29".into())]),
+                &BTreeMap::new(),
+                "Workdeck",
+            )
+            .get("version")
+            .is_some()
+        );
+    }
 }
