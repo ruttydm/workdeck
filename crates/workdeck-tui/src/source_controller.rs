@@ -1556,6 +1556,34 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn blank_note_edit_retains_draft_and_original_note() {
+        let mut app = ReviewApp::new(pinned_alpha_source_review(800), ReviewOptions::default());
+        app.open_note_composer();
+        app.note_composer.as_mut().unwrap().body = "Original".into();
+        let original = app.save_note_composer_at(1_700_000_000_000).unwrap();
+        app.saved_note_hover = Some(original.id.clone());
+        app.open_active_note_edit();
+        app.note_composer.as_mut().unwrap().body = " \n\t ".into();
+        let revision = app.with_state(|state| state.state_revision());
+        assert!(app.save_note_composer_at(1_700_000_001_000).is_none());
+        assert_eq!(app.note_composer.as_ref().unwrap().body, " \n\t ");
+        assert_eq!(
+            app.with_state(|state| state.comments()[0].clone()),
+            original
+        );
+        assert_eq!(app.with_state(|state| state.state_revision()), revision);
+        assert_eq!(
+            app.status.as_deref(),
+            Some("An edited review note cannot be blank; cancel or delete it instead.")
+        );
+        app.note_composer.as_mut().unwrap().body = "Corrected".into();
+        let corrected = app.save_note_composer_at(1_700_000_002_000).unwrap();
+        assert_eq!(corrected.id, original.id);
+        assert_eq!(corrected.summary, "Corrected");
+        assert!(app.note_composer.is_none());
+    }
+
+    #[test]
     fn saved_note_timestamps_preserve_creation_across_edits() {
         let mut app = ReviewApp::new(pinned_alpha_source_review(800), ReviewOptions::default());
         app.open_note_composer();

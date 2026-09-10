@@ -3072,6 +3072,13 @@ impl ReviewApp {
         let mut composer = self.note_composer.take()?;
         let body = composer.body.trim();
         if body.is_empty() {
+            if matches!(composer.kind, ReviewNoteComposerKind::Edit { .. }) {
+                self.status = Some(
+                    "An edited review note cannot be blank; cancel or delete it instead.".into(),
+                );
+                self.note_composer = Some(composer);
+                return None;
+            }
             self.note_composer_bounds.set(None);
             self.status = Some("empty review note discarded".into());
             return None;
