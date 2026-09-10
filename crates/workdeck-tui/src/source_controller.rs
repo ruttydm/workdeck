@@ -1556,6 +1556,38 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn reply_save_rejects_parent_from_a_different_file() {
+        let mut review = pinned_alpha_source_review(800);
+        let beta = pinned_review_from_text("beta", "beta.ts", "before\n", "after\n");
+        review.files.extend(beta.files);
+        review.refresh_review_identities();
+        let mut app = ReviewApp::new(review, ReviewOptions::default());
+        app.open_note_composer();
+        app.note_composer.as_mut().unwrap().body = "Alpha parent".into();
+        let parent = app.save_note_composer().unwrap();
+        app.saved_note_hover = Some(parent.id.clone());
+        app.open_active_note_reply();
+        let draft = app.note_composer.as_mut().unwrap();
+        draft.body = "Reply".into();
+        draft.target.file_index = 1;
+        let draft_id = draft.id.clone();
+        let revision = app.with_state(|state| state.state_revision());
+        assert!(app.save_note_composer().is_none());
+        assert_eq!(app.note_composer.as_ref().unwrap().id, draft_id);
+        assert_eq!(
+            app.status,
+            Some(format!(
+                "Review note {} belongs to a different file.",
+                parent.id
+            ))
+        );
+        app.with_state(|state| {
+            assert_eq!(state.comments(), &[parent]);
+            assert_eq!(state.state_revision(), revision);
+        });
+    }
+
+    #[test]
     fn reply_save_rejects_removed_parent_and_retains_draft() {
         let mut app = ReviewApp::new(pinned_alpha_source_review(800), ReviewOptions::default());
         app.open_note_composer();

@@ -3097,6 +3097,22 @@ impl ReviewApp {
             return None;
         }
         if !matches!(composer.kind, ReviewNoteComposerKind::Edit { .. }) {
+            if let ReviewNoteComposerKind::Reply { parent_id } = &composer.kind
+                && self.with_state(|state| {
+                    state
+                        .comments()
+                        .iter()
+                        .find(|note| note.id == *parent_id)
+                        .zip(state.changeset().files.get(composer.target.file_index))
+                        .is_some_and(|(parent, file)| parent.anchor.file_key != file.key)
+                })
+            {
+                self.status = Some(format!(
+                    "Review note {parent_id} belongs to a different file."
+                ));
+                self.note_composer = Some(composer);
+                return None;
+            }
             loop {
                 self.saved_note_sequence = self.saved_note_sequence.wrapping_add(1);
                 let id = format!("user:{timestamp_ms}-{}", self.saved_note_sequence);
