@@ -76,3 +76,18 @@ ran without `--allow-incomplete`. It exited 1 at the incomplete-coverage gate:
 1,257 files, 1,434 interval records, 467 translated-test records, 277 unmapped
 records and 92 pending upstream commits. No fetch was performed. The recent
 runtime fixes do not establish full coverage or eliminate the release blockers.
+
+## Measured-cursor and live-projection Clippy refresh
+
+At clean source commit `2330d95a8873ca8059cf43e10b2f40a75a831f03`,
+`cargo clippy --workspace --all-targets -- -D warnings` passed in 1 minute
+21 seconds on the local macOS arm64 host, with incremental compilation disabled
+and two build jobs. This includes the missing-measured-cursor draft reveal fix,
+completed live-comment merged-file projection assertions, and catalog-effect
+declaration checks. No warning suppression or source change was needed.
+
+This refresh establishes the Clippy gate for that source commit only. The latest
+strict source audit still fails with 277 unmapped interval records and 92 cached
+pending upstream commits, as recorded in `live-beta-annotated-navigation.md`.
+It does not refresh full workspace tests, benchmarks, cross-platform native CI,
+upstream fetch state or release-artifact verification.
