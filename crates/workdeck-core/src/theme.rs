@@ -602,6 +602,21 @@ pub struct NamedCustomThemeConfig {
     pub extra: IndexMap<String, Value>,
 }
 
+/// Build the single named custom-theme list used by translated theme tests.
+///
+/// This is the Rust equivalent of Hunk's `createTestCustomThemes` helper from
+/// `test/helpers/theme-helpers.ts` (2c00f435, MIT, Modem Labs Inc.; see
+/// `THIRD_PARTY_NOTICES`). The caller's complete theme payload is retained and
+/// only its test identifier is replaced.
+#[must_use]
+pub fn create_test_custom_themes(
+    mut theme: NamedCustomThemeConfig,
+    id: impl Into<String>,
+) -> Vec<NamedCustomThemeConfig> {
+    theme.id = id.into();
+    vec![theme]
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegisteredCustomTheme {
     pub extension_id: String,
@@ -1004,6 +1019,26 @@ mod tests {
             id: id.into(),
             ..NamedCustomThemeConfig::default()
         }
+    }
+
+    #[test]
+    fn create_test_custom_themes_replaces_only_the_identifier() {
+        let mut theme = config_theme("source");
+        theme.base = Some("github-dark-default".into());
+        theme.label = Some("Test theme".into());
+        theme.accent = Some("#7755aa".into());
+        theme.syntax.insert("keyword".into(), "#ff00aa".into());
+        theme.extra.insert("customField".into(), json!("retained"));
+        let expected = {
+            let mut value = theme.clone();
+            value.id = "custom".into();
+            value
+        };
+        assert_eq!(create_test_custom_themes(theme, "custom"), vec![expected]);
+        assert_eq!(
+            create_test_custom_themes(config_theme("source"), "named")[0].id,
+            "named"
+        );
     }
 
     #[test]
