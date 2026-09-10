@@ -1057,6 +1057,47 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn invalid_alpha_attention_marks_leave_review_unchanged() {
+        let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
+        let cursor = app.current_review_line_cursor();
+        let selection = app.with_state(|state| state.selection());
+        for (path, line, start, end, expected) in [
+            ("missing.ts", 1, 0, 4, "No diff file matches missing.ts."),
+            (
+                "alpha.ts",
+                9001,
+                0,
+                4,
+                "No new diff hunk in alpha.ts covers line 9001.",
+            ),
+            (
+                "alpha.ts",
+                1,
+                4,
+                4,
+                "Highlight range [4, 4) is not a valid [start, end) character range.",
+            ),
+        ] {
+            let error = app
+                .session_add_agent_line_highlight(&workdeck_session::HighlightToolInput {
+                    target_session: Default::default(),
+                    file_path: path.into(),
+                    side: ReviewSide::New,
+                    line,
+                    start,
+                    end,
+                    tone: None,
+                    reveal: None,
+                })
+                .unwrap_err();
+            assert_eq!(error, expected);
+            assert!(app.agent_line_highlights.is_empty());
+            assert_eq!(app.current_review_line_cursor(), cursor);
+            assert_eq!(app.with_state(|state| state.selection()), selection);
+        }
+    }
+
+    #[test]
     fn extension_line_reveal_reads_current_rows_after_reload() {
         let before = (1..=30)
             .map(|line| format!("export const line{line} = {line};\n"))
