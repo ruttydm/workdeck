@@ -728,6 +728,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn platform_detection_matches_both_pinned_shell_oracles() {
+        let fixtures: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../../port/hunk/install-platform-oracle.json"
+        ))
+        .unwrap();
+        assert_eq!(fixtures.len(), 20);
+        for fixture in fixtures {
+            let result = platform(
+                fixture["os"].as_str().unwrap(),
+                fixture["arch"].as_str().unwrap(),
+                fixture["translated"].as_bool().unwrap(),
+            );
+            if fixture["exit_code"] == 0 {
+                let (os, arch) = result.unwrap();
+                assert_eq!(
+                    format!("{os}\n{arch}\n"),
+                    fixture["output"].as_str().unwrap()
+                );
+            } else {
+                let error = result.unwrap_err().to_string();
+                let category = if fixture["os"] == "FreeBSD" {
+                    "Unsupported operating system"
+                } else {
+                    "Unsupported architecture"
+                };
+                assert!(fixture["output"].as_str().unwrap().contains(category));
+                assert!(error.contains(category));
+            }
+        }
+    }
+
+    #[test]
     fn archive_hash_requires_exact_observed_length_and_bounded_reads() {
         use std::io::Cursor;
         assert_eq!(
