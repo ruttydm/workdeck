@@ -116,3 +116,18 @@ multi-resource installation. It leaves recovery directories and the lock file
 intentionally. Its native transaction test passes on macOS for successful
 replacement, retained old contents, injected rollback and recovery collisions.
 Windows and Linux execution remain unverified. No ledger interval is completed.
+
+`install::install_authenticated_skills` connects complete-archive attestation and
+private staging to the recoverable skills-tree transaction. It requires exactly
+one staged package root and installs only that root's `skills` directory. Staging
+and authentication must finish before any destination temporary files, lock or
+recovery directory are created. The authenticated staging handle remains owned
+until installation completes and is then cleaned up.
+
+An integration test builds an actual ZIP with all four skill payloads and the
+required package entries, exercises checksum validation, staging and installation,
+and verifies exact skill bytes. An injected archive-verifier rejection leaves an
+empty destination completely untouched. Both asset tests pass on macOS. The test
+uses injected attestation results, not real signing evidence. Binary, metadata,
+PATH edits and skills still need one coordinated installer workflow; this API
+alone is not full installer completion.

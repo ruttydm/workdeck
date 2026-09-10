@@ -32,7 +32,7 @@ pub fn prepare_authenticated_archive(
     })
 }
 
-fn prepare_archive(
+pub(super) fn prepare_archive(
     archive: &Path,
     checksums: &Path,
     authenticate: impl FnOnce(&Path) -> Result<()>,

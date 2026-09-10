@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 mod assets;
 pub mod attestation;
-pub use assets::install_skill_tree;
+pub use assets::{install_authenticated_skills, install_skill_tree};
 mod authenticated;
 mod download;
 mod release_identity;

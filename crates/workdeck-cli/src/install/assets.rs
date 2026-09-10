@@ -9,6 +9,38 @@ pub fn install_skill_tree(source: &Path, target: &Path, recovery: &Path) -> Resu
     install(source, target, recovery, || Ok(()))
 }
 
+/// Install skills only after the complete release archive is authenticated.
+/// Binary and metadata installation remain separate operations.
+pub fn install_authenticated_skills(
+    archive: &Path,
+    checksums: &Path,
+    target: &Path,
+    recovery: &Path,
+    identity: super::ReleaseIdentity<'_>,
+) -> Result<()> {
+    install_from_archive(target, recovery, || {
+        super::prepare_authenticated_archive(archive, checksums, identity)
+    })
+}
+
+fn install_from_archive(
+    target: &Path,
+    recovery: &Path,
+    stage: impl FnOnce() -> Result<tempfile::TempDir>,
+) -> Result<()> {
+    let staged = stage()?;
+    let mut roots = fs::read_dir(staged.path())?;
+    let root = roots
+        .next()
+        .context("authenticated archive is empty")??
+        .path();
+    ensure!(
+        roots.next().is_none(),
+        "authenticated archive has multiple roots"
+    );
+    install_skill_tree(&root.join("skills"), target, recovery)
+}
+
 fn rename_new(source: &Path, target: &Path) -> Result<()> {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     rustix::fs::renameat_with(
@@ -139,6 +171,65 @@ fn install(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn authenticated_archive_precedes_destination_writes_and_installs_exact_skills() {
+        let input = tempfile::tempdir().unwrap();
+        let archive = input.path().join("workdeck.zip");
+        let checksums = input.path().join("checksums");
+        let mut writer = zip::ZipWriter::new(fs::File::create(&archive).unwrap());
+        let mut entries: Vec<String> = [
+            "workdeck",
+            "LICENSE",
+            "THIRD_PARTY_NOTICES",
+            "licenses.json",
+            "sbom.cdx.json",
+            "provenance.json",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        entries.extend(
+            workdeck_core::BUNDLED_SKILL_NAMES
+                .iter()
+                .map(|name| format!("skills/{name}/SKILL.md")),
+        );
+        for entry in &entries {
+            writer
+                .start_file(
+                    format!("package/{entry}"),
+                    zip::write::SimpleFileOptions::default(),
+                )
+                .unwrap();
+            writer.write_all(entry.as_bytes()).unwrap();
+        }
+        writer.finish().unwrap();
+        let file = fs::File::open(&archive).unwrap();
+        let hash = super::super::hash_archive_bytes(&file, file.metadata().unwrap().len()).unwrap();
+        fs::write(&checksums, format!("{hash} workdeck.zip\n")).unwrap();
+        let destination = tempfile::tempdir().unwrap();
+        let target = destination.path().join("skills");
+        let recovery = destination.path().join("recovery");
+        assert!(
+            install_from_archive(&target, &recovery, || {
+                super::super::staging::prepare_archive(&archive, &checksums, |_| {
+                    anyhow::bail!("untrusted archive")
+                })
+            })
+            .is_err()
+        );
+        assert_eq!(fs::read_dir(destination.path()).unwrap().count(), 0);
+        install_from_archive(&target, &recovery, || {
+            super::super::staging::prepare_archive(&archive, &checksums, |_| Ok(()))
+        })
+        .unwrap();
+        for name in workdeck_core::BUNDLED_SKILL_NAMES {
+            assert_eq!(
+                fs::read(target.join(name).join("SKILL.md")).unwrap(),
+                format!("skills/{name}/SKILL.md").as_bytes()
+            );
+        }
+        assert!(recovery.is_dir());
+    }
     #[test]
     fn installs_complete_tree_retains_old_tree_and_restores_on_failure() {
         let dir = tempfile::tempdir().unwrap();
