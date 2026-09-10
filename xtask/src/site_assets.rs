@@ -121,7 +121,7 @@ mod tests {
     #[test]
     fn retained_font_inventory_emits_checked_website_only_components() {
         let output = sbom(&crate::repo_root().unwrap()).unwrap();
-        assert_eq!(output["components"].as_array().unwrap().len(), 2);
+        assert_eq!(output["components"].as_array().unwrap().len(), 8);
         assert_eq!(
             output["metadata"]["component"]["name"],
             "workdeck-website-assets"
@@ -135,8 +135,12 @@ mod tests {
     #[test]
     fn site_styles_reference_the_retained_font_without_package_imports() {
         let repo = crate::repo_root().unwrap();
-        let css = fs::read_to_string(repo.join("site/static/main.css")).unwrap();
-        assert!(css.contains("url(\"/fonts/jetbrains-mono-latin-wght-normal.woff2\")"));
+        let css = fs::read_to_string(repo.join("site/static/fonts/jetbrains-mono.css")).unwrap();
+        assert!(css.contains("url(./jetbrains-mono-latin-wght-normal.woff2)"));
+        assert_eq!(css.matches("@font-face").count(), 6);
+        assert_eq!(css.matches("unicode-range:").count(), 6);
+        let template = fs::read_to_string(repo.join("site/templates/base.html")).unwrap();
+        assert!(template.contains("href=\"/fonts/jetbrains-mono.css\""));
         assert!(css.contains("font-weight: 100 800"));
         assert!(css.contains("font-display: swap"));
         assert!(!css.contains("@import"));

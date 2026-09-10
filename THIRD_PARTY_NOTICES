@@ -3,14 +3,16 @@ Workdeck third-party notices
 
 JetBrains Mono website/social-card font
 --------------------------------------
-The unmodified site/static/fonts/jetbrains-mono-latin-wght-normal.woff2 is from
+The six unmodified normal variable WOFF2 subsets in site/static/fonts/ are from
 @fontsource-variable/jetbrains-mono 5.3.0, matching Hunk's pinned website lockfile.
 Copyright 2020 The JetBrains Mono Project Authors.
 Source: https://github.com/JetBrains/JetBrainsMono
 License: SIL Open Font License 1.1 (not MIT).
 The complete supplied copyright notice and license accompany the font at
 site/static/fonts/jetbrains-mono-LICENSE.txt and must remain with redistributed
-copies of the font. No font modifications were made.
+copies of the font. No font modifications were made. The accompanying Fontsource
+index stylesheet is retained as jetbrains-mono.css with only asset URLs relocated;
+its six Unicode ranges and font-face declarations are otherwise unchanged.
 
 This distribution is licensed as a whole under the MIT License in LICENSE. Components and
 translated portions listed below retain their own notices. The dependency and source SBOM shipped

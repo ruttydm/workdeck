@@ -367,3 +367,13 @@ not full `brand.css` parity: other script subsets, palette, shared header/footer
 geometry and responsive behavior remain unmapped. Zola was not found on PATH
 during this checkpoint, so no complete site build or browser-page validation
 is claimed.
+
+The Latin-only site declaration has now been replaced by all six normal variable
+subsets from the same verified Fontsource archive: Cyrillic extended, Cyrillic,
+Greek, Vietnamese, Latin extended and Latin. `fonts/jetbrains-mono.css` preserves
+the source `index.css` declarations and Unicode ranges, changing only `./files/`
+URLs to the colocated assets. The base template loads this stylesheet directly;
+there is still no package import or JavaScript runtime. The website asset
+inventory now covers six fonts, the supplied license and the relocated CSS.
+This supersedes the earlier missing-subset limitation but does not establish
+full website layout, browser-page or cross-platform typography parity.
