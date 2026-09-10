@@ -833,7 +833,7 @@ fn index_card(
         .map(|(a, b)| format!(" · {} – {}", month_and_year(a), month_and_year(b)))
         .unwrap_or_default();
     let meta = format!("{} release series{span}", published.len());
-    let mut card = serde_json::json!({"slug":"index","title":"Changelog","tagline":format!("Every {product} release, grouped by minor series."),"meta":meta,"alt":format!("{product} changelog — {meta}")});
+    let mut card = serde_json::json!({"slug":"index","title":"Changelog","tagline":format!("Every {product} release, grouped by minor series."),"meta":meta});
     let mut chips = published
         .iter()
         .take(5)
@@ -845,6 +845,7 @@ fn index_card(
     if !chips.is_empty() {
         card["chips"] = serde_json::json!(chips);
     }
+    card["alt"] = format!("{product} changelog — {meta}").into();
     card
 }
 

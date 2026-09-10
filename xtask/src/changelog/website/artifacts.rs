@@ -118,6 +118,44 @@ mod tests {
     use super::*;
 
     #[test]
+    fn artifact_data_bytes_match_both_pinned_generators() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../port/hunk/website-changelog-artifact-data-oracle.json"
+        ))
+        .unwrap();
+        let results = fixture["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        for result in results {
+            let cases = result["cases"].as_array().unwrap();
+            assert_eq!(cases.len(), 2);
+            for case in cases {
+                let dates = serde_json::from_value(case["dates"].clone()).unwrap();
+                let output = generate(
+                    case["input"].as_str().unwrap(),
+                    &dates,
+                    case["notes"].clone(),
+                    |_| None,
+                )
+                .unwrap();
+                assert_eq!(case["artifacts"].as_object().unwrap().len(), 4);
+                for name in ["dates.json", "latest.json", "cards.json", "rss.xml"] {
+                    let path = if name == "rss.xml" {
+                        format!("site/static/changelog/{name}")
+                    } else {
+                        format!("site/data/releases/{name}")
+                    };
+                    let expected = case["artifacts"][name]
+                        .as_str()
+                        .unwrap()
+                        .replace("Hunk", "Workdeck")
+                        .replace("https://hunk.dev", "https://workdeck.dev");
+                    assert_eq!(output[&path], expected, "{} {name}", result["baseline"]);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn artifacts_connect_publication_pages_feed_cards_and_latest() {
         let markdown = "## 2.0.0\n## 1.2.0-beta.1\n## 1.1.0\n";
         let dates = BTreeMap::from([("1.1.0".into(), "2026-08-01".into())]);

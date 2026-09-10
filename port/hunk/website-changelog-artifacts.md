@@ -44,3 +44,18 @@ video notes fail with no stdout and without writing artifacts.
 
 All 17 changelog CLI tests pass after this addition, along with strict xtask
 Clippy, formatting and whitespace checks. Source-ledger mappings are unchanged.
+
+## Exact data artifact comparison
+
+`website-changelog-artifact-data-oracle.json` captures dates, latest metadata,
+cards and RSS strings from both pinned generators for unpublished and stable
+published inputs. The native test compares all 16 complete output strings with
+only Workdeck branding/origin substitutions. It does not sort JSON or normalize
+whitespace. The comparison exposed the index card's `alt`/`chips` property-order
+mismatch, which parsed-value tests had not detected; native construction now puts
+`alt` last as the source does. Page Markdown and prerelease pin differences still
+need separate full-artifact comparisons.
+
+After the ordering correction, all 16 exact artifact strings match. The existing
+index-card oracle and CLI tests also pass. Strict xtask Clippy, formatting and
+diff whitespace checks pass; the ledger is unchanged.
