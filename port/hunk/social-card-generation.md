@@ -193,3 +193,10 @@ targeted run. Reusing the stale plan fails before creating another backup;
 regenerating an unchanged plan succeeds with zero edits and no second backup.
 The original capture and card input remain intact and no `.agents` state is
 created. This is local filesystem/CLI evidence, not live browser evidence.
+
+Capture validation now returns the exact in-memory PNG bytes used to regenerate
+the manifest hashes and decode pixels. Publication planning consumes those bytes
+instead of reopening staged paths after validation. A changed or missing file
+between validation and a second read can therefore no longer become an unchecked
+replacement or accidental deletion. This does not remove races in initial path
+resolution or concurrent edits to publication destinations.

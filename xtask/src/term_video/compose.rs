@@ -251,7 +251,11 @@ fn stage_card_documents(
 }
 
 pub(crate) fn validate_card_png(path: &Path) -> Result<()> {
-    let mut reader = png::Decoder::new(BufReader::new(File::open(path)?)).read_info()?;
+    validate_card_png_bytes(&fs::read(path)?)
+}
+
+pub(crate) fn validate_card_png_bytes(bytes: &[u8]) -> Result<()> {
+    let mut reader = png::Decoder::new(std::io::Cursor::new(bytes)).read_info()?;
     ensure!(
         reader.info().width == 1200 && reader.info().height == 630,
         "social-card screenshot must be 1200x630"

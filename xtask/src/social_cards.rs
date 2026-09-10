@@ -84,7 +84,11 @@ pub(super) fn run_check(
     Ok(())
 }
 
-fn check_capture(staging: &std::path::Path, targets: &[Target], full: bool) -> Result<()> {
+fn check_capture(
+    staging: &std::path::Path,
+    targets: &[Target],
+    full: bool,
+) -> Result<Vec<Vec<u8>>> {
     let metadata = std::fs::symlink_metadata(staging)?;
     ensure!(
         metadata.is_dir() && !metadata.file_type().is_symlink(),
@@ -97,15 +101,15 @@ fn check_capture(staging: &std::path::Path, targets: &[Target], full: bool) -> R
         "capture manifest must be a regular file"
     );
     let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(manifest)?)?;
-    let current = capture_report(&staging.canonicalize()?, targets, full)?;
+    let (current, images) = capture_snapshot(&staging.canonicalize()?, targets, full)?;
     ensure!(
         saved == current,
         "capture manifest is stale, modified or belongs to another staging directory"
     );
-    for index in 0..targets.len() {
-        crate::term_video::validate_card_png(&staging.join(format!("{index:04}.png")))?;
+    for bytes in &images {
+        crate::term_video::validate_card_png_bytes(bytes)?;
     }
-    Ok(())
+    Ok(images)
 }
 
 pub(super) fn run_capture(
@@ -144,9 +148,18 @@ fn capture_report(
     targets: &[Target],
     full: bool,
 ) -> Result<serde_json::Value> {
+    Ok(capture_snapshot(staging, targets, full)?.0)
+}
+
+fn capture_snapshot(
+    staging: &std::path::Path,
+    targets: &[Target],
+    full: bool,
+) -> Result<(serde_json::Value, Vec<Vec<u8>>)> {
     use sha2::{Digest, Sha256};
     let staging = staging.canonicalize()?;
     let mut images = Vec::new();
+    let mut contents = Vec::new();
     for (index, target) in targets.iter().enumerate() {
         let file = format!("{index:04}.png");
         let path = staging.join(&file);
@@ -158,11 +171,13 @@ fn capture_report(
         let bytes = std::fs::read(&path)?;
         images.push(serde_json::json!({"stagedFile":file,"target":target,
             "bytes":bytes.len(),"sha256":format!("{:x}", Sha256::digest(&bytes))}));
+        contents.push(bytes);
     }
-    Ok(
+    Ok((
         serde_json::json!({"schema":1,"stagingDirectory":staging,"rendered":true,
         "published":false,"replaceChangelogDirectory":full,"images":images}),
-    )
+        contents,
+    ))
 }
 
 fn save_capture_manifest(staging: &std::path::Path, encoded: &str) -> Result<()> {
@@ -480,7 +495,8 @@ mod tests {
         std::fs::write(&image, &bytes).unwrap();
         let report = capture_report(staging.path(), &targets, true).unwrap();
         save_capture_manifest(staging.path(), &serde_json::to_string(&report).unwrap()).unwrap();
-        check_capture(staging.path(), &targets, true).unwrap();
+        let snapshot = check_capture(staging.path(), &targets, true).unwrap();
+        assert_eq!(snapshot, vec![bytes.clone()]);
         assert!(check_capture(staging.path(), &targets, false).is_err());
         std::fs::write(&image, b"modified").unwrap();
         assert!(check_capture(staging.path(), &targets, true).is_err());

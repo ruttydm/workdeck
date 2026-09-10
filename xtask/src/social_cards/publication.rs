@@ -82,7 +82,7 @@ fn inventory(
 }
 
 pub(super) fn plan(repo: &Path, staging: &Path, targets: &[Target], full: bool) -> Result<Plan> {
-    check_capture(staging, targets, full)?;
+    let images = check_capture(staging, targets, full)?;
     let mut originals = BTreeMap::new();
     let mut replacements = BTreeMap::new();
     if full {
@@ -90,7 +90,7 @@ pub(super) fn plan(repo: &Path, staging: &Path, targets: &[Target], full: bool) 
         inventory(repo, CHANGELOG, &mut originals)?;
         replacements.extend(originals.keys().map(|name| (name.clone(), None)));
     }
-    for (index, target) in targets.iter().enumerate() {
+    for (target, bytes) in targets.iter().zip(images) {
         let name = &target.output_file;
         check_parents(repo, name)?;
         originals.insert(name.clone(), read_regular(&repo.join(name))?);
@@ -98,10 +98,7 @@ pub(super) fn plan(repo: &Path, staging: &Path, targets: &[Target], full: bool) 
             replacements.get(name).is_none_or(Option::is_none),
             "duplicate publication destination: {name}"
         );
-        replacements.insert(
-            name.clone(),
-            read_regular(&staging.join(format!("{index:04}.png")))?,
-        );
+        replacements.insert(name.clone(), Some(bytes));
     }
     replacements.retain(|name, bytes| originals[name] != *bytes);
     originals.retain(|name, _| replacements.contains_key(name));

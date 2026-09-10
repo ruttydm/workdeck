@@ -14,7 +14,7 @@ mod launch;
 pub use capture::capture_file;
 pub(crate) use compose::capture_card_documents;
 pub use compose::compose_file;
-pub(crate) use compose::validate_card_png;
+pub(crate) use compose::validate_card_png_bytes;
 pub use launch::launch_file;
 
 const DEFAULT_FPS: f64 = 30.0;
