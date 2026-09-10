@@ -294,9 +294,16 @@ fn review_app_queues_startup_events_and_commands_without_blocking_input() {
     let (_directory, manifest) = staged_extension();
     let extension = LoadedExtension::spawn(&manifest, "test-host").unwrap();
     let started = std::time::Instant::now();
-    let mut app =
-        ReviewApp::new_with_extensions(changeset(), ReviewOptions::default(), vec![extension]);
-    assert!(started.elapsed() < std::time::Duration::from_millis(100));
+    let review = changeset();
+    let after_changeset = started.elapsed();
+    let options = ReviewOptions::default();
+    let after_options = started.elapsed();
+    let mut app = ReviewApp::new_with_extensions(review, options, vec![extension]);
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_millis(100),
+        "review app construction took {elapsed:?}, exceeding the 100 ms limit; changeset: {after_changeset:?}, options ready: {after_options:?}"
+    );
     assert!(app.has_pending_extension_events());
 
     app.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));

@@ -27,7 +27,7 @@ use syntect::easy::HighlightLines;
 use syntect::highlighting::{
     Color as SyntectColor, FontStyle, ScopeSelectors, StyleModifier, Theme, ThemeItem, ThemeSet,
 };
-use syntect::parsing::{SyntaxDefinition, SyntaxSet};
+use syntect::parsing::SyntaxSet;
 use workdeck_core::{
     DiffFile, DiffHunk, DiffLineKind, FileChangeKind, FileFlags, FileSourceSnapshots, FileStats,
     SemanticReviewFile, bundled_shiki_theme_is_light, project_review_file, resolve_legacy_theme_id,
@@ -652,15 +652,13 @@ impl Default for HighlightCache {
 fn bundled_syntax_set() -> Arc<SyntaxSet> {
     static SYNTAXES: OnceLock<Arc<SyntaxSet>> = OnceLock::new();
     Arc::clone(SYNTAXES.get_or_init(|| {
-        let mut builder = SyntaxSet::load_defaults_newlines().into_builder();
-        let elixir = SyntaxDefinition::load_from_str(
-            include_str!("../assets/syntaxes/Elixir.sublime-syntax"),
-            true,
-            Some("Elixir"),
+        Arc::new(
+            syntect::dumps::from_uncompressed_data(include_bytes!(concat!(
+                env!("OUT_DIR"),
+                "/syntaxes.bin"
+            )))
+            .expect("build-generated syntax set is valid"),
         )
-        .expect("bundled Elixir syntax is valid");
-        builder.add(elixir);
-        Arc::new(builder.build())
     }))
 }
 
@@ -1546,6 +1544,25 @@ mod tests {
     use super::*;
     use crate::parse_patch;
     use workdeck_core::{ChangesetSource, FileSourceSnapshots, SourceOrigin, SourceSnapshot};
+
+    #[test]
+    fn embedded_syntax_set_matches_runtime_assembly() {
+        let mut builder = SyntaxSet::load_defaults_newlines().into_builder();
+        builder.add(
+            syntect::parsing::SyntaxDefinition::load_from_str(
+                include_str!("../assets/syntaxes/Elixir.sublime-syntax"),
+                true,
+                Some("Elixir"),
+            )
+            .unwrap(),
+        );
+        let expected = builder.build();
+        let actual = bundled_syntax_set();
+        assert_eq!(
+            serde_json::to_value(actual.as_ref()).unwrap(),
+            serde_json::to_value(&expected).unwrap()
+        );
+    }
 
     fn identity_file(after: &str, name: &str) -> DiffFile {
         parse_patch(

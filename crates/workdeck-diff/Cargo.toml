@@ -17,3 +17,6 @@ thiserror = "2.0"
 unicode-segmentation = "1.12"
 unicode-width = "0.2"
 workdeck-core = { path = "../workdeck-core" }
+
+[build-dependencies]
+syntect = "5.2"
