@@ -1988,6 +1988,8 @@ pub(super) mod tests {
         }
         review.refresh_review_identities();
         let mut app = ReviewApp::new(review, ReviewOptions::default());
+        app.review_width.set(80);
+        app.review_height.set(4);
         let revision = app.with_state(|state| state.state_revision());
         app.move_selection(ReviewSelectionScope::File, 3);
         app.with_state(|state| {
@@ -1995,6 +1997,17 @@ pub(super) mod tests {
             assert_eq!(state.selection().hunk_index, Some(0));
             assert_eq!(state.state_revision(), revision + 1);
         });
+        let rows = app.current_review_geometry_rows();
+        let viewport = usize::from(
+            app.review_height
+                .get()
+                .saturating_sub(app.review_reserved_rows())
+                .max(1),
+        );
+        assert_eq!(
+            app.scroll,
+            rows.file_body_tops[&3].min(rows.lines.len().saturating_sub(viewport))
+        );
         let scroll = app.scroll;
         app.move_selection(ReviewSelectionScope::File, 3);
         assert_eq!(app.with_state(|state| state.state_revision()), revision + 1);

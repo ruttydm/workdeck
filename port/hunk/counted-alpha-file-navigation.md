@@ -18,3 +18,13 @@ The alignment emission and geometry obligation remains open. No runtime or
 ledger disposition changed.
 
 All 1,226 TUI library tests passed (9.15 seconds).
+
+## Native viewport alignment
+
+The counted navigation test now sets review dimensions to 80 columns and four
+rows and verifies the resulting scroll against delta's measured body start,
+clamped to the stream's maximum scroll after reserved header rows. The repeated
+end-of-stream request must preserve that scroll. This covers native file-top
+placement, not a captured Hunk terminal frame or its alignment-request counter.
+The focused test passed (0.89 seconds), with formatting and diff checks passing.
+No ledger disposition changed.
