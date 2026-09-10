@@ -11,6 +11,136 @@ fn run(repo: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
+fn artifacts_cli_returns_connected_outputs_without_writes() {
+    let repo = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    let markdown = "## 2.0.0\n## 1.2.0-beta.1\n## 1.1.0\n";
+    std::fs::write(repo.path().join("history.md"), markdown).unwrap();
+    let notes = r#"{"1.1":{"tagline":"Landing tagline","summary":"Editorial summary"}}"#;
+    std::fs::write(repo.path().join("notes.json"), notes).unwrap();
+    for beta in [false, true] {
+        let mut dates = serde_json::json!({"1.1.0":"2026-08-01"});
+        if beta {
+            dates["1.2.0-beta.1"] = "2026-08-02".into();
+        }
+        let dates = dates.to_string();
+        std::fs::write(repo.path().join("dates.json"), &dates).unwrap();
+        let output = run(
+            repo.path(),
+            &[
+                "changelog",
+                "artifacts",
+                "history.md",
+                "dates.json",
+                "notes.json",
+            ],
+        );
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stderr.is_empty());
+        let artifacts: std::collections::BTreeMap<String, String> =
+            serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(artifacts.len(), if beta { 8 } else { 7 });
+        assert_eq!(
+            artifacts.contains_key("site/content/changelog/1.2.md"),
+            beta
+        );
+        assert!(artifacts.contains_key("site/content/changelog/2.0.md"));
+        assert!(artifacts["site/content/changelog/1.1.md"].contains("Editorial summary"));
+        let latest: serde_json::Value =
+            serde_json::from_str(&artifacts["site/data/releases/latest.json"]).unwrap();
+        assert_eq!(latest["version"], "1.1.0");
+        assert_eq!(latest["summary"], "Landing tagline");
+        assert_eq!(
+            artifacts["site/static/changelog/rss.xml"].contains("1.2.0-beta.1 (Prerelease)"),
+            beta
+        );
+        for path in artifacts.keys() {
+            assert!(!repo.path().join(path).exists());
+        }
+        assert_eq!(
+            std::fs::read_to_string(repo.path().join("dates.json")).unwrap(),
+            dates
+        );
+    }
+    for args in [
+        vec!["changelog", "artifacts"],
+        vec!["changelog", "artifacts", "history.md"],
+        vec!["changelog", "artifacts", "missing.md", "dates.json"],
+        vec!["changelog", "artifacts", "history.md", "missing.json"],
+        vec![
+            "changelog",
+            "artifacts",
+            "history.md",
+            "dates.json",
+            "missing.json",
+        ],
+        vec![
+            "changelog",
+            "artifacts",
+            "history.md",
+            "dates.json",
+            "notes.json",
+            "extra",
+        ],
+    ] {
+        let output = run(repo.path(), &args);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+    }
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("history.md")).unwrap(),
+        markdown
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("notes.json")).unwrap(),
+        notes
+    );
+    for (path, invalid) in [
+        ("dates.json", "{broken"),
+        ("dates.json", r#"{"1.1.0":42}"#),
+        ("notes.json", r#"{"1.1":{"video":{"mp4":42}}}"#),
+    ] {
+        std::fs::write(repo.path().join("dates.json"), "{}").unwrap();
+        std::fs::write(repo.path().join(path), invalid).unwrap();
+        let output = run(
+            repo.path(),
+            &[
+                "changelog",
+                "artifacts",
+                "history.md",
+                "dates.json",
+                "notes.json",
+            ],
+        );
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+        assert_eq!(
+            std::fs::read_to_string(repo.path().join(path)).unwrap(),
+            invalid
+        );
+    }
+    let mut entries = std::fs::read_dir(repo.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect::<Vec<_>>();
+    entries.sort();
+    assert_eq!(entries, [".git", "dates.json", "history.md", "notes.json"]);
+}
+
+#[test]
 fn changelog_usage_lists_index_and_latest_commands() {
     let repo = tempfile::tempdir().unwrap();
     assert!(

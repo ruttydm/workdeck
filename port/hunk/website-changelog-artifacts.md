@@ -25,9 +25,22 @@ flags agree with release metadata. This is a native integration check, not a
 complete frozen source-artifact comparison.
 
 Atomic write/check orchestration, orphan cleanup, missing-card image checks,
-full artifact differential fixtures, CLI read-only/error tests and real Zola
+full artifact differential fixtures and real Zola
 rendering remain open. No source interval or release gate is marked complete.
 Hunk MIT attribution is retained in the composition module and notices.
 
 Validation: the artifact-composition unit test and all 16 existing changelog CLI
 tests pass. Strict xtask Clippy, formatting and diff whitespace checks pass.
+
+## CLI integration continuation
+
+The real-executable temporary-repository test verifies artifact counts and paths
+before and after beta publication, stable preparation retention, editorial page
+content, landing tagline precedence and feed membership. Every returned artifact
+destination is checked absent from disk. Input bytes remain unchanged; the final
+repository inventory contains only Git and the three inputs. Missing arguments,
+extra arguments, missing files, malformed dates, non-string dates and malformed
+video notes fail with no stdout and without writing artifacts.
+
+All 17 changelog CLI tests pass after this addition, along with strict xtask
+Clippy, formatting and whitespace checks. Source-ledger mappings are unchanged.
