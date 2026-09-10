@@ -1,9 +1,13 @@
-//! Incremental MIT translation of Hunk install.sh. Preflight only; no installation writes.
+//! Incremental MIT translation of Hunk install.sh. Preflight and private staging;
+//! no replacement of installed executables.
 
 use anyhow::{Result, bail};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+
+mod staging;
+pub(super) use staging::stage;
 
 fn archive_entry_path(name: &str) -> Result<String> {
     let name = name.strip_suffix('/').unwrap_or(name);
@@ -76,6 +80,13 @@ fn verify_package_paths(names: &BTreeMap<String, bool>) -> Result<()> {
 
 fn inspect_archive_entries(path: &Path) -> Result<(BTreeMap<String, bool>, u64)> {
     validate_archive_input(&std::fs::metadata(path)?)?;
+    inspect_archive_file(
+        open_archive_input(path)?,
+        path.extension().is_some_and(|extension| extension == "zip"),
+    )
+}
+
+fn inspect_archive_file(file: std::fs::File, zip: bool) -> Result<(BTreeMap<String, bool>, u64)> {
     let mut names: BTreeMap<String, bool> = BTreeMap::new();
     let mut original_names = BTreeMap::new();
     let mut total = 0u64;
@@ -113,8 +124,7 @@ fn inspect_archive_entries(path: &Path) -> Result<(BTreeMap<String, bool>, u64)>
         }
         Ok(())
     };
-    let file = open_archive_input(path)?;
-    if path.extension().is_some_and(|extension| extension == "zip") {
+    if zip {
         let mut archive = zip::ZipArchive::new(file)?;
         for index in 0..archive.len() {
             let mut entry = archive.by_index(index)?;
