@@ -59,3 +59,7 @@ need separate full-artifact comparisons.
 After the ordering correction, all 16 exact artifact strings match. The existing
 index-card oracle and CLI tests also pass. Strict xtask Clippy, formatting and
 diff whitespace checks pass; the ledger is unchanged.
+
+The subsequent [artifact and pre-tag source-test translation](changelog-artifact-tests.md)
+maps seven original tests, preserving their inputs and all 16 expectations.
+Only their exact 3,485-byte test interval is mapped; runtime coverage remains open.

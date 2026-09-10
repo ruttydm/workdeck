@@ -117,6 +117,118 @@ pub(in crate::changelog) fn run_artifacts(
 mod tests {
     use super::*;
 
+    const SAMPLE: &str = include_str!("../../../../port/hunk/website-changelog-test-sample.md");
+
+    fn sample_dates(current: bool) -> BTreeMap<String, String> {
+        let mut dates = BTreeMap::from([
+            ("0.18.0".into(), "2026-08-08".into()),
+            ("0.15.3".into(), "2026-06-13".into()),
+        ]);
+        if current {
+            dates.insert("0.19.0".into(), "2026-08-16".into());
+        }
+        dates
+    }
+
+    #[test]
+    fn source_artifacts_include_series_index_feed_and_data() {
+        let output =
+            generate(SAMPLE, &sample_dates(true), serde_json::json!({}), |_| None).unwrap();
+        let paths: Vec<_> = output
+            .keys()
+            .map(|p| {
+                p.split('/')
+                    .rev()
+                    .take(2)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect::<Vec<_>>()
+                    .join("/")
+            })
+            .collect();
+        for path in [
+            "changelog/0.19.md",
+            "changelog/0.18.md",
+            "changelog/0.15.md",
+            "changelog/index.md",
+            "changelog/rss.xml",
+            "releases/dates.json",
+            "releases/latest.json",
+        ] {
+            assert!(paths.iter().any(|p| p == path));
+        }
+    }
+
+    #[test]
+    fn source_artifacts_record_newest_published_release() {
+        let output =
+            generate(SAMPLE, &sample_dates(true), serde_json::json!({}), |_| None).unwrap();
+        let latest: serde_json::Value =
+            serde_json::from_str(&output["site/data/releases/latest.json"]).unwrap();
+        assert_eq!(latest["version"], "0.19.0");
+        assert_eq!(latest["minor"], "0.19");
+    }
+
+    #[test]
+    fn source_artifacts_unpublished_changesets_have_no_latest() {
+        let output = generate(
+            "# Changelog\n\n## 0.19.0\n\n### Patch Changes\n\n- 1234567: Something.\n",
+            &BTreeMap::new(),
+            serde_json::json!({}),
+            |_| None,
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&output["site/data/releases/latest.json"])
+                .unwrap(),
+            serde_json::Value::Null
+        );
+    }
+
+    #[test]
+    fn source_artifacts_are_identical_on_repeated_generation() {
+        let first = generate(SAMPLE, &sample_dates(true), serde_json::json!({}), |_| None).unwrap();
+        let again = generate(SAMPLE, &sample_dates(true), serde_json::json!({}), |_| None).unwrap();
+        assert_eq!(first, again);
+    }
+
+    #[test]
+    fn source_pretag_index_marks_published_series_latest() {
+        let series = group_into_series(parse_changelog(SAMPLE));
+        let page = index::render(&series, &BTreeMap::new(), &sample_dates(false));
+        let parts: Vec<_> = page.split("## [Workdeck ").skip(1).take(2).collect();
+        assert!(parts[0].contains("Unreleased"));
+        assert!(!parts[0].contains("Latest"));
+        assert!(parts[1].contains("Latest"));
+    }
+
+    #[test]
+    fn source_pretag_feed_excludes_unreleased_series() {
+        let series = group_into_series(parse_changelog(SAMPLE));
+        let feed = feed::render(
+            &series,
+            &BTreeMap::new(),
+            &sample_dates(false),
+            "Workdeck",
+            "https://workdeck.dev",
+        );
+        assert!(!feed.contains("/changelog/0.19/"));
+        assert!(feed.contains("/changelog/0.18/"));
+    }
+
+    #[test]
+    fn source_pretag_landing_retains_published_release() {
+        let output = generate(SAMPLE, &sample_dates(false), serde_json::json!({}), |_| {
+            None
+        })
+        .unwrap();
+        let latest: serde_json::Value =
+            serde_json::from_str(&output["site/data/releases/latest.json"]).unwrap();
+        assert_eq!(latest["version"], "0.18.0");
+        assert_eq!(latest["minor"], "0.18");
+    }
+
     #[test]
     fn artifact_data_bytes_match_both_pinned_generators() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
