@@ -1057,6 +1057,43 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn extension_line_reveal_reads_current_rows_after_reload() {
+        let before = (1..=30)
+            .map(|line| format!("export const line{line} = {line};\n"))
+            .collect::<String>();
+        let after = before
+            .replace("line1 = 1;", "line1 = 100;")
+            .replace("line15 = 15;", "line15 = 1500;")
+            .replace("line30 = 30;", "line30 = 3000;");
+        let mut review = pinned_alpha_review_from_text(&before, &after);
+        review.files[0].set_source_capability(None);
+        review.refresh_review_identities();
+        assert_eq!(review.files[0].hunks.len(), 3);
+        let mut app = ReviewApp::new(pinned_two_hunk_alpha_review(), ReviewOptions::default());
+        app.review_height.set(12);
+        // A caller retained before reload must resolve against the current document.
+        let reveal = ReviewApp::reveal_extension_review_line;
+        app.reload(review);
+        let reload_status = app.status.clone();
+        reveal(&mut app, "probe", "alpha", ReviewSide::New, 30);
+        let cursor = app.current_review_line_cursor().unwrap();
+        assert_eq!(cursor.target.hunk_index, 2);
+        assert_eq!(cursor.target.side, ReviewSide::New);
+        assert_eq!(cursor.target.line, 30);
+        let selection = app.with_state(|state| state.selection());
+        assert_eq!(selection.hunk_index, Some(2));
+        assert_eq!(selection.line, Some(30));
+        assert_eq!(app.status, reload_status);
+        let viewport = usize::from(12u16.saturating_sub(app.review_reserved_rows()).max(1));
+        assert!(cursor.row >= app.scroll && cursor.row < app.scroll + viewport);
+        reveal(&mut app, "probe", "alpha", ReviewSide::New, 999);
+        assert_eq!(app.with_state(|state| state.selection()), selection);
+        assert_eq!(app.current_review_line_cursor(), Some(cursor));
+        assert!(app.status.is_some());
+        assert_ne!(app.status, reload_status);
+    }
+
+    #[test]
     fn filter_hides_alpha_cursor_and_clearing_restores_it() {
         let mut review =
             pinned_alpha_review_from_text("export const alpha = 1;\n", "export const alpha = 2;\n");
