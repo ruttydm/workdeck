@@ -1,5 +1,15 @@
 # Bundled installer assets
 
+## PATH opt-out and non-UTF-8 paths
+
+Standalone PATH planning now handles the opt-out before converting the bin path
+to UTF-8. A Unix path containing non-UTF-8 bytes therefore does not fail merely
+because skipped profile generation would have required a string. Enabled profile
+generation still rejects that path explicitly before writing anything. The Unix
+regression checks both branches and absence of filesystem writes; all seven
+`install::fresh` tests pass. This is PATH-planning coverage, not an end-to-end
+authenticated installation test for arbitrary path bytes.
+
 ## GitHub Actions PATH append oracle
 
 The explicit oracle suite executes the exact `GITHUB_PATH` append statement

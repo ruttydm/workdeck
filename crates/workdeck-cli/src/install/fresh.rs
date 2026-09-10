@@ -69,12 +69,7 @@ pub fn install_requested_on_host(
             .context("no home directory is available for PATH configuration")?
     };
     let bin = destination.join("bin");
-    let plan = super::shell_path::plan(
-        bin.to_str().context("installation bin path is not UTF-8")?,
-        path_home,
-        &environment,
-        skip_path,
-    )?;
+    let plan = plan_install_path(&bin, path_home, &environment, skip_path)?;
     let version = select_version(version, || {
         crate::update::fetch_channel_versions(
             workdeck_core::WorkdeckInstallSource::Direct,
@@ -93,6 +88,23 @@ pub fn install_requested_on_host(
             .is_some_and(|value| !value.is_empty()),
     );
     Ok((version, outcome))
+}
+
+fn plan_install_path(
+    bin: &Path,
+    home: &Path,
+    environment: &std::collections::BTreeMap<String, String>,
+    skip: bool,
+) -> Result<super::shell_path::ShellPathPlan> {
+    if skip {
+        return Ok(super::shell_path::ShellPathPlan::Skipped);
+    }
+    super::shell_path::plan(
+        bin.to_str().context("installation bin path is not UTF-8")?,
+        home,
+        environment,
+        false,
+    )
 }
 
 fn install_then_configure(
@@ -277,6 +289,27 @@ fn publish(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn path_opt_out_does_not_require_a_utf8_installation_directory() {
+        use std::os::unix::ffi::OsStrExt;
+        let home = tempfile::tempdir().unwrap();
+        let bin = home
+            .path()
+            .join(std::ffi::OsStr::from_bytes(b"non-utf8-\xff/bin"));
+        assert_eq!(
+            plan_install_path(&bin, home.path(), &Default::default(), true).unwrap(),
+            super::super::shell_path::ShellPathPlan::Skipped
+        );
+        assert!(
+            plan_install_path(&bin, home.path(), &Default::default(), false)
+                .unwrap_err()
+                .to_string()
+                .contains("not UTF-8")
+        );
+        assert_eq!(fs::read_dir(home.path()).unwrap().count(), 0);
+    }
     #[test]
     fn path_outcomes_distinguish_workflow_steps_from_shell_restarts() {
         let home = tempfile::tempdir().unwrap();
