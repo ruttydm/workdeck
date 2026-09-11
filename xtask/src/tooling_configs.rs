@@ -45,6 +45,17 @@ const CONFIGS: &[(&str, usize, &[&str])] = &[
         ],
     ),
     (
+        "website/playwright.config.ts",
+        793,
+        &[
+            "xtask/src/site_links.rs",
+            "xtask/src/site_preview.rs",
+            "xtask/src/main.rs",
+            "site/content/docs/help/deployment.md",
+            MIGRATION_DOC,
+        ],
+    ),
+    (
         "vercel.json",
         714,
         &[
@@ -203,6 +214,50 @@ pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {
                     ensure!(
                         repo.join(native).is_file(),
                         "native site owner is missing: {native}"
+                    );
+                }
+            }
+            "website/playwright.config.ts" => {
+                for marker in [
+                    "testDir: \"./tests\"",
+                    "outputDir: \"./test-results\"",
+                    "fullyParallel: true",
+                    "forbidOnly: Boolean(process.env.CI)",
+                    "retries: process.env.CI ? 1 : 0",
+                    "reporter: process.env.CI ? \"github\" : \"list\"",
+                    "baseURL: \"http://127.0.0.1:4321\"",
+                    "trace: \"retain-on-failure\"",
+                    "command: \"bun run preview -- --host 127.0.0.1 --port 4321\"",
+                    "url: \"http://127.0.0.1:4321/docs/\"",
+                    "reuseExistingServer: !process.env.CI",
+                    "timeout: 30_000",
+                    "name: \"desktop-chromium\"",
+                    "width: 1600",
+                    "height: 900",
+                    "name: \"mobile-chromium\"",
+                    "devices[\"Pixel 5\"]",
+                ] {
+                    ensure!(
+                        source.contains(marker),
+                        "Playwright configuration lost {marker}"
+                    );
+                }
+                let migration = std::fs::read_to_string(repo.join(MIGRATION_DOC))?;
+                ensure!(
+                    migration.contains("`website/playwright.config.ts`")
+                        && migration.contains("site link/metadata")
+                        && migration.contains("preview-check"),
+                    "Playwright configuration migration is undocumented"
+                );
+                for native in [
+                    "xtask/src/site_links.rs",
+                    "xtask/src/site_preview.rs",
+                    "xtask/src/main.rs",
+                    "site/content/docs/help/deployment.md",
+                ] {
+                    ensure!(
+                        repo.join(native).is_file(),
+                        "native site test owner is missing: {native}"
                     );
                 }
             }

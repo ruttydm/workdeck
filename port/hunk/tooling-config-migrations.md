@@ -15,6 +15,7 @@ than retaining an executable JavaScript configuration mirror.
 | `.env.test` | `xtask::isolate_test_git_config` and `workspace_test_command` | `test_git_isolation_replaces_inherited_global_and_system_configuration` |
 | `website/tsconfig.json` | Zola's `site/config.toml` and Rust site pipeline | `cargo xtask site check` |
 | `website/astro.config.mjs` | Zola `site/config.toml`, Workdeck templates, native Markdown/LLM exports, `starlight.css`, Rust link/asset/preview checks, changelog and skill generators | `tooling_configs::verify` Astro-surface and native-owner check |
+| `website/playwright.config.ts` | Rust site link/metadata checks, disposable Zola `preview-check`, and the documented static-site browser smoke procedure | `tooling_configs::verify` Playwright-surface and native-owner check |
 | `vercel.json` | Zola `site/config.toml`, Workdeck templates, and the Cargo-driven site check/export pipeline | `tooling_configs::verify` native deployment-boundary check |
 | `website/src/content.config.ts` | Rust frontmatter/title validation in `xtask/src/site_markdown.rs` | `native_docs_collection_requires_valid_frontmatter_and_a_single_line_title` |
 | `website/.gitignore` | root `.gitignore` plus validated disposable Zola staging | `cargo xtask site check` |
