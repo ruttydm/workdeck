@@ -19,6 +19,7 @@ and this migration entry.
 | `docs/changelog-on-hunk-dev.md` | `docs/changelog-on-hunk-dev.md` | `cargo xtask verify` / `historical_docs::verify` |
 | `docs/extensions.md` | `docs/extensions.md` | `cargo xtask verify` / `historical_docs::verify` |
 | `CHANGELOG.md` | `docs/changelog-history.md` | `cargo xtask verify` / `historical_docs::verify` |
+| `benchmarks/README.md` | `docs/benchmarks.md` | `cargo xtask verify` / `historical_docs::verify` |
 
 The translated evaluation preserves the original findings while recording the
 native Rust/Ratatui resolutions and their executable extension tests. Hunk's

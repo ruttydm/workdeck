@@ -85,6 +85,12 @@ const DOCS: &[DocSpec] = &[
         bytes: 78733,
         sha256: "c9b2a5f7889fdffd451f41df5ffec942c7f19142beaa233a0e89a404972ee58e",
     },
+    DocSpec {
+        source: "benchmarks/README.md",
+        native: "docs/benchmarks.md",
+        bytes: 6484,
+        sha256: "19a51d6f351b8460284d6dae867548ef0e6c68f109f76c10d8c9eb1d7296266a",
+    },
 ];
 
 pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {
