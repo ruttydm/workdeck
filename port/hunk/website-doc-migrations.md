@@ -35,3 +35,6 @@ Migrated sources:
 - `website/src/content/docs/docs/start/install.md`
 - `website/src/content/docs/docs/index.mdx`
 - `website/src/content/docs/docs/extend/vcs-adapters.md`
+- `website/src/content/docs/docs/extend/file-previews.md`
+- `website/src/content/docs/docs/extend/custom-sidebars.md`
+- `website/src/content/docs/docs/reference/opentui-components.md`

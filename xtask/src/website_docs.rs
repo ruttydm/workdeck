@@ -154,6 +154,24 @@ const DOCS: &[DocSpec] = &[
         bytes: 9887,
         sha256: "80f36ee8bee371cef3a51f9a80fa7e1be928f7c8f8618ddda8ec4be6491a1b8c",
     },
+    DocSpec {
+        source: "website/src/content/docs/docs/extend/file-previews.md",
+        native: "site/content/docs/extend/file-previews.md",
+        bytes: 12976,
+        sha256: "5b0eb4f7fd873d3b60ec6b68de6c25b5606e775cf15abefea484115ffb550179",
+    },
+    DocSpec {
+        source: "website/src/content/docs/docs/extend/custom-sidebars.md",
+        native: "site/content/docs/extend/custom-sidebars.md",
+        bytes: 14438,
+        sha256: "5b98f2a9f69f646325cf3577554b063950b556b27aec61d7fb4d0b58daf74728",
+    },
+    DocSpec {
+        source: "website/src/content/docs/docs/reference/opentui-components.md",
+        native: "site/content/docs/reference/opentui-components.md",
+        bytes: 1756,
+        sha256: "d9579ad5ce18a4c6ce7c29822bf1591a3715a0b358c099a93c972ae59caa522c",
+    },
 ];
 
 pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {
