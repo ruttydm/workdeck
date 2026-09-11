@@ -758,6 +758,61 @@ fn update_preserves_managed_channel_exit_semantics() {
 }
 
 #[test]
+fn update_cli_contract_covers_help_channels_and_preflight_failures() {
+    workdeck()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("update"));
+
+    workdeck()
+        .args(["update", "--help"])
+        .assert()
+        .success()
+        .stderr(predicate::str::is_empty())
+        .stdout(predicate::str::contains("Usage: workdeck update"))
+        .stdout(predicate::str::contains("--method <METHOD>"))
+        .stdout(predicate::str::contains(
+            "cargo, brew, nix, curl, powershell, or direct",
+        ))
+        .stdout(predicate::str::contains("--check"))
+        .stdout(predicate::str::contains("\u{1b}[?1049h").not());
+
+    workdeck()
+        .args(["update", "--method", "nix"])
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("Workdeck was installed with Nix."))
+        .stderr(predicate::str::is_empty());
+    workdeck()
+        .args(["update", "--method", "nix", "--check"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Update it through your Nix configuration",
+        ));
+
+    for method in ["cargo", "curl", "powershell", "direct"] {
+        workdeck()
+            .args(["update", "--method", method, "not-a-version"])
+            .assert()
+            .code(2)
+            .stderr(predicate::str::contains("Invalid version: not-a-version"));
+    }
+    workdeck()
+        .args(["update", "--method", "apt"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("Unknown update method: apt"))
+        .stderr(predicate::str::contains("Supported methods are"));
+    workdeck()
+        .args(["update", "--not-a-real-flag"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("--not-a-real-flag"));
+}
+
+#[test]
 fn extension_trust_uses_shared_state_preserves_siblings_and_gates_discovery() {
     let repo = tempdir().unwrap();
     let config = tempdir().unwrap();
