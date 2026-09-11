@@ -25,6 +25,7 @@ mod diff_pane;
 mod docs;
 mod extension_catalog;
 mod historical_docs;
+mod hunk_tail;
 mod install;
 mod install_oracle;
 mod install_script;
@@ -1868,6 +1869,7 @@ fn verify() -> Result<()> {
     process::verify(&repo, &baseline)?;
     legacy_dependency_inputs::verify(&repo, &baseline)?;
     historical_docs::verify(&repo, &baseline)?;
+    hunk_tail::verify(&repo, &baseline)?;
     website_docs::verify(&repo, &baseline)?;
     skill::verify_pinned_web_review_skill(&repo, &baseline)?;
     changelog::verify_pinned_website_inputs(&repo, &baseline)?;
@@ -2187,6 +2189,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     process::verify(&repo, &baseline)?;
     legacy_dependency_inputs::verify(&repo, &baseline)?;
     historical_docs::verify(&repo, &baseline)?;
+    hunk_tail::verify(&repo, &baseline)?;
     website_docs::verify(&repo, &baseline)?;
     skill::verify_pinned_web_review_skill(&repo, &baseline)?;
     changelog::verify_pinned_website_inputs(&repo, &baseline)?;
