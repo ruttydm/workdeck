@@ -1,5 +1,6 @@
 +++
 title = "Configuration"
+description = "Configure Workdeck themes, keybindings, layout, display, and repository settings."
 template = "docs.html"
 page_template = "docs.html"
 +++

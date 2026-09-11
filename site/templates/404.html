@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Page not found · {{ config.title }}{% endblock title %}
+{% block metadata %}
+    <meta name="description" content="The Workdeck page you requested could not be found.">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="{{ config.base_url }}/og.svg">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="{{ config.base_url }}/og.svg">
+{% endblock metadata %}
+{% block content %}
+<article class="documentation not-found">
+  <h1>Page not found</h1>
+  <p>The Workdeck page you requested does not exist.</p>
+  <p><a href="/">Return to Workdeck</a> or browse the <a href="/docs/">documentation</a>.</p>
+</article>
+{% endblock content %}

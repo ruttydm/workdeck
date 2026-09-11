@@ -1,5 +1,6 @@
 +++
 title = "Jujutsu and Sapling"
+description = "Use Workdeck's provider-neutral review model with Jujutsu and Sapling repositories."
 template = "docs.html"
 +++
 
@@ -56,4 +57,3 @@ personal settings. Workdeck requires the corresponding provider executable on
 Adapted from Hunk's pinned MIT documentation, Copyright Modem Labs Inc.
 Complete cross-provider, revision-expression and terminal parity remains a
 release gate. This source interval stays unmapped pending migration verification.
-

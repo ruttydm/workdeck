@@ -1,5 +1,6 @@
 +++
 title = "Files and patches"
+description = "Review raw file pairs, unified patches, binary files, renames, and untracked paths in Workdeck."
 template = "docs.html"
 +++
 
@@ -39,4 +40,3 @@ Adapted from Hunk's pinned MIT documentation, Copyright Modem Labs Inc.
 Native input and watch tests cover these command forms; complete provider,
 reload-state and terminal parity remains unverified. This source interval stays
 unmapped pending complete migration verification.
-

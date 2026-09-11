@@ -1,5 +1,6 @@
 +++
 title = "Agent-assisted review"
+description = "Use Workdeck's review sessions, agent context, live controls, and durable annotations together."
 template = "docs.html"
 page_template = "docs.html"
 +++

@@ -1,5 +1,6 @@
 +++
 title = "Extend Workdeck"
+description = "Build trusted native Workdeck extensions, file previews, panes, and version-control adapters."
 template = "docs.html"
 page_template = "docs.html"
 +++

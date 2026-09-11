@@ -83,8 +83,8 @@ fn prepare(source: &Snapshot) -> Result<Snapshot> {
     let generation = tempfile::tempdir()?;
     let root = generation.path();
     write_snapshot(root, source)?;
-    crate::site_assets::sbom(root)?;
-    crate::skill::check_generated_skills(root)?;
+    crate::site_assets::sbom(root).context("validate preview asset inventory")?;
+    crate::skill::check_generated_skills(root).context("validate preview generated skills")?;
     let output = root.join("rendered");
     crate::run_checked(
         &root.join("site"),
@@ -94,11 +94,14 @@ fn prepare(source: &Snapshot) -> Result<Snapshot> {
             "--output-dir",
             output.to_str().context("preview output UTF-8")?,
         ],
-    )?;
-    crate::site_markdown::stage_install_script(root, &output)?;
-    crate::site_markdown::emit(root, &output)?;
+    )
+    .context("build preview site")?;
+    crate::site_markdown::stage_install_script(root, &output).context("stage preview installer")?;
+    crate::site_markdown::emit(root, &output).context("emit preview Markdown exports")?;
     let mut prepared = source.clone();
-    for (relative, content) in crate::site_markdown::plan(root)? {
+    for (relative, content) in
+        crate::site_markdown::plan(root).context("plan preview Markdown exports")?
+    {
         let path = Path::new("site/static").join(relative);
         ensure!(
             prepared.insert(path, content.into_bytes()).is_none(),

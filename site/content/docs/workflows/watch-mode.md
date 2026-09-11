@@ -1,5 +1,6 @@
 +++
 title = "Watch mode"
+description = "Keep a Workdeck review synchronized with changes to the working tree."
 template = "docs.html"
 +++
 
@@ -40,4 +41,3 @@ Adapted from Hunk's pinned MIT documentation, Copyright Modem Labs Inc.
 Native input and watch tests cover these command forms; complete provider,
 reload-state and terminal parity remains unverified. This source interval stays
 unmapped pending complete migration verification.
-

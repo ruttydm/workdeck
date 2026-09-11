@@ -1,5 +1,6 @@
 +++
 title = "Working trees and commits"
+description = "Open and navigate complete Workdeck reviews for working trees, commits, and changesets."
 template = "docs.html"
 +++
 
@@ -56,4 +57,3 @@ Staging areas and stashes are Git-only. Workdeck reports a focused error if thes
 Adapted from Hunk's pinned MIT documentation, Copyright Modem Labs Inc.
 Complete cross-provider, revision-expression and terminal parity remains a
 release gate. This source interval stays unmapped pending migration verification.
-

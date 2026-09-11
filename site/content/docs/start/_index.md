@@ -1,5 +1,6 @@
 +++
 title = "Getting started"
+description = "Install Workdeck and learn the keyboard, mouse, and first-review workflow."
 template = "docs.html"
 page_template = "docs.html"
 +++

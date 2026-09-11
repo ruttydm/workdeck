@@ -485,7 +485,12 @@ fn site(command: Option<&str>) -> Result<()> {
             skill::check_generated_skills(&repo)?;
             site_markdown::check_zola_routes()?;
             site_preview::check(&repo)?;
-            run_checked(&site, "zola", &["check"])?;
+            // The native link checker below validates every internal route and
+            // anchor deterministically. Zola's external-link probe is network
+            // dependent (and can stall on an offline release runner), so keep
+            // the site gate reproducible and let CI's dedicated link job own
+            // any optional external reachability checks.
+            run_checked(&site, "zola", &["check", "--skip-external-links"])?;
             let output = tempfile::tempdir()?;
             let public = output.path().join("public");
             run_checked(
@@ -577,7 +582,7 @@ fn site(command: Option<&str>) -> Result<()> {
             }
             ensure!(
                 install_docs.contains("href=\"/docs/\" aria-current=\"page\"")
-                    && install_docs.contains("Install and verify"),
+                    && install_docs.contains("Install script (default)"),
                 "installation documentation or active Docs navigation missing"
             );
             ensure!(

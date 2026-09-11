@@ -1,5 +1,6 @@
 +++
 title = "Review workflows"
+description = "Review working trees, commits, patches, pager input, watch mode, Jujutsu, and Sapling with Workdeck."
 template = "docs.html"
 page_template = "docs.html"
 +++
