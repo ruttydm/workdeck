@@ -1794,6 +1794,7 @@ fn verify() -> Result<()> {
     tooling_configs::verify(&repo, &baseline)?;
     changeset_config::verify(&repo, &baseline)?;
     extension_catalog::verify_pinned_source(&repo, &baseline)?;
+    extension_catalog::verify_extensions_page(&repo)?;
     legacy_dependency_inputs::verify(&repo, &baseline)?;
     historical_docs::verify(&repo, &baseline)?;
     website_docs::verify(&repo, &baseline)?;

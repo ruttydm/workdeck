@@ -101,6 +101,134 @@ pub(crate) fn verify_pinned_source(repo: &Path, baseline: &str) -> Result<()> {
     verify_legacy_source(&catalog, &source)
 }
 
+/// Verify the complete public extension-directory page. Astro's interactive
+/// catalog is projected into a static, no-JavaScript migration directory: all
+/// listings, facets, provenance, and trust warnings remain in document order,
+/// while TypeScript install/copy actions are intentionally replaced by an
+/// explicit native-Rust rewrite boundary.
+pub(crate) fn verify_extensions_page(repo: &Path) -> Result<()> {
+    const BASELINE: &str = "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2";
+    let source = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            &format!("{BASELINE}:website/src/pages/extensions.astro"),
+        ],
+    )?;
+    ensure!(
+        source.len() == 13_408,
+        "pinned extensions.astro changed size: {} != 13408",
+        source.len()
+    );
+    let source = String::from_utf8(source)?;
+    for marker in [
+        "import BrandFooter from \"../components/BrandFooter.astro\"",
+        "import BrandHeader from \"../components/BrandHeader.astro\"",
+        "loadExtensionEntries",
+        "categoryFacets",
+        "formatUpdated",
+        "installCommand",
+        "toJsonLdScriptBody",
+        "const title = \"hunk extensions — the community directory\"",
+        "const description =",
+        "const entries = await loadExtensionEntries();",
+        "const facets = categoryFacets(entries);",
+        "const PAGE_SIZE = 24;",
+        "\"@type\": \"ItemList\"",
+        "numberOfItems: entries.length",
+        "data-categories=",
+        "data-search=",
+        "data-stars=",
+        "data-pushed=",
+        "data-created=",
+        "placeholder=\"search name, owner, description\"",
+        "id=\"x-sort\"",
+        "data-category",
+        "aria-live=\"polite\"",
+        "No extensions match that search.",
+        "function render()",
+        "navigator.clipboard.writeText",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned extensions.astro lost marker {marker:?}"
+        );
+    }
+
+    let catalog: Value = serde_json::from_slice(&std::fs::read(
+        repo.join("site/data/legacy-extensions.json"),
+    )?)?;
+    validate_legacy_catalog(&catalog)?;
+    let catalog_source = String::from_utf8(crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            &format!("{BASELINE}:website/src/data/extensions.ts"),
+        ],
+    )?)?;
+    verify_legacy_source(&catalog, &catalog_source)?;
+    let entries = catalog["entries"]
+        .as_array()
+        .context("legacy catalog entries missing")?;
+    ensure!(
+        entries.len() == 16,
+        "native extension catalog count changed"
+    );
+    let html = std::fs::read_to_string(repo.join("site/templates/extensions.html"))?;
+    for marker in [
+        "Extension migration directory",
+        "class=\"extension-browser\"",
+        "aria-label=\"Legacy extension directory\"",
+        "Filter by capability",
+        "type=\"radio\"",
+        "data-categories=",
+        "legacy-extensions.json",
+        "requiring a Rust rewrite",
+        "Requires Rust rewrite",
+        "Source repository:",
+        "Recorded version:",
+        "aria-label=\"Extension capabilities\"",
+    ] {
+        ensure!(
+            html.contains(marker),
+            "native extension directory is missing {marker:?}"
+        );
+    }
+    ensure!(
+        html.contains("{% for entry in catalog.entries %}")
+            && html.matches("class=\"extension-card\"").count() == 1,
+        "native extension directory does not loop over every catalog listing"
+    );
+    ensure!(
+        html.matches("<strong>Requires Rust rewrite</strong>")
+            .count()
+            == 1,
+        "native extension directory does not warn for every rendered listing"
+    );
+    ensure!(
+        !html.contains("<script")
+            && !html.contains("hunk.dev")
+            && !html.contains("npmjs.com")
+            && !html.contains("extension install"),
+        "native extension directory reintroduced a legacy runtime or installer"
+    );
+    let migration = std::fs::read_to_string(repo.join("docs/extensions-page-migration.md"))?;
+    for marker in [
+        "extensions.astro",
+        "16 listings",
+        "facets",
+        "no-JavaScript",
+        "Rust rewrite",
+        "full permissions",
+    ] {
+        ensure!(
+            migration.contains(marker),
+            "extension page migration is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
+
 // Decode only the pinned declarative catalog literal, never execute source.
 // Reject syntax outside JSON strings, integers, punctuation and known keys.
 pub fn verify_legacy_source(catalog: &Value, source: &str) -> Result<()> {
@@ -220,6 +348,12 @@ fn legacy_source_comparison_rejects_field_drift_and_executable_syntax() {
     let injected = source.replacen("= [", "= [compute(),", 1);
     assert!(verify_legacy_source(&catalog, &injected).is_err());
     assert!(verify_legacy_source(&catalog, "").is_err());
+}
+
+#[test]
+fn native_extension_directory_replaces_the_complete_pinned_page() {
+    let repo = super::repo_root().unwrap();
+    verify_extensions_page(&repo).unwrap();
 }
 
 #[test]
