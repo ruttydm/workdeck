@@ -1826,6 +1826,7 @@ fn verify() -> Result<()> {
     benchmark::verify_resize_memory(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     benchmark::verify_compact_highlight_payload(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     benchmark::daemon_memory::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
+    benchmark::large_untracked_render::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     benchmark::verify_huge_stream(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     ci_changes::verify_workflow(&repo)?;
     ci_changes::verify_main_workflow(&repo)?;
@@ -2194,6 +2195,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     benchmark::verify_resize_memory(&repo, &baseline)?;
     benchmark::verify_compact_highlight_payload(&repo, &baseline)?;
     benchmark::daemon_memory::verify(&repo, &baseline)?;
+    benchmark::large_untracked_render::verify(&repo, &baseline)?;
     benchmark::verify_huge_stream(&repo, &baseline)?;
     diff_pane::verify(&repo, &baseline)?;
     use_terminal_review::verify(&repo, &baseline)?;
@@ -2876,6 +2878,7 @@ fn print_help() {
     );
     println!("cargo xtask benchmark compact-highlight-payload");
     println!("cargo xtask benchmark daemon-memory [options]");
+    println!("cargo xtask benchmark large-untracked-render [line-count] [tracked]");
     println!(
         "cargo xtask benchmark geometry-memory [--file-count N] [--lines-per-file N] [--width N] [--no-gc]"
     );

@@ -1412,6 +1412,7 @@ pub(crate) use historical::{
 mod interaction_latency;
 mod large_stream;
 mod large_stream_profile;
+pub(crate) mod large_untracked_render;
 mod memory;
 mod native_memory;
 mod navigation_memory;
@@ -2152,6 +2153,9 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     }
     if command.as_deref() == Some("large-stream") {
         return large_stream::run(args);
+    }
+    if command.as_deref() == Some("large-untracked-render") {
+        return large_untracked_render::run(args);
     }
     if command.as_deref() == Some("large-stream-profile") {
         return large_stream_profile::run(args);
