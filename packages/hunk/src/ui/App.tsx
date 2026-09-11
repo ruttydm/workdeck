@@ -258,6 +258,9 @@ export function App({
   const [showAgentSkill, setShowAgentSkill] = useState(false);
   const [focusArea, setFocusArea] = useState<FocusArea>("files");
   const { text: sessionNoticeText, show: showSessionNotice } = useTimedNotice(4_000);
+  // Sticky, unlike the timed notices above: a daemon the window cannot join is a persistent
+  // condition, so the text stays until the broker client reports the link connected.
+  const [daemonNoticeText, setDaemonNoticeText] = useState<string | null>(null);
   const extensions = bootstrap.extensions as ExtensionLoadResult | undefined;
   const pendingTrustRepoRoot = extensions?.pendingTrustRepoRoot;
   const extensionToast = useExtensionNotifications(extensions?.notifications);
@@ -491,6 +494,7 @@ export function App({
     Boolean(
       sessionNoticeText ??
       transientNoticeText ??
+      daemonNoticeText ??
       noticeText ??
       fileViewModeHint ??
       keyboardModeHint,
@@ -769,6 +773,7 @@ export function App({
   );
 
   useHunkSessionBridge({
+    onConnectionNotice: setDaemonNoticeText,
     addAgentLineHighlight: review.addAgentLineHighlight,
     addLiveComment: review.addLiveComment,
     addLiveCommentBatch: review.addLiveCommentBatch,
@@ -1600,7 +1605,12 @@ export function App({
           filterFocused={focusArea === "filter"}
           modeText={keyboardModeHint ?? undefined}
           noticeText={
-            sessionNoticeText ?? transientNoticeText ?? noticeText ?? fileViewModeHint ?? undefined
+            sessionNoticeText ??
+            transientNoticeText ??
+            daemonNoticeText ??
+            noticeText ??
+            fileViewModeHint ??
+            undefined
           }
           terminalWidth={terminal.width}
           theme={activeTheme}
