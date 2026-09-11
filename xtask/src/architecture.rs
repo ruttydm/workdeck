@@ -1,6 +1,6 @@
 //! Shrink-only architecture enforcement over the native Cargo and Rust module graphs.
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Package};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -35,6 +35,7 @@ struct PackageShape {
 /// Run every architecture gate against the live workspace rather than a copied
 /// or hand-maintained dependency inventory.
 pub(crate) fn check(repo: &Path) -> Result<()> {
+    verify_legacy_launcher(repo)?;
     let metadata = MetadataCommand::new()
         .current_dir(repo)
         .no_deps()
@@ -45,6 +46,87 @@ pub(crate) fn check(repo: &Path) -> Result<()> {
     println!(
         "Workdeck architecture check passed: {} production crates, one shipped executable, zero dependency or source-reachability violations.",
         allowed_dependencies().len()
+    );
+    Ok(())
+}
+
+/// Account for Hunk's JavaScript `bin/hunk.cjs` launcher without retaining a
+/// Node/Bun runtime mirror.  The native entrypoint owns skill materialization,
+/// platform-independent argument parsing, and release installation; the
+/// package-manager probing and bundled Bun fallback are deliberately absent
+/// because Workdeck ships one Cargo binary rather than an npm wrapper.
+fn verify_legacy_launcher(repo: &Path) -> Result<()> {
+    const BASELINE: &str = "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2";
+    let bytes = crate::git_stdout_bytes(repo, [
+        "show",
+        &format!("{BASELINE}:bin/hunk.cjs"),
+    ])?;
+    ensure!(
+        bytes.len() == 3_762,
+        "pinned bin/hunk.cjs changed size: {} != 3762",
+        bytes.len()
+    );
+    let source = std::str::from_utf8(&bytes)?;
+    for marker in [
+        "#!/usr/bin/env node",
+        "function bundledSkillPath()",
+        "function ensureExecutable(target)",
+        "function hostCandidates()",
+        "function findInstalledBinary(startDir)",
+        "function bundledBunRuntime()",
+        "const overrideBinary = process.env.HUNK_BIN_PATH",
+        "const forwardedArgs = process.argv.slice(2)",
+        "forwardedArgs[0] === \"skill\"",
+        "spawnSync(target, args",
+        "hunk.exe",
+        "hunkdiff-darwin-arm64",
+        "hunkdiff-linux-x64",
+        "hunkdiff-windows-x64",
+        "Failed to locate a matching prebuilt Hunk binary",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned bin/hunk.cjs lost launcher behavior marker {marker:?}"
+        );
+    }
+
+    let cli = fs::read_to_string(repo.join("crates/workdeck-cli/src/main.rs"))?;
+    for marker in [
+        "#[command(name = \"workdeck\")]",
+        "enum SkillCommand",
+        "fn handle_skill_command(command: Option<SkillCommand>)",
+        "include_str!(\"../../../skills/workdeck-review/SKILL.md\")",
+        "use workdeck_extension_api::{",
+        "fn handle_global_command(",
+    ] {
+        ensure!(
+            cli.contains(marker),
+            "native Workdeck launcher replacement is missing {marker:?}"
+        );
+    }
+    ensure!(
+        !cli.contains("HUNK_BIN_PATH") && !cli.contains("bundledBunRuntime"),
+        "native launcher must not retain Hunk/Bun runtime overrides"
+    );
+
+    let migration = fs::read_to_string(repo.join("docs/launcher-migration.md"))?;
+    for marker in [
+        "bin/hunk.cjs",
+        "skill path",
+        "HUNK_BIN_PATH",
+        "hostCandidates",
+        "bundled Bun",
+        "Cargo's one `workdeck` binary",
+        "not copied into the Workdeck tree or executed",
+    ] {
+        ensure!(
+            migration.contains(marker),
+            "launcher migration is missing {marker:?}"
+        );
+    }
+    ensure!(
+        !repo.join("bin/hunk.cjs").exists(),
+        "the legacy JavaScript launcher must not be retained in the final tree"
     );
     Ok(())
 }
@@ -986,5 +1068,11 @@ mod tests {
         ] {
             assert!(document.contains(section), "missing section: {section}");
         }
+    }
+
+    #[test]
+    fn pinned_hunk_launcher_is_replaced_by_one_native_workdeck_entrypoint() {
+        let repo = super::super::repo_root().unwrap();
+        super::verify_legacy_launcher(&repo).unwrap();
     }
 }
