@@ -173,6 +173,125 @@ pub(super) fn check_version(repo: &Path, mut args: impl Iterator<Item = String>)
     Ok(())
 }
 
+/// Verify that the single native release workflow accounts for the complete
+/// pinned prebuilt-release pipeline. Platform builds, benchmark gates,
+/// checksums, SBOM/provenance, and GitHub publication remain; npm/Bun/Node
+/// package publication is intentionally removed by product policy.
+pub(crate) fn verify_prebuilt_release_workflow(repo: &Path) -> Result<()> {
+    const BASELINE: &str = "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2";
+    let source = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            &format!("{BASELINE}:.github/workflows/release-prebuilt-npm.yml"),
+        ],
+    )?;
+    anyhow::ensure!(
+        source.len() == 13_540,
+        "pinned prebuilt release workflow changed size: {} != 13540",
+        source.len()
+    );
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "name: Release prebuilt npm packages",
+        "workflow_dispatch:",
+        "publish:",
+        "npm_tag:",
+        "allow_benchmark_regression:",
+        "benchmark_regression_reason:",
+        "push:",
+        "tags:",
+        "SKIP_INSTALL_SIMPLE_GIT_HOOKS",
+        "release-prebuilt-${{ github.ref }}",
+        "resolve-release-channel:",
+        "release-benchmark-gate:",
+        "build-binaries:",
+        "stage-release:",
+        "publish:",
+        "create-github-release:",
+        "Set up Bun",
+        "Set up Node",
+        "npm view hunkdiff dist-tags.latest",
+        "bun ./scripts/resolve-release-channel.ts",
+        "bun run bench:release:compare",
+        "bun run ./scripts/check-release-version.ts",
+        "bun run ./scripts/build-prebuilt-artifact.ts",
+        "bun run stage:prebuilt:release",
+        "bun run check:prebuilt-pack",
+        "bun run publish:prebuilt:npm",
+        "actions/attest-build-provenance@",
+        "Create or update GitHub release",
+    ] {
+        anyhow::ensure!(
+            source.contains(marker),
+            "pinned prebuilt release workflow lost marker {marker:?}"
+        );
+    }
+    let native = std::fs::read_to_string(repo.join(".github/workflows/release.yml"))?;
+    for marker in [
+        "name: Release",
+        "permissions:",
+        "contents: write",
+        "id-token: write",
+        "attestations: write",
+        "preflight:",
+        "Semantic-port release gates",
+        "cargo xtask port fetch",
+        "cargo xtask port audit",
+        "cargo fmt --all --check",
+        "cargo clippy --locked --workspace --all-targets -- -D warnings",
+        "cargo xtask test",
+        "cargo-deny-action@v2",
+        "build:",
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin",
+        "x86_64-pc-windows-msvc",
+        "workdeck",
+        "cargo xtask ci-host",
+        "cargo build --locked --release --target",
+        "actions/attest-build-provenance@v2",
+        "cargo xtask release package",
+        "dist/workdeck-${{ matrix.target }}.*",
+        "publish:",
+        "softprops/action-gh-release@v2",
+    ] {
+        anyhow::ensure!(
+            native.contains(marker),
+            "native release workflow is missing {marker:?}"
+        );
+    }
+    for forbidden in ["bun", "node", "npm", "opentui", "wasm", "hunkdiff"] {
+        let pattern = regex::Regex::new(&format!(
+            r"(?i)(?:^|[^a-z]){}(?:$|[^a-z])",
+            regex::escape(forbidden)
+        ))
+        .expect("forbidden runtime token pattern is valid");
+        anyhow::ensure!(
+            !pattern.is_match(&native),
+            "native release workflow retains forbidden runtime token {forbidden:?}"
+        );
+    }
+    let migration = std::fs::read_to_string(repo.join("docs/release-prebuilt-migration.md"))?;
+    for marker in [
+        "release-prebuilt-npm.yml",
+        "single native release workflow",
+        "platform builds",
+        "benchmark",
+        "SBOM",
+        "provenance",
+        "npm",
+        "not published",
+    ] {
+        anyhow::ensure!(
+            migration.contains(marker),
+            "prebuilt release migration is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,6 +328,12 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn native_release_workflow_replaces_the_complete_prebuilt_npm_pipeline() {
+        let repo = super::super::repo_root().unwrap();
+        super::verify_prebuilt_release_workflow(&repo).unwrap();
     }
 
     fn stable(reference: &str, latest: &str) -> Result<Resolution> {
