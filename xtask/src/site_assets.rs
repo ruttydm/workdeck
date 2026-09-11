@@ -774,7 +774,7 @@ mod tests {
     #[test]
     fn retained_font_inventory_emits_checked_website_only_components() {
         let output = sbom(&crate::repo_root().unwrap()).unwrap();
-        assert_eq!(output["components"].as_array().unwrap().len(), 16);
+        assert_eq!(output["components"].as_array().unwrap().len(), 25);
         assert_eq!(
             output["metadata"]["component"]["name"],
             "workdeck-website-assets"
@@ -792,7 +792,7 @@ mod tests {
                 .iter()
                 .filter(|component| component["licenses"][0]["license"]["id"] == "MIT")
                 .count(),
-            8
+            17
         );
         for component in components {
             assert_eq!(component["type"], "file");
