@@ -44,6 +44,7 @@ mod term_video;
 mod theme_diff_colors;
 mod theme_probe;
 mod tooling_configs;
+mod ui_components;
 mod upstream_refs;
 mod website_docs;
 
@@ -1780,6 +1781,7 @@ fn verify() -> Result<()> {
     benchmark::verify_workflow(&repo)?;
     ci_changes::verify_workflow(&repo)?;
     ci_changes::verify_main_workflow(&repo)?;
+    ui_components::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     site_links::verify_docs_header(&repo)?;
     site_links::verify_website_workflow(&repo)?;
     site_assets::verify_theme_shots(&repo)?;
@@ -2118,6 +2120,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     skill::verify_pinned_web_review_skill(&repo, &baseline)?;
     changelog::verify_pinned_website_inputs(&repo, &baseline)?;
     benchmark::verify_historical_for_baseline(&repo, &baseline)?;
+    ui_components::verify(&repo, &baseline)?;
     let entries = read_tree(&repo, &baseline)?;
     let expected = entries
         .iter()
