@@ -1802,6 +1802,7 @@ fn verify() -> Result<()> {
     website_docs::verify(&repo, &baseline)?;
     skill::verify_pinned_web_review_skill(&repo, &baseline)?;
     changelog::verify_pinned_website_inputs(&repo, &baseline)?;
+    install::verify_workflow(&repo)?;
     changelog::run(
         &repo,
         ["upstream-history".into(), "--check".into()].into_iter(),
