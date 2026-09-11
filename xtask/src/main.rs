@@ -12,6 +12,7 @@ use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+mod app_shell;
 mod architecture;
 mod benchmark;
 mod changelog;
@@ -1785,6 +1786,7 @@ fn verify() -> Result<()> {
     ci_changes::verify_main_workflow(&repo)?;
     diff_pane::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     use_terminal_review::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
+    app_shell::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     ui_components::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     site_links::verify_docs_header(&repo)?;
     site_links::verify_website_workflow(&repo)?;
@@ -2126,6 +2128,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     benchmark::verify_historical_for_baseline(&repo, &baseline)?;
     diff_pane::verify(&repo, &baseline)?;
     use_terminal_review::verify(&repo, &baseline)?;
+    app_shell::verify(&repo, &baseline)?;
     ui_components::verify(&repo, &baseline)?;
     let entries = read_tree(&repo, &baseline)?;
     let expected = entries
