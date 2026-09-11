@@ -27,6 +27,24 @@ const CONFIGS: &[(&str, usize, &[&str])] = &[
         &["site/config.toml", MIGRATION_DOC],
     ),
     (
+        "website/astro.config.mjs",
+        9317,
+        &[
+            "site/config.toml",
+            "site/templates/base.html",
+            "site/templates/docs.html",
+            "site/static/starlight.css",
+            "xtask/src/site_markdown.rs",
+            "xtask/src/site_links.rs",
+            "xtask/src/site_assets.rs",
+            "xtask/src/site_preview.rs",
+            "xtask/src/website_docs.rs",
+            "xtask/src/changelog/website.rs",
+            "xtask/src/skill.rs",
+            MIGRATION_DOC,
+        ],
+    ),
+    (
         "vercel.json",
         714,
         &[
@@ -121,6 +139,73 @@ pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {
                 source == "{\n  \"extends\": \"astro/tsconfigs/strict\"\n}\n",
                 "Astro TypeScript configuration changed"
             ),
+            "website/astro.config.mjs" => {
+                for marker in [
+                    "site: \"https://hunk.dev\"",
+                    "output: \"static\"",
+                    "sitemap()",
+                    "starlight({",
+                    "starlightDotMd()",
+                    "starlightLlmsTxt({",
+                    "projectName: \"Hunk\"",
+                    "customSelectors: { all: [\"a.sl-anchor-link\"] }",
+                    "promote: [\"docs\", \"docs/start/**\"]",
+                    "exclude: [\"docs/extend/**\", \"docs/reference/opentui-components\", \"changelog/**\"]",
+                    "editLink:",
+                    "lastUpdated: true",
+                    "pagination: true",
+                    "customCss: [\"./src/styles/starlight.css\"]",
+                    "components:",
+                    "label: \"Start here\"",
+                    "label: \"Review workflows\"",
+                    "label: \"Working with agents\"",
+                    "label: \"Configure\"",
+                    "label: \"Extend\"",
+                    "label: \"Reference\"",
+                    "label: \"Help\"",
+                    "{ label: \"Changelog\", link: \"/changelog/\" }",
+                    "smartypants: false",
+                    "light: \"github-light-default\"",
+                    "dark: \"github-dark-default\"",
+                    "wrap: true",
+                ] {
+                    ensure!(
+                        source.contains(marker),
+                        "Astro site configuration lost {marker}"
+                    );
+                }
+                let migration = std::fs::read_to_string(repo.join(MIGRATION_DOC))?;
+                ensure!(
+                    migration.contains("`website/astro.config.mjs`")
+                        && migration.contains("Zola `site/config.toml`")
+                        && migration.contains("native Markdown/LLM exports")
+                        && migration.contains("starlight.css"),
+                    "Astro site configuration migration is undocumented"
+                );
+                let native_config = std::fs::read_to_string(repo.join("site/config.toml"))?;
+                ensure!(
+                    native_config.contains("base_url = \"https://workdeck.dev\"")
+                        && native_config.contains("generate_feeds = true"),
+                    "native Zola site config is missing the Astro static-site replacement"
+                );
+                for native in [
+                    "site/templates/base.html",
+                    "site/templates/docs.html",
+                    "site/static/starlight.css",
+                    "xtask/src/site_markdown.rs",
+                    "xtask/src/site_links.rs",
+                    "xtask/src/site_assets.rs",
+                    "xtask/src/site_preview.rs",
+                    "xtask/src/website_docs.rs",
+                    "xtask/src/changelog/website.rs",
+                    "xtask/src/skill.rs",
+                ] {
+                    ensure!(
+                        repo.join(native).is_file(),
+                        "native site owner is missing: {native}"
+                    );
+                }
+            }
             "vercel.json" => {
                 let value: serde_json::Value = serde_json::from_str(source)?;
                 ensure!(
