@@ -213,6 +213,16 @@ pub fn terminate_source_subprocess(process: &mut impl SourceSubprocess) {
     let _ = wait_for_source_subprocess_exit(process, SOURCE_SUBPROCESS_FORCE_WAIT);
 }
 
+/// Force-stop a source reader after a stream has already violated its byte limit.
+///
+/// At that point the child may be blocked in a write and graceful termination only
+/// adds latency; the owned process group still receives cleanup before the child is
+/// reaped, so descendants cannot retain either pipe.
+pub fn force_terminate_source_subprocess(process: &mut impl SourceSubprocess) {
+    let _ = process.force_kill();
+    let _ = wait_for_source_subprocess_exit(process, SOURCE_SUBPROCESS_FORCE_WAIT);
+}
+
 fn wait_for_source_subprocess_exit(process: &mut impl SourceSubprocess, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     loop {
@@ -466,5 +476,12 @@ mod tests {
         terminate_source_subprocess(&mut process);
         assert_eq!(process.signals, ["SIGTERM", "SIGKILL"]);
         assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn force_termination_skips_graceful_wait_for_bounded_stream_failures() {
+        let mut process = NeverExits::default();
+        force_terminate_source_subprocess(&mut process);
+        assert_eq!(process.signals, ["SIGKILL"]);
     }
 }

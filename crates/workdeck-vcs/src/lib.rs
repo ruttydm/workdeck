@@ -45,8 +45,8 @@ pub use sapling_commands::*;
 pub use source_capabilities::*;
 pub use source_text::{
     DEFAULT_SOURCE_TEXT_MAX_BYTES, LimitedSourceTextResult, SourceSubprocess, SourceTextError,
-    log_source_diagnostic, read_file_text_with_limit, read_stream_text_with_limit,
-    terminate_source_subprocess,
+    force_terminate_source_subprocess, log_source_diagnostic, read_file_text_with_limit,
+    read_stream_text_with_limit, terminate_source_subprocess,
 };
 pub use untracked::build_filesystem_untracked_diff_file;
 pub use watch_controller::*;

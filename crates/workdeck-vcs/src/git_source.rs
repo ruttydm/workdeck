@@ -2,8 +2,9 @@
 
 use crate::git_commands::GitDiffEndpoint;
 use crate::{
-    DEFAULT_SOURCE_TEXT_MAX_BYTES, LimitedSourceTextResult, SourceTextError, log_source_diagnostic,
-    read_file_text_with_limit, read_stream_text_with_limit, terminate_source_subprocess,
+    DEFAULT_SOURCE_TEXT_MAX_BYTES, LimitedSourceTextResult, SourceTextError,
+    force_terminate_source_subprocess, log_source_diagnostic, read_file_text_with_limit,
+    read_stream_text_with_limit, terminate_source_subprocess,
 };
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -164,8 +165,13 @@ fn read_git_object_spec(
                 GitStream::Stderr => stderr_text = Some(text),
             },
             Ok((stream, Err(error))) => {
+                let force = matches!(&error, SourceTextError::TooLarge { .. });
                 collection_error = Some((stream, error));
-                terminate_source_subprocess(&mut process);
+                if force {
+                    force_terminate_source_subprocess(&mut process);
+                } else {
+                    terminate_source_subprocess(&mut process);
+                }
                 break;
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
