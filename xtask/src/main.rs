@@ -1890,6 +1890,10 @@ fn verify() -> Result<()> {
         &repo,
         ["upstream-history".into(), "--check".into()].into_iter(),
     )?;
+    // Keep the dependency policy part of the single local verification command.
+    // CI and release operators should not be able to report a green semantic
+    // port while skipping advisory, license, ban, or source checks.
+    run_checked(&repo, "cargo", &["deny", "check"])?;
     run_checked(&repo, "cargo", &["fmt", "--all", "--check"])?;
     run_workspace_tests(&repo)?;
     run_checked(

@@ -142,6 +142,8 @@ jobs:
         run: cargo xtask port audit
       - name: Formatting
         run: cargo fmt --all --check
+      - name: Dependency policy
+        run: cargo deny check
       - name: Workspace tests
         run: cargo test --locked --workspace --all-targets
       - name: Clippy
