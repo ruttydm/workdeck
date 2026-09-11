@@ -114,6 +114,17 @@ pub(crate) const REQUIRED_ASSETS: &[&str] = &[
     "shots/shot-gruvbox.webp",
     "shots/shot-nord.webp",
     "shots/shot-tokyo-night.webp",
+    "videos/video-devops-toolbox.webp",
+    "videos/video-jilles.webp",
+    "features/feature-agent.mp4",
+    "features/feature-agent.webm",
+    "features/feature-layout.mp4",
+    "features/feature-layout.webm",
+    "features/feature-mouse.mp4",
+    "features/feature-mouse.webm",
+    "features/feature-stream.webp",
+    "features/feature-themes.mp4",
+    "features/feature-themes.webm",
     "robots.txt",
 ];
 

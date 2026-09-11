@@ -53,6 +53,53 @@ const VIDEO_THUMBNAILS: &[(&str, usize, &str)] = &[
         "2a9dc5368875d39523c99f8a2172ed64c3add4e1c1b20bc15874ac04ebd5f7c3",
     ),
 ];
+const FEATURE_MEDIA: &[(&str, usize, &str)] = &[
+    (
+        "feature-agent.mp4",
+        292_757,
+        "b73d91403aa6c0906b8fd99d0090e254b0d087e94c4a1c041faef1dc0b43f532",
+    ),
+    (
+        "feature-agent.webm",
+        251_147,
+        "6dd434db6baa48ee9880135b28f3cff377550d276d70f8bccc5aaca1d6e129d9",
+    ),
+    (
+        "feature-layout.mp4",
+        408_441,
+        "484c094cfa2849b2e664f47fa3056a58bebc7dea0be8b83d81452d78bd5944d7",
+    ),
+    (
+        "feature-layout.webm",
+        310_208,
+        "26bad21a250c152d0fb05357a2202ba978ee845bfc65a4c54c93c801db6f3853",
+    ),
+    (
+        "feature-mouse.mp4",
+        415_855,
+        "527458c0b6ca60527703c3a889786ac490c168c207a4512e05cc0e106bb82d37",
+    ),
+    (
+        "feature-mouse.webm",
+        362_544,
+        "4fbb2b0fc64538607e67f5df2c6097981dc96aaf370fb1d5e65d97b34479ad5b",
+    ),
+    (
+        "feature-stream.webp",
+        210_738,
+        "b8f7142fb8a8070778087526fd58694d22538d250d4812c5413da3586406f7cf",
+    ),
+    (
+        "feature-themes.mp4",
+        1_639_541,
+        "f77a1c146bb82a7a545f212dddb481606746da3655ecc632f777c93dd486f81c",
+    ),
+    (
+        "feature-themes.webm",
+        1_419_524,
+        "a4d17c52f2ac0585e1fe8d3f212785d9fbf033b77d790971860ae957fbf0189f",
+    ),
+];
 
 /// Validate that the served theme screenshots are byte-identical to the
 /// retained, licensed Hunk baseline assets and remain independently inventoried.
@@ -354,6 +401,172 @@ pub(crate) fn verify_community_videos(repo: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Validate the complete media-led feature tour and its native, static-video
+/// rendering. Playback is user-controlled so the page remains no-script and
+/// accessible while retaining every source chapter, quote, and media asset.
+pub(crate) fn verify_feature_showcase(repo: &Path) -> Result<()> {
+    let source = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            &format!("{HUNK_BASELINE}:website/src/components/marketing/FeatureShowcase.astro"),
+        ],
+    )?;
+    ensure!(
+        source.len() == 9_883,
+        "pinned FeatureShowcase.astro changed size: {} != 9883",
+        source.len()
+    );
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "Media-led feature sections captured from the real TUI",
+        "interface ShowcaseVideo",
+        "interface ShowcaseImage",
+        "interface ShowcaseCode",
+        "interface ShowcaseFeature",
+        "const extensionSample = [",
+        "const showcase:",
+        "One stream, every file.",
+        "Your agent's reasoning, beside the code it explains.",
+        "Keys when you're fast, mouse when you're browsing.",
+        "Split or stack — or let auto decide.",
+        "Real syntax highlighting. Dozens of themes.",
+        "Extend it however you want.",
+        "Mitchell Hashimoto, creator of Ghostty & Vagrant",
+        "DHH, creator of Omarchy and Ruby on Rails",
+        "feature-stream.webp",
+        "feature-agent",
+        "feature-mouse",
+        "feature-layout",
+        "feature-themes",
+        "<div class=\"show\">",
+        "class=\"show-item\"",
+        "class=\"show-copy\"",
+        "show-media",
+        "class=\"show-quote\"",
+        "preload=\"metadata\"",
+        "IntersectionObserver",
+        "prefers-reduced-motion",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned FeatureShowcase.astro lost marker {marker:?}"
+        );
+    }
+    for (name, expected_bytes, expected_sha) in FEATURE_MEDIA {
+        let retained = repo
+            .join("third_party/hunk/assets/website/public")
+            .join(name);
+        let served = repo.join("site/static/features").join(name);
+        let retained_bytes = fs::read(&retained)
+            .with_context(|| format!("read retained feature media {}", retained.display()))?;
+        let served_bytes = fs::read(&served)
+            .with_context(|| format!("read served feature media {}", served.display()))?;
+        ensure!(
+            retained_bytes.len() == *expected_bytes && served_bytes.len() == *expected_bytes,
+            "feature media {name} has unexpected byte count"
+        );
+        ensure!(
+            format!("{:x}", Sha256::digest(&retained_bytes)) == *expected_sha
+                && format!("{:x}", Sha256::digest(&served_bytes)) == *expected_sha,
+            "feature media {name} hash mismatch"
+        );
+        let source = crate::git_stdout_bytes(
+            repo,
+            [
+                "show",
+                &format!("{HUNK_BASELINE}:website/public/{name}"),
+            ],
+        )?;
+        ensure!(
+            source == retained_bytes && source == served_bytes,
+            "feature media {name} differs from the pinned Hunk blob"
+        );
+    }
+    let index = fs::read_to_string(repo.join("site/templates/index.html"))?;
+    for marker in [
+        "class=\"feature-showcase\"",
+        "id=\"feature-showcase-title\"",
+        "class=\"show\"",
+        "class=\"show-item\"",
+        "One stream, every file.",
+        "Your agent's reasoning, beside the code it explains.",
+        "Keys when you're fast, mouse when you're browsing.",
+        "Split or stack—or let auto decide.",
+        "Real syntax highlighting. Dozens of themes.",
+        "Extend it however you want.",
+        "Mitchell Hashimoto, creator of Ghostty &amp; Vagrant",
+        "DHH, creator of Omarchy and Ruby on Rails",
+        "feature-stream.webp",
+        "feature-agent.webm",
+        "feature-agent.mp4",
+        "feature-mouse.webm",
+        "feature-mouse.mp4",
+        "feature-layout.webm",
+        "feature-layout.mp4",
+        "feature-themes.webm",
+        "feature-themes.mp4",
+        "class=\"show-quote\"",
+        "show-code",
+        "controls aria-label=\"Agent notes rendered inline in a Workdeck review\"",
+        "preload=\"metadata\"",
+    ] {
+        ensure!(
+            index.contains(marker),
+            "native feature showcase is missing {marker:?}"
+        );
+    }
+    ensure!(
+        !index.contains("<script"),
+        "native feature showcase must not add application JavaScript"
+    );
+    let css = fs::read_to_string(repo.join("site/static/main.css"))?;
+    for marker in [
+        ".feature-showcase",
+        ".show {",
+        ".show-item",
+        ".show-copy",
+        ".show-media",
+        ".show-code",
+        ".show-quote",
+        "@media (max-width: 48rem)",
+    ] {
+        ensure!(
+            css.contains(marker),
+            "native feature showcase styles are missing {marker:?}"
+        );
+    }
+    let inventory: Vec<Asset> = serde_json::from_slice(&fs::read(
+        repo.join("site/data/third-party-assets.json"),
+    )?)?;
+    let files = inventory
+        .iter()
+        .flat_map(|asset| asset.files.iter())
+        .map(|file| file.path.as_str())
+        .collect::<BTreeSet<_>>();
+    for (name, _, _) in FEATURE_MEDIA {
+        ensure!(
+            files.contains(format!("site/static/features/{name}").as_str()),
+            "feature media {name} missing from the website asset inventory"
+        );
+    }
+    let migration = fs::read_to_string(repo.join("docs/feature-showcase-migration.md"))?;
+    for marker in [
+        "FeatureShowcase.astro",
+        "six feature chapters",
+        "two quotes",
+        "controls",
+        "no application JavaScript",
+        "retained",
+    ] {
+        ensure!(
+            migration.contains(marker),
+            "feature showcase migration is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct Asset {
@@ -452,6 +665,12 @@ mod tests {
     fn native_community_video_cards_replace_the_complete_pinned_component() {
         let repo = crate::repo_root().unwrap();
         verify_community_videos(&repo).unwrap();
+    }
+
+    #[test]
+    fn native_feature_showcase_replaces_the_complete_pinned_component() {
+        let repo = crate::repo_root().unwrap();
+        verify_feature_showcase(&repo).unwrap();
     }
 
     #[test]

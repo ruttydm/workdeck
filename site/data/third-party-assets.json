@@ -65,5 +65,23 @@
       {"path": "site/static/videos/video-devops-toolbox.webp", "sha256": "3f6aede31c6b225688903b5fcb770bf730d2203d6c7827e3e807feea2a25b5b5"},
       {"path": "site/static/videos/video-jilles.webp", "sha256": "2a9dc5368875d39523c99f8a2172ed64c3add4e1c1b20bc15874ac04ebd5f7c3"}
     ]
+  },
+  {
+    "name": "Hunk review feature media",
+    "version": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "license": "MIT",
+    "source": "https://github.com/modem-dev/hunk/tree/2c00f4358b89cfc0a6b04459ffc538ba601aa3c2/website/public",
+    "archiveIntegrity": "git:2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "files": [
+      {"path": "site/static/features/feature-agent.mp4", "sha256": "b73d91403aa6c0906b8fd99d0090e254b0d087e94c4a1c041faef1dc0b43f532"},
+      {"path": "site/static/features/feature-agent.webm", "sha256": "6dd434db6baa48ee9880135b28f3cff377550d276d70f8bccc5aaca1d6e129d9"},
+      {"path": "site/static/features/feature-layout.mp4", "sha256": "484c094cfa2849b2e664f47fa3056a58bebc7dea0be8b83d81452d78bd5944d7"},
+      {"path": "site/static/features/feature-layout.webm", "sha256": "26bad21a250c152d0fb05357a2202ba978ee845bfc65a4c54c93c801db6f3853"},
+      {"path": "site/static/features/feature-mouse.mp4", "sha256": "527458c0b6ca60527703c3a889786ac490c168c207a4512e05cc0e106bb82d37"},
+      {"path": "site/static/features/feature-mouse.webm", "sha256": "4fbb2b0fc64538607e67f5df2c6097981dc96aaf370fb1d5e65d97b34479ad5b"},
+      {"path": "site/static/features/feature-stream.webp", "sha256": "b8f7142fb8a8070778087526fd58694d22538d250d4812c5413da3586406f7cf"},
+      {"path": "site/static/features/feature-themes.mp4", "sha256": "f77a1c146bb82a7a545f212dddb481606746da3655ecc632f777c93dd486f81c"},
+      {"path": "site/static/features/feature-themes.webm", "sha256": "a4d17c52f2ac0585e1fe8d3f212785d9fbf033b77d790971860ae957fbf0189f"}
+    ]
   }
 ]
