@@ -178,8 +178,8 @@ benchmark command: cross-runtime heap semantics and same-host optimized comparis
 Frozen single-run output from both pinned anchors is now recorded in
 [the interaction oracle](../oracles/benchmark-interaction-latency.json), covering all 13 metric
 names and source-scale counts. Those sequential original-runtime captures are diagnostic evidence,
-not repeated performance acceptance. The source ledger record remains unmapped and the default runner
-still rejects `interaction-latency.ts`; this partial test is not benchmark parity evidence.
+not repeated performance acceptance. The source ledger record is covered by the native translation;
+the default runner measures Workdeck only, so this receipt is not a cross-runtime parity result.
 
 `cargo xtask benchmark memory-snapshot` provides a macOS native diagnostic: current process
 `rssBytes` from `proc_pidinfo(PROC_PIDTASKINFO)` and `mallocInUseBytes` summed across malloc zones.
@@ -190,6 +190,34 @@ error. Counters are integrated at the interaction workload boundaries, outside m
 intervals. Defining/verifying cross-runtime memory comparisons remains required before the source
 interaction benchmark can be mapped or admitted. The diagnostic does not force allocator purges
 and cannot claim equivalence to Hunk's full-GC snapshots.
+
+### Current native interaction receipt at `93253b25`
+
+The plain-split repaint cache and shared review metadata are measured in
+[`interaction-native-93253b25.json`](interaction-native-93253b25.json). Twenty optimized
+Workdeck samples ran on the macOS arm64 host after the full verifier. The report is a native
+receipt only; it is not a paired Hunk run and does not satisfy the cross-runtime 10% gate.
+
+| Median | Workdeck |
+| --- | ---: |
+| First frame | 4.73 ms |
+| Navigation press | 3.97 ms |
+| Scroll tick | 2.96 ms |
+| RSS after first frame | 111,378,432 bytes |
+| RSS after navigation | 115,933,184 bytes |
+
+Reproduce it with:
+
+```console
+cargo build --locked --release -p xtask
+target/release/xtask benchmark run --script interaction-latency.ts --samples 20 --out REPORT.json
+```
+
+The immutable-document cache is bounded to 2,048 pair entries and is invalidated by
+document identity, selection, theme, width, wrapping, line-number, highlight, and horizontal
+offset changes. Dynamic comment, extension, and line-highlight paths continue to use the complete
+metadata painter. The pinned Hunk comparison, peak-memory equivalence, and non-macOS receipts
+remain required release evidence.
 
 ### Optimized interaction diagnostic at `10bb95d7`
 

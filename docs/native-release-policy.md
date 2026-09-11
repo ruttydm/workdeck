@@ -1,5 +1,18 @@
 # Native release-channel and version policy
 
+## Current semantic-port closeout (`93253b25`)
+
+The latest local closeout ran the complete Rust verifier after the TUI repaint-cache change.
+`cargo xtask verify` reached its success marker; the final `cargo xtask port fetch` and strict
+`cargo xtask port audit` report 1,257 baseline files, 1,459 records, zero unmapped records, zero
+post-baseline upstream commits, and 1,192 provenance-checked Workdeck commits. Formatting,
+dependency policy, workspace/all-target tests, Clippy, release build, and large-repository smoke
+also passed. The native 20-sample interaction receipt is recorded at
+[`port/hunk/benchmarks/interaction-native-93253b25.json`](../port/hunk/benchmarks/interaction-native-93253b25.json).
+These are local macOS arm64 results; paired Hunk latency/memory acceptance, non-macOS execution,
+remote signing/provenance, and external installer/update evidence remain release gates rather than
+being inferred from the local pass.
+
 ## Dependency-policy checkpoint (`bf8b7cf7`)
 
 On the macOS development host, `cargo deny check` exits successfully with
