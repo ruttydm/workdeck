@@ -58,6 +58,7 @@ mod theme_diff_colors;
 mod theme_probe;
 mod tooling_configs;
 mod ui_components;
+mod upstream_port;
 mod upstream_refs;
 mod use_terminal_review;
 mod website_docs;
@@ -1870,6 +1871,7 @@ fn verify() -> Result<()> {
     legacy_dependency_inputs::verify(&repo, &baseline)?;
     historical_docs::verify(&repo, &baseline)?;
     hunk_tail::verify(&repo, &baseline)?;
+    upstream_port::verify(&repo, &baseline)?;
     website_docs::verify(&repo, &baseline)?;
     skill::verify_pinned_web_review_skill(&repo, &baseline)?;
     changelog::verify_pinned_website_inputs(&repo, &baseline)?;
@@ -2190,6 +2192,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     legacy_dependency_inputs::verify(&repo, &baseline)?;
     historical_docs::verify(&repo, &baseline)?;
     hunk_tail::verify(&repo, &baseline)?;
+    upstream_port::verify(&repo, &baseline)?;
     website_docs::verify(&repo, &baseline)?;
     skill::verify_pinned_web_review_skill(&repo, &baseline)?;
     changelog::verify_pinned_website_inputs(&repo, &baseline)?;
@@ -2399,7 +2402,17 @@ fn upstream_delta_commits(repo: &Path, baseline: &str) -> Result<Option<Vec<Stri
     }
     let range = format!("{baseline}..{upstream}");
     let output = git_stdout(repo, ["rev-list", "--reverse", "--topo-order", &range])?;
-    Ok(Some(output.lines().map(str::to_owned).collect()))
+    let mut commits = output.lines().map(str::to_owned).collect::<Vec<_>>();
+    // Once the commit-authenticated semantic ledger has verified a source
+    // object, it is no longer pending even though the preserved remote ref
+    // necessarily remains ahead of Workdeck's unrelated main ancestry.  Test
+    // repositories without the ledger retain the historical queue behavior.
+    let ledger = repo.join("port/hunk/upstream-ledger.jsonl");
+    if ledger.is_file() {
+        let authenticated = upstream_port::authenticated_ids(repo, baseline)?;
+        commits.retain(|commit| !authenticated.contains(commit));
+    }
+    Ok(Some(commits))
 }
 
 fn validate_disposition(repo: &Path, record: &LedgerRecord) -> Result<()> {
