@@ -563,4 +563,21 @@ mod tests {
         }
         assert!(!guide.contains("bun run") && !guide.contains("hunk daemon"));
     }
+
+    #[test]
+    fn terminal_media_guide_uses_the_native_capture_and_composition_tools() {
+        let repo = crate::repo_root().unwrap();
+        let guide = fs::read_to_string(repo.join("docs/terminal-media.md")).unwrap();
+        for required in [
+            "cargo xtask media plan",
+            "cargo xtask media capture",
+            "cargo xtask media compose",
+            "Chromium/WebDriver",
+            "FFmpeg",
+            "No Node, Bun",
+        ] {
+            assert!(guide.contains(required), "missing {required}");
+        }
+        assert!(!guide.contains("bun run src/main.tsx"));
+    }
 }
