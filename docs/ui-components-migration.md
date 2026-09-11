@@ -28,3 +28,4 @@ cargo test --locked -p xtask native_ui_components_replaces_the_complete_pinned_t
 
 The strict port audit invokes the same verifier before accepting the ledger disposition. No
 TypeScript source mirror, JavaScript runtime, or Hunk executable is part of this translation.
+No TypeScript source mirror is committed or executed.

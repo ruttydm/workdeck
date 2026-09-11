@@ -19,6 +19,7 @@ mod changeset_config;
 mod ci_changes;
 mod ci_host;
 mod contributor_guide;
+mod diff_pane;
 mod docs;
 mod extension_catalog;
 mod historical_docs;
@@ -1781,6 +1782,7 @@ fn verify() -> Result<()> {
     benchmark::verify_workflow(&repo)?;
     ci_changes::verify_workflow(&repo)?;
     ci_changes::verify_main_workflow(&repo)?;
+    diff_pane::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     ui_components::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     site_links::verify_docs_header(&repo)?;
     site_links::verify_website_workflow(&repo)?;
@@ -2120,6 +2122,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     skill::verify_pinned_web_review_skill(&repo, &baseline)?;
     changelog::verify_pinned_website_inputs(&repo, &baseline)?;
     benchmark::verify_historical_for_baseline(&repo, &baseline)?;
+    diff_pane::verify(&repo, &baseline)?;
     ui_components::verify(&repo, &baseline)?;
     let entries = read_tree(&repo, &baseline)?;
     let expected = entries
