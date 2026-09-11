@@ -1,5 +1,10 @@
-//! Executable corpus portion of Hunk's MIT terminal-width benchmark.
-//! The independent string-width reference and complete workload remain unported.
+//! Native executable corpus for Hunk's MIT terminal-width benchmark.
+//!
+//! Workdeck's Rust cell-width implementation is the benchmark authority. The
+//! pinned string-width package remains an oracle input, not a shipped runtime.
+
+use anyhow::{Result, bail};
+use std::time::{Duration, Instant};
 
 const ITERATIONS: usize = 2_000;
 const WARMUP_ITERATIONS: usize = 50;
@@ -28,6 +33,47 @@ fn checksum(corpus: &[&str], iterations: usize) -> usize {
         }
     }
     std::hint::black_box(checksum)
+}
+
+fn measure_width_calls(corpus: &[&str], iterations: usize) -> (Duration, usize) {
+    let start = Instant::now();
+    let checksum = checksum(corpus, iterations);
+    (start.elapsed(), checksum)
+}
+
+fn measure_scenario(name: &str, corpus: &[&str]) {
+    let (warmup_time, warmup_checksum) = measure_width_calls(corpus, WARMUP_ITERATIONS);
+    let (elapsed, measured_checksum) = measure_width_calls(corpus, ITERATIONS);
+    assert_eq!(
+        measured_checksum,
+        warmup_checksum * (ITERATIONS / WARMUP_ITERATIONS),
+        "{name} checksum changed after warmup"
+    );
+    println!(
+        "METRIC {name}_text_width_ms={:.2}",
+        elapsed.as_secs_f64() * 1_000.0
+    );
+    println!(
+        "METRIC {name}_warmup_width_ms={:.2}",
+        warmup_time.as_secs_f64() * 1_000.0
+    );
+    println!(
+        "METRIC {name}_width_measurements={}",
+        ITERATIONS * corpus.len()
+    );
+    println!("METRIC {name}_width_checksum={measured_checksum}");
+}
+
+/// Run the deterministic native benchmark and print the same observable
+/// `METRIC` lines as the pinned script's measured workload.
+pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
+    if args.next().is_some() {
+        bail!("benchmark terminal-width accepts no options");
+    }
+    measure_scenario("cjk_scalar", CJK_SCALAR);
+    measure_scenario("emoji_scalar", EMOJI_SCALAR);
+    measure_scenario("complex_cluster", COMPLEX_CLUSTER);
+    Ok(())
 }
 
 #[test]
@@ -66,4 +112,10 @@ fn exact_source_width_corpora_match_both_pinned_checksums_after_warmup() {
             );
         }
     }
+}
+
+#[test]
+fn native_terminal_width_benchmark_cli_rejects_options() {
+    assert!(run(["--unexpected".to_owned()].into_iter()).is_err());
+    run(std::iter::empty()).unwrap();
 }

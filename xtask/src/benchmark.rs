@@ -3,9 +3,10 @@
 
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::{cmp::Ordering, fs};
 
 const BASELINE: &str = "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2";
 
@@ -107,6 +108,113 @@ pub(crate) fn verify_workflow(repo: &Path) -> Result<()> {
     Ok(())
 }
 
+const TERMINAL_WIDTH_PATH: &str = "benchmarks/terminal-width.ts";
+const TERMINAL_WIDTH_BYTES: usize = 3_267;
+const TERMINAL_WIDTH_LINES: usize = 72;
+const TERMINAL_WIDTH_SHA256: &str =
+    "948a538a51c09018f85953ebe33184ba893ee5e3286b420610a50df55bd65fd8";
+
+/// Verify the executable native replacement for Hunk's terminal-width
+/// benchmark. The source is read from both protected pins; no TypeScript or
+/// string-width runtime is copied into the final tree.
+pub(crate) fn verify_terminal_width(repo: &Path, baseline: &str) -> Result<()> {
+    ensure!(
+        baseline == BASELINE,
+        "terminal-width verifier received unexpected baseline {baseline}"
+    );
+    let source =
+        crate::git_stdout_bytes(repo, ["show", &format!("{BASELINE}:{TERMINAL_WIDTH_PATH}")])?;
+    let stable = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            &format!("4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd:{TERMINAL_WIDTH_PATH}"),
+        ],
+    )?;
+    for (pin, bytes) in [(BASELINE, &source), ("stable-v0.20.1", &stable)] {
+        ensure!(
+            bytes.len() == TERMINAL_WIDTH_BYTES,
+            "pinned {TERMINAL_WIDTH_PATH} {pin} changed size: {} != {TERMINAL_WIDTH_BYTES}",
+            bytes.len()
+        );
+        ensure!(
+            bytes.split(|byte| *byte == b'\n').count() == TERMINAL_WIDTH_LINES + 1,
+            "pinned {TERMINAL_WIDTH_PATH} {pin} changed line count"
+        );
+        ensure!(
+            format!("{:x}", Sha256::digest(bytes)) == TERMINAL_WIDTH_SHA256,
+            "pinned {TERMINAL_WIDTH_PATH} {pin} changed SHA-256"
+        );
+    }
+    ensure!(
+        source == stable,
+        "pinned terminal-width benchmark diverged between pins"
+    );
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "performance.now",
+        "string-width",
+        "measureTextWidth",
+        "ITERATIONS = 2_000",
+        "WARMUP_ITERATIONS = 50",
+        "CJK_SCALAR_LINES",
+        "EMOJI_SCALAR_LINES",
+        "COMPLEX_CLUSTER_LINES",
+        "measureWidthCalls",
+        "measureScenario",
+        "Width checksum",
+        "competitor_string_width",
+        "METRIC",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned terminal-width benchmark is missing marker {marker:?}"
+        );
+    }
+    for (path, marker) in [
+        (
+            "xtask/src/benchmark/terminal_width.rs",
+            "pub(super) fn run(",
+        ),
+        (
+            "xtask/src/benchmark/terminal_width.rs",
+            "fn exact_source_width_corpora_match_both_pinned_checksums_after_warmup",
+        ),
+        (
+            "xtask/src/benchmark/terminal_width.rs",
+            "fn measure_width_calls(",
+        ),
+        ("xtask/src/benchmark.rs", "benchmark terminal-width"),
+        ("docs/benchmarks.md", "cargo xtask benchmark terminal-width"),
+    ] {
+        let native = fs::read_to_string(repo.join(path))
+            .with_context(|| format!("read terminal-width native surface {path}"))?;
+        ensure!(
+            native.contains(marker),
+            "terminal-width native surface {path} is missing {marker:?}"
+        );
+    }
+    let docs = fs::read_to_string(repo.join("docs/terminal-width-benchmark-migration.md"))
+        .context("read terminal-width migration documentation")?;
+    for marker in [
+        TERMINAL_WIDTH_PATH,
+        "3,267",
+        TERMINAL_WIDTH_SHA256,
+        "CJK",
+        "emoji",
+        "combining",
+        "warmup",
+        "Cargo",
+        "no JavaScript runtime",
+    ] {
+        ensure!(
+            docs.contains(marker),
+            "terminal-width migration documentation is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
+
 mod bootstrap;
 mod changeset_parse;
 mod fixtures;
@@ -126,7 +234,6 @@ mod release;
 mod render_layout;
 mod runner;
 mod stream;
-#[cfg(test)]
 mod terminal_width;
 mod working_tree;
 mod wrapped_cjk;
@@ -814,6 +921,9 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     if command.as_deref() == Some("wrapped-cjk") {
         return wrapped_cjk::run(args);
     }
+    if command.as_deref() == Some("terminal-width") {
+        return terminal_width::run(args);
+    }
     if command.as_deref() == Some("run") {
         return runner::run_command(args);
     }
@@ -878,6 +988,12 @@ mod tests {
     fn native_benchmark_workflow_replaces_the_complete_pinned_bun_contract() {
         let repo = super::super::repo_root().unwrap();
         super::verify_workflow(&repo).unwrap();
+    }
+
+    #[test]
+    fn native_terminal_width_source_is_verified_at_both_pins() {
+        let repo = super::super::repo_root().unwrap();
+        super::verify_terminal_width(&repo, BASELINE).unwrap();
     }
 
     #[test]
