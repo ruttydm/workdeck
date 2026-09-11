@@ -14,7 +14,7 @@ median 0.60 ms versus 1.93/2.04 ms, 68.9%/70.6% under the main/stable pins), and
 613,482,496 and 591,872,000 bytes, so the paired 10% latency gate and the no-peak-memory
 regression requirement pass on this host. Non-macOS execution, remote signing/provenance, and
 external installer/update evidence remain release gates rather than being inferred from the
-local pass; the recorded blockers live in the goal evidence notes.
+local pass; the externally blocked faces are recorded with the release evidence.
 
 The prior closeout's complete Rust verifier run, formatting, dependency policy,
 workspace/all-target tests, Clippy, release build, large-repository smoke, and local artifact

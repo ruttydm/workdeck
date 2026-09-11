@@ -191,7 +191,7 @@ intervals. Defining/verifying cross-runtime memory comparisons remains required 
 interaction benchmark can be mapped or admitted. The diagnostic does not force allocator purges
 and cannot claim equivalence to Hunk's full-GC snapshots.
 
-### Current native interaction receipt at `0e85dcab`
+### Current native interaction receipt at `ee34bf1e`
 
 The plain-split repaint cache, pending worker-key memo, shared review metadata, and the
 source-presentation-keyed geometry cache are measured in

@@ -33,6 +33,15 @@ impl ReviewSourcePresentation {
         self.revision
     }
 
+    /// Drop all runtime presentation entries while keeping the revision
+    /// monotonic. Reload resets must not restart the counter at zero, or a
+    /// revision-keyed cache entry from before the reset could match again
+    /// while the table content diverged.
+    pub fn clear(&mut self) {
+        self.files = Arc::new(BTreeMap::new());
+        self.revision = self.revision.saturating_add(1);
+    }
+
     pub fn retire(&mut self, keys: &std::collections::BTreeSet<String>) {
         Arc::make_mut(&mut self.files).retain(|key, _| !keys.contains(key));
         self.revision += 1;

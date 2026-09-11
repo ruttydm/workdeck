@@ -1981,7 +1981,7 @@ impl ReviewApp {
                 .retire(&self.source_loaders.keys().cloned().collect());
             self.source_loaders.clear();
             self.options.source_capabilities = None;
-            self.options.source_presentation = ReviewSourcePresentation::default();
+            self.options.source_presentation.clear();
         } else if self.with_state(|state| state.changeset() != &changeset) {
             self.reconcile_source_loaders(&changeset);
         }
@@ -25358,6 +25358,70 @@ mod tests {
         for (index, (cached, rebuilt)) in cached.content.iter().zip(&rebuilt.content).enumerate() {
             assert_eq!(cached, rebuilt, "frame cell {index}");
         }
+    }
+
+    #[test]
+    fn reset_app_reload_keeps_presentation_revision_monotonic_and_invalidates_geometry() {
+        // A reset_app reload replaces the presentation table but keeps the
+        // document Arc when the changeset is content-equal. Restarting the
+        // revision at zero would let a pre-reset geometry cache entry match a
+        // post-reset table; the reset must instead advance the revision.
+        let specs = vec![(
+            "a.rs".to_string(),
+            format!(
+                "{}\n",
+                (0..60)
+                    .map(|i| format!("old a {i}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ),
+            format!(
+                "{}\n",
+                (0..60)
+                    .map(|i| format!("new a {i}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ),
+        )];
+        let mut review = navigation_changeset(specs.clone());
+        for (file, (path, before, after)) in review.files.iter_mut().zip(&specs) {
+            file.set_sources(FileSourceSnapshots {
+                old: Some(SourceSnapshot::new(
+                    before.clone(),
+                    SourceOrigin::File { path: path.clone() },
+                    true,
+                )),
+                new: Some(SourceSnapshot::new(
+                    after.clone(),
+                    SourceOrigin::File { path: path.clone() },
+                    true,
+                )),
+            });
+        }
+        let mut app = ReviewApp::new(
+            review.clone(),
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(120, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        let before_revision = app.options.source_presentation.revision();
+        let cached = app.current_review_geometry_rows_arc();
+        let document_before = app.with_state(|state| state.changeset_snapshot());
+        app.commit_reloaded_changeset(review, SessionReloadReason::Watch, false, true);
+        let document_after = app.with_state(|state| state.changeset_snapshot());
+        assert!(
+            Arc::ptr_eq(&document_before, &document_after),
+            "fixture must exercise the content-equal reload that keeps the document Arc"
+        );
+        assert!(app.options.source_presentation.revision() > before_revision);
+        assert!(
+            !Arc::ptr_eq(&cached, &app.current_review_geometry_rows_arc()),
+            "reset_app reload must invalidate the retained geometry cache"
+        );
     }
 
     #[test]
