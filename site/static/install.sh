@@ -45,7 +45,8 @@ main() {
     shift
   done
   version="${version#v}"
-  os="$(detect_os)"
+  # Guard the platform; the operating system name itself is not needed later.
+  detect_os >/dev/null
   target="$(detect_arch)"
   [ -n "$version" ] || fail "WORKDECK_VERSION or a release version is required."
   if command -v curl >/dev/null 2>&1; then
