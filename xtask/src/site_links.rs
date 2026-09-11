@@ -16,6 +16,87 @@ use url::Url;
 
 const CANONICAL_ORIGIN: &str = "https://workdeck.dev";
 const EDIT_PREFIX: &str = "https://github.com/ruttydm/workdeck/edit/main/";
+const BASELINE: &str = "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2";
+
+/// Verify the native no-JavaScript replacement for Hunk's docs header
+/// component. The component itself only composes the brand header, route-aware
+/// current state, and Starlight's search slot; the native template owns those
+/// same controls and exposes a plain GET form for static deployments.
+pub(crate) fn verify_docs_header(repo: &Path) -> Result<()> {
+    let source = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            &format!("{BASELINE}:website/src/components/docs/DocsHeader.astro"),
+        ],
+    )?;
+    ensure!(
+        source.len() == 638,
+        "pinned DocsHeader.astro changed size: {} != 638",
+        source.len()
+    );
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "import Search from \"@astrojs/starlight/components/Search.astro\"",
+        "import BrandHeader from \"../BrandHeader.astro\"",
+        "Astro.url.pathname.startsWith(\"/changelog\")",
+        "const current =",
+        "<BrandHeader current={current} context=\"docs\">",
+        "slot=\"tools\" class=\"docs-header-tools print:hidden\"",
+        "<Search />",
+        "display: flex",
+        "min-width: 0",
+        "gap: 14px",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned DocsHeader.astro lost marker {marker:?}"
+        );
+    }
+
+    let base = std::fs::read_to_string(repo.join("site/templates/base.html"))?;
+    for marker in [
+        "class=\"brand-tools\"",
+        "class=\"docs-header-tools print:hidden\"",
+        "action=\"https://github.com/ruttydm/workdeck/search\"",
+        "method=\"get\" role=\"search\"",
+        "type=\"search\" name=\"q\"",
+        "current_path is starting_with(pat=\"/docs/\")",
+        "current_path is starting_with(pat=\"/changelog\")",
+    ] {
+        ensure!(
+            base.contains(marker),
+            "native docs header is missing {marker:?}"
+        );
+    }
+    let css = std::fs::read_to_string(repo.join("site/static/main.css"))?;
+    for marker in [
+        ".docs-header-tools",
+        "align-items: center",
+        "min-width: 0",
+        "gap: 14px",
+        "input[type=\"search\"]",
+    ] {
+        ensure!(
+            css.contains(marker),
+            "native docs header styles are missing {marker:?}"
+        );
+    }
+    let migration = std::fs::read_to_string(repo.join("docs/docs-header-migration.md"))?;
+    for marker in [
+        "DocsHeader.astro",
+        "BrandHeader",
+        "Starlight Search",
+        "plain GET form",
+        "no application JavaScript",
+    ] {
+        ensure!(
+            migration.contains(marker),
+            "docs-header migration is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
 
 /// Public files every native site build must ship.
 pub(crate) const REQUIRED_ASSETS: &[&str] = &[
@@ -387,6 +468,12 @@ fn hex(value: u8) -> Option<u8> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn native_docs_header_replaces_the_complete_starlight_composition() {
+        let repo = super::super::repo_root().unwrap();
+        super::verify_docs_header(&repo).unwrap();
+    }
 
     fn write_fixture() -> tempfile::TempDir {
         let dist = tempfile::tempdir().unwrap();

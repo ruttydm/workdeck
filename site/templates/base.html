@@ -33,7 +33,7 @@
           </svg>
           <span class="brand-star-label">Star</span>
         </a>
-      </nav></div>
+      </nav>{% if current_path is defined and (current_path is starting_with(pat="/docs/") or current_path is starting_with(pat="/changelog")) %}<div class="brand-tools"><form class="docs-header-tools print:hidden" action="https://github.com/ruttydm/workdeck/search" method="get" role="search"><label for="docs-search">Search</label><input id="docs-search" type="search" name="q" placeholder="Search Workdeck docs" autocomplete="off"><input type="hidden" name="type" value="code"></form></div>{% endif %}</div>
       </div>
     </header>
     <main>{% block content %}{% endblock content %}</main>
