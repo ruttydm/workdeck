@@ -37,6 +37,7 @@ mod release_notes;
 mod release_status;
 mod repository_forms;
 mod review_conformance;
+mod session_cli;
 mod site_assets;
 mod site_links;
 mod site_markdown;
@@ -1789,6 +1790,7 @@ fn verify() -> Result<()> {
     use_terminal_review::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     app_shell::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     pty_harness::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
+    session_cli::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     ui_components::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     site_links::verify_docs_header(&repo)?;
     site_links::verify_website_workflow(&repo)?;
@@ -2132,6 +2134,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     use_terminal_review::verify(&repo, &baseline)?;
     app_shell::verify(&repo, &baseline)?;
     pty_harness::verify(&repo, &baseline)?;
+    session_cli::verify(&repo, &baseline)?;
     ui_components::verify(&repo, &baseline)?;
     let entries = read_tree(&repo, &baseline)?;
     let expected = entries
