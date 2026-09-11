@@ -243,9 +243,10 @@ use workdeck_core::{
 use workdeck_diff::{
     DIFF_RAIL_PREFIX_WIDTH, HighlightedDiffLine, LanguageMatcher, LanguageRegistration,
     LanguageRegistry, SyntaxToken, TextSegment, clip_segments, expand_diff_tabs,
-    find_max_line_number, plan_split_line_pairs, resolve_split_cell_geometry,
-    resolve_split_pane_widths as resolve_diff_split_pane_widths, resolve_stack_cell_geometry,
-    sanitize_terminal_line, slice_segments_window, word_diff_ranges, wrap_segments,
+    find_max_line_number, measure_wrapped_segments_line_count, plan_split_line_pairs,
+    resolve_split_cell_geometry, resolve_split_pane_widths as resolve_diff_split_pane_widths,
+    resolve_stack_cell_geometry, sanitize_terminal_line, slice_segments_window, word_diff_ranges,
+    wrap_segments,
 };
 use workdeck_extension_api::{
     ExtensionCommandAvailability, ExtensionCurrentLinePaint as ExtensionCurrentLinePaintContext,
@@ -1209,6 +1210,7 @@ pub struct ReviewApp {
     review_geometry_published: Cell<bool>,
     review_prefetch: Mutex<highlight_prefetch::RapidScrollPrefetch>,
     review_plain_height: Mutex<Option<PlainReviewHeight>>,
+    review_geometry_cache: Mutex<Option<CachedReviewGeometry>>,
     horizontal_code_extent: Mutex<Option<HorizontalCodeExtent>>,
     review_scrollbar: Mutex<VerticalScrollbarController>,
     review_scrollbar_hits: Cell<Option<VerticalScrollbarRenderMap>>,
@@ -1509,6 +1511,7 @@ impl ReviewApp {
             review_geometry_published: Cell::new(false),
             review_prefetch: Mutex::new(highlight_prefetch::RapidScrollPrefetch::default()),
             review_plain_height: Mutex::new(None),
+            review_geometry_cache: Mutex::new(None),
             horizontal_code_extent: Mutex::new(None),
             review_scrollbar: Mutex::new(VerticalScrollbarController::default()),
             review_scrollbar_hits: Cell::new(None),
@@ -9578,7 +9581,7 @@ impl ReviewApp {
     }
 
     fn synchronize_selection_to_viewport_center(&mut self) {
-        let rows = self.current_review_geometry_rows();
+        let rows = self.current_review_geometry_rows_arc();
         let viewport = usize::from(
             self.review_height
                 .get()
@@ -9630,15 +9633,132 @@ impl ReviewApp {
         }
     }
 
-    fn current_review_geometry_rows(&self) -> ReviewRows {
+    /// Return geometry rows while retaining a cache for the immutable, ordinary review stream.
+    ///
+    /// Mouse-wheel bursts can deliver many events before Ratatui paints another frame. The
+    /// geometry is independent of selection in that path, so rebuilding the complete wrapped
+    /// row plan for every event is wasted work. Dynamic surfaces (notes, source expansion,
+    /// extensions, filters and agent rows) deliberately bypass the cache and retain the exact
+    /// existing rebuild semantics.
+    fn current_review_geometry_rows_arc(&self) -> Arc<ReviewRows> {
+        let width = self.review_width.get();
+        let (layout, key, document) = {
+            let state = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let layout = state.resolved_layout(self.review_layout_width());
+            let key = self.review_geometry_cache_key(&state, layout, width);
+            let document = state.changeset_snapshot();
+            (layout, key, document)
+        };
+
+        if let Some(key) = key {
+            // A few embedders inspect the plain-height guard while asking for
+            // geometry. Treat a contended guard as a cache miss rather than
+            // blocking and creating a lock cycle with that caller.
+            let plain_geometry = self.review_plain_height.try_lock().ok().and_then(|cached| {
+                cached
+                    .as_ref()
+                    .filter(|cached| cached.matches_geometry_key(&document, key))
+                    .map(|cached| Arc::clone(&cached.geometry))
+            });
+            if let Some(rows) = plain_geometry {
+                return rows;
+            }
+            let cache = self
+                .review_geometry_cache
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if let Some(cached) = cache.as_ref().filter(|cached| {
+                // `document` was captured while holding the state lock above. Do
+                // not reacquire that lock while holding the geometry-cache lock:
+                // the publication path takes the locks in the opposite order.
+                Arc::ptr_eq(&cached.document, &document) && cached.key == key
+            }) {
+                return Arc::clone(&cached.rows);
+            }
+        } else {
+            // Do not retain a large immutable row plan while a dynamic surface is active.
+            *self
+                .review_geometry_cache
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        }
+
         let mut options = self.options.clone();
         options.highlight = false;
-        self.current_review_rows_with_options(&options, ReviewRowPurpose::Geometry)
+        let rows =
+            Arc::new(self.current_review_rows_with_options(&options, ReviewRowPurpose::Geometry));
+        if let Some(key) = key {
+            let state = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if self.review_geometry_cache_key(&state, layout, width) == Some(key) {
+                *self
+                    .review_geometry_cache
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                    Some(CachedReviewGeometry {
+                        document,
+                        key,
+                        rows: Arc::clone(&rows),
+                    });
+            }
+        }
+        rows
+    }
+
+    fn review_geometry_cache_key(
+        &self,
+        state: &ReviewState,
+        layout: LayoutMode,
+        width: u16,
+    ) -> Option<ReviewGeometryCacheKey> {
+        if !self.filter.is_empty()
+            || self.note_composer.is_some()
+            || !self.expanded_gaps.is_empty()
+            || !self.agent_line_highlights.is_empty()
+            || !state.comments().is_empty()
+            || self.options.agent_notes
+            || state.changeset().files.iter().any(|file| {
+                file.agent.is_some() || self.options.source_presentation.available(file)
+            })
+        {
+            return None;
+        }
+        let runtime = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !runtime.extensions.is_empty()
+            || !runtime.file_views.is_empty()
+            || !runtime.line_highlights.registrations().is_empty()
+            || !runtime.file_view_component_expanded.is_empty()
+        {
+            return None;
+        }
+        Some(ReviewGeometryCacheKey {
+            layout,
+            width,
+            line_numbers: self.options.line_numbers,
+            line_number_digits: self.options.line_number_digits,
+            tab_width: self.options.tab_width,
+            wrap_lines: self.options.wrap_lines,
+            file_gap: self.options.file_gap,
+            hunk_gap: self.options.hunk_gap,
+            hunk_headers: self.options.hunk_headers,
+            pager: self.options.pager,
+        })
+    }
+
+    fn current_review_geometry_rows(&self) -> ReviewRows {
+        (*self.current_review_geometry_rows_arc()).clone()
     }
 
     fn current_review_content_height(&self) -> usize {
-        if !self.options.wrap_lines
-            && self.note_composer.is_none()
+        if self.note_composer.is_none()
             && self.expanded_gaps.is_empty()
             && self.agent_line_highlights.is_empty()
         {
@@ -9668,7 +9788,7 @@ impl ReviewApp {
                 return cached.height;
             }
         }
-        self.current_review_geometry_rows().lines.len()
+        self.current_review_geometry_rows_arc().lines.len()
     }
 
     fn retire_interactive_authority(&mut self) {
@@ -12592,12 +12712,11 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let comments = comments_with_thread_draft(state.comments(), app.note_composer.as_ref());
     let viewport = area.height.saturating_sub(app.review_reserved_rows()) as usize;
-    // Only plain, unwrapped split streams use viewport painting for now. Complex
-    // content retains the complete painter, including extension lifecycle calls.
+    // Ordinary split streams use viewport painting. Dynamic content retains the complete
+    // painter, including extension lifecycle calls, so no host-owned surface is skipped.
     let highlight_files;
     let gap_geometries;
     let purpose = if layout == LayoutMode::Split
-        && !app.options.wrap_lines
         && comments.is_empty()
         && app.note_composer.is_none()
         && app.expanded_gaps.is_empty()
@@ -12634,7 +12753,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         let (content_height, layouts, cached_gaps) = cached.unwrap_or_else(|| {
             let mut geometry_options = app.options.clone();
             geometry_options.highlight = false;
-            let geometry = build_live_review_rows(
+            let geometry = Arc::new(build_live_review_rows(
                 state.changeset(),
                 &comments,
                 state.selection(),
@@ -12650,7 +12769,8 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 app.options.extension_notifications.as_ref(),
                 &app.filter,
                 ReviewRowPurpose::Geometry,
-            );
+            ));
+            let height = geometry.lines.len();
             let layouts = geometry
                 .visible_file_indices
                 .iter()
@@ -12677,7 +12797,13 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                     .changeset()
                     .files
                     .iter()
-                    .map(PlainFileGeometry::new)
+                    .map(|file| {
+                        PlainFileGeometry::with_wrapped_pair_heights(
+                            file,
+                            &geometry_options,
+                            content_width,
+                        )
+                    })
                     .collect::<Vec<_>>(),
             );
             *app.review_plain_height
@@ -12691,12 +12817,17 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 hunk_gap: app.options.hunk_gap,
                 hunk_headers: app.options.hunk_headers,
                 pager: app.options.pager,
+                line_numbers: app.options.line_numbers,
+                line_number_digits: app.options.line_number_digits,
+                tab_width: app.options.tab_width,
+                wrap_lines: app.options.wrap_lines,
                 registry_generation: app.extension_registry_generation,
-                height: geometry.lines.len(),
+                height,
+                geometry: Arc::clone(&geometry),
                 sections: Arc::clone(&layouts),
                 gap_geometries: Arc::clone(&gaps),
             });
-            (geometry.lines.len(), layouts, gaps)
+            (height, layouts, gaps)
         });
         gap_geometries = cached_gaps;
         let start = app.scroll.min(content_height.saturating_sub(viewport));
@@ -13195,6 +13326,7 @@ fn render_vertical_review_scrollbar(
 struct PlainFileGeometry {
     gaps: workdeck_review::ReviewGapGeometry,
     split_pairs: Vec<Vec<workdeck_diff::SplitLinePair>>,
+    wrapped_pair_heights: Vec<Vec<usize>>,
 }
 
 impl PlainFileGeometry {
@@ -13206,7 +13338,38 @@ impl PlainFileGeometry {
                 .iter()
                 .map(|hunk| plan_split_line_pairs(&hunk.lines))
                 .collect(),
+            wrapped_pair_heights: Vec::new(),
         }
+    }
+
+    fn with_wrapped_pair_heights(file: &DiffFile, options: &ReviewOptions, width: u16) -> Self {
+        let mut geometry = Self::new(file);
+        if !options.wrap_lines {
+            return geometry;
+        }
+        let pane_widths = resolve_diff_split_pane_widths(usize::from(width));
+        geometry.wrapped_pair_heights = file
+            .hunks
+            .iter()
+            .zip(&geometry.split_pairs)
+            .map(|(hunk, pairs)| {
+                pairs
+                    .iter()
+                    .map(|pair| {
+                        let old = pair.old_index.and_then(|index| hunk.lines.get(index));
+                        let new = pair.new_index.and_then(|index| hunk.lines.get(index));
+                        split_pair_row_count(
+                            old,
+                            new,
+                            options,
+                            pane_widths.left_width,
+                            pane_widths.right_width,
+                        )
+                    })
+                    .collect()
+            })
+            .collect();
+        geometry
     }
 }
 
@@ -13229,13 +13392,33 @@ struct PlainReviewHeight {
     hunk_gap: u16,
     hunk_headers: bool,
     pager: bool,
+    line_numbers: bool,
+    line_number_digits: Option<usize>,
+    tab_width: u16,
+    wrap_lines: bool,
     registry_generation: u64,
     height: usize,
+    geometry: Arc<ReviewRows>,
     sections: Arc<Vec<FileSectionLayout>>,
     gap_geometries: Arc<Vec<PlainFileGeometry>>,
 }
 
 impl PlainReviewHeight {
+    fn matches_geometry_key(&self, document: &Arc<Changeset>, key: ReviewGeometryCacheKey) -> bool {
+        Arc::ptr_eq(&self.document, document)
+            && self.filter.is_empty()
+            && self.layout == key.layout
+            && self.width == key.width
+            && self.line_numbers == key.line_numbers
+            && self.line_number_digits == key.line_number_digits
+            && self.tab_width == key.tab_width
+            && self.wrap_lines == key.wrap_lines
+            && self.file_gap == key.file_gap
+            && self.hunk_gap == key.hunk_gap
+            && self.hunk_headers == key.hunk_headers
+            && self.pager == key.pager
+    }
+
     fn matches(
         &self,
         state: &ReviewState,
@@ -13254,6 +13437,10 @@ impl PlainReviewHeight {
             && self.hunk_gap == options.hunk_gap
             && self.hunk_headers == options.hunk_headers
             && self.pager == options.pager
+            && self.line_numbers == options.line_numbers
+            && self.line_number_digits == options.line_number_digits
+            && self.tab_width == options.tab_width
+            && self.wrap_lines == options.wrap_lines
             && self.registry_generation == registry_generation
     }
 }
@@ -13274,7 +13461,7 @@ struct GapCursorRestorePoint {
 
 /// Compact ordered row lookup. Duplicate rows retain the last inserted target,
 /// matching the previous BTreeMap representation, including after composer shifts.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct ReviewNoteTargets(Vec<(usize, ReviewNoteTarget)>);
 
 impl ReviewNoteTargets {
@@ -13323,7 +13510,28 @@ impl IntoIterator for ReviewNoteTargets {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ReviewGeometryCacheKey {
+    layout: LayoutMode,
+    width: u16,
+    line_numbers: bool,
+    line_number_digits: Option<usize>,
+    tab_width: u16,
+    wrap_lines: bool,
+    file_gap: u16,
+    hunk_gap: u16,
+    hunk_headers: bool,
+    pager: bool,
+}
+
 #[derive(Debug)]
+struct CachedReviewGeometry {
+    document: Arc<Changeset>,
+    key: ReviewGeometryCacheKey,
+    rows: Arc<ReviewRows>,
+}
+
+#[derive(Debug, Clone)]
 struct ReviewRows {
     lines: Vec<Line<'static>>,
     note_targets: ReviewNoteTargets,
@@ -15002,26 +15210,58 @@ fn split_hunk_rows(
     rows.reserve(pairs.len());
     targets.reserve(pairs.len());
     cursor_targets.reserve(hunk.lines.len());
-    for pair in pairs {
-        let geometry_nowrap = geometry_nowrap
-            || (!options.wrap_lines
-                && matches!(purpose, ReviewRowPurpose::Viewport { start, end, .. }
-                    if !(start..end).contains(&row_offset.saturating_add(rows.len()))));
+    for (pair_index, pair) in pairs.iter().enumerate() {
         let old = pair.old_index.and_then(|index| hunk.lines.get(index));
         let new = pair.new_index.and_then(|index| hunk.lines.get(index));
+        let pair_height = match purpose {
+            ReviewRowPurpose::Viewport {
+                gap_geometries: Some(files),
+                ..
+            } => files
+                .get(file_index)
+                .and_then(|file| file.wrapped_pair_heights.get(hunk_index))
+                .and_then(|heights| heights.get(pair_index))
+                .copied()
+                .unwrap_or_else(|| {
+                    if options.wrap_lines {
+                        split_pair_row_count(old, new, options, left_width, right_width)
+                    } else {
+                        1
+                    }
+                }),
+            ReviewRowPurpose::Viewport { .. } => {
+                if options.wrap_lines {
+                    split_pair_row_count(old, new, options, left_width, right_width)
+                } else {
+                    1
+                }
+            }
+            ReviewRowPurpose::Geometry if !options.wrap_lines => 1,
+            _ => 0,
+        };
+        let offscreen = matches!(
+            purpose,
+            ReviewRowPurpose::Viewport { start, end, .. }
+                if {
+                    let pair_start = row_offset.saturating_add(rows.len());
+                    let pair_end = pair_start.saturating_add(pair_height);
+                    pair_start >= end || pair_end <= start
+                }
+        );
+        let skip_paint = geometry_nowrap || offscreen;
         let emphasis = old
             .zip(new)
             .filter(|(old, new)| !std::ptr::eq(*old, *new))
-            .filter(|_| !geometry_nowrap)
+            .filter(|_| !skip_paint)
             .map(|(old, new)| {
                 word_diff_ranges(
                     &expanded_line_content(old, options.tab_width),
                     &expanded_line_content(new, options.tab_width),
                 )
             });
-        let pair_rows = if geometry_nowrap {
-            // Append the single geometry row directly below, without allocating
-            // a temporary one-element vector for every offscreen pair.
+        let pair_rows = if skip_paint {
+            // Preserve the exact wrapped geometry for offscreen pairs without
+            // allocating styled cells that will not reach the viewport.
             Vec::new()
         } else {
             split_pair_rows(
@@ -15078,9 +15318,9 @@ fn split_hunk_rows(
         let pair_target = new
             .or(old)
             .map(|line| diff_line_note_target(file_index, hunk_index, line));
-        if geometry_nowrap {
-            targets.push(pair_target);
-            rows.push(Line::default());
+        if skip_paint {
+            targets.extend(std::iter::repeat_n(pair_target, pair_height));
+            rows.extend(std::iter::repeat_with(Line::default).take(pair_height));
         } else {
             targets.extend(std::iter::repeat_n(pair_target, pair_rows.len()));
             rows.extend(pair_rows);
@@ -15468,6 +15708,48 @@ struct SplitCellInput<'a> {
     highlighted: Option<&'a Vec<SyntaxToken>>,
     emphasis: &'a [Range<usize>],
     line_highlights: Option<&'a LineHighlightRangeList>,
+}
+
+/// Measure a split cell's wrapped height without constructing styled spans. The geometry
+/// module uses the same grapheme and terminal-cell rules as the painter, so this is an exact
+/// row-count oracle suitable for deciding whether an offscreen pair needs painting.
+fn split_cell_row_count(line: Option<&DiffLine>, options: &ReviewOptions, width: usize) -> usize {
+    let geometry = resolve_split_cell_geometry(
+        width,
+        options.line_number_digits.unwrap_or(4).max(1),
+        options.line_numbers,
+        DIFF_RAIL_PREFIX_WIDTH,
+    );
+    let spans = line
+        .map(|line| {
+            vec![TextSegment {
+                text: expand_diff_tabs(&line.content, options.tab_width, 0),
+                style: (),
+            }]
+        })
+        .unwrap_or_default();
+    measure_wrapped_segments_line_count(&spans, geometry.content_width)
+}
+
+fn split_pair_row_count(
+    old: Option<&DiffLine>,
+    new: Option<&DiffLine>,
+    options: &ReviewOptions,
+    left_width: usize,
+    right_width: usize,
+) -> usize {
+    let reserved = if options.wrap_lines {
+        usize::from(CODE_ROW_ADD_NOTE_BADGE_WIDTH)
+    } else {
+        0
+    };
+    split_cell_row_count(old, options, left_width)
+        .max(split_cell_row_count(
+            new,
+            options,
+            right_width.saturating_sub(reserved),
+        ))
+        .max(1)
 }
 
 fn split_pair_rows(
