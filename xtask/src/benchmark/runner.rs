@@ -38,6 +38,7 @@ fn workload_command(name: &str) -> Result<&'static str> {
         "geometry-memory.ts" => Ok("geometry-memory"),
         "interaction-latency.ts" => Ok("interaction-diagnostic"),
         "memory.ts" => Ok("memory"),
+        "navigation-memory.ts" => Ok("navigation-memory"),
         "worker-highlight-cache.ts" => Ok("worker-highlight-cache"),
         "highlight-cache-layers.ts" => Ok("highlight-cache-layers"),
         "terminal-width.ts" => Ok("terminal-width"),

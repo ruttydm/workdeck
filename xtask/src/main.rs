@@ -1805,6 +1805,7 @@ fn verify() -> Result<()> {
     benchmark::verify_memory(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     benchmark::verify_worker_highlight_cache(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     benchmark::verify_highlight_cache_layers(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
+    benchmark::verify_navigation_memory(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     ci_changes::verify_workflow(&repo)?;
     ci_changes::verify_main_workflow(&repo)?;
     diff_pane::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
@@ -2164,6 +2165,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     benchmark::verify_memory(&repo, &baseline)?;
     benchmark::verify_worker_highlight_cache(&repo, &baseline)?;
     benchmark::verify_highlight_cache_layers(&repo, &baseline)?;
+    benchmark::verify_navigation_memory(&repo, &baseline)?;
     diff_pane::verify(&repo, &baseline)?;
     use_terminal_review::verify(&repo, &baseline)?;
     app_shell::verify(&repo, &baseline)?;
@@ -2836,6 +2838,9 @@ fn print_help() {
     println!("cargo xtask benchmark large-stream");
     println!("cargo xtask benchmark large-stream-profile");
     println!("cargo xtask benchmark memory-snapshot");
+    println!(
+        "cargo xtask benchmark navigation-memory [--navigations N] [--warmup-navigations N] [--sample-every N] [--file-count N] [--lines-per-file N] [--width N] [--height N] [--mode bounce|forward] [--no-gc]"
+    );
     println!(
         "cargo xtask benchmark geometry-memory [--file-count N] [--lines-per-file N] [--width N] [--no-gc]"
     );

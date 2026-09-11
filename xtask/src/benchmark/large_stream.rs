@@ -15,6 +15,7 @@ const SELECTED_HIGHLIGHT_MARKER: &str = "stream1_40";
 pub(super) struct Renderer {
     pub(super) app: ReviewApp,
     pub(super) buffer: Buffer,
+    viewport: Rect,
 }
 
 impl Renderer {
@@ -33,6 +34,13 @@ impl Renderer {
     }
 
     pub(super) fn from_bootstrap(bootstrap: workdeck_core::AppBootstrap) -> Self {
+        Self::from_bootstrap_at_viewport(bootstrap, VIEWPORT)
+    }
+
+    pub(super) fn from_bootstrap_at_viewport(
+        bootstrap: workdeck_core::AppBootstrap,
+        viewport: Rect,
+    ) -> Self {
         let app = ReviewApp::new(
             bootstrap.changeset,
             ReviewOptions {
@@ -45,14 +53,15 @@ impl Renderer {
         );
         Self {
             app,
-            buffer: Buffer::empty(VIEWPORT),
+            buffer: Buffer::empty(viewport),
+            viewport,
         }
     }
 
     pub(super) fn render_pass(&mut self, passes: usize) {
         for _ in 0..passes {
             self.buffer.reset();
-            render(VIEWPORT, &mut self.buffer, &self.app);
+            render(self.viewport, &mut self.buffer, &self.app);
         }
     }
 

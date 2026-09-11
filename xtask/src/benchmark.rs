@@ -153,6 +153,12 @@ const HIGHLIGHT_CACHE_LAYERS_LINES: usize = 74;
 const HIGHLIGHT_CACHE_LAYERS_SHA256: &str =
     "6f83f074bd40f38d87b05421248caf1b8289052df346f4e93b9975a92a56f11a";
 
+const NAVIGATION_MEMORY_PATH: &str = "benchmarks/navigation-memory.ts";
+const NAVIGATION_MEMORY_BYTES: usize = 12_791;
+const NAVIGATION_MEMORY_LINES: usize = 339;
+const NAVIGATION_MEMORY_SHA256: &str =
+    "d1aee6872a77a79414dd68e877c0a1b5279b402e6a0ce1373c352c56d7f86ef9";
+
 /// Verify the executable native replacement for Hunk's terminal-width
 /// benchmark. The source is read from both protected pins; no TypeScript or
 /// string-width runtime is copied into the final tree.
@@ -894,6 +900,116 @@ pub(crate) fn verify_highlight_cache_layers(repo: &Path, baseline: &str) -> Resu
     Ok(())
 }
 
+/// Verify the native mounted-review navigation memory workload replacing Hunk's Bun script.
+pub(crate) fn verify_navigation_memory(repo: &Path, baseline: &str) -> Result<()> {
+    ensure!(
+        baseline == BASELINE,
+        "navigation-memory verifier received unexpected baseline {baseline}"
+    );
+    let source = crate::git_stdout_bytes(
+        repo,
+        ["show", &format!("{BASELINE}:{NAVIGATION_MEMORY_PATH}")],
+    )?;
+    let stable = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            &format!("4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd:{NAVIGATION_MEMORY_PATH}"),
+        ],
+    )?;
+    for (pin, bytes) in [(BASELINE, &source), ("stable-v0.20.1", &stable)] {
+        ensure!(
+            bytes.len() == NAVIGATION_MEMORY_BYTES,
+            "pinned {NAVIGATION_MEMORY_PATH} {pin} changed size: {} != {NAVIGATION_MEMORY_BYTES}",
+            bytes.len()
+        );
+        ensure!(
+            bytes.split(|byte| *byte == b'\n').count() == NAVIGATION_MEMORY_LINES + 1,
+            "pinned {NAVIGATION_MEMORY_PATH} {pin} changed line count"
+        );
+        ensure!(
+            format!("{:x}", Sha256::digest(bytes)) == NAVIGATION_MEMORY_SHA256,
+            "pinned {NAVIGATION_MEMORY_PATH} {pin} changed SHA-256"
+        );
+    }
+    ensure!(
+        source == stable,
+        "pinned navigation-memory benchmark diverged between pins"
+    );
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "Track retained memory while repeatedly navigating",
+        "testRender",
+        "performance.now",
+        "createLargeSplitStreamBootstrap",
+        "parseNumberOption",
+        "sampleMemory",
+        "process.memoryUsage",
+        "nextNavigationKey",
+        "linearSlope",
+        "--mode",
+        "--no-gc",
+        "maxHeapGrowthMb",
+        "maxHeapSlopeKb",
+        "maxRssGrowthMb",
+        "after_destroy",
+        "navigation_heap_growth_bytes",
+        "jsonOut",
+        "passed",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned navigation-memory benchmark is missing marker {marker:?}"
+        );
+    }
+    for (path, marker) in [
+        (
+            "xtask/src/benchmark/navigation_memory.rs",
+            "pub(super) fn run(",
+        ),
+        (
+            "xtask/src/benchmark/navigation_memory.rs",
+            "native_navigation_mount_renders_and_changes_selection",
+        ),
+        (
+            "xtask/src/benchmark/navigation_memory.rs",
+            "next_navigation_key",
+        ),
+        ("xtask/src/benchmark/runner.rs", "navigation-memory.ts"),
+        ("xtask/src/benchmark.rs", "Some(\"navigation-memory\")"),
+        (
+            "docs/benchmarks.md",
+            "cargo xtask benchmark navigation-memory",
+        ),
+    ] {
+        let native = fs::read_to_string(repo.join(path))
+            .with_context(|| format!("read navigation-memory native surface {path}"))?;
+        ensure!(
+            native.contains(marker),
+            "navigation-memory native surface {path} is missing {marker:?}"
+        );
+    }
+    let docs = fs::read_to_string(repo.join("docs/navigation-memory-benchmark-migration.md"))
+        .context("read navigation-memory migration documentation")?;
+    for marker in [
+        NAVIGATION_MEMORY_PATH,
+        "12,791",
+        NAVIGATION_MEMORY_SHA256,
+        "bounce",
+        "forward",
+        "Ratatui",
+        "RSS",
+        "native allocator",
+        "no JavaScript heap",
+    ] {
+        ensure!(
+            docs.contains(marker),
+            "navigation-memory migration documentation is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
+
 mod bootstrap;
 mod changeset_parse;
 pub(crate) mod competitors;
@@ -911,6 +1027,7 @@ mod large_stream;
 mod large_stream_profile;
 mod memory;
 mod native_memory;
+mod navigation_memory;
 mod non_ascii_stream;
 mod release;
 mod render_layout;
@@ -1583,6 +1700,9 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     if command.as_deref() == Some("memory") {
         return memory::run(args);
     }
+    if command.as_deref() == Some("navigation-memory") {
+        return navigation_memory::run(args);
+    }
     if command.as_deref() == Some("worker-highlight-cache") {
         return worker_highlight_cache::run(args);
     }
@@ -1725,6 +1845,12 @@ mod tests {
     fn native_highlight_cache_layers_source_is_verified_at_both_pins() {
         let repo = super::super::repo_root().unwrap();
         super::verify_highlight_cache_layers(&repo, BASELINE).unwrap();
+    }
+
+    #[test]
+    fn native_navigation_memory_source_is_verified_at_both_pins() {
+        let repo = super::super::repo_root().unwrap();
+        super::verify_navigation_memory(&repo, BASELINE).unwrap();
     }
 
     #[test]
