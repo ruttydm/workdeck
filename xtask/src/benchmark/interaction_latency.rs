@@ -112,6 +112,24 @@ fn measure(memory: bool) -> Result<serde_json::Value> {
         scrolling.app.review_scroll() > initial_scroll,
         "wheel ticks did not scroll"
     );
+    // Diagnostic-only steady-state loop for external profilers. Runs after the
+    // measured sections and never contributes samples to the report.
+    if let Ok(seconds) = std::env::var("WORKDECK_SCROLL_PROFILE_SECS")
+        && let Ok(seconds) = seconds.parse::<u64>()
+        && seconds > 0
+    {
+        let deadline = std::time::Duration::from_secs(seconds);
+        let profile_start = Instant::now();
+        while profile_start.elapsed() < deadline {
+            scrolling.app.handle_mouse_event(MouseEvent {
+                kind: MouseEventKind::ScrollDown,
+                column: 170,
+                row: 12,
+                modifiers: KeyModifiers::NONE,
+            });
+            scrolling.render_pass(1);
+        }
+    }
     for distribution in [&presses, &ticks] {
         anyhow::ensure!(
             distribution
@@ -147,6 +165,10 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     }
     native_memory::snapshot()?; // Fail unsupported backends before constructing the workload.
     let report = measure(true)?;
+    if std::env::var_os("WORKDECK_INTERACTION_JSON").is_some() {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
     println!(
         "METRIC first_frame_ms={}",
         fixed(report["firstFrameMs"].as_f64().unwrap_or_default(), 2)
