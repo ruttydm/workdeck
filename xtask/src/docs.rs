@@ -512,4 +512,23 @@ mod tests {
         }
         assert!(!page.contains("hunk.apiVersion") && !page.contains("@opentui"));
     }
+
+    #[test]
+    fn extension_architecture_names_native_owners_and_revocation_rules() {
+        let repo = crate::repo_root().unwrap();
+        let page = fs::read_to_string(repo.join("docs/extension-architecture.md")).unwrap();
+        for required in [
+            "workdeck-extension-api",
+            "workdeck-extension-host",
+            "workdeck-tui",
+            "workdeck-review",
+            "Registry closure revokes",
+            "JSON-RPC 2.0",
+            "Four-edge panes",
+            "Line highlighters",
+        ] {
+            assert!(page.contains(required), "missing {required}");
+        }
+        assert!(!page.contains("src/extensions/") && !page.contains("hostRuntimeModules"));
+    }
 }
