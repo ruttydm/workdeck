@@ -19,3 +19,9 @@ keeps the isolated Git environment. The verifier reads both protected source
 blobs through `git show`, checks every source test description and error
 surface, and runs native policy, command-shape, and termination tests. No Bun
 runtime, JavaScript test mirror, or npm package is retained.
+
+The pinned `scripts/run-test-suite.ts` launcher is covered as well (5,558 bytes
+ / 167 lines, SHA-256
+`3fbee1810fbe770035651aa88372f2ed9fa7ca34096009191cb086dea113d598`). Its
+native replacement is the `cargo xtask test` command and its Cargo-owned
+workspace runner; no package-manager process is spawned.

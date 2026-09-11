@@ -14,6 +14,10 @@ const SOURCE_PATH: &str = "scripts/run-test-suite.test.ts";
 const SOURCE_BYTES: usize = 2_555;
 const SOURCE_LINES: usize = 79;
 const SOURCE_SHA256: &str = "7db067c683d0f16daf940f21b9bee91c1d47676f8d38c5bfce326b09e81243d9";
+const RUNNER_PATH: &str = "scripts/run-test-suite.ts";
+const RUNNER_BYTES: usize = 5_558;
+const RUNNER_LINES: usize = 167;
+const RUNNER_SHA256: &str = "3fbee1810fbe770035651aa88372f2ed9fa7ca34096009191cb086dea113d598";
 
 /// Resolve the bounded test parallelism policy from the source helper.
 pub(crate) fn resolve_test_shard_count(
@@ -109,6 +113,22 @@ pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {
         "pinned test-sharding suite diverged between pins"
     );
     let source = std::str::from_utf8(&source)?;
+    for pin in [BASELINE, STABLE] {
+        let runner = crate::git_stdout_bytes(repo, ["show", &format!("{pin}:{RUNNER_PATH}")])?;
+        ensure!(
+            runner.len() == RUNNER_BYTES,
+            "pinned {RUNNER_PATH} {pin} changed size: {} != {RUNNER_BYTES}",
+            runner.len()
+        );
+        ensure!(
+            runner.split(|byte| *byte == b'\n').count() == RUNNER_LINES + 1,
+            "pinned {RUNNER_PATH} {pin} changed line count"
+        );
+        ensure!(
+            format!("{:x}", Sha256::digest(&runner)) == RUNNER_SHA256,
+            "pinned {RUNNER_PATH} {pin} changed SHA-256"
+        );
+    }
     for marker in [
         "from \"bun:test\"",
         "buildTestShardCommand",
@@ -151,6 +171,7 @@ pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {
             "test_sharding::build_test_shard_command(",
         ),
         ("xtask/src/main.rs", "WORKDECK_TEST_SHARDS"),
+        ("xtask/src/main.rs", "Some(\"test\")"),
     ] {
         let native = fs::read_to_string(repo.join(path))?;
         ensure!(
