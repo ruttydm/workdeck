@@ -1468,6 +1468,55 @@ impl App {
         rows
     }
 
+    /// Rotate the Git summary's comparison base through the branches known to the
+    /// current snapshot. The setting is session-local, so a read-only shell never
+    /// writes repository configuration; subsequent refreshes still use the selected
+    /// value for this App instance.
+    pub fn cycle_git_base_branch(&mut self) {
+        let Some(overview) = self.git_overview.as_mut() else {
+            self.status_message = "git overview unavailable".to_string();
+            return;
+        };
+
+        let current_branch = overview.current_branch.clone();
+        let selected = overview.base_branch.clone();
+        let configured = self.config.git.base_branch.trim().to_owned();
+        let mut candidates = Vec::<String>::new();
+
+        if let Some(base) = selected
+            .as_deref()
+            .filter(|base| !base.trim().is_empty() && *base != current_branch)
+        {
+            candidates.push(base.to_owned());
+        } else if !configured.is_empty() && configured != current_branch {
+            candidates.push(configured);
+        }
+        for branch in &overview.branches {
+            if branch.name == current_branch || candidates.iter().any(|name| name == &branch.name) {
+                continue;
+            }
+            candidates.push(branch.name.clone());
+        }
+
+        let Some(first) = candidates.first() else {
+            self.status_message = "no alternate base branches available".to_string();
+            return;
+        };
+        let next = selected
+            .as_ref()
+            .and_then(|base| candidates.iter().position(|candidate| candidate == base))
+            .map_or_else(
+                || first.clone(),
+                |index| candidates[(index + 1) % candidates.len()].clone(),
+            );
+        overview.base_branch = Some(next.clone());
+        self.config.git.base_branch = next.clone();
+        self.preview_cache = None;
+        self.preview_loading = None;
+        self.preview_scroll = 0;
+        self.status_message = format!("base branch {next}");
+    }
+
     pub fn file_browser_entries(&self) -> Vec<FileBrowserEntry> {
         let mut dirs = BTreeSet::<PathBuf>::new();
         let mut files = Vec::<FileBrowserEntry>::new();
@@ -2467,6 +2516,105 @@ mod tests {
         let commit = app.preview_target().unwrap();
         assert_eq!(commit.kind, PreviewKind::GitCommit);
         assert_eq!(commit.path, PathBuf::from("abc123456"));
+    }
+
+    #[test]
+    fn cycling_git_base_branch_uses_known_non_current_branches_and_invalidates_preview() {
+        let mut app = new_with_parts_for_test(Vec::new());
+        app.active_tab = Tab::Git;
+        app.git_overview = Some(GitOverview {
+            current_branch: "feature/git".to_string(),
+            upstream: Some("origin/feature/git".to_string()),
+            ahead: 1,
+            behind: 0,
+            base_branch: Some("origin/main".to_string()),
+            remotes: Vec::new(),
+            branches: vec![
+                crate::git::GitBranch {
+                    name: "feature/git".to_string(),
+                    is_current: true,
+                    is_remote: false,
+                    upstream: Some("origin/feature/git".to_string()),
+                },
+                crate::git::GitBranch {
+                    name: "origin/main".to_string(),
+                    is_current: false,
+                    is_remote: true,
+                    upstream: None,
+                },
+                crate::git::GitBranch {
+                    name: "origin/release".to_string(),
+                    is_current: false,
+                    is_remote: true,
+                    upstream: None,
+                },
+            ],
+            recent_commits: Vec::new(),
+            stashes: Vec::new(),
+            tags: Vec::new(),
+        });
+        app.preview_cache = Some(PreviewCache {
+            target: PreviewTarget {
+                tab: Tab::Git,
+                path: PathBuf::from("origin/main"),
+                kind: PreviewKind::GitSummary,
+            },
+            preview: git_text_preview("summary".into(), "old".into()),
+        });
+        app.preview_scroll = 12;
+
+        app.cycle_git_base_branch();
+
+        assert_eq!(
+            app.git_overview
+                .as_ref()
+                .and_then(|overview| overview.base_branch.as_deref()),
+            Some("origin/release")
+        );
+        assert_eq!(app.config.git.base_branch, "origin/release");
+        assert!(app.preview_cache.is_none());
+        assert_eq!(app.preview_scroll, 0);
+        assert_eq!(app.status_message, "base branch origin/release");
+    }
+
+    #[test]
+    fn cycling_git_base_branch_selects_first_branch_when_base_is_unconfigured() {
+        let mut app = new_with_parts_for_test(Vec::new());
+        app.git_overview = Some(GitOverview {
+            current_branch: "feature/git".to_string(),
+            upstream: None,
+            ahead: 0,
+            behind: 0,
+            base_branch: None,
+            remotes: Vec::new(),
+            branches: vec![
+                crate::git::GitBranch {
+                    name: "feature/git".to_string(),
+                    is_current: true,
+                    is_remote: false,
+                    upstream: None,
+                },
+                crate::git::GitBranch {
+                    name: "main".to_string(),
+                    is_current: false,
+                    is_remote: false,
+                    upstream: None,
+                },
+            ],
+            recent_commits: Vec::new(),
+            stashes: Vec::new(),
+            tags: Vec::new(),
+        });
+
+        app.cycle_git_base_branch();
+
+        assert_eq!(app.config.git.base_branch, "main");
+        assert_eq!(
+            app.git_overview
+                .as_ref()
+                .and_then(|overview| overview.base_branch.as_deref()),
+            Some("main")
+        );
     }
 
     #[test]

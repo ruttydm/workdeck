@@ -585,9 +585,10 @@ fn handle_key(
     {
         app.toggle_dirstat();
     } else if app.active_tab == Tab::Git && configured_key(key, &app.config.keys.base) {
-        app.status_message = "base branch selection not implemented yet".to_string();
+        app.cycle_git_base_branch();
     } else if app.active_tab == Tab::Git && configured_key(key, &app.config.keys.pull_requests) {
-        app.status_message = "PR refresh not implemented yet".to_string();
+        app.status_message =
+            "PR review is provided by the native extension: workdeck gh <number>".to_string();
     } else if configured_key(key, &app.config.keys.refresh) {
         spawn_refresh(app, refresh_tx.clone());
     } else if configured_key(key, &app.config.keys.new_issue) {
