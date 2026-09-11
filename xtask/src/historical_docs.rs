@@ -18,12 +18,26 @@ struct DocSpec {
     sha256: &'static str,
 }
 
-const DOCS: &[DocSpec] = &[DocSpec {
-    source: "docs/extension-api-evaluation.md",
-    native: "docs/extension-api-evaluation.md",
-    bytes: 5068,
-    sha256: "2b777c623572ba0bc08b46ab7894fa324e20653be71257f2d9a44f1426136ff4",
-}];
+const DOCS: &[DocSpec] = &[
+    DocSpec {
+        source: "docs/extension-api-evaluation.md",
+        native: "docs/extension-api-evaluation.md",
+        bytes: 5068,
+        sha256: "2b777c623572ba0bc08b46ab7894fa324e20653be71257f2d9a44f1426136ff4",
+    },
+    DocSpec {
+        source: "docs/watch-benchmark.md",
+        native: "docs/watch-benchmark.md",
+        bytes: 3953,
+        sha256: "2a480e5167b6a5dae9c94ef2e721a0d00130e6f6e0fa18692ec0a4343c92da22",
+    },
+    DocSpec {
+        source: "docs/watch-benchmark-final.md",
+        native: "docs/watch-benchmark-final.md",
+        bytes: 37074,
+        sha256: "0e13cab0984c0524e6e54d38228c81881e8decf98c07e94dacb78e44389c1839",
+    },
+];
 
 pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {
     if baseline != BASELINE {

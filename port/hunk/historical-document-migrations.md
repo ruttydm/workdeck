@@ -9,8 +9,16 @@ and this migration entry.
 | Pinned file | Native destination | Verification |
 | --- | --- | --- |
 | `docs/extension-api-evaluation.md` | `docs/extension-api-evaluation.md` | `cargo xtask verify` / `historical_docs::verify` |
+| `docs/watch-benchmark.md` | `docs/watch-benchmark.md` | `cargo xtask verify` / `historical_docs::verify` |
+| `docs/watch-benchmark-final.md` | `docs/watch-benchmark-final.md` | `cargo xtask verify` / `historical_docs::verify` |
 
 The translated evaluation preserves the original findings while recording the
 native Rust/Ratatui resolutions and their executable extension tests. Hunk's
 MIT copyright remains attributed in the destination document and
 `THIRD_PARTY_NOTICES`.
+
+The watch reports retain the complete historical campaign surface, including
+its exact headings, tables, provenance, limitations, and disclosed failures.
+The destination pages identify those values as upstream historical evidence;
+native Workdeck measurements remain in the Rust benchmark reports and are never
+silently substituted for the pinned campaign.
