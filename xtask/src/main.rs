@@ -1777,6 +1777,8 @@ fn run_workspace_tests(repo: &Path) -> Result<()> {
 
 fn verify() -> Result<()> {
     let repo = repo_root()?;
+    benchmark::verify_workflow(&repo)?;
+    ci_changes::verify_workflow(&repo)?;
     benchmark::verify_historical(&repo)?;
     verify_vendored_themes()?;
     skill::check(&repo)?;

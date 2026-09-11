@@ -1,11 +1,118 @@
 //! MIT translation of Hunk .github/scripts/detect-code-changes.sh.
 //! Failed Git comparisons fail closed rather than silently skipping CI.
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
+
+const BASELINE: &str = "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2";
+
+/// Verify the complete native replacement for Hunk's code-change detector and
+/// its Nix workflow. The source is inspected through Git; no shell mirror is
+/// retained or executed by Workdeck.
+pub(crate) fn verify_workflow(repo: &Path) -> Result<()> {
+    let source = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            &format!("{BASELINE}:.github/scripts/detect-code-changes.sh"),
+        ],
+    )?;
+    ensure!(
+        source.len() == 1_266,
+        "pinned detect-code-changes.sh changed size: {} != 1266",
+        source.len()
+    );
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        "base_sha=\"${1:?base commit required}\"",
+        "head_sha=\"${2:?head commit required}\"",
+        "git hash-object -t tree /dev/null",
+        "git cat-file -e",
+        "git fetch --no-tags --depth=1 origin",
+        "is_docs_only_path()",
+        "*.md | docs/* | assets/* | LICENSE",
+        "git diff --name-only --no-renames",
+        "GITHUB_OUTPUT",
+        "Code changes detected; expensive CI jobs should run.",
+        "Only docs/assets metadata changes detected; expensive CI jobs can be skipped.",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned code-change detector lost marker {marker:?}"
+        );
+    }
+
+    let native = std::fs::read_to_string(repo.join("xtask/src/ci_changes.rs"))?;
+    for marker in [
+        "fn validate_revision(",
+        "fn ensure_object(",
+        "fn docs_only_path(",
+        "fn code_changed_in_output(",
+        "fn detect(",
+        "append_github_output",
+        "GITHUB_OUTPUT",
+        "port/hunk/oracles/ci-code-changes.json",
+    ] {
+        ensure!(
+            native.contains(marker),
+            "native code-change detector is missing {marker:?}"
+        );
+    }
+
+    let workflow = std::fs::read_to_string(repo.join(".github/workflows/nix.yml"))?;
+    for marker in [
+        "name: Nix",
+        "pull_request:",
+        "branches:",
+        "group: nix-${{ github.workflow }}-${{ github.ref }}",
+        "name: Detect code changes",
+        "cargo xtask ci-changes \"$BASE_SHA\" \"$HEAD_SHA\"",
+        "outputs:",
+        "name: Package",
+        "if: needs.changes.outputs.code == 'true'",
+        "nix flake check --no-write-lock-file --print-build-logs",
+        "nix flake check --all-systems --no-build",
+        "nix build .#default --print-build-logs",
+        "./result/bin/workdeck --help",
+        "skill path",
+    ] {
+        ensure!(
+            workflow.contains(marker),
+            "native Nix workflow is missing {marker:?}"
+        );
+    }
+    for forbidden in ["bun", "node", "npm", "opentui", "wasm", "hunk"] {
+        let pattern = regex::Regex::new(&format!(
+            r"(?i)(?:^|[^a-z]){}(?:$|[^a-z])",
+            regex::escape(forbidden)
+        ))
+        .expect("forbidden runtime token pattern is valid");
+        ensure!(
+            !pattern.is_match(&workflow),
+            "native Nix workflow retains forbidden runtime token {forbidden:?}"
+        );
+    }
+    let migration = std::fs::read_to_string(repo.join("docs/nix-workflow-migration.md"))?;
+    for marker in [
+        ".github/scripts/detect-code-changes.sh",
+        ".github/workflows/nix.yml",
+        "cargo xtask ci-changes",
+        "Nix flake",
+        "workdeck --help",
+        "not copied or executed",
+    ] {
+        ensure!(
+            migration.contains(marker),
+            "Nix workflow migration is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
 
 fn git(repo: &Path, args: &[&str]) -> Result<Vec<u8>> {
     let output = Command::new("git")
@@ -112,6 +219,12 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_nix_workflow_replaces_the_complete_pinned_shell_detector() {
+        let repo = super::super::repo_root().unwrap();
+        super::verify_workflow(&repo).unwrap();
+    }
 
     #[test]
     fn frozen_source_results_match_messages_and_appended_github_output() {
