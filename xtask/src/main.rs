@@ -41,6 +41,7 @@ mod term_video;
 mod theme_probe;
 mod tooling_configs;
 mod upstream_refs;
+mod website_docs;
 
 const DEFAULT_BASELINE: &str = "hunk-port/main-2c00f435^{}";
 const DEFAULT_STABLE: &str = "hunk-port/stable-v0.20.1^{}";
@@ -1760,6 +1761,7 @@ fn verify() -> Result<()> {
     changeset_config::verify(&repo, &baseline)?;
     extension_catalog::verify_pinned_source(&repo, &baseline)?;
     legacy_dependency_inputs::verify(&repo, &baseline)?;
+    website_docs::verify(&repo, &baseline)?;
     skill::verify_pinned_web_review_skill(&repo, &baseline)?;
     changelog::verify_pinned_website_inputs(&repo, &baseline)?;
     changelog::run(
@@ -2069,6 +2071,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     changeset_config::verify(&repo, &baseline)?;
     extension_catalog::verify_pinned_source(&repo, &baseline)?;
     legacy_dependency_inputs::verify(&repo, &baseline)?;
+    website_docs::verify(&repo, &baseline)?;
     skill::verify_pinned_web_review_skill(&repo, &baseline)?;
     changelog::verify_pinned_website_inputs(&repo, &baseline)?;
     benchmark::verify_historical_for_baseline(&repo, &baseline)?;

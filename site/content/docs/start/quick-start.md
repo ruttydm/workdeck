@@ -42,6 +42,9 @@ it does not establish complete renderer parity.
 ```sh
 workdeck show
 workdeck show HEAD~1
+```
+
+```sh
 workdeck show HEAD~1 -- src README.md
 ```
 
