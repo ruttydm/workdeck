@@ -29,6 +29,7 @@ mod install;
 mod install_oracle;
 mod install_script;
 mod install_smoke;
+mod install_vm;
 mod legacy_dependency_inputs;
 mod nix;
 mod port_history;
@@ -315,6 +316,7 @@ fn run() -> Result<()> {
         Some("install-inspect") => install::inspect(args),
         Some("install-oracle") => install_oracle::run(&repo_root()?, args),
         Some("install-smoke") => install_smoke::run(&repo_root()?, args),
+        Some("install-vm") => install_vm::run(&repo_root()?, args),
         Some("install-stage") => install::stage(args),
         Some("install-create") => install::create(args),
         Some("changelog") => changelog::run(&repo_root()?, args),
@@ -1872,6 +1874,7 @@ fn verify() -> Result<()> {
     install::verify_workflow(&repo)?;
     install::verify_vm_workflow(&repo)?;
     install_smoke::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
+    install_vm::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     release_channel::verify_prebuilt_release_workflow(&repo)?;
     release_notes::verify_pr_workflow(&repo)?;
     changelog::run(
@@ -2211,6 +2214,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     broker_e2e::verify(&repo, &baseline)?;
     install_script::verify(&repo, &baseline)?;
     install_smoke::verify(&repo, &baseline)?;
+    install_vm::verify(&repo, &baseline)?;
     theme_probe::verify(&repo, &baseline)?;
     release_targets::verify(&repo, &baseline)?;
     release_artifacts::verify(&repo, &baseline)?;
@@ -2936,6 +2940,7 @@ fn print_help() {
     println!("cargo xtask install-oracle");
     println!("cargo xtask install-inspect ARCHIVE [--package]");
     println!("cargo xtask install-smoke");
+    println!("cargo xtask install-vm [--list] [--scenario ID] [--output DIR]");
     println!("cargo xtask changelog upstream-history [--check]");
     println!("cargo xtask changelog parse <markdown-file>");
     println!("cargo xtask changelog series <markdown-file>");
