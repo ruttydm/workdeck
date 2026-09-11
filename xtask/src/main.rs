@@ -1817,6 +1817,7 @@ fn verify() -> Result<()> {
     benchmark::competitors::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     benchmark::verify_geometry_memory(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     benchmark::verify_runner(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
+    benchmark::verify_release_run(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     benchmark::verify_interaction(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     benchmark::verify_memory(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     benchmark::verify_worker_highlight_cache(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
@@ -2181,6 +2182,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     benchmark::competitors::verify(&repo, &baseline)?;
     benchmark::verify_geometry_memory(&repo, &baseline)?;
     benchmark::verify_runner(&repo, &baseline)?;
+    benchmark::verify_release_run(&repo, &baseline)?;
     benchmark::verify_interaction(&repo, &baseline)?;
     benchmark::verify_memory(&repo, &baseline)?;
     benchmark::verify_worker_highlight_cache(&repo, &baseline)?;
@@ -2877,6 +2879,7 @@ fn print_help() {
     println!("cargo xtask benchmark highlight-cache-layers");
     println!("cargo xtask benchmark huge-stream-diagnostic");
     println!("cargo xtask benchmark historical-release [--check]");
+    println!("cargo xtask benchmark release-run [--version VERSION] [--samples N] [--out PATH]");
     println!("cargo xtask ci-changes <base-revision> <head-revision>");
     println!("cargo xtask ci-host <expected-native-target>");
     println!("cargo xtask benchmark non-ascii-stream");

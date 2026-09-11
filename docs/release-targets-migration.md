@@ -20,3 +20,9 @@ The verifier reads both protected source blobs through `git show`, checks the
 complete test-description and expected-result surface, and runs native tests
 for x64 libc selection, arm64 defaults, and unsupported hosts before the
 ledger interval is mapped.
+
+The pinned `scripts/build-bin.ts` launcher (2,863 bytes / 87 lines,
+SHA-256 `46888364765826de991e42b1552eba9842760a10bba077d27f22c083a429bc40`)
+is replaced by `cargo xtask release build`. It builds the single `workdeck`
+Cargo binary for the selected target and copies it to `dist/workdeck`; no
+alternate executable or package-manager runtime is produced.

@@ -14,6 +14,11 @@ const SOURCE_PATH: &str = "scripts/build-bin.test.ts";
 const SOURCE_BYTES: usize = 1_172;
 const SOURCE_LINES: usize = 25;
 const SOURCE_SHA256: &str = "0a198ec71b6a06c18a87ec49373222a4f37a356e1e053bc7afa979edf3bb19cb";
+const BUILD_SCRIPT_PATH: &str = "scripts/build-bin.ts";
+const BUILD_SCRIPT_BYTES: usize = 2_863;
+const BUILD_SCRIPT_LINES: usize = 87;
+const BUILD_SCRIPT_SHA256: &str =
+    "46888364765826de991e42b1552eba9842760a10bba077d27f22c083a429bc40";
 
 /// Return the explicit Rust target required for a published x64 host.
 ///
@@ -73,6 +78,22 @@ pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {
             && compile_target_for_host("freebsd", "x64", false).is_none(),
         "native release target matrix no longer matches the pinned host policy"
     );
+    for pin in [BASELINE, STABLE] {
+        let build = crate::git_stdout_bytes(repo, ["show", &format!("{pin}:{BUILD_SCRIPT_PATH}")])?;
+        ensure!(
+            build.len() == BUILD_SCRIPT_BYTES,
+            "pinned {BUILD_SCRIPT_PATH} {pin} changed size: {} != {BUILD_SCRIPT_BYTES}",
+            build.len()
+        );
+        ensure!(
+            build.split(|byte| *byte == b'\n').count() == BUILD_SCRIPT_LINES + 1,
+            "pinned {BUILD_SCRIPT_PATH} {pin} changed line count"
+        );
+        ensure!(
+            format!("{:x}", Sha256::digest(&build)) == BUILD_SCRIPT_SHA256,
+            "pinned {BUILD_SCRIPT_PATH} {pin} changed SHA-256"
+        );
+    }
     let source = std::str::from_utf8(&source)?;
     for marker in [
         "from \"bun:test\"",
@@ -101,6 +122,7 @@ pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {
             "xtask/src/release_targets.rs",
             "native_rust_target_selection_matches_both_pinned_build_bin_tests",
         ),
+        ("xtask/src/release_artifacts.rs", "pub(crate) fn build("),
         ("xtask/src/release_channel.rs", "aarch64-apple-darwin"),
         (".github/workflows/release.yml", "x86_64-unknown-linux-gnu"),
         (".github/workflows/release.yml", "x86_64-pc-windows-msvc"),

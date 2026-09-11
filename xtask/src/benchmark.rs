@@ -477,6 +477,56 @@ pub(crate) fn verify_runner(repo: &Path, baseline: &str) -> Result<()> {
     Ok(())
 }
 
+const RELEASE_RUN_PATH: &str = "scripts/run-release-benchmark.ts";
+const RELEASE_RUN_BYTES: usize = 2_792;
+const RELEASE_RUN_LINES: usize = 100;
+const RELEASE_RUN_SHA256: &str = "b476ac2c808c87df48b1c2963c2285cc03390bb4447f88ac036e23cda577aceb";
+
+/// Verify the native release-benchmark capture command replacing the pinned
+/// package-manager launcher.  The command delegates to the already validated
+/// native workload runner and writes the same versioned JSON snapshot.
+pub(crate) fn verify_release_run(repo: &Path, baseline: &str) -> Result<()> {
+    ensure!(
+        baseline == BASELINE,
+        "release benchmark runner verifier received unexpected baseline {baseline}"
+    );
+    for pin in [BASELINE, "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"] {
+        let source = crate::git_stdout_bytes(repo, ["show", &format!("{pin}:{RELEASE_RUN_PATH}")])?;
+        ensure!(
+            source.len() == RELEASE_RUN_BYTES,
+            "pinned {RELEASE_RUN_PATH} {pin} changed size: {} != {RELEASE_RUN_BYTES}",
+            source.len()
+        );
+        ensure!(
+            source.split(|byte| *byte == b'\n').count() == RELEASE_RUN_LINES + 1,
+            "pinned {RELEASE_RUN_PATH} {pin} changed line count"
+        );
+        ensure!(
+            format!("{:x}", Sha256::digest(&source)) == RELEASE_RUN_SHA256,
+            "pinned {RELEASE_RUN_PATH} {pin} changed SHA-256"
+        );
+    }
+    for (path, marker) in [
+        ("xtask/src/benchmark.rs", "fn release_run("),
+        (
+            "xtask/src/benchmark/runner.rs",
+            "pub(super) fn run_command(",
+        ),
+        (
+            "docs/release-benchmark-run-migration.md",
+            "cargo xtask benchmark release-run",
+        ),
+    ] {
+        let native = fs::read_to_string(repo.join(path))
+            .with_context(|| format!("read release benchmark native surface {path}"))?;
+        ensure!(
+            native.contains(marker),
+            "release benchmark native surface {path} is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
+
 /// Verify the native interaction-latency workload and its shared helper.
 pub(crate) fn verify_interaction(repo: &Path, baseline: &str) -> Result<()> {
     ensure!(
@@ -1504,6 +1554,38 @@ fn release_plan(args: impl Iterator<Item = String>) -> Result<()> {
     Ok(())
 }
 
+fn release_run(args: impl Iterator<Item = String>) -> Result<()> {
+    let root = super::repo_root()?;
+    let metadata = cargo_metadata::MetadataCommand::new()
+        .current_dir(&root)
+        .no_deps()
+        .exec()?;
+    let version = metadata
+        .packages
+        .iter()
+        .find(|p| p.name.as_str() == "workdeck-cli")
+        .ok_or_else(|| anyhow::anyhow!("workspace does not contain workdeck-cli"))?
+        .version
+        .to_string();
+    let samples = std::env::var("WORKDECK_RELEASE_BENCHMARK_SAMPLES").ok();
+    let options = release_run_options(
+        &root,
+        &std::env::current_dir()?,
+        version,
+        samples.as_deref(),
+        args,
+    )?;
+    runner::run_command(
+        [
+            "--samples".to_owned(),
+            options.samples.to_string(),
+            "--out".to_owned(),
+            options.out.to_string_lossy().into_owned(),
+        ]
+        .into_iter(),
+    )
+}
+
 struct ReleaseVersion {
     parts: [f64; 3],
     prerelease: Option<String>,
@@ -2108,6 +2190,9 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     }
     if command.as_deref() == Some("release-plan") {
         return release_plan(args);
+    }
+    if command.as_deref() == Some("release-run") {
+        return release_run(args);
     }
     if command.as_deref() == Some("previous") {
         return previous_command(args);
