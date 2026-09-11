@@ -147,6 +147,12 @@ const WORKER_HIGHLIGHT_CACHE_LINES: usize = 56;
 const WORKER_HIGHLIGHT_CACHE_SHA256: &str =
     "48996b748cea282b08e605e64c5549724045d3537c0051aafdd535cef7246582";
 
+const HIGHLIGHT_CACHE_LAYERS_PATH: &str = "benchmarks/highlight-cache-layers.ts";
+const HIGHLIGHT_CACHE_LAYERS_BYTES: usize = 2_584;
+const HIGHLIGHT_CACHE_LAYERS_LINES: usize = 74;
+const HIGHLIGHT_CACHE_LAYERS_SHA256: &str =
+    "6f83f074bd40f38d87b05421248caf1b8289052df346f4e93b9975a92a56f11a";
+
 /// Verify the executable native replacement for Hunk's terminal-width
 /// benchmark. The source is read from both protected pins; no TypeScript or
 /// string-width runtime is copied into the final tree.
@@ -780,11 +786,120 @@ pub(crate) fn verify_worker_highlight_cache(repo: &Path, baseline: &str) -> Resu
     Ok(())
 }
 
+/// Verify the native two-layer cache workload replacing Hunk's
+/// `highlight-cache-layers.ts` script.
+pub(crate) fn verify_highlight_cache_layers(repo: &Path, baseline: &str) -> Result<()> {
+    ensure!(
+        baseline == BASELINE,
+        "highlight cache-layers verifier received unexpected baseline {baseline}"
+    );
+    let source = crate::git_stdout_bytes(
+        repo,
+        ["show", &format!("{BASELINE}:{HIGHLIGHT_CACHE_LAYERS_PATH}")],
+    )?;
+    let stable = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            &format!("4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd:{HIGHLIGHT_CACHE_LAYERS_PATH}"),
+        ],
+    )?;
+    for (pin, bytes) in [(BASELINE, &source), ("stable-v0.20.1", &stable)] {
+        ensure!(
+            bytes.len() == HIGHLIGHT_CACHE_LAYERS_BYTES,
+            "pinned {HIGHLIGHT_CACHE_LAYERS_PATH} {pin} changed size: {} != {HIGHLIGHT_CACHE_LAYERS_BYTES}",
+            bytes.len()
+        );
+        ensure!(
+            bytes.split(|byte| *byte == b'\n').count() == HIGHLIGHT_CACHE_LAYERS_LINES + 1,
+            "pinned {HIGHLIGHT_CACHE_LAYERS_PATH} {pin} changed line count"
+        );
+        ensure!(
+            format!("{:x}", Sha256::digest(bytes)) == HIGHLIGHT_CACHE_LAYERS_SHA256,
+            "pinned {HIGHLIGHT_CACHE_LAYERS_PATH} {pin} changed SHA-256"
+        );
+    }
+    ensure!(
+        source == stable,
+        "pinned highlight cache-layers benchmark diverged between pins"
+    );
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "performance.now",
+        "parseDiffFromFile",
+        "resolveTheme",
+        "disposeHighlightWorker",
+        "prefetchHighlightedDiff",
+        "lineCount = 8_000",
+        "Array.from",
+        "createFile",
+        "timeHighlight",
+        "mainCacheHitMs",
+        "workerCacheHitAfterMainEvictionMs",
+        "60k-line main-cache budget",
+        "8 MiB compact",
+        "cold_ms",
+        "main_cache_hit_ms",
+        "worker_cache_hit_after_main_eviction_ms",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned highlight cache-layers benchmark is missing marker {marker:?}"
+        );
+    }
+    for (path, marker) in [
+        (
+            "xtask/src/benchmark/highlight_cache_layers.rs",
+            "pub(super) fn run(",
+        ),
+        (
+            "xtask/src/benchmark/highlight_cache_layers.rs",
+            "native_cache_layers_distinguish_terminal_hit_from_worker_revisit",
+        ),
+        (
+            "xtask/src/benchmark/highlight_cache_layers.rs",
+            "resolve_snapshot(Some(first)",
+        ),
+        ("xtask/src/benchmark/runner.rs", "highlight-cache-layers.ts"),
+        ("xtask/src/benchmark.rs", "Some(\"highlight-cache-layers\")"),
+        (
+            "docs/benchmarks.md",
+            "cargo xtask benchmark highlight-cache-layers",
+        ),
+    ] {
+        let native = fs::read_to_string(repo.join(path))
+            .with_context(|| format!("read highlight cache-layers native surface {path}"))?;
+        ensure!(
+            native.contains(marker),
+            "highlight cache-layers native surface {path} is missing {marker:?}"
+        );
+    }
+    let docs = fs::read_to_string(repo.join("docs/highlight-cache-layers-benchmark-migration.md"))
+        .context("read highlight cache-layers migration documentation")?;
+    for marker in [
+        HIGHLIGHT_CACHE_LAYERS_PATH,
+        "2,584",
+        HIGHLIGHT_CACHE_LAYERS_SHA256,
+        "terminal cache",
+        "worker-owned",
+        "8,000",
+        "Ratatui",
+        "no JavaScript runtime",
+    ] {
+        ensure!(
+            docs.contains(marker),
+            "highlight cache-layers migration documentation is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
+
 mod bootstrap;
 mod changeset_parse;
 pub(crate) mod competitors;
 mod fixtures;
 mod geometry_memory;
+mod highlight_cache_layers;
 mod highlight_prefetch;
 mod historical;
 mod huge_stream;
@@ -1471,6 +1586,9 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     if command.as_deref() == Some("worker-highlight-cache") {
         return worker_highlight_cache::run(args);
     }
+    if command.as_deref() == Some("highlight-cache-layers") {
+        return highlight_cache_layers::run(args);
+    }
     if command.as_deref() == Some("memory-snapshot") {
         return native_memory::run(args);
     }
@@ -1601,6 +1719,12 @@ mod tests {
     fn native_worker_highlight_cache_source_is_verified_at_both_pins() {
         let repo = super::super::repo_root().unwrap();
         super::verify_worker_highlight_cache(&repo, BASELINE).unwrap();
+    }
+
+    #[test]
+    fn native_highlight_cache_layers_source_is_verified_at_both_pins() {
+        let repo = super::super::repo_root().unwrap();
+        super::verify_highlight_cache_layers(&repo, BASELINE).unwrap();
     }
 
     #[test]

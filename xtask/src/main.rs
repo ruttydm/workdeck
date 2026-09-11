@@ -1804,6 +1804,7 @@ fn verify() -> Result<()> {
     benchmark::verify_interaction(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     benchmark::verify_memory(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     benchmark::verify_worker_highlight_cache(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
+    benchmark::verify_highlight_cache_layers(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     ci_changes::verify_workflow(&repo)?;
     ci_changes::verify_main_workflow(&repo)?;
     diff_pane::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
@@ -2162,6 +2163,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     benchmark::verify_interaction(&repo, &baseline)?;
     benchmark::verify_memory(&repo, &baseline)?;
     benchmark::verify_worker_highlight_cache(&repo, &baseline)?;
+    benchmark::verify_highlight_cache_layers(&repo, &baseline)?;
     diff_pane::verify(&repo, &baseline)?;
     use_terminal_review::verify(&repo, &baseline)?;
     app_shell::verify(&repo, &baseline)?;
@@ -2839,6 +2841,7 @@ fn print_help() {
     );
     println!("cargo xtask benchmark interaction-diagnostic");
     println!("cargo xtask benchmark worker-highlight-cache");
+    println!("cargo xtask benchmark highlight-cache-layers");
     println!("cargo xtask benchmark huge-stream-diagnostic");
     println!("cargo xtask benchmark historical-release [--check]");
     println!("cargo xtask ci-changes <base-revision> <head-revision>");
