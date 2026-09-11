@@ -7436,41 +7436,49 @@ impl ReviewApp {
             .extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let selections = runtime.file_view_selections.entries().clone();
-        let registrations = runtime.file_views.clone();
+        // Raw-diff frames are the overwhelmingly common path. Keep the
+        // controller reconciliation below active, but avoid cloning extension
+        // state and scanning every file when no selected presentation can be
+        // resolved in this frame.
+        let has_candidates =
+            !runtime.file_views.is_empty() && !runtime.file_view_selections.entries().is_empty();
+        let selections = has_candidates.then(|| runtime.file_view_selections.entries().clone());
+        let registrations = has_candidates.then(|| runtime.file_views.clone());
         let mut candidates = BTreeMap::new();
-        for file in &changeset.files {
-            if !diff_file_matches_filter(file, &self.filter) {
-                continue;
+        if let (Some(selections), Some(registrations)) = (&selections, &registrations) {
+            for file in &changeset.files {
+                if !diff_file_matches_filter(file, &self.filter) {
+                    continue;
+                }
+                if draft_file_id.as_deref() == Some(file.runtime_id.as_str()) {
+                    continue;
+                }
+                let Some(view_key) = selections.get(&file.runtime_id) else {
+                    continue;
+                };
+                let Some(registration) = registrations
+                    .iter()
+                    .find(|registration| registered_file_view_key(&registration.view) == *view_key)
+                else {
+                    continue;
+                };
+                let identity = FileViewLayoutIdentity {
+                    file_id: file.runtime_id.clone(),
+                    file_path: file.path.clone(),
+                    content_identity: file.content_identity.clone(),
+                    view_key: view_key.clone(),
+                    extension_id: registration.view.extension_id.clone(),
+                    view_id: registration.view.view_id.clone(),
+                    registration_identity: registration.registration_identity,
+                    width,
+                    epoch: workdeck_extension_host::file_view_layout_epoch(
+                        &runtime.file_view_epochs,
+                        view_key,
+                        &file.runtime_id,
+                    ),
+                };
+                candidates.insert(identity, (file.clone(), registration.clone()));
             }
-            if draft_file_id.as_deref() == Some(file.runtime_id.as_str()) {
-                continue;
-            }
-            let Some(view_key) = selections.get(&file.runtime_id) else {
-                continue;
-            };
-            let Some(registration) = registrations
-                .iter()
-                .find(|registration| registered_file_view_key(&registration.view) == *view_key)
-            else {
-                continue;
-            };
-            let identity = FileViewLayoutIdentity {
-                file_id: file.runtime_id.clone(),
-                file_path: file.path.clone(),
-                content_identity: file.content_identity.clone(),
-                view_key: view_key.clone(),
-                extension_id: registration.view.extension_id.clone(),
-                view_id: registration.view.view_id.clone(),
-                registration_identity: registration.registration_identity,
-                width,
-                epoch: workdeck_extension_host::file_view_layout_epoch(
-                    &runtime.file_view_epochs,
-                    view_key,
-                    &file.runtime_id,
-                ),
-            };
-            candidates.insert(identity, (file.clone(), registration.clone()));
         }
         let warnings = runtime.file_view_layouts.poll_results();
         let identities = candidates.keys().cloned().collect::<Vec<_>>();
