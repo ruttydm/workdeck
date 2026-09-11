@@ -159,6 +159,12 @@ const NAVIGATION_MEMORY_LINES: usize = 339;
 const NAVIGATION_MEMORY_SHA256: &str =
     "d1aee6872a77a79414dd68e877c0a1b5279b402e6a0ce1373c352c56d7f86ef9";
 
+const RESIZE_MEMORY_PATH: &str = "benchmarks/resize-memory.ts";
+const RESIZE_MEMORY_BYTES: usize = 10_992;
+const RESIZE_MEMORY_LINES: usize = 309;
+const RESIZE_MEMORY_SHA256: &str =
+    "bc379ed71d4bcd1c941b4d953f6a1c8fb47c4d10e3dd08eb342c9e945db5ab52";
+
 /// Verify the executable native replacement for Hunk's terminal-width
 /// benchmark. The source is read from both protected pins; no TypeScript or
 /// string-width runtime is copied into the final tree.
@@ -1010,6 +1016,108 @@ pub(crate) fn verify_navigation_memory(repo: &Path, baseline: &str) -> Result<()
     Ok(())
 }
 
+/// Verify the native mounted-review resize memory workload replacing Hunk's Bun script.
+pub(crate) fn verify_resize_memory(repo: &Path, baseline: &str) -> Result<()> {
+    ensure!(
+        baseline == BASELINE,
+        "resize-memory verifier received unexpected baseline {baseline}"
+    );
+    let source =
+        crate::git_stdout_bytes(repo, ["show", &format!("{BASELINE}:{RESIZE_MEMORY_PATH}")])?;
+    let stable = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            &format!("4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd:{RESIZE_MEMORY_PATH}"),
+        ],
+    )?;
+    for (pin, bytes) in [(BASELINE, &source), ("stable-v0.20.1", &stable)] {
+        ensure!(
+            bytes.len() == RESIZE_MEMORY_BYTES,
+            "pinned {RESIZE_MEMORY_PATH} {pin} changed size: {} != {RESIZE_MEMORY_BYTES}",
+            bytes.len()
+        );
+        ensure!(
+            bytes.split(|byte| *byte == b'\n').count() == RESIZE_MEMORY_LINES + 1,
+            "pinned {RESIZE_MEMORY_PATH} {pin} changed line count"
+        );
+        ensure!(
+            format!("{:x}", Sha256::digest(bytes)) == RESIZE_MEMORY_SHA256,
+            "pinned {RESIZE_MEMORY_PATH} {pin} changed SHA-256"
+        );
+    }
+    ensure!(
+        source == stable,
+        "pinned resize-memory benchmark diverged between pins"
+    );
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "Track retained memory while repeatedly resizing",
+        "testRender",
+        "performance.now",
+        "createLargeSplitStreamBootstrap",
+        "parseNumberOption",
+        "parseWidths",
+        "sampleMemory",
+        "process.memoryUsage",
+        "setup.resize",
+        "resizeDurationsMs",
+        "maxHeapGrowthMb",
+        "maxRssGrowthMb",
+        "peakHeapGrowthBytes",
+        "peakRssGrowthBytes",
+        "--widths",
+        "--cycles",
+        "jsonOut",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned resize-memory benchmark is missing marker {marker:?}"
+        );
+    }
+    for (path, marker) in [
+        ("xtask/src/benchmark/resize_memory.rs", "pub(super) fn run("),
+        (
+            "xtask/src/benchmark/resize_memory.rs",
+            "native_resize_mount_renders_each_width_and_reports_metrics",
+        ),
+        ("xtask/src/benchmark/resize_memory.rs", "parse_widths"),
+        (
+            "xtask/src/benchmark/large_stream.rs",
+            "pub(super) fn resize(",
+        ),
+        ("xtask/src/benchmark/runner.rs", "resize-memory.ts"),
+        ("xtask/src/benchmark.rs", "Some(\"resize-memory\")"),
+        ("docs/benchmarks.md", "cargo xtask benchmark resize-memory"),
+    ] {
+        let native = fs::read_to_string(repo.join(path))
+            .with_context(|| format!("read resize-memory native surface {path}"))?;
+        ensure!(
+            native.contains(marker),
+            "resize-memory native surface {path} is missing {marker:?}"
+        );
+    }
+    let docs = fs::read_to_string(repo.join("docs/resize-memory-benchmark-migration.md"))
+        .context("read resize-memory migration documentation")?;
+    for marker in [
+        RESIZE_MEMORY_PATH,
+        "10,992",
+        RESIZE_MEMORY_SHA256,
+        "widths",
+        "cycles",
+        "Ratatui",
+        "RSS",
+        "native allocator",
+        "no JavaScript heap",
+    ] {
+        ensure!(
+            docs.contains(marker),
+            "resize-memory migration documentation is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
+
 mod bootstrap;
 mod changeset_parse;
 pub(crate) mod competitors;
@@ -1031,6 +1139,7 @@ mod navigation_memory;
 mod non_ascii_stream;
 mod release;
 mod render_layout;
+mod resize_memory;
 mod runner;
 mod stream;
 mod terminal_width;
@@ -1703,6 +1812,9 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     if command.as_deref() == Some("navigation-memory") {
         return navigation_memory::run(args);
     }
+    if command.as_deref() == Some("resize-memory") {
+        return resize_memory::run(args);
+    }
     if command.as_deref() == Some("worker-highlight-cache") {
         return worker_highlight_cache::run(args);
     }
@@ -1851,6 +1963,12 @@ mod tests {
     fn native_navigation_memory_source_is_verified_at_both_pins() {
         let repo = super::super::repo_root().unwrap();
         super::verify_navigation_memory(&repo, BASELINE).unwrap();
+    }
+
+    #[test]
+    fn native_resize_memory_source_is_verified_at_both_pins() {
+        let repo = super::super::repo_root().unwrap();
+        super::verify_resize_memory(&repo, BASELINE).unwrap();
     }
 
     #[test]

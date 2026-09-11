@@ -65,6 +65,11 @@ impl Renderer {
         }
     }
 
+    pub(super) fn resize(&mut self, width: u16, height: u16) {
+        self.viewport = Rect::new(0, 0, width, height);
+        self.buffer = Buffer::empty(self.viewport);
+    }
+
     fn flush_selected_highlight(&mut self) -> bool {
         for _ in 0..200 {
             self.render_pass(1);
