@@ -1366,6 +1366,7 @@ pub(crate) fn verify_huge_stream(repo: &Path, baseline: &str) -> Result<()> {
             "pub(super) fn huge_bootstrap(",
         ),
         ("xtask/src/benchmark.rs", "Some(\"huge-stream-diagnostic\")"),
+        ("xtask/src/benchmark.rs", "Some(\"huge-stream\")"),
         ("xtask/src/benchmark/runner.rs", "huge-stream.ts"),
         ("docs/benchmarks.md", "cargo xtask benchmark huge-stream"),
     ] {
@@ -2107,10 +2108,13 @@ fn aggregate(source: &str, name: &str, samples: Vec<f64>) -> Metric {
 pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     let command = args.next();
     if command.as_deref() == Some("huge-stream-diagnostic") {
-        return huge_stream::run(args);
+        return huge_stream::run_diagnostic(args);
     }
     if command.as_deref() == Some("historical-release") {
         return historical::run(args);
+    }
+    if command.as_deref() == Some("huge-stream") {
+        return huge_stream::run(args);
     }
     if command.as_deref() == Some("geometry-memory") {
         return geometry_memory::run(args);

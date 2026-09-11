@@ -28,6 +28,7 @@ fn workload_command(name: &str) -> Result<&'static str> {
         "bootstrap-load.ts" => Ok("bootstrap-load"),
         "changeset-parse.ts" => Ok("changeset-parse"),
         "highlight-prefetch.ts" => Ok("highlight-prefetch"),
+        "huge-stream.ts" => Ok("huge-stream"),
         "large-stream.ts" => Ok("large-stream"),
         "large-stream-profile.ts" => Ok("large-stream-profile"),
         "non-ascii-stream.ts" => Ok("non-ascii-stream"),
@@ -496,6 +497,12 @@ mod tests {
             ["huge-stream.ts", "huge-stream.ts", "competitors.ts"]
         );
         assert_eq!(custom.scripts, ["huge-stream.ts"]);
+    }
+
+    #[test]
+    fn opt_in_huge_workload_uses_the_native_metrics_driver() {
+        assert_eq!(workload_command("huge-stream.ts").unwrap(), "huge-stream");
+        assert!(workload_command("unknown.ts").is_err());
     }
 
     #[test]

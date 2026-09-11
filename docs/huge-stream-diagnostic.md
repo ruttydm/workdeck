@@ -6,6 +6,18 @@ Run the native diagnostic with:
 cargo xtask benchmark huge-stream-diagnostic
 ```
 
+The release-runner form is also available through the pinned workload name and
+emits aggregated `METRIC` lines suitable for `benchmark run`:
+
+```console
+cargo xtask benchmark run --script huge-stream.ts --samples 1
+```
+
+It uses the same single-renderer interaction sequence. RSS is the portable
+memory metric; macOS additionally reports allocator-in-use bytes when that
+counter is available. Those native counters are intentionally not described as
+JavaScript heap usage.
+
 This opt-in workload uses the translated Hunk huge fixture: 1,000 files with
 300 lines each plus one 50,000-line file. It builds one renderer, measures the
 first frame, renders two startup-settling frames, executes six wheel ticks,

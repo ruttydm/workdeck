@@ -67,7 +67,7 @@ fn measure(bootstrap: workdeck_core::AppBootstrap) -> Result<serde_json::Value> 
     }))
 }
 
-pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
+pub(super) fn run_diagnostic(mut args: impl Iterator<Item = String>) -> Result<()> {
     ensure!(
         args.next().is_none(),
         "huge-stream-diagnostic accepts no arguments"
@@ -85,6 +85,99 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     report["linesPerFile"] = serde_json::json!(stream::HUGE_LINES_PER_FILE);
     report["giantFileLines"] = serde_json::json!(stream::GIANT_SINGLE_FILE_LINES);
     println!("{}", serde_json::to_string_pretty(&report)?);
+    Ok(())
+}
+
+/// Execute the opt-in runner workload and emit the same metric families as the
+/// pinned benchmark. Native allocator counters are emitted only when the host
+/// exposes a comparable backend; RSS remains the authoritative cross-platform
+/// memory signal and is never relabeled as JavaScript heap usage.
+pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
+    ensure!(
+        args.next().is_none(),
+        "benchmark huge-stream accepts no arguments"
+    );
+    native_memory::snapshot()?;
+    let fixture_start = Instant::now();
+    let bootstrap = stream::huge_bootstrap(std::env::current_dir()?)?;
+    let fixture_build_ms = fixture_start.elapsed().as_secs_f64() * 1000.0;
+    let report = measure(bootstrap)?;
+
+    let number = |path: &[&str]| -> Result<f64> {
+        report
+            .pointer(&format!("/{}", path.join("/")))
+            .and_then(serde_json::Value::as_f64)
+            .ok_or_else(|| anyhow::anyhow!("huge benchmark report is missing {}", path.join(".")))
+    };
+    let samples = |path: &[&str]| -> Result<Vec<f64>> {
+        report
+            .pointer(&format!("/{}", path.join("/")))
+            .and_then(serde_json::Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(serde_json::Value::as_f64)
+                    .collect()
+            })
+            .filter(|values: &Vec<f64>| !values.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("huge benchmark report is missing {}", path.join(".")))
+    };
+    let scroll = samples(&["scrollTickMs"])?;
+    let navigation = samples(&["navigationPressMs"])?;
+    for (name, value) in [
+        ("huge_fixture_build_ms", fixture_build_ms),
+        ("huge_cold_first_frame_ms", number(&["firstFrameMs"])?),
+        (
+            "huge_after_first_frame_rss_bytes",
+            number(&["afterFirstFrame", "rssBytes"])?,
+        ),
+        (
+            "huge_scroll_tick_median_ms",
+            super::percentile(&scroll, 50.0),
+        ),
+        ("huge_scroll_tick_p95_ms", super::percentile(&scroll, 95.0)),
+        (
+            "huge_hunk_nav_press_median_ms",
+            super::percentile(&navigation, 50.0),
+        ),
+        (
+            "huge_hunk_nav_press_p95_ms",
+            super::percentile(&navigation, 95.0),
+        ),
+        (
+            "huge_after_navigation_rss_bytes",
+            number(&["afterNavigation", "rssBytes"])?,
+        ),
+    ] {
+        let digits = if name.ends_with("_bytes") { 0 } else { 2 };
+        println!("METRIC {name}={}", super::fixed(value, digits));
+    }
+    if let Some(value) = report
+        .pointer("/afterFirstFrame/mallocInUseBytes")
+        .and_then(serde_json::Value::as_f64)
+    {
+        println!(
+            "METRIC huge_after_first_frame_malloc_in_use_bytes={}",
+            super::fixed(value, 0)
+        );
+    }
+    if let Some(value) = report
+        .pointer("/afterNavigation/mallocInUseBytes")
+        .and_then(serde_json::Value::as_f64)
+    {
+        println!(
+            "METRIC huge_after_navigation_malloc_in_use_bytes={}",
+            super::fixed(value, 0)
+        );
+    }
+    println!("METRIC navigation_presses=4");
+    println!("METRIC scroll_ticks=6");
+    println!("METRIC files={}", stream::HUGE_FILE_COUNT + 1);
+    println!("METRIC lines_per_file={}", stream::HUGE_LINES_PER_FILE);
+    println!(
+        "METRIC giant_file_lines={}",
+        stream::GIANT_SINGLE_FILE_LINES
+    );
     Ok(())
 }
 

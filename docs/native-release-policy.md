@@ -213,8 +213,8 @@ cross-platform CI, or the remaining release gates. See [the semantic-port ledger
 `cargo xtask benchmark parse-metrics` reads benchmark stdout from stdin and emits ordered
 `[name, value]` pairs. It preserves the first insertion position and last value of duplicate
 names, uses the pinned decimal-number grammar and ECMAScript whitespace rules, and ignores
-non-metric output. Five frozen cases match both pins. This parser does not execute the unfinished
-benchmark suite. Native report models also retain runtime, version, sample-count and regression
+non-metric output. Five frozen cases match both pins. This parser is deliberately separate from
+workload execution. Native report models also retain runtime, version, sample-count and regression
 explanation metadata; a read-only test round-trips all 22 pinned historical release reports.
 Historical runtime metadata is data only and never starts a JavaScript runtime.
 The benchmark-result source mapping covers thresholds, metrics, runtime metadata, regression
@@ -228,23 +228,26 @@ fractional/radix sample counts, repeated values and errors. The plan preserves s
 identifiers (including their historical `.ts` suffix), ordered defaults and appended opt-ins;
 these identifiers do not name executable source files in Workdeck. The plan reports whether its
 entire selection has native execution support, creates no output directory and executes no
-workload. The default suite still reports `executionAvailable: false`.
+workload. The default suite and the `--include-huge` plus `--include-competitors` selection now
+report `executionAvailable: true`; the opt-in huge driver emits native RSS and, where available,
+allocator-in-use metrics without relabeling them as a JavaScript heap.
 
 `cargo xtask benchmark run --script render-layout.ts --samples 1 --out REPORT.json` executes
 the completed render-layout workload in a native child process, drains both output pipes,
 aggregates repeated samples and writes a versioned report with Git/Cargo/native-platform metadata.
-`bootstrap-load.ts`, `working-tree-load.ts`, `changeset-parse.ts`, `highlight-prefetch.ts`, `large-stream.ts`
-`non-ascii-stream.ts`, `wrapped-cjk.ts` and `render-layout.ts` are currently admitted.
-Every selected workload is checked before execution
-or output-directory creation; default, huge, competitor and other incomplete selections fail.
+`bootstrap-load.ts`, `working-tree-load.ts`, `changeset-parse.ts`, `highlight-prefetch.ts`, `large-stream.ts`,
+`non-ascii-stream.ts`, `wrapped-cjk.ts`, `render-layout.ts`, and the opt-in `huge-stream.ts` are
+admitted. Every selected workload is checked before execution or output-directory creation;
+unknown or unavailable selections fail before any child starts.
 Fractional sample counts retain the source loop semantics, and repeated workload selections append
 samples rather than replacing them. Historical metric thresholds remain compatibility metadata.
 Child stdout/stderr use replacement UTF-8 decoding with one initial BOM removed, matching the
 pinned runtime's text decoding. Unix signal exits use `128 + signal` (SIGTERM is 143); normal
 nonzero exits retain their numeric status, emit trimmed stderr and do not forward failed stdout.
 Frozen runtime-primitive cases and an actual signal-terminated child test cover these paths.
-The complete runner remains unmapped: other workloads and general locale-sensitive report ordering
-are not yet implemented, and this diagnostic execution does not satisfy the strict performance gate.
+The native runner now covers the pinned executable workload set, while optional profiling helpers
+remain explicit commands rather than release-runner inputs. General locale-sensitive report
+ordering and the strict same-host performance gate remain separate evidence requirements.
 
 `cargo xtask benchmark render-layout` measures split rows, stack rows, section geometry and
 review plans for the three pinned size/shape scenarios. Native row counts match both oracles,
