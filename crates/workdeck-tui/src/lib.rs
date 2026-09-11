@@ -13202,7 +13202,7 @@ fn build_plain_split_viewport_rows(
     gap_geometries: &[PlainFileGeometry],
     viewport: (usize, usize),
 ) -> ReviewRows {
-    let mut rows = geometry.clone();
+    let mut rows = geometry.viewport_shell();
     let (start, end) = viewport;
     let mut file_options = options.clone();
     // Preserve the source prefetch halo even when its adjacent files are outside
@@ -13792,6 +13792,28 @@ fn paint_note_composer(
 }
 
 impl ReviewRows {
+    fn viewport_shell(&self) -> Self {
+        Self {
+            // Geometry rows retain full coordinates and hit-test metadata, but a
+            // viewport frame only needs styled lines for the visible sections.
+            // Start with cheap blank cells and let the painter fill the visible
+            // separators, headers, and hunk bodies below.
+            lines: vec![Line::default(); self.lines.len()],
+            note_targets: self.note_targets.clone(),
+            note_bounds: self.note_bounds.clone(),
+            line_cursors: self.line_cursors.clone(),
+            file_tops: self.file_tops.clone(),
+            file_header_tops: self.file_header_tops.clone(),
+            file_body_tops: self.file_body_tops.clone(),
+            visible_file_indices: self.visible_file_indices.clone(),
+            file_header_rows: self.file_header_rows.clone(),
+            gap_rows: self.gap_rows.clone(),
+            hunk_tops: self.hunk_tops.clone(),
+            hunk_heights: self.hunk_heights.clone(),
+            file_view_component_hits: self.file_view_component_hits.clone(),
+        }
+    }
+
     fn insert_composer(
         &mut self,
         composer: &ReviewNoteComposer,
