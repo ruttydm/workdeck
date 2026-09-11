@@ -108,6 +108,12 @@ pub(crate) const REQUIRED_ASSETS: &[&str] = &[
     "docs/images/review-stream-native.png",
     "og.svg",
     "extensions/og.svg",
+    "shots/shot-catppuccin-mocha.webp",
+    "shots/shot-github-dark.webp",
+    "shots/shot-github-light.webp",
+    "shots/shot-gruvbox.webp",
+    "shots/shot-nord.webp",
+    "shots/shot-tokyo-night.webp",
     "robots.txt",
 ];
 

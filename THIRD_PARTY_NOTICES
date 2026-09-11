@@ -46,6 +46,15 @@ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FO
 DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
 OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+Hunk review theme screenshots
+-----------------------------
+
+The website theme preview retains six byte-identical review screenshots from
+the pinned Hunk tree (`website/public/shot-*.webp`). They are served from
+`site/static/shots/` under the Hunk MIT license and are independently listed in
+`site/data/third-party-assets.json`; `cargo xtask verify` checks each source
+blob, SHA-256 digest, and destination before a site or release build.
+
 Changesets release-fragment tooling
 ----------------------------------
 

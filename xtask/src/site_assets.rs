@@ -1,5 +1,5 @@
 //! Website-only third-party assets, kept separate from binary dependency SBOMs.
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -7,6 +7,189 @@ use std::{
     fs,
     path::{Component, Path},
 };
+
+const HUNK_BASELINE: &str = "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2";
+const THEME_SHOTS: &[(&str, usize, &str)] = &[
+    (
+        "shot-catppuccin-mocha.webp",
+        293_348,
+        "4e985b054b1a0361880c040f769ed6f9099acf5f1242ab3c61d14812349608da",
+    ),
+    (
+        "shot-github-dark.webp",
+        296_036,
+        "eedfa209c0a39aed6bba42b47b4a24a8bde45626a41536fbe4aa1f6527f4e50f",
+    ),
+    (
+        "shot-github-light.webp",
+        291_368,
+        "f3427800f45970fce2e750f29ba5ad7108a42d6083d46fff1bbaa11f037cccca",
+    ),
+    (
+        "shot-gruvbox.webp",
+        297_806,
+        "0eb87ca8f92c5676e082b71848f00d47074607738aff6361d81bdfb3de833092",
+    ),
+    (
+        "shot-nord.webp",
+        268_044,
+        "8b8dde28892665ff97ed3e62ea4546df4cf2fc7196e23f2ac532b260c4c6be90",
+    ),
+    (
+        "shot-tokyo-night.webp",
+        300_264,
+        "eb337b5906a8229c054558a15cbe1d6732c7ef0f6a81260e2edd8d6171b427b7",
+    ),
+];
+
+/// Validate that the served theme screenshots are byte-identical to the
+/// retained, licensed Hunk baseline assets and remain independently inventoried.
+pub(crate) fn verify_theme_shots(repo: &Path) -> Result<()> {
+    for (name, expected_bytes, expected_sha) in THEME_SHOTS {
+        let retained = repo
+            .join("third_party/hunk/assets/website/public")
+            .join(name);
+        let served = repo.join("site/static/shots").join(name);
+        let retained_bytes = fs::read(&retained)
+            .with_context(|| format!("read retained theme shot {}", retained.display()))?;
+        let served_bytes = fs::read(&served)
+            .with_context(|| format!("read served theme shot {}", served.display()))?;
+        ensure!(
+            retained_bytes.len() == *expected_bytes && served_bytes.len() == *expected_bytes,
+            "theme shot {name} has unexpected byte count"
+        );
+        ensure!(
+            format!("{:x}", Sha256::digest(&retained_bytes)) == *expected_sha
+                && format!("{:x}", Sha256::digest(&served_bytes)) == *expected_sha,
+            "theme shot {name} hash mismatch"
+        );
+        let source = crate::git_stdout_bytes(
+            repo,
+            [
+                "show",
+                &format!("{HUNK_BASELINE}:website/public/{name}"),
+            ],
+        )?;
+        ensure!(
+            source == retained_bytes && source == served_bytes,
+            "theme shot {name} differs from the pinned Hunk blob"
+        );
+    }
+    let inventory: Vec<Asset> = serde_json::from_slice(&fs::read(
+        repo.join("site/data/third-party-assets.json"),
+    )?)?;
+    let files = inventory
+        .iter()
+        .flat_map(|asset| asset.files.iter())
+        .map(|file| file.path.as_str())
+        .collect::<BTreeSet<_>>();
+    for (name, _, _) in THEME_SHOTS {
+        ensure!(
+            files.contains(format!("site/static/shots/{name}").as_str()),
+            "theme shot {name} missing from the website asset inventory"
+        );
+    }
+    Ok(())
+}
+
+/// Verify the no-JavaScript, CSS-radio translation of Hunk's theme picker.
+pub(crate) fn verify_theme_shot_component(repo: &Path) -> Result<()> {
+    let source = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            &format!("{HUNK_BASELINE}:website/src/components/marketing/ThemeShot.astro"),
+        ],
+    )?;
+    ensure!(
+        source.len() == 4_272,
+        "pinned ThemeShot.astro changed size: {} != 4272",
+        source.len()
+    );
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "BUNDLED_SHIKI_THEME_IDS",
+        "const themes = [",
+        "GitHub Dark",
+        "Tokyo Night",
+        "Catppuccin Mocha",
+        "Gruvbox",
+        "Nord",
+        "GitHub Light",
+        "const remainingThemes = BUNDLED_SHIKI_THEME_IDS.length - themes.length",
+        "role=\"group\" aria-label=\"Preview theme\"",
+        "aria-pressed",
+        "aria-controls",
+        "data-theme-index",
+        "requestIdleCallback",
+        "shot.decode()",
+        "pointerenter",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned ThemeShot.astro lost marker {marker:?}"
+        );
+    }
+    let index = std::fs::read_to_string(repo.join("site/templates/index.html"))?;
+    for marker in [
+        "class=\"theme-showcase\"",
+        "class=\"theme-frame\"",
+        "name=\"theme-shot\" checked",
+        "id=\"theme-shot-0\"",
+        "id=\"theme-shot-1\"",
+        "id=\"theme-shot-2\"",
+        "id=\"theme-shot-3\"",
+        "id=\"theme-shot-4\"",
+        "id=\"theme-shot-5\"",
+        "shot-github-dark.webp",
+        "shot-tokyo-night.webp",
+        "shot-catppuccin-mocha.webp",
+        "shot-gruvbox.webp",
+        "shot-nord.webp",
+        "shot-github-light.webp",
+        "role=\"group\" aria-label=\"Preview theme\"",
+        "and 61 more",
+    ] {
+        ensure!(
+            index.contains(marker),
+            "native theme picker is missing {marker:?}"
+        );
+    }
+    ensure!(
+        !index.contains("<script"),
+        "native theme picker must not reintroduce application JavaScript"
+    );
+    let css = std::fs::read_to_string(repo.join("site/static/main.css"))?;
+    for marker in [
+        ".theme-showcase",
+        ".theme-shots",
+        ".theme-shot",
+        "#theme-shot-0:checked",
+        "#theme-shot-5:checked",
+        ".tpill",
+        ".tmore",
+    ] {
+        ensure!(
+            css.contains(marker),
+            "native theme picker styles are missing {marker:?}"
+        );
+    }
+    let migration = std::fs::read_to_string(repo.join("docs/theme-shot-migration.md"))?;
+    for marker in [
+        "ThemeShot.astro",
+        "CSS radio",
+        "aria-pressed",
+        "lazy",
+        "requestIdleCallback",
+        "no application JavaScript",
+    ] {
+        ensure!(
+            migration.contains(marker),
+            "theme picker migration is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -89,6 +272,19 @@ pub(super) fn run(repo: &Path, args: impl Iterator<Item = String>) -> Result<()>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn theme_shots_match_retained_pinned_blobs_and_inventory() {
+        let repo = crate::repo_root().unwrap();
+        verify_theme_shots(&repo).unwrap();
+    }
+
+    #[test]
+    fn native_theme_picker_replaces_the_complete_pinned_component() {
+        let repo = crate::repo_root().unwrap();
+        verify_theme_shot_component(&repo).unwrap();
+    }
+
     #[test]
     fn duplicate_asset_paths_are_rejected() {
         let repo = tempfile::tempdir().unwrap();

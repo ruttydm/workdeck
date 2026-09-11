@@ -29,6 +29,19 @@ main { display: grid; gap: 3rem; padding: 5rem 0; }
 .feature-grid, .more-features { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 1rem; }
 .feature-grid a, .more-features a { display: grid; gap: .4rem; border: 1px solid var(--workdeck-rule); padding: 1rem; text-decoration: none; }
 .feature-grid span, .more-features span { color: var(--workdeck-muted); font-size: .9rem; }
+.theme-showcase { max-width: 64rem !important; }
+.theme-frame { margin: 0; border: 1px solid var(--workdeck-rule); background: var(--workdeck-paper); }
+.paper-bar { display: flex; align-items: center; gap: .35rem; min-height: 2rem; padding: 0 .75rem; border-bottom: 1px solid var(--workdeck-rule); color: var(--workdeck-muted); }
+.paper-bar .dot { width: .55rem; height: .55rem; border: 1px solid var(--workdeck-rule); border-radius: 50%; }
+.paper-bar .pt { margin-left: .45rem; font-size: .8rem; }
+.theme-showcase input[type="radio"] { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.theme-shots { aspect-ratio: 2202 / 1400; background: var(--workdeck-bg); }
+.theme-shot { display: none; width: 100%; height: 100%; object-fit: cover; }
+#theme-shot-0:checked ~ .theme-shots .theme-shot-0, #theme-shot-1:checked ~ .theme-shots .theme-shot-1, #theme-shot-2:checked ~ .theme-shots .theme-shot-2, #theme-shot-3:checked ~ .theme-shots .theme-shot-3, #theme-shot-4:checked ~ .theme-shots .theme-shot-4, #theme-shot-5:checked ~ .theme-shots .theme-shot-5 { display: block; }
+.themes { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; padding: .8rem; }
+.tpill, .tmore { border: 1px solid var(--workdeck-rule); border-radius: .25rem; padding: .35rem .55rem; color: var(--workdeck-muted); font-size: .8rem; cursor: pointer; text-decoration: none; }
+.tpill:hover, .tpill:focus-visible, .tmore:hover, .tmore:focus-visible { border-color: var(--workdeck-accent); color: var(--workdeck-ink); }
+#theme-shot-0:checked ~ .themes label[for="theme-shot-0"], #theme-shot-1:checked ~ .themes label[for="theme-shot-1"], #theme-shot-2:checked ~ .themes label[for="theme-shot-2"], #theme-shot-3:checked ~ .themes label[for="theme-shot-3"], #theme-shot-4:checked ~ .themes label[for="theme-shot-4"], #theme-shot-5:checked ~ .themes label[for="theme-shot-5"] { border-color: var(--workdeck-accent); color: var(--workdeck-ink); }
 .eyebrow { color: var(--workdeck-accent); text-transform: uppercase; letter-spacing: .08em; }
 h1 { color: var(--workdeck-ink); font-size: clamp(2.4rem, 7vw, 5.5rem); line-height: .98; margin: 1rem 0; }
 h2 { color: var(--workdeck-ink); }

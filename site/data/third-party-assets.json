@@ -39,5 +39,20 @@
         "sha256": "9548b2395a098da05c7c2e943baa2d4dfcd7f55533d47739b413652a63d70b66"
       }
     ]
+  },
+  {
+    "name": "Hunk review theme screenshots",
+    "version": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "license": "MIT",
+    "source": "https://github.com/modem-dev/hunk/tree/2c00f4358b89cfc0a6b04459ffc538ba601aa3c2/website/public",
+    "archiveIntegrity": "git:2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "files": [
+      {"path": "site/static/shots/shot-catppuccin-mocha.webp", "sha256": "4e985b054b1a0361880c040f769ed6f9099acf5f1242ab3c61d14812349608da"},
+      {"path": "site/static/shots/shot-github-dark.webp", "sha256": "eedfa209c0a39aed6bba42b47b4a24a8bde45626a41536fbe4aa1f6527f4e50f"},
+      {"path": "site/static/shots/shot-github-light.webp", "sha256": "f3427800f45970fce2e750f29ba5ad7108a42d6083d46fff1bbaa11f037cccca"},
+      {"path": "site/static/shots/shot-gruvbox.webp", "sha256": "0eb87ca8f92c5676e082b71848f00d47074607738aff6361d81bdfb3de833092"},
+      {"path": "site/static/shots/shot-nord.webp", "sha256": "8b8dde28892665ff97ed3e62ea4546df4cf2fc7196e23f2ac532b260c4c6be90"},
+      {"path": "site/static/shots/shot-tokyo-night.webp", "sha256": "eb337b5906a8229c054558a15cbe1d6732c7ef0f6a81260e2edd8d6171b427b7"}
+    ]
   }
 ]
