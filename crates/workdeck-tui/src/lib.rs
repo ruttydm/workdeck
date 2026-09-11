@@ -13284,15 +13284,14 @@ fn build_plain_split_viewport_rows(
             .find(|(index, _)| *index == file_index)
             && *header_top >= start
             && *header_top < end
+            && let Some(destination) = rows.line_mut_global(*header_top)
         {
-            if let Some(destination) = rows.line_mut_global(*header_top) {
-                *destination = file_header(
-                    file,
-                    usize::from(width),
-                    header_stats_width,
-                    &file_options.theme,
-                );
-            }
+            *destination = file_header(
+                file,
+                usize::from(width),
+                header_stats_width,
+                &file_options.theme,
+            );
         }
         let highlighted = if options.highlight && highlight_files.contains(&file_index) {
             highlight_cache.prefetch_highlighted_diff_shared(file, &options.theme, true)
