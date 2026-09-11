@@ -13086,7 +13086,11 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     {
         paint_cursor_line(line, app.options.cursor_line, &app.options.theme);
     }
-    let visible = rows.visible_lines(scroll, viewport);
+    // A plain split viewport owns exactly the rows requested for this frame.
+    // Move that sparse buffer into the paragraph instead of cloning every span
+    // on each wheel tick. Dynamic layouts can still use the clone fallback,
+    // because their rows may cover a larger global range.
+    let visible = rows.take_visible_lines(scroll, viewport);
     let component_hits = rows
         .file_view_component_hits
         .into_iter()
@@ -13833,7 +13837,7 @@ impl ReviewRows {
             .and_then(|index| self.lines.get_mut(index))
     }
 
-    fn visible_lines(&self, scroll: usize, viewport: usize) -> Vec<Line<'static>> {
+    fn take_visible_lines(&mut self, scroll: usize, viewport: usize) -> Vec<Line<'static>> {
         let start = scroll.max(self.line_offset);
         let end = scroll
             .saturating_add(viewport)
@@ -13843,6 +13847,9 @@ impl ReviewRows {
         }
         let from = start.saturating_sub(self.line_offset);
         let to = end.saturating_sub(self.line_offset);
+        if from == 0 && to == self.lines.len() {
+            return std::mem::take(&mut self.lines);
+        }
         self.lines[from..to].to_vec()
     }
 
