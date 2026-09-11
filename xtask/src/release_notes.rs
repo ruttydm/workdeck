@@ -91,6 +91,113 @@ pub(super) fn verify_pr(repo: &Path, mut args: impl Iterator<Item = String>) -> 
     Ok(())
 }
 
+/// Verify the native pull-request workflow replacing the pinned Bun/Node
+/// matrix. Release-note status, Windows compatibility, compiled portability,
+/// and full validation remain explicit Rust jobs in the final workflow.
+pub(crate) fn verify_pr_workflow(repo: &Path) -> Result<()> {
+    const BASELINE: &str = "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2";
+    let source = crate::git_stdout_bytes(
+        repo,
+        ["show", &format!("{BASELINE}:.github/workflows/pr-ci.yml")],
+    )?;
+    anyhow::ensure!(
+        source.len() == 7_272,
+        "pinned PR CI workflow changed size: {} != 7272",
+        source.len()
+    );
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "name: CI",
+        "pull_request:",
+        "SKIP_INSTALL_SIMPLE_GIT_HOOKS",
+        "pr-ci-${{ github.workflow }}-${{ github.ref }}",
+        "changes:",
+        "changeset-status:",
+        "windows-compat:",
+        "compiled-headless-portability:",
+        "pr-validate:",
+        "Set up Bun",
+        "Set up Node",
+        "Install Jujutsu",
+        "Install Sapling",
+        "bun install --frozen-lockfile",
+        "bun run format:check",
+        "bun run lint",
+        "bun run typecheck",
+        "bun run deps:check",
+        "bun run test:theme-contrast",
+        "bun run test",
+        "bun run test:session-broker-node",
+        "bun run test:integration",
+        "bun run test:tty-smoke",
+        "bun run build:npm",
+        "bun run build:prebuilt:npm",
+        "bun run build:bin",
+        "Compiled headless portability",
+        "Verify compiled headless commands skip OpenTUI",
+        "Verify compiled binary watch mode",
+    ] {
+        anyhow::ensure!(
+            source.contains(marker),
+            "pinned PR CI workflow lost marker {marker:?}"
+        );
+    }
+    let native = std::fs::read_to_string(repo.join(".github/workflows/pr-ci.yml"))?;
+    for marker in [
+        "name: CI",
+        "permissions:",
+        "contents: read",
+        "pr-ci-${{ github.workflow }}-${{ github.ref }}",
+        "changes:",
+        "cargo xtask ci-changes \"$BASE_SHA\" \"$HEAD_SHA\"",
+        "changeset-status:",
+        "cargo xtask release verify-pr-notes",
+        "windows-compat:",
+        "cargo test --locked --workspace --all-targets",
+        "cargo clippy --locked --workspace --all-targets -- -D warnings",
+        "compiled-headless-portability:",
+        "cargo build --locked --release --target",
+        "cargo test --locked -p workdeck-cli --test cli --test terminal_lifecycle",
+        "pr-validate:",
+        "cargo xtask verify",
+        "cargo xtask site check",
+        "cargo xtask test",
+        "target/release/workdeck --help",
+    ] {
+        anyhow::ensure!(
+            native.contains(marker),
+            "native PR CI workflow is missing {marker:?}"
+        );
+    }
+    for forbidden in ["bun", "node", "npm", "opentui", "wasm"] {
+        let pattern = regex::Regex::new(&format!(
+            r"(?i)(?:^|[^a-z]){}(?:$|[^a-z])",
+            regex::escape(forbidden)
+        ))
+        .expect("forbidden runtime token pattern is valid");
+        anyhow::ensure!(
+            !pattern.is_match(&native),
+            "native PR CI workflow retains forbidden runtime token {forbidden:?}"
+        );
+    }
+    let migration = std::fs::read_to_string(repo.join("docs/pr-ci-migration.md"))?;
+    for marker in [
+        "pr-ci.yml",
+        "release-note",
+        "Windows",
+        "portability",
+        "native validation",
+        "npm",
+        "not retained",
+    ] {
+        anyhow::ensure!(
+            migration.contains(marker),
+            "PR CI migration is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
+
 fn valid_identifier(value: &str) -> bool {
     !value.is_empty()
         && value
@@ -255,6 +362,12 @@ pub(super) fn validate_local(repo: &Path, mut args: impl Iterator<Item = String>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_pr_workflow_replaces_the_complete_bun_validation_matrix() {
+        let repo = super::super::repo_root().unwrap();
+        super::verify_pr_workflow(&repo).unwrap();
+    }
 
     fn generated_paths() -> Vec<String> {
         [

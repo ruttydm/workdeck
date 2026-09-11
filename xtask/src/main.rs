@@ -1805,6 +1805,7 @@ fn verify() -> Result<()> {
     install::verify_workflow(&repo)?;
     install::verify_vm_workflow(&repo)?;
     release_channel::verify_prebuilt_release_workflow(&repo)?;
+    release_notes::verify_pr_workflow(&repo)?;
     changelog::run(
         &repo,
         ["upstream-history".into(), "--check".into()].into_iter(),
