@@ -27,6 +27,17 @@ const CONFIGS: &[(&str, usize, &[&str])] = &[
         &["site/config.toml", MIGRATION_DOC],
     ),
     (
+        "vercel.json",
+        714,
+        &[
+            "site/config.toml",
+            "site/templates/base.html",
+            ".github/workflows/ci.yml",
+            "xtask/src/site_markdown.rs",
+            MIGRATION_DOC,
+        ],
+    ),
+    (
         "website/.gitignore",
         85,
         &[".gitignore", "xtask/src/site_preview.rs", MIGRATION_DOC],
@@ -110,6 +121,56 @@ pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {
                 source == "{\n  \"extends\": \"astro/tsconfigs/strict\"\n}\n",
                 "Astro TypeScript configuration changed"
             ),
+            "vercel.json" => {
+                let value: serde_json::Value = serde_json::from_str(source)?;
+                ensure!(
+                    value["framework"] == "astro"
+                        && value["outputDirectory"] == "website/dist"
+                        && value["buildCommand"] == "bun run website:build",
+                    "Vercel framework/build policy changed"
+                );
+                ensure!(
+                    value["rewrites"]
+                        == serde_json::json!([{
+                            "source": "/install",
+                            "destination": "/install.sh"
+                        }]),
+                    "Vercel installer rewrite changed"
+                );
+                ensure!(
+                    value["headers"]
+                        == serde_json::json!([{
+                            "source": "/install(\\.sh)?",
+                            "headers": [{
+                                "key": "Content-Type",
+                                "value": "text/plain; charset=utf-8"
+                            }]
+                        }]),
+                    "Vercel installer content-type header changed"
+                );
+                let site_config = std::fs::read_to_string(repo.join("site/config.toml"))?;
+                ensure!(
+                    site_config.contains("base_url = \"https://workdeck.dev\"")
+                        && site_config.contains("compile_sass = false")
+                        && site_config.contains("build_search_index = false")
+                        && site_config.contains("generate_feeds = true"),
+                    "native Zola site configuration is missing"
+                );
+                let template = std::fs::read_to_string(repo.join("site/templates/base.html"))?;
+                ensure!(
+                    template.contains("/docs/start/install/") && template.contains("/#install"),
+                    "native installer navigation replacement is missing"
+                );
+                let ci = std::fs::read_to_string(repo.join(".github/workflows/ci.yml"))?;
+                ensure!(
+                    ci.contains("cargo xtask site check"),
+                    "native site CI replacement is missing"
+                );
+                ensure!(
+                    repo.join("xtask/src/site_markdown.rs").is_file(),
+                    "native site export owner is missing"
+                );
+            }
             "website/.gitignore" => ensure!(
                 source.lines().collect::<Vec<_>>()
                     == [

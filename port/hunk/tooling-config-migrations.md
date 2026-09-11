@@ -14,6 +14,7 @@ than retaining an executable JavaScript configuration mirror.
 | `.oxlintrc.json` | Clippy's native lint configuration and CI invocation | `cargo clippy --locked --workspace --all-targets -- -D warnings` |
 | `.env.test` | `xtask::isolate_test_git_config` and `workspace_test_command` | `test_git_isolation_replaces_inherited_global_and_system_configuration` |
 | `website/tsconfig.json` | Zola's `site/config.toml` and Rust site pipeline | `cargo xtask site check` |
+| `vercel.json` | Zola `site/config.toml`, Workdeck templates, and the Cargo-driven site check/export pipeline | `tooling_configs::verify` native deployment-boundary check |
 | `website/src/content.config.ts` | Rust frontmatter/title validation in `xtask/src/site_markdown.rs` | `native_docs_collection_requires_valid_frontmatter_and_a_single_line_title` |
 | `website/.gitignore` | root `.gitignore` plus validated disposable Zola staging | `cargo xtask site check` |
 | `bunfig.toml` | Cargo.lock and the pinned Rust toolchain | `cargo xtask verify` dependency/toolchain checks |
