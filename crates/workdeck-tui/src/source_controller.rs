@@ -812,7 +812,9 @@ pub(super) mod tests {
         let cursor = app
             .current_review_rows()
             .line_cursors
-            .into_iter()
+            .as_ref()
+            .iter()
+            .copied()
             .find(|cursor| cursor.target.line == 1)
             .expect("loaded source line has a cursor");
         app.apply_review_line_cursor(cursor);

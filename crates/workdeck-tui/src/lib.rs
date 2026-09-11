@@ -3014,7 +3014,9 @@ impl ReviewApp {
         let cursor = self
             .current_review_geometry_rows()
             .line_cursors
-            .into_iter()
+            .as_ref()
+            .iter()
+            .copied()
             .find(|cursor| cursor.target == target);
         if let Some(cursor) = cursor {
             self.apply_review_line_cursor(cursor);
@@ -7727,7 +7729,9 @@ impl ReviewApp {
             let cursor = self
                 .current_review_geometry_rows()
                 .line_cursors
-                .into_iter()
+                .as_ref()
+                .iter()
+                .copied()
                 .find(|cursor| {
                     cursor.target.file_index == target.file_index
                         && cursor.target.side == target.side
@@ -7934,7 +7938,7 @@ impl ReviewApp {
             pinned_file_index,
             file_section_layouts,
             section_geometry,
-            line_cursors: rows.line_cursors,
+            line_cursors: rows.line_cursors.as_ref().clone(),
             code_horizontal_offset: self.options.horizontal_offset,
             copy_decorations: self.copy_decorations,
             header_label_width: width.saturating_sub(2 + header_stats_width + 1),
@@ -13765,7 +13769,9 @@ struct ReviewRows {
     line_offset: usize,
     note_targets: ReviewNoteTargets,
     note_bounds: std::collections::HashMap<String, (usize, usize)>,
-    line_cursors: Vec<ReviewLineCursor>,
+    /// Immutable cursor geometry is shared by sparse viewport shells. Dynamic
+    /// composer edits use `Arc::make_mut` before shifting rows.
+    line_cursors: Arc<Vec<ReviewLineCursor>>,
     file_tops: BTreeMap<usize, usize>,
     file_header_tops: BTreeMap<usize, usize>,
     file_body_tops: BTreeMap<usize, usize>,
@@ -13868,7 +13874,7 @@ impl ReviewRows {
             line_offset: start,
             note_targets: self.note_targets.clone(),
             note_bounds: self.note_bounds.clone(),
-            line_cursors: self.line_cursors.clone(),
+            line_cursors: Arc::clone(&self.line_cursors),
             file_tops: self.file_tops.clone(),
             file_header_tops: self.file_header_tops.clone(),
             file_body_tops: self.file_body_tops.clone(),
@@ -13932,7 +13938,7 @@ impl ReviewRows {
                 (row, target)
             })
             .collect();
-        for cursor in &mut self.line_cursors {
+        for cursor in Arc::make_mut(&mut self.line_cursors) {
             shift(&mut cursor.row);
         }
         for top in self
@@ -14033,7 +14039,7 @@ struct ReviewNoteTarget {
 /// Wrapped continuations and inline note rows retain the source target for hit-testing, but a
 /// single `j`/`k` press must cross the source line exactly once.
 fn review_line_cursors(rows: &ReviewRows) -> Vec<ReviewLineCursor> {
-    rows.line_cursors.clone()
+    rows.line_cursors.as_ref().clone()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14566,7 +14572,7 @@ fn build_review_rows_with_chrome(
         lines: rows,
         note_targets: note_targets.into_iter().collect(),
         note_bounds,
-        line_cursors,
+        line_cursors: Arc::new(line_cursors),
         file_tops,
         file_header_tops,
         file_body_tops,
@@ -25648,7 +25654,7 @@ mod tests {
                         assert_eq!(full.file_body_tops, window.file_body_tops);
                         assert_eq!(full.hunk_tops, window.hunk_tops);
                         assert_eq!(full.hunk_heights, window.hunk_heights);
-                        for cursor in &window.line_cursors {
+                        for cursor in window.line_cursors.iter() {
                             if !(start..end).contains(&cursor.row) {
                                 assert!(window.lines[cursor.row].spans.is_empty());
                             }
