@@ -208,6 +208,16 @@ impl Session {
         self.master.as_mut().unwrap().flush().unwrap();
     }
 
+    /// Send one input and wait for the committed screen state it is meant to produce.
+    /// Output idleness alone is not an acknowledgement: the predicate must distinguish
+    /// the destination from any text shared with the pre-input frame, and a timeout never
+    /// retries the key.
+    #[track_caller]
+    fn press_and_wait(&mut self, bytes: &[u8], predicate: impl Fn(&str) -> bool) -> String {
+        self.write(bytes);
+        self.wait(predicate)
+    }
+
     fn move_mouse(&mut self, column: usize, row: usize) {
         self.write(format!("\x1b[<35;{};{}M", column + 1, row + 1).as_bytes());
     }

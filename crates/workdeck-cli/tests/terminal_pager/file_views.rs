@@ -109,15 +109,13 @@ fn markdown_extension_loads_and_preserves_hunk_navigation() {
     session.click_label("View");
     let menu = session.wait(|text| text.contains("File presentation: Rendered Markdown"));
     assert!(menu.contains("File presentation: Raw diff"));
-    session.write(b"\x1b");
-    session.wait(|text| !text.contains("File presentation:"));
+    session.press_and_wait(b"\x1b", |text| !text.contains("File presentation:"));
     session.write(b"\x1b[19~");
     session.wait(|text| text.contains("• new item"));
     session.click_label("View");
     let menu = session.wait(|text| text.contains("[x] File presentation: Rendered Markdown"));
     assert!(!menu.contains("# Heading"));
-    session.write(b"\x1b");
-    session.wait(|text| !text.contains("File presentation:"));
+    session.press_and_wait(b"\x1b", |text| !text.contains("File presentation:"));
     session.write(b"]");
     session.wait_for(Duration::from_millis(100), |_| false);
     drop(session);
@@ -466,8 +464,7 @@ fn interactive_file_view_routes_handled_passed_and_escape_keys() {
     session.wait(|text| text.contains("CURSOR AT 2"));
     session.write(b"?");
     session.wait(|text| text.contains("Controls help"));
-    session.write(b"\x1b");
-    session.wait(|text| {
+    session.press_and_wait(b"\x1b", |text| {
         !text.contains("Controls help") && text.contains("cursor-mode:cursor mode — Esc exits")
     });
     session.wait_for(Duration::from_millis(150), |_| false);

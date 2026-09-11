@@ -719,8 +719,7 @@ fn queued_command_resumes_after_background_highlight_releases_connection() {
         !extension.join("line-highlight-released").exists(),
         "highlight hold expired before the command queued"
     );
-    session.write(b"\x1b");
-    session.wait(|text| !text.contains("Controls help"));
+    session.press_and_wait(b"\x1b", |text| !text.contains("Controls help"));
     fs::remove_file(hold).unwrap();
     session
         .wait(|text| text.contains("Extension fixture targeted unknown line highlighter \"nope\""));

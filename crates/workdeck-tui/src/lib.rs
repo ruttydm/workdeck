@@ -21306,6 +21306,36 @@ mod tests {
     }
 
     #[test]
+    fn first_use_help_and_menu_commit_without_a_lazy_suspension_frame() {
+        // Hunk's first-use regression was caused by a lazy dialog rendering a null
+        // Suspense fallback before its first committed frame. Ratatui owns one
+        // synchronous cell buffer, so exercise both overlays immediately after a
+        // fresh app has painted its initial frame and require their visible cells.
+        let mut app = ReviewApp::new(responsive_changeset(), ReviewOptions::default());
+        let mut terminal = Terminal::new(TestBackend::new(220, 24)).unwrap();
+        let initial = rendered_review_frame(&mut terminal, &app);
+        assert!(initial.contains("File  View  Navigate  Agent  Help"));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
+        let help = rendered_review_frame(&mut terminal, &app);
+        assert!(help.contains("Controls help"), "{help}");
+        assert!(app.help_dialog_hits.get().is_some());
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
+        assert!(app.help_dialog_hits.get().is_none());
+        app.handle_key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE));
+        let menu = rendered_review_frame(&mut terminal, &app);
+        assert!(menu.contains("Toggle files/filter focus"), "{menu}");
+        assert!(
+            app.extension_pane_runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .menu_bounds
+                .is_some()
+        );
+    }
+
+    #[test]
     fn desktop_menu_bar_renders_and_dispatches_through_the_shared_command_table() {
         let backend = TestBackend::new(220, 20);
         let mut terminal = Terminal::new(backend).unwrap();
