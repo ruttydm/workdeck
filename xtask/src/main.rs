@@ -37,6 +37,7 @@ mod pty_harness;
 mod release_channel;
 mod release_notes;
 mod release_status;
+mod release_targets;
 mod repository_forms;
 mod review_conformance;
 mod session_cli;
@@ -1798,6 +1799,7 @@ fn verify() -> Result<()> {
     broker_e2e::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     install_script::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     theme_probe::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
+    release_targets::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     ui_components::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     site_links::verify_docs_header(&repo)?;
     site_links::verify_website_workflow(&repo)?;
@@ -2145,6 +2147,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     broker_e2e::verify(&repo, &baseline)?;
     install_script::verify(&repo, &baseline)?;
     theme_probe::verify(&repo, &baseline)?;
+    release_targets::verify(&repo, &baseline)?;
     ui_components::verify(&repo, &baseline)?;
     let entries = read_tree(&repo, &baseline)?;
     let expected = entries
