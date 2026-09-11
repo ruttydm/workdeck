@@ -90,7 +90,7 @@ jobs:
 
       - name: Validate Hunk ledger structure
         if: matrix.target == 'x86_64-unknown-linux-gnu'
-        run: cargo xtask port audit --allow-incomplete
+        run: cargo xtask port audit
 
       - name: Install Zola
         if: matrix.target == 'x86_64-unknown-linux-gnu'
@@ -139,7 +139,7 @@ jobs:
       - name: Fetch pinned Hunk evidence
         run: cargo xtask port fetch
       - name: Validate ledger structure
-        run: cargo xtask port audit --allow-incomplete
+        run: cargo xtask port audit
       - name: Formatting
         run: cargo fmt --all --check
       - name: Workspace tests
