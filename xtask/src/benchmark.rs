@@ -217,6 +217,7 @@ pub(crate) fn verify_terminal_width(repo: &Path, baseline: &str) -> Result<()> {
 
 mod bootstrap;
 mod changeset_parse;
+pub(crate) mod competitors;
 mod fixtures;
 mod geometry_memory;
 mod highlight_prefetch;
@@ -923,6 +924,9 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     }
     if command.as_deref() == Some("terminal-width") {
         return terminal_width::run(args);
+    }
+    if command.as_deref() == Some("competitors") {
+        return competitors::run(args);
     }
     if command.as_deref() == Some("run") {
         return runner::run_command(args);

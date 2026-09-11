@@ -1798,6 +1798,7 @@ fn verify() -> Result<()> {
     let repo = repo_root()?;
     benchmark::verify_workflow(&repo)?;
     benchmark::verify_terminal_width(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
+    benchmark::competitors::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     ci_changes::verify_workflow(&repo)?;
     ci_changes::verify_main_workflow(&repo)?;
     diff_pane::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
@@ -2150,6 +2151,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     changelog::verify_pinned_website_inputs(&repo, &baseline)?;
     benchmark::verify_historical_for_baseline(&repo, &baseline)?;
     benchmark::verify_terminal_width(&repo, &baseline)?;
+    benchmark::competitors::verify(&repo, &baseline)?;
     diff_pane::verify(&repo, &baseline)?;
     use_terminal_review::verify(&repo, &baseline)?;
     app_shell::verify(&repo, &baseline)?;
@@ -2832,6 +2834,8 @@ fn print_help() {
     println!("cargo xtask ci-host <expected-native-target>");
     println!("cargo xtask benchmark non-ascii-stream");
     println!("cargo xtask benchmark wrapped-cjk");
+    println!("cargo xtask benchmark terminal-width");
+    println!("cargo xtask benchmark competitors");
     println!("cargo xtask benchmark render-layout");
     println!("cargo xtask benchmark stream-fixture [--huge | --non-ascii]");
     println!("cargo xtask benchmark synthetic-patch OPTIONS_JSON");
