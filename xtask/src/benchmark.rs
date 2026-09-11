@@ -136,6 +136,11 @@ const INTERACTION_HELPER_LINES: usize = 87;
 const INTERACTION_HELPER_SHA256: &str =
     "81ab8d3098519e612a956ff1cb8debfdeb4eed61905cdc52da7d1284447e1807";
 
+const MEMORY_PATH: &str = "benchmarks/memory.ts";
+const MEMORY_BYTES: usize = 2_490;
+const MEMORY_LINES: usize = 72;
+const MEMORY_SHA256: &str = "a538b3bd2dbebe4c43d2e880c463f5f5f347b1905d7ac51986c9c70b23be2c0c";
+
 /// Verify the executable native replacement for Hunk's terminal-width
 /// benchmark. The source is read from both protected pins; no TypeScript or
 /// string-width runtime is copied into the final tree.
@@ -573,6 +578,94 @@ pub(crate) fn verify_interaction(repo: &Path, baseline: &str) -> Result<()> {
     Ok(())
 }
 
+/// Verify the native retained-memory workload replacing Hunk's React/Bun
+/// diagnostic script.
+pub(crate) fn verify_memory(repo: &Path, baseline: &str) -> Result<()> {
+    ensure!(
+        baseline == BASELINE,
+        "memory benchmark verifier received unexpected baseline {baseline}"
+    );
+    let source = crate::git_stdout_bytes(repo, ["show", &format!("{BASELINE}:{MEMORY_PATH}")])?;
+    let stable = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            &format!("4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd:{MEMORY_PATH}"),
+        ],
+    )?;
+    for (pin, bytes) in [(BASELINE, &source), ("stable-v0.20.1", &stable)] {
+        ensure!(
+            bytes.len() == MEMORY_BYTES,
+            "pinned {MEMORY_PATH} {pin} changed size: {} != {MEMORY_BYTES}",
+            bytes.len()
+        );
+        ensure!(
+            bytes.split(|byte| *byte == b'\n').count() == MEMORY_LINES + 1,
+            "pinned {MEMORY_PATH} {pin} changed line count"
+        );
+        ensure!(
+            format!("{:x}", Sha256::digest(bytes)) == MEMORY_SHA256,
+            "pinned {MEMORY_PATH} {pin} changed SHA-256"
+        );
+    }
+    ensure!(
+        source == stable,
+        "pinned memory benchmark diverged between pins"
+    );
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "Track heap/RSS pressure",
+        "performance",
+        "testRender",
+        "buildSplitRows",
+        "buildReviewRenderPlan",
+        "printMemory",
+        "renderOnce",
+        "next_hunk_navigation_ms",
+        "Bun.sleep",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned memory benchmark is missing marker {marker:?}"
+        );
+    }
+    for (path, marker) in [
+        ("xtask/src/benchmark/memory.rs", "pub(super) fn run("),
+        (
+            "xtask/src/benchmark/memory.rs",
+            "native_memory_workload_drives_planning_rendering_and_navigation",
+        ),
+        ("xtask/src/benchmark/runner.rs", "memory.ts"),
+        ("xtask/src/benchmark.rs", "Some(\"memory\")"),
+        ("docs/benchmarks.md", "cargo xtask benchmark memory"),
+    ] {
+        let native = fs::read_to_string(repo.join(path))
+            .with_context(|| format!("read memory benchmark native surface {path}"))?;
+        ensure!(
+            native.contains(marker),
+            "memory benchmark native surface {path} is missing {marker:?}"
+        );
+    }
+    let docs = fs::read_to_string(repo.join("docs/memory-benchmark-migration.md"))
+        .context("read memory benchmark migration documentation")?;
+    for marker in [
+        MEMORY_PATH,
+        "2,490",
+        MEMORY_SHA256,
+        "planning",
+        "navigation",
+        "Ratatui",
+        "RSS",
+        "no JavaScript heap",
+    ] {
+        ensure!(
+            docs.contains(marker),
+            "memory benchmark migration documentation is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
+
 mod bootstrap;
 mod changeset_parse;
 pub(crate) mod competitors;
@@ -587,6 +680,7 @@ pub(crate) use historical::{
 mod interaction_latency;
 mod large_stream;
 mod large_stream_profile;
+mod memory;
 mod native_memory;
 mod non_ascii_stream;
 mod release;
@@ -1256,6 +1350,9 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     if command.as_deref() == Some("interaction-diagnostic") {
         return interaction_latency::run(args);
     }
+    if command.as_deref() == Some("memory") {
+        return memory::run(args);
+    }
     if command.as_deref() == Some("memory-snapshot") {
         return native_memory::run(args);
     }
@@ -1374,6 +1471,12 @@ mod tests {
     fn native_interaction_sources_are_verified_at_both_pins() {
         let repo = super::super::repo_root().unwrap();
         super::verify_interaction(&repo, BASELINE).unwrap();
+    }
+
+    #[test]
+    fn native_memory_source_is_verified_at_both_pins() {
+        let repo = super::super::repo_root().unwrap();
+        super::verify_memory(&repo, BASELINE).unwrap();
     }
 
     #[test]
