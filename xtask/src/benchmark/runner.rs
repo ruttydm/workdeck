@@ -35,6 +35,7 @@ fn workload_command(name: &str) -> Result<&'static str> {
         "working-tree-load.ts" => Ok("working-tree"),
         "render-layout.ts" => Ok("render-layout"),
         "competitors.ts" => Ok("competitors"),
+        "geometry-memory.ts" => Ok("geometry-memory"),
         _ => bail!("Native benchmark workload is not yet fully ported: {name}"),
     }
 }

@@ -1,5 +1,6 @@
-//! Partial MIT port of Hunk benchmarks/geometry-memory.ts.
-//! Native diagnostics are not substitutes for JavaScript heap statistics.
+//! Native MIT port of Hunk benchmarks/geometry-memory.ts.
+//! Native diagnostics intentionally report RSS/allocator fields instead of
+//! inventing JavaScript heap statistics that do not exist in the Rust process.
 use super::*;
 use std::time::Instant;
 use workdeck_review::LayoutMode;
@@ -150,8 +151,81 @@ pub(super) fn run(args: impl Iterator<Item = String>) -> Result<()> {
     )?;
     report["sourceGcRequested"] = serde_json::json!(options.gc_requested);
     report["nativeForcedGc"] = serde_json::json!(false);
-    println!("{}", serde_json::to_string_pretty(&report)?);
+    println!(
+        "geometry memory fixture files={} lines={} width={} gc={}",
+        options.files,
+        options.lines,
+        options.width,
+        if options.gc_requested { "on" } else { "off" }
+    );
+    emit_metrics(&report);
     Ok(())
+}
+
+fn emit_metrics(report: &serde_json::Value) {
+    fn number(value: Option<&serde_json::Value>) -> Option<String> {
+        value.and_then(|value| {
+            value
+                .as_u64()
+                .map(|number| number.to_string())
+                .or_else(|| value.as_i64().map(|number| number.to_string()))
+                .or_else(|| value.as_f64().map(|number| fixed(number, 2)))
+        })
+    }
+    fn print_number(name: &str, value: Option<&serde_json::Value>) {
+        if let Some(value) = number(value) {
+            println!("METRIC {name}={value}");
+        }
+    }
+    fn print_snapshot(report: &serde_json::Value, key: &str, prefix: &str) {
+        let Some(snapshot) = report.get(key).filter(|value| !value.is_null()) else {
+            return;
+        };
+        print_number(&format!("{prefix}_rss_bytes"), snapshot.get("rssBytes"));
+        print_number(
+            &format!("{prefix}_allocator_bytes"),
+            snapshot.get("mallocInUseBytes"),
+        );
+    }
+
+    print_number("bootstrap_fixture_ms", report.get("bootstrapFixtureMs"));
+    print_snapshot(report, "afterBootstrap", "after_bootstrap");
+    print_snapshot(report, "afterGeometry", "after_geometry");
+    print_snapshot(
+        report,
+        "afterMaterializedPlannedRows",
+        "after_materialized_planned_rows",
+    );
+    print_number("geometry_ms", report.get("geometryMs"));
+    print_number("geometry_body_rows", report.get("geometryBodyRows"));
+    print_number("geometry_row_bounds", report.get("geometryRowBounds"));
+    print_number(
+        "geometry_rss_growth_bytes",
+        report.get("geometryRssGrowthBytes"),
+    );
+    print_number(
+        "materialize_planned_rows_ms",
+        report.get("materializePlannedRowsMs"),
+    );
+    print_number(
+        "materialized_planned_rows",
+        report.get("materializedPlannedRows"),
+    );
+    print_number(
+        "materialized_planned_rows_rss_growth_bytes",
+        report.get("materializedPlannedRowsRssGrowthBytes"),
+    );
+    print_number("files", report.get("files"));
+    print_number("lines_per_file", report.get("linesPerFile"));
+    print_number(
+        "giant_first_copy_plan_ms",
+        report.get("giantFirstCopyPlanMs"),
+    );
+    print_number(
+        "giant_materialized_planned_rows",
+        report.get("giantMaterializedPlannedRows"),
+    );
+    print_number("giant_file_lines", report.get("giantFileLines"));
 }
 
 #[test]

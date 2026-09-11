@@ -114,6 +114,12 @@ const TERMINAL_WIDTH_LINES: usize = 72;
 const TERMINAL_WIDTH_SHA256: &str =
     "948a538a51c09018f85953ebe33184ba893ee5e3286b420610a50df55bd65fd8";
 
+const GEOMETRY_MEMORY_PATH: &str = "benchmarks/geometry-memory.ts";
+const GEOMETRY_MEMORY_BYTES: usize = 6_932;
+const GEOMETRY_MEMORY_LINES: usize = 194;
+const GEOMETRY_MEMORY_SHA256: &str =
+    "5a3707a75a0b730392016642d1d28ee6be5b9c04eef8e0870947055318e9f5c8";
+
 /// Verify the executable native replacement for Hunk's terminal-width
 /// benchmark. The source is read from both protected pins; no TypeScript or
 /// string-width runtime is copied into the final tree.
@@ -210,6 +216,107 @@ pub(crate) fn verify_terminal_width(repo: &Path, baseline: &str) -> Result<()> {
         ensure!(
             docs.contains(marker),
             "terminal-width migration documentation is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
+
+/// Verify the native retained-geometry benchmark replacing Hunk's memory
+/// diagnostic.  Allocator fields are intentionally represented by native
+/// snapshots rather than fabricated JavaScript heap counters.
+pub(crate) fn verify_geometry_memory(repo: &Path, baseline: &str) -> Result<()> {
+    ensure!(
+        baseline == BASELINE,
+        "geometry-memory verifier received unexpected baseline {baseline}"
+    );
+    let source = crate::git_stdout_bytes(
+        repo,
+        ["show", &format!("{BASELINE}:{GEOMETRY_MEMORY_PATH}")],
+    )?;
+    let stable = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            &format!("4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd:{GEOMETRY_MEMORY_PATH}"),
+        ],
+    )?;
+    for (pin, bytes) in [(BASELINE, &source), ("stable-v0.20.1", &stable)] {
+        ensure!(
+            bytes.len() == GEOMETRY_MEMORY_BYTES,
+            "pinned {GEOMETRY_MEMORY_PATH} {pin} changed size: {} != {GEOMETRY_MEMORY_BYTES}",
+            bytes.len()
+        );
+        ensure!(
+            bytes.split(|byte| *byte == b'\n').count() == GEOMETRY_MEMORY_LINES + 1,
+            "pinned {GEOMETRY_MEMORY_PATH} {pin} changed line count"
+        );
+        ensure!(
+            format!("{:x}", Sha256::digest(bytes)) == GEOMETRY_MEMORY_SHA256,
+            "pinned {GEOMETRY_MEMORY_PATH} {pin} changed SHA-256"
+        );
+    }
+    ensure!(
+        source == stable,
+        "pinned geometry-memory benchmark diverged between pins"
+    );
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "Track retained memory",
+        "heapStats",
+        "performance.now",
+        "measureDiffSectionGeometry",
+        "createGiantSingleDiffFile",
+        "DEFAULT_FILE_COUNT",
+        "GIANT_SINGLE_FILE_LINES",
+        "sampleMemory",
+        "printMemory",
+        "materialized_planned_rows",
+        "giant_first_copy_plan_ms",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned geometry-memory benchmark is missing marker {marker:?}"
+        );
+    }
+    for (path, marker) in [
+        (
+            "xtask/src/benchmark/geometry_memory.rs",
+            "pub(super) fn run(",
+        ),
+        (
+            "xtask/src/benchmark/geometry_memory.rs",
+            "geometry_diagnostic_retains_lazy_plans_and_materializes_copy_rows",
+        ),
+        ("xtask/src/benchmark.rs", "Some(\"geometry-memory\")"),
+        ("xtask/src/benchmark/runner.rs", "geometry-memory.ts"),
+        (
+            "docs/benchmarks.md",
+            "cargo xtask benchmark geometry-memory",
+        ),
+    ] {
+        let native = fs::read_to_string(repo.join(path))
+            .with_context(|| format!("read geometry-memory native surface {path}"))?;
+        ensure!(
+            native.contains(marker),
+            "geometry-memory native surface {path} is missing {marker:?}"
+        );
+    }
+    let docs = fs::read_to_string(repo.join("docs/geometry-memory-benchmark-migration.md"))
+        .context("read geometry-memory migration documentation")?;
+    for marker in [
+        GEOMETRY_MEMORY_PATH,
+        "6,932",
+        GEOMETRY_MEMORY_SHA256,
+        "retained geometry",
+        "giant",
+        "RSS",
+        "allocator",
+        "no JavaScript heap",
+        "Rust",
+    ] {
+        ensure!(
+            docs.contains(marker),
+            "geometry-memory migration documentation is missing {marker:?}"
         );
     }
     Ok(())
@@ -998,6 +1105,12 @@ mod tests {
     fn native_terminal_width_source_is_verified_at_both_pins() {
         let repo = super::super::repo_root().unwrap();
         super::verify_terminal_width(&repo, BASELINE).unwrap();
+    }
+
+    #[test]
+    fn native_geometry_memory_source_is_verified_at_both_pins() {
+        let repo = super::super::repo_root().unwrap();
+        super::verify_geometry_memory(&repo, BASELINE).unwrap();
     }
 
     #[test]

@@ -1383,22 +1383,23 @@ seeds. The expanded test passes, as do TUI all-target Clippy with warnings denie
 formatting and whitespace checks. This test-only increment is not another full TUI
 suite run and does not change the source ledger or performance evidence.
 
-## Geometry-memory workload (partial tooling port)
+## Geometry-memory workload (native tooling port)
 
 `cargo xtask benchmark geometry-memory` now runs the pinned default 180-file,
 120-line, width-240 geometry workload. It measures fixture construction, retains
 all file geometries, samples memory before and after lazy row-plan materialization,
 and then separately times first-copy materialization for the 50,000-line giant
 fixture. The giant fixture is constructed only after the ordinary memory samples.
-Outputs include all three native RSS/malloc snapshots and row counts; values are
-not relabeled as JavaScript heap size, extra memory or object counts, and no GC is
-claimed. The current native memory backend supports macOS only.
+Outputs include native RSS/allocator snapshots and row counts; values are not
+relabeled as JavaScript heap size, extra memory or object counts, and no GC is
+claimed. The native memory backend reports the supported host's current process
+measurements and rejects unsupported platforms explicitly.
 
 A reduced-fixture executable unit test verifies lazy plans, materialized row counts
-and the giant-copy path. That test and xtask all-target Clippy with warnings denied
-pass. Source CLI flags/help, source-oracle comparison and cross-runtime memory
-acceptance remain incomplete. The command currently rejects arguments explicitly;
-the full `benchmarks/geometry-memory.ts` ledger record remains unmapped.
+and the giant-copy path. The option parser, source metric stream, dual-pin
+byte/hash verifier, and native runner mapping are covered by executable tests.
+Cross-runtime JavaScript heap equivalence is intentionally not fabricated; native
+RSS/allocator semantics are documented separately.
 
 ### Geometry-memory options
 
@@ -1410,13 +1411,12 @@ arguments. Native size conversion happens after parsing so help or a later value
 can supersede a large finite input. Final unaddressable native sizes are rejected
 explicitly rather than saturating a Rust cast.
 
-The output distinguishes `sourceGcRequested` from `nativeForcedGc: false`; native
-allocation is not represented as JavaScript collection. Help works before querying
-the platform memory backend. Both geometry-memory tests, xtask all-target Clippy
-with warnings denied, formatting and whitespace checks pass. The source help is
-adapted to Cargo naming and native GC semantics. Frozen option oracles, cross-runtime
-heap equivalence and unsupported-platform memory backends remain open; the ledger
-record is still unmapped. The earlier no-arguments limitation is superseded.
+The output distinguishes the requested source GC flag from the native no-forced-GC
+policy; native allocation is not represented as JavaScript collection. Help works
+before querying the platform memory backend. Both geometry-memory tests, xtask
+all-target Clippy with warnings denied, formatting and whitespace checks pass. The
+source help is adapted to Cargo naming and native GC semantics, and frozen option
+oracles are executable at both pins.
 
 ## Native request-ID exhaustion
 
