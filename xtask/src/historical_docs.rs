@@ -37,6 +37,42 @@ const DOCS: &[DocSpec] = &[
         bytes: 37074,
         sha256: "0e13cab0984c0524e6e54d38228c81881e8decf98c07e94dacb78e44389c1839",
     },
+    DocSpec {
+        source: "docs/module-boundaries.md",
+        native: "docs/module-boundaries.md",
+        bytes: 17149,
+        sha256: "dde5573809393ba6359d3ea5575c6c1b2696448e51876d0205daea7013100788",
+    },
+    DocSpec {
+        source: "docs/extension-system-exploration.md",
+        native: "docs/extension-system-exploration.md",
+        bytes: 18229,
+        sha256: "882b4bdab5a2825e217b2d8cc5c81536e13e30892c366b175cc1118969b98750",
+    },
+    DocSpec {
+        source: "docs/browser-review-rebuild.md",
+        native: "docs/browser-review-rebuild.md",
+        bytes: 17360,
+        sha256: "1faafbcf4d2eae09232f7674952dcbc39163552fc2ec0a2995feca8407a2bc23",
+    },
+    DocSpec {
+        source: "docs/browser-review-seam-audit.md",
+        native: "docs/browser-review-seam-audit.md",
+        bytes: 54700,
+        sha256: "c651cc03d318c333d78d89bbb45c6125dfa1400b4e83923d394d731aa72b6627",
+    },
+    DocSpec {
+        source: "docs/session-broker-sdk.md",
+        native: "docs/session-broker-sdk.md",
+        bytes: 42686,
+        sha256: "0339abc53ff07c488eb62634b3a611ad451d70e76e32400ab88c88a13c8459e1",
+    },
+    DocSpec {
+        source: "docs/changelog-on-hunk-dev.md",
+        native: "docs/changelog-on-hunk-dev.md",
+        bytes: 9172,
+        sha256: "edf9791b4bf6139b43cb4b0111976cc92606cde34e34d1ba56f77d58251b5d8a",
+    },
 ];
 
 pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {

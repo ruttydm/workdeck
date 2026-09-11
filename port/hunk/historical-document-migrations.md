@@ -11,6 +11,12 @@ and this migration entry.
 | `docs/extension-api-evaluation.md` | `docs/extension-api-evaluation.md` | `cargo xtask verify` / `historical_docs::verify` |
 | `docs/watch-benchmark.md` | `docs/watch-benchmark.md` | `cargo xtask verify` / `historical_docs::verify` |
 | `docs/watch-benchmark-final.md` | `docs/watch-benchmark-final.md` | `cargo xtask verify` / `historical_docs::verify` |
+| `docs/module-boundaries.md` | `docs/module-boundaries.md` | `cargo xtask verify` / `historical_docs::verify` |
+| `docs/extension-system-exploration.md` | `docs/extension-system-exploration.md` | `cargo xtask verify` / `historical_docs::verify` |
+| `docs/browser-review-rebuild.md` | `docs/browser-review-rebuild.md` | `cargo xtask verify` / `historical_docs::verify` |
+| `docs/browser-review-seam-audit.md` | `docs/browser-review-seam-audit.md` | `cargo xtask verify` / `historical_docs::verify` |
+| `docs/session-broker-sdk.md` | `docs/session-broker-sdk.md` | `cargo xtask verify` / `historical_docs::verify` |
+| `docs/changelog-on-hunk-dev.md` | `docs/changelog-on-hunk-dev.md` | `cargo xtask verify` / `historical_docs::verify` |
 
 The translated evaluation preserves the original findings while recording the
 native Rust/Ratatui resolutions and their executable extension tests. Hunk's
