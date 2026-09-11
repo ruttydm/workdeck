@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
   <title id="title">Workdeck</title>
-  <desc id="desc">A Hunk-first terminal review workbench</desc>
+  <desc id="desc">A review-first terminal workbench</desc>
   <rect width="1200" height="630" fill="#101318"/>
   <path d="M0 520h1200v110H0z" fill="#1b2230"/>
   <text x="84" y="270" fill="#f4f7fb" font-family="monospace" font-size="92" font-weight="700">workdeck</text>

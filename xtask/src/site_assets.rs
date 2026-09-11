@@ -217,4 +217,29 @@ mod tests {
         );
         sbom(&repo).unwrap();
     }
+
+    #[test]
+    fn pinned_upstream_brand_asset_has_a_native_workdeck_replacement() {
+        let repo = crate::repo_root().unwrap();
+        let source = std::process::Command::new("git")
+            .current_dir(&repo)
+            .args([
+                "show",
+                "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2:website/public/modem-light.svg",
+            ])
+            .output()
+            .unwrap();
+        assert!(source.status.success());
+        assert_eq!(source.stdout.len(), 4244);
+        assert_eq!(
+            format!("{:x}", Sha256::digest(&source.stdout)),
+            "55e0c8d5d2933cb14b808aa70f3cc28dc666dbaf0defac24bd55038a005317f8"
+        );
+
+        let replacement = fs::read_to_string(repo.join("site/static/og.svg")).unwrap();
+        assert!(replacement.contains("<title id=\"title\">Workdeck</title>"));
+        assert!(replacement.contains("Rust · Ratatui · one executable"));
+        assert!(!replacement.to_ascii_lowercase().contains("modem"));
+        assert!(!replacement.contains("Hunk-first"));
+    }
 }
