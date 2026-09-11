@@ -114,6 +114,121 @@ pub(crate) fn verify_workflow(repo: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Verify the native replacement for Hunk's main CI workflow. The source
+/// workflow is inspected through Git so every validation, smoke, packaging,
+/// and cross-platform job has an explicit disposition without retaining a
+/// Bun/Node/npm workflow in the final tree.
+pub(crate) fn verify_main_workflow(repo: &Path) -> Result<()> {
+    let source = crate::git_stdout_bytes(
+        repo,
+        ["show", &format!("{BASELINE}:.github/workflows/ci.yml")],
+    )?;
+    ensure!(
+        source.len() == 7_628,
+        "pinned main CI workflow changed size: {} != 7628",
+        source.len()
+    );
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "name: Main CI",
+        "push:",
+        "branches:",
+        "main-ci-${{ github.workflow }}-${{ github.ref }}",
+        "SKIP_INSTALL_SIMPLE_GIT_HOOKS",
+        "jobs:",
+        "changes:",
+        "validate:",
+        "tty-smoke:",
+        "pack-npm:",
+        "prebuilt-npm:",
+        "build-bin:",
+        "Set up Bun",
+        "Set up Node",
+        "Install Jujutsu",
+        "Install Sapling",
+        "bun install --frozen-lockfile",
+        "bun run format:check",
+        "bun run lint",
+        "bun run typecheck",
+        "bun run deps:check",
+        "bun run test:theme-contrast",
+        "bun run test:session-broker-node",
+        "bun run test:integration",
+        "bun run test:tty-smoke",
+        "bun run build:npm",
+        "bun run build:prebuilt:npm",
+        "bun run build:bin",
+        "qemu-x86_64-static -cpu Nehalem",
+        "actions/upload-artifact@",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned main CI workflow lost marker {marker:?}"
+        );
+    }
+
+    let native = std::fs::read_to_string(repo.join(".github/workflows/ci.yml"))?;
+    for marker in [
+        "name: CI",
+        "permissions:",
+        "contents: read",
+        "group: ci-${{ github.workflow }}-${{ github.ref }}",
+        "changes:",
+        "cargo xtask ci-changes \"$BASE_SHA\" \"$HEAD_SHA\"",
+        "outputs:",
+        "validate:",
+        "Native validation and parity",
+        "cargo test --locked --workspace --all-targets",
+        "cargo fmt --all --check",
+        "cargo clippy --locked --workspace --all-targets -- -D warnings",
+        "cargo xtask verify",
+        "cargo xtask site check",
+        "cargo xtask licenses",
+        "tty-smoke:",
+        "terminal_lifecycle",
+        "terminal_pager",
+        "package:",
+        "Native package smoke",
+        "cargo build --locked --release --package workdeck-cli --bin workdeck",
+        "target/release/workdeck --help",
+        "cargo xtask architecture check",
+        "cargo xtask licenses --output dist/licenses.json",
+    ] {
+        ensure!(
+            native.contains(marker),
+            "native main CI workflow is missing {marker:?}"
+        );
+    }
+    for forbidden in ["bun", "node", "npm", "opentui", "wasm"] {
+        let pattern = regex::Regex::new(&format!(
+            r"(?i)(?:^|[^a-z]){}(?:$|[^a-z])",
+            regex::escape(forbidden)
+        ))
+        .expect("forbidden runtime token pattern is valid");
+        ensure!(
+            !pattern.is_match(&native),
+            "native main CI workflow retains forbidden runtime token {forbidden:?}"
+        );
+    }
+    let migration = std::fs::read_to_string(repo.join("docs/main-ci-migration.md"))?;
+    for marker in [
+        ".github/workflows/ci.yml",
+        "changes",
+        "native validation",
+        "terminal smoke",
+        "package smoke",
+        "Bun",
+        "npm",
+        "not retained",
+    ] {
+        ensure!(
+            migration.contains(marker),
+            "main CI migration is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
+
 fn git(repo: &Path, args: &[&str]) -> Result<Vec<u8>> {
     let output = Command::new("git")
         .current_dir(repo)
@@ -224,6 +339,12 @@ mod tests {
     fn native_nix_workflow_replaces_the_complete_pinned_shell_detector() {
         let repo = super::super::repo_root().unwrap();
         super::verify_workflow(&repo).unwrap();
+    }
+
+    #[test]
+    fn native_main_ci_replaces_the_complete_pinned_bun_matrix() {
+        let repo = super::super::repo_root().unwrap();
+        super::verify_main_workflow(&repo).unwrap();
     }
 
     #[test]

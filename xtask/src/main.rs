@@ -1779,6 +1779,7 @@ fn verify() -> Result<()> {
     let repo = repo_root()?;
     benchmark::verify_workflow(&repo)?;
     ci_changes::verify_workflow(&repo)?;
+    ci_changes::verify_main_workflow(&repo)?;
     site_links::verify_docs_header(&repo)?;
     site_assets::verify_theme_shots(&repo)?;
     site_assets::verify_theme_shot_component(&repo)?;
