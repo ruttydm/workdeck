@@ -1,0 +1,40 @@
+{
+  "nativeCommit": "ee34bf1ecaa6f9f22d565f250a9d9f6622efa1b2",
+  "sourceCommits": {
+    "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+  },
+  "host": "macOS arm64",
+  "nativeProfile": "release",
+  "method": "Three fresh sequential native processes after the source-presentation-keyed geometry cache change, each wrapped with /usr/bin/time -l. Darwin getrusage ru_maxrss is bytes; peak RSS is the maximum reported process resident set over the complete invocation. Frozen pin peaks are taken from interaction-paired-peak-c453574b.json on the same host (native max 170754048, baseline 613482496, stable 591872000). Other host activity uncontrolled.",
+  "runs": [
+    {
+      "kind": "native",
+      "round": 1,
+      "exitCode": 0,
+      "peakRssBytes": 119013376,
+      "scrollTickMedianMs": 0.6
+    },
+    {
+      "kind": "native",
+      "round": 2,
+      "exitCode": 0,
+      "peakRssBytes": 116785152,
+      "scrollTickMedianMs": 0.6
+    },
+    {
+      "kind": "native",
+      "round": 3,
+      "exitCode": 0,
+      "peakRssBytes": 118964224,
+      "scrollTickMedianMs": 0.61
+    }
+  ],
+  "peakComparison": {
+    "nativeMax": 119013376,
+    "frozenBaselineMax": 613482496,
+    "frozenStableMax": 591872000,
+    "priorNativePairedMax": 170754048,
+    "verdict": "No peak-memory regression: the native maximum is 5.1x below the baseline pin, 5.0x below the stable pin, and below the prior native paired maximum."
+  }
+}

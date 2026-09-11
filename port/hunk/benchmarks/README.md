@@ -245,8 +245,10 @@ receipt are:
 Workdeck is now faster than both pins on every paired interaction metric: scroll is 68.9% under
 the main-pin median and 70.6% under the stable-pin median, so the strict 10% interaction latency
 gate passes on this workload. Three fresh native rounds under `/usr/bin/time -l` peak at
-119,013,376 bytes (116,785,152; 118,964,224; 119,013,376), below the frozen pin peaks of
-613,482,496 and 591,872,000 bytes in [`interaction-paired-peak-c453574b.json`](interaction-paired-peak-c453574b.json)
+119,013,376 bytes (116,785,152; 118,964,224; 119,013,376) in
+[`interaction-native-peak-ee34bf1e.json`](interaction-native-peak-ee34bf1e.json), below the
+frozen pin peaks of 613,482,496 and 591,872,000 bytes in
+[`interaction-paired-peak-c453574b.json`](interaction-paired-peak-c453574b.json)
 and below the prior native paired peak of 170,754,048 bytes, so the no-peak-memory-regression
 requirement also passes on this host. Hunk RSS includes a JavaScript heap and native process
 footprint, whereas Workdeck reports native RSS and allocator snapshots; those memory values are
