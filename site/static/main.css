@@ -19,6 +19,12 @@ main { display: grid; gap: 3rem; padding: 5rem 0; }
 .hero { max-width: 58rem; }
 .install-picker { max-width: 58rem; }
 .install-picker h2 { margin-bottom: .75rem; }
+.release-ribbon { display: inline-flex; align-items: center; gap: .65rem; margin-top: 1rem; padding: .6rem .85rem; border: 1px solid var(--workdeck-rule); color: inherit; text-decoration: none; }
+.release-ribbon:hover { border-color: var(--workdeck-ink); }
+.release-ribbon .rv { font-weight: 700; }
+.release-ribbon .rs { color: var(--workdeck-muted); }
+.release-ribbon .ra { transition: transform .15s ease; }
+.release-ribbon:hover .ra { transform: translateX(.2rem); }
 .install-tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
 .install-tabs a, .more-features a { border: 1px solid var(--workdeck-rule); padding: .55rem .8rem; text-decoration: none; }
 .install-tabs a:hover, .install-tabs a:focus-visible, .more-features a:hover, .more-features a:focus-visible { border-color: var(--workdeck-accent); }
@@ -29,6 +35,11 @@ main { display: grid; gap: 3rem; padding: 5rem 0; }
 .feature-grid, .more-features { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 1rem; }
 .feature-grid a, .more-features a { display: grid; gap: .4rem; border: 1px solid var(--workdeck-rule); padding: 1rem; text-decoration: none; }
 .feature-grid span, .more-features span { color: var(--workdeck-muted); font-size: .9rem; }
+.last { max-width: 64rem !important; text-align: center; }
+.cta { display: flex; justify-content: center; flex-wrap: wrap; gap: .75rem; }
+.cta a { padding: .6rem .9rem; text-decoration: none; }
+.cta .ghost { border: 1px solid var(--workdeck-ink); background: var(--workdeck-ink); color: var(--workdeck-bg); }
+.cta .plain { border: 1px solid var(--workdeck-rule); }
 .theme-showcase { max-width: 64rem !important; }
 .theme-frame { margin: 0; border: 1px solid var(--workdeck-rule); background: var(--workdeck-paper); }
 .paper-bar { display: flex; align-items: center; gap: .35rem; min-height: 2rem; padding: 0 .75rem; border-bottom: 1px solid var(--workdeck-rule); color: var(--workdeck-muted); }

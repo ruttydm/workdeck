@@ -1784,6 +1784,7 @@ fn verify() -> Result<()> {
     site_assets::verify_theme_shot_component(&repo)?;
     site_assets::verify_community_videos(&repo)?;
     site_assets::verify_feature_showcase(&repo)?;
+    site_assets::verify_home_page(&repo)?;
     benchmark::verify_historical(&repo)?;
     verify_vendored_themes()?;
     skill::check(&repo)?;

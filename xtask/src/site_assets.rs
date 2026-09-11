@@ -124,19 +124,15 @@ pub(crate) fn verify_theme_shots(repo: &Path) -> Result<()> {
         );
         let source = crate::git_stdout_bytes(
             repo,
-            [
-                "show",
-                &format!("{HUNK_BASELINE}:website/public/{name}"),
-            ],
+            ["show", &format!("{HUNK_BASELINE}:website/public/{name}")],
         )?;
         ensure!(
             source == retained_bytes && source == served_bytes,
             "theme shot {name} differs from the pinned Hunk blob"
         );
     }
-    let inventory: Vec<Asset> = serde_json::from_slice(&fs::read(
-        repo.join("site/data/third-party-assets.json"),
-    )?)?;
+    let inventory: Vec<Asset> =
+        serde_json::from_slice(&fs::read(repo.join("site/data/third-party-assets.json"))?)?;
     let files = inventory
         .iter()
         .flat_map(|asset| asset.files.iter())
@@ -316,10 +312,7 @@ pub(crate) fn verify_community_videos(repo: &Path) -> Result<()> {
         );
         let source = crate::git_stdout_bytes(
             repo,
-            [
-                "show",
-                &format!("{HUNK_BASELINE}:website/public/{name}"),
-            ],
+            ["show", &format!("{HUNK_BASELINE}:website/public/{name}")],
         )?;
         ensure!(
             source == retained_bytes && source == served_bytes,
@@ -371,9 +364,8 @@ pub(crate) fn verify_community_videos(repo: &Path) -> Result<()> {
             "native community video styles are missing {marker:?}"
         );
     }
-    let inventory: Vec<Asset> = serde_json::from_slice(&fs::read(
-        repo.join("site/data/third-party-assets.json"),
-    )?)?;
+    let inventory: Vec<Asset> =
+        serde_json::from_slice(&fs::read(repo.join("site/data/third-party-assets.json"))?)?;
     let files = inventory
         .iter()
         .flat_map(|asset| asset.files.iter())
@@ -473,10 +465,7 @@ pub(crate) fn verify_feature_showcase(repo: &Path) -> Result<()> {
         );
         let source = crate::git_stdout_bytes(
             repo,
-            [
-                "show",
-                &format!("{HUNK_BASELINE}:website/public/{name}"),
-            ],
+            ["show", &format!("{HUNK_BASELINE}:website/public/{name}")],
         )?;
         ensure!(
             source == retained_bytes && source == served_bytes,
@@ -536,9 +525,8 @@ pub(crate) fn verify_feature_showcase(repo: &Path) -> Result<()> {
             "native feature showcase styles are missing {marker:?}"
         );
     }
-    let inventory: Vec<Asset> = serde_json::from_slice(&fs::read(
-        repo.join("site/data/third-party-assets.json"),
-    )?)?;
+    let inventory: Vec<Asset> =
+        serde_json::from_slice(&fs::read(repo.join("site/data/third-party-assets.json"))?)?;
     let files = inventory
         .iter()
         .flat_map(|asset| asset.files.iter())
@@ -562,6 +550,143 @@ pub(crate) fn verify_feature_showcase(repo: &Path) -> Result<()> {
         ensure!(
             migration.contains(marker),
             "feature showcase migration is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
+
+/// Verify the complete landing-page composition after replacing Astro's
+/// component graph and network-dependent metadata with the native Zola
+/// template and generated release data. The component-level checks above
+/// cover the media-heavy sections; this gate binds the page shell, ordering,
+/// calls to action, metadata, and no-runtime boundary as one artifact.
+pub(crate) fn verify_home_page(repo: &Path) -> Result<()> {
+    let source = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            &format!("{HUNK_BASELINE}:website/src/pages/index.astro"),
+        ],
+    )?;
+    ensure!(
+        source.len() == 6_182,
+        "pinned index.astro changed size: {} != 6182",
+        source.len()
+    );
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "import BrandFooter from \"../components/BrandFooter.astro\"",
+        "import BrandHeader from \"../components/BrandHeader.astro\"",
+        "import CommunityVideos from \"../components/marketing/CommunityVideos.astro\"",
+        "import FeatureShowcase from \"../components/marketing/FeatureShowcase.astro\"",
+        "import InstallTabs from \"../components/marketing/InstallTabs.astro\"",
+        "import MoreFeatures from \"../components/marketing/MoreFeatures.astro\"",
+        "import ThemeShot from \"../components/marketing/ThemeShot.astro\"",
+        "const REPO = \"https://github.com/modem-dev/hunk\"",
+        "const title = \"hunk — review-first terminal diff viewer\"",
+        "const description =",
+        "process.env.GITHUB_TOKEN",
+        "AbortSignal.timeout(5000)",
+        "@type\": \"SoftwareApplication\"",
+        "sameAs: [REPO, \"https://www.npmjs.com/package/hunkdiff\"]",
+        "const formattedStars =",
+        "<section class=\"intro\">",
+        "<InstallTabs />",
+        "latestRelease.minor",
+        "<section class=\"paper\" aria-label=\"Hunk theme preview\">",
+        "<ThemeShot />",
+        "<CommunityVideos />",
+        "<FeatureShowcase />",
+        "<MoreFeatures />",
+        "<section class=\"last\">",
+        "href=\"/docs/start/quick-start/\"",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned index.astro lost marker {marker:?}"
+        );
+    }
+
+    let index = fs::read_to_string(repo.join("site/templates/index.html"))?;
+    for marker in [
+        "{% set latest = load_data(path=\"data/latest-release.json\") %}",
+        "class=\"hero\"",
+        "Rust · Ratatui · one executable",
+        "class=\"install-picker\"",
+        "cargo install --git",
+        "class=\"release-ribbon\"",
+        "v{{ latest.version }}",
+        "href=\"/changelog/{{ latest.minor }}/\"",
+        "class=\"theme-showcase\"",
+        "class=\"community-videos\"",
+        "class=\"feature-showcase\"",
+        "class=\"feature-links\"",
+        "class=\"more-features\"",
+        "class=\"feature-grid\"",
+        "Review first. Keep the whole workbench.",
+        "No JavaScript runtime",
+        "Auditable semantic port",
+        "href=\"/docs/start/quick-start/\"",
+    ] {
+        ensure!(
+            index.contains(marker),
+            "native landing page is missing {marker:?}"
+        );
+    }
+    ensure!(
+        !index.contains("<script")
+            && !index.contains("hunk.dev")
+            && !index.contains("npmjs.com")
+            && !index.contains("OpenTUI")
+            && !index.contains("TypeScript extensions"),
+        "native landing page reintroduced a forbidden runtime or Hunk-only distribution"
+    );
+
+    let latest: serde_json::Value =
+        serde_json::from_slice(&fs::read(repo.join("site/data/latest-release.json"))?)?;
+    let pinned_latest = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            &format!("{HUNK_BASELINE}:website/releases/latest.json"),
+        ],
+    )?;
+    let pinned_latest: serde_json::Value = serde_json::from_slice(&pinned_latest)?;
+    for key in ["version", "minor", "date", "summary"] {
+        ensure!(
+            latest.get(key) == pinned_latest.get(key),
+            "native latest release metadata differs for {key}"
+        );
+    }
+
+    let css = fs::read_to_string(repo.join("site/static/main.css"))?;
+    for marker in [
+        ".hero",
+        ".install-picker",
+        ".release-ribbon",
+        ".theme-showcase",
+        ".community-videos",
+        ".feature-showcase",
+        ".feature-links",
+        ".more-features",
+    ] {
+        ensure!(
+            css.contains(marker),
+            "native landing styles are missing {marker:?}"
+        );
+    }
+    let migration = fs::read_to_string(repo.join("docs/home-page-migration.md"))?;
+    for marker in [
+        "index.astro",
+        "component graph",
+        "release metadata",
+        "six feature chapters",
+        "no application JavaScript",
+        "Workdeck",
+    ] {
+        ensure!(
+            migration.contains(marker),
+            "home-page migration is missing {marker:?}"
         );
     }
     Ok(())
@@ -671,6 +796,12 @@ mod tests {
     fn native_feature_showcase_replaces_the_complete_pinned_component() {
         let repo = crate::repo_root().unwrap();
         verify_feature_showcase(&repo).unwrap();
+    }
+
+    #[test]
+    fn native_home_page_replaces_the_complete_pinned_composition() {
+        let repo = crate::repo_root().unwrap();
+        verify_home_page(&repo).unwrap();
     }
 
     #[test]

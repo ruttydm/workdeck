@@ -57,10 +57,7 @@ pub(crate) fn check(repo: &Path) -> Result<()> {
 /// because Workdeck ships one Cargo binary rather than an npm wrapper.
 fn verify_legacy_launcher(repo: &Path) -> Result<()> {
     const BASELINE: &str = "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2";
-    let bytes = crate::git_stdout_bytes(repo, [
-        "show",
-        &format!("{BASELINE}:bin/hunk.cjs"),
-    ])?;
+    let bytes = crate::git_stdout_bytes(repo, ["show", &format!("{BASELINE}:bin/hunk.cjs")])?;
     ensure!(
         bytes.len() == 3_762,
         "pinned bin/hunk.cjs changed size: {} != 3762",

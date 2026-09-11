@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
+{% set latest = load_data(path="data/latest-release.json") %}
 <section class="hero">
   <p class="eyebrow">Rust · Ratatui · one executable</p>
   <h1>Review first. Keep the whole workbench.</h1>
@@ -33,6 +34,11 @@ workdeck</code></pre>
     </div>
     <p class="install-note">Release-channel installers and updates are verified separately; see the <a href="/docs/start/install/">installation guide</a>.</p>
   </section>
+  <a class="release-ribbon" href="/changelog/{{ latest.minor }}/" aria-label="Read Workdeck {{ latest.version }} release notes">
+    <span class="rv">v{{ latest.version }}</span>
+    <span class="rs">{{ latest.summary }}</span>
+    <span class="ra" aria-hidden="true">→</span>
+  </a>
 </section>
 <section class="theme-showcase" aria-labelledby="theme-showcase-title">
   <p class="eyebrow">Review in your language</p>
@@ -128,6 +134,13 @@ fn main() -&gt; anyhow::Result&lt;()&gt; {
     <a href="/docs/workflows/git-pager-and-difftool/"><strong>Pager &amp; difftool</strong><span>pipe any patch in</span></a>
     <a href="/docs/start/install/"><strong>Cross-platform</strong><span>macOS, Linux, Windows</span></a>
     <a href="/docs/configure/themes/"><strong>Your own themes</strong><span>roll a palette in config</span></a>
+  </div>
+</section>
+<section class="last" aria-labelledby="try-title">
+  <h2 id="try-title">Try Workdeck on your next changeset.</h2>
+  <div class="cta">
+    <a class="ghost" href="#install">Install Workdeck</a>
+    <a class="plain" href="/docs/start/quick-start/">Read the quick start</a>
   </div>
 </section>
 {% endblock content %}
