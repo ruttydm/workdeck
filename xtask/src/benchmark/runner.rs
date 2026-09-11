@@ -40,6 +40,7 @@ fn workload_command(name: &str) -> Result<&'static str> {
         "memory.ts" => Ok("memory"),
         "navigation-memory.ts" => Ok("navigation-memory"),
         "resize-memory.ts" => Ok("resize-memory"),
+        "compact-highlight-payload.ts" => Ok("compact-highlight-payload"),
         "worker-highlight-cache.ts" => Ok("worker-highlight-cache"),
         "highlight-cache-layers.ts" => Ok("highlight-cache-layers"),
         "terminal-width.ts" => Ok("terminal-width"),

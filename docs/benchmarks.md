@@ -52,6 +52,7 @@ cargo xtask benchmark memory
 cargo xtask benchmark geometry-memory
 cargo xtask benchmark navigation-memory
 cargo xtask benchmark resize-memory
+cargo xtask benchmark compact-highlight-payload
 cargo xtask benchmark competitors
 ```
 
@@ -75,6 +76,7 @@ cargo xtask benchmark competitors
 - `geometry-memory.ts` — optional local retained-memory profiler for all-files section geometry, including JSC-native heap metrics and giant-file lazy planned-row materialization latency used by first copy selection.
 - `navigation-memory.ts` — optional local retained-memory profiler for repeated workdeck navigation through a mounted review stream.
 - `resize-memory.ts` — optional local retained-memory profiler for repeated terminal-width changes through a mounted review stream; this targets geometry-cache retention across resize variants.
+- `compact-highlight-payload.ts` — measures native syntax-token cloning, compact UTF-16 range encoding/validation/decoding, and inline versus worker highlight operations for an 8,000-line TypeScript diff.
 - `competitors.ts` — optional local informational comparisons against `git diff --no-ext-diff`, `delta`, `difftastic`, and `diff-so-fancy` when installed.
 - `large-stream-fixture.ts` and `lib/fixtures.ts` — shared deterministic synthetic fixtures.
 

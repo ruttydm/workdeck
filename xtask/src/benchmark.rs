@@ -165,6 +165,12 @@ const RESIZE_MEMORY_LINES: usize = 309;
 const RESIZE_MEMORY_SHA256: &str =
     "bc379ed71d4bcd1c941b4d953f6a1c8fb47c4d10e3dd08eb342c9e945db5ab52";
 
+const COMPACT_HIGHLIGHT_PAYLOAD_PATH: &str = "benchmarks/compact-highlight-payload.ts";
+const COMPACT_HIGHLIGHT_PAYLOAD_BYTES: usize = 7_804;
+const COMPACT_HIGHLIGHT_PAYLOAD_LINES: usize = 216;
+const COMPACT_HIGHLIGHT_PAYLOAD_SHA256: &str =
+    "640dfe2046b97f304508effcaee25704c42fb8ab0b56a33bb8f057d105856e4a";
+
 /// Verify the executable native replacement for Hunk's terminal-width
 /// benchmark. The source is read from both protected pins; no TypeScript or
 /// string-width runtime is copied into the final tree.
@@ -1118,8 +1124,129 @@ pub(crate) fn verify_resize_memory(repo: &Path, baseline: &str) -> Result<()> {
     Ok(())
 }
 
+/// Verify the native compact highlight payload diagnostic replacing Hunk's TypeScript script.
+pub(crate) fn verify_compact_highlight_payload(repo: &Path, baseline: &str) -> Result<()> {
+    ensure!(
+        baseline == BASELINE,
+        "compact-highlight-payload verifier received unexpected baseline {baseline}"
+    );
+    let source = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            &format!("{BASELINE}:{COMPACT_HIGHLIGHT_PAYLOAD_PATH}"),
+        ],
+    )?;
+    let stable = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            &format!("4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd:{COMPACT_HIGHLIGHT_PAYLOAD_PATH}"),
+        ],
+    )?;
+    for (pin, bytes) in [(BASELINE, &source), ("stable-v0.20.1", &stable)] {
+        ensure!(
+            bytes.len() == COMPACT_HIGHLIGHT_PAYLOAD_BYTES,
+            "pinned {COMPACT_HIGHLIGHT_PAYLOAD_PATH} {pin} changed size: {} != {COMPACT_HIGHLIGHT_PAYLOAD_BYTES}",
+            bytes.len()
+        );
+        ensure!(
+            bytes.split(|byte| *byte == b'\n').count() == COMPACT_HIGHLIGHT_PAYLOAD_LINES + 1,
+            "pinned {COMPACT_HIGHLIGHT_PAYLOAD_PATH} {pin} changed line count"
+        );
+        ensure!(
+            format!("{:x}", Sha256::digest(bytes)) == COMPACT_HIGHLIGHT_PAYLOAD_SHA256,
+            "pinned {COMPACT_HIGHLIGHT_PAYLOAD_PATH} {pin} changed SHA-256"
+        );
+    }
+    ensure!(
+        source == stable,
+        "pinned compact-highlight-payload benchmark diverged between pins"
+    );
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "Compare the worker's current raw-HAST response shape",
+        "performance.now",
+        "parseDiffFromFile",
+        "buildSplitRows",
+        "loadHighlightedDiff",
+        "compactHighlightRunsForLine",
+        "compactHighlightTransferList",
+        "compactHighlightedDiffByteLength",
+        "encodeCompactHighlightedDiff",
+        "validateCompactHighlightedDiff",
+        "createStallProbe",
+        "structuredClone",
+        "offloadLargeDiff",
+        "compact_response_byte_ratio",
+        "inline_operation_stall_ms_p95",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned compact-highlight-payload benchmark is missing marker {marker:?}"
+        );
+    }
+    for (path, marker) in [
+        (
+            "xtask/src/benchmark/compact_highlight_payload.rs",
+            "pub(super) fn run(",
+        ),
+        (
+            "xtask/src/benchmark/compact_highlight_payload.rs",
+            "compact_payload_round_trip_validates_utf16_ranges_and_decodes_every_line",
+        ),
+        (
+            "xtask/src/benchmark/compact_highlight_payload.rs",
+            "encode_compact_syntax_lines",
+        ),
+        (
+            "crates/workdeck-diff/src/compact_highlight.rs",
+            "pub fn encode_compact_syntax_lines(",
+        ),
+        (
+            "xtask/src/benchmark/runner.rs",
+            "compact-highlight-payload.ts",
+        ),
+        (
+            "xtask/src/benchmark.rs",
+            "Some(\"compact-highlight-payload\")",
+        ),
+        (
+            "docs/benchmarks.md",
+            "cargo xtask benchmark compact-highlight-payload",
+        ),
+    ] {
+        let native = fs::read_to_string(repo.join(path))
+            .with_context(|| format!("read compact-highlight-payload native surface {path}"))?;
+        ensure!(
+            native.contains(marker),
+            "compact-highlight-payload native surface {path} is missing {marker:?}"
+        );
+    }
+    let docs =
+        fs::read_to_string(repo.join("docs/compact-highlight-payload-benchmark-migration.md"))
+            .context("read compact-highlight-payload migration documentation")?;
+    for marker in [
+        COMPACT_HIGHLIGHT_PAYLOAD_PATH,
+        "7,804",
+        COMPACT_HIGHLIGHT_PAYLOAD_SHA256,
+        "compact",
+        "UTF-16",
+        "Ratatui",
+        "native worker",
+        "no JavaScript runtime",
+    ] {
+        ensure!(
+            docs.contains(marker),
+            "compact-highlight-payload migration documentation is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
+
 mod bootstrap;
 mod changeset_parse;
+mod compact_highlight_payload;
 pub(crate) mod competitors;
 mod fixtures;
 mod geometry_memory;
@@ -1815,6 +1942,9 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     if command.as_deref() == Some("resize-memory") {
         return resize_memory::run(args);
     }
+    if command.as_deref() == Some("compact-highlight-payload") {
+        return compact_highlight_payload::run(args);
+    }
     if command.as_deref() == Some("worker-highlight-cache") {
         return worker_highlight_cache::run(args);
     }
@@ -1969,6 +2099,12 @@ mod tests {
     fn native_resize_memory_source_is_verified_at_both_pins() {
         let repo = super::super::repo_root().unwrap();
         super::verify_resize_memory(&repo, BASELINE).unwrap();
+    }
+
+    #[test]
+    fn native_compact_highlight_payload_source_is_verified_at_both_pins() {
+        let repo = super::super::repo_root().unwrap();
+        super::verify_compact_highlight_payload(&repo, BASELINE).unwrap();
     }
 
     #[test]

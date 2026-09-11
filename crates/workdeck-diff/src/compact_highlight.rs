@@ -345,7 +345,10 @@ fn encode_syntax_side(
 }
 
 /// Encode native highlighter output through the same text-free cache format.
-pub(crate) fn encode_compact_syntax_lines(
+///
+/// This is public so diagnostics and extension hosts can validate the exact payload that the
+/// production native worker retains, without reaching into the worker implementation.
+pub fn encode_compact_syntax_lines(
     lines: &HighlightLineArrays<HighlightedLine>,
 ) -> Result<CompactHighlightedDiff, CompactHighlightError> {
     let mut foreground_palette = Vec::new();

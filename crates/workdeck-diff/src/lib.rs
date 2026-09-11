@@ -33,7 +33,8 @@ pub use compact_highlight::{
     CompactHighlightLineLengths, CompactHighlightRun, CompactHighlightSide, CompactHighlightedDiff,
     HastAppearance, HastHighlightRun, HastNode, collect_hast_highlight_runs,
     compact_highlight_runs_for_line, compact_highlighted_diff_byte_length,
-    encode_compact_highlighted_diff, validate_compact_highlighted_diff,
+    encode_compact_highlighted_diff, encode_compact_syntax_lines,
+    validate_compact_highlighted_diff,
 };
 pub use geometry::{
     SegmentWindow, TextSegment, clip_segments, measure_wrapped_segments_line_count, segments_width,
