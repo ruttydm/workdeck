@@ -1781,6 +1781,7 @@ fn verify() -> Result<()> {
     ci_changes::verify_workflow(&repo)?;
     ci_changes::verify_main_workflow(&repo)?;
     site_links::verify_docs_header(&repo)?;
+    site_links::verify_website_workflow(&repo)?;
     site_assets::verify_theme_shots(&repo)?;
     site_assets::verify_theme_shot_component(&repo)?;
     site_assets::verify_community_videos(&repo)?;

@@ -98,6 +98,98 @@ pub(crate) fn verify_docs_header(repo: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Verify the native Rust/Zola replacement for Hunk's website workflow. The
+/// source workflow is inspected from Git and every build, route, export,
+/// preview, and browser-check responsibility is routed to deterministic Rust
+/// tooling; Bun/Node/Playwright execution is not retained.
+pub(crate) fn verify_website_workflow(repo: &Path) -> Result<()> {
+    let source = crate::git_stdout_bytes(
+        repo,
+        ["show", &format!("{BASELINE}:.github/workflows/website.yml")],
+    )?;
+    ensure!(
+        source.len() == 1_396,
+        "pinned website workflow changed size: {} != 1396",
+        source.len()
+    );
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "name: Website",
+        "SKIP_INSTALL_SIMPLE_GIT_HOOKS",
+        "pull_request:",
+        "push:",
+        "branches:",
+        "website-${{ github.workflow }}-${{ github.ref }}",
+        "jobs:",
+        "build:",
+        "Check and build website",
+        "Set up Bun",
+        "bun install --frozen-lockfile",
+        "bun install --cwd website --frozen-lockfile",
+        "scripts/generate-docs.test.ts",
+        "scripts/check-website-links.test.ts",
+        "scripts/check-extension-catalog.test.ts",
+        "bun run check:docs",
+        "bun run website:check",
+        "bun run website:build",
+        "bun run website:links",
+        "playwright install --with-deps chromium",
+        "bun run website:test:browser",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned website workflow lost marker {marker:?}"
+        );
+    }
+    let native = std::fs::read_to_string(repo.join(".github/workflows/website.yml"))?;
+    for marker in [
+        "name: Website",
+        "SKIP_INSTALL_SIMPLE_GIT_HOOKS",
+        "pull_request:",
+        "push:",
+        "website-${{ github.workflow }}-${{ github.ref }}",
+        "Check and build native website",
+        "uses: actions/checkout@v5",
+        "uses: dtolnay/rust-toolchain@stable",
+        "tool: zola@0.23.4",
+        "cargo xtask site check",
+        "cargo xtask site build",
+        "cargo xtask site preview-check",
+        "cargo test --locked -p xtask site_links site_markdown site_preview",
+    ] {
+        ensure!(
+            native.contains(marker),
+            "native website workflow is missing {marker:?}"
+        );
+    }
+    for forbidden in ["bun", "node", "npm", "opentui", "wasm", "playwright"] {
+        let pattern = regex::Regex::new(&format!(
+            r"(?i)(?:^|[^a-z]){}(?:$|[^a-z])",
+            regex::escape(forbidden)
+        ))
+        .expect("forbidden runtime token pattern is valid");
+        ensure!(
+            !pattern.is_match(&native),
+            "native website workflow retains forbidden runtime token {forbidden:?}"
+        );
+    }
+    let migration = std::fs::read_to_string(repo.join("docs/website-workflow-migration.md"))?;
+    for marker in [
+        ".github/workflows/website.yml",
+        "Zola",
+        "static links",
+        "preview isolation",
+        "browser",
+        "not retained",
+    ] {
+        ensure!(
+            migration.contains(marker),
+            "website workflow migration is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
+
 /// Public files every native site build must ship.
 pub(crate) const REQUIRED_ASSETS: &[&str] = &[
     "favicon.svg",
@@ -490,6 +582,12 @@ mod tests {
     fn native_docs_header_replaces_the_complete_starlight_composition() {
         let repo = super::super::repo_root().unwrap();
         super::verify_docs_header(&repo).unwrap();
+    }
+
+    #[test]
+    fn native_website_workflow_replaces_the_complete_bun_site_pipeline() {
+        let repo = super::super::repo_root().unwrap();
+        super::verify_website_workflow(&repo).unwrap();
     }
 
     fn write_fixture() -> tempfile::TempDir {
