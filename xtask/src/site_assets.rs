@@ -242,4 +242,42 @@ mod tests {
         assert!(!replacement.to_ascii_lowercase().contains("modem"));
         assert!(!replacement.contains("Hunk-first"));
     }
+
+    #[test]
+    fn pinned_site_styles_are_translated_to_static_workdeck_css() {
+        let repo = crate::repo_root().unwrap();
+        for (source_path, destination_path) in [
+            (
+                "website/src/styles/marketing.css",
+                "site/static/marketing.css",
+            ),
+            (
+                "website/src/styles/starlight.css",
+                "site/static/starlight.css",
+            ),
+            (
+                "website/src/styles/extensions.css",
+                "site/static/extensions.css",
+            ),
+        ] {
+            let source = std::process::Command::new("git")
+                .current_dir(&repo)
+                .args([
+                    "show",
+                    &format!("2c00f4358b89cfc0a6b04459ffc538ba601aa3c2:{source_path}"),
+                ])
+                .output()
+                .unwrap();
+            assert!(source.status.success(), "{source_path}");
+            let expected = String::from_utf8(source.stdout)
+                .unwrap()
+                .replace("@import \"./brand.css\";", "@import url(\"/brand.css\");")
+                .replace("--hunk-", "--workdeck-")
+                .replace("Hunk", "Workdeck")
+                .replace("hunk", "workdeck");
+            let actual = fs::read_to_string(repo.join(destination_path)).unwrap();
+            assert_eq!(actual, expected, "{source_path}");
+            assert!(!actual.contains("--hunk-") && !actual.contains("Hunk"));
+        }
+    }
 }
