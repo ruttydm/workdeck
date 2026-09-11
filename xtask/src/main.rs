@@ -1797,6 +1797,7 @@ fn verify() -> Result<()> {
     session_cli::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     broker_e2e::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     install_script::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
+    theme_probe::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     ui_components::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     site_links::verify_docs_header(&repo)?;
     site_links::verify_website_workflow(&repo)?;
@@ -2143,6 +2144,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     session_cli::verify(&repo, &baseline)?;
     broker_e2e::verify(&repo, &baseline)?;
     install_script::verify(&repo, &baseline)?;
+    theme_probe::verify(&repo, &baseline)?;
     ui_components::verify(&repo, &baseline)?;
     let entries = read_tree(&repo, &baseline)?;
     let expected = entries

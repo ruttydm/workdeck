@@ -1,8 +1,123 @@
-//! Partial MIT port of Hunk scripts/probe-terminal-theme.ts (Modem Labs Inc.).
-use anyhow::{Context, Result, bail};
-use std::io::{self, IsTerminal, Write};
+//! Native MIT port of Hunk scripts/probe-terminal-theme.ts (Modem Labs Inc.).
+use anyhow::{Context, Result, bail, ensure};
+use sha2::{Digest, Sha256};
 use std::time::Duration;
+use std::{
+    fs,
+    io::{self, IsTerminal, Write},
+    path::Path,
+};
 use workdeck_tui::ThemeProbeInput;
+
+const BASELINE: &str = "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2";
+const STABLE: &str = "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd";
+const SOURCE_PATH: &str = "scripts/probe-terminal-theme.ts";
+const SOURCE_BYTES: usize = 1_158;
+const SOURCE_LINES: usize = 46;
+const SOURCE_SHA256: &str = "5dd31f87c16c24a0fb64b298d8bd5012e0998d75c03a6c527ef38fa5342cac0e";
+
+fn pinned_source(repo: &Path, commit: &str) -> Result<Vec<u8>> {
+    let source = crate::git_stdout_bytes(repo, ["show", &format!("{commit}:{SOURCE_PATH}")])?;
+    ensure!(
+        source.len() == SOURCE_BYTES,
+        "pinned {SOURCE_PATH} {commit} changed size: {} != {SOURCE_BYTES}",
+        source.len()
+    );
+    ensure!(
+        source.split(|byte| *byte == b'\n').count() == SOURCE_LINES + 1,
+        "pinned {SOURCE_PATH} {commit} changed line count"
+    );
+    ensure!(
+        format!("{:x}", Sha256::digest(&source)) == SOURCE_SHA256,
+        "pinned {SOURCE_PATH} {commit} changed SHA-256"
+    );
+    Ok(source)
+}
+
+/// Verify that the native theme probe preserves the complete pinned CLI
+/// contract while routing terminal I/O through the Rust/Crossterm adapter.
+pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {
+    ensure!(
+        baseline == BASELINE,
+        "theme probe verifier received unexpected baseline {baseline}"
+    );
+    let source = pinned_source(repo, BASELINE)?;
+    let stable = pinned_source(repo, STABLE)?;
+    ensure!(source == stable, "pinned theme probe diverged between pins");
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "#!/usr/bin/env bun",
+        "openSync(\"/dev/tty\", \"r\")",
+        "new tty.ReadStream",
+        "process.stdout.isTTY",
+        "new tty.WriteStream",
+        "detectTerminalThemeModeFromBackground",
+        "timeoutMs: 500",
+        "parseOsc11BackgroundColor",
+        "themeModeForBackgroundColor",
+        "raw.replaceAll(\"\\x1b\", \"\\\\e\")",
+        "stdoutIsTTY",
+        "stdinIsTTY",
+        "input.destroy()",
+        "output.destroy()",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned theme probe is missing marker {marker:?}"
+        );
+    }
+    for (path, marker) in [
+        ("xtask/src/theme_probe.rs", "pub fn run("),
+        ("xtask/src/theme_probe.rs", "fn probe("),
+        ("xtask/src/theme_probe.rs", "struct RecordingInput"),
+        (
+            "crates/workdeck-tui/src/theme_detection.rs",
+            "pub fn detect_terminal_theme_mode_from_background(",
+        ),
+        (
+            "crates/workdeck-tui/src/theme_detection.rs",
+            "pub fn parse_osc_11_background_color(",
+        ),
+        (
+            "crates/workdeck-tui/src/theme_detection.rs",
+            "pub fn theme_mode_for_background_color(",
+        ),
+        (
+            "xtask/src/theme_probe.rs",
+            "probe_restores_original_mode_on_resume_read_write_and_flush_errors",
+        ),
+        (
+            "xtask/src/theme_probe.rs",
+            "reports_fragmented_background_and_timeout_and_restores_raw_mode",
+        ),
+    ] {
+        let native = fs::read_to_string(repo.join(path))
+            .with_context(|| format!("read theme probe native surface {path}"))?;
+        ensure!(
+            native.contains(marker),
+            "theme probe native surface {path} is missing {marker:?}"
+        );
+    }
+    let docs = fs::read_to_string(repo.join("docs/theme-probe-migration.md"))
+        .context("read theme probe migration documentation")?;
+    for marker in [
+        SOURCE_PATH,
+        "1,158",
+        SOURCE_SHA256,
+        "OSC 11",
+        "500ms",
+        "raw-mode",
+        "stdout",
+        "stderr",
+        "Crossterm",
+    ] {
+        ensure!(
+            docs.contains(marker),
+            "theme probe migration documentation is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
 
 struct RecordingInput<'a, I> {
     inner: &'a mut I,
@@ -141,6 +256,12 @@ fn probe_restores_original_mode_on_resume_read_write_and_flush_errors() {
             assert_eq!(input.transitions, [true, original_raw]);
         }
     }
+}
+
+#[test]
+fn native_rust_theme_probe_replaces_both_pinned_scripts() {
+    let repo = crate::repo_root().unwrap();
+    verify(&repo, BASELINE).unwrap();
 }
 
 #[test]
