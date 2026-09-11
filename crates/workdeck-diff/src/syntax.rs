@@ -621,6 +621,11 @@ pub struct HighlightCache {
     active_worker_job: Option<ActiveNativeHighlight>,
     pending_worker_keys: HashSet<String>,
     ready_worker_results: HashMap<String, CompactHighlightedDiff>,
+    /// Fast-path guards for live worker requests.  A redraw can poll the same
+    /// pending file many times before the worker completes; retaining the
+    /// already-derived worker key avoids rebuilding its serialized metadata on
+    /// every frame while preserving the normal key path once it is ready.
+    live_pending: HashMap<(usize, String), LivePendingMarker>,
     source_entries: HighlightedSourceCache,
     queued_source_jobs: VecDeque<QueuedNativeSourceHighlight>,
     active_source_job: Option<ActiveNativeSourceHighlight>,
@@ -641,11 +646,27 @@ impl Default for HighlightCache {
             active_worker_job: None,
             pending_worker_keys: HashSet::new(),
             ready_worker_results: HashMap::new(),
+            live_pending: HashMap::new(),
             source_entries: HighlightedSourceCache::new(MAX_HIGHLIGHTED_DIFF_CACHE_LINES),
             queued_source_jobs: VecDeque::new(),
             active_source_job: None,
             pending_source_keys: HashSet::new(),
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct LivePendingMarker {
+    key: String,
+    content_identity: String,
+    language: String,
+}
+
+impl LivePendingMarker {
+    fn matches(&self, file: &DiffFile, language: &str) -> bool {
+        !self.content_identity.is_empty()
+            && self.content_identity == file.content_identity
+            && self.language == language
     }
 }
 
@@ -756,6 +777,29 @@ impl HighlightCache {
         base_theme: Option<&str>,
         scope_overrides: &[(String, String)],
     ) -> Option<HighlightedFile> {
+        // Worker requests are intentionally non-blocking. Once a request has
+        // been queued, redraws only need to poll its completion; rebuilding the
+        // full worker metadata/key while it is pending defeats that contract.
+        // The marker is identity-scoped and discarded as soon as the worker is
+        // ready, at which point the ordinary path consumes the result.
+        let language = file.language.clone().unwrap_or_default();
+        if scope_overrides.is_empty() && !file.content_identity.is_empty() {
+            let theme_name = syntax_highlight_theme_name(appearance, base_theme, scope_overrides);
+            let theme_name = resolve_legacy_theme_id(Some(&theme_name)).unwrap_or(&theme_name);
+            let marker_key = (std::ptr::from_ref(file) as usize, theme_name.to_owned());
+            let pending_key = self
+                .live_pending
+                .get(&marker_key)
+                .filter(|marker| marker.matches(file, &language))
+                .map(|marker| marker.key.clone());
+            if let Some(pending_key) = pending_key {
+                self.poll_native_highlight_worker();
+                if self.pending_worker_keys.contains(&pending_key) {
+                    return None;
+                }
+                self.live_pending.remove(&marker_key);
+            }
+        }
         let line_count =
             file.hunks
                 .iter()
@@ -869,10 +913,20 @@ impl HighlightCache {
             alias_context,
             metadata: highlight_metadata.clone(),
             appearance,
-            language,
+            language: language.clone(),
             theme: theme.to_owned(),
         });
         self.pending_worker_keys.insert(key.clone());
+        if !file.content_identity.is_empty() {
+            self.live_pending.insert(
+                (std::ptr::from_ref(file) as usize, theme.to_owned()),
+                LivePendingMarker {
+                    key: key.clone(),
+                    content_identity: file.content_identity.clone(),
+                    language: language.clone(),
+                },
+            );
+        }
         self.queued_worker_jobs.insert(
             request_id,
             QueuedNativeHighlight {
@@ -1274,6 +1328,7 @@ impl HighlightCache {
         self.worker_entries.clear();
         self.ready_worker_results.clear();
         self.pending_worker_keys.clear();
+        self.live_pending.clear();
         self.queued_worker_jobs.clear();
         self.active_worker_job = None;
         self.source_entries.clear();
@@ -1288,6 +1343,7 @@ impl HighlightCache {
         self.worker_client.dispose();
         self.ready_worker_results.clear();
         self.pending_worker_keys.clear();
+        self.live_pending.clear();
         self.queued_worker_jobs.clear();
         self.active_worker_job = None;
         self.pending_source_keys.clear();

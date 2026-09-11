@@ -15712,16 +15712,6 @@ fn split_hunk_rows(
                 }
         );
         let skip_paint = geometry_nowrap || offscreen;
-        let emphasis = old
-            .zip(new)
-            .filter(|(old, new)| !std::ptr::eq(*old, *new))
-            .filter(|_| !skip_paint)
-            .map(|(old, new)| {
-                word_diff_ranges(
-                    &expanded_line_content(old, options.tab_width),
-                    &expanded_line_content(new, options.tab_width),
-                )
-            });
         let pair_key = (file_index, hunk_index, pair_index);
         let cached_pair_rows = (!skip_paint && !collect_metadata)
             .then(|| {
@@ -15737,6 +15727,19 @@ fn split_hunk_rows(
         } else if let Some(cached_pair_rows) = cached_pair_rows {
             cached_pair_rows.iter().cloned().collect()
         } else {
+            // Word emphasis is part of the styled painter, not geometry.  Do not
+            // recompute it on a sparse repaint when the immutable pair rows are
+            // already in the context-scoped cache.
+            let emphasis = old
+                .zip(new)
+                .filter(|(old, new)| !std::ptr::eq(*old, *new))
+                .filter(|_| !skip_paint)
+                .map(|(old, new)| {
+                    word_diff_ranges(
+                        &expanded_line_content(old, options.tab_width),
+                        &expanded_line_content(new, options.tab_width),
+                    )
+                });
             let generated = split_pair_rows(
                 SplitCellInput {
                     line: old,
