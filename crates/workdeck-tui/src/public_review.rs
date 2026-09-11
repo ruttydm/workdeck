@@ -654,11 +654,11 @@ fn workdeck_diff_body_rows(
     let map = WorkdeckDiffRenderMap {
         hunk_rows: rows
             .hunk_tops
-            .into_iter()
+            .iter()
             .filter_map(|((_, hunk_index), row)| {
                 Some(WorkdeckHunkRow {
-                    hunk_index,
-                    row: u16::try_from(row).ok()?,
+                    hunk_index: *hunk_index,
+                    row: u16::try_from(*row).ok()?,
                 })
             })
             .collect(),

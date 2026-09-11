@@ -226,7 +226,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget, Wrap};
 use std::cell::Cell;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::io;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -1210,6 +1210,7 @@ pub struct ReviewApp {
     review_geometry_published: Cell<bool>,
     review_prefetch: Mutex<highlight_prefetch::RapidScrollPrefetch>,
     review_plain_height: Mutex<Option<PlainReviewHeight>>,
+    plain_split_paint_cache: Mutex<PlainSplitPaintCache>,
     review_geometry_cache: Mutex<Option<CachedReviewGeometry>>,
     horizontal_code_extent: Mutex<Option<HorizontalCodeExtent>>,
     review_scrollbar: Mutex<VerticalScrollbarController>,
@@ -1511,6 +1512,7 @@ impl ReviewApp {
             review_geometry_published: Cell::new(false),
             review_prefetch: Mutex::new(highlight_prefetch::RapidScrollPrefetch::default()),
             review_plain_height: Mutex::new(None),
+            plain_split_paint_cache: Mutex::new(PlainSplitPaintCache::default()),
             review_geometry_cache: Mutex::new(None),
             horizontal_code_extent: Mutex::new(None),
             review_scrollbar: Mutex::new(VerticalScrollbarController::default()),
@@ -12876,12 +12878,26 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             row_capacity: content_height,
         }
     } else {
+        app.plain_split_paint_cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
         *app.review_plain_height
             .lock()
             .unwrap_or_else(|error| error.into_inner()) = None;
         ReviewRowPurpose::Paint
     };
     let mut rows = if let Some(geometry) = plain_geometry {
+        let mut plain_paint_cache = app
+            .plain_split_paint_cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        plain_paint_cache.prepare(
+            state.changeset_snapshot(),
+            state.selection(),
+            &app.options,
+            content_width,
+        );
         build_plain_split_viewport_rows(
             geometry.as_ref(),
             state.changeset(),
@@ -12891,6 +12907,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             &mut highlights,
             &highlight_files,
             &gap_geometries,
+            &mut plain_paint_cache,
             match purpose {
                 ReviewRowPurpose::Viewport { start, end, .. } => (start, end),
                 _ => unreachable!("plain geometry is only used for viewport painting"),
@@ -13097,7 +13114,8 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     let visible = rows.take_visible_lines(scroll, viewport);
     let component_hits = rows
         .file_view_component_hits
-        .into_iter()
+        .iter()
+        .cloned()
         .filter_map(|hit| {
             let top = hit.top.max(scroll);
             let bottom = hit.top.saturating_add(hit.height).min(viewport_bottom);
@@ -13212,6 +13230,7 @@ fn build_plain_split_viewport_rows(
     highlight_cache: &mut HighlightedDiffRuntime,
     highlight_files: &BTreeSet<usize>,
     gap_geometries: &[PlainFileGeometry],
+    plain_paint_cache: &mut PlainSplitPaintCache,
     viewport: (usize, usize),
 ) -> ReviewRows {
     let (start, end) = viewport;
@@ -13234,7 +13253,7 @@ fn build_plain_split_viewport_rows(
     // retain their text and affordance while keeping the body repaint lazy.
     // `gap_rows` only contains interactive gaps (source access available), so
     // the geometry keeps a parallel list for non-interactive labels too.
-    for &row in &geometry.gap_label_rows {
+    for &row in geometry.gap_label_rows.iter() {
         if row >= start
             && row < end
             && let Some(line) = geometry.lines.get(row).cloned()
@@ -13244,7 +13263,7 @@ fn build_plain_split_viewport_rows(
         }
     }
 
-    for &file_index in &geometry.visible_file_indices {
+    for &file_index in geometry.visible_file_indices.iter() {
         let Some(file) = changeset.files.get(file_index) else {
             continue;
         };
@@ -13358,6 +13377,7 @@ fn build_plain_split_viewport_rows(
                 file_selection,
                 selection.file_index == file_index && selection.hunk_index == Some(hunk_index),
                 None,
+                Some(plain_paint_cache),
                 ReviewRowPurpose::Viewport {
                     start,
                     end,
@@ -13769,19 +13789,156 @@ struct ReviewRows {
     /// Header statistics width is document geometry and remains stable across
     /// sparse viewport repaints.
     header_stats_width: usize,
-    file_tops: BTreeMap<usize, usize>,
-    file_header_tops: BTreeMap<usize, usize>,
-    file_body_tops: BTreeMap<usize, usize>,
-    visible_file_indices: Vec<usize>,
-    file_header_rows: Vec<(usize, usize)>,
+    file_tops: Arc<BTreeMap<usize, usize>>,
+    file_header_tops: Arc<BTreeMap<usize, usize>>,
+    file_body_tops: Arc<BTreeMap<usize, usize>>,
+    visible_file_indices: Arc<Vec<usize>>,
+    file_header_rows: Arc<Vec<(usize, usize)>>,
     /// Logical row, owning file index, and gap slot; projected only after final layout.
-    gap_rows: Vec<(usize, usize, usize)>,
+    gap_rows: Arc<Vec<(usize, usize, usize)>>,
     /// Logical rows containing collapsed source-gap labels, including labels
     /// that cannot be expanded because no source snapshot is available.
-    gap_label_rows: Vec<usize>,
-    hunk_tops: std::collections::HashMap<(usize, usize), usize>,
-    hunk_heights: std::collections::HashMap<(usize, usize), usize>,
-    file_view_component_hits: Vec<FileViewComponentLogicalHit>,
+    gap_label_rows: Arc<Vec<usize>>,
+    hunk_tops: Arc<HashMap<(usize, usize), usize>>,
+    hunk_heights: Arc<HashMap<(usize, usize), usize>>,
+    file_view_component_hits: Arc<Vec<FileViewComponentLogicalHit>>,
+}
+
+/// Bounded cache for the styled rows of plain split pairs.  Geometry is already
+/// retained separately, so a sparse wheel repaint only needs to reuse the
+/// visible pair painters; offscreen pairs remain cheap blank rows.  The cache
+/// is scoped to one immutable document and one rendering context, which keeps
+/// selection, theme, width, wrapping, and line-number changes from reusing
+/// stale cell styles.
+#[derive(Debug, Default)]
+struct PlainSplitPaintCache {
+    context: Option<PlainSplitPaintContext>,
+    entries: HashMap<(usize, usize, usize), PlainSplitPaintEntry>,
+    lru: VecDeque<(usize, usize, usize)>,
+}
+
+const MAX_PLAIN_SPLIT_PAINT_ENTRIES: usize = 2048;
+
+#[derive(Debug, Clone)]
+struct PlainSplitPaintContext {
+    document: Arc<Changeset>,
+    selection: ReviewSelection,
+    width: u16,
+    line_numbers: bool,
+    line_number_digits: Option<usize>,
+    tab_width: u16,
+    wrap_lines: bool,
+    horizontal_offset: usize,
+    highlight: bool,
+    theme: AppTheme,
+}
+
+impl PlainSplitPaintContext {
+    fn matches(
+        &self,
+        document: &Arc<Changeset>,
+        selection: ReviewSelection,
+        options: &ReviewOptions,
+        width: u16,
+    ) -> bool {
+        Arc::ptr_eq(&self.document, document)
+            && self.selection == selection
+            && self.width == width
+            && self.line_numbers == options.line_numbers
+            && self.line_number_digits == options.line_number_digits
+            && self.tab_width == options.tab_width
+            && self.wrap_lines == options.wrap_lines
+            && self.horizontal_offset == options.horizontal_offset
+            && self.highlight == options.highlight
+            && self.theme == options.theme
+    }
+}
+
+#[derive(Debug, Clone)]
+struct PlainSplitPaintEntry {
+    highlight_identity: usize,
+    lines: Arc<Vec<Line<'static>>>,
+}
+
+impl PlainSplitPaintCache {
+    fn prepare(
+        &mut self,
+        document: Arc<Changeset>,
+        selection: ReviewSelection,
+        options: &ReviewOptions,
+        width: u16,
+    ) {
+        let matches = self
+            .context
+            .as_ref()
+            .is_some_and(|context| context.matches(&document, selection, options, width));
+        if matches {
+            return;
+        }
+        self.context = Some(PlainSplitPaintContext {
+            document,
+            selection,
+            width,
+            line_numbers: options.line_numbers,
+            line_number_digits: options.line_number_digits,
+            tab_width: options.tab_width,
+            wrap_lines: options.wrap_lines,
+            horizontal_offset: options.horizontal_offset,
+            highlight: options.highlight,
+            theme: options.theme.clone(),
+        });
+        self.entries.clear();
+        self.lru.clear();
+    }
+
+    fn get(
+        &mut self,
+        key: (usize, usize, usize),
+        highlight_identity: usize,
+    ) -> Option<Arc<Vec<Line<'static>>>> {
+        let entry = self.entries.get(&key)?;
+        if entry.highlight_identity != highlight_identity {
+            return None;
+        }
+        let lines = Arc::clone(&entry.lines);
+        self.touch(key);
+        Some(lines)
+    }
+
+    fn insert(
+        &mut self,
+        key: (usize, usize, usize),
+        highlight_identity: usize,
+        lines: Arc<Vec<Line<'static>>>,
+    ) {
+        self.entries.insert(
+            key,
+            PlainSplitPaintEntry {
+                highlight_identity,
+                lines,
+            },
+        );
+        self.touch(key);
+        while self.entries.len() > MAX_PLAIN_SPLIT_PAINT_ENTRIES {
+            let Some(oldest) = self.lru.pop_front() else {
+                break;
+            };
+            self.entries.remove(&oldest);
+        }
+    }
+
+    fn touch(&mut self, key: (usize, usize, usize)) {
+        if let Some(index) = self.lru.iter().position(|candidate| *candidate == key) {
+            self.lru.remove(index);
+        }
+        self.lru.push_back(key);
+    }
+
+    fn clear(&mut self) {
+        self.context = None;
+        self.entries.clear();
+        self.lru.clear();
+    }
 }
 
 fn paint_note_composer(
@@ -13939,28 +14096,28 @@ impl ReviewRows {
         for cursor in Arc::make_mut(&mut self.line_cursors) {
             shift(&mut cursor.row);
         }
-        for top in self
-            .file_tops
-            .values_mut()
-            .chain(self.file_header_tops.values_mut())
-            .chain(self.file_body_tops.values_mut())
-        {
+        for top in Arc::make_mut(&mut self.file_tops).values_mut() {
             shift(top);
         }
-        for (_, top) in &mut self.file_header_rows {
+        for top in Arc::make_mut(&mut self.file_header_tops).values_mut() {
             shift(top);
         }
-        for (top, _, _) in &mut self.gap_rows {
+        for top in Arc::make_mut(&mut self.file_body_tops).values_mut() {
             shift(top);
         }
-        for top in &mut self.gap_label_rows {
+        for (_, top) in Arc::make_mut(&mut self.file_header_rows) {
             shift(top);
         }
-        for top in self.hunk_tops.values_mut() {
+        for (top, _, _) in Arc::make_mut(&mut self.gap_rows) {
             shift(top);
         }
-        if let Some(hunk_height) = self
-            .hunk_heights
+        for top in Arc::make_mut(&mut self.gap_label_rows) {
+            shift(top);
+        }
+        for top in Arc::make_mut(&mut self.hunk_tops).values_mut() {
+            shift(top);
+        }
+        if let Some(hunk_height) = Arc::make_mut(&mut self.hunk_heights)
             .get_mut(&(composer.target.file_index, composer.target.hunk_index))
         {
             *hunk_height = hunk_height.saturating_sub(removed).saturating_add(height);
@@ -13968,7 +14125,7 @@ impl ReviewRows {
         for (top, _) in self.note_bounds.values_mut() {
             shift(top);
         }
-        for hit in &mut self.file_view_component_hits {
+        for hit in Arc::make_mut(&mut self.file_view_component_hits) {
             shift(&mut hit.top);
         }
         self.note_bounds
@@ -14476,6 +14633,7 @@ fn build_review_rows_with_chrome(
                     file_selection,
                     selected_hunk,
                     line_highlight_paint.as_ref(),
+                    None,
                     purpose,
                     rows.len(),
                 ),
@@ -14572,16 +14730,16 @@ fn build_review_rows_with_chrome(
         note_bounds,
         line_cursors: Arc::new(line_cursors),
         header_stats_width,
-        file_tops,
-        file_header_tops,
-        file_body_tops,
-        visible_file_indices,
-        file_header_rows,
-        gap_rows,
-        gap_label_rows,
-        hunk_tops,
-        hunk_heights,
-        file_view_component_hits,
+        file_tops: Arc::new(file_tops),
+        file_header_tops: Arc::new(file_header_tops),
+        file_body_tops: Arc::new(file_body_tops),
+        visible_file_indices: Arc::new(visible_file_indices),
+        file_header_rows: Arc::new(file_header_rows),
+        gap_rows: Arc::new(gap_rows),
+        gap_label_rows: Arc::new(gap_label_rows),
+        hunk_tops: Arc::new(hunk_tops),
+        hunk_heights: Arc::new(hunk_heights),
+        file_view_component_hits: Arc::new(file_view_component_hits),
     }
 }
 
@@ -15482,6 +15640,7 @@ fn split_hunk_rows(
     selection: ReviewSelection,
     hunk_selected: bool,
     line_highlights: Option<&LineHighlightPaintIndex>,
+    plain_paint_cache: Option<&mut PlainSplitPaintCache>,
     purpose: ReviewRowPurpose,
     row_offset: usize,
 ) -> TargetedHunkRows {
@@ -15492,6 +15651,10 @@ fn split_hunk_rows(
     let pane_widths = resolve_diff_split_pane_widths(usize::from(width));
     let left_width = pane_widths.left_width;
     let right_width = pane_widths.right_width;
+    let mut plain_paint_cache = plain_paint_cache;
+    let collect_metadata =
+        plain_paint_cache.is_none() || !comments.is_empty() || line_highlights.is_some();
+    let highlight_identity = highlighted.map_or(0, |lines| std::ptr::from_ref(lines) as usize);
     let geometry_nowrap = purpose == ReviewRowPurpose::Geometry && !options.wrap_lines;
     let uncached_pairs;
     let pairs = match purpose {
@@ -15559,12 +15722,22 @@ fn split_hunk_rows(
                     &expanded_line_content(new, options.tab_width),
                 )
             });
+        let pair_key = (file_index, hunk_index, pair_index);
+        let cached_pair_rows = (!skip_paint && !collect_metadata)
+            .then(|| {
+                plain_paint_cache
+                    .as_deref_mut()
+                    .and_then(|cache| cache.get(pair_key, highlight_identity))
+            })
+            .flatten();
         let pair_rows = if skip_paint {
             // Preserve the exact wrapped geometry for offscreen pairs without
             // allocating styled cells that will not reach the viewport.
             Vec::new()
+        } else if let Some(cached_pair_rows) = cached_pair_rows {
+            cached_pair_rows.iter().cloned().collect()
         } else {
-            split_pair_rows(
+            let generated = split_pair_rows(
                 SplitCellInput {
                     line: old,
                     highlighted: pair
@@ -15591,89 +15764,91 @@ fn split_hunk_rows(
                 hunk_selected
                     || old.is_some_and(|line| line_is_selected(line, selection))
                     || new.is_some_and(|line| line_is_selected(line, selection)),
-            )
+            );
+            if !collect_metadata && let Some(cache) = plain_paint_cache.as_deref_mut() {
+                cache.insert(pair_key, highlight_identity, Arc::new(generated.clone()));
+            }
+            generated
         };
-        let cursor_row = rows.len();
-        if pair.old_index == pair.new_index {
-            if let Some(line) = new.or(old) {
-                cursor_targets.push((
-                    cursor_row,
-                    diff_line_note_target(file_index, hunk_index, line),
-                ));
-            }
-        } else {
-            if let Some(line) = old {
-                cursor_targets.push((
-                    cursor_row,
-                    diff_line_note_target(file_index, hunk_index, line),
-                ));
-            }
-            if let Some(line) = new {
-                cursor_targets.push((
-                    cursor_row,
-                    diff_line_note_target(file_index, hunk_index, line),
-                ));
+        if collect_metadata {
+            let cursor_row = rows.len();
+            if pair.old_index == pair.new_index {
+                if let Some(line) = new.or(old) {
+                    cursor_targets.push((
+                        cursor_row,
+                        diff_line_note_target(file_index, hunk_index, line),
+                    ));
+                }
+            } else {
+                if let Some(line) = old {
+                    cursor_targets.push((
+                        cursor_row,
+                        diff_line_note_target(file_index, hunk_index, line),
+                    ));
+                }
+                if let Some(line) = new {
+                    cursor_targets.push((
+                        cursor_row,
+                        diff_line_note_target(file_index, hunk_index, line),
+                    ));
+                }
             }
         }
-        let pair_target = new
-            .or(old)
-            .map(|line| diff_line_note_target(file_index, hunk_index, line));
-        if skip_paint {
-            targets.extend(std::iter::repeat_n(pair_target, pair_height));
+        if collect_metadata {
+            let pair_target = new
+                .or(old)
+                .map(|line| diff_line_note_target(file_index, hunk_index, line));
+            if skip_paint {
+                targets.extend(std::iter::repeat_n(pair_target, pair_height));
+                rows.extend(std::iter::repeat_with(Line::default).take(pair_height));
+            } else {
+                targets.extend(std::iter::repeat_n(pair_target, pair_rows.len()));
+                rows.extend(pair_rows);
+            }
+            if let Some(line) = old {
+                let rendered_notes = comment_rows(
+                    file,
+                    line,
+                    comments,
+                    &options.theme,
+                    width,
+                    LayoutMode::Split,
+                );
+                let note_start = rows.len();
+                note_bounds.extend(rendered_notes.note_bounds.into_iter().map(
+                    |(note_id, top, height)| (note_id, note_start.saturating_add(top), height),
+                ));
+                targets.extend(std::iter::repeat_n(
+                    Some(diff_line_note_target(file_index, hunk_index, line)),
+                    rendered_notes.lines.len(),
+                ));
+                rows.extend(rendered_notes.lines);
+            }
+            if pair.new_index != pair.old_index
+                && let Some(line) = new
+            {
+                let rendered_notes = comment_rows(
+                    file,
+                    line,
+                    comments,
+                    &options.theme,
+                    width,
+                    LayoutMode::Split,
+                );
+                let note_start = rows.len();
+                note_bounds.extend(rendered_notes.note_bounds.into_iter().map(
+                    |(note_id, top, height)| (note_id, note_start.saturating_add(top), height),
+                ));
+                targets.extend(std::iter::repeat_n(
+                    Some(diff_line_note_target(file_index, hunk_index, line)),
+                    rendered_notes.lines.len(),
+                ));
+                rows.extend(rendered_notes.lines);
+            }
+        } else if skip_paint {
             rows.extend(std::iter::repeat_with(Line::default).take(pair_height));
         } else {
-            targets.extend(std::iter::repeat_n(pair_target, pair_rows.len()));
             rows.extend(pair_rows);
-        }
-        if let Some(line) = old {
-            let rendered_notes = comment_rows(
-                file,
-                line,
-                comments,
-                &options.theme,
-                width,
-                LayoutMode::Split,
-            );
-            let note_start = rows.len();
-            note_bounds.extend(
-                rendered_notes
-                    .note_bounds
-                    .into_iter()
-                    .map(|(note_id, top, height)| {
-                        (note_id, note_start.saturating_add(top), height)
-                    }),
-            );
-            targets.extend(std::iter::repeat_n(
-                Some(diff_line_note_target(file_index, hunk_index, line)),
-                rendered_notes.lines.len(),
-            ));
-            rows.extend(rendered_notes.lines);
-        }
-        if pair.new_index != pair.old_index
-            && let Some(line) = new
-        {
-            let rendered_notes = comment_rows(
-                file,
-                line,
-                comments,
-                &options.theme,
-                width,
-                LayoutMode::Split,
-            );
-            let note_start = rows.len();
-            note_bounds.extend(
-                rendered_notes
-                    .note_bounds
-                    .into_iter()
-                    .map(|(note_id, top, height)| {
-                        (note_id, note_start.saturating_add(top), height)
-                    }),
-            );
-            targets.extend(std::iter::repeat_n(
-                Some(diff_line_note_target(file_index, hunk_index, line)),
-                rendered_notes.lines.len(),
-            ));
-            rows.extend(rendered_notes.lines);
         }
     }
     TargetedHunkRows {
