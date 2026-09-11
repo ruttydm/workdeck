@@ -12912,7 +12912,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             state.changeset().files.get(composer.target.file_index),
         );
     }
-    if rows.lines.is_empty() {
+    if rows.logical_height() == 0 {
         rows.lines
             .extend(std::iter::repeat_with(Line::default).take(viewport.saturating_sub(1) / 2));
         rows.lines.push(
@@ -12922,14 +12922,16 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             )
             .alignment(Alignment::Center),
         );
+        rows.line_offset = 0;
+        rows.logical_height = rows.lines.len();
     }
-    let max_scroll = rows.lines.len().saturating_sub(viewport);
+    let max_scroll = rows.logical_height().saturating_sub(viewport);
     let scroll = if app.scroll == usize::MAX {
         max_scroll
     } else {
         app.scroll.min(max_scroll)
     };
-    let content_height = rows.lines.len();
+    let content_height = rows.logical_height();
     app.review_prefetch
         .lock()
         .unwrap_or_else(|error| error.into_inner())
@@ -12967,7 +12969,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     note_actions.clear();
     if app.note_composer.is_none()
         && let Some(id) = &app.saved_note_hover
-        && let Some((top, height)) = rows.note_bounds.get(id)
+        && let Some((top, height)) = rows.note_bounds.get(id).copied()
         && let Some(comment) = state.comments().iter().find(|comment| &comment.id == id)
         && let Some(file) = state
             .changeset()
@@ -12984,13 +12986,10 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             content_width,
             true,
         );
-        for (offset, line) in painted
-            .ratatui_lines()
-            .into_iter()
-            .take(*height)
-            .enumerate()
-        {
-            rows.lines[*top + offset] = line;
+        for (offset, line) in painted.ratatui_lines().into_iter().take(height).enumerate() {
+            if let Some(destination) = rows.line_mut_global(top.saturating_add(offset)) {
+                *destination = line;
+            }
         }
         for hit in painted.action_hits {
             let row = top.saturating_add(hit.row);
@@ -13070,19 +13069,16 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 file_index,
             });
     }
-    let cursor_row = app.current_line_row.min(rows.lines.len().saturating_sub(1));
+    let cursor_row = app
+        .current_line_row
+        .min(rows.logical_height().saturating_sub(1));
     if app.focus == Focus::Review
         && app.options.cursor_line != CursorLineMode::Off
-        && let Some(line) = rows.lines.get_mut(cursor_row)
+        && let Some(line) = rows.line_mut_global(cursor_row)
     {
         paint_cursor_line(line, app.options.cursor_line, &app.options.theme);
     }
-    let visible = rows
-        .lines
-        .into_iter()
-        .skip(scroll)
-        .take(viewport)
-        .collect::<Vec<_>>();
+    let visible = rows.visible_lines(scroll, viewport);
     let component_hits = rows
         .file_view_component_hits
         .into_iter()
@@ -13187,9 +13183,9 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
 
 /// Repaint only the visible bodies of a plain split review from its retained geometry.
 ///
-/// The logical row vector remains complete so scroll, selection, and hit testing retain their
-/// existing coordinates. File and hunk bounds let us skip all sections outside the viewport;
-/// only the intersecting hunk bodies allocate styled rows for this frame.
+/// Geometry and hit-test metadata retain global row coordinates while the paint buffer contains
+/// only the requested viewport. File and hunk bounds let us skip all sections outside the
+/// viewport; only the intersecting hunk bodies allocate styled rows for this frame.
 #[allow(clippy::too_many_arguments)]
 fn build_plain_split_viewport_rows(
     geometry: &ReviewRows,
@@ -13202,8 +13198,8 @@ fn build_plain_split_viewport_rows(
     gap_geometries: &[PlainFileGeometry],
     viewport: (usize, usize),
 ) -> ReviewRows {
-    let mut rows = geometry.viewport_shell();
     let (start, end) = viewport;
+    let mut rows = geometry.viewport_shell(start, end);
     let mut file_options = options.clone();
     // Preserve the source prefetch halo even when its adjacent files are outside
     // the current viewport. Their highlighted payloads are needed immediately
@@ -13229,8 +13225,12 @@ fn build_plain_split_viewport_rows(
     // `gap_rows` only contains interactive gaps (source access available), so
     // the geometry keeps a parallel list for non-interactive labels too.
     for &row in &geometry.gap_label_rows {
-        if row >= start && row < end && row < rows.lines.len() {
-            rows.lines[row] = geometry.lines[row].clone();
+        if row >= start
+            && row < end
+            && let Some(line) = geometry.lines.get(row).cloned()
+            && let Some(destination) = rows.line_mut_global(row)
+        {
+            *destination = line;
         }
     }
 
@@ -13249,7 +13249,7 @@ fn build_plain_split_viewport_rows(
             .copied()
             .find(|index| *index > file_index)
             .and_then(|index| geometry.file_tops.get(&index).copied())
-            .unwrap_or(geometry.lines.len());
+            .unwrap_or(geometry.logical_height());
         if file_top >= end || file_end <= start {
             continue;
         }
@@ -13269,8 +13269,11 @@ fn build_plain_split_viewport_rows(
                 );
                 for (offset, line) in separator.into_iter().enumerate() {
                     let row = file_top.saturating_add(offset);
-                    if row >= start && row < end && row < rows.lines.len() {
-                        rows.lines[row] = line;
+                    if row >= start
+                        && row < end
+                        && let Some(destination) = rows.line_mut_global(row)
+                    {
+                        *destination = line;
                     }
                 }
             }
@@ -13282,12 +13285,14 @@ fn build_plain_split_viewport_rows(
             && *header_top >= start
             && *header_top < end
         {
-            rows.lines[*header_top] = file_header(
-                file,
-                usize::from(width),
-                header_stats_width,
-                &file_options.theme,
-            );
+            if let Some(destination) = rows.line_mut_global(*header_top) {
+                *destination = file_header(
+                    file,
+                    usize::from(width),
+                    header_stats_width,
+                    &file_options.theme,
+                );
+            }
         }
         let highlighted = if options.highlight && highlight_files.contains(&file_index) {
             highlight_cache.prefetch_highlighted_diff_shared(file, &options.theme, true)
@@ -13309,19 +13314,21 @@ fn build_plain_split_viewport_rows(
                 .copied()
                 .unwrap_or_default();
             let header_rows = usize::from(file_options.hunk_headers).min(hunk_height);
-            if header_rows > 0 && hunk_top < rows.lines.len() {
+            if header_rows > 0 && hunk_top < end {
                 let selected_hunk =
                     selection.file_index == file_index && selection.hunk_index == Some(hunk_index);
-                rows.lines[hunk_top] = Line::styled(
-                    format!("▌{}", hunk.formatted_header()),
-                    if selected_hunk {
-                        Style::default()
-                            .fg(ratatui_theme_color(&file_options.theme.accent))
-                            .add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default().fg(ratatui_theme_color(&file_options.theme.muted))
-                    },
-                );
+                if let Some(destination) = rows.line_mut_global(hunk_top) {
+                    *destination = Line::styled(
+                        format!("▌{}", hunk.formatted_header()),
+                        if selected_hunk {
+                            Style::default()
+                                .fg(ratatui_theme_color(&file_options.theme.accent))
+                                .add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(ratatui_theme_color(&file_options.theme.muted))
+                        },
+                    );
+                }
             }
             let body_top = hunk_top.saturating_add(header_rows);
             let body_height = hunk_height.saturating_sub(header_rows);
@@ -13347,24 +13354,25 @@ fn build_plain_split_viewport_rows(
                     end,
                     highlight_files: Some(highlight_files),
                     gap_geometries: Some(gap_geometries),
-                    row_capacity: geometry.lines.len(),
+                    row_capacity: geometry.logical_height(),
                 },
                 body_top,
             );
             let body_end = body_top.saturating_add(body_height);
-            if body_end > rows.lines.len() {
-                continue;
-            }
             debug_assert_eq!(
                 rendered.lines.len(),
                 body_height,
                 "cached split geometry must match the viewport row plan"
             );
-            let copy_len = rendered.lines.len().min(body_height);
-            rows.lines[body_top..body_top.saturating_add(copy_len)]
-                .clone_from_slice(&rendered.lines[..copy_len]);
-            if copy_len < body_height {
-                rows.lines[body_top.saturating_add(copy_len)..body_end].fill(Line::default());
+            let copy_start = body_top.max(start);
+            let copy_end = body_end.min(end);
+            if copy_start < copy_end {
+                let rendered_start = copy_start.saturating_sub(body_top);
+                let rendered_end = copy_end.saturating_sub(body_top);
+                let destination_start = copy_start.saturating_sub(rows.line_offset);
+                let destination_end = copy_end.saturating_sub(rows.line_offset);
+                rows.lines[destination_start..destination_end]
+                    .clone_from_slice(&rendered.lines[rendered_start..rendered_end]);
             }
         }
     }
@@ -13740,6 +13748,10 @@ struct CachedReviewGeometry {
 #[derive(Debug, Clone)]
 struct ReviewRows {
     lines: Vec<Line<'static>>,
+    /// Global row count, which can exceed `lines.len()` for a sparse viewport repaint.
+    logical_height: usize,
+    /// Global row represented by `lines[0]`. Full row plans use zero.
+    line_offset: usize,
     note_targets: ReviewNoteTargets,
     note_bounds: std::collections::HashMap<String, (usize, usize)>,
     line_cursors: Vec<ReviewLineCursor>,
@@ -13805,13 +13817,41 @@ fn paint_note_composer(
 }
 
 impl ReviewRows {
-    fn viewport_shell(&self) -> Self {
+    fn logical_height(&self) -> usize {
+        self.logical_height
+    }
+
+    fn line_mut_global(&mut self, row: usize) -> Option<&mut Line<'static>> {
+        row.checked_sub(self.line_offset)
+            .and_then(|index| self.lines.get_mut(index))
+    }
+
+    fn visible_lines(&self, scroll: usize, viewport: usize) -> Vec<Line<'static>> {
+        let start = scroll.max(self.line_offset);
+        let end = scroll
+            .saturating_add(viewport)
+            .min(self.line_offset.saturating_add(self.lines.len()));
+        if start >= end {
+            return Vec::new();
+        }
+        let from = start.saturating_sub(self.line_offset);
+        let to = end.saturating_sub(self.line_offset);
+        self.lines[from..to].to_vec()
+    }
+
+    fn viewport_shell(&self, start: usize, end: usize) -> Self {
+        let logical_height = self.logical_height();
+        let start = start.min(logical_height);
+        let end = end.min(logical_height).max(start);
         Self {
             // Geometry rows retain full coordinates and hit-test metadata, but a
             // viewport frame only needs styled lines for the visible sections.
-            // Start with cheap blank cells and let the painter fill the visible
-            // separators, headers, and hunk bodies below.
-            lines: vec![Line::default(); self.lines.len()],
+            // Start with only the visible blank cells and let the painter fill
+            // the visible separators, headers, and hunk bodies below. Keeping
+            // the metadata in global coordinates preserves scroll and hit tests.
+            lines: vec![Line::default(); end.saturating_sub(start)],
+            logical_height,
+            line_offset: start,
             note_targets: self.note_targets.clone(),
             note_bounds: self.note_bounds.clone(),
             line_cursors: self.line_cursors.clone(),
@@ -14507,6 +14547,8 @@ fn build_review_rows_with_chrome(
         }
     }
     ReviewRows {
+        logical_height: rows.len(),
+        line_offset: 0,
         lines: rows,
         note_targets: note_targets.into_iter().collect(),
         note_bounds,
