@@ -48,6 +48,7 @@ mod site_preview;
 mod skill;
 mod social_cards;
 mod term_video;
+mod test_sharding;
 mod theme_diff_colors;
 mod theme_probe;
 mod tooling_configs;
@@ -1749,10 +1750,7 @@ fn test_git_isolation_replaces_inherited_global_and_system_configuration() {
 }
 
 fn workspace_test_command(repo: &Path) -> std::process::Command {
-    let mut tests = std::process::Command::new("cargo");
-    tests
-        .current_dir(repo)
-        .args(["test", "--locked", "--workspace", "--all-targets"]);
+    let mut tests = test_sharding::build_test_shard_command(repo, 1, 1, &[]);
     isolate_test_git_config(&mut tests);
     tests
 }
@@ -1782,6 +1780,16 @@ fn workspace_test_command_keeps_full_locked_scope_and_isolated_git() {
 
 fn run_workspace_tests(repo: &Path) -> Result<()> {
     let mut tests = workspace_test_command(repo);
+    let available = std::thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(1);
+    let platform = std::env::consts::OS;
+    let override_value = env::var("WORKDECK_TEST_SHARDS").ok();
+    let build_jobs =
+        test_sharding::resolve_test_shard_count(available, override_value.as_deref(), platform)?;
+    if build_jobs > 1 {
+        tests.env("CARGO_BUILD_JOBS", build_jobs.to_string());
+    }
     ensure!(tests.status()?.success(), "workspace tests failed");
     Ok(())
 }
@@ -1800,6 +1808,7 @@ fn verify() -> Result<()> {
     install_script::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     theme_probe::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     release_targets::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
+    test_sharding::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     ui_components::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     site_links::verify_docs_header(&repo)?;
     site_links::verify_website_workflow(&repo)?;
@@ -2148,6 +2157,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     install_script::verify(&repo, &baseline)?;
     theme_probe::verify(&repo, &baseline)?;
     release_targets::verify(&repo, &baseline)?;
+    test_sharding::verify(&repo, &baseline)?;
     ui_components::verify(&repo, &baseline)?;
     let entries = read_tree(&repo, &baseline)?;
     let expected = entries
