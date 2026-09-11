@@ -531,4 +531,36 @@ mod tests {
         }
         assert!(!page.contains("src/extensions/") && !page.contains("hostRuntimeModules"));
     }
+
+    #[test]
+    fn readme_is_the_native_operator_entrypoint() {
+        let repo = crate::repo_root().unwrap();
+        let readme = fs::read_to_string(repo.join("README.md")).unwrap();
+        for required in [
+            "# Workdeck",
+            "## Quick start",
+            "## Validate",
+            "cargo xtask port audit",
+            ".agents/workdeck/",
+            "no Bun, React, OpenTUI",
+        ] {
+            assert!(readme.contains(required), "missing {required}");
+        }
+        assert!(!readme.contains("hunk.dev") && !readme.contains("npm i -g hunkdiff"));
+    }
+
+    #[test]
+    fn architecture_guide_is_the_canonical_agent_boundary() {
+        let repo = crate::repo_root().unwrap();
+        let guide = fs::read_to_string(repo.join("docs/ARCHITECTURE.md")).unwrap();
+        for required in [
+            "## Crate ownership",
+            "## Source boundaries",
+            "## Shrink-only baseline",
+            "workdeck-cli",
+        ] {
+            assert!(guide.contains(required), "missing {required}");
+        }
+        assert!(!guide.contains("bun run") && !guide.contains("hunk daemon"));
+    }
 }
