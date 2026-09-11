@@ -1,11 +1,111 @@
 //! MIT translation of Hunk benchmark result aggregation (Modem Labs Inc.).
 //! Historical thresholds describe source reports, not the strict semantic-port release gate.
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+
+const BASELINE: &str = "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2";
+
+/// Verify the native workflow replacement for Hunk's benchmark workflow.
+///
+/// The pinned workflow is read through Git so the audit covers its trigger,
+/// concurrency, workload, summary, and artifact behavior without retaining or
+/// executing a Bun workflow. The checked-in replacement invokes the Rust
+/// benchmark owners directly.
+pub(crate) fn verify_workflow(repo: &Path) -> Result<()> {
+    let source = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            &format!("{BASELINE}:.github/workflows/benchmarks.yml"),
+        ],
+    )?;
+    ensure!(
+        source.len() == 1_970,
+        "pinned benchmark workflow changed size: {} != 1970",
+        source.len()
+    );
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "name: Benchmarks",
+        "branches:",
+        "paths-ignore:",
+        "workflow_dispatch",
+        "group: benchmarks-${{ github.workflow }}-${{ github.ref }}",
+        "cancel-in-progress: true",
+        "name: Benchmark scripts",
+        "runs-on: ubuntu-latest",
+        "uses: actions/checkout@",
+        "uses: oven-sh/setup-bun@",
+        "bun-version: 1.3.14",
+        "bun install --frozen-lockfile",
+        "bench:bootstrap-load",
+        "bench:highlight-prefetch",
+        "bench:large-stream",
+        "bench:wrapped-cjk",
+        "GITHUB_STEP_SUMMARY",
+        "actions/upload-artifact@",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned benchmark workflow lost marker {marker:?}"
+        );
+    }
+
+    let native_path = repo.join(".github/workflows/benchmarks.yml");
+    let native = std::fs::read_to_string(&native_path)
+        .with_context(|| format!("read native benchmark workflow {}", native_path.display()))?;
+    for marker in [
+        "name: Benchmarks",
+        "workflow_dispatch",
+        "group: benchmarks-${{ github.workflow }}-${{ github.ref }}",
+        "cancel-in-progress: true",
+        "name: Native benchmark suite",
+        "uses: actions/checkout@v5",
+        "uses: dtolnay/rust-toolchain@stable",
+        "uses: Swatinem/rust-cache@v2",
+        "cargo xtask benchmark bootstrap-load",
+        "cargo xtask benchmark highlight-prefetch",
+        "cargo xtask benchmark large-stream",
+        "cargo xtask benchmark wrapped-cjk",
+        "GITHUB_STEP_SUMMARY",
+        "uses: actions/upload-artifact@v4",
+    ] {
+        ensure!(
+            native.contains(marker),
+            "native benchmark workflow is missing {marker:?}"
+        );
+    }
+    for forbidden in ["bun", "node", "npm", "opentui", "wasm", "hunk"] {
+        let pattern = regex::Regex::new(&format!(
+            r"(?i)(?:^|[^a-z]){}(?:$|[^a-z])",
+            regex::escape(forbidden)
+        ))
+        .expect("forbidden runtime token pattern is valid");
+        ensure!(
+            !pattern.is_match(&native),
+            "native benchmark workflow retains forbidden runtime token {forbidden:?}"
+        );
+    }
+    let migration = std::fs::read_to_string(repo.join("docs/benchmark-workflow-migration.md"))?;
+    for marker in [
+        ".github/workflows/benchmarks.yml",
+        "cargo xtask benchmark bootstrap-load",
+        "summary",
+        "artifact contract",
+        "Bun",
+        "not executed",
+    ] {
+        ensure!(
+            migration.contains(marker),
+            "benchmark workflow migration is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
 
 mod bootstrap;
 mod changeset_parse;
@@ -773,6 +873,12 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_benchmark_workflow_replaces_the_complete_pinned_bun_contract() {
+        let repo = super::super::repo_root().unwrap();
+        super::verify_workflow(&repo).unwrap();
+    }
 
     #[test]
     fn benchmark_run_round_trip_preserves_runtime_and_regression_provenance() {
