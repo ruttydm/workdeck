@@ -30,7 +30,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Exercise native installation transactions
-        run: cargo test --locked -p workdeck-cli install::
+        run: 'cargo test --locked -p workdeck-cli install::'
       - name: Exercise installer and archive oracles
         run: cargo test --locked -p xtask install_oracle
       - name: Verify read-only installation plan
