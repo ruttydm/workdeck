@@ -488,4 +488,28 @@ mod tests {
         }
         assert!(!page.contains("bun run") && !page.contains("npm install"));
     }
+
+    #[test]
+    fn extension_api_page_covers_every_native_capability_boundary() {
+        let repo = crate::repo_root().unwrap();
+        let page =
+            fs::read_to_string(repo.join("site/content/docs/extend/extension-api.md")).unwrap();
+        for required in [
+            "JSON-RPC 2.0",
+            "register_cli_command",
+            "register_theme",
+            "register_file_language",
+            "register_vcs_adapter",
+            "register_pane",
+            "register_file_view",
+            "register_line_highlighter",
+            "transform_changeset",
+            "register_keyboard_mode",
+            "review.snapshot()",
+            "workdeck extension install",
+        ] {
+            assert!(page.contains(required), "missing {required}");
+        }
+        assert!(!page.contains("hunk.apiVersion") && !page.contains("@opentui"));
+    }
 }
