@@ -13,6 +13,13 @@ These are local macOS arm64 results; paired Hunk latency/memory acceptance, non-
 remote signing/provenance, and external installer/update evidence remain release gates rather than
 being inferred from the local pass.
 
+The same closeout exercised the local artifact path: `cargo xtask release build`, host staging,
+`release check-artifacts`, `install-inspect --package`, and `install-verify` all passed for the
+macOS arm64 archive. The archive carried a locally bound unsigned statement, so the output reports
+`checksumVerified: true` and `signatureVerified: false`; `release package --verify-ci` correctly
+refused that input because a real Sigstore bundle was absent. This validates packaging mechanics,
+not publisher authenticity or release readiness.
+
 ## Dependency-policy checkpoint (`bf8b7cf7`)
 
 On the macOS development host, `cargo deny check` exits successfully with
