@@ -79,6 +79,12 @@ const DOCS: &[DocSpec] = &[
         bytes: 97016,
         sha256: "44466120b6baa2f7527616911a1bcdd235ad39425199b10130af252edf6d963b",
     },
+    DocSpec {
+        source: "CHANGELOG.md",
+        native: "docs/changelog-history.md",
+        bytes: 78733,
+        sha256: "c9b2a5f7889fdffd451f41df5ffec942c7f19142beaa233a0e89a404972ee58e",
+    },
 ];
 
 pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {
