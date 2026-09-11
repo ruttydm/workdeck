@@ -68,8 +68,87 @@ fn inspect_workspace(repo: &Path, metadata: &Metadata) -> Result<Vec<Architectur
         violations.extend(validate_source_reachability(repo, package)?);
     }
     violations.extend(validate_source_import_boundaries(repo)?);
+    violations.extend(validate_startup_lifecycle(repo)?);
     violations.sort();
     violations.dedup();
+    Ok(violations)
+}
+
+/// Keep command bootstrap and interactive worker ownership explicit.  Rust has
+/// no runtime import graph to walk like the pinned TypeScript entrypoint, so
+/// the equivalent native contract is the ordering of the composition root:
+/// review commands are delegated before repository discovery, and global
+/// commands are handled before repository configuration or the TUI can be
+/// constructed.  The highlight worker must likewise be retired by the review
+/// owner, never by the process entrypoint.
+fn validate_startup_lifecycle(repo: &Path) -> Result<Vec<ArchitectureViolation>> {
+    let cli_entrypoint = fs::read_to_string(repo.join("crates/workdeck-cli/src/main.rs"))?;
+    let mut violations = Vec::new();
+    let run_start = cli_entrypoint
+        .find("fn run_with_preloaded_extensions")
+        .context("native CLI composition root is missing")?;
+    let run_source = &cli_entrypoint[run_start..];
+    let discovery = run_source
+        .find("let repo_root = git::discover_repo_root")
+        .context("native CLI composition root lost its repository-discovery boundary")?;
+    let before_discovery = &run_source[..discovery];
+
+    for (rule, marker, detail) in [
+        (
+            "startup-review-before-discovery",
+            "is_some_and(Command::is_review_command)",
+            "review commands must be delegated before repository discovery",
+        ),
+        (
+            "startup-global-before-discovery",
+            "is_some_and(Command::is_global_command)",
+            "global commands must be handled before repository discovery",
+        ),
+        (
+            "startup-review-handler-before-discovery",
+            "return handle_review_command(",
+            "review commands must enter the native review handler before discovery",
+        ),
+        (
+            "startup-global-handler-before-discovery",
+            "return handle_global_command(",
+            "global commands must enter their handler before discovery",
+        ),
+    ] {
+        if !before_discovery.contains(marker) {
+            violations.push(ArchitectureViolation {
+                rule,
+                subject: "workdeck-cli::run_with_preloaded_extensions".into(),
+                detail: detail.into(),
+            });
+        }
+    }
+
+    // The entrypoint may select the owner, but it must not reach into the
+    // worker's disposal API.  ReviewApp owns this resource both on normal
+    // teardown and while the bootstrap closure returns.
+    if cli_entrypoint.contains("dispose_highlight_worker") {
+        violations.push(ArchitectureViolation {
+            rule: "startup-entrypoint-does-not-dispose-worker",
+            subject: "workdeck-cli::main".into(),
+            detail: "highlight-worker disposal belongs to the interactive review owner".into(),
+        });
+    }
+    let tui_source = fs::read_to_string(repo.join("crates/workdeck-tui/src/lib.rs"))?;
+    let drop_start = tui_source
+        .find("impl Drop for ReviewApp")
+        .context("ReviewApp drop owner is missing")?;
+    let drop_end = tui_source[drop_start..]
+        .find("fn rect_contains")
+        .map(|offset| drop_start + offset)
+        .unwrap_or(tui_source.len());
+    if !tui_source[drop_start..drop_end].contains("dispose_highlight_worker") {
+        violations.push(ArchitectureViolation {
+            rule: "startup-review-owner-disposes-worker",
+            subject: "workdeck-tui::ReviewApp".into(),
+            detail: "ReviewApp drop must retire the native highlight worker".into(),
+        });
+    }
     Ok(violations)
 }
 
@@ -756,6 +835,13 @@ mod tests {
             .exec()
             .unwrap();
         let violations = inspect_workspace(&repo, &metadata).unwrap();
+        assert!(violations.is_empty(), "{violations:#?}");
+    }
+
+    #[test]
+    fn native_startup_graph_and_worker_lifecycle_preserve_hunk_boundaries() {
+        let repo = super::super::repo_root().unwrap();
+        let violations = validate_startup_lifecycle(&repo).unwrap();
         assert!(violations.is_empty(), "{violations:#?}");
     }
 
