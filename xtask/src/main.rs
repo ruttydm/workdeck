@@ -20,6 +20,7 @@ mod ci_changes;
 mod ci_host;
 mod contributor_guide;
 mod extension_catalog;
+mod historical_docs;
 mod install;
 mod install_oracle;
 mod legacy_dependency_inputs;
@@ -1761,6 +1762,7 @@ fn verify() -> Result<()> {
     changeset_config::verify(&repo, &baseline)?;
     extension_catalog::verify_pinned_source(&repo, &baseline)?;
     legacy_dependency_inputs::verify(&repo, &baseline)?;
+    historical_docs::verify(&repo, &baseline)?;
     website_docs::verify(&repo, &baseline)?;
     skill::verify_pinned_web_review_skill(&repo, &baseline)?;
     changelog::verify_pinned_website_inputs(&repo, &baseline)?;
@@ -2071,6 +2073,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     changeset_config::verify(&repo, &baseline)?;
     extension_catalog::verify_pinned_source(&repo, &baseline)?;
     legacy_dependency_inputs::verify(&repo, &baseline)?;
+    historical_docs::verify(&repo, &baseline)?;
     website_docs::verify(&repo, &baseline)?;
     skill::verify_pinned_web_review_skill(&repo, &baseline)?;
     changelog::verify_pinned_website_inputs(&repo, &baseline)?;
