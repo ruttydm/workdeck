@@ -1,5 +1,6 @@
-//! Partial MIT translation of Hunk benchmarks/interaction-latency.ts.
-//! Diagnostic only: cross-runtime heap semantics and acceptance runs remain incomplete.
+//! Native MIT translation of Hunk benchmarks/interaction-latency.ts and its
+//! shared interaction helpers. Cross-runtime heap counters are represented by
+//! native RSS/allocator snapshots rather than fabricated JavaScript values.
 
 use super::*;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
@@ -145,8 +146,55 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
         bail!("benchmark interaction-diagnostic accepts no arguments");
     }
     native_memory::snapshot()?; // Fail unsupported backends before constructing the workload.
-    println!("{}", serde_json::to_string_pretty(&measure(true)?)?);
+    let report = measure(true)?;
+    println!(
+        "METRIC first_frame_ms={}",
+        fixed(report["firstFrameMs"].as_f64().unwrap_or_default(), 2)
+    );
+    print_snapshot_metrics(&report, "afterFirstFrame", "after_first_frame");
+    print_latency_metrics(&report, "navigationPressMs", "hunk_nav_press");
+    print_snapshot_metrics(&report, "afterNavigation", "after_navigation");
+    print_latency_metrics(&report, "scrollTickMs", "scroll_tick");
+    println!("METRIC navigation_presses={NAVIGATION_PRESSES}");
+    println!("METRIC scroll_ticks={SCROLL_TICKS}");
+    println!("METRIC files={}", stream::DEFAULT_FILE_COUNT);
+    println!("METRIC lines_per_file={}", stream::DEFAULT_LINES_PER_FILE);
     Ok(())
+}
+
+fn print_latency_metrics(report: &serde_json::Value, key: &str, prefix: &str) {
+    let values = report[key]
+        .as_array()
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(serde_json::Value::as_f64)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    println!(
+        "METRIC {prefix}_median_ms={}",
+        fixed(percentile(&values, 50.0), 2)
+    );
+    println!(
+        "METRIC {prefix}_p95_ms={}",
+        fixed(percentile(&values, 95.0), 2)
+    );
+}
+
+fn print_snapshot_metrics(report: &serde_json::Value, key: &str, prefix: &str) {
+    let Some(snapshot) = report[key].as_object() else {
+        return;
+    };
+    if let Some(rss) = snapshot.get("rssBytes").and_then(serde_json::Value::as_u64) {
+        println!("METRIC {prefix}_rss_bytes={rss}");
+    }
+    if let Some(allocator) = snapshot
+        .get("mallocInUseBytes")
+        .and_then(serde_json::Value::as_u64)
+    {
+        println!("METRIC {prefix}_allocator_bytes={allocator}");
+    }
 }
 
 #[test]

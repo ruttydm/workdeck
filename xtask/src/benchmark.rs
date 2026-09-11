@@ -126,6 +126,16 @@ const BENCHMARK_RUN_LINES: usize = 217;
 const BENCHMARK_RUN_SHA256: &str =
     "0a86be0791cf64a61771b451e4a38aa2e77ebfa51cc2dd5bc083fb3b4cc17891";
 
+const INTERACTION_PATH: &str = "benchmarks/interaction-latency.ts";
+const INTERACTION_BYTES: usize = 2_478;
+const INTERACTION_LINES: usize = 73;
+const INTERACTION_SHA256: &str = "7de485fea4d96bb8bf64b03b885f17544363de729b8def65b960f638bc1a03e0";
+const INTERACTION_HELPER_PATH: &str = "benchmarks/lib/interaction.ts";
+const INTERACTION_HELPER_BYTES: usize = 3_042;
+const INTERACTION_HELPER_LINES: usize = 87;
+const INTERACTION_HELPER_SHA256: &str =
+    "81ab8d3098519e612a956ff1cb8debfdeb4eed61905cdc52da7d1284447e1807";
+
 /// Verify the executable native replacement for Hunk's terminal-width
 /// benchmark. The source is read from both protected pins; no TypeScript or
 /// string-width runtime is copied into the final tree.
@@ -422,6 +432,142 @@ pub(crate) fn verify_runner(repo: &Path, baseline: &str) -> Result<()> {
         ensure!(
             docs.contains(marker),
             "benchmark runner migration documentation is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
+
+/// Verify the native interaction-latency workload and its shared helper.
+pub(crate) fn verify_interaction(repo: &Path, baseline: &str) -> Result<()> {
+    ensure!(
+        baseline == BASELINE,
+        "interaction benchmark verifier received unexpected baseline {baseline}"
+    );
+    let check_source = |path: &str, bytes_expected: usize, lines_expected: usize, hash: &str| {
+        let source = crate::git_stdout_bytes(repo, ["show", &format!("{BASELINE}:{path}")])?;
+        let stable = crate::git_stdout_bytes(
+            repo,
+            [
+                "show",
+                &format!("4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd:{path}"),
+            ],
+        )?;
+        for (pin, bytes) in [(BASELINE, &source), ("stable-v0.20.1", &stable)] {
+            ensure!(
+                bytes.len() == bytes_expected,
+                "pinned {path} {pin} changed size: {} != {bytes_expected}",
+                bytes.len()
+            );
+            ensure!(
+                bytes.split(|byte| *byte == b'\n').count() == lines_expected + 1,
+                "pinned {path} {pin} changed line count"
+            );
+            ensure!(
+                format!("{:x}", Sha256::digest(bytes)) == hash,
+                "pinned {path} {pin} changed SHA-256"
+            );
+        }
+        ensure!(
+            source == stable,
+            "pinned interaction source diverged at {path}"
+        );
+        Ok::<Vec<u8>, anyhow::Error>(source)
+    };
+    let source = check_source(
+        INTERACTION_PATH,
+        INTERACTION_BYTES,
+        INTERACTION_LINES,
+        INTERACTION_SHA256,
+    )?;
+    let helper = check_source(
+        INTERACTION_HELPER_PATH,
+        INTERACTION_HELPER_BYTES,
+        INTERACTION_HELPER_LINES,
+        INTERACTION_HELPER_SHA256,
+    )?;
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "first-class interaction latency",
+        "testRender",
+        "AppHost",
+        "measureKeyPressLatencies",
+        "measureScrollTickLatencies",
+        "printLatencyMetrics",
+        "printMemoryMetrics",
+        "NAVIGATION_PRESSES",
+        "SCROLL_TICKS",
+        "measureNavigation",
+        "measureScrolling",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned interaction benchmark is missing marker {marker:?}"
+        );
+    }
+    let helper = std::str::from_utf8(&helper)?;
+    for marker in [
+        "Shared helpers for interaction-latency",
+        "INTERACTION_VIEWPORT",
+        "SCROLL_TARGET",
+        "renderPass",
+        "destroyRenderer",
+        "measureKeyPressLatencies",
+        "measureScrollTickLatencies",
+        "printLatencyMetrics",
+        "printMemoryMetrics",
+        "Bun.sleep",
+        "Bun.gc",
+    ] {
+        ensure!(
+            helper.contains(marker),
+            "pinned interaction helper is missing marker {marker:?}"
+        );
+    }
+    for (path, marker) in [
+        (
+            "xtask/src/benchmark/interaction_latency.rs",
+            "pub(super) fn run(",
+        ),
+        (
+            "xtask/src/benchmark/interaction_latency.rs",
+            "source_interaction_sequence_drives_real_navigation_and_fresh_scroll_state",
+        ),
+        (
+            "xtask/src/benchmark/interaction_latency.rs",
+            "print_latency_metrics",
+        ),
+        ("xtask/src/benchmark/runner.rs", "interaction-latency.ts"),
+        ("xtask/src/benchmark.rs", "Some(\"interaction-diagnostic\")"),
+        (
+            "docs/benchmarks.md",
+            "cargo xtask benchmark interaction-latency",
+        ),
+    ] {
+        let native = fs::read_to_string(repo.join(path))
+            .with_context(|| format!("read interaction native surface {path}"))?;
+        ensure!(
+            native.contains(marker),
+            "interaction native surface {path} is missing {marker:?}"
+        );
+    }
+    let docs = fs::read_to_string(repo.join("docs/interaction-benchmark-migration.md"))
+        .context("read interaction benchmark migration documentation")?;
+    for marker in [
+        INTERACTION_PATH,
+        INTERACTION_HELPER_PATH,
+        "2,478",
+        "3,042",
+        INTERACTION_SHA256,
+        INTERACTION_HELPER_SHA256,
+        "navigation",
+        "scroll",
+        "Ratatui",
+        "RSS",
+        "no JavaScript heap",
+    ] {
+        ensure!(
+            docs.contains(marker),
+            "interaction benchmark migration documentation is missing {marker:?}"
         );
     }
     Ok(())
@@ -1222,6 +1368,12 @@ mod tests {
     fn native_benchmark_runner_source_is_verified_at_both_pins() {
         let repo = super::super::repo_root().unwrap();
         super::verify_runner(&repo, BASELINE).unwrap();
+    }
+
+    #[test]
+    fn native_interaction_sources_are_verified_at_both_pins() {
+        let repo = super::super::repo_root().unwrap();
+        super::verify_interaction(&repo, BASELINE).unwrap();
     }
 
     #[test]
