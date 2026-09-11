@@ -47,6 +47,7 @@ mod theme_probe;
 mod tooling_configs;
 mod ui_components;
 mod upstream_refs;
+mod use_terminal_review;
 mod website_docs;
 
 const DEFAULT_BASELINE: &str = "hunk-port/main-2c00f435^{}";
@@ -1783,6 +1784,7 @@ fn verify() -> Result<()> {
     ci_changes::verify_workflow(&repo)?;
     ci_changes::verify_main_workflow(&repo)?;
     diff_pane::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
+    use_terminal_review::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     ui_components::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     site_links::verify_docs_header(&repo)?;
     site_links::verify_website_workflow(&repo)?;
@@ -2123,6 +2125,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     changelog::verify_pinned_website_inputs(&repo, &baseline)?;
     benchmark::verify_historical_for_baseline(&repo, &baseline)?;
     diff_pane::verify(&repo, &baseline)?;
+    use_terminal_review::verify(&repo, &baseline)?;
     ui_components::verify(&repo, &baseline)?;
     let entries = read_tree(&repo, &baseline)?;
     let expected = entries
