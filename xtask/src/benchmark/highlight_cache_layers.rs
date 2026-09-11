@@ -5,7 +5,7 @@
 //! large files evict the first decoded result while leaving the compact worker LRU resident.
 
 use super::*;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use workdeck_core::DiffFile;
 use workdeck_diff::{
     FileComparisonOptions, FileSnapshot, HighlightedDiffCode, diff_from_file_snapshots,
@@ -14,7 +14,9 @@ use workdeck_tui::{AppTheme, HighlightedDiffRuntime, highlighted_diff_cache_key,
 
 const FILE_COUNT: usize = 8;
 const CHANGED_LINES: usize = 8_000;
-const MAX_POLLS: usize = 10_000;
+// The source awaits the worker promise; use a wall-clock ceiling rather than a
+// poll count so faster native polling does not shorten the allowed settle time.
+const MAX_WAIT: Duration = Duration::from_secs(10);
 
 fn file(index: usize) -> Result<DiffFile> {
     let additions = (0..CHANGED_LINES)
@@ -52,14 +54,14 @@ fn request(
     theme: &AppTheme,
 ) -> Result<(f64, HighlightedDiffCode)> {
     let started = Instant::now();
-    let mut highlighted = None;
-    for _ in 0..MAX_POLLS {
-        highlighted = runtime.prefetch_highlighted_diff(file, theme, true);
-        if highlighted.is_some() {
-            break;
+    let deadline = Instant::now() + MAX_WAIT;
+    let highlighted = loop {
+        let highlighted = runtime.prefetch_highlighted_diff(file, theme, true);
+        if highlighted.is_some() || Instant::now() >= deadline {
+            break highlighted;
         }
         std::thread::yield_now();
-    }
+    };
     let highlighted = highlighted.context("native highlight worker did not settle")?;
     Ok((started.elapsed().as_secs_f64() * 1_000.0, highlighted))
 }

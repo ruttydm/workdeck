@@ -6,14 +6,16 @@
 //! highlight payload is involved.
 
 use super::*;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use workdeck_diff::{
     FileComparisonOptions, FileSnapshot, HighlightAppearance, HighlightedDiffLine, HighlightedFile,
     PIERRE_DARK_THEME, diff_from_file_snapshots,
 };
 
 const CHANGED_LINES: usize = 8_000;
-const MAX_POLLS: usize = 10_000;
+// The source awaits the worker promise; use a wall-clock ceiling rather than a
+// poll count so faster native polling does not shorten the allowed settle time.
+const MAX_WAIT: Duration = Duration::from_secs(10);
 
 fn file() -> Result<workdeck_core::DiffFile> {
     let additions = (0..CHANGED_LINES)
@@ -51,19 +53,19 @@ fn request(
     file: &workdeck_core::DiffFile,
 ) -> Result<(f64, HighlightedFile)> {
     let started = Instant::now();
-    let mut highlighted = None;
-    for _ in 0..MAX_POLLS {
-        highlighted = cache.highlight_with_syntax_theme_live(
+    let deadline = Instant::now() + MAX_WAIT;
+    let highlighted = loop {
+        let highlighted = cache.highlight_with_syntax_theme_live(
             file,
             HighlightAppearance::Dark,
             Some(PIERRE_DARK_THEME),
             &[],
         );
-        if highlighted.is_some() {
-            break;
+        if highlighted.is_some() || Instant::now() >= deadline {
+            break highlighted;
         }
         std::thread::yield_now();
-    }
+    };
     let highlighted = highlighted.context("native highlight worker did not settle")?;
     Ok((started.elapsed().as_secs_f64() * 1_000.0, highlighted))
 }
