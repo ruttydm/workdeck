@@ -219,6 +219,25 @@ offset changes. Dynamic comment, extension, and line-highlight paths continue to
 metadata painter. The pinned Hunk comparison, peak-memory equivalence, and non-macOS receipts
 remain required release evidence.
 
+For a fresh paired diagnostic, the disposable oracle captures are
+[`interaction-hunk-2c00f435-20.json`](interaction-hunk-2c00f435-20.json) and
+[`interaction-hunk-v0.20.1-20.json`](interaction-hunk-v0.20.1-20.json). They used the available
+Bun 1.3.5 (the historical receipt used Bun 1.3.14), so they are evidence for this host and not a
+replacement for the pinned-runtime release run. Their timing medians compared with the native
+receipt are:
+
+| Median | Hunk main | Hunk v0.20.1 | Workdeck |
+| --- | ---: | ---: | ---: |
+| First frame | 20.70 ms | 21.28 ms | 4.73 ms |
+| Navigation press | 51.95 ms | 53.22 ms | 3.97 ms |
+| Scroll tick | 1.93 ms | 2.04 ms | 2.96 ms |
+
+Workdeck is faster for first paint and navigation on this workload, while scroll is 53.4% over
+the main-pin median and 45.1% over the stable-pin median; the strict 10% interaction gate therefore
+remains open. Hunk RSS includes a JavaScript heap and native process footprint, whereas Workdeck
+reports native RSS and allocator snapshots; those memory values are retained for diagnostics, not
+treated as directly comparable peak-memory proof.
+
 ### Optimized interaction diagnostic at `10bb95d7`
 
 [Raw nine-process comparison](interaction-diagnostic-10bb95d7.json) records three optimized native
