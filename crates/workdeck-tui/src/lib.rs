@@ -13224,6 +13224,16 @@ fn build_plain_split_viewport_rows(
         .max()
         .unwrap_or_default();
 
+    // Collapsed source-gap labels are metadata rows rather than hunk bodies;
+    // retain their text and affordance while keeping the body repaint lazy.
+    // `gap_rows` only contains interactive gaps (source access available), so
+    // the geometry keeps a parallel list for non-interactive labels too.
+    for &row in &geometry.gap_label_rows {
+        if row >= start && row < end && row < rows.lines.len() {
+            rows.lines[row] = geometry.lines[row].clone();
+        }
+    }
+
     for &file_index in &geometry.visible_file_indices {
         let Some(file) = changeset.files.get(file_index) else {
             continue;
@@ -13740,6 +13750,9 @@ struct ReviewRows {
     file_header_rows: Vec<(usize, usize)>,
     /// Logical row, owning file index, and gap slot; projected only after final layout.
     gap_rows: Vec<(usize, usize, usize)>,
+    /// Logical rows containing collapsed source-gap labels, including labels
+    /// that cannot be expanded because no source snapshot is available.
+    gap_label_rows: Vec<usize>,
     hunk_tops: std::collections::HashMap<(usize, usize), usize>,
     hunk_heights: std::collections::HashMap<(usize, usize), usize>,
     file_view_component_hits: Vec<FileViewComponentLogicalHit>,
@@ -13808,6 +13821,7 @@ impl ReviewRows {
             visible_file_indices: self.visible_file_indices.clone(),
             file_header_rows: self.file_header_rows.clone(),
             gap_rows: self.gap_rows.clone(),
+            gap_label_rows: self.gap_label_rows.clone(),
             hunk_tops: self.hunk_tops.clone(),
             hunk_heights: self.hunk_heights.clone(),
             file_view_component_hits: self.file_view_component_hits.clone(),
@@ -13879,6 +13893,9 @@ impl ReviewRows {
             shift(top);
         }
         for (top, _, _) in &mut self.gap_rows {
+            shift(top);
+        }
+        for top in &mut self.gap_label_rows {
             shift(top);
         }
         for top in self.hunk_tops.values_mut() {
@@ -14159,6 +14176,7 @@ fn build_review_rows_with_chrome(
     let mut visible_file_indices = Vec::new();
     let mut file_header_rows = Vec::with_capacity(changeset.files.len());
     let mut gap_rows = Vec::new();
+    let mut gap_label_rows = Vec::new();
     let mut hunk_tops = std::collections::HashMap::new();
     let mut hunk_heights = std::collections::HashMap::new();
     let mut file_view_component_hits = Vec::new();
@@ -14345,6 +14363,7 @@ fn build_review_rows_with_chrome(
         }
         for (hunk_index, hunk) in file.hunks.iter().enumerate() {
             if let Some(address) = gap_source.leading_gap(hunk_index) {
+                gap_label_rows.push(rows.len());
                 if options.source_presentation.available(file) {
                     gap_rows.push((rows.len(), file_index, hunk_index));
                 }
@@ -14464,6 +14483,7 @@ fn build_review_rows_with_chrome(
             );
         }
         if let Some(address) = gap_source.trailing_gap() {
+            gap_label_rows.push(rows.len());
             if options.source_presentation.available(file) {
                 gap_rows.push((rows.len(), file_index, file.hunks.len()));
             }
@@ -14497,6 +14517,7 @@ fn build_review_rows_with_chrome(
         visible_file_indices,
         file_header_rows,
         gap_rows,
+        gap_label_rows,
         hunk_tops,
         hunk_heights,
         file_view_component_hits,
