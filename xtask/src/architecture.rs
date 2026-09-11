@@ -846,6 +846,64 @@ mod tests {
     }
 
     #[test]
+    fn native_review_vocabulary_and_transport_limits_have_one_authority() {
+        use workdeck_review::{REVIEW_INTENT_TYPES, REVIEW_RESOURCE_CHUNK_BYTES};
+        use workdeck_session::{
+            MAX_REVIEW_EVENT_CHUNKS, MAX_REVIEW_EVENT_PAYLOAD_BYTES,
+            MAX_WORKDECK_REVIEW_ENVELOPE_BYTES, MAX_WS_MESSAGE_BYTES, REVIEW_EVENT_CHUNK_BYTES,
+            WORKDECK_REVIEW_ACTION_TYPES, WorkdeckReviewParseFailureReason,
+            WorkdeckReviewParseResult, parse_workdeck_review_action,
+        };
+
+        assert_eq!(WORKDECK_REVIEW_ACTION_TYPES, REVIEW_INTENT_TYPES);
+        let unique = WORKDECK_REVIEW_ACTION_TYPES.iter().collect::<BTreeSet<_>>();
+        assert_eq!(unique.len(), WORKDECK_REVIEW_ACTION_TYPES.len());
+        for action_type in WORKDECK_REVIEW_ACTION_TYPES {
+            assert_eq!(
+                parse_workdeck_review_action(&serde_json::json!({
+                    "type": action_type,
+                    "unexpectedField": 1
+                })),
+                WorkdeckReviewParseResult::Failed(WorkdeckReviewParseFailureReason::Invalid)
+            );
+        }
+        assert_eq!(
+            parse_workdeck_review_action(&serde_json::json!({
+                "type": "notes/archive-user",
+                "noteId": "n"
+            })),
+            WorkdeckReviewParseResult::Failed(WorkdeckReviewParseFailureReason::Unsupported)
+        );
+        let transport_limit = std::hint::black_box(MAX_WS_MESSAGE_BYTES);
+        assert!(transport_limit >= MAX_WORKDECK_REVIEW_ENVELOPE_BYTES);
+        assert_eq!(
+            MAX_REVIEW_EVENT_PAYLOAD_BYTES,
+            MAX_WORKDECK_REVIEW_ENVELOPE_BYTES
+        );
+        assert_eq!(REVIEW_EVENT_CHUNK_BYTES, REVIEW_RESOURCE_CHUNK_BYTES);
+        assert_eq!(
+            MAX_REVIEW_EVENT_CHUNKS,
+            MAX_REVIEW_EVENT_PAYLOAD_BYTES.div_ceil(REVIEW_RESOURCE_CHUNK_BYTES)
+        );
+
+        let repo = super::super::repo_root().unwrap();
+        let mut rust_files = BTreeSet::new();
+        collect_rust_files(&repo.join("crates/workdeck-review/src"), &mut rust_files).unwrap();
+        collect_rust_files(&repo.join("crates/workdeck-session/src"), &mut rust_files).unwrap();
+        let canonical_digest_helper = repo.join("crates/workdeck-core/src/identity.rs");
+        for path in rust_files {
+            let source = fs::read_to_string(&path).unwrap();
+            if path != canonical_digest_helper {
+                assert!(
+                    !source.contains("{ 64 }") && !source.contains("{64}"),
+                    "digest width was re-declared outside the shared identity helper: {}",
+                    path.display()
+                );
+            }
+        }
+    }
+
+    #[test]
     fn migrated_source_ownership_map_retains_every_role_and_resolves_native_links() {
         let repo = super::super::repo_root().unwrap();
         let document = fs::read_to_string(repo.join("docs/source-architecture.md")).unwrap();
