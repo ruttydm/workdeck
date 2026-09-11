@@ -32,3 +32,6 @@ Migrated sources:
 - `website/src/content/docs/docs/workflows/git-pager-and-difftool.md`
 - `website/src/content/docs/docs/agents/review-skill.md`
 - `website/src/content/docs/docs/extend/extensions.md`
+- `website/src/content/docs/docs/start/install.md`
+- `website/src/content/docs/docs/index.mdx`
+- `website/src/content/docs/docs/extend/vcs-adapters.md`

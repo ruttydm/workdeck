@@ -136,6 +136,24 @@ const DOCS: &[DocSpec] = &[
         bytes: 11430,
         sha256: "32b9e9d8b3e92776117fa16449b90c4fd862797a0e12a16f07173ee4a0539335",
     },
+    DocSpec {
+        source: "website/src/content/docs/docs/start/install.md",
+        native: "site/content/docs/start/install.md",
+        bytes: 5438,
+        sha256: "71946a9c9d0c476d251df50156f93fc0f8f7841c570ddbf9bd9bfcf6ebdf962e",
+    },
+    DocSpec {
+        source: "website/src/content/docs/docs/index.mdx",
+        native: "site/content/docs/_index.md",
+        bytes: 2500,
+        sha256: "f3562f2e4564b8799d9b5fee504e309ee65b74460bbc6608731ab83db263f249",
+    },
+    DocSpec {
+        source: "website/src/content/docs/docs/extend/vcs-adapters.md",
+        native: "site/content/docs/extend/vcs-adapters.md",
+        bytes: 9887,
+        sha256: "80f36ee8bee371cef3a51f9a80fa7e1be928f7c8f8618ddda8ec4be6491a1b8c",
+    },
 ];
 
 pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {

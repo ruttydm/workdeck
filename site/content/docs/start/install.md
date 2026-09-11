@@ -1,68 +1,160 @@
 +++
-title = "Install and verify"
-description = "Build Workdeck from source and understand the native installer and update boundaries."
+title = "Install"
+description = "Install Workdeck with its native installer, Cargo, Homebrew, mise, or Nix and verify the CLI."
 template = "docs.html"
 +++
 
-Workdeck ships one executable named `workdeck`. It does not expose a `hunk`
-alias or use npm, Bun, Node.js, or a JavaScript runtime. The semantic port and
-cross-platform release qualification are still in progress.
+Workdeck runs on macOS, Linux, and Windows as one native Rust executable named
+`workdeck`. The install script is the default method on macOS and Linux; Cargo,
+Homebrew, mise, Nix, and the signed release archives cover the other workflows.
+Workdeck does not ship an npm package, Bun runtime, Node.js launcher, or `hunk`
+alias. Git is recommended for the most common review workflows.
 
-## Build from a checkout
+## Install script (default)
 
-Use a Rust toolchain compatible with the checkout's `Cargo.toml` and lockfile.
-From the repository root:
+On macOS and Linux, the default install script downloads and verifies the
+prebuilt binary for the detected machine:
 
-```sh
-cargo build --release --locked -p workdeck-cli --bin workdeck
-./target/release/workdeck --help
+```bash
+curl -fsSL https://workdeck.dev/install.sh | sh
+workdeck --version
 ```
 
-On Windows, the resulting executable is `target/release/workdeck.exe`.
-To install the checkout using Cargo's normal installation directory:
+Release archives contain `SHA256SUMS`, and the script requires `shasum` or
+`sha256sum` before it installs. A missing verifier is an error rather than a
+silent integrity downgrade. It installs into `~/.workdeck` (binary at
+`~/.workdeck/bin/workdeck`, bundled skills beside it) and can add that directory
+to the shell startup file. Restart the shell afterwards.
 
-```sh
-cargo install --path crates/workdeck-cli --locked
+The script accepts these settings:
+
+| Setting | Effect |
+| --- | --- |
+| `WORKDECK_VERSION` | Install an exact release instead of the newest one; also accepted as a positional argument. |
+| `WORKDECK_INSTALL_DIR` | Install the binary into this directory instead of `~/.workdeck/bin`. |
+| `--no-modify-path` (or `WORKDECK_NO_MODIFY_PATH=1`) | Leave shell startup files alone. |
+| `--force` (or `WORKDECK_ALLOW_CONFLICTING_INSTALLS=1`) | Install despite another Workdeck on PATH or in a known version-manager directory. |
+
+By default the installer refuses to create a second Workdeck installation. It
+lists every competing path it finds, its version and PATH precedence, and the
+command that removes it. Remove those installs first; use `--force` only when
+you deliberately manage multiple copies.
+
+```bash
+curl -fsSL https://workdeck.dev/install.sh | sh -s -- 0.20.0
+curl -fsSL https://workdeck.dev/install.sh | sh -s -- --no-modify-path
+curl -fsSL https://workdeck.dev/install.sh | sh -s -- --force
+curl -fsSL https://workdeck.dev/install.sh | WORKDECK_VERSION=0.20.0 sh
+```
+
+`workdeck update` refreshes a default install in place. An install redirected
+with `WORKDECK_INSTALL_DIR` cannot be auto-detected later (the variable is gone
+once the shell exits), so update one of those by re-running the script with the
+same directory; the installer prints a reminder at the end of a custom-directory
+install. Windows is covered by the signed archive, PowerShell installer, Cargo,
+Homebrew-on-Linux, or mise rather than the POSIX script.
+
+## npm
+
+There is deliberately no published `workdeck` npm package and no JavaScript
+runtime dependency. A legacy Hunk npm installation must be removed or kept
+separate while installing the native Workdeck binary. Verify that the command
+resolves to the native executable:
+
+```bash
+workdeck --version
+```
+
+Do not use `npm`, `bun`, or `pnpm` to install or update Workdeck. The absence of
+those package-manager commands is a release invariant, not a missing feature.
+
+## Homebrew
+
+The release process publishes a signed Homebrew formula once the native archive
+and checksums have passed the platform gate:
+
+```bash
+brew install workdeck
+workdeck --version
+```
+
+If an older tap formula is present, remove it before installing the canonical
+formula:
+
+```bash
+brew uninstall modem-dev/tap/workdeck
+brew install workdeck
+```
+
+Homebrew owns updates for Homebrew installs; `workdeck update` reports the
+detected method and does not overwrite a different package manager's files.
+
+## mise
+
+mise can install a released Workdeck binary on macOS, Linux, and Windows after a
+Workdeck tool definition is available:
+
+```bash
+mise use -g workdeck
+workdeck --version
+```
+
+Use a current mise release so platform/architecture selection and checksum
+verification are available. Workdeck does not register a `hunk` or `hunkdiff`
+alias. Omarchy or another distribution may package Workdeck through its own
+native tool definition; the distribution remains responsible for that package.
+
+## Nix
+
+The repository exports a native `workdeck` package from `flake.nix`. From a
+clone of Workdeck:
+
+```bash
+nix build
+./result/bin/workdeck --version
+```
+
+See `nix/README.md` for Home Manager and development-shell details. Nix owns
+updates for Nix-managed installations.
+
+## Verify the install
+
+```bash
 workdeck --help
 ```
 
-If the shell cannot find the command, check the installation directory reported
-by Cargo and your PATH. Keep existing installations intact until you have
-identified which executable your shell resolves.
+You should see `Usage: workdeck <command> [options]` and no JavaScript runtime
+path. If the shell cannot find Workdeck, ensure the selected Cargo, Homebrew,
+mise, Nix, or `~/.workdeck/bin` directory is on `PATH`, then open a new shell.
+`workdeck verify-install` can additionally print the resolved binary, release
+digest, and provenance file without creating repository state.
 
-## Native release installer
+## Update Workdeck
 
-An existing Workdeck executable exposes `workdeck install [VERSION]` with
-`--destination DIRECTORY`, `--no-modify-path`, and `--force`. This is a native
-release installer, not a bootstrap command that can run before Workdeck exists.
-It requires suitable published release artifacts and verification evidence;
-the presence of the command does not prove a release is available or qualified.
+`workdeck update` is the canonical update command for default install-script,
+Cargo, Homebrew, Nix, mise, curl/PowerShell, and direct GitHub archive installs.
+It selects the recorded installation method and verifies the new archive before
+the atomic replacement:
 
-The default destination is the home directory's `.workdeck` directory. A custom
-destination is an installation root, not a request to overwrite an existing
-binary. `--force` allows known competing installations; it does not authorize
-overwriting the destination. `--no-modify-path` leaves shell startup files alone.
-Do not assume Hunk's npm packages, Homebrew formula, mise aliases or installer
-URLs install Workdeck.
+```bash
+workdeck update          # install the newest release
+workdeck update --check  # check without installing
+workdeck update 0.20.0   # install an exact release
+```
 
-## Updates
+On an older Workdeck release, update once with the installer or package manager
+that installed it; after that, use `workdeck update`. mise, Nix, and local source
+builds remain owned by their own tooling, so use `mise upgrade workdeck`, your
+Nix configuration, or a deliberate Cargo rebuild. A custom
+`WORKDECK_INSTALL_DIR` also requires re-running the installer with the same
+directory. Pass `--method cargo`, `--method brew`, `--method nix`,
+`--method mise`, `--method curl`, or `--method github` if Workdeck detects the
+wrong method. Every update keeps the previous binary until checksum, signature,
+SBOM, and provenance checks succeed.
 
-Inspect the implemented interface with `workdeck update --help`. It accepts an
-optional version, `--check`, and a `--method` override for Cargo, Homebrew, Nix,
-curl, PowerShell or direct installations. Qualification of every installer and
-update path remains a release gate; no published package availability is implied.
-For a source checkout, update the checkout deliberately and rebuild using the
-commands above. There is no Workdeck npm update path.
+Next, [review your first working tree](/docs/start/quick-start/).
 
-## Verification and provenance
-
-Use `workdeck --help` to verify that the expected executable starts. Release
-archives are required to carry licensing, checksums, SBOM and provenance; those
-requirements are not satisfied merely by a successful local build. Follow the
-repository's release procedure before distributing a build.
-
-This page adapts installation topics from Hunk's MIT-licensed documentation,
-Copyright Modem Labs Inc. It is not a completed mapping of that source page;
-remaining migration and release-channel documentation is tracked in the port ledger.
-
-Next, [review a working tree or commit](/docs/start/quick-start/).
+Adapted from Hunk's MIT-licensed installation documentation, Copyright Modem
+Labs Inc. The package-manager and runtime portions are intentionally translated
+to Workdeck's native release model; no TypeScript source or npm package is
+retained.

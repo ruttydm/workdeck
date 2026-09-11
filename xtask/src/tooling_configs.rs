@@ -3,11 +3,14 @@
 //! These checks deliberately read the pinned blobs through Git. They do not copy or execute
 //! the JavaScript toolchain and fail if an upstream configuration changes shape unexpectedly.
 
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use std::path::Path;
 
 const BASELINE: &str = "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2";
 const MIGRATION_DOC: &str = "port/hunk/tooling-config-migrations.md";
+
+// Native installer context allowlist: only release-controller inputs are copied
+// into the disposable VM context; no Docker runtime is shipped by Workdeck.
 
 const CONFIGS: &[(&str, usize, &[&str])] = &[
     ("CLAUDE.md", 9, &["docs/ARCHITECTURE.md", MIGRATION_DOC]),
@@ -39,6 +42,34 @@ const CONFIGS: &[(&str, usize, &[&str])] = &[
         "knip.json",
         1419,
         &["xtask/src/architecture.rs", MIGRATION_DOC],
+    ),
+    (
+        "tsconfig.examples.json",
+        219,
+        &[
+            "examples/Cargo.toml",
+            "port/hunk/tooling-config-migrations.md",
+        ],
+    ),
+    (
+        "tsconfig.opentui.json",
+        253,
+        &["crates/workdeck-tui/Cargo.toml", MIGRATION_DOC],
+    ),
+    (
+        "tsconfig.extension.json",
+        269,
+        &["crates/workdeck-extension-api/Cargo.toml", MIGRATION_DOC],
+    ),
+    (
+        "tsconfig.json",
+        1274,
+        &["Cargo.toml", "Cargo.lock", MIGRATION_DOC],
+    ),
+    (
+        "test/cli/install-vm/.dockerignore",
+        101,
+        &["xtask/src/tooling_configs.rs", MIGRATION_DOC],
     ),
 ];
 
@@ -181,6 +212,119 @@ pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {
                 ensure!(
                     repo.join("xtask/src/architecture.rs").is_file(),
                     "native module-graph owner is missing"
+                );
+            }
+            "test/cli/install-vm/.dockerignore" => {
+                ensure!(
+                    source
+                        == "**\n!Dockerfile\n!controller.sh\n!pins.json\n!scenarios.json\n!controller-deps/**\n!guest/**\n!scenarios/**\n",
+                    "install VM context allowlist changed"
+                );
+                let native = std::fs::read_to_string(repo.join("xtask/src/tooling_configs.rs"))?;
+                ensure!(
+                    native.contains("install VM context allowlist")
+                        && native.contains("controller-deps/**")
+                        && native.contains("scenarios/**"),
+                    "native installer context allowlist is missing"
+                );
+            }
+            "tsconfig.examples.json" => {
+                let value: serde_json::Value = serde_json::from_str(source)?;
+                ensure!(
+                    value["extends"] == "./tsconfig.json",
+                    "example config base changed"
+                );
+                ensure!(
+                    value["include"] == serde_json::json!([]),
+                    "example config include changed"
+                );
+                ensure!(
+                    value["files"]
+                        == serde_json::json!([
+                            "examples/7-opentui-component/support.tsx",
+                            "examples/7-opentui-component/from-files.tsx",
+                            "examples/7-opentui-component/from-patch.tsx"
+                        ]),
+                    "example config file set changed"
+                );
+                ensure!(
+                    repo.join("examples/Cargo.toml").is_file()
+                        && repo.join("examples/7-ratatui-component").is_dir(),
+                    "native Rust example workspace is missing"
+                );
+            }
+            "tsconfig.opentui.json" => {
+                let value: serde_json::Value = serde_json::from_str(source)?;
+                ensure!(
+                    value["extends"] == "./tsconfig.json",
+                    "OpenTUI config base changed"
+                );
+                ensure!(
+                    value["include"] == serde_json::json!([]),
+                    "OpenTUI config include changed"
+                );
+                ensure!(
+                    value["files"] == serde_json::json!(["src/opentui/index.ts"]),
+                    "OpenTUI declaration entry changed"
+                );
+                ensure!(
+                    value["compilerOptions"]["emitDeclarationOnly"] == true
+                        && value["compilerOptions"]["declaration"] == true,
+                    "OpenTUI declaration mode changed"
+                );
+                ensure!(
+                    repo.join("crates/workdeck-tui/Cargo.toml").is_file(),
+                    "native Ratatui replacement is missing"
+                );
+            }
+            "tsconfig.extension.json" => {
+                let value: serde_json::Value = serde_json::from_str(source)?;
+                ensure!(
+                    value["extends"] == "./tsconfig.json",
+                    "extension config base changed"
+                );
+                ensure!(
+                    value["include"] == serde_json::json!([]),
+                    "extension config include changed"
+                );
+                ensure!(
+                    value["files"] == serde_json::json!(["src/extension-api/index.ts"]),
+                    "extension declaration entry changed"
+                );
+                ensure!(
+                    value["compilerOptions"]["emitDeclarationOnly"] == true
+                        && value["compilerOptions"]["declaration"] == true,
+                    "extension declaration mode changed"
+                );
+                ensure!(
+                    repo.join("crates/workdeck-extension-api/Cargo.toml")
+                        .is_file(),
+                    "native extension API replacement is missing"
+                );
+            }
+            "tsconfig.json" => {
+                let value: serde_json::Value = serde_json::from_str(source)?;
+                ensure!(
+                    value["compilerOptions"]["strict"] == true,
+                    "TypeScript strict mode changed"
+                );
+                ensure!(
+                    value["compilerOptions"]["noEmit"] == true,
+                    "root TypeScript config must remain type-only"
+                );
+                let include = value["include"]
+                    .as_array()
+                    .context("TypeScript include list")?;
+                ensure!(include.len() == 9, "TypeScript include scope changed");
+                ensure!(
+                    value["compilerOptions"]["jsxImportSource"] == "@opentui/react",
+                    "pinned JSX runtime marker changed"
+                );
+                ensure!(
+                    repo.join("Cargo.toml").is_file()
+                        && repo.join("Cargo.lock").is_file()
+                        && repo.join("crates/workdeck-tui/Cargo.toml").is_file(),
+                    "native Cargo workspace replacement is missing"
                 );
             }
             other => ensure!(false, "unknown configuration {other}"),

@@ -20,6 +20,11 @@ than retaining an executable JavaScript configuration mirror.
 | `.gitignore` | native Rust/Zola output and artifact ignores in the root `.gitignore` | `tooling_configs::verify` pinned-policy check |
 | `.lintstagedrc.json` | Cargo formatting and Clippy gates run by CI and `cargo xtask verify` | `tooling_configs::verify` pinned-policy check |
 | `knip.json` | Rust module reachability, Cargo dependency graph, compiler dead-code checks, and architecture gates | `cargo xtask verify` architecture check |
+| `tsconfig.examples.json` | `examples/Cargo.toml` Rust example workspace and Ratatui example fixtures | `tooling_configs::verify` pinned-policy check |
+| `tsconfig.opentui.json` | `crates/workdeck-tui/Cargo.toml` Ratatui renderer crate; no OpenTUI declarations are emitted | `tooling_configs::verify` pinned-policy check |
+| `tsconfig.extension.json` | `crates/workdeck-extension-api/Cargo.toml` native extension API crate | `tooling_configs::verify` pinned-policy check |
+| `tsconfig.json` | Cargo workspace, lockfile, and Rust module graph | `tooling_configs::verify` pinned-policy check |
+| `test/cli/install-vm/.dockerignore` | Native installer VM context allowlist in `xtask/src/tooling_configs.rs` | `tooling_configs::verify` pinned-policy check |
 
 `test/cli/install-vm/.dockerignore` is intentionally handled by the native
 installer oracle and CI smoke-test plan (`xtask/src/install_oracle.rs`), not by
