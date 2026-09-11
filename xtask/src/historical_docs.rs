@@ -73,6 +73,12 @@ const DOCS: &[DocSpec] = &[
         bytes: 9172,
         sha256: "edf9791b4bf6139b43cb4b0111976cc92606cde34e34d1ba56f77d58251b5d8a",
     },
+    DocSpec {
+        source: "docs/extensions.md",
+        native: "docs/extensions.md",
+        bytes: 97016,
+        sha256: "44466120b6baa2f7527616911a1bcdd235ad39425199b10130af252edf6d963b",
+    },
 ];
 
 pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {
