@@ -12714,8 +12714,9 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     let viewport = area.height.saturating_sub(app.review_reserved_rows()) as usize;
     // Ordinary split streams use viewport painting. Dynamic content retains the complete
     // painter, including extension lifecycle calls, so no host-owned surface is skipped.
-    let highlight_files;
-    let gap_geometries;
+    let mut highlight_files = BTreeSet::new();
+    let mut gap_geometries = Arc::new(Vec::new());
+    let mut plain_geometry = None;
     let purpose = if layout == LayoutMode::Split
         && comments.is_empty()
         && app.note_composer.is_none()
@@ -12748,9 +12749,10 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                     cached.height,
                     Arc::clone(&cached.sections),
                     Arc::clone(&cached.gap_geometries),
+                    Arc::clone(&cached.geometry),
                 )
             });
-        let (content_height, layouts, cached_gaps) = cached.unwrap_or_else(|| {
+        let (content_height, layouts, cached_gaps, geometry) = cached.unwrap_or_else(|| {
             let mut geometry_options = app.options.clone();
             geometry_options.highlight = false;
             let geometry = Arc::new(build_live_review_rows(
@@ -12827,9 +12829,10 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 sections: Arc::clone(&layouts),
                 gap_geometries: Arc::clone(&gaps),
             });
-            (height, layouts, gaps)
+            (height, layouts, gaps, geometry)
         });
         gap_geometries = cached_gaps;
+        plain_geometry = Some(geometry);
         let start = app.scroll.min(content_height.saturating_sub(viewport));
         let rapid = app
             .review_prefetch
@@ -12866,23 +12869,40 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             .unwrap_or_else(|error| error.into_inner()) = None;
         ReviewRowPurpose::Paint
     };
-    let mut rows = build_live_review_rows(
-        state.changeset(),
-        &comments,
-        state.selection(),
-        layout,
-        &app.options,
-        content_width,
-        &mut highlights,
-        &app.expanded_gaps,
-        &line_highlights,
-        &file_view_layouts,
-        &component_expanded,
-        &app.file_presentation_rendering,
-        app.options.extension_notifications.as_ref(),
-        &app.filter,
-        purpose,
-    );
+    let mut rows = if let Some(geometry) = plain_geometry {
+        build_plain_split_viewport_rows(
+            geometry.as_ref(),
+            state.changeset(),
+            state.selection(),
+            &app.options,
+            content_width,
+            &mut highlights,
+            &highlight_files,
+            &gap_geometries,
+            match purpose {
+                ReviewRowPurpose::Viewport { start, end, .. } => (start, end),
+                _ => unreachable!("plain geometry is only used for viewport painting"),
+            },
+        )
+    } else {
+        build_live_review_rows(
+            state.changeset(),
+            &comments,
+            state.selection(),
+            layout,
+            &app.options,
+            content_width,
+            &mut highlights,
+            &app.expanded_gaps,
+            &line_highlights,
+            &file_view_layouts,
+            &component_expanded,
+            &app.file_presentation_rendering,
+            app.options.extension_notifications.as_ref(),
+            &app.filter,
+            purpose,
+        )
+    };
     if let Some(composer) = &app.note_composer {
         rows.insert_composer(
             composer,
@@ -13163,6 +13183,181 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 app.review_content_top_offset(),
             )
         }));
+}
+
+/// Repaint only the visible bodies of a plain split review from its retained geometry.
+///
+/// The logical row vector remains complete so scroll, selection, and hit testing retain their
+/// existing coordinates. File and hunk bounds let us skip all sections outside the viewport;
+/// only the intersecting hunk bodies allocate styled rows for this frame.
+fn build_plain_split_viewport_rows(
+    geometry: &ReviewRows,
+    changeset: &Changeset,
+    selection: ReviewSelection,
+    options: &ReviewOptions,
+    width: u16,
+    highlight_cache: &mut HighlightedDiffRuntime,
+    highlight_files: &BTreeSet<usize>,
+    gap_geometries: &[PlainFileGeometry],
+    viewport: (usize, usize),
+) -> ReviewRows {
+    let mut rows = geometry.clone();
+    let (start, end) = viewport;
+    let mut file_options = options.clone();
+    // Preserve the source prefetch halo even when its adjacent files are outside
+    // the current viewport. Their highlighted payloads are needed immediately
+    // when navigation moves the review to that file.
+    if options.highlight {
+        for &file_index in highlight_files {
+            if let Some(file) = changeset.files.get(file_index) {
+                let _ =
+                    highlight_cache.prefetch_highlighted_diff_shared(file, &options.theme, true);
+            }
+        }
+    }
+    let header_stats_width = geometry
+        .visible_file_indices
+        .iter()
+        .filter_map(|index| changeset.files.get(*index))
+        .map(|file| file_header_stats(file).width)
+        .max()
+        .unwrap_or_default();
+
+    for &file_index in &geometry.visible_file_indices {
+        let Some(file) = changeset.files.get(file_index) else {
+            continue;
+        };
+        let file_top = geometry
+            .file_tops
+            .get(&file_index)
+            .copied()
+            .unwrap_or_default();
+        let file_end = geometry
+            .visible_file_indices
+            .iter()
+            .copied()
+            .find(|index| *index > file_index)
+            .and_then(|index| geometry.file_tops.get(&index).copied())
+            .unwrap_or(geometry.lines.len());
+        if file_top >= end || file_end <= start {
+            continue;
+        }
+
+        file_options.line_number_digits = Some(
+            options
+                .line_number_digits
+                .unwrap_or_else(|| find_max_line_number(file).to_string().len()),
+        );
+        if let Some(&header_top) = geometry.file_header_tops.get(&file_index) {
+            let separator_height = header_top.saturating_sub(file_top);
+            if separator_height > 0 {
+                let separator = diff_section_separator_lines(
+                    separator_height,
+                    usize::from(width.saturating_sub(2)),
+                    &file_options.theme,
+                );
+                for (offset, line) in separator.into_iter().enumerate() {
+                    let row = file_top.saturating_add(offset);
+                    if row >= start && row < end && row < rows.lines.len() {
+                        rows.lines[row] = line;
+                    }
+                }
+            }
+        }
+        if let Some((_, header_top)) = geometry
+            .file_header_rows
+            .iter()
+            .find(|(index, _)| *index == file_index)
+            && *header_top >= start
+            && *header_top < end
+        {
+            rows.lines[*header_top] = file_header(
+                file,
+                usize::from(width),
+                header_stats_width,
+                &file_options.theme,
+            );
+        }
+        let highlighted = if options.highlight && highlight_files.contains(&file_index) {
+            highlight_cache.prefetch_highlighted_diff_shared(file, &options.theme, true)
+        } else {
+            None
+        };
+        let file_selection = if selection.file_index == file_index {
+            selection
+        } else {
+            ReviewSelection::default()
+        };
+        for (hunk_index, hunk) in file.hunks.iter().enumerate() {
+            let Some(&hunk_top) = geometry.hunk_tops.get(&(file_index, hunk_index)) else {
+                continue;
+            };
+            let hunk_height = geometry
+                .hunk_heights
+                .get(&(file_index, hunk_index))
+                .copied()
+                .unwrap_or_default();
+            let header_rows = usize::from(file_options.hunk_headers).min(hunk_height);
+            if header_rows > 0 && hunk_top < rows.lines.len() {
+                let selected_hunk =
+                    selection.file_index == file_index && selection.hunk_index == Some(hunk_index);
+                rows.lines[hunk_top] = Line::styled(
+                    format!("▌{}", hunk.formatted_header()),
+                    if selected_hunk {
+                        Style::default()
+                            .fg(ratatui_theme_color(&file_options.theme.accent))
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(ratatui_theme_color(&file_options.theme.muted))
+                    },
+                );
+            }
+            let body_top = hunk_top.saturating_add(header_rows);
+            let body_height = hunk_height.saturating_sub(header_rows);
+            if body_top >= end || body_top.saturating_add(body_height) <= start {
+                continue;
+            }
+            let rendered = split_hunk_rows(
+                file,
+                file_index,
+                hunk,
+                hunk_index,
+                &file_options,
+                width,
+                highlighted
+                    .as_ref()
+                    .and_then(|code| code.highlighted.get(hunk_index)),
+                &[],
+                file_selection,
+                selection.file_index == file_index && selection.hunk_index == Some(hunk_index),
+                None,
+                ReviewRowPurpose::Viewport {
+                    start,
+                    end,
+                    highlight_files: Some(highlight_files),
+                    gap_geometries: Some(gap_geometries),
+                    row_capacity: geometry.lines.len(),
+                },
+                body_top,
+            );
+            let body_end = body_top.saturating_add(body_height);
+            if body_end > rows.lines.len() {
+                continue;
+            }
+            debug_assert_eq!(
+                rendered.lines.len(),
+                body_height,
+                "cached split geometry must match the viewport row plan"
+            );
+            let copy_len = rendered.lines.len().min(body_height);
+            rows.lines[body_top..body_top.saturating_add(copy_len)]
+                .clone_from_slice(&rendered.lines[..copy_len]);
+            if copy_len < body_height {
+                rows.lines[body_top.saturating_add(copy_len)..body_end].fill(Line::default());
+            }
+        }
+    }
+    rows
 }
 
 fn copy_selection_row_is_selectable(snapshot: &LiveCopySelectionSnapshot, visual_row: i64) -> bool {
