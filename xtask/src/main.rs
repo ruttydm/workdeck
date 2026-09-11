@@ -452,6 +452,7 @@ fn site(command: Option<&str>) -> Result<()> {
             site_assets::sbom(&repo)?;
             skill::check_generated_skills(&repo)?;
             run_checked(&site, "zola", &["build"])?;
+            site_markdown::stage_install_script(&repo, &site.join("public"))?;
             site_markdown::emit(&repo, &site.join("public"))
         }
         Some("check") => {
@@ -471,6 +472,7 @@ fn site(command: Option<&str>) -> Result<()> {
                     public.to_str().context("site output path is not UTF-8")?,
                 ],
             )?;
+            site_markdown::stage_install_script(&repo, &public)?;
             site_markdown::emit(&repo, &public)?;
             site_links::check(&public, &repo)?;
             let html = fs::read_to_string(public.join("extensions/index.html"))?;

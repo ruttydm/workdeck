@@ -35,6 +35,10 @@ const TEST_STABLE_SHA256: &str = "f89381df3304faff020ef1b489d32d7e52fe437dafad9b
 const BIN_BYTES: usize = 2_011;
 const BIN_LINES: usize = 60;
 const BIN_SHA256: &str = "0ed22e1a045724112cf02c8c10ff88e0ab71030fe57b7196f5961b3ff25c0c89";
+const STAGE_PATH: &str = "scripts/stage-install-script.ts";
+const STAGE_BYTES: usize = 1_101;
+const STAGE_LINES: usize = 28;
+const STAGE_SHA256: &str = "059742cafd9d6c8bd6e17f64ef673e6849c148056176cd411954a5a134c1d081";
 
 struct NativeMarker {
     path: &'static str,
@@ -508,6 +512,68 @@ fn verify_bin_helper(repo: &Path) -> Result<()> {
     Ok(())
 }
 
+fn verify_stage_helper(repo: &Path) -> Result<()> {
+    let source = source_blob(
+        repo,
+        BASELINE,
+        STAGE_PATH,
+        STAGE_BYTES,
+        STAGE_LINES,
+        STAGE_SHA256,
+    )?;
+    let stable = source_blob(
+        repo,
+        STABLE,
+        STAGE_PATH,
+        STAGE_BYTES,
+        STAGE_LINES,
+        STAGE_SHA256,
+    )?;
+    ensure!(
+        source == stable,
+        "pinned installer staging helper diverged between pins"
+    );
+    for marker in [
+        "copyFileSync",
+        "existsSync",
+        "const REPO_ROOT",
+        "const SOURCE",
+        "const DIST_DIR",
+        "join(REPO_ROOT, \"website\", \"dist\")",
+        "install.sh",
+        "process.exit(1)",
+        "Runs after `astro build`",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned installer staging helper is missing marker {marker:?}"
+        );
+    }
+    for (path, marker) in [
+        (
+            "xtask/src/site_markdown.rs",
+            "pub(crate) fn stage_install_script(",
+        ),
+        ("xtask/src/main.rs", "site_markdown::stage_install_script("),
+        (
+            "xtask/src/site_preview.rs",
+            "stage_install_script(root, &output)",
+        ),
+        (
+            "xtask/src/site_markdown.rs",
+            "stages_installer_idempotently_and_rejects_conflicting_or_symlinked_outputs",
+        ),
+    ] {
+        let native = fs::read_to_string(repo.join(path))
+            .with_context(|| format!("read installer staging native surface {path}"))?;
+        ensure!(
+            native.contains(marker),
+            "installer staging native surface {path} is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
+
 fn verify_test_mapping(repo: &Path, source: &str, expected: &[SourceTestMapping]) -> Result<()> {
     let actual = source_test_names(source);
     let expected_names: Vec<_> = expected.iter().map(|mapping| mapping.name).collect();
@@ -649,6 +715,7 @@ pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {
     verify_test_mapping(repo, &tests, BASELINE_TESTS)?;
     verify_test_mapping(repo, &stable_tests, STABLE_TESTS)?;
     verify_bin_helper(repo)?;
+    verify_stage_helper(repo)?;
     verify_native_surface(repo)?;
     verify_oracle(repo)?;
 
@@ -671,6 +738,12 @@ pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {
         "TypeScript source",
         BIN_PATH,
         "install-bin",
+        STAGE_PATH,
+        "1,101",
+        STAGE_SHA256,
+        "static/install.sh",
+        "collision",
+        "symlink",
     ] {
         ensure!(
             docs.contains(marker),

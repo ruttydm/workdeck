@@ -13,6 +13,58 @@ pub(crate) fn emit(repo: &Path, output: &Path) -> Result<()> {
     emit_plan(&plan(repo)?, output)
 }
 
+/// Stage the native installer at the website root after Zola has rendered the site.
+///
+/// Zola normally copies `site/static/install.sh` for us, but keeping this as an
+/// explicit final step preserves the pinned Hunk build contract: the installer
+/// is a release artifact, not Markdown content.  We only accept real files and
+/// refuse a conflicting destination, so a stale or attacker-controlled output
+/// cannot be silently replaced or followed through a symlink.
+pub(crate) fn stage_install_script(repo: &Path, output: &Path) -> Result<()> {
+    let source = repo.join("site/static/install.sh");
+    ensure!(
+        fs::symlink_metadata(&source)?.file_type().is_file(),
+        "installer source must be a regular file: {}",
+        source.display()
+    );
+    ensure!(
+        fs::symlink_metadata(output)?.file_type().is_dir(),
+        "installer output must be a real directory: {}",
+        output.display()
+    );
+    let bytes = fs::read(&source).context("read native installer source")?;
+    let destination = output.join("install.sh");
+    match fs::symlink_metadata(&destination) {
+        Ok(metadata) => {
+            ensure!(
+                metadata.file_type().is_file(),
+                "installer destination must be a regular file: {}",
+                destination.display()
+            );
+            ensure!(
+                fs::read(&destination).context("read staged installer")? == bytes,
+                "installer destination already exists with different bytes: {}",
+                destination.display()
+            );
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&destination)
+                .with_context(|| format!("create staged installer {}", destination.display()))?;
+            file.write_all(&bytes)?;
+        }
+        Err(error) => return Err(error).context("inspect staged installer"),
+    }
+    ensure!(
+        fs::read(&destination).context("verify staged installer")? == bytes,
+        "staged installer verification failed: {}",
+        destination.display()
+    );
+    Ok(())
+}
+
 /// Exercise native Zola routing with a disposable site, independently of the
 /// current documentation tree. This runs as part of `xtask site check`.
 pub(crate) fn check_zola_routes() -> Result<()> {
@@ -371,6 +423,47 @@ mod tests {
             "# Docs\n"
         );
     }
+
+    #[test]
+    fn stages_installer_idempotently_and_rejects_conflicting_or_symlinked_outputs() {
+        let repo = tempfile::tempdir().unwrap();
+        let source = repo.path().join("site/static/install.sh");
+        fs::create_dir_all(source.parent().unwrap()).unwrap();
+        let bytes = b"#!/bin/sh\nprintf '%s\\n' workdeck\n";
+        fs::write(&source, bytes).unwrap();
+        let output = tempfile::tempdir().unwrap();
+
+        stage_install_script(repo.path(), output.path()).unwrap();
+        assert_eq!(fs::read(output.path().join("install.sh")).unwrap(), bytes);
+        // Zola can already have copied the static file. The explicit stage is
+        // intentionally idempotent when that copy has the expected bytes.
+        stage_install_script(repo.path(), output.path()).unwrap();
+
+        fs::write(output.path().join("install.sh"), b"stale").unwrap();
+        assert!(stage_install_script(repo.path(), output.path()).is_err());
+        assert_eq!(
+            fs::read(output.path().join("install.sh")).unwrap(),
+            b"stale"
+        );
+
+        #[cfg(unix)]
+        {
+            fs::remove_file(output.path().join("install.sh")).unwrap();
+            let outside = tempfile::tempdir().unwrap();
+            fs::write(outside.path().join("install.sh"), b"outside").unwrap();
+            std::os::unix::fs::symlink(
+                outside.path().join("install.sh"),
+                output.path().join("install.sh"),
+            )
+            .unwrap();
+            assert!(stage_install_script(repo.path(), output.path()).is_err());
+            assert_eq!(
+                fs::read(outside.path().join("install.sh")).unwrap(),
+                b"outside"
+            );
+        }
+    }
+
     fn page(title: &str, body: &str) -> String {
         format!("+++\ntitle = {title:?}\n+++\n\n{body}\n")
     }

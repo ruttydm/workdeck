@@ -95,6 +95,7 @@ fn prepare(source: &Snapshot) -> Result<Snapshot> {
             output.to_str().context("preview output UTF-8")?,
         ],
     )?;
+    crate::site_markdown::stage_install_script(root, &output)?;
     crate::site_markdown::emit(root, &output)?;
     let mut prepared = source.clone();
     for (relative, content) in crate::site_markdown::plan(root)? {
