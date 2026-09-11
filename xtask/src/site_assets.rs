@@ -41,6 +41,18 @@ const THEME_SHOTS: &[(&str, usize, &str)] = &[
         "eb337b5906a8229c054558a15cbe1d6732c7ef0f6a81260e2edd8d6171b427b7",
     ),
 ];
+const VIDEO_THUMBNAILS: &[(&str, usize, &str)] = &[
+    (
+        "video-devops-toolbox.webp",
+        80_718,
+        "3f6aede31c6b225688903b5fcb770bf730d2203d6c7827e3e807feea2a25b5b5",
+    ),
+    (
+        "video-jilles.webp",
+        32_348,
+        "2a9dc5368875d39523c99f8a2172ed64c3add4e1c1b20bc15874ac04ebd5f7c3",
+    ),
+];
 
 /// Validate that the served theme screenshots are byte-identical to the
 /// retained, licensed Hunk baseline assets and remain independently inventoried.
@@ -191,6 +203,157 @@ pub(crate) fn verify_theme_shot_component(repo: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Validate the retained community thumbnails and the no-player marketing
+/// cards that replace Hunk's `CommunityVideos.astro` component.
+pub(crate) fn verify_community_videos(repo: &Path) -> Result<()> {
+    let source = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            &format!("{HUNK_BASELINE}:website/src/components/marketing/CommunityVideos.astro"),
+        ],
+    )?;
+    ensure!(
+        source.len() == 1_934,
+        "pinned CommunityVideos.astro changed size: {} != 1934",
+        source.len()
+    );
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "Independent walkthroughs styled as paused YouTube embeds",
+        "linked out",
+        "const videos = [",
+        "https://www.youtube.com/watch?v=FFfz81XM57k",
+        "https://www.youtube.com/watch?v=-4fJbIF8WAs",
+        "video-jilles.webp",
+        "video-devops-toolbox.webp",
+        "channel: \"Jilles\"",
+        "channel: \"DevOps Toolbox\"",
+        "initial: \"J\"",
+        "initial: \"D\"",
+        "length: \"5:14\"",
+        "length: \"13:33\"",
+        "<div class=\"vgrid\">",
+        "target=\"_blank\" rel=\"noopener noreferrer\"",
+        "class=\"vplayer\"",
+        "loading=\"lazy\" draggable=\"false\"",
+        "class=\"vscrim\"",
+        "class=\"vavatar\"",
+        "class=\"vtitle\"",
+        "class=\"vplay\"",
+        "class=\"vlength\"",
+        "class=\"vcaption\"",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned CommunityVideos.astro lost marker {marker:?}"
+        );
+    }
+    for (name, expected_bytes, expected_sha) in VIDEO_THUMBNAILS {
+        let retained = repo
+            .join("third_party/hunk/assets/website/public")
+            .join(name);
+        let served = repo.join("site/static/videos").join(name);
+        let retained_bytes = fs::read(&retained)
+            .with_context(|| format!("read retained video thumbnail {}", retained.display()))?;
+        let served_bytes = fs::read(&served)
+            .with_context(|| format!("read served video thumbnail {}", served.display()))?;
+        ensure!(
+            retained_bytes.len() == *expected_bytes && served_bytes.len() == *expected_bytes,
+            "video thumbnail {name} has unexpected byte count"
+        );
+        ensure!(
+            format!("{:x}", Sha256::digest(&retained_bytes)) == *expected_sha
+                && format!("{:x}", Sha256::digest(&served_bytes)) == *expected_sha,
+            "video thumbnail {name} hash mismatch"
+        );
+        let source = crate::git_stdout_bytes(
+            repo,
+            [
+                "show",
+                &format!("{HUNK_BASELINE}:website/public/{name}"),
+            ],
+        )?;
+        ensure!(
+            source == retained_bytes && source == served_bytes,
+            "video thumbnail {name} differs from the pinned Hunk blob"
+        );
+    }
+    let index = fs::read_to_string(repo.join("site/templates/index.html"))?;
+    for marker in [
+        "class=\"community-videos\"",
+        "id=\"community-videos-title\"",
+        "class=\"vgrid\"",
+        "video-jilles.webp",
+        "video-devops-toolbox.webp",
+        "https://www.youtube.com/watch?v=FFfz81XM57k",
+        "https://www.youtube.com/watch?v=-4fJbIF8WAs",
+        "target=\"_blank\" rel=\"noopener noreferrer\"",
+        "class=\"vplayer\"",
+        "class=\"vscrim\"",
+        "class=\"vavatar\"",
+        "class=\"vtitle\"",
+        "class=\"vplay\"",
+        "class=\"vlength\"",
+        "class=\"vcaption\"",
+    ] {
+        ensure!(
+            index.contains(marker),
+            "native community video card is missing {marker:?}"
+        );
+    }
+    ensure!(
+        !index.contains("<script"),
+        "native community video cards must not add a player script"
+    );
+    let css = fs::read_to_string(repo.join("site/static/main.css"))?;
+    for marker in [
+        ".community-videos",
+        ".vgrid",
+        ".vcard",
+        ".vplayer",
+        ".vscrim",
+        ".vavatar",
+        ".vtitle",
+        ".vplay",
+        ".vlength",
+        ".vcaption",
+    ] {
+        ensure!(
+            css.contains(marker),
+            "native community video styles are missing {marker:?}"
+        );
+    }
+    let inventory: Vec<Asset> = serde_json::from_slice(&fs::read(
+        repo.join("site/data/third-party-assets.json"),
+    )?)?;
+    let files = inventory
+        .iter()
+        .flat_map(|asset| asset.files.iter())
+        .map(|file| file.path.as_str())
+        .collect::<BTreeSet<_>>();
+    for (name, _, _) in VIDEO_THUMBNAILS {
+        ensure!(
+            files.contains(format!("site/static/videos/{name}").as_str()),
+            "video thumbnail {name} missing from the website asset inventory"
+        );
+    }
+    let migration = fs::read_to_string(repo.join("docs/community-videos-migration.md"))?;
+    for marker in [
+        "CommunityVideos.astro",
+        "paused YouTube",
+        "no-player",
+        "loading=\"lazy\"",
+        "no application JavaScript",
+    ] {
+        ensure!(
+            migration.contains(marker),
+            "community video migration is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct Asset {
@@ -286,6 +449,12 @@ mod tests {
     }
 
     #[test]
+    fn native_community_video_cards_replace_the_complete_pinned_component() {
+        let repo = crate::repo_root().unwrap();
+        verify_community_videos(&repo).unwrap();
+    }
+
+    #[test]
     fn duplicate_asset_paths_are_rejected() {
         let repo = tempfile::tempdir().unwrap();
         fs::create_dir_all(repo.path().join("site/data")).unwrap();
@@ -361,10 +530,12 @@ mod tests {
         fs::create_dir_all(temp.path().join("site/data")).unwrap();
         fs::write(temp.path().join(inventory), &bytes).unwrap();
         let assets: Vec<Asset> = serde_json::from_slice(&bytes).unwrap();
-        for file in &assets[0].files {
-            let destination = temp.path().join(&file.path);
-            fs::create_dir_all(destination.parent().unwrap()).unwrap();
-            fs::copy(repo.join(&file.path), destination).unwrap();
+        for asset in &assets {
+            for file in &asset.files {
+                let destination = temp.path().join(&file.path);
+                fs::create_dir_all(destination.parent().unwrap()).unwrap();
+                fs::copy(repo.join(&file.path), destination).unwrap();
+            }
         }
         sbom(temp.path()).unwrap();
         let font = &assets[0].files[0].path;
@@ -384,13 +555,27 @@ mod tests {
     #[test]
     fn retained_font_inventory_emits_checked_website_only_components() {
         let output = sbom(&crate::repo_root().unwrap()).unwrap();
-        assert_eq!(output["components"].as_array().unwrap().len(), 8);
+        assert_eq!(output["components"].as_array().unwrap().len(), 16);
         assert_eq!(
             output["metadata"]["component"]["name"],
             "workdeck-website-assets"
         );
-        for component in output["components"].as_array().unwrap() {
-            assert_eq!(component["licenses"][0]["license"]["id"], "OFL-1.1");
+        let components = output["components"].as_array().unwrap();
+        assert_eq!(
+            components
+                .iter()
+                .filter(|component| component["licenses"][0]["license"]["id"] == "OFL-1.1")
+                .count(),
+            8
+        );
+        assert_eq!(
+            components
+                .iter()
+                .filter(|component| component["licenses"][0]["license"]["id"] == "MIT")
+                .count(),
+            8
+        );
+        for component in components {
             assert_eq!(component["type"], "file");
         }
     }

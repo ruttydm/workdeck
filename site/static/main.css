@@ -42,6 +42,18 @@ main { display: grid; gap: 3rem; padding: 5rem 0; }
 .tpill, .tmore { border: 1px solid var(--workdeck-rule); border-radius: .25rem; padding: .35rem .55rem; color: var(--workdeck-muted); font-size: .8rem; cursor: pointer; text-decoration: none; }
 .tpill:hover, .tpill:focus-visible, .tmore:hover, .tmore:focus-visible { border-color: var(--workdeck-accent); color: var(--workdeck-ink); }
 #theme-shot-0:checked ~ .themes label[for="theme-shot-0"], #theme-shot-1:checked ~ .themes label[for="theme-shot-1"], #theme-shot-2:checked ~ .themes label[for="theme-shot-2"], #theme-shot-3:checked ~ .themes label[for="theme-shot-3"], #theme-shot-4:checked ~ .themes label[for="theme-shot-4"], #theme-shot-5:checked ~ .themes label[for="theme-shot-5"] { border-color: var(--workdeck-accent); color: var(--workdeck-ink); }
+.community-videos { max-width: 64rem !important; }
+.vgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 1.25rem; }
+.vcard { display: block; color: inherit; text-decoration: none; }
+.vplayer { position: relative; display: block; overflow: hidden; aspect-ratio: 900 / 506; border: 1px solid var(--workdeck-rule); background: var(--workdeck-bg); }
+.vplayer img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.vscrim { position: absolute; inset: auto 0 0; display: flex; align-items: center; gap: .65rem; padding: 2rem .8rem .75rem; color: #fff; background: linear-gradient(transparent, rgba(0, 0, 0, .82)); }
+.vavatar { display: grid; place-items: center; flex: 0 0 1.8rem; width: 1.8rem; height: 1.8rem; border-radius: 50%; font-weight: 700; }
+.vtitle { font-size: .85rem; line-height: 1.25; }
+.vplay { position: absolute; inset: 50% auto auto 50%; display: grid; place-items: center; width: 2.6rem; height: 2.6rem; border-radius: 50%; transform: translate(-50%, -50%); color: #fff; background: rgba(220, 38, 38, .92); }
+.vplay svg { width: 1.25rem; height: 1.25rem; margin-left: .15rem; }
+.vlength { position: absolute; right: .6rem; bottom: .55rem; padding: .15rem .3rem; border-radius: .2rem; color: #fff; background: rgba(0, 0, 0, .72); font-size: .72rem; }
+.vcaption { display: block; margin-top: .55rem; color: var(--workdeck-muted); font-size: .82rem; }
 .eyebrow { color: var(--workdeck-accent); text-transform: uppercase; letter-spacing: .08em; }
 h1 { color: var(--workdeck-ink); font-size: clamp(2.4rem, 7vw, 5.5rem); line-height: .98; margin: 1rem 0; }
 h2 { color: var(--workdeck-ink); }

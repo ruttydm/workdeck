@@ -54,5 +54,16 @@
       {"path": "site/static/shots/shot-nord.webp", "sha256": "8b8dde28892665ff97ed3e62ea4546df4cf2fc7196e23f2ac532b260c4c6be90"},
       {"path": "site/static/shots/shot-tokyo-night.webp", "sha256": "eb337b5906a8229c054558a15cbe1d6732c7ef0f6a81260e2edd8d6171b427b7"}
     ]
+  },
+  {
+    "name": "Hunk community video thumbnails",
+    "version": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "license": "MIT",
+    "source": "https://github.com/modem-dev/hunk/tree/2c00f4358b89cfc0a6b04459ffc538ba601aa3c2/website/public",
+    "archiveIntegrity": "git:2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "files": [
+      {"path": "site/static/videos/video-devops-toolbox.webp", "sha256": "3f6aede31c6b225688903b5fcb770bf730d2203d6c7827e3e807feea2a25b5b5"},
+      {"path": "site/static/videos/video-jilles.webp", "sha256": "2a9dc5368875d39523c99f8a2172ed64c3add4e1c1b20bc15874ac04ebd5f7c3"}
+    ]
   }
 ]
