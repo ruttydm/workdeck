@@ -32,6 +32,7 @@ mod legacy_dependency_inputs;
 mod nix;
 mod port_history;
 mod port_oracles;
+mod process;
 mod provenance;
 mod pty_harness;
 mod release_artifacts;
@@ -1860,6 +1861,7 @@ fn verify() -> Result<()> {
     extension_catalog::verify_pinned_source(&repo, &baseline)?;
     extension_catalog::verify_extension_tooling(&repo, &baseline)?;
     extension_catalog::verify_extensions_page(&repo)?;
+    process::verify(&repo, &baseline)?;
     legacy_dependency_inputs::verify(&repo, &baseline)?;
     historical_docs::verify(&repo, &baseline)?;
     website_docs::verify(&repo, &baseline)?;
@@ -2176,6 +2178,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     changeset_config::verify(&repo, &baseline)?;
     extension_catalog::verify_pinned_source(&repo, &baseline)?;
     extension_catalog::verify_extension_tooling(&repo, &baseline)?;
+    process::verify(&repo, &baseline)?;
     legacy_dependency_inputs::verify(&repo, &baseline)?;
     historical_docs::verify(&repo, &baseline)?;
     website_docs::verify(&repo, &baseline)?;

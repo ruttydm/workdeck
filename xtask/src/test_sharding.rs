@@ -48,7 +48,8 @@ pub(crate) fn build_test_shard_command(
     total: usize,
     extra: &[String],
 ) -> Command {
-    let mut command = Command::new("cargo");
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let mut command = crate::process::command_with_path("cargo", &path);
     command
         .current_dir(repo)
         .args(["test", "--locked", "--workspace", "--all-targets"]);

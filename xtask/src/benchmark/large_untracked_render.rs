@@ -188,7 +188,7 @@ fn run_fixture(line_count: usize, kind: FixtureKind) -> Result<ResultSummary> {
             || frame.contains("File exceeds review limits"),
         contains_visible_line: frame.contains("visible-first-line"),
         file_count: loaded.changeset.files.len(),
-        first_file_stats: first.as_ref().map(|file| file.stats.clone()),
+        first_file_stats: first.as_ref().map(|file| file.stats),
         first_file_stats_truncated: first.as_ref().map(|file| file.stats.truncated),
         fixture_kind: kind.name(),
         line_count,
