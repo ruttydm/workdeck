@@ -97,12 +97,16 @@ pub(super) fn git(root: &Path, args: &[&str]) -> Result<String> {
 pub(super) fn changed_repo(options: &Options) -> Result<tempfile::TempDir> {
     let root = temporary("workdeck-benchmark-repo-")?;
     git(root.path(), &["init"])?;
-    git(root.path(), &["config", "user.name", "Benchmark User"])?;
-    git(
-        root.path(),
-        &["config", "user.email", "benchmark@example.com"],
-    )?;
-    git(root.path(), &["config", "commit.gpgsign", "false"])?;
+    // Configure the disposable repository in one file write. The pinned Hunk fixture
+    // suite used three separate config subprocesses for every fixture; keeping the
+    // identity bytes explicit makes the native generator cheaper without changing Git's
+    // author, email, or signing semantics.
+    let config_path = root.path().join(".git/config");
+    let mut config = fs::read(&config_path)?;
+    config.extend_from_slice(
+        b"\n[user]\n\tname = Benchmark User\n\temail = benchmark@example.com\n[commit]\n\tgpgsign = false\n",
+    );
+    fs::write(config_path, config)?;
     for index in 1..=array_length(options.file_count) {
         let path = root
             .path()
@@ -203,6 +207,10 @@ mod tests {
             git(root.path(), &["log", "-1", "--format=%an <%ae>:%s"]).unwrap(),
             "Benchmark User <benchmark@example.com>:initial benchmark fixture\n"
         );
+        let git_config = fs::read_to_string(root.path().join(".git/config")).unwrap();
+        assert!(git_config.contains("name = Benchmark User"));
+        assert!(git_config.contains("email = benchmark@example.com"));
+        assert!(git_config.contains("gpgsign = false"));
         for index in 1..=2 {
             let path = format!("src/bench{index}.rs");
             assert_eq!(

@@ -1579,6 +1579,26 @@ mod tests {
         );
     }
 
+    #[test]
+    fn bundled_highlighting_uses_raw_embedded_asset_bytes() {
+        // The upstream Shiki fix removed a synchronous base64 decode from first-use
+        // highlighting. The native equivalent is a build-generated syntect payload
+        // embedded with include_bytes!: no textual/base64 intermediate exists at run time.
+        let bytes = include_bytes!(concat!(env!("OUT_DIR"), "/syntaxes.bin"));
+        assert!(!bytes.is_empty());
+        let file = identity_file("export const answer: number = 42;\n", "example.ts");
+        let mut cache = HighlightCache::default();
+        let highlighted = cache.highlight(&file, "github-dark-default");
+        let tokens = highlighted[0][1]
+            .addition
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|token| token.text.as_str())
+            .collect::<String>();
+        assert_eq!(tokens, "export const answer: number = 42;");
+    }
+
     fn identity_file(after: &str, name: &str) -> DiffFile {
         parse_patch(
             &format!(

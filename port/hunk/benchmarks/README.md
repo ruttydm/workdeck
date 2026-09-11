@@ -2,6 +2,20 @@
 
 These reports expose an outstanding release-gate failure. They are **not** parity certification.
 
+## Native follow-up receipts
+
+The post-baseline highlight-loading change (`f86a04ed`) is represented by the
+Ratatui/syntect path in `crates/workdeck-diff/src/syntax.rs`. Syntax grammars are
+compiled once and embedded as raw bytes with `include_bytes!`; the executable never
+base64-decodes a large text payload. The `bundled_highlighting_uses_raw_embedded_asset_bytes`
+test exercises the same first-use token output while proving the generated asset is
+present.
+
+The fixture-overhead change (`6ba8465a`) is represented by the native benchmark fixture
+generator in `xtask/src/benchmark/fixtures.rs`. Disposable Git repositories write their
+author/signing configuration in one file operation before committing, preserving the
+source fixture identity without repeated configuration subprocesses.
+
 On 2026-09-07 UTC (2026-09-08 local), three subprocess samples per implementation ran sequentially
 on the same Apple M1 Pro, macOS 26.5.2 arm64 host after compilation and test jobs had finished.
 Workdeck used Rust 1.95.0 (`59807616e`, 2026-04-14) and the
