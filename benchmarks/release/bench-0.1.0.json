@@ -1,0 +1,2463 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-11T10:04:10.385Z",
+  "gitSha": "6226c65eb3b1aebbf9c4dccf0bf231cef4e2844a",
+  "packageVersion": "0.1.0",
+  "runtime": {
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "samplesPerBenchmark": 5.0,
+  "results": [
+    {
+      "name": "bootstrap-load/file_pair_bootstrap_ms",
+      "unit": "ms",
+      "samples": [
+        1.89,
+        1.49,
+        1.48,
+        1.87,
+        1.45
+      ],
+      "median": 1.49,
+      "p75": 1.87,
+      "p95": 1.89,
+      "min": 1.45,
+      "max": 1.89,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "bootstrap-load"
+    },
+    {
+      "name": "bootstrap-load/files",
+      "unit": "count",
+      "samples": [
+        64.0,
+        64.0,
+        64.0,
+        64.0,
+        64.0
+      ],
+      "median": 64.0,
+      "p75": 64.0,
+      "p95": 64.0,
+      "min": 64.0,
+      "max": 64.0,
+      "comparable": false,
+      "source": "bootstrap-load"
+    },
+    {
+      "name": "bootstrap-load/git_bootstrap_ms",
+      "unit": "ms",
+      "samples": [
+        284.4,
+        243.07,
+        254.68,
+        258.43,
+        227.46
+      ],
+      "median": 254.68,
+      "p75": 258.43,
+      "p95": 284.4,
+      "min": 227.46,
+      "max": 284.4,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "bootstrap-load"
+    },
+    {
+      "name": "bootstrap-load/git_diff_subprocess_ms",
+      "unit": "ms",
+      "samples": [
+        53.48,
+        47.17,
+        54.5,
+        63.29,
+        46.67
+      ],
+      "median": 53.48,
+      "p75": 54.5,
+      "p95": 63.29,
+      "min": 46.67,
+      "max": 63.29,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "bootstrap-load"
+    },
+    {
+      "name": "bootstrap-load/git_parse_patch_ms",
+      "unit": "ms",
+      "samples": [
+        2.67,
+        2.6,
+        2.85,
+        2.77,
+        2.73
+      ],
+      "median": 2.73,
+      "p75": 2.77,
+      "p95": 2.85,
+      "min": 2.6,
+      "max": 2.85,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "bootstrap-load"
+    },
+    {
+      "name": "bootstrap-load/git_split_patch_chunks_ms",
+      "unit": "ms",
+      "samples": [
+        1.24,
+        1.5,
+        1.22,
+        1.25,
+        1.23
+      ],
+      "median": 1.24,
+      "p75": 1.25,
+      "p95": 1.5,
+      "min": 1.22,
+      "max": 1.5,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "bootstrap-load"
+    },
+    {
+      "name": "bootstrap-load/lines_per_file",
+      "unit": "count",
+      "samples": [
+        420.0,
+        420.0,
+        420.0,
+        420.0,
+        420.0
+      ],
+      "median": 420.0,
+      "p75": 420.0,
+      "p95": 420.0,
+      "min": 420.0,
+      "max": 420.0,
+      "comparable": false,
+      "source": "bootstrap-load"
+    },
+    {
+      "name": "bootstrap-load/parsed_files",
+      "unit": "count",
+      "samples": [
+        64.0,
+        64.0,
+        64.0,
+        64.0,
+        64.0
+      ],
+      "median": 64.0,
+      "p75": 64.0,
+      "p95": 64.0,
+      "min": 64.0,
+      "max": 64.0,
+      "comparable": false,
+      "source": "bootstrap-load"
+    },
+    {
+      "name": "bootstrap-load/patch_chunks",
+      "unit": "count",
+      "samples": [
+        64.0,
+        64.0,
+        64.0,
+        64.0,
+        64.0
+      ],
+      "median": 64.0,
+      "p75": 64.0,
+      "p95": 64.0,
+      "min": 64.0,
+      "max": 64.0,
+      "comparable": false,
+      "source": "bootstrap-load"
+    },
+    {
+      "name": "changeset-parse/balanced_changeset_build_diff_files_ms",
+      "unit": "ms",
+      "samples": [
+        4.14,
+        4.24,
+        4.2,
+        4.28,
+        4.38
+      ],
+      "median": 4.24,
+      "p75": 4.28,
+      "p95": 4.38,
+      "min": 4.14,
+      "max": 4.38,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "changeset-parse"
+    },
+    {
+      "name": "changeset-parse/balanced_changeset_files",
+      "unit": "count",
+      "samples": [
+        96.0,
+        96.0,
+        96.0,
+        96.0,
+        96.0
+      ],
+      "median": 96.0,
+      "p75": 96.0,
+      "p95": 96.0,
+      "min": 96.0,
+      "max": 96.0,
+      "comparable": false,
+      "source": "changeset-parse"
+    },
+    {
+      "name": "changeset-parse/balanced_changeset_normalize_patch_ms",
+      "unit": "ms",
+      "samples": [
+        2.75,
+        2.64,
+        2.71,
+        2.69,
+        2.71
+      ],
+      "median": 2.71,
+      "p75": 2.71,
+      "p95": 2.75,
+      "min": 2.64,
+      "max": 2.75,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "changeset-parse"
+    },
+    {
+      "name": "changeset-parse/balanced_changeset_parse_patch_ms",
+      "unit": "ms",
+      "samples": [
+        1.23,
+        1.2,
+        1.31,
+        1.26,
+        1.31
+      ],
+      "median": 1.26,
+      "p75": 1.31,
+      "p95": 1.31,
+      "min": 1.2,
+      "max": 1.31,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "changeset-parse"
+    },
+    {
+      "name": "changeset-parse/balanced_changeset_patch_bytes",
+      "unit": "bytes",
+      "samples": [
+        682727.0,
+        682727.0,
+        682727.0,
+        682727.0,
+        682727.0
+      ],
+      "median": 682727.0,
+      "p75": 682727.0,
+      "p95": 682727.0,
+      "min": 682727.0,
+      "max": 682727.0,
+      "comparable": false,
+      "source": "changeset-parse"
+    },
+    {
+      "name": "changeset-parse/balanced_changeset_split_chunks_ms",
+      "unit": "ms",
+      "samples": [
+        0.51,
+        0.5,
+        0.52,
+        0.51,
+        0.56
+      ],
+      "median": 0.51,
+      "p75": 0.52,
+      "p95": 0.56,
+      "min": 0.5,
+      "max": 0.56,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "changeset-parse"
+    },
+    {
+      "name": "changeset-parse/large_single_file_build_diff_files_ms",
+      "unit": "ms",
+      "samples": [
+        1.71,
+        1.64,
+        1.64,
+        1.63,
+        1.66
+      ],
+      "median": 1.64,
+      "p75": 1.66,
+      "p95": 1.71,
+      "min": 1.63,
+      "max": 1.71,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "changeset-parse"
+    },
+    {
+      "name": "changeset-parse/large_single_file_files",
+      "unit": "count",
+      "samples": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "median": 1.0,
+      "p75": 1.0,
+      "p95": 1.0,
+      "min": 1.0,
+      "max": 1.0,
+      "comparable": false,
+      "source": "changeset-parse"
+    },
+    {
+      "name": "changeset-parse/large_single_file_normalize_patch_ms",
+      "unit": "ms",
+      "samples": [
+        1.0,
+        0.99,
+        0.99,
+        1.01,
+        0.96
+      ],
+      "median": 0.99,
+      "p75": 1.0,
+      "p95": 1.01,
+      "min": 0.96,
+      "max": 1.01,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "changeset-parse"
+    },
+    {
+      "name": "changeset-parse/large_single_file_parse_patch_ms",
+      "unit": "ms",
+      "samples": [
+        0.36,
+        0.37,
+        0.37,
+        0.39,
+        0.37
+      ],
+      "median": 0.37,
+      "p75": 0.37,
+      "p95": 0.39,
+      "min": 0.36,
+      "max": 0.39,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "changeset-parse"
+    },
+    {
+      "name": "changeset-parse/large_single_file_patch_bytes",
+      "unit": "bytes",
+      "samples": [
+        284479.0,
+        284479.0,
+        284479.0,
+        284479.0,
+        284479.0
+      ],
+      "median": 284479.0,
+      "p75": 284479.0,
+      "p95": 284479.0,
+      "min": 284479.0,
+      "max": 284479.0,
+      "comparable": false,
+      "source": "changeset-parse"
+    },
+    {
+      "name": "changeset-parse/large_single_file_split_chunks_ms",
+      "unit": "ms",
+      "samples": [
+        0.21,
+        0.21,
+        0.2,
+        0.21,
+        0.21
+      ],
+      "median": 0.21,
+      "p75": 0.21,
+      "p95": 0.21,
+      "min": 0.2,
+      "max": 0.21,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "changeset-parse"
+    },
+    {
+      "name": "changeset-parse/many_small_files_build_diff_files_ms",
+      "unit": "ms",
+      "samples": [
+        3.29,
+        3.1,
+        3.17,
+        3.03,
+        3.15
+      ],
+      "median": 3.15,
+      "p75": 3.17,
+      "p95": 3.29,
+      "min": 3.03,
+      "max": 3.29,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "changeset-parse"
+    },
+    {
+      "name": "changeset-parse/many_small_files_files",
+      "unit": "count",
+      "samples": [
+        240.0,
+        240.0,
+        240.0,
+        240.0,
+        240.0
+      ],
+      "median": 240.0,
+      "p75": 240.0,
+      "p95": 240.0,
+      "min": 240.0,
+      "max": 240.0,
+      "comparable": false,
+      "source": "changeset-parse"
+    },
+    {
+      "name": "changeset-parse/many_small_files_normalize_patch_ms",
+      "unit": "ms",
+      "samples": [
+        1.49,
+        1.36,
+        1.35,
+        1.53,
+        1.37
+      ],
+      "median": 1.37,
+      "p75": 1.49,
+      "p95": 1.53,
+      "min": 1.35,
+      "max": 1.53,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "changeset-parse"
+    },
+    {
+      "name": "changeset-parse/many_small_files_parse_patch_ms",
+      "unit": "ms",
+      "samples": [
+        1.14,
+        0.88,
+        0.92,
+        0.94,
+        0.93
+      ],
+      "median": 0.93,
+      "p75": 0.94,
+      "p95": 1.14,
+      "min": 0.88,
+      "max": 1.14,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "changeset-parse"
+    },
+    {
+      "name": "changeset-parse/many_small_files_patch_bytes",
+      "unit": "bytes",
+      "samples": [
+        376703.0,
+        376703.0,
+        376703.0,
+        376703.0,
+        376703.0
+      ],
+      "median": 376703.0,
+      "p75": 376703.0,
+      "p95": 376703.0,
+      "min": 376703.0,
+      "max": 376703.0,
+      "comparable": false,
+      "source": "changeset-parse"
+    },
+    {
+      "name": "changeset-parse/many_small_files_split_chunks_ms",
+      "unit": "ms",
+      "samples": [
+        0.33,
+        0.33,
+        0.32,
+        0.32,
+        0.32
+      ],
+      "median": 0.32,
+      "p75": 0.33,
+      "p95": 0.33,
+      "min": 0.32,
+      "max": 0.33,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "changeset-parse"
+    },
+    {
+      "name": "highlight-prefetch/adjacent_ready_before_move",
+      "unit": "boolean",
+      "samples": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "median": 1.0,
+      "p75": 1.0,
+      "p95": 1.0,
+      "min": 1.0,
+      "max": 1.0,
+      "comparable": false,
+      "source": "highlight-prefetch"
+    },
+    {
+      "name": "highlight-prefetch/files",
+      "unit": "count",
+      "samples": [
+        4.0,
+        4.0,
+        4.0,
+        4.0,
+        4.0
+      ],
+      "median": 4.0,
+      "p75": 4.0,
+      "p95": 4.0,
+      "min": 4.0,
+      "max": 4.0,
+      "comparable": false,
+      "source": "highlight-prefetch"
+    },
+    {
+      "name": "highlight-prefetch/iterations",
+      "unit": "count",
+      "samples": [
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0
+      ],
+      "median": 2.0,
+      "p75": 2.0,
+      "p95": 2.0,
+      "min": 2.0,
+      "max": 2.0,
+      "comparable": false,
+      "source": "highlight-prefetch"
+    },
+    {
+      "name": "highlight-prefetch/next_file_ready_ms",
+      "unit": "ms",
+      "samples": [
+        1.2,
+        7.4,
+        0.99,
+        2.32,
+        2.2
+      ],
+      "median": 2.2,
+      "p75": 2.32,
+      "p95": 7.4,
+      "min": 0.99,
+      "max": 7.4,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "highlight-prefetch"
+    },
+    {
+      "name": "highlight-prefetch/selected_startup_ms",
+      "unit": "ms",
+      "samples": [
+        15.39,
+        6.39,
+        4.34,
+        4.64,
+        7.67
+      ],
+      "median": 6.39,
+      "p75": 7.67,
+      "p95": 15.39,
+      "min": 4.34,
+      "max": 15.39,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "highlight-prefetch"
+    },
+    {
+      "name": "interaction-latency/after_first_frame_allocator_bytes",
+      "unit": "bytes",
+      "samples": [
+        29958896.0,
+        29961536.0,
+        29647184.0,
+        29768240.0,
+        29854672.0
+      ],
+      "median": 29854672.0,
+      "p75": 29958896.0,
+      "p95": 29961536.0,
+      "min": 29647184.0,
+      "max": 29961536.0,
+      "comparable": false,
+      "source": "interaction-latency"
+    },
+    {
+      "name": "interaction-latency/after_first_frame_rss_bytes",
+      "unit": "bytes",
+      "samples": [
+        112410624.0,
+        111951872.0,
+        111263744.0,
+        111968256.0,
+        111575040.0
+      ],
+      "median": 111951872.0,
+      "p75": 111968256.0,
+      "p95": 112410624.0,
+      "min": 111263744.0,
+      "max": 112410624.0,
+      "threshold": {
+        "maxRegressionRatio": 1.2,
+        "minAbsoluteRegression": 8388608.0
+      },
+      "comparable": true,
+      "source": "interaction-latency"
+    },
+    {
+      "name": "interaction-latency/after_navigation_allocator_bytes",
+      "unit": "bytes",
+      "samples": [
+        30833520.0,
+        31069744.0,
+        31095168.0,
+        31084864.0,
+        30799680.0
+      ],
+      "median": 31069744.0,
+      "p75": 31084864.0,
+      "p95": 31095168.0,
+      "min": 30799680.0,
+      "max": 31095168.0,
+      "comparable": false,
+      "source": "interaction-latency"
+    },
+    {
+      "name": "interaction-latency/after_navigation_rss_bytes",
+      "unit": "bytes",
+      "samples": [
+        115605504.0,
+        115294208.0,
+        116277248.0,
+        114081792.0,
+        114212864.0
+      ],
+      "median": 115294208.0,
+      "p75": 115605504.0,
+      "p95": 116277248.0,
+      "min": 114081792.0,
+      "max": 116277248.0,
+      "threshold": {
+        "maxRegressionRatio": 1.2,
+        "minAbsoluteRegression": 8388608.0
+      },
+      "comparable": true,
+      "source": "interaction-latency"
+    },
+    {
+      "name": "interaction-latency/files",
+      "unit": "count",
+      "samples": [
+        180.0,
+        180.0,
+        180.0,
+        180.0,
+        180.0
+      ],
+      "median": 180.0,
+      "p75": 180.0,
+      "p95": 180.0,
+      "min": 180.0,
+      "max": 180.0,
+      "comparable": false,
+      "source": "interaction-latency"
+    },
+    {
+      "name": "interaction-latency/first_frame_ms",
+      "unit": "ms",
+      "samples": [
+        5.64,
+        5.46,
+        5.42,
+        5.45,
+        5.41
+      ],
+      "median": 5.45,
+      "p75": 5.46,
+      "p95": 5.64,
+      "min": 5.41,
+      "max": 5.64,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "interaction-latency"
+    },
+    {
+      "name": "interaction-latency/hunk_nav_press_median_ms",
+      "unit": "ms",
+      "samples": [
+        5.24,
+        4.73,
+        4.7,
+        4.65,
+        6.99
+      ],
+      "median": 4.73,
+      "p75": 5.24,
+      "p95": 6.99,
+      "min": 4.65,
+      "max": 6.99,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "interaction-latency"
+    },
+    {
+      "name": "interaction-latency/hunk_nav_press_p95_ms",
+      "unit": "ms",
+      "samples": [
+        6.43,
+        5.05,
+        5.6,
+        5.03,
+        10.3
+      ],
+      "median": 5.6,
+      "p75": 6.43,
+      "p95": 10.3,
+      "min": 5.03,
+      "max": 10.3,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "interaction-latency"
+    },
+    {
+      "name": "interaction-latency/lines_per_file",
+      "unit": "count",
+      "samples": [
+        120.0,
+        120.0,
+        120.0,
+        120.0,
+        120.0
+      ],
+      "median": 120.0,
+      "p75": 120.0,
+      "p95": 120.0,
+      "min": 120.0,
+      "max": 120.0,
+      "comparable": false,
+      "source": "interaction-latency"
+    },
+    {
+      "name": "interaction-latency/navigation_presses",
+      "unit": "count",
+      "samples": [
+        6.0,
+        6.0,
+        6.0,
+        6.0,
+        6.0
+      ],
+      "median": 6.0,
+      "p75": 6.0,
+      "p95": 6.0,
+      "min": 6.0,
+      "max": 6.0,
+      "comparable": false,
+      "source": "interaction-latency"
+    },
+    {
+      "name": "interaction-latency/scroll_tick_median_ms",
+      "unit": "ms",
+      "samples": [
+        4.12,
+        4.19,
+        4.65,
+        3.66,
+        3.8
+      ],
+      "median": 4.12,
+      "p75": 4.19,
+      "p95": 4.65,
+      "min": 3.66,
+      "max": 4.65,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "interaction-latency"
+    },
+    {
+      "name": "interaction-latency/scroll_tick_p95_ms",
+      "unit": "ms",
+      "samples": [
+        13.25,
+        6.45,
+        7.9,
+        4.23,
+        4.48
+      ],
+      "median": 6.45,
+      "p75": 7.9,
+      "p95": 13.25,
+      "min": 4.23,
+      "max": 13.25,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "interaction-latency"
+    },
+    {
+      "name": "interaction-latency/scroll_ticks",
+      "unit": "count",
+      "samples": [
+        8.0,
+        8.0,
+        8.0,
+        8.0,
+        8.0
+      ],
+      "median": 8.0,
+      "p75": 8.0,
+      "p95": 8.0,
+      "min": 8.0,
+      "max": 8.0,
+      "comparable": false,
+      "source": "interaction-latency"
+    },
+    {
+      "name": "large-stream/cold_first_frame_ms",
+      "unit": "ms",
+      "samples": [
+        6.1,
+        6.29,
+        5.72,
+        5.42,
+        5.85
+      ],
+      "median": 5.85,
+      "p75": 6.1,
+      "p95": 6.29,
+      "min": 5.42,
+      "max": 6.29,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "large-stream"
+    },
+    {
+      "name": "large-stream/files",
+      "unit": "count",
+      "samples": [
+        180.0,
+        180.0,
+        180.0,
+        180.0,
+        180.0
+      ],
+      "median": 180.0,
+      "p75": 180.0,
+      "p95": 180.0,
+      "min": 180.0,
+      "max": 180.0,
+      "comparable": false,
+      "source": "large-stream"
+    },
+    {
+      "name": "large-stream/lines_per_file",
+      "unit": "count",
+      "samples": [
+        120.0,
+        120.0,
+        120.0,
+        120.0,
+        120.0
+      ],
+      "median": 120.0,
+      "p75": 120.0,
+      "p95": 120.0,
+      "min": 120.0,
+      "max": 120.0,
+      "comparable": false,
+      "source": "large-stream"
+    },
+    {
+      "name": "large-stream/scroll_ticks",
+      "unit": "count",
+      "samples": [
+        4.0,
+        4.0,
+        4.0,
+        4.0,
+        4.0
+      ],
+      "median": 4.0,
+      "p75": 4.0,
+      "p95": 4.0,
+      "min": 4.0,
+      "max": 4.0,
+      "comparable": false,
+      "source": "large-stream"
+    },
+    {
+      "name": "large-stream/warm_first_frame_ms",
+      "unit": "ms",
+      "samples": [
+        4.97,
+        10.97,
+        5.01,
+        4.94,
+        4.89
+      ],
+      "median": 4.97,
+      "p75": 5.01,
+      "p95": 10.97,
+      "min": 4.89,
+      "max": 10.97,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "large-stream"
+    },
+    {
+      "name": "large-stream/windowed_scroll_ticks_ms",
+      "unit": "ms",
+      "samples": [
+        103.94,
+        92.25,
+        100.65,
+        91.38,
+        96.24
+      ],
+      "median": 96.24,
+      "p75": 100.65,
+      "p95": 103.94,
+      "min": 91.38,
+      "max": 103.94,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "large-stream"
+    },
+    {
+      "name": "non-ascii-stream/files",
+      "unit": "count",
+      "samples": [
+        120.0,
+        120.0,
+        120.0,
+        120.0,
+        120.0
+      ],
+      "median": 120.0,
+      "p75": 120.0,
+      "p95": 120.0,
+      "min": 120.0,
+      "max": 120.0,
+      "comparable": false,
+      "source": "non-ascii-stream"
+    },
+    {
+      "name": "non-ascii-stream/lines_per_file",
+      "unit": "count",
+      "samples": [
+        120.0,
+        120.0,
+        120.0,
+        120.0,
+        120.0
+      ],
+      "median": 120.0,
+      "p75": 120.0,
+      "p95": 120.0,
+      "min": 120.0,
+      "max": 120.0,
+      "comparable": false,
+      "source": "non-ascii-stream"
+    },
+    {
+      "name": "non-ascii-stream/non_ascii_cold_first_frame_ms",
+      "unit": "ms",
+      "samples": [
+        4.72,
+        4.76,
+        4.78,
+        4.73,
+        6.36
+      ],
+      "median": 4.76,
+      "p75": 4.78,
+      "p95": 6.36,
+      "min": 4.72,
+      "max": 6.36,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "non-ascii-stream"
+    },
+    {
+      "name": "non-ascii-stream/non_ascii_scroll_tick_median_ms",
+      "unit": "ms",
+      "samples": [
+        3.19,
+        3.5,
+        3.57,
+        3.39,
+        3.47
+      ],
+      "median": 3.47,
+      "p75": 3.5,
+      "p95": 3.57,
+      "min": 3.19,
+      "max": 3.57,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "non-ascii-stream"
+    },
+    {
+      "name": "non-ascii-stream/non_ascii_scroll_tick_p95_ms",
+      "unit": "ms",
+      "samples": [
+        5.36,
+        4.23,
+        4.65,
+        4.49,
+        6.13
+      ],
+      "median": 4.65,
+      "p75": 5.36,
+      "p95": 6.13,
+      "min": 4.23,
+      "max": 6.13,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "non-ascii-stream"
+    },
+    {
+      "name": "non-ascii-stream/scroll_ticks",
+      "unit": "count",
+      "samples": [
+        8.0,
+        8.0,
+        8.0,
+        8.0,
+        8.0
+      ],
+      "median": 8.0,
+      "p75": 8.0,
+      "p95": 8.0,
+      "min": 8.0,
+      "max": 8.0,
+      "comparable": false,
+      "source": "non-ascii-stream"
+    },
+    {
+      "name": "render-layout/balanced_stream_files",
+      "unit": "count",
+      "samples": [
+        180.0,
+        180.0,
+        180.0,
+        180.0,
+        180.0
+      ],
+      "median": 180.0,
+      "p75": 180.0,
+      "p95": 180.0,
+      "min": 180.0,
+      "max": 180.0,
+      "comparable": false,
+      "source": "render-layout"
+    },
+    {
+      "name": "render-layout/balanced_stream_geometry_ms",
+      "unit": "ms",
+      "samples": [
+        52.55,
+        52.22,
+        52.69,
+        57.09,
+        59.16
+      ],
+      "median": 52.69,
+      "p75": 57.09,
+      "p95": 59.16,
+      "min": 52.22,
+      "max": 59.16,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "render-layout"
+    },
+    {
+      "name": "render-layout/balanced_stream_planned_rows",
+      "unit": "count",
+      "samples": [
+        10260.0,
+        10260.0,
+        10260.0,
+        10260.0,
+        10260.0
+      ],
+      "median": 10260.0,
+      "p75": 10260.0,
+      "p95": 10260.0,
+      "min": 10260.0,
+      "max": 10260.0,
+      "comparable": false,
+      "source": "render-layout"
+    },
+    {
+      "name": "render-layout/balanced_stream_review_plan_ms",
+      "unit": "ms",
+      "samples": [
+        41.13,
+        41.25,
+        41.09,
+        45.29,
+        45.37
+      ],
+      "median": 41.25,
+      "p75": 45.29,
+      "p95": 45.37,
+      "min": 41.09,
+      "max": 45.37,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "render-layout"
+    },
+    {
+      "name": "render-layout/balanced_stream_split_rows",
+      "unit": "count",
+      "samples": [
+        10260.0,
+        10260.0,
+        10260.0,
+        10260.0,
+        10260.0
+      ],
+      "median": 10260.0,
+      "p75": 10260.0,
+      "p95": 10260.0,
+      "min": 10260.0,
+      "max": 10260.0,
+      "comparable": false,
+      "source": "render-layout"
+    },
+    {
+      "name": "render-layout/balanced_stream_split_rows_ms",
+      "unit": "ms",
+      "samples": [
+        34.37,
+        34.6,
+        34.36,
+        36.4,
+        36.89
+      ],
+      "median": 34.6,
+      "p75": 36.4,
+      "p95": 36.89,
+      "min": 34.36,
+      "max": 36.89,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "render-layout"
+    },
+    {
+      "name": "render-layout/balanced_stream_stack_rows",
+      "unit": "count",
+      "samples": [
+        18900.0,
+        18900.0,
+        18900.0,
+        18900.0,
+        18900.0
+      ],
+      "median": 18900.0,
+      "p75": 18900.0,
+      "p95": 18900.0,
+      "min": 18900.0,
+      "max": 18900.0,
+      "comparable": false,
+      "source": "render-layout"
+    },
+    {
+      "name": "render-layout/balanced_stream_stack_rows_ms",
+      "unit": "ms",
+      "samples": [
+        35.98,
+        36.41,
+        35.72,
+        38.13,
+        37.2
+      ],
+      "median": 36.41,
+      "p75": 37.2,
+      "p95": 38.13,
+      "min": 35.72,
+      "max": 38.13,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "render-layout"
+    },
+    {
+      "name": "render-layout/large_single_file_files",
+      "unit": "count",
+      "samples": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "median": 1.0,
+      "p75": 1.0,
+      "p95": 1.0,
+      "min": 1.0,
+      "max": 1.0,
+      "comparable": false,
+      "source": "render-layout"
+    },
+    {
+      "name": "render-layout/large_single_file_geometry_ms",
+      "unit": "ms",
+      "samples": [
+        92.08,
+        93.67,
+        99.25,
+        101.2,
+        137.2
+      ],
+      "median": 99.25,
+      "p75": 101.2,
+      "p95": 137.2,
+      "min": 92.08,
+      "max": 137.2,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "render-layout"
+    },
+    {
+      "name": "render-layout/large_single_file_planned_rows",
+      "unit": "count",
+      "samples": [
+        16010.0,
+        16010.0,
+        16010.0,
+        16010.0,
+        16010.0
+      ],
+      "median": 16010.0,
+      "p75": 16010.0,
+      "p95": 16010.0,
+      "min": 16010.0,
+      "max": 16010.0,
+      "comparable": false,
+      "source": "render-layout"
+    },
+    {
+      "name": "render-layout/large_single_file_review_plan_ms",
+      "unit": "ms",
+      "samples": [
+        73.21,
+        73.92,
+        76.2,
+        78.66,
+        79.5
+      ],
+      "median": 76.2,
+      "p75": 78.66,
+      "p95": 79.5,
+      "min": 73.21,
+      "max": 79.5,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "render-layout"
+    },
+    {
+      "name": "render-layout/large_single_file_split_rows",
+      "unit": "count",
+      "samples": [
+        16010.0,
+        16010.0,
+        16010.0,
+        16010.0,
+        16010.0
+      ],
+      "median": 16010.0,
+      "p75": 16010.0,
+      "p95": 16010.0,
+      "min": 16010.0,
+      "max": 16010.0,
+      "comparable": false,
+      "source": "render-layout"
+    },
+    {
+      "name": "render-layout/large_single_file_split_rows_ms",
+      "unit": "ms",
+      "samples": [
+        62.39,
+        61.43,
+        63.98,
+        70.08,
+        65.0
+      ],
+      "median": 63.98,
+      "p75": 65.0,
+      "p95": 70.08,
+      "min": 61.43,
+      "max": 70.08,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "render-layout"
+    },
+    {
+      "name": "render-layout/large_single_file_stack_rows",
+      "unit": "count",
+      "samples": [
+        32011.0,
+        32011.0,
+        32011.0,
+        32011.0,
+        32011.0
+      ],
+      "median": 32011.0,
+      "p75": 32011.0,
+      "p95": 32011.0,
+      "min": 32011.0,
+      "max": 32011.0,
+      "comparable": false,
+      "source": "render-layout"
+    },
+    {
+      "name": "render-layout/large_single_file_stack_rows_ms",
+      "unit": "ms",
+      "samples": [
+        63.92,
+        63.89,
+        71.58,
+        68.2,
+        78.99
+      ],
+      "median": 68.2,
+      "p75": 71.58,
+      "p95": 78.99,
+      "min": 63.89,
+      "max": 78.99,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "render-layout"
+    },
+    {
+      "name": "render-layout/many_small_files_files",
+      "unit": "count",
+      "samples": [
+        360.0,
+        360.0,
+        360.0,
+        360.0,
+        360.0
+      ],
+      "median": 360.0,
+      "p75": 360.0,
+      "p95": 360.0,
+      "min": 360.0,
+      "max": 360.0,
+      "comparable": false,
+      "source": "render-layout"
+    },
+    {
+      "name": "render-layout/many_small_files_geometry_ms",
+      "unit": "ms",
+      "samples": [
+        32.49,
+        30.47,
+        30.74,
+        32.25,
+        64.63
+      ],
+      "median": 32.25,
+      "p75": 32.49,
+      "p95": 64.63,
+      "min": 30.47,
+      "max": 64.63,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "render-layout"
+    },
+    {
+      "name": "render-layout/many_small_files_planned_rows",
+      "unit": "count",
+      "samples": [
+        6120.0,
+        6120.0,
+        6120.0,
+        6120.0,
+        6120.0
+      ],
+      "median": 6120.0,
+      "p75": 6120.0,
+      "p95": 6120.0,
+      "min": 6120.0,
+      "max": 6120.0,
+      "comparable": false,
+      "source": "render-layout"
+    },
+    {
+      "name": "render-layout/many_small_files_review_plan_ms",
+      "unit": "ms",
+      "samples": [
+        23.02,
+        22.96,
+        22.66,
+        24.08,
+        36.48
+      ],
+      "median": 23.02,
+      "p75": 24.08,
+      "p95": 36.48,
+      "min": 22.66,
+      "max": 36.48,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "render-layout"
+    },
+    {
+      "name": "render-layout/many_small_files_split_rows",
+      "unit": "count",
+      "samples": [
+        6120.0,
+        6120.0,
+        6120.0,
+        6120.0,
+        6120.0
+      ],
+      "median": 6120.0,
+      "p75": 6120.0,
+      "p95": 6120.0,
+      "min": 6120.0,
+      "max": 6120.0,
+      "comparable": false,
+      "source": "render-layout"
+    },
+    {
+      "name": "render-layout/many_small_files_split_rows_ms",
+      "unit": "ms",
+      "samples": [
+        21.56,
+        19.98,
+        19.96,
+        20.19,
+        23.39
+      ],
+      "median": 20.19,
+      "p75": 21.56,
+      "p95": 23.39,
+      "min": 19.96,
+      "max": 23.39,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "render-layout"
+    },
+    {
+      "name": "render-layout/many_small_files_stack_rows",
+      "unit": "count",
+      "samples": [
+        10440.0,
+        10440.0,
+        10440.0,
+        10440.0,
+        10440.0
+      ],
+      "median": 10440.0,
+      "p75": 10440.0,
+      "p95": 10440.0,
+      "min": 10440.0,
+      "max": 10440.0,
+      "comparable": false,
+      "source": "render-layout"
+    },
+    {
+      "name": "render-layout/many_small_files_stack_rows_ms",
+      "unit": "ms",
+      "samples": [
+        20.21,
+        20.15,
+        20.34,
+        20.28,
+        23.34
+      ],
+      "median": 20.28,
+      "p75": 20.34,
+      "p95": 23.34,
+      "min": 20.15,
+      "max": 23.34,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "render-layout"
+    },
+    {
+      "name": "terminal-width/cjk_scalar_text_width_ms",
+      "unit": "ms",
+      "samples": [
+        3.25,
+        3.21,
+        3.23,
+        3.22,
+        3.2
+      ],
+      "median": 3.22,
+      "p75": 3.23,
+      "p95": 3.25,
+      "min": 3.2,
+      "max": 3.25,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "terminal-width"
+    },
+    {
+      "name": "terminal-width/cjk_scalar_warmup_width_ms",
+      "unit": "ms",
+      "samples": [
+        0.09,
+        0.09,
+        0.09,
+        0.09,
+        0.08
+      ],
+      "median": 0.09,
+      "p75": 0.09,
+      "p95": 0.09,
+      "min": 0.08,
+      "max": 0.09,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "terminal-width"
+    },
+    {
+      "name": "terminal-width/cjk_scalar_width_checksum",
+      "unit": "count",
+      "samples": [
+        664000.0,
+        664000.0,
+        664000.0,
+        664000.0,
+        664000.0
+      ],
+      "median": 664000.0,
+      "p75": 664000.0,
+      "p95": 664000.0,
+      "min": 664000.0,
+      "max": 664000.0,
+      "comparable": false,
+      "source": "terminal-width"
+    },
+    {
+      "name": "terminal-width/cjk_scalar_width_measurements",
+      "unit": "count",
+      "samples": [
+        12000.0,
+        12000.0,
+        12000.0,
+        12000.0,
+        12000.0
+      ],
+      "median": 12000.0,
+      "p75": 12000.0,
+      "p95": 12000.0,
+      "min": 12000.0,
+      "max": 12000.0,
+      "comparable": false,
+      "source": "terminal-width"
+    },
+    {
+      "name": "terminal-width/complex_cluster_text_width_ms",
+      "unit": "ms",
+      "samples": [
+        4.68,
+        4.7,
+        4.8,
+        4.65,
+        4.62
+      ],
+      "median": 4.68,
+      "p75": 4.7,
+      "p95": 4.8,
+      "min": 4.62,
+      "max": 4.8,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "terminal-width"
+    },
+    {
+      "name": "terminal-width/complex_cluster_warmup_width_ms",
+      "unit": "ms",
+      "samples": [
+        0.15,
+        0.15,
+        0.15,
+        0.15,
+        0.15
+      ],
+      "median": 0.15,
+      "p75": 0.15,
+      "p95": 0.15,
+      "min": 0.15,
+      "max": 0.15,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "terminal-width"
+    },
+    {
+      "name": "terminal-width/complex_cluster_width_checksum",
+      "unit": "count",
+      "samples": [
+        196000.0,
+        196000.0,
+        196000.0,
+        196000.0,
+        196000.0
+      ],
+      "median": 196000.0,
+      "p75": 196000.0,
+      "p95": 196000.0,
+      "min": 196000.0,
+      "max": 196000.0,
+      "comparable": false,
+      "source": "terminal-width"
+    },
+    {
+      "name": "terminal-width/complex_cluster_width_measurements",
+      "unit": "count",
+      "samples": [
+        4000.0,
+        4000.0,
+        4000.0,
+        4000.0,
+        4000.0
+      ],
+      "median": 4000.0,
+      "p75": 4000.0,
+      "p95": 4000.0,
+      "min": 4000.0,
+      "max": 4000.0,
+      "comparable": false,
+      "source": "terminal-width"
+    },
+    {
+      "name": "terminal-width/emoji_scalar_text_width_ms",
+      "unit": "ms",
+      "samples": [
+        1.05,
+        1.05,
+        1.07,
+        1.06,
+        1.06
+      ],
+      "median": 1.06,
+      "p75": 1.06,
+      "p95": 1.07,
+      "min": 1.05,
+      "max": 1.07,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "terminal-width"
+    },
+    {
+      "name": "terminal-width/emoji_scalar_warmup_width_ms",
+      "unit": "ms",
+      "samples": [
+        0.03,
+        0.03,
+        0.03,
+        0.03,
+        0.03
+      ],
+      "median": 0.03,
+      "p75": 0.03,
+      "p95": 0.03,
+      "min": 0.03,
+      "max": 0.03,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "terminal-width"
+    },
+    {
+      "name": "terminal-width/emoji_scalar_width_checksum",
+      "unit": "count",
+      "samples": [
+        170000.0,
+        170000.0,
+        170000.0,
+        170000.0,
+        170000.0
+      ],
+      "median": 170000.0,
+      "p75": 170000.0,
+      "p95": 170000.0,
+      "min": 170000.0,
+      "max": 170000.0,
+      "comparable": false,
+      "source": "terminal-width"
+    },
+    {
+      "name": "terminal-width/emoji_scalar_width_measurements",
+      "unit": "count",
+      "samples": [
+        4000.0,
+        4000.0,
+        4000.0,
+        4000.0,
+        4000.0
+      ],
+      "median": 4000.0,
+      "p75": 4000.0,
+      "p95": 4000.0,
+      "min": 4000.0,
+      "max": 4000.0,
+      "comparable": false,
+      "source": "terminal-width"
+    },
+    {
+      "name": "working-tree-load/large_worktree_additions",
+      "unit": "count",
+      "samples": [
+        8640.0,
+        8640.0,
+        8640.0,
+        8640.0,
+        8640.0
+      ],
+      "median": 8640.0,
+      "p75": 8640.0,
+      "p95": 8640.0,
+      "min": 8640.0,
+      "max": 8640.0,
+      "comparable": false,
+      "source": "working-tree-load"
+    },
+    {
+      "name": "working-tree-load/large_worktree_deletions",
+      "unit": "count",
+      "samples": [
+        8640.0,
+        8640.0,
+        8640.0,
+        8640.0,
+        8640.0
+      ],
+      "median": 8640.0,
+      "p75": 8640.0,
+      "p95": 8640.0,
+      "min": 8640.0,
+      "max": 8640.0,
+      "comparable": false,
+      "source": "working-tree-load"
+    },
+    {
+      "name": "working-tree-load/large_worktree_files",
+      "unit": "count",
+      "samples": [
+        240.0,
+        240.0,
+        240.0,
+        240.0,
+        240.0
+      ],
+      "median": 240.0,
+      "p75": 240.0,
+      "p95": 240.0,
+      "min": 240.0,
+      "max": 240.0,
+      "comparable": false,
+      "source": "working-tree-load"
+    },
+    {
+      "name": "working-tree-load/large_worktree_load_ms",
+      "unit": "ms",
+      "samples": [
+        301.34,
+        283.09,
+        267.29,
+        288.9,
+        280.58
+      ],
+      "median": 283.09,
+      "p75": 288.9,
+      "p95": 301.34,
+      "min": 267.29,
+      "max": 301.34,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "working-tree-load"
+    },
+    {
+      "name": "working-tree-load/medium_worktree_additions",
+      "unit": "count",
+      "samples": [
+        2880.0,
+        2880.0,
+        2880.0,
+        2880.0,
+        2880.0
+      ],
+      "median": 2880.0,
+      "p75": 2880.0,
+      "p95": 2880.0,
+      "min": 2880.0,
+      "max": 2880.0,
+      "comparable": false,
+      "source": "working-tree-load"
+    },
+    {
+      "name": "working-tree-load/medium_worktree_deletions",
+      "unit": "count",
+      "samples": [
+        2880.0,
+        2880.0,
+        2880.0,
+        2880.0,
+        2880.0
+      ],
+      "median": 2880.0,
+      "p75": 2880.0,
+      "p95": 2880.0,
+      "min": 2880.0,
+      "max": 2880.0,
+      "comparable": false,
+      "source": "working-tree-load"
+    },
+    {
+      "name": "working-tree-load/medium_worktree_files",
+      "unit": "count",
+      "samples": [
+        96.0,
+        96.0,
+        96.0,
+        96.0,
+        96.0
+      ],
+      "median": 96.0,
+      "p75": 96.0,
+      "p95": 96.0,
+      "min": 96.0,
+      "max": 96.0,
+      "comparable": false,
+      "source": "working-tree-load"
+    },
+    {
+      "name": "working-tree-load/medium_worktree_load_ms",
+      "unit": "ms",
+      "samples": [
+        180.32,
+        171.88,
+        167.0,
+        228.17,
+        160.68
+      ],
+      "median": 171.88,
+      "p75": 180.32,
+      "p95": 228.17,
+      "min": 160.68,
+      "max": 228.17,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "working-tree-load"
+    },
+    {
+      "name": "working-tree-load/small_worktree_additions",
+      "unit": "count",
+      "samples": [
+        208.0,
+        208.0,
+        208.0,
+        208.0,
+        208.0
+      ],
+      "median": 208.0,
+      "p75": 208.0,
+      "p95": 208.0,
+      "min": 208.0,
+      "max": 208.0,
+      "comparable": false,
+      "source": "working-tree-load"
+    },
+    {
+      "name": "working-tree-load/small_worktree_deletions",
+      "unit": "count",
+      "samples": [
+        208.0,
+        208.0,
+        208.0,
+        208.0,
+        208.0
+      ],
+      "median": 208.0,
+      "p75": 208.0,
+      "p95": 208.0,
+      "min": 208.0,
+      "max": 208.0,
+      "comparable": false,
+      "source": "working-tree-load"
+    },
+    {
+      "name": "working-tree-load/small_worktree_files",
+      "unit": "count",
+      "samples": [
+        16.0,
+        16.0,
+        16.0,
+        16.0,
+        16.0
+      ],
+      "median": 16.0,
+      "p75": 16.0,
+      "p95": 16.0,
+      "min": 16.0,
+      "max": 16.0,
+      "comparable": false,
+      "source": "working-tree-load"
+    },
+    {
+      "name": "working-tree-load/small_worktree_load_ms",
+      "unit": "ms",
+      "samples": [
+        131.64,
+        105.63,
+        106.47,
+        103.2,
+        201.82
+      ],
+      "median": 106.47,
+      "p75": 131.64,
+      "p95": 201.82,
+      "min": 103.2,
+      "max": 201.82,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "working-tree-load"
+    },
+    {
+      "name": "working-tree-load/untracked_few_large_additions",
+      "unit": "count",
+      "samples": [
+        30104.0,
+        30104.0,
+        30104.0,
+        30104.0,
+        30104.0
+      ],
+      "median": 30104.0,
+      "p75": 30104.0,
+      "p95": 30104.0,
+      "min": 30104.0,
+      "max": 30104.0,
+      "comparable": false,
+      "source": "working-tree-load"
+    },
+    {
+      "name": "working-tree-load/untracked_few_large_deletions",
+      "unit": "count",
+      "samples": [
+        104.0,
+        104.0,
+        104.0,
+        104.0,
+        104.0
+      ],
+      "median": 104.0,
+      "p75": 104.0,
+      "p95": 104.0,
+      "min": 104.0,
+      "max": 104.0,
+      "comparable": false,
+      "source": "working-tree-load"
+    },
+    {
+      "name": "working-tree-load/untracked_few_large_files",
+      "unit": "count",
+      "samples": [
+        14.0,
+        14.0,
+        14.0,
+        14.0,
+        14.0
+      ],
+      "median": 14.0,
+      "p75": 14.0,
+      "p95": 14.0,
+      "min": 14.0,
+      "max": 14.0,
+      "comparable": false,
+      "source": "working-tree-load"
+    },
+    {
+      "name": "working-tree-load/untracked_few_large_load_ms",
+      "unit": "ms",
+      "samples": [
+        173.06,
+        181.41,
+        177.83,
+        201.71,
+        172.51
+      ],
+      "median": 177.83,
+      "p75": 181.41,
+      "p95": 201.71,
+      "min": 172.51,
+      "max": 201.71,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "working-tree-load"
+    },
+    {
+      "name": "working-tree-load/untracked_many_small_additions",
+      "unit": "count",
+      "samples": [
+        4528.0,
+        4528.0,
+        4528.0,
+        4528.0,
+        4528.0
+      ],
+      "median": 4528.0,
+      "p75": 4528.0,
+      "p95": 4528.0,
+      "min": 4528.0,
+      "max": 4528.0,
+      "comparable": false,
+      "source": "working-tree-load"
+    },
+    {
+      "name": "working-tree-load/untracked_many_small_deletions",
+      "unit": "count",
+      "samples": [
+        208.0,
+        208.0,
+        208.0,
+        208.0,
+        208.0
+      ],
+      "median": 208.0,
+      "p75": 208.0,
+      "p95": 208.0,
+      "min": 208.0,
+      "max": 208.0,
+      "comparable": false,
+      "source": "working-tree-load"
+    },
+    {
+      "name": "working-tree-load/untracked_many_small_files",
+      "unit": "count",
+      "samples": [
+        136.0,
+        136.0,
+        136.0,
+        136.0,
+        136.0
+      ],
+      "median": 136.0,
+      "p75": 136.0,
+      "p95": 136.0,
+      "min": 136.0,
+      "max": 136.0,
+      "comparable": false,
+      "source": "working-tree-load"
+    },
+    {
+      "name": "working-tree-load/untracked_many_small_load_ms",
+      "unit": "ms",
+      "samples": [
+        123.69,
+        121.03,
+        130.09,
+        132.49,
+        126.34
+      ],
+      "median": 126.34,
+      "p75": 130.09,
+      "p95": 132.49,
+      "min": 121.03,
+      "max": 132.49,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "working-tree-load"
+    },
+    {
+      "name": "wrapped-cjk/long_line_characters",
+      "unit": "count",
+      "samples": [
+        8736.0,
+        8736.0,
+        8736.0,
+        8736.0,
+        8736.0
+      ],
+      "median": 8736.0,
+      "p75": 8736.0,
+      "p95": 8736.0,
+      "min": 8736.0,
+      "max": 8736.0,
+      "comparable": false,
+      "source": "wrapped-cjk"
+    },
+    {
+      "name": "wrapped-cjk/physical_lines",
+      "unit": "count",
+      "samples": [
+        518.0,
+        518.0,
+        518.0,
+        518.0,
+        518.0
+      ],
+      "median": 518.0,
+      "p75": 518.0,
+      "p95": 518.0,
+      "min": 518.0,
+      "max": 518.0,
+      "comparable": false,
+      "source": "wrapped-cjk"
+    },
+    {
+      "name": "wrapped-cjk/wheel_burst_events",
+      "unit": "count",
+      "samples": [
+        12.0,
+        12.0,
+        12.0,
+        12.0,
+        12.0
+      ],
+      "median": 12.0,
+      "p75": 12.0,
+      "p95": 12.0,
+      "min": 12.0,
+      "max": 12.0,
+      "comparable": false,
+      "source": "wrapped-cjk"
+    },
+    {
+      "name": "wrapped-cjk/wrapped_cjk_518_mount_first_frame_ms",
+      "unit": "ms",
+      "samples": [
+        48.18,
+        56.07,
+        48.33,
+        51.0,
+        50.07
+      ],
+      "median": 50.07,
+      "p75": 51.0,
+      "p95": 56.07,
+      "min": 48.18,
+      "max": 56.07,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "wrapped-cjk"
+    },
+    {
+      "name": "wrapped-cjk/wrapped_cjk_long_line_mount_first_frame_ms",
+      "unit": "ms",
+      "samples": [
+        5.22,
+        5.58,
+        5.1,
+        10.93,
+        5.08
+      ],
+      "median": 5.22,
+      "p75": 5.58,
+      "p95": 10.93,
+      "min": 5.08,
+      "max": 10.93,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "wrapped-cjk"
+    },
+    {
+      "name": "wrapped-cjk/wrapped_cjk_wheel_burst_immediate_content_rows",
+      "unit": "count",
+      "samples": [
+        55.0,
+        55.0,
+        55.0,
+        55.0,
+        55.0
+      ],
+      "median": 55.0,
+      "p75": 55.0,
+      "p95": 55.0,
+      "min": 55.0,
+      "max": 55.0,
+      "comparable": false,
+      "source": "wrapped-cjk"
+    },
+    {
+      "name": "wrapped-cjk/wrapped_cjk_wheel_burst_immediate_ms",
+      "unit": "ms",
+      "samples": [
+        2.9,
+        2.92,
+        2.84,
+        2.89,
+        2.82
+      ],
+      "median": 2.89,
+      "p75": 2.9,
+      "p95": 2.92,
+      "min": 2.82,
+      "max": 2.92,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "wrapped-cjk"
+    },
+    {
+      "name": "wrapped-cjk/wrapped_cjk_wheel_burst_initial_content_rows",
+      "unit": "count",
+      "samples": [
+        54.0,
+        54.0,
+        54.0,
+        54.0,
+        54.0
+      ],
+      "median": 54.0,
+      "p75": 54.0,
+      "p95": 54.0,
+      "min": 54.0,
+      "max": 54.0,
+      "comparable": false,
+      "source": "wrapped-cjk"
+    },
+    {
+      "name": "wrapped-cjk/wrapped_cjk_wheel_burst_settled_content_rows",
+      "unit": "count",
+      "samples": [
+        55.0,
+        55.0,
+        55.0,
+        55.0,
+        55.0
+      ],
+      "median": 55.0,
+      "p75": 55.0,
+      "p95": 55.0,
+      "min": 55.0,
+      "max": 55.0,
+      "comparable": false,
+      "source": "wrapped-cjk"
+    },
+    {
+      "name": "wrapped-cjk/wrapped_cjk_wheel_burst_settled_ms",
+      "unit": "ms",
+      "samples": [
+        24.68,
+        26.95,
+        26.94,
+        25.13,
+        24.75
+      ],
+      "median": 25.13,
+      "p75": 26.94,
+      "p95": 26.95,
+      "min": 24.68,
+      "max": 26.95,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "wrapped-cjk"
+    }
+  ]
+}
