@@ -293,23 +293,33 @@ fn bundled_vim_routes_counts_alignment_dialogs_and_control_chords() {
             && row(text, "export const line11 = 11;") > top_row
     });
     session.write(b":");
-    session.wait(|text| text.contains("Vim command (:)"));
+    // The command line is now an inline status-line prompt with a `:` prefix.
+    session.wait(|text| text.contains("ext example.vim-navigation : top or bottom"));
     session.write(b"j-owned");
-    session.wait(|text| text.contains("j-owned"));
+    session.wait(|text| text.contains(": j-owned"));
+    // Escape clears the typed buffer first and closes the prompt second,
+    // leaving the mode itself running.
     session.write(b"\x1b");
-    session.wait(|text| !text.contains("Vim command (:)") && active(text));
+    session.wait(|text| text.contains("ext example.vim-navigation : top or bottom"));
+    session.write(b"\x1b");
+    session.wait(|text| {
+        !text.contains("top or bottom")
+            && text
+                .lines()
+                .any(|line| line.contains("Vim navigation") && line.contains("Esc exits"))
+    });
     for (command, needle, absent) in [
         ("bottom", "second.ts", "first.ts"),
         ("top", "export const line01 = 1;", "second.ts"),
     ] {
         session.write(b":");
-        session.wait(|text| text.contains("Vim command (:)"));
+        session.wait(|text| text.contains("ext example.vim-navigation : top or bottom"));
         session.write(command.as_bytes());
         session.write(b"\r");
         session.wait(|text| {
             text.contains(needle)
                 && !text.contains(absent)
-                && !text.contains("Vim command (:)")
+                && !text.contains("top or bottom")
                 && active(text)
         });
     }
@@ -348,6 +358,69 @@ fn pane_fixture(kind: &str, cols: u16) -> (tempfile::TempDir, tempfile::TempDir,
         Some(root.path()),
     );
     (root, extension_root, session)
+}
+
+// Hunk MIT: the two status-line PTY contracts from
+// test/pty/extensions-integration.test.ts (515188ea). The probe's
+// "status-line" fixture answers `ctrl+g` with an inline prompt and reports the
+// answer as a persistent item; `ctrl+t` fills the row across priorities.
+#[test]
+fn an_extension_prompt_types_submits_cancels_and_its_items_overflow_by_priority() {
+    let (_root, _extension, mut session) = pane_fixture("status-line", 100);
+    let initial = session.wait(|text| text.contains("alpha.ts") && text.contains("Extensions"));
+    assert!(!initial.contains("say something"));
+
+    // Opening the prompt takes one row from the review and shows the attributed prefix.
+    session.write(b"\x07");
+    let prompt = session.wait(|text| text.contains("ext fixture > say something"));
+    assert!(prompt.contains("alpha.ts"));
+
+    // A bound key is text: `q` lands in the input instead of quitting.
+    session.write(b"q then hello");
+    session.wait(|text| text.contains("> q then hello"));
+    session.write(b"\r");
+    let answered = session.wait(|text| text.contains("answer=q then hello"));
+    assert!(!answered.contains("say something"));
+
+    // Escape: the first press clears a non-empty buffer, the second cancels with null.
+    session.write(b"\x07");
+    session.wait(|text| text.contains("> say something"));
+    session.write(b"abc");
+    session.wait(|text| text.contains("> abc"));
+    session.write(b"\x1b");
+    session.wait(|text| text.contains("> say something"));
+    session.write(b"\x1b");
+    session.wait(|text| text.contains("answer=null"));
+
+    // Overflow: the lowest-priority item is dropped whole, the rest keep their placement.
+    session.write(b"\x14");
+    let filled = session.wait(|text| text.contains("KEEP-ME") && text.contains("RIGHT"));
+    let row = filled.trim_end().lines().last().unwrap_or_default();
+    assert!(row.contains("KEEP-ME"), "row: {row}");
+    assert!(row.trim_end().ends_with("RIGHT"), "row: {row}");
+    assert!(!row.contains("DROP-ME"), "row: {row}");
+    assert!(row.contains("answer=null"), "row: {row}");
+    drop(session);
+}
+
+#[test]
+fn a_narrow_extension_prompt_keeps_typed_input_visible_beside_the_mode_badge() {
+    let (_root, _extension, mut session) = pane_fixture("status-line-mode", 50);
+    session.wait(|text| text.contains("alpha.ts") && text.contains("Extensions"));
+    session.write(b"\x07");
+    session.wait(|text| text.contains("Mode"));
+    session.write(b"xyz");
+    // The minimum four-cell input scrolls to keep its cursor margin; the typed
+    // suffix stays visible beside the truncated lead-in and the mode badge.
+    let frame = session.wait(|text| text.contains("yz"));
+    let row = frame.trim_end().lines().last().unwrap_or_default();
+    assert!(row.contains("ext "), "row: {row}");
+    assert!(row.contains('…'), "row: {row}");
+    assert!(row.contains("yz"), "row: {row}");
+    assert!(row.contains("Mode"), "row: {row}");
+    session.write(b"\r");
+    session.wait(|text| text.contains("answer=xyz"));
+    drop(session);
 }
 
 #[test]

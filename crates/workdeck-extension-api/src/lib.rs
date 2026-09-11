@@ -13,6 +13,7 @@ mod extension_ids;
 mod file_views;
 mod keys;
 mod panes;
+mod status_line;
 mod vcs;
 
 pub use authoring::*;
@@ -24,6 +25,7 @@ pub use extension_ids::*;
 pub use file_views::*;
 pub use keys::*;
 pub use panes::*;
+pub use status_line::*;
 pub use vcs::*;
 
 use serde::{Deserialize, Serialize};
@@ -472,6 +474,7 @@ pub enum Capability {
     Configuration,
     Notifications,
     Dialogs,
+    StatusLine,
     WorkspaceRead,
     WorkspaceWrite,
     ReviewNavigation,
@@ -1417,6 +1420,19 @@ pub enum ExtensionHostAction {
         confirm_label: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cancel_label: Option<String>,
+    },
+    /// Set or replace one of this extension's persistent items on the status row.
+    SetStatusItem(ExtensionStatusItem),
+    /// Clear one of this extension's persistent items on the status row.
+    ClearStatusItem {
+        id: String,
+    },
+    /// Ask the user for one line of text inline on the status row; the host
+    /// resolves it with [`ExtensionPromptLineCompletion`].
+    RequestPromptLine {
+        request_id: String,
+        #[serde(flatten)]
+        options: ExtensionPromptLineOptions,
     },
     /// Publish a namespaced extension event to every current subscriber.
     EmitEvent {

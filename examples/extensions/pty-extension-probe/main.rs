@@ -85,6 +85,42 @@ fn registrations(kind: &str) -> Vec<Registration> {
             default_keys: vec!["y".into()],
         })];
     }
+    if kind == "status-line" {
+        // Hunk MIT: the status-line fixture from test/pty/extensions-integration.test.ts.
+        // `ctrl+g` asks for a line on the prompt row and reports the answer as a
+        // persistent item; `ctrl+t` fills the row with items of different
+        // priorities so overflow is visible.
+        return vec![
+            Registration::Command(CommandRegistration {
+                id: "ask".into(),
+                title: "Ask".into(),
+                description: None,
+                default_keys: vec!["ctrl+g".into()],
+            }),
+            Registration::Command(CommandRegistration {
+                id: "fill".into(),
+                title: "Fill".into(),
+                description: None,
+                default_keys: vec!["ctrl+t".into()],
+            }),
+        ];
+    }
+    if kind == "status-line-mode" {
+        // Narrow-row variant: the prompt opens with a lead-in that cannot fit
+        // beside the keyboard-mode badge.
+        return vec![
+            Registration::KeyboardMode(KeyboardModeRegistration {
+                id: "mode".into(),
+                title: "Mode".into(),
+            }),
+            Registration::Command(CommandRegistration {
+                id: "ask".into(),
+                title: "Ask".into(),
+                description: None,
+                default_keys: vec!["ctrl+g".into()],
+            }),
+        ];
+    }
     let panes = match kind {
         "slots" => {
             let mut files = pane("files-slot", PanePlacement::Right, true);
@@ -123,6 +159,28 @@ fn registrations(kind: &str) -> Vec<Registration> {
         }));
     }
     registrations
+}
+
+fn status_span(text: impl Into<String>, tone: ExtensionStatusTone) -> ExtensionStatusSpan {
+    ExtensionStatusSpan {
+        text: text.into(),
+        tone: Some(tone),
+        attributes: Vec::new(),
+    }
+}
+
+fn status_item(
+    id: &str,
+    spans: Vec<ExtensionStatusSpan>,
+    alignment: Option<ExtensionStatusAlignment>,
+    priority: Option<i32>,
+) -> ExtensionHostAction {
+    ExtensionHostAction::SetStatusItem(ExtensionStatusItem {
+        id: id.into(),
+        spans,
+        alignment,
+        priority,
+    })
 }
 
 fn dispatch(
@@ -176,6 +234,58 @@ fn dispatch(
                     body: "Nothing is written to disk. This deliberately long explanation wraps across many terminal rows while the actions remain pinned below it.".into(),
                     confirm_label: "reformat".into(), cancel_label: None,
                 }] });
+            }
+            if kind == "status-line-mode" {
+                let actions = vec![
+                    ExtensionHostAction::EnterKeyboardMode { id: "mode".into() },
+                    ExtensionHostAction::RequestPromptLine {
+                        request_id: "ask".into(),
+                        options: ExtensionPromptLineOptions {
+                            prefix: "a very long prefix that cannot fit:".into(),
+                            ..Default::default()
+                        },
+                    },
+                ];
+                return value(CommandExecution { actions });
+            }
+            if kind == "status-line" {
+                let invocation: CommandInvocation =
+                    serde_json::from_value(request.params.clone()).map_err(io::Error::other)?;
+                let actions = if invocation.command_id == "ask" {
+                    vec![ExtensionHostAction::RequestPromptLine {
+                        request_id: "ask".into(),
+                        options: ExtensionPromptLineOptions {
+                            prefix: ">".into(),
+                            placeholder: "say something".into(),
+                            ..Default::default()
+                        },
+                    }]
+                } else {
+                    vec![
+                        status_item(
+                            "keep",
+                            vec![status_span("KEEP-ME", ExtensionStatusTone::Syntax)],
+                            None,
+                            Some(5),
+                        ),
+                        status_item(
+                            "drop",
+                            vec![status_span(
+                                format!("DROP-ME-FIRST-{}", "x".repeat(70)),
+                                ExtensionStatusTone::Syntax,
+                            )],
+                            None,
+                            Some(0),
+                        ),
+                        status_item(
+                            "right",
+                            vec![status_span("RIGHT", ExtensionStatusTone::Syntax)],
+                            Some(ExtensionStatusAlignment::Right),
+                            Some(3),
+                        ),
+                    ]
+                };
+                return value(CommandExecution { actions });
             }
             let ids = if kind == "edges" {
                 vec!["top", "bottom"]
@@ -250,6 +360,36 @@ fn dispatch(
                 } else {
                     Vec::new()
                 },
+            })
+        }
+        "workdeck/prompt/line-complete" => {
+            let completion: ExtensionPromptLineCompletion =
+                serde_json::from_value(request.params.clone()).map_err(io::Error::other)?;
+            if !matches!(kind, "status-line" | "status-line-mode") {
+                return value(CommandExecution::default());
+            }
+            value(CommandExecution {
+                actions: vec![status_item(
+                    "answer",
+                    vec![status_span(
+                        format!("answer={}", completion.value.as_deref().unwrap_or("null")),
+                        ExtensionStatusTone::Accent,
+                    )],
+                    None,
+                    Some(1),
+                )],
+            })
+        }
+        "workdeck/keyboard-mode/enter" | "workdeck/keyboard-mode/exit" => {
+            value(CommandExecution::default())
+        }
+        "workdeck/keyboard-mode/key" => {
+            let request: KeyboardModeKeyRequest =
+                serde_json::from_value(request.params.clone()).map_err(io::Error::other)?;
+            let _ = request;
+            value(KeyboardModeExecution {
+                result: KeyRoutingResult::Pass,
+                actions: Vec::new(),
             })
         }
         "workdeck/dialog/confirm" => {

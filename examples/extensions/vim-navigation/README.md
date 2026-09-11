@@ -29,7 +29,7 @@ To install the staged native extension globally, copy its entire staged director
 
 Counts saturate at 10,000. Once a normal-mode sequence resolves, the extension requests one semantic action with its complete count so Workdeck applies movement atomically. A bare `0` passes through to Workdeck's layout shortcut; `0` can extend a count that began with `1`–`9`.
 
-Pressing `:` passes the key to the registered command and opens the host-owned input dialog. That focused dialog captures input ahead of the still-active mode until Enter submits or Escape cancels.
+Pressing `:` passes the key to the registered command, which asks for a line of text inline on the status row (`ctx.prompts.line`) with a `:` prefix. That focused host input captures typed keys ahead of the still-active session mode until Enter submits, or Escape clears the buffer and a second Escape cancels.
 
 | Command | Action |
 | --- | --- |

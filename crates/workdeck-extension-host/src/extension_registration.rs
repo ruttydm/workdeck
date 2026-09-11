@@ -1,11 +1,102 @@
 //! Atomic native adaptation of Hunk's in-process extension factory boundary.
 
-use workdeck_diff::validate_language_glob;
+use workdeck_diff::{sanitize_terminal_line, validate_language_glob};
 use workdeck_extension_api::{
-    ExtensionManifest, FileLanguageMatcher, HandshakeResponse, LIFECYCLE_EVENT_NAMES, Registration,
-    extension_pane_size, is_reserved_extension_cli_command_name,
-    is_valid_extension_cli_command_name, is_vertical_pane_placement, parse_key_chord,
+    ExtensionManifest, ExtensionStatusItem, ExtensionStatusSpan, FileLanguageMatcher,
+    HandshakeResponse, LIFECYCLE_EVENT_NAMES, Registration, extension_pane_size,
+    is_reserved_extension_cli_command_name, is_valid_extension_cli_command_name,
+    is_vertical_pane_placement, parse_key_chord,
 };
+
+/// Prefix marking a status-row item as extension-owned rather than host-owned.
+pub const EXTENSION_STATUS_ITEM_PREFIX: &str = "ext:";
+
+/// Globally unique key of one extension's status item: `ext:<extensionId>:<itemId>`.
+///
+/// Two extensions can never collide with each other or with host items, and a
+/// registry replacement can clear every extension item in one sweep.
+#[must_use]
+pub fn extension_status_item_key(extension_id: &str, item_id: &str) -> String {
+    format!("{EXTENSION_STATUS_ITEM_PREFIX}{extension_id}:{item_id}")
+}
+
+/// Report whether a status-item id belongs to an extension rather than the host.
+#[must_use]
+pub fn is_extension_status_item_id(id: &str) -> bool {
+    id.starts_with(EXTENSION_STATUS_ITEM_PREFIX)
+}
+
+/// One validated status-row item as the host will publish it.
+///
+/// Mirrors Hunk's `statusLine` control normalization: ids are namespaced under
+/// the owning extension, span text is terminal-sanitized, and defaults for
+/// alignment and priority are resolved. Malformed input is a programming error
+/// and rejects the item, like malformed dialog options.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NormalizedStatusItem {
+    /// Namespaced key (`ext:<extensionId>:<itemId>`).
+    pub key: String,
+    pub spans: Vec<ExtensionStatusSpan>,
+    /// Left unless the item declared right-alignment.
+    pub right_aligned: bool,
+    pub priority: i32,
+}
+
+/// Validate and namespace one status item at the host-action boundary.
+pub fn normalize_extension_status_item(
+    extension_id: &str,
+    item: &ExtensionStatusItem,
+) -> Result<NormalizedStatusItem, String> {
+    if item.id.trim().is_empty() {
+        return Err("statusLine.set requires a non-empty id".into());
+    }
+    if item.id.len() > workdeck_extension_api::MAX_STATUS_ITEM_ID_BYTES
+        || item.id.contains(['\r', '\n'])
+    {
+        return Err("statusLine.set ids must be one bounded line".into());
+    }
+    if item.spans.len() > workdeck_extension_api::MAX_STATUS_ITEM_SPANS {
+        return Err("statusLine.set accepts at most 16 spans".into());
+    }
+    let spans = item
+        .spans
+        .iter()
+        .map(|span| -> Result<ExtensionStatusSpan, String> {
+            if span.text.len() > workdeck_extension_api::MAX_STATUS_SPAN_TEXT_BYTES {
+                return Err("statusLine.set span text is too long".into());
+            }
+            Ok(ExtensionStatusSpan {
+                text: sanitize_terminal_line(&span.text),
+                tone: span.tone,
+                attributes: span.attributes.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(NormalizedStatusItem {
+        key: extension_status_item_key(extension_id, &item.id),
+        spans,
+        right_aligned: item.alignment_or_default()
+            == workdeck_extension_api::ExtensionStatusAlignment::Right,
+        priority: item.priority_or_default(),
+    })
+}
+
+/// Validate an inline prompt request at the host-action boundary.
+pub fn validate_prompt_line_request(
+    request_id: &str,
+    options: &workdeck_extension_api::ExtensionPromptLineOptions,
+) -> Result<(), String> {
+    if request_id.trim().is_empty() {
+        return Err("prompts.line requires a non-empty request id".into());
+    }
+    if options.prefix.len() > workdeck_extension_api::MAX_STATUS_SPAN_TEXT_BYTES
+        || options.placeholder.len() > workdeck_extension_api::MAX_STATUS_SPAN_TEXT_BYTES
+        || options.initial.len() > workdeck_extension_api::MAX_STATUS_SPAN_TEXT_BYTES
+    {
+        return Err("prompts.line text is too long".into());
+    }
+    Ok(())
+}
 
 /// Validated provider detection returned across the native process boundary.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -712,6 +803,119 @@ mod tests {
                 None
             );
         }
+    }
+
+    #[test]
+    fn status_item_keys_namespace_under_the_owning_extension_only() {
+        assert_eq!(
+            extension_status_item_key("search", "status"),
+            "ext:search:status"
+        );
+        assert!(is_extension_status_item_id("ext:search:status"));
+        assert!(is_extension_status_item_id("ext:"));
+        assert!(!is_extension_status_item_id("host:filter"));
+        assert!(!is_extension_status_item_id(""));
+    }
+
+    #[test]
+    fn status_items_normalize_text_defaults_and_alignment() {
+        let item = ExtensionStatusItem {
+            id: "count".into(),
+            spans: vec![
+                workdeck_extension_api::ExtensionStatusSpan {
+                    text: "3 files ".into(),
+                    tone: Some(workdeck_extension_api::ExtensionStatusTone::Accent),
+                    attributes: vec![workdeck_extension_api::ExtensionStatusAttribute::Bold],
+                },
+                workdeck_extension_api::ExtensionStatusSpan {
+                    text: "\u{1b}[31mviewed".into(),
+                    tone: None,
+                    attributes: Vec::new(),
+                },
+            ],
+            alignment: Some(workdeck_extension_api::ExtensionStatusAlignment::Right),
+            priority: Some(2),
+        };
+        let normalized = normalize_extension_status_item("search", &item).unwrap();
+        assert_eq!(normalized.key, "ext:search:count");
+        assert!(normalized.right_aligned);
+        assert_eq!(normalized.priority, 2);
+        assert_eq!(normalized.spans[1].text, "viewed");
+
+        let default = normalize_extension_status_item(
+            "search",
+            &ExtensionStatusItem {
+                id: "x".into(),
+                spans: Vec::new(),
+                alignment: None,
+                priority: None,
+            },
+        )
+        .unwrap();
+        assert!(!default.right_aligned);
+        assert_eq!(default.priority, 0);
+    }
+
+    #[test]
+    fn malformed_status_items_and_prompt_requests_reject_at_the_boundary() {
+        let blank = ExtensionStatusItem {
+            id: "   ".into(),
+            spans: Vec::new(),
+            alignment: None,
+            priority: None,
+        };
+        assert_eq!(
+            normalize_extension_status_item("a", &blank).unwrap_err(),
+            "statusLine.set requires a non-empty id"
+        );
+        let multiline = ExtensionStatusItem {
+            id: "a\nb".into(),
+            spans: Vec::new(),
+            alignment: None,
+            priority: None,
+        };
+        assert!(normalize_extension_status_item("a", &multiline).is_err());
+        let overspans = ExtensionStatusItem {
+            id: "x".into(),
+            spans: vec![
+                workdeck_extension_api::ExtensionStatusSpan {
+                    text: String::new(),
+                    tone: None,
+                    attributes: Vec::new(),
+                };
+                workdeck_extension_api::MAX_STATUS_ITEM_SPANS + 1
+            ],
+            alignment: None,
+            priority: None,
+        };
+        assert!(normalize_extension_status_item("a", &overspans).is_err());
+        let long_span = ExtensionStatusItem {
+            id: "x".into(),
+            spans: vec![workdeck_extension_api::ExtensionStatusSpan {
+                text: "t".repeat(workdeck_extension_api::MAX_STATUS_SPAN_TEXT_BYTES + 1),
+                tone: None,
+                attributes: Vec::new(),
+            }],
+            alignment: None,
+            priority: None,
+        };
+        assert!(normalize_extension_status_item("a", &long_span).is_err());
+
+        assert_eq!(
+            validate_prompt_line_request("  ", &Default::default()).unwrap_err(),
+            "prompts.line requires a non-empty request id"
+        );
+        assert!(
+            validate_prompt_line_request(
+                "q1",
+                &workdeck_extension_api::ExtensionPromptLineOptions {
+                    prefix: "p".repeat(workdeck_extension_api::MAX_STATUS_SPAN_TEXT_BYTES + 1),
+                    ..Default::default()
+                },
+            )
+            .is_err()
+        );
+        assert!(validate_prompt_line_request("q1", &Default::default()).is_ok());
     }
 
     #[test]

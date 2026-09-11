@@ -1379,7 +1379,10 @@ then call `ctx.commands.execute(id, { count })` once so the host applies movemen
 atomically. See the dependency-free
 [`vim-navigation`](../examples/extensions/vim-navigation/) example for `j`/`k`,
 `gg`/`G`, workdeck movement, alignment, capped counts, Ctrl chords, and a focused
-`:` command line composed from a registered command plus `ctx.dialogs.input()`.
+`:` command line composed from a registered command plus `ctx.prompts.line()`.
+A mode handler also receives `ctx.statusLine`, so a mode can show its live
+buffer or count on the status row while it owns keys; a prompt-shaped
+interaction is a command plus `ctx.prompts.line()`, not a mode.
 
 ### `workdeck.registerCommand(command, handler)`
 
@@ -1681,6 +1684,54 @@ the same way, and a request made after that point cancels immediately. A blank
 answer from the user, so the promise **rejects**; like any other handler
 failure, that surfaces as a warning naming your extension.
 
+#### The status line
+
+The bottom status row is host-owned. Commands, event handlers, and session
+keyboard-mode handlers can put persistent text on it with `ctx.statusLine`, and
+commands can ask for one line of text inline with `ctx.prompts.line` — `less`-style,
+without taking over the whole screen:
+
+```ts
+workdeck.registerCommand({ id: "search", title: "Search", key: "/" }, async (ctx) => {
+  const query = await ctx.prompts.line({ prefix: "/", placeholder: "pattern" });
+  if (query === null) return;
+  ctx.statusLine.set({ id: "query", spans: [{ text: `/${query}`, tone: "accent" }] });
+});
+```
+
+`ctx.statusLine.set(item)` writes one item — an extension-local `id`, `spans`
+of `{ text, tone?, attributes? }`, an `alignment` (`"left"` by default,
+`"right"` beside the keyboard-mode badge), and a `priority` (higher survives
+longer when the row overflows; default 0). `ctx.statusLine.clear(id)` removes
+it. Setting an item keeps the row on screen, exactly like a non-empty file
+filter does, so clear items that should not cost a row while idle. Tones are
+symbolic — `muted`, `accent`, `accent-muted`, `syntax`, `added`, `removed` —
+and attributes are `bold`, `italic`, `underline`, `strikethrough`. The host
+measures and truncates without a theme and paints with the active one; on a
+narrow row the lowest-priority item is dropped whole, newest first among
+equals, and the last survivor is truncated with an ellipsis. The keyboard-mode
+badge is never dropped.
+
+`ctx.prompts.line(options)` draws a real focused input on the status row:
+Enter resolves the submitted text, Escape clears a non-empty buffer first and
+cancels with `null` second. Optional `prefix`, `placeholder`, `initial`, and
+`onChange` (a callback run on every edit) describe it. The prompt sits with the
+file filter in key routing — after dialogs and menus, before session keyboard
+modes and the command table — so a prompt-shaped interaction needs no keyboard
+mode, and a bound key like `q` is text while the prompt owns typing. One
+prompt is open at a time; a second request queues behind the first in call
+order. A session reload cancels open and queued prompts, and a request during
+teardown resolves `null` immediately. Prompts from installed extensions carry
+the same `ext <your-id>` attribution toasts and dialogs use; Workdeck's own
+bundled extensions omit the marker.
+
+Items persist across ordinary content reloads and are cleared when the
+extension registry is replaced or the review unmounts. A reload retains the
+host's own filter prompt — including its typed text and keyboard focus — but
+not extension prompts. A malformed item — a blank `id`, an unknown tone or
+alignment, spans past the bounds — is a programming error and rejects like
+malformed dialog options.
+
 #### Workspace documents
 
 `ctx.workspace` reads full documents from the current review and can replace an
@@ -1785,8 +1836,10 @@ the metadata actually parses to.
 
 Subscribe to a lifecycle or UI event. Handlers may be async; Workdeck never blocks
 the UI waiting for one. Alongside `cwd` and `notify`, every handler receives
-`ctx.panes`, live `ctx.navigation`, and attributed `ctx.dialogs`, the same
-controls command handlers receive. `ctx.sidebars` is a deprecated alias for
+`ctx.panes`, live `ctx.navigation`, attributed `ctx.dialogs`, and
+`ctx.statusLine` (set/clear this extension's status-row items, e.g. a count
+kept on `file_viewed`), the same controls command handlers receive.
+`ctx.sidebars` is a deprecated alias for
 `ctx.panes`. That means a `startup` handler can present
 one focused welcome question and navigate to its first example, while a
 `changeset_loaded` handler can reveal a pane when it finds something worth

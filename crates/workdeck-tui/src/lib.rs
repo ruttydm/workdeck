@@ -90,6 +90,7 @@ mod spatial;
 mod startup_notices;
 mod static_diff_pager;
 mod status_bar;
+mod status_line;
 mod synthetic_key_event;
 mod terminal_runtime;
 mod text;
@@ -197,6 +198,7 @@ pub use spatial::*;
 pub use startup_notices::*;
 pub use static_diff_pager::*;
 pub use status_bar::*;
+pub use status_line::*;
 pub use synthetic_key_event::*;
 pub use terminal_runtime::*;
 pub use text::*;
@@ -253,7 +255,8 @@ use workdeck_extension_api::{
     ExtensionFileSide, ExtensionFileViewContext, ExtensionHostAction, ExtensionKeyEvent,
     ExtensionLayoutMode, ExtensionLifecycleEvent, ExtensionNotification, ExtensionNotificationHub,
     ExtensionNotificationSubscription, ExtensionNotifyType, ExtensionPaintTheme, ExtensionPaneView,
-    ExtensionResolvedKeybindings, ExtensionResolvedLayout, ExtensionReviewNote,
+    ExtensionPromptLineChange, ExtensionPromptLineCompletion, ExtensionResolvedKeybindings,
+    ExtensionResolvedLayout, ExtensionReviewNote, ExtensionStatusAlignment, ExtensionStatusTone,
     ExtensionWorkspaceReadCompletion, ExtensionWorkspaceWriteCompletion,
     ExtensionWorkspaceWriteResult, FileLanguageGlobTarget, FileLanguageMatcher,
     FileViewModeKeyRequest, FileViewModeLifecycleRequest, KeyRoutingResult,
@@ -268,7 +271,8 @@ use workdeck_extension_host::{
     FileViewSelectionState, HostError, KeyboardModeActionAuthority, KeyboardModeControllerState,
     LineHighlightRefreshResult, LineHighlightsController, LoadedExtension, RegisteredFileView,
     RegisteredKeyboardMode, RegisteredLineHighlighter, create_file_view_input,
-    create_file_view_input_snapshot, file_view_mode_failure_message, format_keyboard_mode_failure,
+    create_file_view_input_snapshot, extension_status_item_key, file_view_mode_failure_message,
+    format_keyboard_mode_failure, is_extension_status_item_id, normalize_extension_status_item,
     project_extension_changeset, project_extension_diff_file, reconcile_file_view_epochs,
     reconcile_file_view_selections, registered_file_view_key,
     resolve_loaded_extension_registrations, select_file_view, select_file_view_for_files,
@@ -1203,6 +1207,15 @@ pub struct ReviewApp {
     filter: String,
     filter_cursor: usize,
     filter_scroll: Cell<usize>,
+    /// Host-owned status line: persistent items and the inline prompt queue.
+    status_line: StatusLineStore,
+    /// Store id of the host's own filter prompt, when it is open.
+    filter_prompt_id: Option<u64>,
+    /// Edit cursor for the current extension-owned inline prompt.
+    status_prompt_cursor: usize,
+    status_prompt_scroll: Cell<usize>,
+    /// Store id whose cursor position `status_prompt_cursor` reflects.
+    status_prompt_last_id: Option<u64>,
     review_width: Cell<u16>,
     terminal_width: Cell<u16>,
     review_height: Cell<u16>,
@@ -1505,6 +1518,11 @@ impl ReviewApp {
             filter: String::new(),
             filter_cursor: 0,
             filter_scroll: Cell::new(0),
+            status_line: StatusLineStore::new(),
+            filter_prompt_id: None,
+            status_prompt_cursor: 0,
+            status_prompt_scroll: Cell::new(0),
+            status_prompt_last_id: None,
             review_width: Cell::new(120),
             terminal_width: Cell::new(120),
             review_height: Cell::new(20),
@@ -2119,6 +2137,13 @@ impl ReviewApp {
         // mode, and that mode must belong to the review the reload produced.
         self.reconcile_active_file_view_mode();
         self.cancel_extension_dialogs_for_reload();
+        // A reload cancels extension prompts; the host filter opted into
+        // surviving it with its value and keyboard focus intact.
+        let prompt_settlements = self.status_line.cancel_reload_prompts();
+        if reset_app {
+            self.filter_prompt_id = None;
+        }
+        self.settle_status_prompts(prompt_settlements);
         if reset_app {
             self.with_state(|state| {
                 if !state.changeset().files.is_empty() {
@@ -2181,6 +2206,13 @@ impl ReviewApp {
         changeset: &Changeset,
     ) {
         self.cancel_extension_dialogs_for_reload();
+        // Extension status items and prompts belong to the registry that set
+        // them: a replacement clears the items and cancels every prompt, while
+        // ordinary content reloads keep the same registry and its items.
+        self.status_line.clear_items(is_extension_status_item_id);
+        let prompt_settlements = self.status_line.cancel_all_prompts();
+        self.filter_prompt_id = None;
+        self.settle_status_prompts(prompt_settlements);
         self.exit_active_keyboard_mode();
         self.exit_active_file_view_mode();
         let mut command_defaults = builtin_command_key_defaults();
@@ -2270,6 +2302,75 @@ impl ReviewApp {
         self.startup_notices.text()
     }
 
+    /// Host contributions to the status line: the residual filter and the one
+    /// notice channel. Both are derived from state rather than pushed, so they
+    /// can never go stale.
+    fn host_status_items(&self) -> Vec<StatusItem> {
+        let mut items = Vec::new();
+        if !self.filter.is_empty() {
+            let mut filter_item = StatusItem::with_tone(
+                HOST_FILTER_ITEM_ID,
+                format!("filter={}", self.filter),
+                Some(ExtensionStatusTone::Muted),
+            );
+            filter_item.priority = 1;
+            items.push(filter_item);
+        }
+        if let Some(notice) = self
+            .active_startup_notice()
+            .or(self.status.as_deref())
+            .filter(|notice| !notice.is_empty())
+        {
+            items.push(StatusItem::with_tone(
+                HOST_NOTICE_ITEM_ID,
+                sanitize_terminal_line(notice),
+                Some(ExtensionStatusTone::Muted),
+            ));
+        }
+        items
+    }
+
+    /// The row's items in paint order: host items first, then extension items
+    /// in the order their registry set them.
+    fn status_line_row_items(&self) -> Vec<StatusItem> {
+        let mut items = self.host_status_items();
+        items.extend(self.status_line.snapshot().items.iter().cloned());
+        items
+    }
+
+    /// The prompt currently painted on the row, if any. A directly-set filter
+    /// focus renders the filter input even before the host prompt adopts it.
+    fn visible_status_prompt(&self) -> Option<StatusPromptRequest> {
+        if let Some(prompt) = self.status_line.snapshot().prompt {
+            return Some(prompt.clone());
+        }
+        if self.focus == Focus::Filter {
+            return Some(StatusPromptRequest {
+                id: 0,
+                prefix: "filter:".into(),
+                placeholder: "type to filter files".into(),
+                value: self.filter.clone(),
+                attribution: None,
+                survive_reload: true,
+                wants_change: false,
+                review_generation: None,
+            });
+        }
+        None
+    }
+
+    /// Report whether the status row has anything to show on it.
+    #[must_use]
+    pub fn status_line_row_visible(&self) -> bool {
+        let prompt = self.visible_status_prompt();
+        let items = self.status_line_row_items();
+        let snapshot = StatusLineSnapshot {
+            items: &items,
+            prompt: prompt.as_ref(),
+        };
+        status_line_has_content(snapshot, self.active_keyboard_mode_status_hint().as_deref())
+    }
+
     #[must_use]
     pub fn has_extension_notification_subscription(&self) -> bool {
         self.extension_notification_subscription.is_some()
@@ -2354,9 +2455,30 @@ impl ReviewApp {
         ))
     }
 
-    /// Cursor requested by the focused status-bar filter input.
+    /// Cursor requested by the focused status-line input (host filter or an
+    /// extension prompt).
     #[must_use]
     pub fn status_filter_cursor_position(&self, area: Rect) -> Option<Position> {
+        if self
+            .note_composer
+            .as_ref()
+            .is_some_and(|draft| draft.focused)
+            || self.view_preference_quit.save_config_prompt_open()
+            || self.extension_trust_prompt_root().is_some()
+            || self.themes.selector_open
+            || self.show_agent_skill
+            || self.show_help
+        {
+            return None;
+        }
+        let runtime = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if runtime.menu.is_open() || runtime.dialogs.current().is_some() {
+            return None;
+        }
+        drop(runtime);
         if let (Some(composer), Some(bounds)) = (
             self.note_composer.as_ref().filter(|draft| draft.focused),
             self.note_composer_bounds.get(),
@@ -2382,31 +2504,52 @@ impl ReviewApp {
                     .min(bounds.bottom().saturating_sub(2)),
             ));
         }
-        if self.focus != Focus::Filter || area.width < 10 || area.height == 0 {
+        if area.width < 10 || area.height == 0 {
             return None;
         }
-        let mode_width = status_bar_mode_width(
-            self.active_keyboard_mode_status_hint().as_deref(),
-            area.width,
-        )
-        .min(area.width.saturating_sub(2));
-        let input_width = usize::from(
-            area.width
-                .saturating_sub(mode_width)
-                .saturating_sub(11)
-                .max(4),
-        );
-        let view = status_bar_input_view(
-            &self.filter,
-            self.filter_cursor,
-            input_width,
-            self.filter_scroll.get(),
-        );
-        self.filter_scroll.set(view.scroll);
+        let prompt = self.visible_status_prompt()?;
+        let (value, cursor, scroll) = if self.focus == Focus::Filter {
+            (
+                self.filter.clone(),
+                self.filter_cursor,
+                self.filter_scroll.get(),
+            )
+        } else {
+            (
+                prompt.value.clone(),
+                self.status_prompt_cursor,
+                self.status_prompt_scroll.get(),
+            )
+        };
+        let items = self.status_line_row_items();
+        let hint = self.active_keyboard_mode_status_hint();
+        let layout = layout_status_line(StatusLineLayoutInput {
+            items: &items,
+            prompt: Some(StatusPromptLayoutInput {
+                prefix: &prompt.prefix,
+                attribution: prompt.attribution.as_deref(),
+            }),
+            badge: hint.as_deref(),
+            width: usize::from(area.width),
+        });
+        let placed = layout.prompt?;
+        let input_width = placed.input_width.max(1);
+        let view = status_bar_input_view(&value, cursor, input_width, scroll);
+        if self.focus == Focus::Filter {
+            self.filter_scroll.set(view.scroll);
+        } else {
+            self.status_prompt_scroll.set(view.scroll);
+        }
+        let mut lead = STATUS_LINE_PADDING;
+        if let Some(attribution) = placed.attribution.as_deref() {
+            lead += measure_text_width(attribution) + 1;
+        }
+        if !placed.prefix.is_empty() {
+            lead += measure_text_width(&placed.prefix) + 1;
+        }
         Some(Position::new(
             area.x
-                .saturating_add(9)
-                .saturating_add(u16::try_from(view.cursor_column).unwrap_or(u16::MAX))
+                .saturating_add(u16::try_from(lead + view.cursor_column).unwrap_or(u16::MAX))
                 .min(area.right().saturating_sub(1)),
             area.y,
         ))
@@ -2529,6 +2672,13 @@ impl ReviewApp {
         )
     }
 
+    /// Whether an inline prompt (the host filter or an extension's) is open on
+    /// the status row.
+    #[must_use]
+    pub fn has_status_line_prompt(&self) -> bool {
+        self.status_line.snapshot().prompt.is_some() || self.visible_status_prompt().is_some()
+    }
+
     #[must_use]
     pub fn has_extension_select_dialog(&self) -> bool {
         matches!(
@@ -2619,6 +2769,9 @@ impl ReviewApp {
             return;
         }
         if self.handle_app_menu_key(&key) {
+            return;
+        }
+        if self.handle_extension_prompt_key(&key) {
             return;
         }
         if self.handle_filter_key(&key) {
@@ -3331,23 +3484,91 @@ impl ReviewApp {
         });
     }
 
+    /// Open the file filter as the host's own status-line prompt.
+    ///
+    /// The filter keeps its value and keyboard focus across content reloads;
+    /// submitting or escaping returns ownership to the review. A repeat
+    /// request is a no-op.
+    fn focus_filter(&mut self) {
+        if self.filter_prompt_id.is_none() {
+            self.filter_prompt_id = self.status_line.open_prompt(
+                StatusPromptOptions {
+                    prefix: "filter:".into(),
+                    placeholder: "type to filter files".into(),
+                    initial: self.filter.clone(),
+                    on_change: None,
+                },
+                StatusPromptRequestOptions {
+                    survive_reload: true,
+                    ..Default::default()
+                },
+                StatusPromptOwner::Host,
+            );
+        }
+        self.focus = Focus::Filter;
+        self.filter_cursor = self.filter.chars().count();
+        self.filter_scroll.set(0);
+    }
+
+    /// Submit an open filter prompt and focus the file list again.
+    fn focus_files(&mut self) {
+        self.submit_filter_prompt();
+        if self.focus == Focus::Filter {
+            self.focus = Focus::Review;
+        }
+    }
+
+    /// Resolve the open filter prompt with its live value, if it is open.
+    fn submit_filter_prompt(&mut self) {
+        let Some(id) = self.filter_prompt_id.take() else {
+            return;
+        };
+        if let Some(settlement) = self.status_line.submit_prompt(id) {
+            self.settle_status_prompt(settlement);
+        }
+    }
+
+    /// Close the open filter prompt with its cancel value, if it is open.
+    fn cancel_filter_prompt(&mut self) {
+        let Some(id) = self.filter_prompt_id.take() else {
+            return;
+        };
+        if let Some(settlement) = self.status_line.cancel_prompt(id) {
+            self.settle_status_prompt(settlement);
+        }
+    }
+
+    /// Mirror the live filter text into the open filter prompt.
+    fn sync_filter_prompt_value(&mut self) {
+        if let Some(id) = self.filter_prompt_id {
+            let value = self.filter.clone();
+            self.status_line.update_prompt_value(id, value);
+        }
+    }
+
     fn handle_filter_key(&mut self, key: &KeyEvent) -> bool {
         if self.focus != Focus::Filter {
             return false;
         }
+        // Focus set directly still renders the filter input; the first key
+        // adopts the host prompt so focus and the visible input agree.
+        if self.filter_prompt_id.is_none() {
+            self.focus_filter();
+        }
         match key.code {
             KeyCode::Tab | KeyCode::BackTab => {
-                self.focus = Focus::Review;
+                self.focus_files();
                 self.publish_extension_lifecycle_event(ExtensionLifecycleEvent::CommandExecuted {
                     command_id: "workdeck.app.toggleFocusArea".into(),
                 });
             }
-            KeyCode::Enter => self.focus = Focus::Review,
-            KeyCode::Esc if self.filter.is_empty() => self.focus = Focus::Review,
+            KeyCode::Enter => self.focus_files(),
+            KeyCode::Esc if self.filter.is_empty() => self.cancel_filter_prompt(),
             KeyCode::Esc => {
                 self.filter.clear();
                 self.filter_cursor = 0;
                 self.filter_scroll.set(0);
+                self.sync_filter_prompt_value();
             }
             KeyCode::Left => {
                 self.filter_cursor = self.filter_cursor.saturating_sub(1);
@@ -3375,8 +3596,82 @@ impl ReviewApp {
             }
             _ => {}
         }
+        self.sync_filter_prompt_value();
         self.reconcile_horizontal_offset();
         true
+    }
+
+    /// A status-line prompt from an extension owns typing without a host
+    /// escape hatch: every key is its text, Enter submits, and Escape clears
+    /// a non-empty buffer first and cancels second.
+    fn handle_extension_prompt_key(&mut self, key: &KeyEvent) -> bool {
+        let Some(prompt) = self.status_line.snapshot().prompt else {
+            return false;
+        };
+        if self.filter_prompt_id == Some(prompt.id) {
+            return false;
+        }
+        if self.status_prompt_last_id != Some(prompt.id) {
+            self.status_prompt_last_id = Some(prompt.id);
+            self.status_prompt_cursor = prompt.value.chars().count();
+            self.status_prompt_scroll.set(0);
+        }
+        let id = prompt.id;
+        match key.code {
+            KeyCode::Enter => {
+                if let Some(settlement) = self.status_line.submit_prompt(id) {
+                    self.settle_status_prompt(settlement);
+                }
+            }
+            KeyCode::Esc if prompt.value.is_empty() => {
+                if let Some(settlement) = self.status_line.cancel_prompt(id) {
+                    self.settle_status_prompt(settlement);
+                }
+            }
+            KeyCode::Esc => self.set_extension_prompt_value(id, ""),
+            KeyCode::Left => {
+                self.status_prompt_cursor = self.status_prompt_cursor.saturating_sub(1)
+            }
+            KeyCode::Right => {
+                self.status_prompt_cursor = self
+                    .status_prompt_cursor
+                    .saturating_add(1)
+                    .min(prompt.value.chars().count());
+            }
+            KeyCode::Home => self.status_prompt_cursor = 0,
+            KeyCode::End => self.status_prompt_cursor = prompt.value.chars().count(),
+            KeyCode::Backspace => {
+                let mut value = prompt.value.clone();
+                remove_filter_character_before(&mut value, &mut self.status_prompt_cursor);
+                self.set_extension_prompt_value(id, &value);
+            }
+            KeyCode::Delete => {
+                let mut value = prompt.value.clone();
+                remove_filter_character_at(&mut value, &mut self.status_prompt_cursor);
+                self.set_extension_prompt_value(id, &value);
+            }
+            KeyCode::Char(character)
+                if !key.modifiers.intersects(
+                    KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
+                ) =>
+            {
+                let mut value = prompt.value.clone();
+                insert_filter_character(&mut value, &mut self.status_prompt_cursor, character);
+                self.set_extension_prompt_value(id, &value);
+            }
+            _ => {}
+        }
+        true
+    }
+
+    /// Update the current extension prompt's text and deliver the edit when
+    /// its owner opted into per-change delivery.
+    fn set_extension_prompt_value(&mut self, id: u64, value: &str) {
+        let wants_change = self.status_line.current_prompt_wants_change();
+        self.status_line.update_prompt_value(id, value);
+        if wants_change {
+            self.deliver_status_prompt_change(id, value);
+        }
     }
 
     fn builtin_command_availability(&self) -> BuiltinCommandAvailability {
@@ -3751,29 +4046,26 @@ impl ReviewApp {
                 self.show_agent_skill = true;
             }
             AppCommandAction::ToggleFocusArea => {
-                if self.focus == Focus::Filter {
-                    self.focus = Focus::Review;
+                if self.filter_prompt_id.is_some() || self.focus == Focus::Filter {
+                    self.focus_files();
                 } else {
-                    self.focus = Focus::Filter;
-                    self.filter_cursor = self.filter.chars().count();
-                    self.filter_scroll.set(0);
+                    self.focus_filter();
                 }
             }
-            AppCommandAction::FocusFilter => {
-                self.focus = Focus::Filter;
-                self.filter_cursor = self.filter.chars().count();
-                self.filter_scroll.set(0);
-            }
+            AppCommandAction::FocusFilter => self.focus_filter(),
             AppCommandAction::StartUserNote => {
+                self.submit_filter_prompt();
                 self.open_note_composer();
             }
             AppCommandAction::EditActiveNote => {
+                self.submit_filter_prompt();
                 self.open_active_note_edit();
                 if self.status.is_none() {
                     self.reveal_keyboard_note_composer();
                 }
             }
             AppCommandAction::ReplyToActiveNote => {
+                self.submit_filter_prompt();
                 self.open_active_note_reply();
                 if self.status.is_none() {
                     self.reveal_keyboard_note_composer();
@@ -5390,6 +5682,68 @@ impl ReviewApp {
                 ExtensionHostAction::EmitEvent { name, payload } => {
                     self.publish_extension_event(&name, payload);
                 }
+                ExtensionHostAction::SetStatusItem(item) => {
+                    let normalized = normalize_extension_status_item(extension_id, &item);
+                    match normalized {
+                        Ok(normalized) => self.status_line.set_item(StatusItem {
+                            id: normalized.key,
+                            spans: normalized.spans,
+                            alignment: if normalized.right_aligned {
+                                ExtensionStatusAlignment::Right
+                            } else {
+                                ExtensionStatusAlignment::Left
+                            },
+                            priority: normalized.priority,
+                        }),
+                        Err(detail) => {
+                            self.status = Some(format!(
+                                "extension {extension_id} status item rejected: {detail}"
+                            ));
+                        }
+                    }
+                }
+                ExtensionHostAction::ClearStatusItem { id } => {
+                    self.status_line
+                        .clear_item(&extension_status_item_key(extension_id, &id));
+                }
+                ExtensionHostAction::RequestPromptLine {
+                    request_id,
+                    options,
+                } => {
+                    let initial_cursor = options.initial.chars().count();
+                    let opened = self.status_line.open_prompt(
+                        StatusPromptOptions {
+                            prefix: options.prefix,
+                            placeholder: options.placeholder,
+                            initial: options.initial,
+                            on_change: None,
+                        },
+                        StatusPromptRequestOptions {
+                            attribution: Some(format!(
+                                "{} {extension_id}",
+                                extension_toast_prefix()
+                            )),
+                            wants_change: options.on_change,
+                            review_generation: Some(self.extension_command_epoch),
+                            ..Default::default()
+                        },
+                        StatusPromptOwner::Extension {
+                            extension_index,
+                            extension_id: extension_id.into(),
+                            request_id: request_id.clone(),
+                        },
+                    );
+                    self.status_prompt_cursor = initial_cursor;
+                    self.status_prompt_last_id = None;
+                    if opened.is_none() {
+                        self.complete_extension_prompt_line(
+                            extension_index,
+                            extension_id,
+                            &request_id,
+                            None,
+                        );
+                    }
+                }
                 ExtensionHostAction::Notify {
                     message,
                     notification_type,
@@ -5421,6 +5775,124 @@ impl ReviewApp {
             Err(error) => {
                 self.status = Some(format!("extension {extension_id} dialog failed: {error}"));
             }
+        }
+    }
+
+    /// Resolve one settled inline prompt: host prompts hand the keyboard back
+    /// to the review, extension prompts receive their answer through the
+    /// completion request their `prompts.line` continuation runs on.
+    fn settle_status_prompt(&mut self, settlement: StatusPromptSettlement) {
+        let answer = if settlement
+            .request
+            .review_generation
+            .is_some_and(|generation| generation != self.extension_command_epoch)
+        {
+            None
+        } else {
+            settlement.answer
+        };
+        match settlement.owner {
+            StatusPromptOwner::Host => {
+                self.filter_prompt_id = None;
+                if self.focus == Focus::Filter {
+                    self.focus = Focus::Review;
+                }
+            }
+            StatusPromptOwner::Extension {
+                extension_index,
+                extension_id,
+                request_id,
+            } => {
+                self.complete_extension_prompt_line(
+                    extension_index,
+                    &extension_id,
+                    &request_id,
+                    answer,
+                );
+            }
+        }
+    }
+
+    fn settle_status_prompts(
+        &mut self,
+        settlements: impl IntoIterator<Item = StatusPromptSettlement>,
+    ) {
+        for settlement in settlements {
+            self.settle_status_prompt(settlement);
+        }
+    }
+
+    /// Send one inline prompt's answer back to the extension that asked for it.
+    fn complete_extension_prompt_line(
+        &mut self,
+        extension_index: usize,
+        extension_id: &str,
+        request_id: &str,
+        value: Option<String>,
+    ) {
+        let execution = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .extensions
+            .get_mut(extension_index)
+            .map(|extension| {
+                extension.complete_prompt_line(ExtensionPromptLineCompletion {
+                    request_id: request_id.to_owned(),
+                    value,
+                })
+            });
+        match execution {
+            Some(Ok(execution)) => {
+                self.apply_extension_actions(extension_index, extension_id, execution.actions);
+            }
+            Some(Err(error)) => {
+                self.status = Some(format!(
+                    "extension {extension_id} prompt completion failed: {error}"
+                ));
+            }
+            None => {}
+        }
+    }
+
+    /// Report one live inline-prompt edit to an extension that opted in.
+    ///
+    /// A failed delivery is Hunk's throwing `onChange`: reported once, with the
+    /// prompt continuing.
+    fn deliver_status_prompt_change(&mut self, prompt_id: u64, value: &str) {
+        let Some(StatusPromptOwner::Extension {
+            extension_index,
+            extension_id,
+            request_id,
+        }) = self.status_line.current_prompt_owner()
+        else {
+            return;
+        };
+        let outcome = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .extensions
+            .get_mut(extension_index)
+            .map(|extension| {
+                extension.deliver_prompt_line_change(ExtensionPromptLineChange {
+                    request_id: request_id.clone(),
+                    value: value.to_owned(),
+                })
+            });
+        match outcome {
+            Some(Ok(execution)) => {
+                self.apply_extension_actions(extension_index, &extension_id, execution.actions);
+            }
+            Some(Err(error)) => {
+                let detail = error.to_string();
+                self.status = Some(format!(
+                    "Extension {extension_id} prompt onChange failed • {detail}"
+                ));
+                self.status_line
+                    .report_prompt_change_failure(prompt_id, &detail);
+            }
+            None => {}
         }
     }
 
@@ -9822,6 +10294,8 @@ impl ReviewApp {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         runtime.keyboard_mode_controller.shutdown();
         let _settlements = runtime.dialogs.shutdown();
+        // Settle every pending prompt so no consumer is left awaiting teardown.
+        let _prompt_settlements = self.status_line.shutdown();
         runtime.retire_extensions();
     }
 
@@ -10699,11 +11173,7 @@ pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         .style(Style::default().bg(background))
         .render(area, buffer);
     let menu_bar_visible = app.show_menu_bar;
-    let footer_visible = app.focus == Focus::Filter
-        || !app.filter.is_empty()
-        || app.active_startup_notice().is_some()
-        || app.status.as_ref().is_some_and(|status| !status.is_empty())
-        || app.active_keyboard_mode_status_hint().is_some();
+    let footer_visible = app.status_line_row_visible();
     let toast_visible = app.active_extension_notification().is_some();
     let outer = Layout::default()
         .direction(Direction::Vertical)
@@ -16563,6 +17033,13 @@ fn expand_tabs(value: &str, tab_width: u16, column: &mut usize) -> String {
     output
 }
 
+/// Paint the host-owned status line: persistent items, the inline prompt when
+/// one is open, and the keyboard-mode badge.
+///
+/// Placement comes from [`layout_status_line`], so what is dropped or
+/// truncated on a narrow terminal is deterministic and tested without a
+/// renderer. The badge stays in its own renderer so its click-to-exit hit
+/// bounds keep working.
 fn render_footer(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     let background = ratatui_theme_color(&app.options.theme.panel_alt);
     Block::default()
@@ -16572,74 +17049,163 @@ fn render_footer(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 .bg(background),
         )
         .render(area, buffer);
-    let mode_width = status_bar_mode_width(
-        app.active_keyboard_mode_status_hint().as_deref(),
-        area.width,
-    )
-    .min(area.width.saturating_sub(2));
-    let content = Rect::new(
-        area.x.saturating_add(1),
-        area.y,
-        area.width.saturating_sub(2).saturating_sub(mode_width),
-        area.height.min(1),
-    );
-    if content.width > 0 && content.height > 0 {
-        let line = if app.focus == Focus::Filter {
-            let input_width = usize::from(
-                area.width
-                    .saturating_sub(mode_width)
-                    .saturating_sub(11)
-                    .max(4),
-            );
-            let (input, input_color) = if app.filter.is_empty() {
-                (
-                    fit_text("type to filter files", input_width, None),
-                    Color::Rgb(102, 102, 102),
-                )
-            } else {
-                let view = status_bar_input_view(
-                    &app.filter,
-                    app.filter_cursor,
-                    input_width,
-                    app.filter_scroll.get(),
-                );
-                app.filter_scroll.set(view.scroll);
-                (view.text, Color::Rgb(255, 255, 255))
-            };
-            Line::from(vec![
-                Span::styled(
-                    "filter:",
-                    Style::default()
-                        .fg(ratatui_theme_color(&app.options.theme.badge_neutral))
-                        .bg(background),
-                ),
-                Span::styled(
-                    " ",
-                    Style::default()
-                        .fg(ratatui_theme_color(&app.options.theme.muted))
-                        .bg(background),
-                ),
-                Span::styled(input, Style::default().fg(input_color).bg(background)),
-            ])
-        } else {
-            let text = if app.filter.is_empty() {
-                app.active_startup_notice()
-                    .or(app.status.as_deref())
-                    .unwrap_or_default()
-                    .to_owned()
-            } else {
-                format!("filter={}", app.filter)
-            };
-            Line::styled(
-                sanitize_terminal_line(&text),
-                Style::default()
-                    .fg(ratatui_theme_color(&app.options.theme.muted))
-                    .bg(background),
-            )
-        };
-        Paragraph::new(line).render(content, buffer);
+    if area.width == 0 || area.height == 0 {
+        return;
     }
+    let items = app.status_line_row_items();
+    let prompt = app.visible_status_prompt();
+    let hint = app.active_keyboard_mode_status_hint();
+    let layout = layout_status_line(StatusLineLayoutInput {
+        items: &items,
+        prompt: prompt.as_ref().map(|prompt| StatusPromptLayoutInput {
+            prefix: &prompt.prefix,
+            attribution: prompt.attribution.as_deref(),
+        }),
+        badge: hint.as_deref(),
+        width: usize::from(area.width),
+    });
+
+    let badge_width = layout
+        .badge
+        .as_ref()
+        .map_or(0, |badge| badge.width)
+        .min(usize::from(area.width));
+    let badge_start = area
+        .width
+        .saturating_sub(u16::try_from(badge_width).unwrap_or(area.width) + 1);
+    let mut column = area
+        .x
+        .saturating_add(u16::try_from(STATUS_LINE_PADDING).unwrap_or(area.width));
+
+    let lead_style = Style::default()
+        .fg(ratatui_theme_color(&app.options.theme.badge_neutral))
+        .bg(background);
+    if let (Some(prompt), Some(placed)) = (prompt.as_ref(), layout.prompt.as_ref()) {
+        // The prompt takes the whole left region: attribution, prefix, then a
+        // real focused input with the placeholder while it is empty.
+        if let Some(attribution) = placed.attribution.as_deref() {
+            let width = measure_text_width(attribution);
+            paint_status_text(
+                buffer,
+                column,
+                area.y,
+                &format!("{attribution} "),
+                lead_style,
+            );
+            column = column.saturating_add(u16::try_from(width + 1).unwrap_or(area.width));
+        }
+        if !placed.prefix.is_empty() {
+            paint_status_text(
+                buffer,
+                column,
+                area.y,
+                &format!("{} ", placed.prefix),
+                lead_style,
+            );
+            column = column.saturating_add(
+                u16::try_from(measure_text_width(&placed.prefix) + 1).unwrap_or(area.width),
+            );
+        }
+        let input_width = placed.input_width.min(
+            usize::from(area.right().saturating_sub(column))
+                .saturating_sub(badge_width + BADGE_GAP_WIDTH as usize),
+        );
+        let (input, input_color) = if prompt.value.is_empty() {
+            (
+                fit_text(&prompt.placeholder, input_width, None),
+                Color::Rgb(102, 102, 102),
+            )
+        } else if app.focus == Focus::Filter {
+            let view = status_bar_input_view(
+                &app.filter,
+                app.filter_cursor,
+                input_width,
+                app.filter_scroll.get(),
+            );
+            app.filter_scroll.set(view.scroll);
+            (view.text, Color::Rgb(255, 255, 255))
+        } else {
+            let view = status_bar_input_view(
+                &prompt.value,
+                app.status_prompt_cursor,
+                input_width,
+                app.status_prompt_scroll.get(),
+            );
+            app.status_prompt_scroll.set(view.scroll);
+            (view.text, Color::Rgb(255, 255, 255))
+        };
+        paint_status_text(
+            buffer,
+            column,
+            area.y,
+            &input,
+            Style::default().fg(input_color).bg(background),
+        );
+    } else {
+        // Left items paint in set order with the standard gap between them.
+        for (index, item) in layout.left.iter().enumerate() {
+            if index > 0 {
+                column = column.saturating_add(ITEM_GAP_WIDTH);
+            }
+            for span in &item.spans {
+                let style = Style::default()
+                    .fg(symbolic_tone_color(span.tone, &app.options.theme))
+                    .bg(background)
+                    .add_modifier(symbolic_text_attributes(&span.attributes));
+                paint_status_text(buffer, column, area.y, &span.text, style);
+                column = column.saturating_add(
+                    u16::try_from(measure_text_width(&span.text)).unwrap_or(area.width),
+                );
+            }
+        }
+    }
+
+    // Right items sit beside the badge, painted whole by the layout.
+    if !layout.right.is_empty() {
+        let right_width: usize = layout.right.iter().map(|item| item.width).sum::<usize>()
+            + ITEM_GAP_WIDTH as usize * (layout.right.len() - 1);
+        let right_edge = badge_start.saturating_sub(BADGE_GAP_WIDTH);
+        let mut right_column =
+            right_edge.saturating_sub(u16::try_from(right_width).unwrap_or(right_edge));
+        for (index, item) in layout.right.iter().enumerate() {
+            if index > 0 {
+                right_column = right_column.saturating_add(ITEM_GAP_WIDTH);
+            }
+            for span in &item.spans {
+                let style = Style::default()
+                    .fg(symbolic_tone_color(span.tone, &app.options.theme))
+                    .bg(background)
+                    .add_modifier(symbolic_text_attributes(&span.attributes));
+                paint_status_text(buffer, right_column, area.y, &span.text, style);
+                right_column = right_column.saturating_add(
+                    u16::try_from(measure_text_width(&span.text)).unwrap_or(area.width),
+                );
+            }
+        }
+    }
+
     render_active_keyboard_mode_badge(area, buffer, app);
+}
+
+/// Cells separating the right item run from the keyboard-mode badge.
+const BADGE_GAP_WIDTH: u16 = 1;
+/// Cells separating two adjacent status items.
+const ITEM_GAP_WIDTH: u16 = 2;
+
+fn paint_status_text(buffer: &mut Buffer, x: u16, y: u16, text: &str, style: Style) {
+    if text.is_empty() {
+        return;
+    }
+    let area = Rect::new(
+        x,
+        y,
+        u16::try_from(measure_text_width(text)).unwrap_or(u16::MAX),
+        1,
+    );
+    if area.right() > buffer.area.right() || area.bottom() > buffer.area.bottom() {
+        return;
+    }
+    Paragraph::new(Line::styled(text.to_owned(), style)).render(area, buffer);
 }
 
 fn render_extension_toast(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
@@ -16799,6 +17365,9 @@ mod tests {
         FileSourceSnapshots, LineRange, SourceOrigin, SourceSnapshot, VcsDiffCommandInput,
     };
     use workdeck_diff::{create_two_files_patch, parse_patch};
+    use workdeck_extension_api::{
+        ExtensionPromptLineOptions, ExtensionStatusItem, ExtensionStatusSpan,
+    };
     use workdeck_review::{CommentAnchor, ReviewComment};
 
     // Translated from Hunk test/helpers/filesystem.ts (2c00f435, MIT,
@@ -27596,8 +28165,8 @@ mod tests {
         app.filter = "beta".into();
         app.focus = Focus::Review;
         let summary = footer(&app);
-        assert_eq!(text(&summary), " filter=beta                            ");
-        assert!(!text(&summary).contains("Update available"));
+        assert_eq!(text(&summary), " filter=beta  Update available          ");
+        assert!(text(&summary).contains("Update available"));
 
         app.filter.clear();
         let registered = Arc::new(RegisteredKeyboardMode {
@@ -27659,6 +28228,274 @@ mod tests {
             light_frame.cell((9, 0)).unwrap().fg,
             Color::Rgb(255, 255, 255)
         );
+    }
+
+    // Translated from Hunk AppHost.status-line.test.tsx and StatusLine.test.tsx
+    // (515188ea, MIT, Modem Labs Inc.; see THIRD_PARTY_NOTICES). The store and
+    // layout semantics are unit-tested in status_line; these drive the real
+    // review app: extension actions, keyboard, reload, and rendering.
+    fn status_row(frame: &str) -> &str {
+        frame.trim_end().lines().last().unwrap_or_default()
+    }
+
+    fn status_item_action(id: &str, text: &str, right: bool, priority: i32) -> ExtensionHostAction {
+        ExtensionHostAction::SetStatusItem(ExtensionStatusItem {
+            id: id.into(),
+            spans: vec![ExtensionStatusSpan {
+                text: text.into(),
+                tone: None,
+                attributes: Vec::new(),
+            }],
+            alignment: right.then_some(ExtensionStatusAlignment::Right),
+            priority: Some(priority),
+        })
+    }
+
+    #[test]
+    fn an_extension_status_item_keeps_the_row_on_screen_and_clears_again() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        let idle = rendered_review_frame(&mut terminal, &app);
+        assert!(!app.status_line_row_visible());
+        assert!(!idle.contains("3 files viewed"));
+
+        app.apply_extension_actions(
+            0,
+            "probe",
+            vec![status_item_action("count", "3 files viewed", true, 0)],
+        );
+        let shown = rendered_review_frame(&mut terminal, &app);
+        // The item took a row from the review and sits beside the right edge.
+        assert!(
+            status_row(&shown).trim_end().ends_with("3 files viewed"),
+            "{}",
+            status_row(&shown)
+        );
+
+        app.apply_extension_actions(
+            0,
+            "probe",
+            vec![ExtensionHostAction::ClearStatusItem { id: "count".into() }],
+        );
+        let cleared = rendered_review_frame(&mut terminal, &app);
+        assert!(!cleared.contains("3 files viewed"));
+        assert!(!app.status_line_row_visible());
+    }
+
+    #[test]
+    fn an_extension_prompt_renders_attributed_types_submits_and_cancels() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        app.apply_extension_actions(
+            0,
+            "probe",
+            vec![ExtensionHostAction::RequestPromptLine {
+                request_id: "q1".into(),
+                options: ExtensionPromptLineOptions {
+                    prefix: "/".into(),
+                    placeholder: "pattern".into(),
+                    ..Default::default()
+                },
+            }],
+        );
+        let opened = rendered_review_frame(&mut terminal, &app);
+        assert!(opened.contains("ext probe / pattern"), "frame: {opened}");
+
+        // A bound key is text while the prompt owns typing: `q` must not quit.
+        app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        assert!(!app.shutdown_requested());
+        let typed = rendered_review_frame(&mut terminal, &app);
+        assert!(typed.contains("ext probe / q"), "frame: {typed}");
+
+        // Enter resolves the typed text and closes the prompt.
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let submitted = rendered_review_frame(&mut terminal, &app);
+        assert!(!submitted.contains("ext probe /"), "frame: {submitted}");
+        assert!(app.status_line.snapshot().prompt.is_none());
+
+        // Escape clears a non-empty buffer first and cancels with null second.
+        app.apply_extension_actions(
+            0,
+            "probe",
+            vec![ExtensionHostAction::RequestPromptLine {
+                request_id: "q2".into(),
+                options: ExtensionPromptLineOptions {
+                    prefix: ":".into(),
+                    initial: "wq".into(),
+                    ..Default::default()
+                },
+            }],
+        );
+        let initial = rendered_review_frame(&mut terminal, &app);
+        assert!(initial.contains("ext probe : wq"), "frame: {initial}");
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        let cleared = rendered_review_frame(&mut terminal, &app);
+        assert!(
+            cleared.contains("ext probe :") && !cleared.contains(": wq"),
+            "frame: {cleared}"
+        );
+        assert!(app.status_line.snapshot().prompt.is_some());
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.status_line.snapshot().prompt.is_none());
+    }
+
+    #[test]
+    fn a_second_prompt_queues_behind_the_first_and_promotes_on_settle() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        app.apply_extension_actions(
+            0,
+            "probe",
+            vec![ExtensionHostAction::RequestPromptLine {
+                request_id: "first".into(),
+                options: ExtensionPromptLineOptions {
+                    prefix: "first:".into(),
+                    ..Default::default()
+                },
+            }],
+        );
+        app.apply_extension_actions(
+            0,
+            "probe",
+            vec![ExtensionHostAction::RequestPromptLine {
+                request_id: "second".into(),
+                options: ExtensionPromptLineOptions {
+                    prefix: "second:".into(),
+                    ..Default::default()
+                },
+            }],
+        );
+        assert_eq!(app.status_line.snapshot().prompt.unwrap().prefix, "first:");
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.status_line.snapshot().prompt.unwrap().prefix, "second:");
+        app.handle_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(app.status_line.snapshot().prompt.is_none());
+    }
+
+    #[test]
+    fn a_reload_cancels_extension_prompts_but_preserves_the_filter_prompt() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        for character in "beta".chars() {
+            app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+        assert!(app.filter_prompt_id.is_some());
+        assert_eq!(app.filter, "beta");
+
+        app.reload(changeset());
+        // The focused file filter and its current text stay open across reloads.
+        assert!(app.filter_prompt_id.is_some());
+        assert_eq!(app.focus, Focus::Filter);
+        for character in ".txt".chars() {
+            app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+        assert_eq!(app.filter, "beta.txt");
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert!(app.filter_prompt_id.is_none());
+        assert_eq!(app.focus, Focus::Review);
+
+        // An extension prompt does not opt into the reload lifetime.
+        app.apply_extension_actions(
+            0,
+            "probe",
+            vec![ExtensionHostAction::RequestPromptLine {
+                request_id: "ask".into(),
+                options: ExtensionPromptLineOptions::default(),
+            }],
+        );
+        assert!(app.status_line.snapshot().prompt.is_some());
+        app.reload(changeset());
+        assert!(app.status_line.snapshot().prompt.is_none());
+    }
+
+    #[test]
+    fn replacing_the_extension_registry_clears_the_items_it_set() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        app.apply_extension_actions(
+            0,
+            "probe",
+            vec![status_item_action(
+                "once",
+                "set by first registry",
+                false,
+                0,
+            )],
+        );
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        let before = rendered_review_frame(&mut terminal, &app);
+        assert!(before.contains("set by first registry"));
+
+        app.replace_extensions_and_reload(changeset(), Vec::new());
+        let after = rendered_review_frame(&mut terminal, &app);
+        assert!(!after.contains("set by first registry"), "frame: {after}");
+    }
+
+    #[test]
+    fn a_narrow_prompt_row_truncates_its_lead_in_and_keeps_typed_input_visible() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        let mut terminal = Terminal::new(TestBackend::new(20, 10)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        app.apply_extension_actions(
+            0,
+            "probe",
+            vec![ExtensionHostAction::RequestPromptLine {
+                request_id: "narrow".into(),
+                options: ExtensionPromptLineOptions {
+                    prefix: "a very long prompt prefix that cannot fit:".into(),
+                    ..Default::default()
+                },
+            }],
+        );
+        for character in "xyz".chars() {
+            app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+        let frame = rendered_review_frame(&mut terminal, &app);
+        let row = status_row(&frame);
+        // The lead-in truncates with an ellipsis while the typed input stays
+        // visible beside it; the badge variant is unit-tested in the layout.
+        assert!(row.contains("ext probe"), "row: {row}");
+        assert!(row.contains('…'), "row: {row}");
+        assert!(row.contains("yz"), "row: {row}");
+    }
+
+    #[test]
+    fn the_host_filter_prompt_still_works_beside_an_extension_prompt() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        let opened = rendered_review_frame(&mut terminal, &app);
+        assert!(
+            opened.contains("filter: type to filter files"),
+            "frame: {opened}"
+        );
+        for character in "beta".chars() {
+            app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+        let narrowed = rendered_review_frame(&mut terminal, &app);
+        assert!(narrowed.contains("filter: beta"), "frame: {narrowed}");
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        let residual = rendered_review_frame(&mut terminal, &app);
+        assert!(residual.contains("filter=beta"), "frame: {residual}");
+
+        // The extension prompt takes the left region; the residual filter item
+        // hides meanwhile and returns when the prompt settles.
+        app.apply_extension_actions(
+            0,
+            "probe",
+            vec![ExtensionHostAction::RequestPromptLine {
+                request_id: "ask".into(),
+                options: ExtensionPromptLineOptions::default(),
+            }],
+        );
+        let prompted = rendered_review_frame(&mut terminal, &app);
+        assert!(prompted.contains("ext probe"), "frame: {prompted}");
+        assert!(!prompted.contains("filter=beta"), "frame: {prompted}");
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        let settled = rendered_review_frame(&mut terminal, &app);
+        assert!(settled.contains("filter=beta"), "frame: {settled}");
     }
 
     #[test]

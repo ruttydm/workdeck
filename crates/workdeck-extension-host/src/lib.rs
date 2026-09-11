@@ -68,20 +68,21 @@ use workdeck_extension_api::{
     DEFAULT_REQUEST_TIMEOUT_MS, ExtensionChangeset, ExtensionCommandAvailability,
     ExtensionDiffFile, ExtensionEventContext, ExtensionFileSide, ExtensionHostAction,
     ExtensionKeyEvent, ExtensionManifest, ExtensionNotificationHub, ExtensionNotifyType,
-    ExtensionPaneView, ExtensionVcsAdapterRegistration, ExtensionVcsDetectRequest,
-    ExtensionVcsFileChangeType, ExtensionVcsFileSourceInvocation, ExtensionVcsFileSourceRequest,
-    ExtensionVcsFileSourceResult, ExtensionVcsOperationKind, ExtensionVcsOperationRequest,
-    ExtensionVcsPatchResult, ExtensionVcsReviewInput, ExtensionVcsWatchPlan,
-    ExtensionWorkspaceReadCompletion, ExtensionWorkspaceSnapshot,
-    ExtensionWorkspaceWriteCompletion, FileViewLayoutRequest, FileViewMatchRequest,
-    FileViewModeKeyRequest, FileViewModeLifecycleExecution, FileViewModeLifecycleRequest,
-    HandshakeRequest, HandshakeResponse, InputDialogSubmission, JsonRpcNotification,
-    JsonRpcRequest, JsonRpcResponse, KeyboardModeExecution, KeyboardModeKeyRequest,
-    KeyboardModeLifecycleRequest, LineHighlightRequest, MAX_CLI_STDIN_CHUNK_BYTES,
-    MAX_MESSAGE_BYTES, MAX_PANE_INPUT_BYTES, ManifestError, PaneActionInvocation,
-    PaneAvailabilityRequest, PaneAvailabilityResponse, PaneInputInvocation, PaneRenderRequest,
-    PaneRenderResponse, Registration, ReviewEvent, SelectDialogSubmission, TransformRequest,
-    TransformResponse, ValidatedFileViewLayout, validate_current_line_view_nodes, validate_view,
+    ExtensionPaneView, ExtensionPromptLineChange, ExtensionPromptLineCompletion,
+    ExtensionVcsAdapterRegistration, ExtensionVcsDetectRequest, ExtensionVcsFileChangeType,
+    ExtensionVcsFileSourceInvocation, ExtensionVcsFileSourceRequest, ExtensionVcsFileSourceResult,
+    ExtensionVcsOperationKind, ExtensionVcsOperationRequest, ExtensionVcsPatchResult,
+    ExtensionVcsReviewInput, ExtensionVcsWatchPlan, ExtensionWorkspaceReadCompletion,
+    ExtensionWorkspaceSnapshot, ExtensionWorkspaceWriteCompletion, FileViewLayoutRequest,
+    FileViewMatchRequest, FileViewModeKeyRequest, FileViewModeLifecycleExecution,
+    FileViewModeLifecycleRequest, HandshakeRequest, HandshakeResponse, InputDialogSubmission,
+    JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, KeyboardModeExecution,
+    KeyboardModeKeyRequest, KeyboardModeLifecycleRequest, LineHighlightRequest,
+    MAX_CLI_STDIN_CHUNK_BYTES, MAX_MESSAGE_BYTES, MAX_PANE_INPUT_BYTES, ManifestError,
+    PaneActionInvocation, PaneAvailabilityRequest, PaneAvailabilityResponse, PaneInputInvocation,
+    PaneRenderRequest, PaneRenderResponse, Registration, ReviewEvent, SelectDialogSubmission,
+    TransformRequest, TransformResponse, ValidatedFileViewLayout, validate_current_line_view_nodes,
+    validate_view,
 };
 
 #[derive(Debug, Error)]
@@ -2457,6 +2458,49 @@ impl LoadedExtension {
         Ok(execution)
     }
 
+    /// Return the user's answer, or `None`, to one inline prompt request.
+    pub fn complete_prompt_line(
+        &mut self,
+        completion: ExtensionPromptLineCompletion,
+    ) -> Result<CommandExecution, HostError> {
+        let value = self.request(
+            "workdeck/prompt/line-complete",
+            completion,
+            Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+        )?;
+        let execution: CommandExecution =
+            serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "prompt line completion",
+                message: error.to_string(),
+            })?;
+        self.validate_host_actions(&execution.actions, "prompt line completion")?;
+        Ok(execution)
+    }
+
+    /// Report one live edit of an opted-in inline prompt to its extension.
+    ///
+    /// Delivery mirrors Hunk's synchronous `onChange` callback: a failed or
+    /// unknown handler surfaces as the change error the host reports once.
+    pub fn deliver_prompt_line_change(
+        &mut self,
+        change: ExtensionPromptLineChange,
+    ) -> Result<CommandExecution, HostError> {
+        let value = self.request(
+            "workdeck/prompt/change",
+            change,
+            Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+        )?;
+        let execution: CommandExecution =
+            serde_json::from_value(value).map_err(|error| HostError::InvalidPayload {
+                id: self.manifest.id.clone(),
+                kind: "prompt change",
+                message: error.to_string(),
+            })?;
+        self.validate_host_actions(&execution.actions, "prompt change")?;
+        Ok(execution)
+    }
+
     /// Invoke one registered pane's synchronous availability callback.
     pub fn pane_available(&mut self, request: PaneAvailabilityRequest) -> Result<bool, HostError> {
         let pane = self
@@ -3590,6 +3634,37 @@ impl LoadedExtension {
                     .manifest
                     .capabilities
                     .contains(&workdeck_extension_api::Capability::Notifications),
+                ExtensionHostAction::SetStatusItem(item) => {
+                    self.manifest
+                        .capabilities
+                        .contains(&workdeck_extension_api::Capability::StatusLine)
+                        && crate::extension_registration::normalize_extension_status_item(
+                            &self.manifest.id,
+                            item,
+                        )
+                        .is_ok()
+                }
+                ExtensionHostAction::ClearStatusItem { id } => {
+                    self.manifest
+                        .capabilities
+                        .contains(&workdeck_extension_api::Capability::StatusLine)
+                        && !id.trim().is_empty()
+                        && id.len() <= workdeck_extension_api::MAX_STATUS_ITEM_ID_BYTES
+                        && !id.contains(['\r', '\n'])
+                }
+                ExtensionHostAction::RequestPromptLine {
+                    request_id,
+                    options,
+                } => {
+                    self.manifest
+                        .capabilities
+                        .contains(&workdeck_extension_api::Capability::StatusLine)
+                        && crate::extension_registration::validate_prompt_line_request(
+                            request_id, options,
+                        )
+                        .is_ok()
+                        && matches!(kind, "command" | "prompt line completion")
+                }
             };
             if !valid {
                 return Err(HostError::InvalidPayload {

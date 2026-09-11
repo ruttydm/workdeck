@@ -7,9 +7,10 @@ use self::state::{VimCommandResult, VimNavigationState, execute_vim_command};
 use std::io::{self, BufRead, Write};
 use workdeck_extension_api::{
     API_VERSION, Capability, CommandExecution, CommandInvocation, CommandRegistration,
-    ExtensionHostAction, ExtensionNotifyType, HandshakeResponse, InputDialogSubmission,
-    JsonRpcError, JsonRpcRequest, JsonRpcResponse, KeyboardModeExecution, KeyboardModeKeyRequest,
-    KeyboardModeLifecycleRequest, KeyboardModeRegistration, Registration,
+    ExtensionHostAction, ExtensionNotifyType, ExtensionPromptLineCompletion,
+    ExtensionPromptLineOptions, HandshakeResponse, JsonRpcError, JsonRpcRequest, JsonRpcResponse,
+    KeyboardModeExecution, KeyboardModeKeyRequest, KeyboardModeLifecycleRequest,
+    KeyboardModeRegistration, Registration,
 };
 
 const MODE_ID: &str = "normal";
@@ -42,11 +43,13 @@ fn invoke_command(invocation: &CommandInvocation) -> Result<CommandExecution, St
     let actions = match invocation.command_id.as_str() {
         "toggle" if active => vec![ExtensionHostAction::ExitKeyboardMode],
         "toggle" => vec![ExtensionHostAction::EnterKeyboardMode { id: MODE_ID.into() }],
-        "command-line" if active => vec![ExtensionHostAction::OpenInputDialog {
-            id: "vim-command".into(),
-            title: "Vim command (:)".into(),
-            placeholder: "top or bottom".into(),
-            initial: None,
+        "command-line" if active => vec![ExtensionHostAction::RequestPromptLine {
+            request_id: "vim-command".into(),
+            options: ExtensionPromptLineOptions {
+                prefix: ":".into(),
+                placeholder: "top or bottom".into(),
+                ..Default::default()
+            },
         }],
         "command-line" => vec![ExtensionHostAction::Notify {
             message: "Enter Vim navigation before opening its command line".into(),
@@ -88,17 +91,16 @@ fn route_key(
     Ok(KeyboardModeExecution { result, actions })
 }
 
-fn submit_input(submission: &InputDialogSubmission) -> CommandExecution {
-    let Some(input) = submission
+/// Resolve one inline prompt answer: only a submitted command line, typed while
+/// the mode stays active, executes.
+fn submit_prompt_line(completion: &ExtensionPromptLineCompletion) -> CommandExecution {
+    let Some(input) = completion
         .value
         .as_deref()
-        .filter(|_| submission.active_keyboard_mode.as_deref() == Some(QUALIFIED_MODE_ID))
+        .filter(|_| completion.request_id == "vim-command")
     else {
         return CommandExecution::default();
     };
-    if submission.action_id != "vim-command" {
-        return CommandExecution::default();
-    }
     let (result, mut actions) = execute_vim_command(input);
     if result == VimCommandResult::Unknown {
         actions.push(ExtensionHostAction::Notify {
@@ -152,10 +154,10 @@ pub fn serve<R: BufRead, W: Write>(mut input: R, mut output: W) -> io::Result<()
                     })
                     .map_err(io::Error::other)
             }
-            "workdeck/dialog/input" => {
-                let submission: InputDialogSubmission =
+            "workdeck/prompt/line-complete" => {
+                let completion: ExtensionPromptLineCompletion =
                     serde_json::from_value(request.params).map_err(io::Error::other)?;
-                serde_json::to_value(submit_input(&submission)).map_err(io::Error::other)
+                serde_json::to_value(submit_prompt_line(&completion)).map_err(io::Error::other)
             }
             method => Err(io::Error::other(format!("Unknown method: {method}"))),
         };
@@ -189,7 +191,7 @@ pub fn required_capabilities() -> Vec<Capability> {
         Capability::Commands,
         Capability::KeyboardModes,
         Capability::ReviewNavigation,
-        Capability::Dialogs,
+        Capability::StatusLine,
         Capability::Notifications,
     ]
 }
@@ -250,31 +252,26 @@ mod tests {
             invoke_command(&invocation("command-line", true))
                 .unwrap()
                 .actions[0],
-            ExtensionHostAction::OpenInputDialog { .. }
+            ExtensionHostAction::RequestPromptLine { .. }
         ));
     }
 
     #[test]
-    fn cancelled_or_inactive_dialog_submissions_do_nothing() {
-        let snapshot = invocation("toggle", true).snapshot;
-        let submission = InputDialogSubmission {
-            action_id: "vim-command".into(),
+    fn cancelled_or_unknown_prompt_completions_do_nothing() {
+        let cancelled = submit_prompt_line(&ExtensionPromptLineCompletion {
+            request_id: "vim-command".into(),
             value: None,
-            snapshot: snapshot.clone(),
-            cwd: std::path::PathBuf::new(),
-            review: None,
-            active_keyboard_mode: Some(QUALIFIED_MODE_ID.into()),
-            commands: Default::default(),
-        };
-        assert!(submit_input(&submission).actions.is_empty());
-        assert!(
-            submit_input(&InputDialogSubmission {
-                value: Some("top".into()),
-                active_keyboard_mode: None,
-                ..submission
-            })
-            .actions
-            .is_empty()
-        );
+        });
+        assert!(cancelled.actions.is_empty());
+        let unknown = submit_prompt_line(&ExtensionPromptLineCompletion {
+            request_id: "other".into(),
+            value: Some("top".into()),
+        });
+        assert!(unknown.actions.is_empty());
+        let submitted = submit_prompt_line(&ExtensionPromptLineCompletion {
+            request_id: "vim-command".into(),
+            value: Some("top".into()),
+        });
+        assert!(!submitted.actions.is_empty());
     }
 }

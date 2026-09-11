@@ -87,7 +87,7 @@ planning, so highlight changes cannot move the cursor or alter row counts.
 Agent attention marks use the same merge and contrast pipeline. Reload
 reconciliation retains a mark only when the file content identity is unchanged.
 
-## Commands, modes, and dialogs
+## Commands, modes, dialogs, and the status line
 
 Built-in and extension command ids share one resolved keymap; built-ins win
 conflicts and user remaps release their former chords. Keyboard modes are
@@ -100,6 +100,20 @@ owning extension, and bounded before Ratatui paints it. A reload cancels the
 visible request and queued requests before replacement events arrive. Writes
 through `ctx.workspace` require explicit consent and are limited to reviewed
 working-tree files.
+
+The bottom status row is one host-owned subsystem (`workdeck-tui`'s status-line
+store and layout): persistent items in symbolic tones, one inline prompt, and
+the keyboard-mode badge. Items are namespaced `ext:<id>:<item>` so two
+extensions cannot collide with each other or host items, and a registry
+replacement clears them in one sweep; ordinary content reloads keep the same
+registry and its items. The layout is deterministic and theme-free — the badge
+is never dropped, a prompt takes the left region while open, overflow drops the
+lowest-priority item whole before truncating the last survivor, and prompt
+lead-ins truncate before the input's minimum width. The store owns the prompt
+queue: one visible prompt, FIFO behind it, reload cancels everything except the
+host filter's opted-in input, and shutdown settles the rest. Prompts and items
+cross the native boundary as declarative actions validated against the
+`status-line` capability.
 
 ## Events and snapshots
 

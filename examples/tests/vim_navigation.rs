@@ -5,7 +5,8 @@ use tempfile::TempDir;
 use workdeck_core::{Changeset, ChangesetSource, ReviewSelection, ReviewSnapshot};
 use workdeck_diff::parse_patch;
 use workdeck_extension_api::{
-    ExtensionHostAction, ExtensionKeyEvent, KeyRoutingResult, Registration,
+    ExtensionHostAction, ExtensionKeyEvent, ExtensionPromptLineCompletion, KeyRoutingResult,
+    Registration,
 };
 use workdeck_extension_host::LoadedExtension;
 use workdeck_tui::{ReviewApp, ReviewOptions, render};
@@ -135,7 +136,7 @@ fn compiled_extension_exposes_mode_lifecycle_navigation_and_dialog_protocol() {
             if id == "workdeck.review.step-down"
     ));
 
-    let dialog = extension
+    let prompt = extension
         .invoke_command_with_context(
             "command-line",
             snapshot(),
@@ -144,17 +145,17 @@ fn compiled_extension_exposes_mode_lifecycle_navigation_and_dialog_protocol() {
         )
         .unwrap();
     assert!(matches!(
-        dialog.actions.as_slice(),
-        [ExtensionHostAction::OpenInputDialog { title, placeholder, .. }]
-            if title == "Vim command (:)" && placeholder == "top or bottom"
+        prompt.actions.as_slice(),
+        [ExtensionHostAction::RequestPromptLine { request_id, options }]
+            if request_id == "vim-command"
+                && options.prefix == ":"
+                && options.placeholder == "top or bottom"
     ));
     let submitted = extension
-        .submit_input_dialog(
-            "vim-command",
-            Some(" : bottom ".into()),
-            snapshot(),
-            Some(QUALIFIED_MODE.into()),
-        )
+        .complete_prompt_line(ExtensionPromptLineCompletion {
+            request_id: "vim-command".into(),
+            value: Some(" : bottom ".into()),
+        })
         .unwrap();
     assert!(matches!(
         submitted.actions.as_slice(),
@@ -188,18 +189,17 @@ fn review_shell_routes_f6_counts_ex_dialog_escape_and_reload() {
     assert_eq!(app.current_line_row(), initial + 5);
 
     press(&mut app, KeyCode::Char(':'));
-    assert!(app.has_extension_input_dialog());
+    assert!(app.has_status_line_prompt());
     terminal
         .draw(|frame| render(frame.area(), frame.buffer_mut(), &app))
         .unwrap();
-    let dialog = rendered_text(&terminal);
-    assert!(dialog.contains("Vim command (:)"));
-    assert!(dialog.contains("top or bottom"));
+    let prompt = rendered_text(&terminal);
+    assert!(prompt.contains("ext example.vim-navigation : top or bottom"));
     for character in "bottom".chars() {
         press(&mut app, KeyCode::Char(character));
     }
     press(&mut app, KeyCode::Enter);
-    assert!(!app.has_extension_input_dialog());
+    assert!(!app.has_status_line_prompt());
     assert!(app.current_line_row() > 40);
     assert!(app.review_scroll() > 20);
 
@@ -250,8 +250,8 @@ fn review_shell_routes_f6_counts_ex_dialog_escape_and_reload() {
     press(&mut app, KeyCode::F(6));
     assert!(app.active_keyboard_mode_title().is_some());
     press(&mut app, KeyCode::Char(':'));
-    assert!(app.has_extension_input_dialog());
+    assert!(app.has_status_line_prompt());
     app.reload(changeset());
     assert!(app.active_keyboard_mode_title().is_none());
-    assert!(!app.has_extension_input_dialog());
+    assert!(!app.has_status_line_prompt());
 }
