@@ -1808,6 +1808,7 @@ fn verify() -> Result<()> {
     benchmark::verify_navigation_memory(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     benchmark::verify_resize_memory(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     benchmark::verify_compact_highlight_payload(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
+    benchmark::verify_huge_stream(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     ci_changes::verify_workflow(&repo)?;
     ci_changes::verify_main_workflow(&repo)?;
     diff_pane::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
@@ -2170,6 +2171,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     benchmark::verify_navigation_memory(&repo, &baseline)?;
     benchmark::verify_resize_memory(&repo, &baseline)?;
     benchmark::verify_compact_highlight_payload(&repo, &baseline)?;
+    benchmark::verify_huge_stream(&repo, &baseline)?;
     diff_pane::verify(&repo, &baseline)?;
     use_terminal_review::verify(&repo, &baseline)?;
     app_shell::verify(&repo, &baseline)?;

@@ -60,5 +60,7 @@ using six ordinary files, not the huge workload's performance. Fixture content
 has separate pinned-source checks in `xtask/src/benchmark/stream.rs`. Renderer
 construction is shared with the existing large-stream diagnostic.
 
-Partial translation of Hunk `benchmarks/huge-stream.ts`, MIT, Copyright (c)
-Modem Labs Inc. The source ledger record remains unmapped.
+Native Rust/Ratatui reimplementation of Hunk `benchmarks/huge-stream.ts`, MIT, Copyright (c)
+Modem Labs Inc. The source is verified at both pins by `cargo xtask verify` and the strict port
+audit; no TypeScript runtime is retained. The pinned source is 2,388 bytes with SHA-256
+`af90c5429effc6a9c26b69e6db09e86fa4aacb2af9addbbfd1eb0246e17021e5`.

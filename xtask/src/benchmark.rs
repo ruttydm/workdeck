@@ -171,6 +171,11 @@ const COMPACT_HIGHLIGHT_PAYLOAD_LINES: usize = 216;
 const COMPACT_HIGHLIGHT_PAYLOAD_SHA256: &str =
     "640dfe2046b97f304508effcaee25704c42fb8ab0b56a33bb8f057d105856e4a";
 
+const HUGE_STREAM_PATH: &str = "benchmarks/huge-stream.ts";
+const HUGE_STREAM_BYTES: usize = 2_388;
+const HUGE_STREAM_LINES: usize = 63;
+const HUGE_STREAM_SHA256: &str = "af90c5429effc6a9c26b69e6db09e86fa4aacb2af9addbbfd1eb0246e17021e5";
+
 /// Verify the executable native replacement for Hunk's terminal-width
 /// benchmark. The source is read from both protected pins; no TypeScript or
 /// string-width runtime is copied into the final tree.
@@ -1244,6 +1249,102 @@ pub(crate) fn verify_compact_highlight_payload(repo: &Path, baseline: &str) -> R
     Ok(())
 }
 
+/// Verify the native opt-in huge-stream diagnostic and its preserved interaction sequence.
+pub(crate) fn verify_huge_stream(repo: &Path, baseline: &str) -> Result<()> {
+    ensure!(
+        baseline == BASELINE,
+        "huge-stream verifier received unexpected baseline {baseline}"
+    );
+    let source =
+        crate::git_stdout_bytes(repo, ["show", &format!("{BASELINE}:{HUGE_STREAM_PATH}")])?;
+    let stable = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            &format!("4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd:{HUGE_STREAM_PATH}"),
+        ],
+    )?;
+    for (pin, bytes) in [(BASELINE, &source), ("stable-v0.20.1", &stable)] {
+        ensure!(
+            bytes.len() == HUGE_STREAM_BYTES,
+            "pinned {HUGE_STREAM_PATH} {pin} changed size: {} != {HUGE_STREAM_BYTES}",
+            bytes.len()
+        );
+        ensure!(
+            bytes.split(|byte| *byte == b'\n').count() == HUGE_STREAM_LINES + 1,
+            "pinned {HUGE_STREAM_PATH} {pin} changed line count"
+        );
+        ensure!(
+            format!("{:x}", Sha256::digest(bytes)) == HUGE_STREAM_SHA256,
+            "pinned {HUGE_STREAM_PATH} {pin} changed SHA-256"
+        );
+    }
+    ensure!(
+        source == stable,
+        "pinned huge-stream benchmark diverged between pins"
+    );
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "Benchmark the huge fixture tier",
+        "testRender",
+        "performance.now",
+        "createHugeStreamBootstrap",
+        "GIANT_SINGLE_FILE_LINES",
+        "HUGE_FILE_COUNT",
+        "HUGE_LINES_PER_FILE",
+        "measureScrollTickLatencies",
+        "measureKeyPressLatencies",
+        "destroyRenderer",
+        "NAVIGATION_PRESSES",
+        "SCROLL_TICKS",
+        "huge_cold_first_frame_ms",
+        "huge_after_navigation",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned huge-stream benchmark is missing marker {marker:?}"
+        );
+    }
+    for (path, marker) in [
+        ("xtask/src/benchmark/huge_stream.rs", "pub(super) fn run("),
+        (
+            "xtask/src/benchmark/huge_stream.rs",
+            "huge_interaction_sequence_executes_on_a_small_fixture",
+        ),
+        (
+            "xtask/src/benchmark/stream.rs",
+            "pub(super) fn huge_bootstrap(",
+        ),
+        ("xtask/src/benchmark.rs", "Some(\"huge-stream-diagnostic\")"),
+        ("xtask/src/benchmark/runner.rs", "huge-stream.ts"),
+        ("docs/benchmarks.md", "cargo xtask benchmark huge-stream"),
+    ] {
+        let native = fs::read_to_string(repo.join(path))
+            .with_context(|| format!("read huge-stream native surface {path}"))?;
+        ensure!(
+            native.contains(marker),
+            "huge-stream native surface {path} is missing {marker:?}"
+        );
+    }
+    let docs = fs::read_to_string(repo.join("docs/huge-stream-diagnostic.md"))
+        .context("read huge-stream migration documentation")?;
+    for marker in [
+        HUGE_STREAM_PATH,
+        "2,388",
+        HUGE_STREAM_SHA256,
+        "Ratatui",
+        "native",
+        "RSS",
+        "no TypeScript runtime",
+    ] {
+        ensure!(
+            docs.contains(marker),
+            "huge-stream migration documentation is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
+
 mod bootstrap;
 mod changeset_parse;
 mod compact_highlight_payload;
@@ -2105,6 +2206,12 @@ mod tests {
     fn native_compact_highlight_payload_source_is_verified_at_both_pins() {
         let repo = super::super::repo_root().unwrap();
         super::verify_compact_highlight_payload(&repo, BASELINE).unwrap();
+    }
+
+    #[test]
+    fn native_huge_stream_source_is_verified_at_both_pins() {
+        let repo = super::super::repo_root().unwrap();
+        super::verify_huge_stream(&repo, BASELINE).unwrap();
     }
 
     #[test]
