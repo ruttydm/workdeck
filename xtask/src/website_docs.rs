@@ -118,6 +118,18 @@ const DOCS: &[DocSpec] = &[
         bytes: 1582,
         sha256: "8a20b04e041858ea0c844aeb8b98a406da1c8e40d79a90a548688c26beed2396",
     },
+    DocSpec {
+        source: "website/src/content/docs/docs/workflows/git-pager-and-difftool.md",
+        native: "site/content/docs/workflows/git-pager-and-difftool.md",
+        bytes: 1583,
+        sha256: "a0626c5fb870463861ee6ce64ebd642be652f42a6168e675f259613f8f7cb45e",
+    },
+    DocSpec {
+        source: "website/src/content/docs/docs/agents/review-skill.md",
+        native: "site/content/docs/agents/review-skill.md",
+        bytes: 1630,
+        sha256: "713dfc1f5849ece579b128cb744eb724a6d7c7a995b9fbf9614c0019f6be7bfd",
+    },
 ];
 
 pub(crate) fn verify(repo: &Path, baseline: &str) -> Result<()> {

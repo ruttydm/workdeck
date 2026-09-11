@@ -29,3 +29,5 @@ Migrated sources:
 - `website/src/content/docs/docs/agents/live-session-control.md`
 - `website/src/content/docs/docs/agents/comments-and-annotations.md`
 - `website/src/content/docs/docs/agents/agent-context-and-stml.md`
+- `website/src/content/docs/docs/workflows/git-pager-and-difftool.md`
+- `website/src/content/docs/docs/agents/review-skill.md`
