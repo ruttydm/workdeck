@@ -1800,6 +1800,7 @@ fn verify() -> Result<()> {
     benchmark::verify_terminal_width(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     benchmark::competitors::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     benchmark::verify_geometry_memory(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
+    benchmark::verify_runner(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     ci_changes::verify_workflow(&repo)?;
     ci_changes::verify_main_workflow(&repo)?;
     diff_pane::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
@@ -2154,6 +2155,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     benchmark::verify_terminal_width(&repo, &baseline)?;
     benchmark::competitors::verify(&repo, &baseline)?;
     benchmark::verify_geometry_memory(&repo, &baseline)?;
+    benchmark::verify_runner(&repo, &baseline)?;
     diff_pane::verify(&repo, &baseline)?;
     use_terminal_review::verify(&repo, &baseline)?;
     app_shell::verify(&repo, &baseline)?;

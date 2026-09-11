@@ -120,6 +120,12 @@ const GEOMETRY_MEMORY_LINES: usize = 194;
 const GEOMETRY_MEMORY_SHA256: &str =
     "5a3707a75a0b730392016642d1d28ee6be5b9c04eef8e0870947055318e9f5c8";
 
+const BENCHMARK_RUN_PATH: &str = "benchmarks/run.ts";
+const BENCHMARK_RUN_BYTES: usize = 5_568;
+const BENCHMARK_RUN_LINES: usize = 217;
+const BENCHMARK_RUN_SHA256: &str =
+    "0a86be0791cf64a61771b451e4a38aa2e77ebfa51cc2dd5bc083fb3b4cc17891";
+
 /// Verify the executable native replacement for Hunk's terminal-width
 /// benchmark. The source is read from both protected pins; no TypeScript or
 /// string-width runtime is copied into the final tree.
@@ -317,6 +323,105 @@ pub(crate) fn verify_geometry_memory(repo: &Path, baseline: &str) -> Result<()> 
         ensure!(
             docs.contains(marker),
             "geometry-memory migration documentation is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
+
+/// Verify the native Rust benchmark orchestrator replacing Hunk's Bun runner.
+pub(crate) fn verify_runner(repo: &Path, baseline: &str) -> Result<()> {
+    ensure!(
+        baseline == BASELINE,
+        "benchmark runner verifier received unexpected baseline {baseline}"
+    );
+    let source =
+        crate::git_stdout_bytes(repo, ["show", &format!("{BASELINE}:{BENCHMARK_RUN_PATH}")])?;
+    let stable = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            &format!("4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd:{BENCHMARK_RUN_PATH}"),
+        ],
+    )?;
+    for (pin, bytes) in [(BASELINE, &source), ("stable-v0.20.1", &stable)] {
+        ensure!(
+            bytes.len() == BENCHMARK_RUN_BYTES,
+            "pinned {BENCHMARK_RUN_PATH} {pin} changed size: {} != {BENCHMARK_RUN_BYTES}",
+            bytes.len()
+        );
+        ensure!(
+            bytes.split(|byte| *byte == b'\n').count() == BENCHMARK_RUN_LINES + 1,
+            "pinned {BENCHMARK_RUN_PATH} {pin} changed line count"
+        );
+        ensure!(
+            format!("{:x}", Sha256::digest(bytes)) == BENCHMARK_RUN_SHA256,
+            "pinned {BENCHMARK_RUN_PATH} {pin} changed SHA-256"
+        );
+    }
+    ensure!(
+        source == stable,
+        "pinned benchmark runner diverged between pins"
+    );
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "#!/usr/bin/env bun",
+        "defaultScripts",
+        "RunOptions",
+        "readArgValue",
+        "parseArgs",
+        "gitSha",
+        "packageVersion",
+        "parseMetrics",
+        "runScript",
+        "aggregateMetric",
+        "localeCompare",
+        "BenchmarkRunResult",
+        "includeCompetitors",
+        "includeHuge",
+        "samplesByMetric",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned benchmark runner is missing marker {marker:?}"
+        );
+    }
+    for (path, marker) in [
+        (
+            "xtask/src/benchmark/runner.rs",
+            "pub(super) fn run_command(",
+        ),
+        ("xtask/src/benchmark/runner.rs", "fn collect("),
+        (
+            "xtask/src/benchmark/runner.rs",
+            "pub(super) fn parse_metrics(",
+        ),
+        ("xtask/src/benchmark/runner.rs", "package_version"),
+        ("xtask/src/benchmark.rs", "Some(\"run\")"),
+        ("docs/benchmarks.md", "cargo xtask benchmark run --samples"),
+    ] {
+        let native = fs::read_to_string(repo.join(path))
+            .with_context(|| format!("read benchmark runner native surface {path}"))?;
+        ensure!(
+            native.contains(marker),
+            "benchmark runner native surface {path} is missing {marker:?}"
+        );
+    }
+    let docs = fs::read_to_string(repo.join("docs/benchmark-runner-migration.md"))
+        .context("read benchmark runner migration documentation")?;
+    for marker in [
+        BENCHMARK_RUN_PATH,
+        "5,568",
+        BENCHMARK_RUN_SHA256,
+        "samples",
+        "competitors",
+        "huge",
+        "metrics",
+        "Rust",
+        "no Bun",
+    ] {
+        ensure!(
+            docs.contains(marker),
+            "benchmark runner migration documentation is missing {marker:?}"
         );
     }
     Ok(())
@@ -1111,6 +1216,12 @@ mod tests {
     fn native_geometry_memory_source_is_verified_at_both_pins() {
         let repo = super::super::repo_root().unwrap();
         super::verify_geometry_memory(&repo, BASELINE).unwrap();
+    }
+
+    #[test]
+    fn native_benchmark_runner_source_is_verified_at_both_pins() {
+        let repo = super::super::repo_root().unwrap();
+        super::verify_runner(&repo, BASELINE).unwrap();
     }
 
     #[test]

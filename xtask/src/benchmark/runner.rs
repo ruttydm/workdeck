@@ -1,4 +1,4 @@
-//! Incremental MIT port of Hunk's benchmark runner. Execution of the complete suite is pending.
+//! Native MIT port of Hunk's benchmark runner and result aggregation.
 
 use super::*;
 use std::io::Write;
