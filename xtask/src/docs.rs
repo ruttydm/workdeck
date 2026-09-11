@@ -473,4 +473,19 @@ mod tests {
             render_cli_reference()
         );
     }
+
+    #[test]
+    fn deployment_page_keeps_the_native_static_pipeline_contract() {
+        let repo = crate::repo_root().unwrap();
+        let page = fs::read_to_string(repo.join("site/content/docs/help/deployment.md")).unwrap();
+        for required in [
+            "cargo xtask site check",
+            "cargo xtask site build",
+            "site/public",
+            "https://workdeck.dev/sitemap.xml",
+        ] {
+            assert!(page.contains(required), "missing {required}");
+        }
+        assert!(!page.contains("bun run") && !page.contains("npm install"));
+    }
 }
