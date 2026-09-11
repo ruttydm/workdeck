@@ -12969,7 +12969,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
             file_header(
                 file,
                 usize::from(area.width),
-                max_file_header_stats_width(&state.changeset().files),
+                rows.header_stats_width,
                 &app.options.theme,
             )
         })
@@ -13228,13 +13228,7 @@ fn build_plain_split_viewport_rows(
             }
         }
     }
-    let header_stats_width = geometry
-        .visible_file_indices
-        .iter()
-        .filter_map(|index| changeset.files.get(*index))
-        .map(|file| file_header_stats(file).width)
-        .max()
-        .unwrap_or_default();
+    let header_stats_width = geometry.header_stats_width;
 
     // Collapsed source-gap labels are metadata rows rather than hunk bodies;
     // retain their text and affordance while keeping the body repaint lazy.
@@ -13772,6 +13766,9 @@ struct ReviewRows {
     /// Immutable cursor geometry is shared by sparse viewport shells. Dynamic
     /// composer edits use `Arc::make_mut` before shifting rows.
     line_cursors: Arc<Vec<ReviewLineCursor>>,
+    /// Header statistics width is document geometry and remains stable across
+    /// sparse viewport repaints.
+    header_stats_width: usize,
     file_tops: BTreeMap<usize, usize>,
     file_header_tops: BTreeMap<usize, usize>,
     file_body_tops: BTreeMap<usize, usize>,
@@ -13875,6 +13872,7 @@ impl ReviewRows {
             note_targets: self.note_targets.clone(),
             note_bounds: self.note_bounds.clone(),
             line_cursors: Arc::clone(&self.line_cursors),
+            header_stats_width: self.header_stats_width,
             file_tops: self.file_tops.clone(),
             file_header_tops: self.file_header_tops.clone(),
             file_body_tops: self.file_body_tops.clone(),
@@ -14573,6 +14571,7 @@ fn build_review_rows_with_chrome(
         note_targets: note_targets.into_iter().collect(),
         note_bounds,
         line_cursors: Arc::new(line_cursors),
+        header_stats_width,
         file_tops,
         file_header_tops,
         file_body_tops,
