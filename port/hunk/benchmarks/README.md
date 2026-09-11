@@ -193,18 +193,20 @@ and cannot claim equivalence to Hunk's full-GC snapshots.
 
 ### Current native interaction receipt at `0e85dcab`
 
-The plain-split repaint cache, pending worker-key memo, and shared review metadata are measured in
-[`interaction-native-0e85dcab.json`](interaction-native-0e85dcab.json). Twenty optimized Workdeck
-samples ran on the macOS arm64 host after the full verifier. The report is a native receipt only;
-it is not a paired Hunk run and does not satisfy the cross-runtime 10% gate.
+The plain-split repaint cache, pending worker-key memo, shared review metadata, and the
+source-presentation-keyed geometry cache are measured in
+[`interaction-native-ee34bf1e.json`](interaction-native-ee34bf1e.json). Twenty optimized Workdeck
+samples ran on the macOS arm64 host after the full verifier. The report is a native receipt;
+the paired comparison below uses the frozen disposable-oracle Hunk pins from the same host.
 
 | Median | Workdeck |
 | --- | ---: |
-| First frame | 4.64 ms |
-| Navigation press | 3.33 ms |
-| Scroll tick | 2.58 ms |
-| RSS after first frame | 111,214,592 bytes |
-| RSS after navigation | 113,885,184 bytes |
+| First frame | 4.67 ms |
+| Navigation press | 3.34 ms |
+| Scroll tick | 0.60 ms |
+| Scroll tick p95 | 0.62 ms |
+| RSS after first frame | 112,525,312 bytes |
+| RSS after navigation | 115,933,184 bytes |
 
 Reproduce it with:
 
@@ -213,12 +215,18 @@ cargo build --locked --release -p xtask
 target/release/xtask benchmark run --script interaction-latency.ts --samples 20 --out REPORT.json
 ```
 
-The immutable-document cache is bounded to 2,048 pair entries and invalidated by document identity,
-selection, theme, width, wrapping, line-number, highlight, and horizontal offset changes. Pending
-native worker requests retain an identity-scoped key so redraws poll without rebuilding serialized
-metadata; completion still follows the ordinary decode path. Dynamic comment, extension, and
-line-highlight paths continue to use the complete metadata painter. The pinned Hunk comparison,
-peak-memory equivalence, and non-macOS receipts remain required release evidence.
+The geometry cache was previously disabled whenever any file carried a snapshot-backed source
+(`SourceOrigin::File`), which describes every interaction fixture file, so each wheel tick
+rebuilt the complete row plan inside dispatch. Availability now keys the geometry and
+plain-height caches through a monotonic presentation revision, and the presentation table is
+Arc-shared, so per-frame option clones no longer deep-copy it. The immutable-document pair cache
+remains bounded to 2,048 entries and invalidated by document identity, selection, theme, width,
+wrapping, line-number, highlight, and horizontal offset changes. Pending native worker requests
+retain an identity-scoped key so redraws poll without rebuilding serialized metadata; completion
+still follows the ordinary decode path. Dynamic comment, extension, and line-highlight paths
+continue to use the complete metadata painter. A regression test pins cached and rebuilt frames
+cell-identical across wheel ticks with snapshot-backed sources. Non-macOS receipts remain
+required release evidence.
 
 For a fresh paired diagnostic, the disposable oracle captures are
 [`interaction-hunk-2c00f435-20.json`](interaction-hunk-2c00f435-20.json) and
@@ -229,15 +237,21 @@ receipt are:
 
 | Median | Hunk main | Hunk v0.20.1 | Workdeck |
 | --- | ---: | ---: | ---: |
-| First frame | 20.70 ms | 21.28 ms | 4.64 ms |
-| Navigation press | 51.95 ms | 53.22 ms | 3.33 ms |
-| Scroll tick | 1.93 ms | 2.04 ms | 2.58 ms |
+| First frame | 20.70 ms | 21.28 ms | 4.67 ms |
+| Navigation press | 51.95 ms | 53.22 ms | 3.34 ms |
+| Scroll tick | 1.93 ms | 2.04 ms | 0.60 ms |
+| Scroll tick p95 | 8.93 ms | 6.83 ms | 0.62 ms |
 
-Workdeck is faster for first paint and navigation on this workload, while scroll is 33.7% over
-the main-pin median and 26.5% over the stable-pin median; the strict 10% interaction gate therefore
-remains open. Hunk RSS includes a JavaScript heap and native process footprint, whereas Workdeck
-reports native RSS and allocator snapshots; those memory values are retained for diagnostics, not
-treated as directly comparable peak-memory proof.
+Workdeck is now faster than both pins on every paired interaction metric: scroll is 68.9% under
+the main-pin median and 70.6% under the stable-pin median, so the strict 10% interaction latency
+gate passes on this workload. Three fresh native rounds under `/usr/bin/time -l` peak at
+119,013,376 bytes (116,785,152; 118,964,224; 119,013,376), below the frozen pin peaks of
+613,482,496 and 591,872,000 bytes in [`interaction-paired-peak-c453574b.json`](interaction-paired-peak-c453574b.json)
+and below the prior native paired peak of 170,754,048 bytes, so the no-peak-memory-regression
+requirement also passes on this host. Hunk RSS includes a JavaScript heap and native process
+footprint, whereas Workdeck reports native RSS and allocator snapshots; those memory values are
+retained for diagnostics, not treated as directly comparable peak-memory proof beyond the
+`/usr/bin/time -l` peak comparison above.
 
 ### Optimized interaction diagnostic at `10bb95d7`
 

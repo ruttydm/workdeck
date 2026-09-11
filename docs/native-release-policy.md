@@ -1,24 +1,28 @@
 # Native release-channel and version policy
 
-## Current semantic-port closeout (`93253b25`)
+## Current semantic-port closeout (`ee34bf1e`)
 
-The latest local closeout ran the complete Rust verifier after the TUI repaint-cache change.
-`cargo xtask verify` reached its success marker; the final `cargo xtask port fetch` and strict
-`cargo xtask port audit` report 1,257 baseline files, 1,459 records, zero unmapped records, zero
-post-baseline upstream commits, and 1,192 provenance-checked Workdeck commits. Formatting,
-dependency policy, workspace/all-target tests, Clippy, release build, and large-repository smoke
-also passed. The native 20-sample interaction receipt is recorded at
-[`port/hunk/benchmarks/interaction-native-93253b25.json`](../port/hunk/benchmarks/interaction-native-93253b25.json).
-These are local macOS arm64 results; paired Hunk latency/memory acceptance, non-macOS execution,
-remote signing/provenance, and external installer/update evidence remain release gates rather than
-being inferred from the local pass.
+The latest local closeout reran the strict port gates after the source-presentation-keyed
+geometry cache change. `cargo xtask port fetch` followed by strict `cargo xtask port audit`
+report 1,257 baseline files, 1,459 records, zero unmapped records, zero post-baseline upstream
+commits, and 1,197 provenance-checked Workdeck commits. The native 20-sample interaction
+receipt is recorded at
+[`port/hunk/benchmarks/interaction-native-ee34bf1e.json`](../port/hunk/benchmarks/interaction-native-ee34bf1e.json);
+against the frozen same-host Hunk pins it passes every paired interaction metric (scroll tick
+median 0.60 ms versus 1.93/2.04 ms, 68.9%/70.6% under the main/stable pins), and three fresh
+`/usr/bin/time -l` native rounds peak at 119,013,376 bytes against frozen pin peaks of
+613,482,496 and 591,872,000 bytes, so the paired 10% latency gate and the no-peak-memory
+regression requirement pass on this host. Non-macOS execution, remote signing/provenance, and
+external installer/update evidence remain release gates rather than being inferred from the
+local pass; the recorded blockers live in the goal evidence notes.
 
-The same closeout exercised the local artifact path: `cargo xtask release build`, host staging,
-`release check-artifacts`, `install-inspect --package`, and `install-verify` all passed for the
-macOS arm64 archive. The archive carried a locally bound unsigned statement, so the output reports
-`checksumVerified: true` and `signatureVerified: false`; `release package --verify-ci` correctly
-refused that input because a real Sigstore bundle was absent. This validates packaging mechanics,
-not publisher authenticity or release readiness.
+The prior closeout's complete Rust verifier run, formatting, dependency policy,
+workspace/all-target tests, Clippy, release build, large-repository smoke, and local artifact
+path (`release build`, host staging, `release check-artifacts`, `install-inspect --package`,
+`install-verify`) all passed and are re-run by the recorded gate suite; the archive carries a
+locally bound unsigned statement (`checksumVerified: true`, `signatureVerified: false`), and
+`release package --verify-ci` correctly refused that input because a real Sigstore bundle was
+absent. This validates packaging mechanics, not publisher authenticity or release readiness.
 
 ## Dependency-policy checkpoint (`bf8b7cf7`)
 
