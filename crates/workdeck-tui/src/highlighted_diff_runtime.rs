@@ -210,6 +210,16 @@ pub fn highlighted_diff_cache_key_with_provider(
     file: &DiffFile,
     provider: &HighlightSourceProviderIdentity,
 ) -> String {
+    let fingerprint = highlighted_content_fingerprint(file);
+    highlighted_diff_cache_key_with_fingerprint(theme, file, provider, &fingerprint)
+}
+
+fn highlighted_diff_cache_key_with_fingerprint(
+    theme: &AppTheme,
+    file: &DiffFile,
+    provider: &HighlightSourceProviderIdentity,
+    fingerprint: &str,
+) -> String {
     let syntax_theme = syntax_highlight_theme_name(
         appearance(theme),
         theme.syntax_theme.as_deref(),
@@ -224,7 +234,7 @@ pub fn highlighted_diff_cache_key_with_provider(
         "{}:{syntax_theme}:{file_id}:{}:{}:{}",
         theme.id,
         file.language.as_deref().unwrap_or("text"),
-        highlighted_content_fingerprint(file),
+        fingerprint,
         source_provider_fingerprint(provider)
     )
 }
@@ -266,6 +276,43 @@ pub fn resolve_highlighted_snapshot(
 pub struct HighlightedDiffRuntime {
     engine: HighlightCache,
     coordinator: HighlightedDiffCoordinator,
+    /// Cache the expensive content fingerprint while a changeset's immutable
+    /// `DiffFile` values remain mounted.  The public key helper stays pure and
+    /// byte-for-byte compatible; render-time callers use this identity-checked
+    /// memo so a wheel event does not serialize every hunk again.
+    fingerprint_cache: HashMap<usize, CachedFingerprint>,
+}
+
+#[derive(Debug, Clone)]
+struct CachedFingerprint {
+    content_identity: String,
+    source_identity: Option<String>,
+    old_source_identity: Option<String>,
+    new_source_identity: Option<String>,
+    patch_len: usize,
+    hunk_count: usize,
+    value: String,
+}
+
+impl CachedFingerprint {
+    fn matches(&self, file: &DiffFile) -> bool {
+        self.content_identity == file.content_identity
+            && self.source_identity == file.source_identity
+            && self.old_source_identity.as_deref()
+                == file
+                    .sources
+                    .old
+                    .as_ref()
+                    .map(|source| source.content_identity.as_str())
+            && self.new_source_identity.as_deref()
+                == file
+                    .sources
+                    .new
+                    .as_ref()
+                    .map(|source| source.content_identity.as_str())
+            && self.patch_len == file.patch.len()
+            && self.hunk_count == file.hunks.len()
+    }
 }
 
 impl Drop for HighlightedDiffRuntime {
@@ -298,7 +345,7 @@ impl HighlightedDiffRuntime {
         theme: &AppTheme,
         offload_large_diff: bool,
     ) -> Option<Arc<HighlightedDiffCode>> {
-        let cache_key = highlighted_diff_cache_key(theme, file);
+        let cache_key = self.cached_highlighted_diff_cache_key(theme, file);
         let request = self.coordinator.begin(&cache_key);
         if request == HighlightRequestState::Cached {
             return self.coordinator.read_shared(&cache_key);
@@ -357,6 +404,51 @@ impl HighlightedDiffRuntime {
     pub fn clear(&mut self) {
         self.engine.clear();
         self.coordinator.clear();
+        self.fingerprint_cache.clear();
+    }
+
+    fn cached_highlighted_diff_cache_key(&mut self, theme: &AppTheme, file: &DiffFile) -> String {
+        let fingerprint = if file.content_identity.is_empty() {
+            // Hand-authored fixtures and callers that have not refreshed a
+            // `DiffFile` identity retain the fully defensive pure path.
+            highlighted_content_fingerprint(file)
+        } else {
+            let pointer = std::ptr::from_ref(file) as usize;
+            if let Some(cached) = self.fingerprint_cache.get(&pointer)
+                && cached.matches(file)
+            {
+                cached.value.clone()
+            } else {
+                let value = highlighted_content_fingerprint(file);
+                self.fingerprint_cache.insert(
+                    pointer,
+                    CachedFingerprint {
+                        content_identity: file.content_identity.clone(),
+                        source_identity: file.source_identity.clone(),
+                        old_source_identity: file
+                            .sources
+                            .old
+                            .as_ref()
+                            .map(|source| source.content_identity.clone()),
+                        new_source_identity: file
+                            .sources
+                            .new
+                            .as_ref()
+                            .map(|source| source.content_identity.clone()),
+                        patch_len: file.patch.len(),
+                        hunk_count: file.hunks.len(),
+                        value: value.clone(),
+                    },
+                );
+                value
+            }
+        };
+        highlighted_diff_cache_key_with_fingerprint(
+            theme,
+            file,
+            &derived_source_provider(file),
+            &fingerprint,
+        )
     }
 
     pub fn highlight_source_with_syntax_theme(
