@@ -34,6 +34,7 @@ mod port_history;
 mod port_oracles;
 mod provenance;
 mod pty_harness;
+mod release_artifacts;
 mod release_channel;
 mod release_notes;
 mod release_status;
@@ -347,6 +348,21 @@ fn run() -> Result<()> {
         },
         Some("release") => match args.next().as_deref() {
             Some("package") => package_release(parse_package_options(args)?),
+            Some("build") => release_artifacts::build(&repo_root()?),
+            Some("stage") => release_artifacts::stage(args),
+            Some("check-artifacts") => {
+                let root = args
+                    .next()
+                    .unwrap_or_else(|| "dist/release/artifacts".into());
+                ensure!(
+                    args.next().is_none(),
+                    "release check-artifacts accepts at most one path"
+                );
+                let names = release_artifacts::check(&repo_root()?.join(root))?;
+                println!("validated native Workdeck artifacts: {}", names.join(", "));
+                Ok(())
+            }
+            Some("publish") => release_artifacts::publish(args),
             Some("provenance-check") => provenance::inspect(args),
             Some("provenance-verify") => provenance::verify(args),
             Some("channel") => release_channel::channel(args),
@@ -355,7 +371,7 @@ fn run() -> Result<()> {
             Some("status") => release_status::run(&repo_root()?, args),
             Some("verify-pr-notes") => release_notes::verify_pr(&repo_root()?, args),
             _ => bail!(
-                "release requires package, channel, check-version, validate-prerelease, status, or verify-pr-notes"
+                "release requires package, build, stage, check-artifacts, publish, channel, check-version, validate-prerelease, status, or verify-pr-notes"
             ),
         },
         _ => {
@@ -1820,6 +1836,7 @@ fn verify() -> Result<()> {
     install_script::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     theme_probe::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     release_targets::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
+    release_artifacts::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     test_sharding::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     ui_components::verify(&repo, &resolve_commit(&repo, DEFAULT_BASELINE)?)?;
     site_links::verify_docs_header(&repo)?;
@@ -2181,6 +2198,7 @@ fn audit(options: Options, strict: bool) -> Result<()> {
     install_script::verify(&repo, &baseline)?;
     theme_probe::verify(&repo, &baseline)?;
     release_targets::verify(&repo, &baseline)?;
+    release_artifacts::verify(&repo, &baseline)?;
     test_sharding::verify(&repo, &baseline)?;
     ui_components::verify(&repo, &baseline)?;
     let entries = read_tree(&repo, &baseline)?;
@@ -2958,6 +2976,10 @@ fn print_help() {
     println!(
         "cargo xtask release package --target TRIPLE --provenance STATEMENT [--verify-ci] [--binary PATH] [--output DIR]"
     );
+    println!("cargo xtask release build");
+    println!("cargo xtask release stage [--artifact-root DIR] [--output-root DIR]");
+    println!("cargo xtask release check-artifacts [DIR]");
+    println!("cargo xtask release publish [--dry-run] [--tag TAG] (intentionally rejected)");
     println!("cargo xtask release provenance-check BINARY STATEMENT");
     println!(
         "cargo xtask release provenance-verify BINARY BUNDLE OWNER/REPO SOURCE_COMMIT refs/tags/TAG"
