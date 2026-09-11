@@ -1,11 +1,33 @@
 //! Partial MIT port of Hunk website/src/data/extensions.ts (Modem Labs Inc.).
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Map, Value};
+use sha2::Digest;
 use std::collections::BTreeMap;
+use std::fs;
 use std::io::Read;
 use std::path::Path;
 
 mod loading;
+
+const EXTENSION_CONSUMER_PATH: &str = "scripts/extension-consumer-check.ts";
+const EXTENSION_CONSUMER_BYTES: usize = 5_898;
+const EXTENSION_CONSUMER_LINES: usize = 168;
+const EXTENSION_CONSUMER_SHA256: &str =
+    "efc5cfe468cd1d23f7dffaaf08cd0208873cd1c71e27ea4f155f8e11e78c550d";
+const EXTENSION_DOCS_PATH: &str = "scripts/extension-doc-examples.ts";
+const EXTENSION_DOCS_BYTES: usize = 5_411;
+const EXTENSION_DOCS_LINES: usize = 145;
+const EXTENSION_DOCS_SHA256: &str =
+    "dbf982d74b673ec46f1eab1903c5806fe092d2528ee780722aac245cad2c954c";
+const EXTENSION_DOCS_TEST_PATH: &str = "scripts/extension-doc-examples.test.ts";
+const EXTENSION_DOCS_TEST_BYTES: usize = 3_018;
+const EXTENSION_DOCS_TEST_LINES: usize = 88;
+const EXTENSION_DOCS_TEST_SHA256: &str =
+    "3ef479ce20400bf89eb12ab647ea2215ee389987b7484156de4e50d19a6575c5";
+const CHECK_PACK_PATH: &str = "scripts/check-pack.ts";
+const CHECK_PACK_BYTES: usize = 17_383;
+const CHECK_PACK_LINES: usize = 516;
+const CHECK_PACK_SHA256: &str = "ee81e1ea3088a833fd1e9b0572f7596e512c7a7c4df095e6c19388105d766c93";
 
 pub fn validate_legacy_catalog(catalog: &Value) -> Result<()> {
     anyhow::ensure!(
@@ -99,6 +121,142 @@ pub(crate) fn verify_pinned_source(repo: &Path, baseline: &str) -> Result<()> {
     );
     let source = String::from_utf8(source_bytes)?;
     verify_legacy_source(&catalog, &source)
+}
+
+struct SourcePair<'a> {
+    path: &'a str,
+    baseline_bytes: usize,
+    baseline_lines: usize,
+    baseline_sha: &'a str,
+    stable_bytes: usize,
+    stable_lines: usize,
+    stable_sha: &'a str,
+}
+
+fn verify_source_pair(repo: &Path, spec: SourcePair<'_>) -> Result<()> {
+    let SourcePair {
+        path,
+        baseline_bytes,
+        baseline_lines,
+        baseline_sha,
+        stable_bytes,
+        stable_lines,
+        stable_sha,
+    } = spec;
+    for (pin, bytes_expected, lines_expected, sha_expected) in [
+        (
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+            baseline_bytes,
+            baseline_lines,
+            baseline_sha,
+        ),
+        (
+            "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+            stable_bytes,
+            stable_lines,
+            stable_sha,
+        ),
+    ] {
+        let source = crate::git_stdout_bytes(repo, ["show", &format!("{pin}:{path}")])?;
+        ensure!(
+            source.len() == bytes_expected,
+            "pinned {path} {pin} changed size: {} != {bytes_expected}",
+            source.len()
+        );
+        ensure!(
+            source.split(|byte| *byte == b'\n').count() == lines_expected + 1,
+            "pinned {path} {pin} changed line count"
+        );
+        ensure!(
+            format!("{:x}", sha2::Sha256::digest(&source)) == sha_expected,
+            "pinned {path} {pin} changed SHA-256"
+        );
+    }
+    Ok(())
+}
+
+/// Verify the source-level extension consumer, documentation-example, and
+/// package-surface checks through the native Rust extension API and examples.
+/// The original TypeScript helpers are inspected from protected Git refs only;
+/// none is copied into or executed by Workdeck.
+pub(crate) fn verify_extension_tooling(repo: &Path, baseline: &str) -> Result<()> {
+    if baseline != "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2" {
+        return Ok(());
+    }
+    verify_source_pair(
+        repo,
+        SourcePair {
+            path: EXTENSION_CONSUMER_PATH,
+            baseline_bytes: EXTENSION_CONSUMER_BYTES,
+            baseline_lines: EXTENSION_CONSUMER_LINES,
+            baseline_sha: EXTENSION_CONSUMER_SHA256,
+            stable_bytes: EXTENSION_CONSUMER_BYTES,
+            stable_lines: EXTENSION_CONSUMER_LINES,
+            stable_sha: EXTENSION_CONSUMER_SHA256,
+        },
+    )?;
+    verify_source_pair(
+        repo,
+        SourcePair {
+            path: EXTENSION_DOCS_PATH,
+            baseline_bytes: EXTENSION_DOCS_BYTES,
+            baseline_lines: EXTENSION_DOCS_LINES,
+            baseline_sha: EXTENSION_DOCS_SHA256,
+            stable_bytes: EXTENSION_DOCS_BYTES,
+            stable_lines: EXTENSION_DOCS_LINES,
+            stable_sha: EXTENSION_DOCS_SHA256,
+        },
+    )?;
+    verify_source_pair(
+        repo,
+        SourcePair {
+            path: EXTENSION_DOCS_TEST_PATH,
+            baseline_bytes: EXTENSION_DOCS_TEST_BYTES,
+            baseline_lines: EXTENSION_DOCS_TEST_LINES,
+            baseline_sha: EXTENSION_DOCS_TEST_SHA256,
+            stable_bytes: EXTENSION_DOCS_TEST_BYTES,
+            stable_lines: EXTENSION_DOCS_TEST_LINES,
+            stable_sha: EXTENSION_DOCS_TEST_SHA256,
+        },
+    )?;
+    verify_source_pair(
+        repo,
+        SourcePair {
+            path: CHECK_PACK_PATH,
+            baseline_bytes: CHECK_PACK_BYTES,
+            baseline_lines: CHECK_PACK_LINES,
+            baseline_sha: CHECK_PACK_SHA256,
+            stable_bytes: 16_313,
+            stable_lines: 485,
+            stable_sha: "af8b7773487a84a79645347fa6449f45345a58f03c4364fee044daeb716e68fa",
+        },
+    )?;
+    let examples = fs::read_to_string(repo.join("examples/Cargo.toml"))?;
+    let binary_count = examples
+        .lines()
+        .filter(|line| line.trim_start().starts_with("name = \"workdeck-example-"))
+        .count();
+    ensure!(
+        binary_count >= 13,
+        "native extension examples unexpectedly shrank to {binary_count} binaries"
+    );
+    for (path, marker) in [
+        (
+            "crates/workdeck-extension-api/src/lib.rs",
+            "pub struct ExtensionManifest",
+        ),
+        ("crates/workdeck-extension-host/src/lib.rs", "HostError"),
+        ("xtask/src/main.rs", "prepare_extension_example"),
+        ("docs/extensions.md", "Rust/Ratatui extension API"),
+    ] {
+        let contents = fs::read_to_string(repo.join(path))
+            .with_context(|| format!("read extension tooling native surface {path}"))?;
+        ensure!(
+            contents.contains(marker),
+            "extension tooling native surface {path} is missing {marker:?}"
+        );
+    }
+    Ok(())
 }
 
 /// Verify the complete public extension-directory page. Astro's interactive
@@ -354,6 +512,26 @@ fn legacy_source_comparison_rejects_field_drift_and_executable_syntax() {
 fn native_extension_directory_replaces_the_complete_pinned_page() {
     let repo = super::repo_root().unwrap();
     verify_extensions_page(&repo).unwrap();
+}
+
+#[test]
+fn pinned_extension_tooling_sources_are_verified_from_both_anchors() {
+    let repo = super::repo_root().unwrap();
+    verify_extension_tooling(&repo, "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2").unwrap();
+}
+
+#[test]
+fn native_extension_examples_and_docs_are_checked_by_rust() {
+    let repo = super::repo_root().unwrap();
+    let examples = fs::read_to_string(repo.join("examples/Cargo.toml")).unwrap();
+    let binary_count = examples
+        .lines()
+        .filter(|line| line.trim_start().starts_with("name = \"workdeck-example-"))
+        .count();
+    assert!(binary_count >= 13, "expected native extension examples");
+    let docs = fs::read_to_string(repo.join("docs/extensions.md")).unwrap();
+    assert!(docs.contains("Rust/Ratatui extension API"));
+    assert!(docs.contains("native API reference"));
 }
 
 #[test]

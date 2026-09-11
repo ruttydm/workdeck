@@ -1399,6 +1399,7 @@ mod bootstrap;
 mod changeset_parse;
 mod compact_highlight_payload;
 pub(crate) mod competitors;
+pub(crate) mod daemon_memory;
 mod fixtures;
 mod geometry_memory;
 mod highlight_cache_layers;
@@ -2127,6 +2128,9 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     }
     if command.as_deref() == Some("compact-highlight-payload") {
         return compact_highlight_payload::run(args);
+    }
+    if command.as_deref() == Some("daemon-memory") {
+        return daemon_memory::run(args);
     }
     if command.as_deref() == Some("worker-highlight-cache") {
         return worker_highlight_cache::run(args);
