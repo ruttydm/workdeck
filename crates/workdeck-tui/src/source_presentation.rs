@@ -16,34 +16,48 @@ struct Entry {
     status: Option<Arc<ReviewSourceStatus>>,
 }
 
+/// Presentation is embedded in `ReviewOptions`, which render paths clone per
+/// frame, so the file table is shared and only deep-copied on mutation.
 #[derive(Debug, Clone, Default)]
 pub struct ReviewSourcePresentation {
-    files: BTreeMap<String, Entry>,
+    files: Arc<BTreeMap<String, Entry>>,
+    revision: u64,
 }
 
 impl ReviewSourcePresentation {
+    /// Monotonic revision of the presentation table. Availability affects
+    /// review geometry through expandable gap targets, so geometry caches key
+    /// on this value instead of disabling themselves while snapshot-backed
+    /// sources exist.
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
     pub fn retire(&mut self, keys: &std::collections::BTreeSet<String>) {
-        self.files.retain(|key, _| !keys.contains(key));
+        Arc::make_mut(&mut self.files).retain(|key, _| !keys.contains(key));
+        self.revision += 1;
     }
     /// Register presentation for a runtime-owned reader. This grants no I/O authority.
     pub fn pending(&mut self, file: &DiffFile) {
-        self.files.insert(
+        Arc::make_mut(&mut self.files).insert(
             file.key.clone(),
             Entry {
                 source_identity: file.source_identity.clone(),
                 status: None,
             },
         );
+        self.revision += 1;
     }
 
     pub fn set_status(&mut self, file: &DiffFile, status: ReviewSourceStatus) {
-        self.files.insert(
+        Arc::make_mut(&mut self.files).insert(
             file.key.clone(),
             Entry {
                 source_identity: file.source_identity.clone(),
                 status: Some(Arc::new(status)),
             },
         );
+        self.revision += 1;
     }
 
     fn entry(&self, file: &DiffFile) -> Option<&Entry> {
@@ -94,9 +108,13 @@ impl ReviewSourcePresentation {
             .filter(|file| file.source_attested)
             .map(|file| (file.key.as_str(), file.source_identity.as_deref()))
             .collect();
-        self.files.retain(|key, entry| {
+        let before = self.files.len();
+        Arc::make_mut(&mut self.files).retain(|key, entry| {
             attested_files.contains(&(key.as_str(), entry.source_identity.as_deref()))
         });
+        if self.files.len() != before {
+            self.revision += 1;
+        }
     }
 }
 

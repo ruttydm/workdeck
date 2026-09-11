@@ -9736,9 +9736,11 @@ impl ReviewApp {
             || !self.agent_line_highlights.is_empty()
             || !state.comments().is_empty()
             || self.options.agent_notes
-            || state.changeset().files.iter().any(|file| {
-                file.agent.is_some() || self.options.source_presentation.available(file)
-            })
+            || state
+                .changeset()
+                .files
+                .iter()
+                .any(|file| file.agent.is_some())
         {
             return None;
         }
@@ -9764,6 +9766,7 @@ impl ReviewApp {
             hunk_gap: self.options.hunk_gap,
             hunk_headers: self.options.hunk_headers,
             pager: self.options.pager,
+            source_presentation_revision: self.options.source_presentation.revision(),
         })
     }
 
@@ -12838,6 +12841,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
                 tab_width: app.options.tab_width,
                 wrap_lines: app.options.wrap_lines,
                 registry_generation: app.extension_registry_generation,
+                source_revision: app.options.source_presentation.revision(),
                 height,
                 geometry: Arc::clone(&geometry),
                 sections: Arc::clone(&layouts),
@@ -13640,6 +13644,7 @@ struct PlainReviewHeight {
     tab_width: u16,
     wrap_lines: bool,
     registry_generation: u64,
+    source_revision: u64,
     height: usize,
     geometry: Arc<ReviewRows>,
     sections: Arc<Vec<FileSectionLayout>>,
@@ -13660,6 +13665,7 @@ impl PlainReviewHeight {
             && self.hunk_gap == key.hunk_gap
             && self.hunk_headers == key.hunk_headers
             && self.pager == key.pager
+            && self.source_revision == key.source_presentation_revision
     }
 
     fn matches(
@@ -13685,6 +13691,7 @@ impl PlainReviewHeight {
             && self.tab_width == options.tab_width
             && self.wrap_lines == options.wrap_lines
             && self.registry_generation == registry_generation
+            && self.source_revision == options.source_presentation.revision()
     }
 }
 
@@ -13765,6 +13772,7 @@ struct ReviewGeometryCacheKey {
     hunk_gap: u16,
     hunk_headers: bool,
     pager: bool,
+    source_presentation_revision: u64,
 }
 
 #[derive(Debug)]
@@ -25281,6 +25289,74 @@ mod tests {
         for (index, (actual, expected)) in actual.content.iter().zip(&expected.content).enumerate()
         {
             assert_eq!(actual, expected, "resized frame cell {index}");
+        }
+    }
+
+    #[test]
+    fn wheel_geometry_cache_retains_rows_across_snapshot_backed_sources() {
+        // Snapshot-backed sources (SourceOrigin::File, as in the interaction
+        // benchmark fixture) make every file source-available. Availability
+        // must key the geometry cache by presentation revision instead of
+        // disabling it, or each wheel tick rebuilds the full row plan.
+        let lines = |prefix: &str, count: usize| {
+            (0..count)
+                .map(|index| format!("{prefix} {index}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+                + "\n"
+        };
+        let specs = vec![
+            ("a.rs".to_string(), lines("old a", 60), lines("new a", 60)),
+            ("b.rs".to_string(), lines("old b", 60), lines("new b", 60)),
+        ];
+        let mut review = navigation_changeset(specs.clone());
+        for (file, (path, before, after)) in review.files.iter_mut().zip(&specs) {
+            file.set_sources(FileSourceSnapshots {
+                old: Some(SourceSnapshot::new(
+                    before.clone(),
+                    SourceOrigin::File { path: path.clone() },
+                    true,
+                )),
+                new: Some(SourceSnapshot::new(
+                    after.clone(),
+                    SourceOrigin::File { path: path.clone() },
+                    true,
+                )),
+            });
+        }
+        let probe = review.files[0].clone();
+        assert!(ReviewSourcePresentation::default().available(&probe));
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(120, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        let initial_scroll = app.review_scroll();
+        let first = app.current_review_geometry_rows_arc();
+        assert!(Arc::ptr_eq(&first, &app.current_review_geometry_rows_arc()));
+        for _ in 0..3 {
+            app.handle_mouse_at(MouseEventKind::ScrollDown, Instant::now());
+            rendered_review_frame(&mut terminal, &app);
+        }
+        assert!(app.review_scroll() > initial_scroll);
+        assert!(
+            Arc::ptr_eq(&first, &app.current_review_geometry_rows_arc()),
+            "wheel ticks must reuse the cached geometry row plan"
+        );
+        // Cached and rebuilt frames must agree cell-for-cell.
+        let mut cached = Buffer::empty(Rect::new(0, 0, 120, 24));
+        let mut rebuilt = Buffer::empty(Rect::new(0, 0, 120, 24));
+        render(cached.area, &mut cached, &app);
+        *app.review_plain_height.lock().unwrap() = None;
+        *app.review_geometry_cache.lock().unwrap() = None;
+        render(rebuilt.area, &mut rebuilt, &app);
+        for (index, (cached, rebuilt)) in cached.content.iter().zip(&rebuilt.content).enumerate() {
+            assert_eq!(cached, rebuilt, "frame cell {index}");
         }
     }
 
