@@ -141,6 +141,12 @@ const MEMORY_BYTES: usize = 2_490;
 const MEMORY_LINES: usize = 72;
 const MEMORY_SHA256: &str = "a538b3bd2dbebe4c43d2e880c463f5f5f347b1905d7ac51986c9c70b23be2c0c";
 
+const WORKER_HIGHLIGHT_CACHE_PATH: &str = "benchmarks/worker-highlight-cache.ts";
+const WORKER_HIGHLIGHT_CACHE_BYTES: usize = 1_831;
+const WORKER_HIGHLIGHT_CACHE_LINES: usize = 56;
+const WORKER_HIGHLIGHT_CACHE_SHA256: &str =
+    "48996b748cea282b08e605e64c5549724045d3537c0051aafdd535cef7246582";
+
 /// Verify the executable native replacement for Hunk's terminal-width
 /// benchmark. The source is read from both protected pins; no TypeScript or
 /// string-width runtime is copied into the final tree.
@@ -666,6 +672,114 @@ pub(crate) fn verify_memory(repo: &Path, baseline: &str) -> Result<()> {
     Ok(())
 }
 
+/// Verify the native worker-owned compact-result cache workload replacing Hunk's
+/// `worker-highlight-cache.ts` script.
+pub(crate) fn verify_worker_highlight_cache(repo: &Path, baseline: &str) -> Result<()> {
+    ensure!(
+        baseline == BASELINE,
+        "worker highlight-cache verifier received unexpected baseline {baseline}"
+    );
+    let source = crate::git_stdout_bytes(
+        repo,
+        ["show", &format!("{BASELINE}:{WORKER_HIGHLIGHT_CACHE_PATH}")],
+    )?;
+    let stable = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            &format!("4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd:{WORKER_HIGHLIGHT_CACHE_PATH}"),
+        ],
+    )?;
+    for (pin, bytes) in [(BASELINE, &source), ("stable-v0.20.1", &stable)] {
+        ensure!(
+            bytes.len() == WORKER_HIGHLIGHT_CACHE_BYTES,
+            "pinned {WORKER_HIGHLIGHT_CACHE_PATH} {pin} changed size: {} != {WORKER_HIGHLIGHT_CACHE_BYTES}",
+            bytes.len()
+        );
+        ensure!(
+            bytes.split(|byte| *byte == b'\n').count() == WORKER_HIGHLIGHT_CACHE_LINES + 1,
+            "pinned {WORKER_HIGHLIGHT_CACHE_PATH} {pin} changed line count"
+        );
+        ensure!(
+            format!("{:x}", Sha256::digest(bytes)) == WORKER_HIGHLIGHT_CACHE_SHA256,
+            "pinned {WORKER_HIGHLIGHT_CACHE_PATH} {pin} changed SHA-256"
+        );
+    }
+    ensure!(
+        source == stable,
+        "pinned worker highlight-cache benchmark diverged between pins"
+    );
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "performance.now",
+        "parseDiffFromFile",
+        "disposeHighlightWorker",
+        "highlightDiffInWorker",
+        "compactHighlightedDiffByteLength",
+        "lineCount = 8_000",
+        "Array.from",
+        "cacheKey",
+        "aliasContext",
+        "appearance",
+        "language",
+        "theme",
+        "coldStart",
+        "warmStart",
+        "syntax runs",
+        "compact_payload_bytes",
+    ] {
+        ensure!(
+            source.contains(marker),
+            "pinned worker highlight-cache benchmark is missing marker {marker:?}"
+        );
+    }
+    for (path, marker) in [
+        (
+            "xtask/src/benchmark/worker_highlight_cache.rs",
+            "pub(super) fn run(",
+        ),
+        (
+            "xtask/src/benchmark/worker_highlight_cache.rs",
+            "native_worker_cache_reuses_compact_payload_after_terminal_eviction",
+        ),
+        (
+            "xtask/src/benchmark/worker_highlight_cache.rs",
+            "clear_rendered_diff_cache",
+        ),
+        ("xtask/src/benchmark/runner.rs", "worker-highlight-cache.ts"),
+        ("xtask/src/benchmark.rs", "Some(\"worker-highlight-cache\")"),
+        (
+            "docs/benchmarks.md",
+            "cargo xtask benchmark worker-highlight-cache",
+        ),
+    ] {
+        let native = fs::read_to_string(repo.join(path))
+            .with_context(|| format!("read worker highlight-cache native surface {path}"))?;
+        ensure!(
+            native.contains(marker),
+            "worker highlight-cache native surface {path} is missing {marker:?}"
+        );
+    }
+    let docs = fs::read_to_string(repo.join("docs/worker-highlight-cache-benchmark-migration.md"))
+        .context("read worker highlight-cache migration documentation")?;
+    for marker in [
+        WORKER_HIGHLIGHT_CACHE_PATH,
+        "1,831",
+        WORKER_HIGHLIGHT_CACHE_SHA256,
+        "worker-owned",
+        "compact",
+        "terminal cache",
+        "Ratatui",
+        "no JavaScript runtime",
+    ] {
+        ensure!(
+            docs.contains(marker),
+            "worker highlight-cache migration documentation is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
+
 mod bootstrap;
 mod changeset_parse;
 pub(crate) mod competitors;
@@ -688,6 +802,7 @@ mod render_layout;
 mod runner;
 mod stream;
 mod terminal_width;
+mod worker_highlight_cache;
 mod working_tree;
 mod wrapped_cjk;
 
@@ -1353,6 +1468,9 @@ pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
     if command.as_deref() == Some("memory") {
         return memory::run(args);
     }
+    if command.as_deref() == Some("worker-highlight-cache") {
+        return worker_highlight_cache::run(args);
+    }
     if command.as_deref() == Some("memory-snapshot") {
         return native_memory::run(args);
     }
@@ -1477,6 +1595,12 @@ mod tests {
     fn native_memory_source_is_verified_at_both_pins() {
         let repo = super::super::repo_root().unwrap();
         super::verify_memory(&repo, BASELINE).unwrap();
+    }
+
+    #[test]
+    fn native_worker_highlight_cache_source_is_verified_at_both_pins() {
+        let repo = super::super::repo_root().unwrap();
+        super::verify_worker_highlight_cache(&repo, BASELINE).unwrap();
     }
 
     #[test]

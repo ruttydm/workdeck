@@ -39,7 +39,7 @@ cargo xtask benchmark working-tree-load
 cargo xtask benchmark changeset-parse
 cargo xtask benchmark render-layout
 cargo xtask benchmark highlight-prefetch
-cargo xtask benchmark highlight-worker-cache
+cargo xtask benchmark worker-highlight-cache
 cargo xtask benchmark highlight-cache-layers
 cargo xtask benchmark large-stream
 cargo xtask benchmark interaction-latency
@@ -112,4 +112,3 @@ Each script prints `METRIC name=value` lines. `benchmarks/run.ts` repeats script
 - Competitor comparisons are informational because installed tool versions and feature parity vary by environment.
 - Use `--samples 5` locally when validating borderline changes.
 - Use `benchmarks/results/` for local benchmark output; result files in that directory are ignored by default.
-

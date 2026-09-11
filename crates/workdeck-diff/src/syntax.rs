@@ -1254,6 +1254,21 @@ impl HighlightCache {
         self.entries.is_empty()
     }
 
+    /// Drop rendered diff entries while retaining the worker-owned compact-result cache.
+    ///
+    /// Benchmark and renderer lifecycle callers use this boundary to distinguish a terminal
+    /// cache hit from a worker-cache revisit. Source highlights and the worker thread remain
+    /// alive; only the decoded, terminal-facing line cache is released.
+    pub fn clear_rendered_diff_cache(&mut self) {
+        self.entries.clear();
+    }
+
+    /// Return the bytes retained by the compact worker-result LRU.
+    #[must_use]
+    pub fn worker_cache_bytes(&self) -> usize {
+        self.worker_entries.cached_bytes
+    }
+
     pub fn clear(&mut self) {
         self.entries.clear();
         self.worker_entries.clear();

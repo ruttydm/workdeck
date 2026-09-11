@@ -38,6 +38,8 @@ fn workload_command(name: &str) -> Result<&'static str> {
         "geometry-memory.ts" => Ok("geometry-memory"),
         "interaction-latency.ts" => Ok("interaction-diagnostic"),
         "memory.ts" => Ok("memory"),
+        "worker-highlight-cache.ts" => Ok("worker-highlight-cache"),
+        "terminal-width.ts" => Ok("terminal-width"),
         _ => bail!("Native benchmark workload is not yet fully ported: {name}"),
     }
 }
@@ -431,13 +433,15 @@ mod tests {
             [
                 "--samples".into(),
                 "1".into(),
+                "--script".into(),
+                "not-a-workload.ts".into(),
                 "--out".into(),
                 out.to_string_lossy().into_owned(),
             ]
             .into_iter(),
         )
         .unwrap_err();
-        assert!(error.to_string().contains("interaction-latency.ts"));
+        assert!(error.to_string().contains("not-a-workload.ts"));
         assert!(!out.parent().unwrap().exists());
         let mut calls = 0;
         let result = collect(&["render-layout.ts".into()], 3.0, &mut vec![], |_, _| {
