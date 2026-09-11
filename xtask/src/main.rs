@@ -34,6 +34,7 @@ mod release_status;
 mod repository_forms;
 mod review_conformance;
 mod site_assets;
+mod site_links;
 mod site_markdown;
 mod site_preview;
 mod skill;
@@ -440,6 +441,7 @@ fn site(command: Option<&str>) -> Result<()> {
                 ],
             )?;
             site_markdown::emit(&repo, &public)?;
+            site_links::check(&public, &repo)?;
             let html = fs::read_to_string(public.join("extensions/index.html"))?;
             ensure!(
                 html.contains("href=\"/#install\"")

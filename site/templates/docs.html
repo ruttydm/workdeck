@@ -2,6 +2,10 @@
 {% block title %}{% if page is defined %}{{ page.title }}{% else %}{{ section.title }}{% endif %} · {{ config.title }}{% endblock title %}
 {% block metadata %}
     <meta name="description" content="{% if page is defined %}{{ page.description | default(value=page.title) }}{% else %}{{ section.description | default(value=section.title) }}{% endif %}">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="{{ config.base_url }}/docs/images/review-stream-native.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="{{ config.base_url }}/docs/images/review-stream-native.png">
     {% if page is defined %}{% set markdown_path = page.path ~ ".md" %}<link rel="alternate" type="text/markdown" href="{{ markdown_path | replace(from="/.md", to=".md") }}">{% elif section is defined %}{% set markdown_path = section.path ~ ".md" %}<link rel="alternate" type="text/markdown" href="{{ markdown_path | replace(from="/.md", to=".md") }}">{% endif %}
     <script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"{{ config.base_url }}/"},{"@type":"ListItem","position":2,"name":"Docs","item":"{{ config.base_url }}/docs/"}{% if page is defined %},{"@type":"ListItem","position":3,"name":{{ page.title | json_encode | safe }},"item":"{{ config.base_url }}{{ current_path | default(value="/docs/") }}"}{% endif %}]}</script>
 {% endblock metadata %}

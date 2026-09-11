@@ -7,7 +7,13 @@
     <link rel="canonical" href="{{ config.base_url }}{{ current_path }}">
     {% endif %}
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    {% block metadata %}<meta name="description" content="{{ config.description }}">{% endblock metadata %}
+    {% block metadata %}
+    <meta name="description" content="{{ config.description }}">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="{{ config.base_url }}/og.svg">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="{{ config.base_url }}/og.svg">
+    {% endblock metadata %}
     <title>{% block title %}{{ config.title }}{% endblock title %}</title>
     <link rel="stylesheet" href="/fonts/jetbrains-mono.css">
     <link rel="stylesheet" href="/brand.css">

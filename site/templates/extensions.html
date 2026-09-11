@@ -1,5 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Extension migration directory · Workdeck{% endblock title %}
+{% block metadata %}
+    <meta name="description" content="Native Workdeck extension migration directory">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="{{ config.base_url }}/extensions/og.svg">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="{{ config.base_url }}/extensions/og.svg">
+{% endblock metadata %}
 {% block content %}
 {% set catalog = load_data(path="data/legacy-extensions.json") %}
 <section>

@@ -2,8 +2,10 @@
 {% block title %}{{ page.title }} · {{ config.title }}{% endblock title %}
 {% block metadata %}
     <meta name="description" content="{{ page.description }}">
+    <meta property="og:type" content="website">
     <meta property="og:image" content="{{ page.extra.social_image }}">
     <meta property="og:image:alt" content="{{ page.extra.social_image_alt }}">
+    <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:image" content="{{ page.extra.social_image }}">
 {% endblock metadata %}
 {% block content %}
