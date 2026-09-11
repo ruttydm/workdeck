@@ -13190,6 +13190,7 @@ fn render_review(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
 /// The logical row vector remains complete so scroll, selection, and hit testing retain their
 /// existing coordinates. File and hunk bounds let us skip all sections outside the viewport;
 /// only the intersecting hunk bodies allocate styled rows for this frame.
+#[allow(clippy::too_many_arguments)]
 fn build_plain_split_viewport_rows(
     geometry: &ReviewRows,
     changeset: &Changeset,
