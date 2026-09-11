@@ -114,6 +114,76 @@ fn wait_for_frame(master: &mut (impl Read + AsRawFd)) {
 }
 
 #[test]
+fn daemon_exits_cleanly_after_sigterm_instead_of_hot_looping() {
+    let directory = tempfile::tempdir().unwrap();
+    let reservation = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = reservation.local_addr().unwrap().port();
+    drop(reservation);
+
+    let mut daemon = ReviewChild(
+        Command::new(env!("CARGO_BIN_EXE_workdeck"))
+            .args(["daemon", "serve"])
+            .env("XDG_CONFIG_HOME", directory.path().join("config"))
+            .env("XDG_RUNTIME_DIR", directory.path().join("runtime"))
+            .env("WORKDECK_MCP_HOST", "127.0.0.1")
+            .env("WORKDECK_MCP_PORT", port.to_string())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !daemon_health(port) {
+        assert!(
+            daemon.0.try_wait().unwrap().is_none(),
+            "daemon exited before health became available"
+        );
+        assert!(
+            Instant::now() < deadline,
+            "daemon health never became available"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
+
+    // SAFETY: this test targets the exact daemon child it spawned above.
+    assert_eq!(unsafe { libc::kill(daemon.0.id() as _, libc::SIGTERM) }, 0);
+    assert_eq!(
+        daemon
+            .wait_status_with_timeout(Duration::from_secs(2))
+            .code(),
+        Some(0)
+    );
+    let close_deadline = Instant::now() + Duration::from_secs(2);
+    while daemon_health(port) {
+        assert!(
+            Instant::now() < close_deadline,
+            "daemon port remained open after SIGTERM"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    assert!(!directory.path().join("workdeck").exists());
+}
+
+fn daemon_health(port: u16) -> bool {
+    let Ok(mut stream) = std::net::TcpStream::connect_timeout(
+        &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+        Duration::from_millis(100),
+    ) else {
+        return false;
+    };
+    let request =
+        format!("GET /health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
+    stream.write_all(request.as_bytes()).is_ok() && {
+        let mut response = Vec::new();
+        let read = stream.read_to_end(&mut response).is_ok();
+        read && response.windows(3).any(|window| window == b"200")
+            && response.windows(9).any(|window| window == b"\"ok\":true")
+    }
+}
+
+#[test]
 fn exits_cleanly_when_host_closes_pty_master() {
     exercise_pty_shutdown(Shutdown::CloseMaster);
 }

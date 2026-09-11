@@ -3,7 +3,10 @@ use predicates::prelude::*;
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::fs;
-use std::process::Command;
+use std::io::Read;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::Duration;
 use tempfile::tempdir;
 
 fn workdeck() -> Command {
@@ -70,6 +73,54 @@ fn version_renders() {
         .assert()
         .success()
         .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")));
+}
+
+#[test]
+fn non_interactive_stdin_renders_review_and_stays_alive() {
+    let directory = tempdir().unwrap();
+    let before = directory.path().join("before.ts");
+    let after = directory.path().join("after.ts");
+    fs::write(&before, "export const value = 1;\n").unwrap();
+    fs::write(&after, "export const value = 2;\n").unwrap();
+
+    let mut command = workdeck();
+    command
+        .env("TERM", "xterm-256color")
+        .env("HUNK_MCP_DISABLE", "1")
+        .env("WORKDECK_DISABLE_UPDATE_NOTICE", "1")
+        .env("XDG_CONFIG_HOME", directory.path())
+        .args([
+            "diff",
+            "--files",
+            before.to_str().unwrap(),
+            after.to_str().unwrap(),
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn().unwrap();
+    let mut stdout = child.stdout.take().unwrap();
+    let mut rendered = Vec::new();
+    let mut chunk = [0_u8; 4096];
+    while rendered.len() < 1_000 {
+        let read = stdout.read(&mut chunk).unwrap();
+        if read == 0 {
+            break;
+        }
+        rendered.extend_from_slice(&chunk[..read]);
+    }
+    assert!(
+        rendered.len() >= 1_000,
+        "review did not render enough output"
+    );
+    thread::sleep(Duration::from_millis(250));
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "non-interactive review exited early"
+    );
+    child.kill().unwrap();
+    child.wait().unwrap();
+    assert!(!directory.path().join(".agents/workdeck").exists());
 }
 
 #[test]
