@@ -94,6 +94,95 @@ pub(crate) fn verify_workflow(repo: &std::path::Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Verify the manual-only replacement for Hunk's privileged Firecracker
+/// installer workflow. Scenario selection and always-uploaded structured
+/// oracle results remain, but execution is native Rust and has no Bun setup.
+pub(crate) fn verify_vm_workflow(repo: &std::path::Path) -> anyhow::Result<()> {
+    const BASELINE: &str = "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2";
+    let source = crate::git_stdout_bytes(
+        repo,
+        [
+            "show",
+            &format!("{BASELINE}:.github/workflows/install-vm.yml"),
+        ],
+    )?;
+    anyhow::ensure!(
+        source.len() == 1_892,
+        "pinned install-vm workflow changed size: {} != 1892",
+        source.len()
+    );
+    let source = std::str::from_utf8(&source)?;
+    for marker in [
+        "repository-controlled KVM code",
+        "Never add pull_request",
+        "name: Optional install VM suite",
+        "workflow_dispatch",
+        "scenario:",
+        "required: false",
+        "permissions:",
+        "contents: read",
+        "install-vm:",
+        "Firecracker install compatibility",
+        "timeout-minutes: 45",
+        "Set up Bun",
+        "bun install --frozen-lockfile",
+        "INSTALL_VM_SCENARIO",
+        "--allow-skip",
+        "--scenario",
+        "Upload structured install results",
+        "tmp/install-vm/runs",
+    ] {
+        anyhow::ensure!(
+            source.contains(marker),
+            "pinned install-vm workflow lost marker {marker:?}"
+        );
+    }
+    let native = std::fs::read_to_string(repo.join(".github/workflows/install-vm.yml"))?;
+    for marker in [
+        "Manual-only native installation compatibility",
+        "workflow_dispatch",
+        "scenario:",
+        "permissions:",
+        "contents: read",
+        "install-vm:",
+        "Native install compatibility",
+        "timeout-minutes: 45",
+        "INSTALL_VM_SCENARIO",
+        "cargo test --locked -p workdeck-cli install::",
+        "cargo test --locked -p xtask install_oracle -- --nocapture",
+        "if: always()",
+    ] {
+        anyhow::ensure!(
+            native.contains(marker),
+            "native install-vm workflow is missing {marker:?}"
+        );
+    }
+    anyhow::ensure!(
+        !native.contains("pull_request")
+            && !native.contains("setup-bun")
+            && !native.contains("bun install")
+            && !native.contains("node")
+            && !native.contains("npm")
+            && !native.contains("Firecracker"),
+        "native install-vm workflow retained privileged or legacy runtime behavior"
+    );
+    let migration = std::fs::read_to_string(repo.join("docs/install-vm-workflow-migration.md"))?;
+    for marker in [
+        "install-vm.yml",
+        "manual-only",
+        "scenario",
+        "structured",
+        "native Rust",
+        "Firecracker",
+    ] {
+        anyhow::ensure!(
+            migration.contains(marker),
+            "install-vm workflow migration is missing {marker:?}"
+        );
+    }
+    Ok(())
+}
+
 /// Explicit first-install command; unlike inspection/staging this publishes a root.
 pub(super) fn create(args: impl Iterator<Item = String>) -> anyhow::Result<()> {
     let args: Vec<_> = args.collect();
@@ -136,5 +225,11 @@ mod tests {
     fn native_install_workflow_replaces_the_complete_pinned_shell_e2e() {
         let repo = super::super::repo_root().unwrap();
         super::verify_workflow(&repo).unwrap();
+    }
+
+    #[test]
+    fn native_vm_install_workflow_replaces_the_complete_privileged_suite() {
+        let repo = super::super::repo_root().unwrap();
+        super::verify_vm_workflow(&repo).unwrap();
     }
 }
