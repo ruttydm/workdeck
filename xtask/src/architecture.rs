@@ -904,6 +904,41 @@ mod tests {
     }
 
     #[test]
+    fn native_boundary_gate_replaces_the_legacy_source_tree_without_a_runtime_mirror() {
+        let repo = super::super::repo_root().unwrap();
+        for forbidden in [
+            "src",
+            "website",
+            "package.json",
+            "bun.lock",
+            "node_modules",
+            "hunk",
+        ] {
+            assert!(
+                !repo.join(forbidden).exists(),
+                "legacy source/runtime path unexpectedly remains: {forbidden}"
+            );
+        }
+        let metadata = MetadataCommand::new()
+            .current_dir(&repo)
+            .no_deps()
+            .exec()
+            .unwrap();
+        let workspace_names = metadata
+            .workspace_packages()
+            .into_iter()
+            .map(|package| package.name.as_str())
+            .collect::<BTreeSet<_>>();
+        let packages = metadata
+            .workspace_packages()
+            .into_iter()
+            .map(|package| package_shape(package, &workspace_names))
+            .collect::<Vec<_>>();
+        assert!(validate_package_graph(&packages).is_empty());
+        assert!(validate_source_import_boundaries(&repo).unwrap().is_empty());
+    }
+
+    #[test]
     fn migrated_source_ownership_map_retains_every_role_and_resolves_native_links() {
         let repo = super::super::repo_root().unwrap();
         let document = fs::read_to_string(repo.join("docs/source-architecture.md")).unwrap();
