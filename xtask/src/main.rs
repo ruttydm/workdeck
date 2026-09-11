@@ -19,6 +19,7 @@ mod changeset_config;
 mod ci_changes;
 mod ci_host;
 mod contributor_guide;
+mod docs;
 mod extension_catalog;
 mod historical_docs;
 mod install;
@@ -213,6 +214,21 @@ fn run() -> Result<()> {
             }
         }
         Some("licenses") => licenses(parse_output_option(args)?),
+        Some("docs") => match args.next().as_deref() {
+            Some("generate") => {
+                if args.next().is_some() {
+                    bail!("docs generate accepts no options");
+                }
+                docs::generate(&repo_root()?)
+            }
+            Some("check") => {
+                if args.next().is_some() {
+                    bail!("docs check accepts no options");
+                }
+                docs::check(&repo_root()?)
+            }
+            _ => bail!("docs requires generate or check"),
+        },
         Some("benchmark") => benchmark::run(args),
         Some("ci-changes") => ci_changes::run(args),
         Some("ci-host") => ci_host::run(args),
@@ -2775,6 +2791,7 @@ fn print_help() {
         "cargo xtask themes <vendor --shiki-archive FILE --tm-themes-archive FILE --pierre-archive FILE|verify|diff-colors>"
     );
     println!("cargo xtask licenses [--output PATH]");
+    println!("cargo xtask docs <generate|check>");
     println!("cargo xtask verify");
     println!("cargo xtask test");
     println!("cargo xtask architecture check");
