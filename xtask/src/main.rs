@@ -40,6 +40,7 @@ mod site_preview;
 mod skill;
 mod social_cards;
 mod term_video;
+mod theme_diff_colors;
 mod theme_probe;
 mod tooling_configs;
 mod upstream_refs;
@@ -218,6 +219,12 @@ fn run() -> Result<()> {
         Some("extension-catalog") => extension_catalog::run(args),
         Some("themes") => match args.next().as_deref() {
             Some("probe") => theme_probe::run(args),
+            Some("diff-colors") => {
+                if args.next().is_some() {
+                    bail!("themes diff-colors accepts no options");
+                }
+                theme_diff_colors::check(&repo_root()?)
+            }
             Some("vendor") => vendor_themes(parse_theme_vendor_options(args)?),
             Some("verify") => {
                 if args.next().is_some() {
@@ -2765,7 +2772,7 @@ fn print_help() {
         "cargo xtask port <fetch|inventory|reclassify|map|materialize-assets|audit|status|history> [port options]"
     );
     println!(
-        "cargo xtask themes <vendor --shiki-archive FILE --tm-themes-archive FILE --pierre-archive FILE|verify>"
+        "cargo xtask themes <vendor --shiki-archive FILE --tm-themes-archive FILE --pierre-archive FILE|verify|diff-colors>"
     );
     println!("cargo xtask licenses [--output PATH]");
     println!("cargo xtask verify");
