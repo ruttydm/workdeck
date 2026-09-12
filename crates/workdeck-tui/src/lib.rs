@@ -2501,6 +2501,35 @@ impl ReviewApp {
 
     /// Cursor requested by a focused, host-rendered extension-pane input.
     #[must_use]
+    /// Whether a review input surface (filter or status-line prompt, note
+    /// composer, extension dialog or prompt, pane input, menu, selector, or
+    /// help) currently owns typed keys. Hosts use this to keep global
+    /// shortcuts from stealing characters a focused input expects.
+    pub fn owns_text_input(&self) -> bool {
+        if self
+            .note_composer
+            .as_ref()
+            .is_some_and(|draft| draft.focused)
+            || self.view_preference_quit.save_config_prompt_open()
+            || self.extension_trust_prompt_root().is_some()
+            || self.themes.selector_open
+            || self.show_agent_skill
+            || self.show_help
+            || self.focus == Focus::Filter
+            || self.filter_prompt_id.is_some()
+            || self.status_line.current_prompt_id().is_some()
+        {
+            return true;
+        }
+        let runtime = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        runtime.menu.is_open()
+            || runtime.dialogs.current().is_some()
+            || runtime.focused_pane_input.is_some()
+    }
+
     pub fn extension_pane_input_cursor_position(&self) -> Option<Position> {
         if self
             .note_composer
@@ -26280,6 +26309,31 @@ mod tests {
             !corpus.is_materialized(),
             "key presses must not materialize the file projection corpus"
         );
+    }
+
+    #[test]
+    fn owns_text_input_reflects_focused_input_surfaces() {
+        let review = navigation_changeset(vec![(
+            "a.rs".into(),
+            "old a\n".repeat(12),
+            "new a\n".repeat(12),
+        )]);
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        assert!(
+            !app.owns_text_input(),
+            "a fresh review must leave global shortcuts available"
+        );
+        app.focus_filter();
+        assert!(app.owns_text_input());
+        app.focus_files();
+        assert!(!app.owns_text_input());
     }
 
     #[test]

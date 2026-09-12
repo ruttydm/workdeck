@@ -210,12 +210,45 @@ fn run_loop(
                 process_review_extension_trust(app);
                 process_review_clipboard(app);
             }
-            Event::Mouse(_)
-            | Event::Resize(_, _)
-            | Event::FocusGained
-            | Event::FocusLost
-            | Event::Paste(_) => {}
+            Event::Mouse(mouse) => {
+                handle_list_tab_mouse(app, mouse);
+            }
+            Event::Resize(_, _) | Event::FocusGained | Event::FocusLost | Event::Paste(_) => {}
         }
+    }
+}
+
+/// Route mouse input on the list tabs (changes, git, files, issues, agents,
+/// search). The review canvas owns its own mouse handling; every other tab
+/// maps the wheel to list navigation or preview scrolling, matching the
+/// keyboard navigation of the focused pane.
+fn handle_list_tab_mouse(app: &mut App, mouse: crossterm::event::MouseEvent) {
+    const WHEEL_ROWS: usize = 3;
+    match mouse.kind {
+        crossterm::event::MouseEventKind::ScrollDown => {
+            if app.focus == crate::app::FocusPane::Preview {
+                app.scroll_preview_down(WHEEL_ROWS, usize::MAX);
+            } else {
+                for _ in 0..WHEEL_ROWS {
+                    app.move_down();
+                }
+            }
+        }
+        crossterm::event::MouseEventKind::ScrollUp => {
+            if app.focus == crate::app::FocusPane::Preview {
+                app.scroll_preview_up(WHEEL_ROWS);
+            } else {
+                for _ in 0..WHEEL_ROWS {
+                    app.move_up();
+                }
+            }
+        }
+        crossterm::event::MouseEventKind::ScrollLeft
+        | crossterm::event::MouseEventKind::ScrollRight => {}
+        crossterm::event::MouseEventKind::Down(_)
+        | crossterm::event::MouseEventKind::Up(_)
+        | crossterm::event::MouseEventKind::Drag(_)
+        | crossterm::event::MouseEventKind::Moved => {}
     }
 }
 
@@ -530,6 +563,18 @@ fn handle_key(
             app.active_tab = app.active_tab.previous();
             return Ok(false);
         }
+        // Digits select tabs directly while no review input owns typing;
+        // the review itself leaves them unbound.
+        if key.modifiers.is_empty()
+            && let KeyCode::Char(digit @ '1'..='7') = key.code
+            && app
+                .review
+                .as_ref()
+                .is_none_or(|review| !review.owns_text_input())
+        {
+            app.active_tab = Tab::ALL[usize::from(digit as u8 - b'1')];
+            return Ok(false);
+        }
         if let Some(review) = &mut app.review {
             review.handle_key(key);
             if review.take_quit_requested() {
@@ -650,6 +695,12 @@ fn handle_key(
         match key.code {
             KeyCode::Tab => app.active_tab = app.active_tab.next(),
             KeyCode::BackTab => app.active_tab = app.active_tab.previous(),
+            // Direct tab selection on the list surfaces. Digits stay review
+            // input on the review tab, where prompts may own typing.
+            KeyCode::Char(digit @ '1'..='7') => {
+                let index = usize::from(digit as u8 - b'1');
+                app.active_tab = Tab::ALL[index];
+            }
             KeyCode::Down | KeyCode::Char('j') => {
                 if narrow_files {
                     app.move_file_browser_down();
