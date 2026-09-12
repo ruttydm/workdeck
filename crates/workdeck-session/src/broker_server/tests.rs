@@ -1,4 +1,5 @@
 use super::*;
+use crate::WORKDECK_SESSION_BROKER_APP_REVISION;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
@@ -1847,4 +1848,87 @@ fn native_server_forwards_comment_batches_through_the_session_api() {
         "Applied together."
     );
     server.stop();
+}
+
+#[test]
+fn admin_scope_reports_status_and_stops_the_daemon() {
+    let (_root, env, server) = live_server();
+    let port: u16 = env
+        .get(SESSION_BROKER_PORT_ENV)
+        .and_then(|value| value.parse().ok())
+        .expect("the test env carries the port");
+    let config = crate::ResolvedSessionBrokerConfig {
+        host: "127.0.0.1".into(),
+        port: u32::from(port),
+        http_origin: format!("http://127.0.0.1:{port}"),
+        ws_origin: format!("ws://127.0.0.1:{port}"),
+    };
+
+    // A daemon without sessions reports its own build facts through the frozen v1 schema.
+    let client =
+        crate::create_workdeck_session_daemon_admin_client(&config, &env, Duration::from_secs(2))
+            .unwrap();
+    let status = client.status().unwrap();
+    assert_eq!(
+        status.admin_scope_version,
+        crate::SESSION_BROKER_ADMIN_SCOPE_VERSION
+    );
+    assert_eq!(
+        status.daemon_version,
+        u64::from(WORKDECK_SESSION_DAEMON_VERSION)
+    );
+    assert_eq!(status.app_version, env!("CARGO_PKG_VERSION"));
+    assert_eq!(status.pid, u64::from(std::process::id()));
+    assert!(status.sessions.is_empty());
+
+    // A registered producer appears with the revision its hello presented.
+    let producer = start_native_producer(&env, port, "admin-session-1");
+    wait_until("the producer registers", Duration::from_secs(2), || {
+        server.state().list_sessions().len() == 1
+    });
+    let status = client.status().unwrap();
+    assert_eq!(status.sessions.len(), 1);
+    assert_eq!(status.sessions[0].session_id, "admin-session-1");
+    assert_eq!(
+        status.sessions[0].client_daemon_version,
+        u64::from(WORKDECK_SESSION_BROKER_APP_REVISION)
+    );
+
+    // `stop` acknowledges, closes the producer with the restart reason, and retires the daemon.
+    client.stop().unwrap();
+    assert!(
+        server.wait_stopped(Duration::from_secs(5)),
+        "an admin stop must retire the daemon"
+    );
+    wait_until("the port clears", Duration::from_secs(5), || {
+        !crate::is_loopback_port_reachable(&config, Duration::from_millis(200))
+    });
+    drop(producer);
+}
+
+#[test]
+fn admin_probe_reports_an_absent_daemon_as_unavailable() {
+    let port = reserve_loopback_port();
+    let env = BTreeMap::from([(
+        "XDG_RUNTIME_DIR".into(),
+        tempfile::tempdir()
+            .unwrap()
+            .path()
+            .to_string_lossy()
+            .into_owned(),
+    )]);
+    let config = crate::ResolvedSessionBrokerConfig {
+        host: "127.0.0.1".into(),
+        port: u32::from(port),
+        http_origin: format!("http://127.0.0.1:{port}"),
+        ws_origin: format!("ws://127.0.0.1:{port}"),
+    };
+    assert_eq!(
+        crate::probe_workdeck_session_daemon_admin_status(
+            &config,
+            &env,
+            Duration::from_millis(500)
+        ),
+        crate::WorkdeckDaemonAdminProbe::Unavailable
+    );
 }

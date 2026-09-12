@@ -23,6 +23,9 @@ pub type StatusSpan = ExtensionStatusSpan;
 pub const HOST_FILTER_ITEM_ID: &str = "host:filter";
 /// Key of the residual host item showing the one notice channel.
 pub const HOST_NOTICE_ITEM_ID: &str = "host:notice";
+/// Key of the persistent daemon link condition; it outranks timed notices when the row
+/// overflows and stays until the link reconnects.
+pub const HOST_DAEMON_ITEM_ID: &str = "host:daemon";
 
 /// One persistent status contribution, keyed by a globally unique id.
 #[derive(Debug, Clone, PartialEq, Eq)]

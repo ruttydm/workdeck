@@ -14,12 +14,14 @@ use crate::{
     WorkdeckReviewActionEnvelopeV1, WorkdeckReviewActionResultV1, WorkdeckReviewActionV1,
     WorkdeckReviewActorKindV1, WorkdeckReviewActorV1, WorkdeckReviewFailureCodeV1,
     WorkdeckReviewResourceReadEnvelopeV1, WorkdeckReviewResourceReadResultV1,
-    WorkdeckSessionCommandResult, WorkdeckSessionInfo, WorkdeckSessionRegistration,
-    WorkdeckSessionSnapshot, WorkdeckSessionState, build_listed_workdeck_session,
-    build_selected_workdeck_session_context, build_workdeck_session_review,
-    create_workdeck_session_protocol_parsers, list_workdeck_session_comments,
-    parse_workdeck_session_registration, parse_workdeck_session_snapshot,
-    read_registration_review_catalog, read_snapshot_review_publication,
+    WorkdeckSessionCommandResult, WorkdeckSessionInfo, WorkdeckSessionProtocolParsers,
+    WorkdeckSessionRegistration, WorkdeckSessionSnapshot, WorkdeckSessionState,
+    build_listed_workdeck_session, build_selected_workdeck_session_context,
+    build_workdeck_session_review, create_workdeck_session_protocol_parsers,
+    list_workdeck_session_comments, parse_workdeck_session_registration,
+    parse_workdeck_session_snapshot, read_registration_review_catalog,
+    read_snapshot_review_publication, wire_diagnostics::SessionWirePayloadKind,
+    wire_diagnostics::report_session_wire_rejection,
 };
 use base64::Engine as _;
 use serde_json::Value;
@@ -316,6 +318,16 @@ impl WorkdeckSessionBrokerState {
             create_workdeck_session_protocol_parsers()
                 .expect("the immutable Workdeck broker parser registry is valid"),
         );
+        Self::with_options_and_parsers(resources, limit_options, protocol_parsers)
+    }
+
+    /// Build the state around one explicit parser registry, honoring the internal revision
+    /// override a daemon impersonating another build's revision needs.
+    pub fn with_options_and_parsers(
+        resources: ReviewResourceCache,
+        limit_options: &SessionBrokerLimitOptions,
+        protocol_parsers: Arc<WorkdeckSessionProtocolParsers>,
+    ) -> Result<Self, crate::BrokerLimitError> {
         Ok(Self {
             core: SessionBrokerState::new(
                 WorkdeckBrokerView::new(Arc::clone(&protocol_parsers)),
@@ -381,6 +393,22 @@ impl WorkdeckSessionBrokerState {
             self.core
                 .register_session(socket, registration_input, snapshot_input, options);
         self.reconcile_mirrored_sessions();
+        if registered == RegisterSessionResult::Invalid {
+            // The socket is about to close with a fixed reason; the debug log is the only place
+            // the rejecting parser is named, so an upgrade skew stays diagnosable.
+            report_session_wire_rejection(
+                SessionWirePayloadKind::Registration,
+                registration_input,
+                None,
+            );
+            if parsed_registration.is_some() {
+                report_session_wire_rejection(
+                    SessionWirePayloadKind::Snapshot,
+                    snapshot_input,
+                    None,
+                );
+            }
+        }
         if registered != RegisterSessionResult::Registered {
             return registered;
         }
@@ -418,6 +446,13 @@ impl WorkdeckSessionBrokerState {
         let result = self
             .core
             .update_snapshot(socket, session_id, snapshot_input);
+        if result == UpdateSnapshotResult::Invalid {
+            report_session_wire_rejection(
+                SessionWirePayloadKind::Snapshot,
+                snapshot_input,
+                Some(session_id),
+            );
+        }
         if result == UpdateSnapshotResult::Updated {
             let catalog = self
                 .mirror

@@ -280,6 +280,32 @@ instances remain even across executable versions.
 Implementations should retain the prior broker revision for at least one minor compatibility window
 when safe. Removal requires golden migration tests and release notes.
 
+### Admin scope
+
+The daemon may expose a revision-tolerant admin scope (`crates/workdeck-session/src/daemon_admin.rs`)
+with exactly two actions: `status` (daemon app revision, app version, pid, start time, uptime, and
+attached sessions with the app revision each producer presented) and `stop` (graceful shutdown that
+first closes attached producers with `"Session daemon restarting."`). It uses the ordinary signed
+caller handshake and on-disk credentials against a second authenticator whose fixed contract is
+`SESSION_BROKER_ADMIN_SCOPE_VERSION` in place of the app revision, served on its own paths
+(`/session-admin/challenge`, `/session-admin/proof`, `/session-admin`). Caller sessions negotiated
+there are unknown to the main authenticator and cannot reach the session API. The response schema is
+frozen per scope version and is extended only by adding a new version. This is what lets a client
+from another app revision explain a refused hello and replace an old daemon without signalling a
+pid; a daemon that predates the scope refuses the admin hello, and callers fall back to launch
+metadata.
+
+### Session wire versioning
+
+The daemon and every window exchange `WORKDECK_SESSION_DAEMON_VERSION`
+(`crates/workdeck-session/src/broker_config.rs`) in the signed hello and require an exact match.
+Any change to what a session registers or snapshots requires a bump: the pinned corpus
+`crates/workdeck-session/tests/fixtures/session-wire.v<N>.json` plus the snapshot test beside it
+enforce it. Bump the revision, regenerate the fixture with
+`WORKDECK_GENERATE_SESSION_WIRE=1 cargo test -p workdeck-session --test session_wire_snapshot`, and
+delete the previous fixture in the same change. The cross-revision admin scope (`status`/`stop`) is
+frozen separately and never grows in place.
+
 ## Runtime validation
 
 Every external boundary receives `unknown`; TypeScript generics and schema IDs are not validators.

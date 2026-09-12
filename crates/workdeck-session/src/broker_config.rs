@@ -9,6 +9,14 @@ pub const SESSION_BROKER_PROTOCOL_REVISION: u32 = 1;
 pub const WORKDECK_SESSION_DAEMON_VERSION: u32 = 12;
 pub const WORKDECK_SESSION_BROKER_APP_REVISION: u32 = WORKDECK_SESSION_DAEMON_VERSION;
 pub const WORKDECK_SESSION_BROKER_FEATURES: &[&str] = &[];
+/// Test-only override so a spawned daemon or window can impersonate another build's revision.
+///
+/// Cross-process skew coverage (a window refused by an older daemon, `workdeck daemon restart`
+/// replacing it) needs two processes that disagree on the revision; building a second binary for
+/// that is not practical. The override is internal, undocumented, and validated like the real
+/// value.
+pub const WORKDECK_INTERNAL_SESSION_DAEMON_VERSION_ENV: &str =
+    "WORKDECK_INTERNAL_SESSION_DAEMON_VERSION";
 
 pub const DEFAULT_SESSION_BROKER_HOST: &str = "127.0.0.1";
 pub const DEFAULT_SESSION_BROKER_PORT: u32 = 47_657;
@@ -71,6 +79,22 @@ pub fn is_loopback_host(host: &str) -> bool {
     normalized
         .parse::<Ipv4Addr>()
         .is_ok_and(|address| address.octets()[0] == 127)
+}
+
+/// Resolve the effective daemon revision, honoring only a well-formed positive integer override.
+#[must_use]
+pub fn resolve_workdeck_session_daemon_version(env: &BTreeMap<String, String>) -> u32 {
+    env.get(WORKDECK_INTERNAL_SESSION_DAEMON_VERSION_ENV)
+        .and_then(|value| {
+            let bytes = value.as_bytes();
+            match bytes.first() {
+                Some(first) if first.is_ascii_digit() && *first != b'0' => Some(value),
+                _ => None,
+            }
+        })
+        .filter(|value| value.bytes().all(|byte| byte.is_ascii_digit()))
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(WORKDECK_SESSION_DAEMON_VERSION)
 }
 
 #[must_use]
@@ -150,6 +174,38 @@ mod tests {
             WORKDECK_SESSION_DAEMON_VERSION
         );
         assert!(WORKDECK_SESSION_BROKER_APP_CONTRACT.features.is_empty());
+    }
+
+    #[test]
+    fn resolves_only_well_formed_positive_revision_overrides() {
+        let env = |value: Option<&str>| {
+            value.map_or_else(BTreeMap::new, |value| {
+                BTreeMap::from([(
+                    WORKDECK_INTERNAL_SESSION_DAEMON_VERSION_ENV.to_owned(),
+                    value.to_owned(),
+                )])
+            })
+        };
+        assert_eq!(
+            resolve_workdeck_session_daemon_version(&env(None)),
+            WORKDECK_SESSION_DAEMON_VERSION
+        );
+        assert_eq!(
+            resolve_workdeck_session_daemon_version(&env(Some("11"))),
+            11
+        );
+        for invalid in ["0", "-1", "+1", "1.0", "1e2", " 1", "1 ", "abc", "０"] {
+            assert_eq!(
+                resolve_workdeck_session_daemon_version(&env(Some(invalid))),
+                WORKDECK_SESSION_DAEMON_VERSION,
+                "{invalid:?} must not override the built-in revision"
+            );
+        }
+        // A value that cannot be a u32 falls back to the built-in revision.
+        assert_eq!(
+            resolve_workdeck_session_daemon_version(&env(Some("99999999999"))),
+            WORKDECK_SESSION_DAEMON_VERSION
+        );
     }
 
     #[test]

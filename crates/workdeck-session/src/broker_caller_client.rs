@@ -27,14 +27,24 @@ use crate::{
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum SessionBrokerCallerClientError {
+    /// The daemon refused the signed hello; distinct from never answering at all.
     #[error(transparent)]
     Authentication(#[from] SessionBrokerClientAuthenticationError),
+    /// The transport never delivered the request: nothing answered at the daemon origin.
+    #[error("session broker caller transport failed: {0}")]
+    Transport(String),
     #[error("{0}")]
     Cancelled(String),
 }
 
 fn authentication_error() -> SessionBrokerCallerClientError {
     SessionBrokerClientAuthenticationError.into()
+}
+
+impl SessionBrokerCallerClientError {
+    fn transport(reason: String) -> Self {
+        Self::Transport(reason)
+    }
 }
 
 /// Per-waiter cancellation. Cancelling one clone does not cancel the shared negotiation itself.
@@ -507,7 +517,7 @@ impl SessionBrokerCallerClientInner {
                 body: serde_json::to_vec(value).map_err(|_| authentication_error())?,
                 cancellation: None,
             })
-            .map_err(|_| authentication_error())
+            .map_err(SessionBrokerCallerClientError::transport)
     }
 
     fn read_bounded_response_json(

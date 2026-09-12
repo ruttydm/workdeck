@@ -239,7 +239,11 @@ fn daemon_overview_is_headless_and_does_not_require_a_repository() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Usage: workdeck daemon serve"))
+        .stdout(predicate::str::contains(
+            "Usage: workdeck daemon <subcommand>",
+        ))
+        .stdout(predicate::str::contains("workdeck daemon status [--json]"))
+        .stdout(predicate::str::contains("workdeck daemon restart [--yes]"))
         .stdout(predicate::str::contains("WORKDECK_MCP_PORT"));
 
     workdeck()

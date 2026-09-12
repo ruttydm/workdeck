@@ -9,18 +9,20 @@ use std::time::Duration;
 use thiserror::Error;
 
 use crate::{
-    EnsureSessionBrokerAvailableOptions, NativeSessionBrokerClientSocket,
-    ResolvedSessionBrokerConfig, SESSION_BROKER_SOCKET_PATH, SessionBrokerClientCredential,
-    SessionBrokerConnection, SessionBrokerConnectionBridge, SessionBrokerConnectionCloseDirective,
-    SessionBrokerConnectionError, SessionBrokerConnectionOptions, SessionBrokerDaemonVerifier,
+    DaemonSkewDirection, DaemonSkewKnowledge, EnsureSessionBrokerAvailableOptions,
+    NativeSessionBrokerClientSocket, ResolvedSessionBrokerConfig, SESSION_BROKER_SOCKET_PATH,
+    SessionBrokerClientCredential, SessionBrokerConnection, SessionBrokerConnectionBridge,
+    SessionBrokerConnectionCloseDirective, SessionBrokerConnectionError,
+    SessionBrokerConnectionOptions, SessionBrokerDaemonVerifier,
     SessionBrokerProducerAuthentication, SessionBrokerSocketCloseEvent,
-    WORKDECK_DAEMON_UPGRADE_WAIT_MESSAGE, WORKDECK_SESSION_BROKER_APP_ID,
-    WORKDECK_SESSION_BROKER_APP_REVISION, WorkdeckSessionBrokerCredentials,
-    WorkdeckSessionCommandInput, WorkdeckSessionCommandResult, WorkdeckSessionRegistration,
-    WorkdeckSessionSnapshot, create_workdeck_session_protocol_parsers,
+    WORKDECK_DAEMON_REGISTRATION_REJECTED_MESSAGE, WORKDECK_DAEMON_UPGRADE_WAIT_MESSAGE,
+    WORKDECK_SESSION_BROKER_APP_ID, WorkdeckDaemonAdminProbe, WorkdeckDaemonConnectionState,
+    WorkdeckSessionBrokerCredentials, WorkdeckSessionCommandInput, WorkdeckSessionCommandResult,
+    WorkdeckSessionRegistration, WorkdeckSessionSnapshot, daemon_skew_notice,
     ensure_session_broker_available, is_session_broker_healthy,
-    load_or_create_workdeck_session_broker_credentials, read_session_broker_launch_fingerprint,
-    resolve_session_broker_config,
+    load_or_create_workdeck_session_broker_credentials, probe_workdeck_session_daemon_admin_status,
+    read_session_broker_launch_fingerprint, resolve_session_broker_config,
+    resolve_workdeck_session_daemon_version,
 };
 
 pub const WORKDECK_MCP_DISABLE_ENV: &str = "WORKDECK_MCP_DISABLE";
@@ -28,10 +30,19 @@ pub const SESSION_CLIENT_DAEMON_STARTUP_TIMEOUT: Duration = Duration::from_secs(
 pub const SESSION_CLIENT_RECONNECT_DELAY: Duration = Duration::from_secs(3);
 pub const SESSION_CLIENT_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
 pub const INCOMPATIBLE_SESSION_CLOSE_CODE: u16 = 1008;
+/// Reconnect spacing once the daemon is known to be newer than this window: it can never be
+/// accepted, so poll slowly rather than never — a later daemon replacement is still noticed
+/// without hammering the incumbent.
+pub const SESSION_CLIENT_STALE_POLL_DELAY: Duration = Duration::from_secs(30);
 
 const QUIESCENT_REFUSAL_REASONS: [&str; 2] = [
     "Session broker authentication required; upgrade Workdeck.",
     "Malformed session broker protocol.",
+];
+
+const REGISTRATION_REJECTION_REASONS: [&str; 2] = [
+    "Incompatible session registration.",
+    "Incompatible session snapshot.",
 ];
 
 pub type WorkdeckSessionAppBridge =
@@ -45,10 +56,24 @@ pub fn is_quiescent_upgrade_refusal(event: &SessionBrokerSocketCloseEvent) -> bo
         && QUIESCENT_REFUSAL_REASONS.contains(&event.reason.as_str())
 }
 
+/// Identify a daemon that completed the hello and then refused this window's payload.
+///
+/// The revision matched, so the reconnect loop must keep running (a replacement daemon can
+/// accept the same payload), but the user has to be told: nothing else about this close is
+/// visible.
+#[must_use]
+pub fn is_registration_rejection(event: &SessionBrokerSocketCloseEvent) -> bool {
+    event.authenticated == Some(true)
+        && event.code == INCOMPATIBLE_SESSION_CLOSE_CODE
+        && REGISTRATION_REJECTION_REASONS.contains(&event.reason.as_str())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SessionBrokerClientTiming {
     pub daemon_startup_timeout: Duration,
     pub reconnect_delay: Duration,
+    /// Reconnect spacing once the daemon is known to be newer than this window.
+    pub stale_poll_delay: Duration,
 }
 
 impl Default for SessionBrokerClientTiming {
@@ -56,6 +81,7 @@ impl Default for SessionBrokerClientTiming {
         Self {
             daemon_startup_timeout: SESSION_CLIENT_DAEMON_STARTUP_TIMEOUT,
             reconnect_delay: SESSION_CLIENT_RECONNECT_DELAY,
+            stale_poll_delay: SESSION_CLIENT_STALE_POLL_DELAY,
         }
     }
 }
@@ -285,6 +311,37 @@ pub type SessionBrokerDaemonEnsurer = Arc<
 >;
 pub type SessionBrokerLaunchFingerprintReader =
     Arc<dyn Fn(&ResolvedSessionBrokerConfig) -> Option<String> + Send + Sync>;
+pub type SessionBrokerDaemonStatusProbe =
+    Arc<dyn Fn(&ResolvedSessionBrokerConfig) -> WorkdeckDaemonAdminProbe + Send + Sync>;
+
+/// Receives the daemon link notice, or `None` once the link is connected again.
+pub type WorkdeckConnectionNoticeListener = Arc<dyn Fn(Option<&str>) + Send + Sync>;
+
+/// Unsubscribes one notice listener when dropped.
+pub struct ConnectionNoticeSubscription {
+    client: WorkdeckSessionBrokerClient,
+    listener: WorkdeckConnectionNoticeListener,
+}
+
+impl std::fmt::Debug for ConnectionNoticeSubscription {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ConnectionNoticeSubscription")
+            .finish_non_exhaustive()
+    }
+}
+
+impl Drop for ConnectionNoticeSubscription {
+    fn drop(&mut self) {
+        self.client
+            .inner
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .notice_listeners
+            .retain(|registered| !Arc::ptr_eq(registered, &self.listener));
+    }
+}
 
 #[derive(Clone)]
 pub struct SessionBrokerClientRuntime {
@@ -300,6 +357,8 @@ pub struct SessionBrokerClientRuntime {
     >,
     pub is_healthy: Arc<dyn Fn(&ResolvedSessionBrokerConfig) -> bool + Send + Sync>,
     pub read_launch_fingerprint: SessionBrokerLaunchFingerprintReader,
+    /// Read the daemon's admin status after a refused hello; injectable for tests.
+    pub probe_daemon_status: SessionBrokerDaemonStatusProbe,
     pub create_connection: ClientConnectionFactory,
     pub retry_scheduler: Arc<dyn SessionBrokerRetryScheduler>,
     pub warning_sink: Arc<dyn Fn(&str) + Send + Sync>,
@@ -351,6 +410,13 @@ impl SessionBrokerClientRuntime {
             }),
             read_launch_fingerprint: Arc::new(|config| {
                 read_session_broker_launch_fingerprint(config, &std::env::vars().collect())
+            }),
+            probe_daemon_status: Arc::new(|config| {
+                probe_workdeck_session_daemon_admin_status(
+                    config,
+                    &std::env::vars().collect(),
+                    crate::default_admin_probe_timeout(),
+                )
             }),
             create_connection: Arc::new(create_native_client_connection),
             retry_scheduler: Arc::new(ThreadSessionBrokerRetryScheduler),
@@ -474,6 +540,10 @@ struct SessionBrokerClientState {
     credentials: Option<Arc<WorkdeckSessionBrokerCredentials>>,
     waiting_for_incumbent_exit: bool,
     incumbent_launch_fingerprint: Option<String>,
+    /// Whether the current incumbent has given a definitive answer about its build.
+    incumbent_build_known: bool,
+    connection_state: WorkdeckDaemonConnectionState,
+    notice_listeners: Vec<WorkdeckConnectionNoticeListener>,
 }
 
 struct SessionBrokerClientInner {
@@ -531,6 +601,9 @@ impl WorkdeckSessionBrokerClient {
                     credentials: None,
                     waiting_for_incumbent_exit: false,
                     incumbent_launch_fingerprint: None,
+                    incumbent_build_known: false,
+                    connection_state: WorkdeckDaemonConnectionState::Connected,
+                    notice_listeners: Vec::new(),
                 }),
                 timing,
                 runtime,
@@ -601,6 +674,116 @@ impl WorkdeckSessionBrokerClient {
             .unwrap_or_else(|error| error.into_inner())
             .registration
             .clone()
+    }
+
+    /// The current daemon link state, for surfaces that render it.
+    #[must_use]
+    pub fn get_connection_state(&self) -> WorkdeckDaemonConnectionState {
+        self.inner
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .connection_state
+            .clone()
+    }
+
+    /// Subscribe to the sticky connection notice. The listener receives the current value at
+    /// once and `None` whenever the link reaches connected; the UI keeps the last non-null
+    /// text on screen.
+    pub fn subscribe_connection_notice(
+        &self,
+        listener: WorkdeckConnectionNoticeListener,
+    ) -> ConnectionNoticeSubscription {
+        let current = {
+            let mut state = self
+                .inner
+                .state
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            state.notice_listeners.push(Arc::clone(&listener));
+            match &state.connection_state {
+                WorkdeckDaemonConnectionState::Connected => None,
+                WorkdeckDaemonConnectionState::Disconnected { notice, .. } => Some(notice.clone()),
+            }
+        };
+        listener(current.as_deref());
+        ConnectionNoticeSubscription {
+            client: self.clone(),
+            listener,
+        }
+    }
+
+    /// Publish one link state and its notice to subscribers, or to the console when none listen.
+    fn set_connection_state(&self, state: WorkdeckDaemonConnectionState) {
+        let (previous_notice, notice, listeners) = {
+            let mut client_state = self
+                .inner
+                .state
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let previous_notice = match &client_state.connection_state {
+                WorkdeckDaemonConnectionState::Connected => None,
+                WorkdeckDaemonConnectionState::Disconnected { notice, .. } => Some(notice.clone()),
+            };
+            client_state.connection_state = state;
+            let notice = match &client_state.connection_state {
+                WorkdeckDaemonConnectionState::Connected => None,
+                WorkdeckDaemonConnectionState::Disconnected { notice, .. } => Some(notice.clone()),
+            };
+            (
+                previous_notice,
+                notice,
+                client_state.notice_listeners.clone(),
+            )
+        };
+        if notice == previous_notice {
+            return;
+        }
+        if listeners.is_empty() {
+            if let Some(notice) = &notice {
+                self.warn_unavailable(notice);
+            }
+            return;
+        }
+        for listener in listeners {
+            listener(notice.as_deref());
+        }
+    }
+
+    /// Ask the daemon which build it is and refine the refused-hello notice by direction.
+    fn refine_refusal_notice(&self, config: &ResolvedSessionBrokerConfig) {
+        let probe = Arc::clone(&self.inner.runtime.probe_daemon_status);
+        let config = config.clone();
+        let client = self.clone();
+        thread::Builder::new()
+            .name("workdeck-session-daemon-probe".into())
+            .spawn(move || {
+                let result = probe(&config);
+                let applies = {
+                    let mut state = client
+                        .inner
+                        .state
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner());
+                    if !state.waiting_for_incumbent_exit {
+                        return;
+                    }
+                    // "Unavailable" is the one answer worth asking again for: it means the
+                    // probe itself did not land. A daemon that refuses the admin scope has
+                    // answered definitively.
+                    state.incumbent_build_known =
+                        !matches!(result, WorkdeckDaemonAdminProbe::Unavailable);
+                    true
+                };
+                if applies {
+                    let notice = daemon_skew_notice(&result, &crate::current_daemon_build());
+                    client.set_connection_state(WorkdeckDaemonConnectionState::Disconnected {
+                        notice: notice.notice,
+                        direction: notice.direction,
+                    });
+                }
+            })
+            .ok();
     }
 
     pub fn replace_session(
@@ -818,16 +1001,29 @@ impl WorkdeckSessionBrokerClient {
         &self,
         config: &ResolvedSessionBrokerConfig,
     ) -> Result<(), SessionBrokerClientError> {
-        let incumbent = {
+        let (incumbent, stale) = {
             let state = self
                 .inner
                 .state
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
-            state
+            let incumbent = state
                 .waiting_for_incumbent_exit
-                .then(|| state.incumbent_launch_fingerprint.clone())
+                .then(|| state.incumbent_launch_fingerprint.clone());
+            let stale = matches!(
+                &state.connection_state,
+                WorkdeckDaemonConnectionState::Disconnected {
+                    direction: DaemonSkewKnowledge::Known(DaemonSkewDirection::ClientOlder),
+                    ..
+                }
+            );
+            (incumbent, stale)
         };
+        if stale {
+            // A window older than the daemon can never be accepted by it; poll slowly rather
+            // than never, so a later daemon replacement is still noticed.
+            thread::sleep(self.inner.timing.stale_poll_delay);
+        }
         if let Some(incumbent) = incumbent {
             if (self.inner.runtime.is_healthy)(config)
                 && (self.inner.runtime.read_launch_fingerprint)(config) == incumbent
@@ -858,24 +1054,69 @@ impl WorkdeckSessionBrokerClient {
                 .state
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
+            // One incumbent, one probe: a running daemon's build cannot change, so re-asking on
+            // every reconnect would only churn caller sessions and overwrite the refined notice
+            // with the generic one. A different launch fingerprint means a different daemon.
+            let same_incumbent = state.waiting_for_incumbent_exit
+                && state.incumbent_launch_fingerprint == fingerprint;
             state.waiting_for_incumbent_exit = true;
             state.incumbent_launch_fingerprint = fingerprint;
+            drop(state);
+            if !same_incumbent {
+                self.inner
+                    .state
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .incumbent_build_known = false;
+                self.set_connection_state(WorkdeckDaemonConnectionState::Disconnected {
+                    notice: WORKDECK_DAEMON_UPGRADE_WAIT_MESSAGE.into(),
+                    direction: DaemonSkewKnowledge::Unknown,
+                });
+                self.refine_refusal_notice(config);
+            } else {
+                let build_known = self
+                    .inner
+                    .state
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .incumbent_build_known;
+                // A probe that never landed would otherwise leave this window on the generic
+                // notice for the incumbent's whole life — including when the daemon is the
+                // newer build and closing older windows cannot help. Retry without disturbing
+                // the notice on screen.
+                if !build_known {
+                    self.refine_refusal_notice(config);
+                }
+            }
+        } else if is_registration_rejection(&event) {
+            self.set_connection_state(WorkdeckDaemonConnectionState::Disconnected {
+                notice: WORKDECK_DAEMON_REGISTRATION_REJECTED_MESSAGE.into(),
+                direction: DaemonSkewKnowledge::Unknown,
+            });
         }
+        // Notices reach subscribers through the link state; the generic warning channel stays
+        // for the console fallback only.
         SessionBrokerConnectionCloseDirective {
             reconnect: Some(true),
-            warning: refusal.then(|| WORKDECK_DAEMON_UPGRADE_WAIT_MESSAGE.into()),
+            warning: None,
         }
     }
 
     fn on_connected(&self) {
-        let mut state = self
-            .inner
-            .state
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        state.waiting_for_incumbent_exit = false;
-        state.incumbent_launch_fingerprint = None;
-        state.last_connection_warning = None;
+        {
+            let mut state = self
+                .inner
+                .state
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            state.waiting_for_incumbent_exit = false;
+            state.incumbent_launch_fingerprint = None;
+            state.incumbent_build_known = false;
+            state.last_connection_warning = None;
+        }
+        // Publishing the connected state clears the sticky notice for subscribers; when the
+        // link was never disconnected this is a no-op.
+        self.set_connection_state(WorkdeckDaemonConnectionState::Connected);
     }
 
     fn handle_startup_failure(&self, attempt_id: u64, message: String) {
@@ -983,6 +1224,18 @@ impl WorkdeckSessionBrokerClient {
                 .state
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
+            // The incumbent-wait message recurs on every poll while a subscriber already shows
+            // the sticky notice for it; only genuine faults (spawn failure, port conflict)
+            // belong in the console.
+            if message == WORKDECK_DAEMON_UPGRADE_WAIT_MESSAGE
+                && !state.notice_listeners.is_empty()
+                && matches!(
+                    state.connection_state,
+                    WorkdeckDaemonConnectionState::Disconnected { .. }
+                )
+            {
+                return;
+            }
             if state.last_connection_warning.as_deref() == Some(message) {
                 return;
             }
@@ -1026,20 +1279,23 @@ fn create_native_client_connection(
     spec: SessionBrokerClientConnectionSpec,
 ) -> Result<Arc<dyn WorkdeckSessionClientConnection>, SessionBrokerClientError> {
     let url = format!("{}{}", spec.config.ws_origin, SESSION_BROKER_SOCKET_PATH);
+    let effective_revision = resolve_workdeck_session_daemon_version(&std::env::vars().collect());
     let mut options = SessionBrokerConnectionOptions::new(
         url,
         Arc::new(|url: &str| NativeSessionBrokerClientSocket::connect(url)),
         spec.registration,
         spec.snapshot,
         Arc::new(
-            create_workdeck_session_protocol_parsers()
-                .map_err(|error| SessionBrokerClientError::Runtime(error.to_string()))?,
+            crate::create_workdeck_session_protocol_parsers_with_revision(u64::from(
+                effective_revision,
+            ))
+            .map_err(|error| SessionBrokerClientError::Runtime(error.to_string()))?,
         ),
     );
     options.bridge = spec.bridge;
     options.producer_authentication = Some(SessionBrokerProducerAuthentication::native(
         WORKDECK_SESSION_BROKER_APP_ID,
-        WORKDECK_SESSION_BROKER_APP_REVISION,
+        effective_revision,
         SessionBrokerClientCredential {
             grant: spec.credentials.producer.grant.clone(),
             private_key: spec.credentials.producer.private_key.clone(),

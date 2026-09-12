@@ -63,3 +63,14 @@ Adapted from Hunk's pinned MIT guide, Copyright Modem Labs Inc. Native CLI help
 matches these command forms; complete broker, lifecycle and platform parity is
 still a release gate. This source interval remains unmapped.
 
+
+## Daemon build mismatches
+
+After a Workdeck upgrade, a daemon from the previous build keeps running while any older window
+holds it open. A window from the new build shows a status-bar notice naming both builds, and every
+`workdeck session` command fails with a `daemon-build-mismatch` error (in-band under `--json`) that
+names both builds, counts the attached windows, and recommends `restart-daemon` or
+`use-newer-workdeck`. Run `workdeck daemon status` to see the daemon's build and attached windows,
+and `workdeck daemon restart` to replace it with one from this build after confirming; windows that
+could not attach register on their own afterwards, while windows from the old build must be
+relaunched. Agents should report the mismatch and ask before restarting.

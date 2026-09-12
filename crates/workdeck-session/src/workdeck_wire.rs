@@ -16,6 +16,53 @@ use crate::{
     parse_workdeck_review_resource_catalog,
 };
 
+/// Where one wire parse rejected a payload: the parser name and the top-level key path only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionWireRejection {
+    pub parser: &'static str,
+    pub path: String,
+}
+
+/// Threads the key path through nested parsers and records the innermost rejection.
+///
+/// Parsers reject by returning `None`; the first (innermost) record wins, so a later outer
+/// `None` cannot overwrite the useful location.
+struct WireParseCtx<'a> {
+    slot: &'a mut Option<SessionWireRejection>,
+    path: String,
+}
+
+impl<'a> WireParseCtx<'a> {
+    fn root(slot: &'a mut Option<SessionWireRejection>) -> Self {
+        Self {
+            slot,
+            path: String::new(),
+        }
+    }
+
+    /// Derive the context for one nested key while sharing the rejection slot.
+    fn child(&mut self, key: &str) -> WireParseCtx<'_> {
+        WireParseCtx {
+            slot: self.slot,
+            path: if self.path.is_empty() {
+                key.to_owned()
+            } else {
+                format!("{}.{}", self.path, key)
+            },
+        }
+    }
+
+    /// Record the innermost rejection for a parser.
+    fn reject(&mut self, parser: &'static str) {
+        if self.slot.is_none() {
+            *self.slot = Some(SessionWireRejection {
+                parser,
+                path: self.path.clone(),
+            });
+        }
+    }
+}
+
 fn exact<'a>(
     value: &'a Value,
     required: &[&str],
@@ -56,35 +103,77 @@ fn parse_optional_range(value: Option<&Value>) -> Option<Option<[u64; 2]>> {
     ]))
 }
 
-fn parse_session_review_hunk(value: &Value) -> Option<SessionReviewHunk> {
-    let record = exact(value, &["index", "header"], &["oldRange", "newRange"])?;
+/// Unwrap one parser result or record the rejection for the enclosing parser and stop.
+macro_rules! req {
+    ($ctx:expr, $parser:expr, $expr:expr) => {
+        match $expr {
+            Some(value) => value,
+            None => {
+                $ctx.reject($parser);
+                return None;
+            }
+        }
+    };
+}
+
+fn parse_session_review_hunk(
+    value: &Value,
+    ctx: &mut WireParseCtx<'_>,
+) -> Option<SessionReviewHunk> {
+    const PARSER: &str = "parse_session_review_hunk";
+    let record = req!(
+        ctx,
+        PARSER,
+        exact(value, &["index", "header"], &["oldRange", "newRange"])
+    );
     Some(SessionReviewHunk {
-        index: parse_nonnegative_broker_integer(&record["index"])?,
-        header: parse_required_broker_string(&record["header"])?,
-        old_range: parse_optional_range(record.get("oldRange"))?,
-        new_range: parse_optional_range(record.get("newRange"))?,
+        index: req!(
+            ctx,
+            PARSER,
+            parse_nonnegative_broker_integer(&record["index"])
+        ),
+        header: req!(ctx, PARSER, parse_required_broker_string(&record["header"])),
+        old_range: req!(ctx, PARSER, parse_optional_range(record.get("oldRange"))),
+        new_range: req!(ctx, PARSER, parse_optional_range(record.get("newRange"))),
     })
 }
 
-fn parse_session_review_file(value: &Value) -> Option<SessionReviewFile> {
-    let record = exact(
-        value,
-        &["id", "path", "additions", "deletions", "hunks"],
-        &["previousPath", "patch", "hunkCount"],
-    )?;
-    let hunk_values = record["hunks"].as_array()?;
+fn parse_session_review_file(
+    value: &Value,
+    ctx: &mut WireParseCtx<'_>,
+) -> Option<SessionReviewFile> {
+    const PARSER: &str = "parse_session_review_file";
+    let record = req!(
+        ctx,
+        PARSER,
+        exact(
+            value,
+            &["id", "path", "additions", "deletions", "hunks"],
+            &["previousPath", "patch", "hunkCount"],
+        )
+    );
+    let hunk_values = req!(ctx, PARSER, record["hunks"].as_array());
     if hunk_values.len() > MAX_REGISTRATION_HUNKS_PER_FILE {
+        ctx.reject(PARSER);
         return None;
     }
     if record.get("hunkCount").is_some_and(|count| {
         parse_nonnegative_broker_integer(count) != u64::try_from(hunk_values.len()).ok()
     }) {
+        ctx.reject(PARSER);
         return None;
     }
-    let hunks = hunk_values
-        .iter()
-        .map(parse_session_review_hunk)
-        .collect::<Option<Vec<_>>>()?;
+    let hunks = req!(
+        ctx,
+        PARSER,
+        hunk_values
+            .iter()
+            .enumerate()
+            .map(|(index, hunk)| {
+                parse_session_review_hunk(hunk, &mut ctx.child(&format!("hunks[{index}]")))
+            })
+            .collect::<Option<Vec<_>>>()
+    );
     let patch = record
         .get("patch")
         .map(|patch| {
@@ -98,15 +187,28 @@ fn parse_session_review_file(value: &Value) -> Option<SessionReviewFile> {
             .map(str::to_owned)
         })
         .transpose()
-        .ok()?;
+        .ok();
+    let patch = req!(ctx, PARSER, patch);
     Some(SessionReviewFile {
         summary: SessionFileSummary {
-            id: parse_required_broker_string(&record["id"])?,
-            path: parse_required_broker_string(&record["path"])?,
-            previous_path: parse_optional_broker_string(record.get("previousPath")).ok()?,
-            additions: parse_nonnegative_broker_integer(&record["additions"])?,
-            deletions: parse_nonnegative_broker_integer(&record["deletions"])?,
-            hunk_count: u64::try_from(hunks.len()).ok()?,
+            id: req!(ctx, PARSER, parse_required_broker_string(&record["id"])),
+            path: req!(ctx, PARSER, parse_required_broker_string(&record["path"])),
+            previous_path: req!(
+                ctx,
+                PARSER,
+                parse_optional_broker_string(record.get("previousPath")).ok()
+            ),
+            additions: req!(
+                ctx,
+                PARSER,
+                parse_nonnegative_broker_integer(&record["additions"])
+            ),
+            deletions: req!(
+                ctx,
+                PARSER,
+                parse_nonnegative_broker_integer(&record["deletions"])
+            ),
+            hunk_count: req!(ctx, PARSER, u64::try_from(hunks.len()).ok()),
         },
         patch,
         hunks,
@@ -125,30 +227,70 @@ fn parse_review_input_kind(value: &Value) -> Option<WorkdeckSessionInputKind> {
     })
 }
 
-fn parse_session_live_comment(value: &Value) -> Option<SessionLiveCommentSummary> {
-    let record = exact(
-        value,
-        &[
-            "commentId",
-            "filePath",
-            "hunkIndex",
-            "summary",
-            "createdAt",
-            "line",
-            "side",
-        ],
-        &["rationale", "author"],
-    )?;
+fn parse_session_live_comment(
+    value: &Value,
+    ctx: &mut WireParseCtx<'_>,
+) -> Option<SessionLiveCommentSummary> {
+    const PARSER: &str = "parse_session_live_comment";
+    let record = req!(
+        ctx,
+        PARSER,
+        exact(
+            value,
+            &[
+                "commentId",
+                "filePath",
+                "hunkIndex",
+                "summary",
+                "createdAt",
+                "line",
+                "side",
+            ],
+            &["rationale", "author"],
+        )
+    );
     Some(SessionLiveCommentSummary {
-        comment_id: parse_required_broker_string(&record["commentId"])?,
-        file_path: parse_required_broker_string(&record["filePath"])?,
-        hunk_index: parse_nonnegative_broker_integer(&record["hunkIndex"])?,
-        side: serde_json::from_value(record["side"].clone()).ok()?,
-        line: parse_positive_broker_integer(&record["line"])?,
-        summary: parse_required_broker_string(&record["summary"])?,
-        rationale: parse_optional_broker_string(record.get("rationale")).ok()?,
-        author: parse_optional_broker_string(record.get("author")).ok()?,
-        created_at: parse_required_broker_string(&record["createdAt"])?,
+        comment_id: req!(
+            ctx,
+            PARSER,
+            parse_required_broker_string(&record["commentId"])
+        ),
+        file_path: req!(
+            ctx,
+            PARSER,
+            parse_required_broker_string(&record["filePath"])
+        ),
+        hunk_index: req!(
+            ctx,
+            PARSER,
+            parse_nonnegative_broker_integer(&record["hunkIndex"])
+        ),
+        side: req!(
+            ctx,
+            PARSER,
+            serde_json::from_value(record["side"].clone()).ok()
+        ),
+        line: req!(ctx, PARSER, parse_positive_broker_integer(&record["line"])),
+        summary: req!(
+            ctx,
+            PARSER,
+            parse_required_broker_string(&record["summary"])
+        ),
+        rationale: req!(
+            ctx,
+            PARSER,
+            parse_optional_broker_string(record.get("rationale")).ok()
+        ),
+        author: req!(
+            ctx,
+            PARSER,
+            parse_optional_broker_string(record.get("author")).ok()
+        ),
+        created_at: req!(
+            ctx,
+            PARSER,
+            parse_required_broker_string(&record["createdAt"])
+        ),
     })
 }
 
@@ -161,129 +303,226 @@ fn parse_review_note_source(value: &Value) -> Option<ReviewNoteSource> {
     })
 }
 
-fn parse_session_review_note(value: &Value) -> Option<SessionReviewNoteSummary> {
-    let record = exact(
-        value,
-        &["noteId", "source", "filePath", "body", "createdAt"],
-        &[
-            "parentId",
-            "hunkIndex",
-            "oldRange",
-            "newRange",
-            "title",
-            "author",
-            "updatedAt",
-            "editable",
-        ],
-    )?;
-    let source = parse_review_note_source(&record["source"])?;
+fn parse_session_review_note(
+    value: &Value,
+    ctx: &mut WireParseCtx<'_>,
+) -> Option<SessionReviewNoteSummary> {
+    const PARSER: &str = "parse_session_review_note";
+    let record = req!(
+        ctx,
+        PARSER,
+        exact(
+            value,
+            &["noteId", "source", "filePath", "body", "createdAt"],
+            &[
+                "parentId",
+                "hunkIndex",
+                "oldRange",
+                "newRange",
+                "title",
+                "author",
+                "updatedAt",
+                "editable",
+            ],
+        )
+    );
+    let source = req!(ctx, PARSER, parse_review_note_source(&record["source"]));
     let hunk_index = match record.get("hunkIndex") {
-        Some(value) => Some(parse_nonnegative_broker_integer(value)?),
+        Some(value) => Some(req!(ctx, PARSER, parse_nonnegative_broker_integer(value))),
         None => None,
     };
     let editable = match record.get("editable") {
-        Some(value) => value.as_bool()?,
+        Some(value) => req!(ctx, PARSER, value.as_bool()),
         None => source == ReviewNoteSource::User,
     };
     Some(SessionReviewNoteSummary {
-        note_id: parse_required_broker_string(&record["noteId"])?,
-        parent_id: parse_optional_broker_string(record.get("parentId")).ok()?,
+        note_id: req!(ctx, PARSER, parse_required_broker_string(&record["noteId"])),
+        parent_id: req!(
+            ctx,
+            PARSER,
+            parse_optional_broker_string(record.get("parentId")).ok()
+        ),
         source,
-        file_path: parse_required_broker_string(&record["filePath"])?,
+        file_path: req!(
+            ctx,
+            PARSER,
+            parse_required_broker_string(&record["filePath"])
+        ),
         hunk_index,
-        old_range: parse_optional_range(record.get("oldRange"))?,
-        new_range: parse_optional_range(record.get("newRange"))?,
-        body: parse_required_broker_string(&record["body"])?,
-        title: parse_optional_broker_string(record.get("title")).ok()?,
-        author: parse_optional_broker_string(record.get("author")).ok()?,
-        created_at: parse_required_broker_string(&record["createdAt"])?,
-        updated_at: parse_optional_broker_string(record.get("updatedAt")).ok()?,
+        old_range: req!(ctx, PARSER, parse_optional_range(record.get("oldRange"))),
+        new_range: req!(ctx, PARSER, parse_optional_range(record.get("newRange"))),
+        body: req!(ctx, PARSER, parse_required_broker_string(&record["body"])),
+        title: req!(
+            ctx,
+            PARSER,
+            parse_optional_broker_string(record.get("title")).ok()
+        ),
+        author: req!(
+            ctx,
+            PARSER,
+            parse_optional_broker_string(record.get("author")).ok()
+        ),
+        created_at: req!(
+            ctx,
+            PARSER,
+            parse_required_broker_string(&record["createdAt"])
+        ),
+        updated_at: req!(
+            ctx,
+            PARSER,
+            parse_optional_broker_string(record.get("updatedAt")).ok()
+        ),
         editable,
     })
 }
 
-fn parse_workdeck_session_info(value: &Value) -> Option<WorkdeckSessionInfo> {
-    let record = exact(
-        value,
-        &["inputKind", "title", "sourceLabel", "files"],
-        &[
-            "experimentalFeatures",
-            "reviewCatalog",
-            "reviewCapabilityDigest",
-        ],
-    )?;
-    let file_values = record["files"].as_array()?;
+fn parse_workdeck_session_info(
+    value: &Value,
+    ctx: &mut WireParseCtx<'_>,
+) -> Option<WorkdeckSessionInfo> {
+    const PARSER: &str = "parse_workdeck_session_info";
+    let record = req!(
+        ctx,
+        PARSER,
+        exact(
+            value,
+            &["inputKind", "title", "sourceLabel", "files"],
+            &[
+                "experimentalFeatures",
+                "reviewCatalog",
+                "reviewCapabilityDigest",
+            ],
+        )
+    );
+    let file_values = req!(ctx, PARSER, record["files"].as_array());
     if file_values.len() > MAX_REGISTRATION_FILES {
+        ctx.reject(PARSER);
         return None;
     }
-    let files = file_values
-        .iter()
-        .map(parse_session_review_file)
-        .collect::<Option<Vec<_>>>()?;
+    let files = req!(
+        ctx,
+        PARSER,
+        file_values
+            .iter()
+            .enumerate()
+            .map(|(index, file)| {
+                parse_session_review_file(file, &mut ctx.child(&format!("files[{index}]")))
+            })
+            .collect::<Option<Vec<_>>>()
+    );
     let review_catalog = match record.get("reviewCatalog") {
-        Some(value) => Some(parse_workdeck_review_resource_catalog(value)?),
+        Some(value) => match parse_workdeck_review_resource_catalog(value) {
+            Some(catalog) => Some(catalog),
+            None => {
+                ctx.child("reviewCatalog")
+                    .reject("parse_workdeck_review_resource_catalog");
+                return None;
+            }
+        },
         None => None,
     };
     let review_capability_digest = match record.get("reviewCapabilityDigest") {
         Some(value) => {
-            let digest = value.as_str()?;
+            let digest = req!(ctx, PARSER, value.as_str());
             if !is_review_sha256_digest(digest) {
+                ctx.child("reviewCapabilityDigest")
+                    .reject("is_review_sha256_digest");
                 return None;
             }
             Some(digest.to_owned())
         }
         None => None,
     };
+    let experimental_features = match record.get("experimentalFeatures") {
+        Some(_) => match parse_experimental_features(record.get("experimentalFeatures")) {
+            Some(features) => features,
+            None => {
+                ctx.child("experimentalFeatures")
+                    .reject("parse_experimental_features");
+                return None;
+            }
+        },
+        None => Vec::new(),
+    };
     Some(WorkdeckSessionInfo {
-        input_kind: parse_review_input_kind(&record["inputKind"])?,
-        title: parse_required_broker_string(&record["title"])?,
-        source_label: parse_required_broker_string(&record["sourceLabel"])?,
-        experimental_features: Some(parse_experimental_features(
-            record.get("experimentalFeatures"),
-        )?),
+        input_kind: req!(ctx, PARSER, parse_review_input_kind(&record["inputKind"])),
+        title: req!(ctx, PARSER, parse_required_broker_string(&record["title"])),
+        source_label: req!(
+            ctx,
+            PARSER,
+            parse_required_broker_string(&record["sourceLabel"])
+        ),
+        experimental_features: Some(experimental_features),
         files,
         review_catalog,
         review_capability_digest,
     })
 }
 
-fn parse_workdeck_session_state(value: &Value) -> Option<WorkdeckSessionState> {
-    let record = exact(
-        value,
-        &["liveComments", "selectedHunkIndex", "showAgentNotes"],
-        &[
-            "selectedFileId",
-            "selectedFilePath",
-            "selectedHunkOldRange",
-            "selectedHunkNewRange",
-            "noteMarkupWidth",
-            "liveCommentCount",
-            "reviewNoteCount",
-            "reviewNotes",
-            "reviewPublication",
-        ],
-    )?;
-    let live_values = record["liveComments"].as_array()?;
+fn parse_workdeck_session_state(
+    value: &Value,
+    ctx: &mut WireParseCtx<'_>,
+) -> Option<WorkdeckSessionState> {
+    const PARSER: &str = "parse_workdeck_session_state";
+    let record = req!(
+        ctx,
+        PARSER,
+        exact(
+            value,
+            &["liveComments", "selectedHunkIndex", "showAgentNotes"],
+            &[
+                "selectedFileId",
+                "selectedFilePath",
+                "selectedHunkOldRange",
+                "selectedHunkNewRange",
+                "noteMarkupWidth",
+                "liveCommentCount",
+                "reviewNoteCount",
+                "reviewNotes",
+                "reviewPublication",
+            ],
+        )
+    );
+    let live_values = req!(ctx, PARSER, record["liveComments"].as_array());
     if live_values.len() > MAX_SNAPSHOT_LIVE_COMMENTS {
+        ctx.reject(PARSER);
         return None;
     }
     let review_values: &[Value] = match record.get("reviewNotes") {
-        Some(value) => value.as_array()?.as_slice(),
+        Some(value) => req!(ctx, PARSER, value.as_array()).as_slice(),
         None => &[],
     };
     if review_values.len() > MAX_SNAPSHOT_REVIEW_NOTES {
+        ctx.reject(PARSER);
         return None;
     }
-    let live_comments = live_values
-        .iter()
-        .map(parse_session_live_comment)
-        .collect::<Option<Vec<_>>>()?;
-    let review_notes = review_values
-        .iter()
-        .map(parse_session_review_note)
-        .collect::<Option<Vec<_>>>()?;
-    let live_comment_count = u64::try_from(live_comments.len()).ok()?;
-    let review_note_count = u64::try_from(review_notes.len()).ok()?;
+    let live_comments = req!(
+        ctx,
+        PARSER,
+        live_values
+            .iter()
+            .enumerate()
+            .map(|(index, comment)| {
+                parse_session_live_comment(
+                    comment,
+                    &mut ctx.child(&format!("liveComments[{index}]")),
+                )
+            })
+            .collect::<Option<Vec<_>>>()
+    );
+    let review_notes = req!(
+        ctx,
+        PARSER,
+        review_values
+            .iter()
+            .enumerate()
+            .map(|(index, note)| {
+                parse_session_review_note(note, &mut ctx.child(&format!("reviewNotes[{index}]")))
+            })
+            .collect::<Option<Vec<_>>>()
+    );
+    let live_comment_count = req!(ctx, PARSER, u64::try_from(live_comments.len()).ok());
+    let review_note_count = req!(ctx, PARSER, u64::try_from(review_notes.len()).ok());
     if record
         .get("liveCommentCount")
         .is_some_and(|value| parse_nonnegative_broker_integer(value) != Some(live_comment_count))
@@ -291,21 +530,49 @@ fn parse_workdeck_session_state(value: &Value) -> Option<WorkdeckSessionState> {
             .get("reviewNoteCount")
             .is_some_and(|value| parse_nonnegative_broker_integer(value) != Some(review_note_count))
     {
+        ctx.reject(PARSER);
         return None;
     }
     let review_publication = match record.get("reviewPublication") {
-        Some(value) => Some(parse_workdeck_review_publication_address(value)?),
+        Some(value) => match parse_workdeck_review_publication_address(value) {
+            Some(address) => Some(address),
+            None => {
+                ctx.child("reviewPublication")
+                    .reject("parse_workdeck_review_publication_address");
+                return None;
+            }
+        },
         None => None,
     };
     Some(WorkdeckSessionState {
-        selected_file_id: parse_optional_broker_string(record.get("selectedFileId")).ok()?,
-        selected_file_path: parse_optional_broker_string(record.get("selectedFilePath")).ok()?,
-        selected_hunk_index: parse_nonnegative_broker_integer(&record["selectedHunkIndex"])?,
-        selected_hunk_old_range: parse_optional_range(record.get("selectedHunkOldRange"))?,
-        selected_hunk_new_range: parse_optional_range(record.get("selectedHunkNewRange"))?,
-        show_agent_notes: record["showAgentNotes"].as_bool()?,
+        selected_file_id: req!(
+            ctx,
+            PARSER,
+            parse_optional_broker_string(record.get("selectedFileId")).ok()
+        ),
+        selected_file_path: req!(
+            ctx,
+            PARSER,
+            parse_optional_broker_string(record.get("selectedFilePath")).ok()
+        ),
+        selected_hunk_index: req!(
+            ctx,
+            PARSER,
+            parse_nonnegative_broker_integer(&record["selectedHunkIndex"])
+        ),
+        selected_hunk_old_range: req!(
+            ctx,
+            PARSER,
+            parse_optional_range(record.get("selectedHunkOldRange"))
+        ),
+        selected_hunk_new_range: req!(
+            ctx,
+            PARSER,
+            parse_optional_range(record.get("selectedHunkNewRange"))
+        ),
+        show_agent_notes: req!(ctx, PARSER, record["showAgentNotes"].as_bool()),
         note_markup_width: match record.get("noteMarkupWidth") {
-            Some(value) => Some(parse_nonnegative_broker_integer(value)?),
+            Some(value) => Some(req!(ctx, PARSER, parse_nonnegative_broker_integer(value))),
             None => None,
         },
         live_comment_count,
@@ -319,13 +586,64 @@ fn parse_workdeck_session_state(value: &Value) -> Option<WorkdeckSessionState> {
 /// Parse one Workdeck session registration from the broker WebSocket wire format.
 #[must_use]
 pub fn parse_workdeck_session_registration(value: &Value) -> Option<WorkdeckSessionRegistration> {
-    parse_session_registration_envelope(value, parse_workdeck_session_info)
+    parse_session_registration_with(value, &mut None)
 }
 
 /// Parse one Workdeck session snapshot from the broker WebSocket wire format.
 #[must_use]
 pub fn parse_workdeck_session_snapshot(value: &Value) -> Option<WorkdeckSessionSnapshot> {
-    parse_session_snapshot_envelope(value, parse_workdeck_session_state)
+    parse_session_snapshot_with(value, &mut None)
+}
+
+/// Parse one registration with a shared context so the rejection location can be read back.
+fn parse_session_registration_with(
+    value: &Value,
+    rejection: &mut Option<SessionWireRejection>,
+) -> Option<WorkdeckSessionRegistration> {
+    let mut ctx = WireParseCtx::root(rejection);
+    let parsed = parse_session_registration_envelope(value, |info| {
+        parse_workdeck_session_info(info, &mut ctx.child("info"))
+    });
+    if parsed.is_none() {
+        // Rejection recording keeps the first writer, so this only lands when the
+        // app-owned parsers left the slot empty: the shared envelope itself refused.
+        ctx.reject("parse_session_registration_envelope");
+    }
+    parsed
+}
+
+/// Parse one snapshot with a shared context so the rejection location can be read back.
+fn parse_session_snapshot_with(
+    value: &Value,
+    rejection: &mut Option<SessionWireRejection>,
+) -> Option<WorkdeckSessionSnapshot> {
+    let mut ctx = WireParseCtx::root(rejection);
+    let parsed = parse_session_snapshot_envelope(value, |state| {
+        parse_workdeck_session_state(state, &mut ctx.child("state"))
+    });
+    if parsed.is_none() {
+        ctx.reject("parse_session_snapshot_envelope");
+    }
+    parsed
+}
+
+/// Explain why one registration payload is rejected, or return `None` when it parses.
+///
+/// The result names the parser and the key path, never the payload, so a version skew is a
+/// one-line diagnosis.
+#[must_use]
+pub fn diagnose_workdeck_session_registration(value: &Value) -> Option<SessionWireRejection> {
+    let mut rejection = None;
+    parse_session_registration_with(value, &mut rejection);
+    rejection
+}
+
+/// Explain why one snapshot payload is rejected, or return `None` when it parses.
+#[must_use]
+pub fn diagnose_workdeck_session_snapshot(value: &Value) -> Option<SessionWireRejection> {
+    let mut rejection = None;
+    parse_session_snapshot_with(value, &mut rejection);
+    rejection
 }
 
 #[cfg(test)]

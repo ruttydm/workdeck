@@ -1230,6 +1230,12 @@ pub struct ReviewApp {
     filter_scroll: Cell<usize>,
     /// Host-owned status line: persistent items and the inline prompt queue.
     status_line: StatusLineStore,
+    /// The daemon link notice slot the broker client's subscription writes; kept on screen
+    /// until the link reconnects, ahead of timed notices.
+    daemon_notice: Option<Arc<Mutex<Option<String>>>>,
+    /// Keeps the broker client's connection-notice subscription alive for this app; dropping
+    /// the app unsubscribes (the guard's own drop unsubscribes).
+    _daemon_notice_subscription: Option<workdeck_session::ConnectionNoticeSubscription>,
     /// Store id of the host's own filter prompt, when it is open.
     filter_prompt_id: Option<u64>,
     /// Process-wide session of the bundled `/` content search.
@@ -1334,6 +1340,20 @@ impl ReviewApp {
         review_producer: workdeck_review::ReviewProducer,
         session_broker_client: Option<workdeck_session::WorkdeckSessionBrokerClient>,
     ) -> Self {
+        // Subscribe before construction so a refused hello cannot slip between app creation
+        // and the first render.
+        let (daemon_notice, daemon_notice_subscription) = session_broker_client
+            .as_ref()
+            .map(|client| {
+                let slot = Arc::new(Mutex::new(None));
+                let writer = Arc::clone(&slot);
+                let subscription = client.subscribe_connection_notice(Arc::new(move |notice| {
+                    *writer.lock().unwrap_or_else(|error| error.into_inner()) =
+                        notice.map(str::to_owned);
+                }));
+                (Some(slot), Some(subscription))
+            })
+            .unwrap_or((None, None));
         if options.pager {
             options.sidebar = false;
             options.sidebar_visibility = SidebarVisibility::Hidden;
@@ -1519,6 +1539,8 @@ impl ReviewApp {
             state: Arc::new(Mutex::new(state)),
             review_producer,
             session_broker_client,
+            daemon_notice,
+            _daemon_notice_subscription: daemon_notice_subscription,
             options,
             focus: Focus::Review,
             scroll: 0,
@@ -2369,6 +2391,26 @@ impl ReviewApp {
                 sanitize_terminal_line(notice),
                 Some(ExtensionStatusTone::Muted),
             ));
+        }
+        if let Some(daemon_notice) = self
+            .daemon_notice
+            .as_ref()
+            .and_then(|slot| {
+                slot.lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .clone()
+            })
+            .filter(|notice| !notice.is_empty())
+        {
+            // Preserve the persistent connection warning ahead of transient notices when the
+            // row overflows.
+            let mut daemon_item = StatusItem::with_tone(
+                HOST_DAEMON_ITEM_ID,
+                sanitize_terminal_line(&daemon_notice),
+                Some(ExtensionStatusTone::Muted),
+            );
+            daemon_item.priority = 2;
+            items.push(daemon_item);
         }
         items
     }
@@ -31021,5 +31063,56 @@ mod tests {
         assert!(!app.save_config_prompt_open());
         assert!(app.take_quit_requested());
         assert!(!config_path.exists());
+    }
+
+    #[test]
+    fn daemon_link_notice_sticks_on_the_status_row_until_reconnect() {
+        let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
+        // No broker client is attached in unit tests; the slot is what a subscription writes.
+        assert!(app.daemon_notice.is_none());
+        let slot = Arc::new(Mutex::new(None::<String>));
+        app.daemon_notice = Some(Arc::clone(&slot));
+
+        let items = app.host_status_items();
+        assert!(
+            !items.iter().any(|item| item.id == HOST_DAEMON_ITEM_ID),
+            "a connected daemon contributes no item"
+        );
+
+        // A refused hello publishes the notice; it outranks timed notices on overflow.
+        let notice = workdeck_session::WORKDECK_DAEMON_CLIENT_NEWER_MESSAGE;
+        *slot.lock().unwrap() = Some(notice.into());
+        let items = app.host_status_items();
+        let daemon_item = items
+            .iter()
+            .find(|item| item.id == HOST_DAEMON_ITEM_ID)
+            .expect("the daemon condition is on the row");
+        assert_eq!(daemon_item.priority, 2);
+        assert!(daemon_item.spans.iter().any(|span| span.text == notice));
+
+        // A timed notice and the daemon condition coexist; expiring the timed one must not
+        // clear the daemon's persistent condition.
+        app.status = Some("transient warning".into());
+        let items = app.host_status_items();
+        assert!(
+            items
+                .iter()
+                .any(|item| item.id == HOST_NOTICE_ITEM_ID && item.priority == 0)
+        );
+        assert!(items.iter().any(|item| item.id == HOST_DAEMON_ITEM_ID));
+        app.status = None;
+        assert!(
+            app.host_status_items()
+                .iter()
+                .any(|item| item.id == HOST_DAEMON_ITEM_ID)
+        );
+
+        // Reconnect clears it.
+        *slot.lock().unwrap() = None;
+        assert!(
+            !app.host_status_items()
+                .iter()
+                .any(|item| item.id == HOST_DAEMON_ITEM_ID)
+        );
     }
 }

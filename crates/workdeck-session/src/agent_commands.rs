@@ -18,17 +18,20 @@ use crate::{
     DaemonCliInput, DaemonCommentApplyItem, DaemonCommentDirection, DaemonCommentListType,
     DaemonCommonOptions, DaemonCursorLine, DaemonLayoutMode, DaemonRangeEndpoints,
     DaemonRevealMode, DaemonSidebarAuto, DaemonSidebarVisibility, HttpWorkdeckSessionCliClient,
-    SessionCommentAddCliInput, SessionCommentApplyCliInput, SessionCommentClearCliInput,
-    SessionCommentListCliInput, SessionCommentRemoveCliInput, SessionDaemonAction,
-    SessionHighlightAddCliInput, SessionHighlightClearCliInput, SessionLineHighlightTone,
-    SessionNavigateCliInput, SessionReloadCliInput, SessionReviewCliInput, SessionSelector,
-    WORKDECK_SESSION_API_VERSION, WorkdeckSessionCliClient, WorkdeckSessionCliClientError,
-    format_clear_comments_output, format_clear_highlights_output, format_comment_apply_output,
-    format_comment_list_output, format_comment_output, format_context_output,
-    format_highlight_output, format_list_output, format_navigation_output, format_note_list_output,
-    format_reload_output, format_remove_comment_output, format_review_output,
-    format_session_output, is_loopback_port_reachable, is_session_broker_healthy,
-    normalize_session_selector, resolve_session_broker_config, stringify_json,
+    ResolvedSessionBrokerConfig, SessionBrokerLaunchMetadata, SessionCommentAddCliInput,
+    SessionCommentApplyCliInput, SessionCommentClearCliInput, SessionCommentListCliInput,
+    SessionCommentRemoveCliInput, SessionDaemonAction, SessionHighlightAddCliInput,
+    SessionHighlightClearCliInput, SessionLineHighlightTone, SessionNavigateCliInput,
+    SessionReloadCliInput, SessionReviewCliInput, SessionSelector, WORKDECK_SESSION_API_VERSION,
+    WorkdeckDaemonAdminProbe, WorkdeckSessionCliClient, WorkdeckSessionCliClientError,
+    compare_daemon_build, daemon_build_mismatch_message, format_clear_comments_output,
+    format_clear_highlights_output, format_comment_apply_output, format_comment_list_output,
+    format_comment_output, format_context_output, format_highlight_output, format_list_output,
+    format_navigation_output, format_note_list_output, format_reload_output,
+    format_remove_comment_output, format_review_output, format_session_output,
+    is_loopback_port_reachable, is_session_broker_healthy, normalize_session_selector,
+    probe_workdeck_session_daemon_admin_status, read_session_broker_launch_metadata,
+    resolve_session_broker_config, stringify_json,
 };
 
 const AVAILABILITY_TIMEOUT: Duration = Duration::from_millis(500);
@@ -39,22 +42,36 @@ pub enum SessionCommandError {
     Client(#[from] WorkdeckSessionCliClientError),
     #[error("{0}")]
     Message(String),
+    /// The daemon and this CLI disagree on the build; carries the structured facts.
+    #[error("{}", daemon_build_mismatch_message(&.0.details))]
+    DaemonBuildMismatch(Box<crate::DaemonBuildMismatchError>),
     #[error("session selector normalization failed: {0}")]
     Selector(#[from] std::io::Error),
     #[error("session output JSON failed: {0}")]
     Json(#[from] serde_json::Error),
 }
 
+impl From<crate::DaemonBuildMismatchError> for SessionCommandError {
+    fn from(error: crate::DaemonBuildMismatchError) -> Self {
+        Self::DaemonBuildMismatch(Box::new(error))
+    }
+}
+
 type ClientFactory =
     dyn Fn() -> Result<Arc<dyn WorkdeckSessionCliClient>, SessionCommandError> + Send + Sync;
 type AvailabilityProbe =
     dyn Fn(SessionDaemonAction) -> Result<bool, SessionCommandError> + Send + Sync;
+type DaemonAdminStatusProbeHook = Arc<dyn Fn() -> WorkdeckDaemonAdminProbe + Send + Sync>;
+type DaemonLaunchMetadataHook = Arc<dyn Fn() -> Option<SessionBrokerLaunchMetadata> + Send + Sync>;
 
 /// Injectable command runner; production defaults stay state-free until a daemon-backed action runs.
 #[derive(Clone)]
 pub struct SessionCommandRunner {
     client_factory: Arc<ClientFactory>,
     availability: Arc<AvailabilityProbe>,
+    env: BTreeMap<String, String>,
+    probe_admin_status: Option<DaemonAdminStatusProbeHook>,
+    read_launch_metadata: Option<DaemonLaunchMetadataHook>,
 }
 
 impl std::fmt::Debug for SessionCommandRunner {
@@ -74,13 +91,28 @@ impl SessionCommandRunner {
         Self {
             client_factory,
             availability,
+            env: BTreeMap::new(),
+            probe_admin_status: None,
+            read_launch_metadata: None,
         }
+    }
+
+    /// Override the daemon admin probe and launch-metadata reader the mismatch explanation uses.
+    #[must_use]
+    pub fn with_daemon_probes(
+        mut self,
+        probe_admin_status: DaemonAdminStatusProbeHook,
+        read_launch_metadata: DaemonLaunchMetadataHook,
+    ) -> Self {
+        self.probe_admin_status = Some(probe_admin_status);
+        self.read_launch_metadata = Some(read_launch_metadata);
+        self
     }
 
     pub fn from_environment(env: BTreeMap<String, String>) -> Self {
         let client_env = env.clone();
-        let availability_env = env;
-        Self::with_hooks(
+        let availability_env = env.clone();
+        let mut runner = Self::with_hooks(
             Arc::new(move || {
                 Ok(Arc::new(HttpWorkdeckSessionCliClient::from_environment(
                     client_env.clone(),
@@ -88,7 +120,9 @@ impl SessionCommandRunner {
                 )?) as Arc<dyn WorkdeckSessionCliClient>)
             }),
             Arc::new(move |action| resolve_daemon_availability(action, &availability_env)),
-        )
+        );
+        runner.env = env;
+        runner
     }
 
     pub fn from_process_environment() -> Self {
@@ -107,7 +141,7 @@ impl SessionCommandRunner {
         }
         let selector = normalize_session_selector(&selector_from_input(&selector))?;
         let client = (self.client_factory)()?;
-        ensure_required_action(SessionDaemonAction::Quit, client.as_ref())?;
+        self.ensure_required_action(SessionDaemonAction::Quit, client.as_ref())?;
         Ok(client.quit_session(selector)?)
     }
 
@@ -125,7 +159,7 @@ impl SessionCommandRunner {
             .map(normalize_session_selector)
             .transpose()?;
         let client = (self.client_factory)()?;
-        ensure_required_action(action, client.as_ref())?;
+        self.ensure_required_action(action, client.as_ref())?;
 
         match input {
             SessionCommandInput::List { output } => {
@@ -369,25 +403,127 @@ pub fn run_session_command(input: SessionCommandInput) -> Result<String, Session
     SessionCommandRunner::from_process_environment().run(input)
 }
 
-fn ensure_required_action(
-    action: SessionDaemonAction,
-    client: &dyn WorkdeckSessionCliClient,
-) -> Result<(), SessionCommandError> {
-    let capabilities = match client.get_capabilities() {
-        Ok(capabilities) => capabilities,
-        Err(WorkdeckSessionCliClientError::Authentication) => None,
-        Err(error) => return Err(error.into()),
-    };
-    if capabilities.as_ref().is_some_and(|capabilities| {
-        capabilities.version == WORKDECK_SESSION_API_VERSION
-            && capabilities.actions.contains(&action)
-    }) {
-        return Ok(());
+impl SessionCommandRunner {
+    /// Explain a daemon that refused this CLI, or one that speaks the revision but lacks the
+    /// action.
+    ///
+    /// The admin scope answers regardless of revision, so the error can name both builds and
+    /// count the windows a restart would disconnect. A daemon from before the scope existed
+    /// cannot be asked; the launch metadata stands in, and the recommendation is still a
+    /// restart because such a daemon is necessarily older than this CLI.
+    fn describe_daemon_build_mismatch(&self) -> crate::DaemonBuildMismatchDetails {
+        let cli = crate::current_daemon_build();
+        let probe: DaemonAdminStatusProbeHook = match &self.probe_admin_status {
+            Some(hook) => Arc::clone(hook),
+            None => {
+                let config =
+                    resolve_session_broker_config(&self.env).unwrap_or_else(|_| fallback_config());
+                let env = self.env.clone();
+                Arc::new(move || {
+                    probe_workdeck_session_daemon_admin_status(
+                        &config,
+                        &env,
+                        crate::default_admin_probe_timeout(),
+                    )
+                })
+            }
+        };
+        match probe() {
+            WorkdeckDaemonAdminProbe::Status(status) => {
+                let direction = compare_daemon_build(status.daemon_version, cli.daemon_version);
+                crate::DaemonBuildMismatchDetails {
+                    daemon: Some(crate::DaemonBuildMismatchBuildInput {
+                        daemon_version: status.daemon_version,
+                        app_version: status.app_version,
+                    }),
+                    cli: cli.into(),
+                    attached_sessions: Some(crate::DaemonBuildMismatchAttachedSessions {
+                        count: status.sessions.len(),
+                        sessions: status
+                            .sessions
+                            .iter()
+                            .map(|session| crate::DaemonBuildMismatchSession {
+                                session_id: session.session_id.clone(),
+                                title: session.title.clone(),
+                                cwd: session.cwd.clone(),
+                                pid: session.pid,
+                            })
+                            .collect(),
+                    }),
+                    launch: None,
+                    recommended_action: if direction == crate::DaemonSkewDirection::ClientOlder {
+                        crate::DaemonBuildMismatchAction::UseNewerWorkdeck
+                    } else {
+                        crate::DaemonBuildMismatchAction::RestartDaemon
+                    },
+                }
+            }
+            _ => {
+                let launch: Option<SessionBrokerLaunchMetadata> = match &self.read_launch_metadata {
+                    Some(hook) => hook(),
+                    None => {
+                        let config = resolve_session_broker_config(&self.env)
+                            .unwrap_or_else(|_| fallback_config());
+                        let env = self.env.clone();
+                        read_session_broker_launch_metadata(&config, &env)
+                    }
+                };
+                crate::DaemonBuildMismatchDetails {
+                    daemon: None,
+                    cli: cli.into(),
+                    attached_sessions: None,
+                    launch: launch.map(|launch| crate::DaemonBuildMismatchLaunch {
+                        pid: launch.pid,
+                        command: std::iter::once(launch.command.as_str())
+                            .chain(launch.args.iter().map(String::as_str))
+                            .collect::<Vec<_>>()
+                            .join(" "),
+                        launched_at: launch.launched_at,
+                    }),
+                    recommended_action: crate::DaemonBuildMismatchAction::RestartDaemon,
+                }
+            }
+        }
     }
-    Err(SessionCommandError::Message(format!(
-        "The running Workdeck session daemon is incompatible or missing required support for {}. Close older Workdeck windows, wait for the daemon to become idle, then retry this command.",
-        action_name(action)
-    )))
+
+    fn ensure_required_action(
+        &self,
+        action: SessionDaemonAction,
+        client: &dyn WorkdeckSessionCliClient,
+    ) -> Result<(), SessionCommandError> {
+        let capabilities = match client.get_capabilities() {
+            Ok(capabilities) => capabilities,
+            Err(WorkdeckSessionCliClientError::Authentication) => None,
+            Err(error) => return Err(error.into()),
+        };
+        if capabilities.as_ref().is_some_and(|capabilities| {
+            capabilities.version == WORKDECK_SESSION_API_VERSION
+                && capabilities.actions.contains(&action)
+        }) {
+            return Ok(());
+        }
+        Err(SessionCommandError::DaemonBuildMismatch(Box::new(
+            crate::DaemonBuildMismatchError::new(self.describe_daemon_build_mismatch()),
+        )))
+    }
+}
+
+/// The default loopback broker address used when config resolution itself fails.
+fn fallback_config() -> ResolvedSessionBrokerConfig {
+    ResolvedSessionBrokerConfig {
+        host: crate::DEFAULT_SESSION_BROKER_HOST.into(),
+        port: crate::DEFAULT_SESSION_BROKER_PORT,
+        http_origin: format!(
+            "http://{}:{}",
+            crate::DEFAULT_SESSION_BROKER_HOST,
+            crate::DEFAULT_SESSION_BROKER_PORT
+        ),
+        ws_origin: format!(
+            "ws://{}:{}",
+            crate::DEFAULT_SESSION_BROKER_HOST,
+            crate::DEFAULT_SESSION_BROKER_PORT
+        ),
+    }
 }
 
 pub fn resolve_daemon_availability(
@@ -441,6 +577,12 @@ const fn command_action(input: &SessionCommandInput) -> SessionDaemonAction {
         SessionCommandInput::HighlightAdd { .. } => SessionDaemonAction::HighlightAdd,
         SessionCommandInput::HighlightClear { .. } => SessionDaemonAction::HighlightClear,
     }
+}
+
+/// The output mode one session command requested, for callers routing in-band errors.
+#[must_use]
+pub fn session_command_output(input: &SessionCommandInput) -> SessionCommandOutput {
+    command_output(input)
 }
 
 const fn command_output(input: &SessionCommandInput) -> SessionCommandOutput {
@@ -620,25 +762,6 @@ const fn daemon_highlight_tone(tone: HighlightTone) -> SessionLineHighlightTone 
         HighlightTone::Warning => SessionLineHighlightTone::Warning,
         HighlightTone::Error => SessionLineHighlightTone::Error,
         HighlightTone::Dim => SessionLineHighlightTone::Dim,
-    }
-}
-
-const fn action_name(action: SessionDaemonAction) -> &'static str {
-    match action {
-        SessionDaemonAction::List => "list",
-        SessionDaemonAction::Get => "get",
-        SessionDaemonAction::Context => "context",
-        SessionDaemonAction::Review => "review",
-        SessionDaemonAction::Navigate => "navigate",
-        SessionDaemonAction::Reload => "reload",
-        SessionDaemonAction::CommentAdd => "comment-add",
-        SessionDaemonAction::CommentApply => "comment-apply",
-        SessionDaemonAction::CommentList => "comment-list",
-        SessionDaemonAction::CommentRm => "comment-rm",
-        SessionDaemonAction::CommentClear => "comment-clear",
-        SessionDaemonAction::HighlightAdd => "highlight-add",
-        SessionDaemonAction::HighlightClear => "highlight-clear",
-        SessionDaemonAction::Quit => "quit",
     }
 }
 
@@ -1131,11 +1254,7 @@ mod tests {
             let error = runner(client.clone(), true)
                 .quit(selector.clone())
                 .unwrap_err();
-            assert!(
-                error
-                    .to_string()
-                    .contains("missing required support for quit")
-            );
+            assert!(error.to_string().contains("The session daemon is"));
             assert!(client.calls().is_empty());
         }
         let absent = SessionCommandRunner::with_hooks(
@@ -1165,7 +1284,7 @@ mod tests {
                 selector: selector_input(),
             })
             .unwrap_err();
-        assert!(error.to_string().contains("Close older Workdeck windows"));
+        assert!(error.to_string().contains("The session daemon is"));
         assert!(client.calls().is_empty());
     }
 
@@ -1179,7 +1298,7 @@ mod tests {
                 output: SessionCommandOutput::Json,
             })
             .unwrap_err();
-        assert!(error.to_string().contains("Close older Workdeck windows"));
+        assert!(error.to_string().contains("The session daemon is"));
     }
 
     #[test]
@@ -1217,11 +1336,7 @@ mod tests {
                 output: SessionCommandOutput::Json,
             })
             .unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("missing required support for list")
-        );
+        assert!(error.to_string().contains("The session daemon is"));
         assert!(client.calls().is_empty());
     }
 
@@ -1829,6 +1944,231 @@ mod tests {
                 &json!({"ok": true, "paths": {"health": "/health"}})
             )
             .is_none()
+        );
+    }
+
+    fn refused_client() -> FakeClient {
+        let client = FakeClient::new();
+        client.edit(|state| {
+            state.capabilities = Err(WorkdeckSessionCliClientError::Authentication);
+        });
+        client
+    }
+
+    fn admin_status(daemon_version: u64, app_version: &str) -> crate::SessionBrokerAdminStatusV1 {
+        crate::SessionBrokerAdminStatusV1 {
+            admin_scope_version: 1,
+            daemon_version,
+            app_version: app_version.into(),
+            pid: 4242,
+            started_at: "2026-01-01T00:00:00.000Z".into(),
+            uptime_ms: 1_000,
+            sessions: vec![
+                crate::SessionBrokerAdminSessionV1 {
+                    session_id: "abcdef12-0000".into(),
+                    title: "repo working tree".into(),
+                    cwd: "/repo".into(),
+                    pid: 100,
+                    client_daemon_version: daemon_version,
+                },
+                crate::SessionBrokerAdminSessionV1 {
+                    session_id: "12345678-0000".into(),
+                    title: "repo show HEAD".into(),
+                    cwd: "/repo".into(),
+                    pid: 101,
+                    client_daemon_version: daemon_version,
+                },
+            ],
+        }
+    }
+
+    fn mismatch_runner(
+        probe: crate::WorkdeckDaemonAdminProbe,
+        launch: Option<SessionBrokerLaunchMetadata>,
+    ) -> SessionCommandRunner {
+        runner(refused_client(), true).with_daemon_probes(
+            Arc::new(move || probe.clone()),
+            Arc::new(move || launch.clone()),
+        )
+    }
+
+    fn run_list_expecting_mismatch(
+        runner: &SessionCommandRunner,
+    ) -> crate::DaemonBuildMismatchError {
+        match runner.run(SessionCommandInput::List {
+            output: SessionCommandOutput::Json,
+        }) {
+            Err(SessionCommandError::DaemonBuildMismatch(error)) => *error,
+            Err(error) => panic!("unexpected error: {error}"),
+            Ok(output) => panic!("expected a daemon build mismatch error, got: {output}"),
+        }
+    }
+
+    #[test]
+    fn mismatch_recommends_a_restart_with_the_attached_windows_when_the_daemon_is_older() {
+        let runner = mismatch_runner(
+            crate::WorkdeckDaemonAdminProbe::Status(admin_status(
+                u64::from(WORKDECK_SESSION_DAEMON_VERSION - 1),
+                "0.21.1",
+            )),
+            None,
+        );
+        let error = run_list_expecting_mismatch(&runner);
+        let cli = crate::current_daemon_build();
+        assert_eq!(
+            error.details,
+            crate::DaemonBuildMismatchDetails {
+                daemon: Some(crate::DaemonBuildMismatchBuildInput {
+                    daemon_version: u64::from(WORKDECK_SESSION_DAEMON_VERSION - 1),
+                    app_version: "0.21.1".into(),
+                }),
+                cli: cli.into(),
+                attached_sessions: Some(crate::DaemonBuildMismatchAttachedSessions {
+                    count: 2,
+                    sessions: vec![
+                        crate::DaemonBuildMismatchSession {
+                            session_id: "abcdef12-0000".into(),
+                            title: "repo working tree".into(),
+                            cwd: "/repo".into(),
+                            pid: 100,
+                        },
+                        crate::DaemonBuildMismatchSession {
+                            session_id: "12345678-0000".into(),
+                            title: "repo show HEAD".into(),
+                            cwd: "/repo".into(),
+                            pid: 101,
+                        },
+                    ],
+                }),
+                launch: None,
+                recommended_action: crate::DaemonBuildMismatchAction::RestartDaemon,
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            "The session daemon is an older Workdeck build and refuses this CLI."
+        );
+        assert_eq!(
+            error.suggestions(),
+            vec![
+                "Run `workdeck daemon restart` to replace it, then re-run `workdeck session list`; windows that could not register attach automatically.".to_owned(),
+                "Restarting disconnects 2 attached windows; they must be relaunched, losing their notes. Closing them instead lets the daemon exit on its own after about a minute.".to_owned(),
+            ]
+        );
+        let body = error.to_json();
+        assert_eq!(body["kind"], json!("daemon-build-mismatch"));
+        assert_eq!(body["recommendedAction"], json!("restart-daemon"));
+        assert_eq!(body["message"], json!(error.to_string()));
+    }
+
+    #[test]
+    fn mismatch_recommends_the_newer_workdeck_build_when_the_daemon_is_newer() {
+        let runner = mismatch_runner(
+            crate::WorkdeckDaemonAdminProbe::Status(admin_status(
+                u64::from(WORKDECK_SESSION_DAEMON_VERSION + 1),
+                "0.23.0",
+            )),
+            None,
+        );
+        let error = run_list_expecting_mismatch(&runner);
+        assert_eq!(
+            error.details.daemon.as_ref().unwrap().daemon_version,
+            u64::from(WORKDECK_SESSION_DAEMON_VERSION + 1)
+        );
+        assert_eq!(error.details.attached_sessions.as_ref().unwrap().count, 2);
+        assert_eq!(
+            error.details.recommended_action,
+            crate::DaemonBuildMismatchAction::UseNewerWorkdeck
+        );
+        assert_eq!(
+            error.to_string(),
+            "The session daemon is a newer Workdeck build and refuses this CLI."
+        );
+        assert_eq!(
+            error.suggestions(),
+            vec![
+                "Use the newer Workdeck build the daemon was started from, or run `workdeck daemon restart` from this build (2 attached windows would be disconnected and could not reconnect).".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn mismatch_falls_back_to_launch_metadata_when_the_daemon_predates_the_admin_scope() {
+        let runner = mismatch_runner(
+            crate::WorkdeckDaemonAdminProbe::Unsupported,
+            Some(SessionBrokerLaunchMetadata {
+                pid: 777,
+                host: "127.0.0.1".into(),
+                port: 47_657,
+                command: "/usr/local/bin/workdeck".into(),
+                args: vec!["daemon".into(), "serve".into()],
+                launched_at: "2026-09-08T09:42:00.000Z".into(),
+                launched_by_pid: 1,
+                launch_cwd: "/repo".into(),
+            }),
+        );
+        let error = run_list_expecting_mismatch(&runner);
+        let cli = crate::current_daemon_build();
+        assert_eq!(
+            error.details,
+            crate::DaemonBuildMismatchDetails {
+                daemon: None,
+                cli: cli.into(),
+                attached_sessions: None,
+                launch: Some(crate::DaemonBuildMismatchLaunch {
+                    pid: 777,
+                    command: "/usr/local/bin/workdeck daemon serve".into(),
+                    launched_at: "2026-09-08T09:42:00.000Z".into(),
+                }),
+                recommended_action: crate::DaemonBuildMismatchAction::RestartDaemon,
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            "The session daemon is an older Workdeck build that predates `workdeck daemon status` and refuses this CLI (pid 777, started 2026-09-08T09:42:00.000Z, command /usr/local/bin/workdeck daemon serve)."
+        );
+        assert_eq!(
+            error.suggestions()[1],
+            "Restarting disconnects an unknown number of attached windows; they must be relaunched, losing their notes. Closing them instead lets the daemon exit on its own after about a minute."
+        );
+    }
+
+    #[test]
+    fn mismatch_reports_a_same_revision_daemon_that_still_lacks_the_action() {
+        let client = FakeClient::new();
+        client.edit(|state| {
+            state.capabilities = Ok(Some(SessionDaemonCapabilities {
+                version: WORKDECK_SESSION_API_VERSION,
+                daemon_version: WORKDECK_SESSION_DAEMON_VERSION,
+                actions: vec![SessionDaemonAction::Get],
+            }));
+        });
+        let cli_version = crate::current_daemon_build().app_version;
+        let runner = SessionCommandRunner::with_hooks(
+            Arc::new(move || Ok(Arc::new(client.clone()))),
+            Arc::new(|_| Ok(true)),
+        )
+        .with_daemon_probes(
+            Arc::new(move || {
+                crate::WorkdeckDaemonAdminProbe::Status(admin_status(
+                    u64::from(WORKDECK_SESSION_DAEMON_VERSION),
+                    &cli_version,
+                ))
+            }),
+            Arc::new(|| None),
+        );
+        let error = run_list_expecting_mismatch(&runner);
+        assert_eq!(
+            error.details.daemon.as_ref().unwrap().daemon_version,
+            u64::from(WORKDECK_SESSION_DAEMON_VERSION)
+        );
+        assert_eq!(
+            error.details.recommended_action,
+            crate::DaemonBuildMismatchAction::RestartDaemon
+        );
+        assert_eq!(
+            error.to_string(),
+            "The session daemon is an older Workdeck build and refuses this CLI."
         );
     }
 }

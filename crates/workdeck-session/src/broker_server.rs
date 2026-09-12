@@ -29,13 +29,12 @@ use crate::{
     SessionBrokerLimitOptions, SessionBrokerStateError, SessionCommentSummary, SessionDaemonAction,
     SessionDaemonCapabilities, SessionDaemonRequest, SessionDaemonResponse, SessionNoteFilter,
     SessionSelector, WORKDECK_SESSION_API_PATH, WORKDECK_SESSION_API_VERSION,
-    WORKDECK_SESSION_BROKER_APP_ID, WORKDECK_SESSION_BROKER_APP_REVISION,
-    WORKDECK_SESSION_CAPABILITIES_PATH, WORKDECK_SESSION_DAEMON_VERSION,
-    WorkdeckSessionBrokerCredentials, WorkdeckSessionBrokerError, WorkdeckSessionBrokerState,
-    WorkdeckSessionCommandInput, WorkdeckSessionCommandResult, WorkdeckSessionInfo,
-    WorkdeckSessionState, create_workdeck_session_broker_state, encode_base64_url,
-    list_workdeck_session_notes, load_or_create_workdeck_session_broker_credentials,
-    parse_session_daemon_request, resolve_session_broker_config, serve_session_broker_daemon,
+    WORKDECK_SESSION_BROKER_APP_ID, WORKDECK_SESSION_CAPABILITIES_PATH,
+    WORKDECK_SESSION_DAEMON_VERSION, WorkdeckSessionBrokerCredentials, WorkdeckSessionBrokerError,
+    WorkdeckSessionBrokerState, WorkdeckSessionCommandInput, WorkdeckSessionCommandResult,
+    WorkdeckSessionInfo, WorkdeckSessionState, encode_base64_url, list_workdeck_session_notes,
+    load_or_create_workdeck_session_broker_credentials, parse_session_daemon_request,
+    resolve_session_broker_config, serve_session_broker_daemon,
 };
 
 pub const DEFAULT_STALE_SESSION_TTL_MS: u64 = 45_000;
@@ -923,9 +922,26 @@ pub fn serve_workdeck_session_broker_daemon(
     let http_origin = config.http_origin.clone();
     let ws_origin = config.ws_origin.clone();
     let allow_remote = crate::allows_unsafe_remote_session_broker(&options.env);
-    let state = options
-        .state
-        .unwrap_or_else(|| Arc::new(create_workdeck_session_broker_state()));
+    let effective_revision = crate::resolve_workdeck_session_daemon_version(&options.env);
+    let state = match options.state {
+        Some(state) => state,
+        None => {
+            let parsers = Arc::new(
+                crate::create_workdeck_session_protocol_parsers_with_revision(u64::from(
+                    effective_revision,
+                ))
+                .map_err(|error| error.to_string())?,
+            );
+            Arc::new(
+                WorkdeckSessionBrokerState::with_options_and_parsers(
+                    Default::default(),
+                    &SessionBrokerLimitOptions::default(),
+                    parsers,
+                )
+                .map_err(|error| error.to_string())?,
+            )
+        }
+    };
     let credentials = match options.credentials {
         Some(credentials) => credentials,
         None => Arc::new(
@@ -939,7 +955,7 @@ pub fn serve_workdeck_session_broker_daemon(
     let authenticator = Arc::new(
         SessionBrokerAuthenticator::new(SessionBrokerAuthenticatorOptions {
             app_id: WORKDECK_SESSION_BROKER_APP_ID.into(),
-            app_revision: WORKDECK_SESSION_BROKER_APP_REVISION,
+            app_revision: effective_revision,
             generation: format!("h_{}_0", encode_base64_url(&generation_bytes)),
             daemon_identity: SessionBrokerDaemonIdentity {
                 key_id: credentials.daemon_identity.key_id.clone(),
@@ -968,6 +984,36 @@ pub fn serve_workdeck_session_broker_daemon(
         })
         .map_err(|error| error.to_string())?,
     );
+    // The admin scope (`workdeck daemon status` / `restart`) must work from a Workdeck build on a
+    // different revision, so it authenticates against the frozen scope version with the same
+    // credentials. Its caller sessions live only here and can never satisfy the session API's
+    // authenticator.
+    let admin_authenticator = Arc::new(
+        SessionBrokerAuthenticator::new(SessionBrokerAuthenticatorOptions {
+            app_id: WORKDECK_SESSION_BROKER_APP_ID.into(),
+            app_revision: crate::SESSION_BROKER_ADMIN_SCOPE_VERSION,
+            generation: format!("h_{}_1", encode_base64_url(&generation_bytes)),
+            daemon_identity: SessionBrokerDaemonIdentity {
+                key_id: credentials.daemon_identity.key_id.clone(),
+                private_key: credentials.daemon_identity.private_key.clone(),
+            },
+            credentials: vec![SessionBrokerAuthorityCredential {
+                grant: BrokerGrant::Caller(credentials.caller.grant.clone()),
+                public_key: credentials.caller.public_key,
+            }],
+            crypto: None,
+            now: None,
+            is_revoked: None,
+            challenge_ttl_ms: None,
+            caller_session_ttl_ms: Some(30_000),
+            max_challenges: None,
+            max_challenge_bytes: None,
+            max_challenge_transcript_bytes: None,
+            max_caller_sessions: None,
+            limits: SessionBrokerLimitOptions::default(),
+        })
+        .map_err(|error| error.to_string())?,
+    );
     let mut extra = BTreeMap::new();
     extra.insert(
         "actions".into(),
@@ -976,7 +1022,7 @@ pub fn serve_workdeck_session_broker_daemon(
     );
     let mut daemon_options = SessionBrokerDaemonOptions::new(Arc::clone(&state));
     daemon_options.capabilities = Some(SessionBrokerCapabilities {
-        version: u64::from(WORKDECK_SESSION_DAEMON_VERSION),
+        version: u64::from(effective_revision),
         name: Some("workdeck-session-broker".into()),
         features: None,
         extra,
@@ -997,9 +1043,22 @@ pub fn serve_workdeck_session_broker_daemon(
             .unwrap_or(DEFAULT_STALE_SESSION_SWEEP_INTERVAL_MS),
     );
     daemon_options.app_id = Some(WORKDECK_SESSION_BROKER_APP_ID.into());
-    daemon_options.app_revision = Some(u64::from(WORKDECK_SESSION_BROKER_APP_REVISION));
+    daemon_options.app_revision = Some(u64::from(effective_revision));
     daemon_options.caller_authenticator = Some(authenticator.clone());
     daemon_options.hello_authenticator = Some(authenticator);
+    daemon_options.admin = Some(crate::SessionBrokerDaemonAdminOptions {
+        authenticator: admin_authenticator,
+        paths: None,
+        app_version: env!("CARGO_PKG_VERSION").into(),
+        describe_session: Arc::new(|session: &crate::ListedSession| {
+            crate::SessionBrokerAdminSessionFacts {
+                session_id: session.session_id.clone(),
+                title: session.title.clone(),
+                cwd: session.cwd.clone(),
+                pid: session.pid,
+            }
+        }),
+    });
     daemon_options.producer_endpoint = Some(format!(
         "{}{}",
         config.ws_origin,

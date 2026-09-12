@@ -56,6 +56,42 @@ pub struct SessionBrokerDaemonPathOptions {
     pub capabilities: Option<String>,
 }
 
+/// The facts the app maps from its own session view into one admin status entry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionBrokerAdminSessionFacts {
+    pub session_id: String,
+    pub title: String,
+    pub cwd: String,
+    pub pid: u64,
+}
+
+/// Configure the revision-tolerant admin scope (`status` and `stop`).
+///
+/// The authenticator is a second instance built with the admin scope version in place of the
+/// app revision, sharing the daemon identity and on-disk credentials; its caller sessions are
+/// unknown to the main authenticator, so an admin caller can never reach the session API.
+pub struct SessionBrokerDaemonAdminOptions<ListedSession> {
+    /// One authenticator serving both the admin hello and its caller requests, built with the
+    /// admin scope version in place of the app revision.
+    pub authenticator: Arc<crate::SessionBrokerAuthenticator>,
+    pub paths: Option<crate::SessionBrokerAdminPaths>,
+    /// Human-readable app build version reported beside the app revision.
+    pub app_version: String,
+    /// Map the app's own session view to the frozen v1 session entry.
+    pub describe_session:
+        Arc<dyn Fn(&ListedSession) -> SessionBrokerAdminSessionFacts + Send + Sync>,
+}
+
+impl<ListedSession> std::fmt::Debug for SessionBrokerDaemonAdminOptions<ListedSession> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SessionBrokerDaemonAdminOptions")
+            .field("paths", &self.paths)
+            .field("app_version", &self.app_version)
+            .finish_non_exhaustive()
+    }
+}
+
 pub struct SessionBrokerDaemonOptions<
     Info,
     State,
@@ -75,6 +111,7 @@ pub struct SessionBrokerDaemonOptions<
     pub expose_http_api: bool,
     pub caller_authenticator: Option<Arc<dyn CallerRequestAuthenticator>>,
     pub hello_authenticator: Option<Arc<dyn SessionBrokerHelloAuthenticator>>,
+    pub admin: Option<SessionBrokerDaemonAdminOptions<Controller::ListedSession>>,
     pub producer_endpoint: Option<String>,
     pub authorizer: Option<Arc<dyn SessionBrokerAuthorizer>>,
     pub audit: Option<Arc<dyn SessionBrokerAuditHook>>,
@@ -105,6 +142,7 @@ where
             expose_http_api: false,
             caller_authenticator: None,
             hello_authenticator: None,
+            admin: None,
             producer_endpoint: None,
             authorizer: None,
             audit: None,
@@ -275,6 +313,7 @@ where
     app_revision: u64,
     caller_authenticator: Option<Arc<dyn CallerRequestAuthenticator>>,
     hello_authenticator: Option<Arc<dyn SessionBrokerHelloAuthenticator>>,
+    admin: Option<DaemonAdminInner<Controller::ListedSession>>,
     producer_endpoint: Option<String>,
     authorizer: Option<Arc<dyn SessionBrokerAuthorizer>>,
     audit: Option<Arc<dyn SessionBrokerAuditHook>>,
@@ -309,11 +348,20 @@ enum ProducerAuthenticationState {
     },
 }
 
+struct DaemonAdminInner<ListedSession> {
+    authenticator: Arc<crate::SessionBrokerAuthenticator>,
+    paths: crate::SessionBrokerAdminPaths,
+    app_version: String,
+    describe_session: Arc<dyn Fn(&ListedSession) -> SessionBrokerAdminSessionFacts + Send + Sync>,
+}
+
 #[derive(Clone)]
 struct ProducerOwner {
     peer: SharedSessionBrokerDaemonPeer,
     broker_socket: SharedDaemonSessionSocket,
     principal: ProducerPrincipal,
+    /// The app revision this producer presented in its hello.
+    app_revision: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -389,6 +437,26 @@ where
                 "Authenticated producer transport requires a hello authenticator.".into(),
             ));
         }
+        let admin = options
+            .admin
+            .map(|admin| {
+                if options.authorizer.is_none() {
+                    // The admin scope exists so an operator's existing caller credential can
+                    // inspect and retire a daemon; authorization stays mandatory even for it.
+                    return Err(SessionBrokerDaemonConfigError(
+                        "The session broker admin scope requires an authorizer.".into(),
+                    ));
+                }
+                Ok(DaemonAdminInner {
+                    paths: admin
+                        .paths
+                        .unwrap_or_else(crate::default_session_broker_admin_paths),
+                    authenticator: admin.authenticator,
+                    app_version: admin.app_version,
+                    describe_session: admin.describe_session,
+                })
+            })
+            .transpose()?;
         let expose = options.expose_http_api
             && explicit_app_id_is_valid
             && explicit_app_revision_is_valid
@@ -431,6 +499,7 @@ where
             app_revision,
             caller_authenticator: options.caller_authenticator,
             hello_authenticator: options.hello_authenticator,
+            admin,
             producer_endpoint: options.producer_endpoint,
             authorizer: options.authorizer,
             audit: options.audit,
@@ -527,8 +596,35 @@ where
     }
 
     pub fn shutdown(&self, error: Option<SessionBrokerStateError>) {
+        self.shutdown_with_options(error, None);
+    }
+
+    /// Begin graceful shutdown. When a close reason is given, attached producers are closed
+    /// with it before broker state is torn down so their windows can tell a restart from a
+    /// crash.
+    pub fn shutdown_with_options(
+        &self,
+        error: Option<SessionBrokerStateError>,
+        producer_close_reason: Option<&str>,
+    ) {
         if self.inner.shutting_down.swap(true, Ordering::AcqRel) {
             return;
+        }
+        if let Some(reason) = producer_close_reason {
+            let owners = {
+                self.inner
+                    .producers
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .owners
+                    .clone()
+            };
+            for owner in owners.values() {
+                // A transport that already failed cannot block shutdown.
+                let _ = catch_unwind(AssertUnwindSafe(|| {
+                    owner.peer.close(Some(1001), Some(reason))
+                }));
+            }
         }
         self.inner.broker.shutdown(Some(error.unwrap_or_else(|| {
             SessionBrokerStateError::message("The session broker daemon shut down.")
@@ -664,6 +760,11 @@ where
         request: &SessionBrokerHttpRequest,
     ) -> Option<SessionBrokerHttpResponse> {
         let path = Url::parse(&request.url).ok()?.path().to_owned();
+        if self.inner.admin.is_some()
+            && let Some(response) = self.handle_admin_request(request, &path)
+        {
+            return Some(response);
+        }
         if matches!(
             path.as_str(),
             "/session-auth/challenge" | "/session-auth/proof"
@@ -681,28 +782,28 @@ where
                 request,
                 SessionBrokerBoundedControlOptions::default(),
                 |body| {
+                    let authenticator = self
+                        .inner
+                        .hello_authenticator
+                        .as_ref()
+                        .expect("route requires authenticator");
                     let result = parse_session_broker_json_bytes(body)
                         .map_err(|_| auth_required_error())
                         .and_then(|value| {
-                            let authenticator = self
-                                .inner
-                                .hello_authenticator
-                                .as_ref()
-                                .expect("route requires authenticator");
                             if path.ends_with("/challenge") {
                                 authenticator
                                     .issue_hello_challenge(value, &request.url)
-                                    .and_then(|value| {
-                                        serde_json::to_value(value)
+                                    .and_then(|challenge| {
+                                        serde_json::to_value(challenge)
                                             .map_err(|_| auth_required_error())
                                     })
                             } else {
-                                authenticator
-                                    .complete_caller_hello_proof(value)
-                                    .and_then(|value| {
-                                        serde_json::to_value(value)
+                                authenticator.complete_caller_hello_proof(value).and_then(
+                                    |session| {
+                                        serde_json::to_value(session)
                                             .map_err(|_| auth_required_error())
-                                    })
+                                    },
+                                )
                             }
                         });
                     match result {
@@ -1067,13 +1168,13 @@ where
                     return;
                 };
                 self.prune_producer_reconnects(now_ms());
-                let (principal, current_session, displaced, reconnect) = {
+                let (principal, current_session, displaced, reconnect, app_revision) = {
                     let state = self
                         .inner
                         .producers
                         .lock()
                         .unwrap_or_else(|error| error.into_inner());
-                    let (principal, current_session) = state
+                    let (principal, current_session, app_revision) = state
                         .authentication
                         .get(&id)
                         .and_then(|auth| match auth {
@@ -1081,11 +1182,15 @@ where
                                 authority,
                                 session_id,
                                 ..
-                            } => Some((authority.ack.principal.clone(), session_id.clone())),
+                            } => Some((
+                                authority.ack.principal.clone(),
+                                session_id.clone(),
+                                Some(u64::from(authority.ack.app_revision)),
+                            )),
                             ProducerAuthenticationState::Challenged(_) => None,
                         })
-                        .map_or((None, None), |(principal, session)| {
-                            (Some(principal), session)
+                        .map_or((None, None, None), |(principal, session, revision)| {
+                            (Some(principal), session, revision)
                         });
                     let displaced = state
                         .owners
@@ -1101,7 +1206,13 @@ where
                                 .get(&session_id)
                                 .map(|entry| entry.principal.clone())
                         });
-                    (principal, current_session, displaced, reconnect)
+                    (
+                        principal,
+                        current_session,
+                        displaced,
+                        reconnect,
+                        app_revision,
+                    )
                 };
                 if let Some(principal) = &principal {
                     let operation = if reconnect.is_some() {
@@ -1184,6 +1295,7 @@ where
                             peer: Arc::clone(&peer),
                             broker_socket: Arc::clone(&socket),
                             principal,
+                            app_revision,
                         },
                     );
                     state.reconnects.remove(&session_id);
@@ -1547,16 +1659,234 @@ where
         )
     }
 
+    /// Route the admin hello and control paths; `None` for every other path.
+    fn handle_admin_request(
+        &self,
+        request: &SessionBrokerHttpRequest,
+        pathname: &str,
+    ) -> Option<SessionBrokerHttpResponse> {
+        let admin = self.inner.admin.as_ref()?;
+        if pathname == admin.paths.challenge || pathname == admin.paths.proof {
+            if request.method != "POST" || !has_json_content_type(request) {
+                return Some(json_error(
+                    "Session broker admin authentication requires a JSON POST.",
+                    401,
+                ));
+            }
+            let authenticator = Arc::clone(&admin.authenticator);
+            let path = pathname.to_owned();
+            return Some(self.handle_bounded_control(
+                request,
+                SessionBrokerBoundedControlOptions::default(),
+                |body| {
+                    let result = parse_session_broker_json_bytes(body)
+                        .map_err(|_| auth_required_error())
+                        .and_then(|value| {
+                            if path.ends_with("/challenge") {
+                                authenticator
+                                    .issue_hello_challenge(value, &request.url)
+                                    .and_then(|challenge| {
+                                        serde_json::to_value(challenge)
+                                            .map_err(|_| auth_required_error())
+                                    })
+                            } else {
+                                authenticator.complete_caller_hello_proof(value).and_then(
+                                    |session| {
+                                        serde_json::to_value(session)
+                                            .map_err(|_| auth_required_error())
+                                    },
+                                )
+                            }
+                        });
+                    match result {
+                        Ok(value) => SessionBrokerHttpResponse::json(200, &value),
+                        Err(error) => SessionBrokerHttpResponse::json(
+                            401,
+                            &json!({"error": error.code.as_str()}),
+                        ),
+                    }
+                },
+            ));
+        }
+        if pathname != admin.paths.control {
+            return None;
+        }
+        if request.method != "POST" {
+            return Some(json_error("Admin requests must use POST.", 405));
+        }
+        if !has_json_content_type(request) {
+            return Some(json_error("Expected Content-Type application/json.", 415));
+        }
+        Some(self.handle_bounded_control(
+            request,
+            SessionBrokerBoundedControlOptions::default(),
+            |body| {
+                let authenticated = match self.authenticate_request_with(
+                    request,
+                    body,
+                    SessionBrokerAuditOperation::Caller(CallerOperation::Diagnostics),
+                    Some(Arc::clone(&admin.authenticator) as Arc<dyn CallerRequestAuthenticator>),
+                ) {
+                    Ok(authenticated) => authenticated,
+                    Err(response) => return response,
+                };
+                let input = match parse_session_broker_json_bytes(body)
+                    .and_then(|value| crate::parse_session_broker_admin_request(&value))
+                {
+                    Ok(input) => input,
+                    Err(error) => {
+                        return self.authenticated_response(
+                            &authenticated,
+                            protocol_error(Some(error)),
+                            400,
+                            false,
+                        );
+                    }
+                };
+                // Both actions are authorized as diagnostics: the scope exists so an
+                // operator's existing caller credential can inspect and retire a daemon it
+                // cannot otherwise talk to.
+                let facts = SessionBrokerAuthenticatedControlFacts {
+                    operation: CallerOperation::Diagnostics,
+                    session_id: None,
+                    command: None,
+                    command_version: None,
+                    target_specific: Some(false),
+                };
+                if !self.authorize(request, &authenticated, &facts) {
+                    return self.authenticated_response(
+                        &authenticated,
+                        json!({"error": "authorization-denied"}),
+                        403,
+                        false,
+                    );
+                }
+                if let Err(response) = self.reject_inactive_request(&authenticated) {
+                    return response;
+                }
+                // Deliberately not activity. `status` is a read-only diagnostic, and the client
+                // that needs it most is a newer window waiting for an incompatible incumbent to
+                // go quiescent. Counting it would keep that incumbent alive for as long as the
+                // window keeps asking, which is the opposite of what the window is waiting for.
+                // `stop` shuts the daemon down anyway.
+                match input {
+                    crate::SessionBrokerAdminRequest::Status => self.authenticated_response(
+                        &authenticated,
+                        serde_json::to_value(self.admin_status()).unwrap_or(Value::Null),
+                        200,
+                        false,
+                    ),
+                    crate::SessionBrokerAdminRequest::Stop => {
+                        let response = self.authenticated_response(
+                            &authenticated,
+                            serde_json::to_value(crate::SessionBrokerAdminStopResultV1 {
+                                admin_scope_version: crate::SESSION_BROKER_ADMIN_SCOPE_VERSION,
+                                stopping: true,
+                            })
+                            .unwrap_or(Value::Null),
+                            200,
+                            false,
+                        );
+                        // Let the signed acknowledgement leave before producers are closed and
+                        // the listener stops.
+                        let daemon = Self {
+                            inner: Arc::clone(&self.inner),
+                        };
+                        thread::spawn(move || {
+                            thread::sleep(Duration::from_millis(50));
+                            daemon.shutdown_with_options(
+                                Some(SessionBrokerStateError::message(
+                                    "The session broker daemon is restarting.",
+                                )),
+                                Some(crate::SESSION_BROKER_ADMIN_STOP_CLOSE_REASON),
+                            );
+                        });
+                        response
+                    }
+                }
+            },
+        ))
+    }
+
+    /// Build the frozen v1 admin status body from daemon facts and the app's session view.
+    fn admin_status(&self) -> crate::SessionBrokerAdminStatusV1 {
+        let admin = self
+            .inner
+            .admin
+            .as_ref()
+            .expect("admin status is only built when the scope is configured");
+        let sessions = self.inner.broker.list_sessions();
+        let owner_revisions = {
+            let producers = self
+                .inner
+                .producers
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            producers
+                .owners
+                .iter()
+                .map(|(session_id, owner)| (session_id.clone(), owner.app_revision))
+                .collect::<BTreeMap<String, Option<u64>>>()
+        };
+        let entries = sessions
+            .into_iter()
+            .map(|session| {
+                let described = (admin.describe_session)(&session);
+                // A session that registered necessarily matched the daemon's revision in its
+                // hello; the recorded value is preferred, and the daemon's own revision stands
+                // in for a retained session whose transport has since disconnected.
+                let client_daemon_version = owner_revisions
+                    .get(&described.session_id)
+                    .copied()
+                    .flatten()
+                    .unwrap_or(self.inner.app_revision);
+                crate::SessionBrokerAdminSessionV1 {
+                    session_id: described.session_id,
+                    title: described.title,
+                    cwd: described.cwd,
+                    pid: described.pid,
+                    client_daemon_version,
+                }
+            })
+            .collect::<Vec<_>>();
+        let uptime_ms = now_ms().saturating_sub(self.inner.started_at_ms);
+        crate::SessionBrokerAdminStatusV1 {
+            admin_scope_version: crate::SESSION_BROKER_ADMIN_SCOPE_VERSION,
+            daemon_version: self.inner.app_revision,
+            app_version: admin.app_version.clone(),
+            pid: u64::from(std::process::id()),
+            started_at: chrono::DateTime::from_timestamp_millis(
+                i64::try_from(self.inner.started_at_ms).unwrap_or(i64::MAX),
+            )
+            .unwrap_or_default()
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            uptime_ms,
+            sessions: entries,
+        }
+    }
+
     fn authenticate_request(
         &self,
         request: &SessionBrokerHttpRequest,
         body: &[u8],
         operation: SessionBrokerAuditOperation,
     ) -> Result<AuthenticatedCallerRequest, SessionBrokerHttpResponse> {
+        self.authenticate_request_with(request, body, operation, None)
+    }
+
+    /// Authenticate one control request, optionally against the admin scope's authenticator.
+    fn authenticate_request_with(
+        &self,
+        request: &SessionBrokerHttpRequest,
+        body: &[u8],
+        operation: SessionBrokerAuditOperation,
+        authenticator: Option<Arc<dyn CallerRequestAuthenticator>>,
+    ) -> Result<AuthenticatedCallerRequest, SessionBrokerHttpResponse> {
         let request_id = request
             .header("x-session-broker-request-id")
             .map(str::to_owned);
-        let Some(authenticator) = &self.inner.caller_authenticator else {
+        let Some(authenticator) = authenticator.or_else(|| self.inner.caller_authenticator.clone())
+        else {
             return Err(json_error("Broker control is unavailable.", 404));
         };
         if self.inner.authorizer.is_none() {

@@ -5,13 +5,16 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Instant;
 
 use crate::{
-    BrokerGrant, NativeSessionBrokerAdapterSemantics, ProducerGrant,
-    SESSION_BROKER_REGISTRATION_VERSION, ServeSessionBrokerDaemonOptions, SessionBroker,
-    SessionBrokerAuthenticator, SessionBrokerAuthenticatorOptions,
+    BrokerGrant, DaemonSkewDirection, DaemonSkewKnowledge, NativeSessionBrokerAdapterSemantics,
+    ProducerGrant, SESSION_BROKER_REGISTRATION_VERSION, ServeSessionBrokerDaemonOptions,
+    SessionBroker, SessionBrokerAuthenticator, SessionBrokerAuthenticatorOptions,
     SessionBrokerAuthorityCredential, SessionBrokerDaemon, SessionBrokerDaemonIdentity,
-    SessionBrokerDaemonOptions, SessionBrokerLimitOptions, SessionBrokerOptions,
-    SessionBrokerSocketCloseEvent, WorkdeckSessionInfo, WorkdeckSessionInputKind,
-    WorkdeckSessionState, create_workdeck_session_protocol_parsers, serve_session_broker_daemon,
+    SessionBrokerDaemonOptions, SessionBrokerDaemonStatusProbe, SessionBrokerLimitOptions,
+    SessionBrokerOptions, SessionBrokerSocketCloseEvent, WORKDECK_SESSION_BROKER_APP_ID,
+    WORKDECK_SESSION_BROKER_APP_REVISION, WORKDECK_SESSION_DAEMON_VERSION,
+    WorkdeckDaemonAdminProbe, WorkdeckDaemonConnectionState, WorkdeckSessionInfo,
+    WorkdeckSessionInputKind, WorkdeckSessionState, create_workdeck_session_protocol_parsers,
+    serve_session_broker_daemon,
 };
 
 fn registration(id: &str) -> WorkdeckSessionRegistration {
@@ -371,6 +374,7 @@ fn runtime(
         }),
         is_healthy: Arc::new(|_| false),
         read_launch_fingerprint: Arc::new(|_| None),
+        probe_daemon_status: Arc::new(|_| WorkdeckDaemonAdminProbe::Unavailable),
         create_connection: Arc::new(|_| {
             Err(SessionBrokerClientError::Runtime(
                 "unexpected connection".into(),
@@ -545,14 +549,22 @@ fn logs_one_warning_per_older_window_and_waits_for_incumbent_generation_change()
                 authenticated: Some(false),
             },
         );
-        client.warn_unavailable(directive.warning.as_deref().unwrap());
+        // Notices reach subscribers through the link state; without a subscriber the generic
+        // notice falls back to exactly one console warning per window.
+        assert_eq!(directive.warning, None);
         assert_eq!(
             client.prepare_reconnect(&config()).unwrap_err().to_string(),
             WORKDECK_DAEMON_UPGRADE_WAIT_MESSAGE
         );
         clients.push(client);
     }
-    assert_eq!(warnings.lock().unwrap().len(), 2);
+    assert_eq!(
+        warnings.lock().unwrap().as_slice(),
+        &[
+            format!("[session:broker] {WORKDECK_DAEMON_UPGRADE_WAIT_MESSAGE}"),
+            format!("[session:broker] {WORKDECK_DAEMON_UPGRADE_WAIT_MESSAGE}"),
+        ]
+    );
     assert!(clients.iter().all(|client| {
         client
             .inner
@@ -646,7 +658,8 @@ fn waits_out_incompatible_incumbent_and_reuses_one_connection_for_successors() {
         reason: "Malformed session broker protocol.".into(),
         authenticated: Some(false),
     });
-    (spec.on_warning)(directive.warning.as_deref().unwrap());
+    // The sticky notice owns the incumbent-wait message now; the close directive only reconnects.
+    assert_eq!(directive.warning, None);
     assert!((spec.prepare_reconnect)().is_err());
     *fingerprint.lock().unwrap() = Some("generation-b".into());
     (spec.prepare_reconnect)().unwrap();
@@ -1205,4 +1218,388 @@ fn native_client_authenticates_and_registers_with_native_daemon() {
     client.stop();
     server.stop();
     assert!(server.wait_stopped(Duration::from_secs(2)));
+}
+
+#[test]
+fn only_treats_exact_post_hello_payload_refusals_as_registration_rejections() {
+    let registration = "Incompatible session registration.";
+    let snapshot = "Incompatible session snapshot.";
+    for reason in [registration, snapshot] {
+        assert!(is_registration_rejection(&SessionBrokerSocketCloseEvent {
+            code: 1008,
+            reason: reason.into(),
+            authenticated: Some(true),
+        }));
+    }
+    assert!(!is_registration_rejection(&SessionBrokerSocketCloseEvent {
+        code: 1008,
+        reason: registration.into(),
+        authenticated: Some(false),
+    }));
+    assert!(!is_registration_rejection(&SessionBrokerSocketCloseEvent {
+        code: 1006,
+        reason: registration.into(),
+        authenticated: Some(true),
+    }));
+    assert!(!is_registration_rejection(&SessionBrokerSocketCloseEvent {
+        code: 1008,
+        reason: "Session producer scope rejected.".into(),
+        authenticated: Some(true),
+    }));
+}
+
+/// One admin status probe for a daemon at the given revision.
+fn status_probe(daemon_version: u64) -> WorkdeckDaemonAdminProbe {
+    WorkdeckDaemonAdminProbe::Status(crate::SessionBrokerAdminStatusV1 {
+        admin_scope_version: 1,
+        daemon_version,
+        app_version: "9.9.9".into(),
+        pid: 4242,
+        started_at: "2026-01-01T00:00:00.000Z".into(),
+        uptime_ms: 1,
+        sessions: Vec::new(),
+    })
+}
+
+fn refused_hello_close() -> SessionBrokerSocketCloseEvent {
+    SessionBrokerSocketCloseEvent {
+        code: 1008,
+        reason: "Session broker authentication required; upgrade Workdeck.".into(),
+        authenticated: Some(false),
+    }
+}
+
+fn client_with_probe(
+    warnings: Arc<Mutex<Vec<String>>>,
+    probe: SessionBrokerDaemonStatusProbe,
+) -> WorkdeckSessionBrokerClient {
+    let mut runtime = runtime(Arc::new(ManualScheduler::default()), warnings);
+    runtime.probe_daemon_status = probe;
+    runtime.read_launch_fingerprint = Arc::new(|_| Some("generation-a".into()));
+    WorkdeckSessionBrokerClient::with_runtime(
+        registration("session-a"),
+        snapshot(0),
+        SessionBrokerClientTiming {
+            reconnect_delay: Duration::from_millis(10),
+            stale_poll_delay: Duration::from_millis(40),
+            ..SessionBrokerClientTiming::default()
+        },
+        runtime,
+    )
+}
+
+#[test]
+fn refines_the_refused_hello_notice_by_direction() {
+    for (direction, expected_notice, expected_direction) in [
+        (
+            WorkdeckDaemonAdminProbe::Status(crate::SessionBrokerAdminStatusV1 {
+                daemon_version: u64::from(WORKDECK_SESSION_DAEMON_VERSION - 1),
+                app_version: "9.9.9".into(),
+                admin_scope_version: 1,
+                pid: 4242,
+                started_at: "2026-01-01T00:00:00.000Z".into(),
+                uptime_ms: 1,
+                sessions: Vec::new(),
+            }),
+            crate::WORKDECK_DAEMON_CLIENT_NEWER_MESSAGE,
+            DaemonSkewKnowledge::Known(DaemonSkewDirection::ClientNewer),
+        ),
+        (
+            status_probe(u64::from(WORKDECK_SESSION_DAEMON_VERSION + 1)),
+            crate::WORKDECK_DAEMON_CLIENT_OLDER_MESSAGE,
+            DaemonSkewKnowledge::Known(DaemonSkewDirection::ClientOlder),
+        ),
+        (
+            WorkdeckDaemonAdminProbe::Unsupported,
+            WORKDECK_DAEMON_UPGRADE_WAIT_MESSAGE,
+            DaemonSkewKnowledge::Unknown,
+        ),
+    ] {
+        let warnings = Arc::new(Mutex::new(Vec::new()));
+        let probe_result = direction.clone();
+        let client = client_with_probe(
+            Arc::clone(&warnings),
+            Arc::new(move |_| probe_result.clone()),
+        );
+        let notices: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(Vec::new()));
+        let notice_sink = Arc::clone(&notices);
+        let _subscription = client.subscribe_connection_notice(Arc::new(move |notice| {
+            notice_sink
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .push(notice.map(str::to_owned));
+        }));
+
+        assert_eq!(
+            notices.lock().unwrap().as_slice(),
+            &[None],
+            "subscribing delivers the current connected state"
+        );
+        client.resolve_close(&config(), refused_hello_close());
+        wait_until(|| {
+            notices.lock().unwrap().last().is_some_and(|notice| {
+                notice.as_deref() == Some(WORKDECK_DAEMON_UPGRADE_WAIT_MESSAGE)
+            })
+        });
+        wait_until(|| {
+            notices
+                .lock()
+                .unwrap()
+                .last()
+                .is_some_and(|notice| notice.as_deref() == Some(expected_notice))
+        });
+        assert_eq!(
+            client.get_connection_state(),
+            WorkdeckDaemonConnectionState::Disconnected {
+                notice: expected_notice.into(),
+                direction: expected_direction,
+            }
+        );
+        // A subscriber owns the status bar, so the console stays quiet.
+        assert!(warnings.lock().unwrap().is_empty());
+        client.stop();
+    }
+}
+
+#[test]
+fn probes_one_incumbent_once_and_keeps_the_refined_notice_across_reconnects() {
+    let warnings = Arc::new(Mutex::new(Vec::new()));
+    let probes = Arc::new(AtomicUsize::new(0));
+    let probe_count = Arc::clone(&probes);
+    let client = client_with_probe(
+        warnings,
+        Arc::new(move |_| {
+            probe_count.fetch_add(1, Ordering::SeqCst);
+            status_probe(u64::from(WORKDECK_SESSION_DAEMON_VERSION - 1))
+        }),
+    );
+    let notices: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(Vec::new()));
+    let notice_sink = Arc::clone(&notices);
+    let _subscription = client.subscribe_connection_notice(Arc::new(move |notice| {
+        notice_sink
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .push(notice.map(str::to_owned));
+    }));
+
+    client.resolve_close(&config(), refused_hello_close());
+    wait_until(|| probes.load(Ordering::SeqCst) == 1);
+    wait_until(|| {
+        notices.lock().unwrap().last().is_some_and(|notice| {
+            notice.as_deref() == Some(crate::WORKDECK_DAEMON_CLIENT_NEWER_MESSAGE)
+        })
+    });
+
+    // Three more refusals from the same incumbent: no re-probe, and the refined notice stands.
+    for _ in 0..3 {
+        client.resolve_close(&config(), refused_hello_close());
+    }
+    wait_until(|| client_probe_settled(&client));
+    assert_eq!(probes.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        notices
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|notice| notice.as_deref() == Some(WORKDECK_DAEMON_UPGRADE_WAIT_MESSAGE))
+            .count(),
+        1,
+        "the generic notice appears exactly once per incumbent"
+    );
+    assert_eq!(
+        client.get_connection_state(),
+        WorkdeckDaemonConnectionState::Disconnected {
+            notice: crate::WORKDECK_DAEMON_CLIENT_NEWER_MESSAGE.into(),
+            direction: DaemonSkewKnowledge::Known(DaemonSkewDirection::ClientNewer),
+        }
+    );
+    client.stop();
+}
+
+/// Wait until no probe thread is pending: the state has settled on a definitive build answer.
+fn client_probe_settled(client: &WorkdeckSessionBrokerClient) -> bool {
+    let state = client.inner.state.lock().unwrap();
+    state.incumbent_build_known
+}
+
+#[test]
+fn re_probes_the_same_incumbent_only_after_a_transient_failure() {
+    for (first, retries, final_notice) in [
+        (
+            WorkdeckDaemonAdminProbe::Unavailable,
+            1,
+            crate::WORKDECK_DAEMON_CLIENT_NEWER_MESSAGE,
+        ),
+        (
+            WorkdeckDaemonAdminProbe::Unsupported,
+            0,
+            WORKDECK_DAEMON_UPGRADE_WAIT_MESSAGE,
+        ),
+    ] {
+        let warnings = Arc::new(Mutex::new(Vec::new()));
+        let answers = Arc::new(Mutex::new(vec![
+            first,
+            status_probe(u64::from(WORKDECK_SESSION_DAEMON_VERSION - 1)),
+        ]));
+        let probes = Arc::new(AtomicUsize::new(0));
+        let probe_answers = Arc::clone(&answers);
+        let probe_count = Arc::clone(&probes);
+        let client = client_with_probe(
+            warnings,
+            Arc::new(move |_| {
+                let index = probe_count.fetch_add(1, Ordering::SeqCst);
+                probe_answers
+                    .lock()
+                    .unwrap()
+                    .get(index)
+                    .cloned()
+                    .unwrap_or(WorkdeckDaemonAdminProbe::Unavailable)
+            }),
+        );
+        let notices: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(Vec::new()));
+        let notice_sink = Arc::clone(&notices);
+        let _subscription = client.subscribe_connection_notice(Arc::new(move |notice| {
+            notice_sink
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .push(notice.map(str::to_owned));
+        }));
+
+        client.resolve_close(&config(), refused_hello_close());
+        wait_until(|| probes.load(Ordering::SeqCst) == 1);
+        wait_until(|| {
+            notices.lock().unwrap().last().is_some_and(|notice| {
+                notice.as_deref() == Some(WORKDECK_DAEMON_UPGRADE_WAIT_MESSAGE)
+            })
+        });
+
+        client.resolve_close(&config(), refused_hello_close());
+        wait_until(|| probes.load(Ordering::SeqCst) == 1 + retries);
+        wait_until(|| {
+            notices
+                .lock()
+                .unwrap()
+                .last()
+                .is_some_and(|notice| notice.as_deref() == Some(final_notice))
+        });
+        client.stop();
+    }
+}
+
+#[test]
+fn clears_the_sticky_notice_once_the_connection_reaches_connected() {
+    let warnings = Arc::new(Mutex::new(Vec::new()));
+    let client = client_with_probe(
+        Arc::clone(&warnings),
+        Arc::new(|_| WorkdeckDaemonAdminProbe::Unsupported),
+    );
+    let notices: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(Vec::new()));
+    let notice_sink = Arc::clone(&notices);
+    let _subscription = client.subscribe_connection_notice(Arc::new(move |notice| {
+        notice_sink
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .push(notice.map(str::to_owned));
+    }));
+
+    client.resolve_close(
+        &config(),
+        SessionBrokerSocketCloseEvent {
+            code: 1008,
+            reason: "Incompatible session registration.".into(),
+            authenticated: Some(true),
+        },
+    );
+    assert_eq!(
+        notices.lock().unwrap().last().cloned().flatten(),
+        Some(crate::WORKDECK_DAEMON_REGISTRATION_REJECTED_MESSAGE.into())
+    );
+    assert!(matches!(
+        client.get_connection_state(),
+        WorkdeckDaemonConnectionState::Disconnected { .. }
+    ));
+    client.on_connected();
+    assert_eq!(notices.lock().unwrap().last().cloned().flatten(), None);
+    assert_eq!(
+        client.get_connection_state(),
+        WorkdeckDaemonConnectionState::Connected
+    );
+    client.stop();
+}
+
+#[test]
+fn warns_and_keeps_reconnecting_when_the_daemon_rejects_the_registration_after_the_hello() {
+    let warnings = Arc::new(Mutex::new(Vec::new()));
+    let client = client_with_probe(
+        Arc::clone(&warnings),
+        Arc::new(|_| WorkdeckDaemonAdminProbe::Unavailable),
+    );
+
+    // Without a status-bar subscriber the notice falls back to the console.
+    let directive = client.resolve_close(
+        &config(),
+        SessionBrokerSocketCloseEvent {
+            code: 1008,
+            reason: "Incompatible session registration.".into(),
+            authenticated: Some(true),
+        },
+    );
+    assert_eq!(directive.reconnect, Some(true));
+    assert!(directive.warning.is_none());
+    assert!(
+        !client
+            .inner
+            .state
+            .lock()
+            .unwrap()
+            .waiting_for_incumbent_exit
+    );
+    assert_eq!(
+        client.get_connection_state(),
+        WorkdeckDaemonConnectionState::Disconnected {
+            notice: crate::WORKDECK_DAEMON_REGISTRATION_REJECTED_MESSAGE.into(),
+            direction: DaemonSkewKnowledge::Unknown,
+        }
+    );
+    assert_eq!(
+        warnings.lock().unwrap().as_slice(),
+        [format!(
+            "[session:broker] {}",
+            crate::WORKDECK_DAEMON_REGISTRATION_REJECTED_MESSAGE
+        )]
+    );
+    client.stop();
+}
+
+#[test]
+fn stale_client_older_connection_polls_slowly_before_reconnecting() {
+    let warnings = Arc::new(Mutex::new(Vec::new()));
+    let probes = Arc::new(AtomicUsize::new(0));
+    let probe_count = Arc::clone(&probes);
+    let client = client_with_probe(
+        warnings,
+        Arc::new(move |_| {
+            probe_count.fetch_add(1, Ordering::SeqCst);
+            status_probe(u64::from(WORKDECK_SESSION_DAEMON_VERSION + 1))
+        }),
+    );
+    client.resolve_close(&config(), refused_hello_close());
+    wait_until(|| probes.load(Ordering::SeqCst) == 1);
+    wait_until(|| client_probe_settled(&client));
+
+    // Client-older: the reconnect waits out the stale poll delay first.
+    let started = Instant::now();
+    let _ = client.prepare_reconnect(&config());
+    assert!(
+        started.elapsed() >= Duration::from_millis(40),
+        "the stale poll delay must space reconnects"
+    );
+
+    // Any other state reconnects at the normal pace, without the stale delay.
+    client.on_connected();
+    client.resolve_close(&config(), refused_hello_close());
+    let started = Instant::now();
+    let _ = client.prepare_reconnect(&config());
+    assert!(started.elapsed() < Duration::from_millis(40));
+    client.stop();
 }

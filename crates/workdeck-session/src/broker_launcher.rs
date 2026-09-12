@@ -11,7 +11,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
 use chrono::{SecondsFormat, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use thiserror::Error;
 
@@ -40,7 +40,7 @@ pub struct SessionBrokerRuntimePaths {
     pub metadata_path: PathBuf,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SessionBrokerLaunchLockFile {
     owner_pid: u32,
@@ -49,17 +49,18 @@ struct SessionBrokerLaunchLockFile {
     acquired_at: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// The bounded exact launch metadata the launching process wrote beside the lock.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SessionBrokerLaunchMetadata {
-    pid: u64,
-    host: String,
-    port: u64,
-    command: String,
-    args: Vec<String>,
-    launched_at: String,
-    launched_by_pid: u64,
-    launch_cwd: String,
+pub struct SessionBrokerLaunchMetadata {
+    pub pid: u64,
+    pub host: String,
+    pub port: u64,
+    pub command: String,
+    pub args: Vec<String>,
+    pub launched_at: String,
+    pub launched_by_pid: u64,
+    pub launch_cwd: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -197,6 +198,37 @@ impl Drop for SessionBrokerLaunchLock {
     }
 }
 
+/// Ownership of the per-host/port daemon launch lock; released by dropping it.
+///
+/// The lock serializes who may spawn a daemon: every window's reconnect loop and
+/// `workdeck daemon restart` go through it, which is what stops an old window from respawning
+/// the old binary while a restart is replacing it.
+pub struct DaemonLaunchLockGuard {
+    inner: Option<SessionBrokerLaunchLock>,
+}
+
+impl DaemonLaunchLockGuard {
+    /// Release the lock immediately, ahead of drop.
+    pub fn release(&mut self) {
+        drop(self.inner.take());
+    }
+}
+
+impl Drop for DaemonLaunchLockGuard {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+/// Acquire the per-host/port daemon launch lock, or `None` while another live process holds it.
+pub fn try_acquire_daemon_launch_lock(
+    config: &ResolvedSessionBrokerConfig,
+    env: &BTreeMap<String, String>,
+) -> Result<Option<DaemonLaunchLockGuard>, BrokerLauncherError> {
+    try_acquire_daemon_launch_lock_inner(config, env, DEFAULT_DAEMON_LOCK_STALE)
+        .map(|lock| lock.map(|inner| DaemonLaunchLockGuard { inner: Some(inner) }))
+}
+
 /// A native Workdeck build always relaunches its sole executable with `daemon serve`.
 ///
 /// `argv` is retained in the boundary so callers and translated fixtures can prove that obsolete
@@ -267,12 +299,15 @@ pub fn parse_session_broker_health(value: &Value) -> Option<ParsedSessionBrokerH
     })
 }
 
-/// Read a bounded exact metadata fingerprint as a reconnect hint, never process authority.
+/// Read the bounded exact launch metadata the launching process wrote beside the lock.
+///
+/// This is a hint about which generation launched the daemon (its pid, command, and time), never
+/// process authority: the signed hello remains the only compatibility and identity check.
 #[must_use]
-pub fn read_session_broker_launch_fingerprint(
+pub fn read_session_broker_launch_metadata(
     config: &ResolvedSessionBrokerConfig,
     env: &BTreeMap<String, String>,
-) -> Option<String> {
+) -> Option<SessionBrokerLaunchMetadata> {
     let path = resolve_session_broker_runtime_paths(config, env).metadata_path;
     let metadata = fs::metadata(&path).ok()?;
     if !metadata.is_file()
@@ -288,8 +323,16 @@ pub fn read_session_broker_launch_fingerprint(
         return None;
     }
     let value = serde_json::from_slice(&bytes).ok()?;
-    let parsed = parse_launch_metadata(&value)?;
-    serde_json::to_string(&parsed).ok()
+    parse_launch_metadata(&value)
+}
+
+/// Read a bounded exact metadata fingerprint as a reconnect hint, never process authority.
+#[must_use]
+pub fn read_session_broker_launch_fingerprint(
+    config: &ResolvedSessionBrokerConfig,
+    env: &BTreeMap<String, String>,
+) -> Option<String> {
+    serde_json::to_string(&read_session_broker_launch_metadata(config, env)?).ok()
 }
 
 /// Read the daemon's exact health payload when it answers on the configured loopback port.
@@ -335,7 +378,7 @@ pub fn is_loopback_port_reachable(config: &ResolvedSessionBrokerConfig, timeout:
         .any(|address| TcpStream::connect_timeout(&address, timeout).is_ok())
 }
 
-/// Spawn the native daemon detached from the current terminal session.
+/// Spawn the daemon detached from the current terminal session.
 pub fn launch_session_broker_daemon(
     options: &DaemonLaunchOptions,
 ) -> Result<LaunchedSessionBrokerDaemon, BrokerLauncherError> {
@@ -354,6 +397,81 @@ pub fn launch_session_broker_daemon(
     Ok(LaunchedSessionBrokerDaemon { pid: child.id() })
 }
 
+/// Collaborators of one recorded launch; every field defaults to the native behavior.
+#[derive(Default)]
+pub struct LaunchSessionBrokerDaemonAndRecordOptions {
+    pub config: Option<ResolvedSessionBrokerConfig>,
+    pub launch: Option<DaemonLaunchOptions>,
+    pub launch_daemon: Option<SessionBrokerDaemonLauncher>,
+}
+
+/// Spawn the daemon and record its launch metadata beside the lock. The caller must hold the
+/// launch lock.
+pub fn launch_session_broker_daemon_and_record(
+    options: &LaunchSessionBrokerDaemonAndRecordOptions,
+) -> Result<SessionBrokerLaunchMetadata, BrokerLauncherError> {
+    let config = options.config.clone().unwrap_or_else(|| {
+        crate::resolve_session_broker_config(&std::env::vars().collect()).unwrap_or_else(|_| {
+            ResolvedSessionBrokerConfig {
+                host: crate::DEFAULT_SESSION_BROKER_HOST.into(),
+                port: crate::DEFAULT_SESSION_BROKER_PORT,
+                http_origin: format!(
+                    "http://{}:{}",
+                    crate::DEFAULT_SESSION_BROKER_HOST,
+                    crate::DEFAULT_SESSION_BROKER_PORT
+                ),
+                ws_origin: format!(
+                    "ws://{}:{}",
+                    crate::DEFAULT_SESSION_BROKER_HOST,
+                    crate::DEFAULT_SESSION_BROKER_PORT
+                ),
+            }
+        })
+    });
+    let launch = options
+        .launch
+        .clone()
+        .unwrap_or_else(|| DaemonLaunchOptions {
+            cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+            env: std::env::vars().collect(),
+            argv: std::env::args().collect(),
+            exec_path: std::env::current_exe()
+                .map(|path| path.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| "workdeck".into()),
+        });
+    let launch_daemon = options
+        .launch_daemon
+        .clone()
+        .unwrap_or_else(|| Arc::new(launch_session_broker_daemon));
+    let paths = resolve_session_broker_runtime_paths(&config, &launch.env);
+    let launch_command = resolve_daemon_launch_command(&launch.argv, launch.exec_path.clone());
+    let child = (launch_daemon)(&launch)?;
+    let metadata = SessionBrokerLaunchMetadata {
+        pid: u64::from(child.pid),
+        host: config.host.clone(),
+        port: u64::from(config.port),
+        command: launch_command.command,
+        args: launch_command.args,
+        launched_at: now_iso8601(),
+        launched_by_pid: u64::from(std::process::id()),
+        launch_cwd: launch.cwd.to_string_lossy().into_owned(),
+    };
+    write_daemon_launch_metadata(&paths, &metadata)?;
+    Ok(metadata)
+}
+
+/// Poll until the daemon answers health (`expected == true`) or stops answering (`false`).
+pub fn wait_for_session_broker_health(
+    config: &ResolvedSessionBrokerConfig,
+    expected: bool,
+    timeout: Duration,
+) -> bool {
+    let probe: SessionBrokerHealthProbe = Arc::new(move |config| {
+        is_session_broker_healthy(config, Duration::from_millis(500)) == expected
+    });
+    wait_for_daemon_health(config, timeout, DEFAULT_DAEMON_HEALTH_POLL_INTERVAL, &probe)
+}
+
 /// Ensure one healthy local daemon exists while serializing launch attempts across processes.
 pub fn ensure_session_broker_available(
     options: &EnsureSessionBrokerAvailableOptions,
@@ -366,7 +484,7 @@ pub fn ensure_session_broker_available(
 
     let deadline = Instant::now() + options.timeout;
     while Instant::now() < deadline {
-        let lock = try_acquire_daemon_launch_lock(
+        let lock = try_acquire_daemon_launch_lock_inner(
             &options.config,
             &options.launch.env,
             options.lock_stale_after,
@@ -377,24 +495,14 @@ pub fn ensure_session_broker_available(
                 drop(lock);
                 return Ok(());
             }
-            let launch_command = resolve_daemon_launch_command(
-                &options.launch.argv,
-                options.launch.exec_path.clone(),
-            );
-            let child = (options.hooks.launch_daemon)(&options.launch)?;
-            write_daemon_launch_metadata(
-                &paths,
-                &SessionBrokerLaunchMetadata {
-                    pid: u64::from(child.pid),
-                    host: options.config.host.clone(),
-                    port: u64::from(options.config.port),
-                    command: launch_command.command,
-                    args: launch_command.args,
-                    launched_at: now_iso8601(),
-                    launched_by_pid: u64::from(std::process::id()),
-                    launch_cwd: options.launch.cwd.to_string_lossy().into_owned(),
+            let launched = launch_session_broker_daemon_and_record(
+                &LaunchSessionBrokerDaemonAndRecordOptions {
+                    config: Some(options.config.clone()),
+                    launch: Some(options.launch.clone()),
+                    launch_daemon: Some(Arc::clone(&options.hooks.launch_daemon)),
                 },
-            )?;
+            );
+            let _launched = launched?;
             let ready = wait_for_daemon_health(
                 &options.config,
                 options.timeout,
@@ -575,7 +683,7 @@ fn clean_stale_daemon_metadata(paths: &SessionBrokerRuntimePaths) {
     }
 }
 
-fn try_acquire_daemon_launch_lock(
+fn try_acquire_daemon_launch_lock_inner(
     config: &ResolvedSessionBrokerConfig,
     env: &BTreeMap<String, String>,
     stale_after: Duration,

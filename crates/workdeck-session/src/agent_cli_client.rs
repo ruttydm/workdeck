@@ -23,10 +23,10 @@ use crate::{
     SessionBrokerSignedRequestInit, SessionCommentSummary, SessionDaemonAction,
     SessionDaemonCapabilities, SessionDaemonRequest, SessionDaemonResponse,
     SessionLineHighlightTone, SessionReview, SessionSelector, WORKDECK_SESSION_API_PATH,
-    WORKDECK_SESSION_BROKER_APP_ID, WORKDECK_SESSION_BROKER_APP_REVISION,
-    WORKDECK_SESSION_CAPABILITIES_PATH, WORKDECK_SESSION_DAEMON_HTTP_TIMEOUT_MS,
-    load_or_create_workdeck_session_broker_credentials, parse_session_daemon_capabilities,
-    parse_session_daemon_response, resolve_session_broker_config,
+    WORKDECK_SESSION_BROKER_APP_ID, WORKDECK_SESSION_CAPABILITIES_PATH,
+    WORKDECK_SESSION_DAEMON_HTTP_TIMEOUT_MS, load_or_create_workdeck_session_broker_credentials,
+    parse_session_daemon_capabilities, parse_session_daemon_response,
+    resolve_session_broker_config,
 };
 
 const HTTP_HEADER_LIMIT: usize = 64 * 1024;
@@ -316,6 +316,7 @@ impl HttpWorkdeckSessionCliClient {
             caller: Arc::new(LazyCaller {
                 value: Mutex::new(None),
                 factory: Box::new(move || {
+                    let env_snapshot = env.clone();
                     let credentials =
                         load_or_create_workdeck_session_broker_credentials(&env, None)
                             .map_err(|error| error.to_string())?;
@@ -324,7 +325,7 @@ impl HttpWorkdeckSessionCliClient {
                     let caller =
                         SessionBrokerCallerClient::new(SessionBrokerCallerClientOptions::native(
                             WORKDECK_SESSION_BROKER_APP_ID,
-                            WORKDECK_SESSION_BROKER_APP_REVISION,
+                            crate::resolve_workdeck_session_daemon_version(&env_snapshot),
                             config.http_origin.clone(),
                             SessionBrokerClientCredential::<CallerGrant> {
                                 grant: credentials.caller.grant,
@@ -651,6 +652,9 @@ impl WorkdeckSessionCliCallerTransport for AuthenticatedCallerTransport {
                 crate::SessionBrokerCallerClientError::Cancelled(reason) => {
                     WorkdeckSessionCliClientError::Request(reason)
                 }
+                crate::SessionBrokerCallerClientError::Transport(reason) => {
+                    WorkdeckSessionCliClientError::Request(reason)
+                }
             })?;
         Ok(WorkdeckSessionCliHttpResponse {
             status,
@@ -662,12 +666,12 @@ impl WorkdeckSessionCliCallerTransport for AuthenticatedCallerTransport {
 }
 
 #[derive(Debug, Clone)]
-struct NativeSessionBrokerHttpTransport {
+pub struct NativeSessionBrokerHttpTransport {
     timeout: Duration,
 }
 
 impl NativeSessionBrokerHttpTransport {
-    const fn new(timeout: Duration) -> Self {
+    pub const fn new(timeout: Duration) -> Self {
         Self { timeout }
     }
 }

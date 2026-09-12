@@ -13,7 +13,7 @@ pub const WORKDECK_SESSION_API_PATH: &str = "/session-api";
 pub const WORKDECK_SESSION_CAPABILITIES_PATH: &str = "/session-api/capabilities";
 pub const WORKDECK_SESSION_API_VERSION: u32 = 1;
 pub const WORKDECK_SESSION_DAEMON_HTTP_TIMEOUT_MS: u64 = 5_000;
-pub const WORKDECK_DAEMON_UPGRADE_WAIT_MESSAGE: &str = "An older or incompatible Workdeck session daemon is running. Close older Workdeck windows; this window will reconnect automatically.";
+pub use crate::daemon_messages::WORKDECK_DAEMON_UPGRADE_WAIT_MESSAGE;
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum SessionDaemonHttpError {

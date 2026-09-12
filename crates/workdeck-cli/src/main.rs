@@ -709,6 +709,21 @@ enum SkillCommand {
 enum DaemonCommand {
     #[command(about = "Run the local session daemon and WebSocket broker")]
     Serve,
+    #[command(about = "Report the daemon's build, uptime, and attached windows")]
+    Status {
+        #[arg(long, help = "Print the status as JSON")]
+        json: bool,
+    },
+    #[command(about = "Replace the daemon with one from this Workdeck build")]
+    Restart {
+        #[arg(
+            long,
+            help = "Skip the confirmation prompts (required when stdin is not a terminal)"
+        )]
+        yes: bool,
+        #[arg(long, help = "Print the result as JSON")]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -1322,8 +1337,60 @@ mod review_cli_option_tests {
         .unwrap();
         assert!(matches!(session.command, Some(Command::Session { .. })));
         assert!(session.command.as_ref().unwrap().is_global_command());
-        assert!(DAEMON_OVERVIEW.contains("Usage: workdeck daemon serve"));
+        assert!(DAEMON_OVERVIEW.contains("Usage: workdeck daemon <subcommand>"));
+        assert!(DAEMON_OVERVIEW.contains("workdeck daemon serve"));
+        assert!(DAEMON_OVERVIEW.contains("workdeck daemon status [--json]"));
+        assert!(DAEMON_OVERVIEW.contains("workdeck daemon restart [--yes]"));
         assert!(DAEMON_OVERVIEW.contains("WORKDECK_MCP_PORT"));
+    }
+
+    #[test]
+    fn daemon_control_subcommands_parse_their_flags() {
+        let status = Args::try_parse_from(["workdeck", "daemon", "status"]).unwrap();
+        assert!(matches!(
+            status.command,
+            Some(Command::Daemon {
+                command: Some(DaemonCommand::Status { json: false })
+            })
+        ));
+        let status_json = Args::try_parse_from(["workdeck", "daemon", "status", "--json"]).unwrap();
+        assert!(matches!(
+            status_json.command,
+            Some(Command::Daemon {
+                command: Some(DaemonCommand::Status { json: true })
+            })
+        ));
+        let restart =
+            Args::try_parse_from(["workdeck", "daemon", "restart", "--yes", "--json"]).unwrap();
+        assert!(matches!(
+            restart.command,
+            Some(Command::Daemon {
+                command: Some(DaemonCommand::Restart {
+                    yes: true,
+                    json: true
+                })
+            })
+        ));
+        assert!(restart.command.as_ref().unwrap().is_global_command());
+        // The flags stay per-subcommand: `--yes` belongs to restart alone.
+        assert!(
+            Args::try_parse_from(["workdeck", "daemon", "status", "--yes"]).is_err(),
+            "`--yes` is a `daemon restart` flag only"
+        );
+        assert!(Args::try_parse_from(["workdeck", "daemon", "restart", "--bogus"]).is_err());
+    }
+
+    #[test]
+    fn daemon_control_runs_without_a_repository() {
+        // The daemon control commands must not require a Git checkout; they act on the
+        // process table and the daemon origin alone.
+        for argv in [
+            vec!["workdeck", "daemon", "status"],
+            vec!["workdeck", "daemon", "restart", "--yes"],
+        ] {
+            let parsed = Args::try_parse_from(argv).unwrap();
+            assert!(parsed.command.as_ref().unwrap().is_global_command());
+        }
     }
 
     #[test]
@@ -8072,9 +8139,12 @@ const STASH_OVERVIEW: &str = concat!(
 );
 
 const DAEMON_OVERVIEW: &str = concat!(
-    "Usage: workdeck daemon serve\n",
+    "Usage: workdeck daemon <subcommand>\n",
     "\n",
-    "Run the local Workdeck session daemon and websocket session broker.\n",
+    "Subcommands:\n",
+    "  workdeck daemon serve                  run the local Workdeck session daemon and websocket session broker\n",
+    "  workdeck daemon status [--json]        report the daemon's build, uptime, and attached windows\n",
+    "  workdeck daemon restart [--yes]        replace the daemon with one from this Workdeck build\n",
     "\n",
     "Environment:\n",
     "  WORKDECK_MCP_HOST                  bind host (default 127.0.0.1; loopback only unless explicitly overridden)\n",
@@ -8082,12 +8152,77 @@ const DAEMON_OVERVIEW: &str = concat!(
     "  WORKDECK_MCP_UNSAFE_ALLOW_REMOTE   set to 1 to allow non-loopback binding (unsafe)\n",
 );
 
+/// Terminal-bound stdout/stderr/confirm IO for the daemon control commands.
+struct ProcessDaemonCommandIo {
+    can_confirm: bool,
+}
+
+impl workdeck_session::DaemonCommandIo for ProcessDaemonCommandIo {
+    fn stdout(&mut self, text: &str) {
+        print!("{text}");
+    }
+
+    fn stderr(&mut self, text: &str) {
+        eprint!("{text}");
+    }
+
+    fn confirm(&mut self, question: &str) -> Option<bool> {
+        if !self.can_confirm {
+            return None;
+        }
+        use std::io::BufRead;
+        print!("{question}");
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+        let mut answer = String::new();
+        std::io::stdin()
+            .lock()
+            .read_line(&mut answer)
+            .ok()
+            .map(|_| matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes"))
+    }
+}
+
 fn handle_daemon_command(command: Option<DaemonCommand>) -> Result<()> {
-    let Some(DaemonCommand::Serve) = command else {
+    let Some(command) = command else {
         print!("{DAEMON_OVERVIEW}");
         return Ok(());
     };
+    let (input, can_confirm) = match command {
+        DaemonCommand::Serve => return run_daemon_serve(),
+        DaemonCommand::Status { json } => (
+            workdeck_session::DaemonControlCommandInput::Status {
+                output: session_output(json),
+            },
+            false,
+        ),
+        DaemonCommand::Restart { yes, json } => (
+            workdeck_session::DaemonControlCommandInput::Restart {
+                output: session_output(json),
+                yes,
+            },
+            std::io::IsTerminal::is_terminal(&std::io::stdin())
+                && std::io::IsTerminal::is_terminal(&std::io::stdout()),
+        ),
+    };
+    let deps = workdeck_session::create_daemon_command_dependencies(&std::env::vars().collect())
+        .map_err(anyhow::Error::msg)?;
+    let mut io = ProcessDaemonCommandIo { can_confirm };
+    let code =
+        workdeck_session::run_daemon_control_command(input, &mut io, &deps).map_err(|error| {
+            let mut message = error.message;
+            for hint in error.hints {
+                message.push_str(&format!("\n{hint}"));
+            }
+            anyhow::Error::msg(message)
+        })?;
+    if code != 0 {
+        std::process::exit(code);
+    }
+    Ok(())
+}
 
+fn run_daemon_serve() -> Result<()> {
     let daemon = workdeck_session::serve_workdeck_session_broker_daemon(
         workdeck_session::ServeWorkdeckSessionBrokerDaemonOptions::default(),
     )
@@ -8694,9 +8829,32 @@ const fn session_output(json: bool) -> SessionCommandOutput {
 }
 
 fn emit_session_command(input: SessionCommandInput) -> Result<()> {
-    let output = run_session_command(input).map_err(anyhow::Error::from)?;
-    print!("{output}");
-    Ok(())
+    let json = workdeck_session::session_command_output(&input)
+        == workdeck_core::SessionCommandOutput::Json;
+    match run_session_command(input) {
+        Ok(output) => {
+            print!("{output}");
+            Ok(())
+        }
+        // Agents parse `--json` output; a build mismatch is a decision point for them, so it
+        // is returned in-band as a structured error rather than only as text on stderr.
+        Err(workdeck_session::SessionCommandError::DaemonBuildMismatch(error)) if json => {
+            let body = serde_json::to_string_pretty(&serde_json::json!({
+                "error": error.to_json()
+            }))
+            .unwrap_or_else(|_| r#"{"error":{}}"#.into());
+            println!("{body}");
+            std::process::exit(1);
+        }
+        Err(workdeck_session::SessionCommandError::DaemonBuildMismatch(error)) => {
+            let mut message = error.to_string();
+            for hint in error.suggestions() {
+                message.push_str(&format!("\n{hint}"));
+            }
+            Err(anyhow::Error::msg(message))
+        }
+        Err(error) => Err(anyhow::Error::new(error)),
+    }
 }
 
 fn explicit_session_selector(

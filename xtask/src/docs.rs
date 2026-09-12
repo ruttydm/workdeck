@@ -211,6 +211,16 @@ const UTILITY_COMMANDS: &[(&str, &str, &str)] = &[
         "workdeck markup <render|check> ...",
     ),
     (
+        "daemon status",
+        "Report the running session daemon's build, uptime, and attached windows.",
+        "workdeck daemon status [--json]",
+    ),
+    (
+        "daemon restart",
+        "Stop the running session daemon and start one from this Workdeck build.",
+        "workdeck daemon restart [--yes] [--json]",
+    ),
+    (
         "skill",
         "Print or materialize a bundled Workdeck agent skill.",
         "workdeck skill path [NAME]",

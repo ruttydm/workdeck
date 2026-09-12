@@ -526,6 +526,22 @@ Render or inspect terminal-safe Workdeck markup.
 workdeck markup <render|check> ...
 ```
 
+### `workdeck daemon status`
+
+Report the running session daemon's build, uptime, and attached windows.
+
+```text
+workdeck daemon status [--json]
+```
+
+### `workdeck daemon restart`
+
+Stop the running session daemon and start one from this Workdeck build.
+
+```text
+workdeck daemon restart [--yes] [--json]
+```
+
 ### `workdeck skill`
 
 Print or materialize a bundled Workdeck agent skill.

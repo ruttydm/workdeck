@@ -441,9 +441,18 @@ fn command_descriptor(
 /// Build the immutable Workdeck application registry used on every broker boundary.
 pub fn create_workdeck_session_protocol_parsers()
 -> Result<WorkdeckSessionProtocolParsers, ParserRegistryError> {
+    create_workdeck_session_protocol_parsers_with_revision(u64::from(
+        WORKDECK_SESSION_DAEMON_VERSION,
+    ))
+}
+
+/// Build the registry for one effective app revision, including the internal test override.
+pub fn create_workdeck_session_protocol_parsers_with_revision(
+    app_revision: u64,
+) -> Result<WorkdeckSessionProtocolParsers, ParserRegistryError> {
     create_session_broker_protocol_parsers(SessionBrokerAppParserRegistry {
         broker_revision: None,
-        app_revision: u64::from(WORKDECK_SESSION_DAEMON_VERSION),
+        app_revision,
         features: Vec::new(),
         parse_registration: Arc::new(|value| -> Option<WorkdeckSessionRegistration> {
             parse_workdeck_session_registration(value)
